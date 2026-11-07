@@ -1396,7 +1396,15 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     data["round_cap"] = dispatch.schedule_cap(data["schedule"])
     receipt_data_ok(data, ref, sha, root=root, surface=field(row.body, "Surface") == "yes")
     receipt_path = root / receipt
-    require(not receipt_path.exists(), f"receipt already exists: {receipt}")
+    if receipt_path.exists():
+        # The section isn't stamped, so a receipt here is from a stamp that died between its two writes, where no
+        # rollback could run. Keep it as evidence beside its name and write this stamp afresh.
+        orphan = receipt_path.with_name(f"{receipt_path.stem}.orphan-{date}.json")
+        n = 2
+        while orphan.exists():
+            orphan = receipt_path.with_name(f"{receipt_path.stem}.orphan-{date}-{n}.json")
+            n += 1
+        os.replace(receipt_path, orphan)
     path = root / row.path
     original_bytes = path.read_bytes()
     original = read_text(path)

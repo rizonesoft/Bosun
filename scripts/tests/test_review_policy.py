@@ -1,5 +1,7 @@
 """Current policy behavior, independent of historical dispatcher fixtures."""
 import copy
+import subprocess
+import json
 import importlib.util
 from pathlib import Path
 import unittest
@@ -238,6 +240,65 @@ class CurrentPolicy(unittest.TestCase):
                 fixtures.tg.graph(t.root)
         finally:
             t.tearDown()
+
+    def filed_through_stamp(self, repairs):
+        """A real current-policy cycle after `repairs` repairs: committed live pin, real repair lines, dispatcher
+        records, completion gaps filed to the open D00 T01 §2, then the real stamp. Returns (fixture, receipt)."""
+        t = fixtures.Stamp('runTest')
+        t.setUp()
+        todo = next((t.root / 'todo').rglob('TODO-01-*.md'))
+        lines = ''.join(f'> **Repair cycle:** {k}: 2026-11-06: gaps\n\n' for k in range(1, repairs + 1))
+        todo.write_text(todo.read_text().replace(fixtures.STARTED.strip(), lines.rstrip('\n')))
+        (t.root / '.conclave/reviewers.toml').write_bytes((ROOT / '.conclave/reviewers.toml').read_bytes())
+        policy_sha = t.commit('live pin and repairs')
+        rel = f'docs/reviews/00-workspace/D00-T01-s1-cycle{repairs + 1}.md'
+        path = t.root / rel
+        e = entry('plan')
+        e.update(policy=policy_sha, attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
+                 failover=[], effort='medium', lenses=['plan'])
+        d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
+        todo.write_text(todo.read_text().replace(lines.rstrip('\n'), lines + '> **Started:** 2026-11-06T00:00:01Z')
+                        .replace('- [ ] Work.', '- [x] Work.'))
+        candidate = t.commit('build start')
+        e.update(review='HIGHEST: none\nOVERALL: approve', lenses=['adversarial'])
+        d.record(path, e, '2026-11-06T00:00:02Z')
+        e.update(review='1. A gap.\n\nCOMPLETION: gaps', lenses=[])
+        d.record_completion(path, e, '2026-11-06T00:00:03Z', candidate, 'completion')
+        with open(path, 'a', encoding='utf-8', newline='') as handle:
+            handle.write('\n- Filed: D00 T01 §2\n')  # a writer's note, after the record's counted lines
+        receipt = t.stamp('D00 T01 §1', candidate, [{'round': 1, 'report': rel, 'verdict': 'clean'}], ['real gate'],
+                          '2026-11-06', plan=rel, completion={'report': rel, 'verdict': 'filed'})
+        return t, receipt
+
+    def test_a_third_cycle_files_and_stamps_through_the_real_path(self):
+        t, receipt = None, None
+        try:
+            t, receipt = self.filed_through_stamp(2)
+            data = json.loads((t.root / receipt).read_text(encoding='utf-8'))
+            self.assertEqual(data['completion']['filed'], ['D00 T01 §2'])
+            self.assertEqual(data['schedule'].get('completion_order'), 'last')  # the current policy
+            tool = t.root / 'scripts'
+            (tool / 'lib').mkdir(parents=True, exist_ok=True)
+            for name in ('todo-graph.py', 'review-dispatch.py', 'lib/todo_graph.py', 'lib/host_caps.py'):
+                (tool / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            done = subprocess.run([sys.executable, str(tool / 'todo-graph.py'), 'validate'], cwd=t.root,
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+            rows = fixtures.tg.graph(t.root)
+            self.assertTrue(rows['D00 T01 §1'].done)
+            self.assertFalse(rows['D00 T01 §2'].done)
+        finally:
+            if t is not None:
+                t.tearDown()
+
+    def test_a_second_cycle_is_refused_on_the_same_path(self):
+        t = None
+        try:
+            with self.assertRaises(fixtures.tg.Refused) as caught:
+                self.filed_through_stamp(1)
+            self.assertIn('before a third review cycle', str(caught.exception))
+        finally:
+            pass
 
     def test_default_and_invalid_caps(self):
         s = policy()

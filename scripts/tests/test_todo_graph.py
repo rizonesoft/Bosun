@@ -994,10 +994,12 @@ class SkillsDefer(unittest.TestCase):
                 self.assertIn("query next", text)
                 self.assertNotIn("todo-graph.py query ready", text)
                 self.assertNotIn("no longer counts as runnable", text)
-                self.assertIn("is repaired, then parked", text)
+                self.assertIn("has them filed and stamps from its third", text)
                 phase = (REPO / folder / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("query disposition` before each row", phase)
                 self.assertNotIn("Skip rows whose `resolve` is not exit 0", phase)
+                self.assertIn("file and stamp one it calls `needs-filing`", phase)
+                self.assertNotIn("repair or park one it calls `needs-repair`, and skip the rest", phase)
 
     def test_no_runner_skill_keeps_its_own_list_of_host_needs(self):
         for folder in (".claude", ".codex", ".agents"):
@@ -1019,6 +1021,11 @@ class SkillsDefer(unittest.TestCase):
                 self.assertIn(":filed'", text)
                 self.assertIn("In the first two cycles, gaps are repaired", text)
                 self.assertIn("todo/findings.md", text)
+
+    def test_the_workflow_doc_has_the_third_cycle_rule(self):
+        text = (REPO / "docs" / "todo-workflow.md").read_text(encoding="utf-8")
+        self.assertIn("from a section's third review cycle on", text)
+        self.assertNotIn("stamp only on complete", text)
 
     def test_the_completion_prompt_counts_only_missing_behaviour_as_gaps(self):
         prompt = (REPO / "docs" / "completion-review-prompt.md").read_text(encoding="utf-8")
@@ -1824,6 +1831,59 @@ class Stamp(Tree):
         rows = tg.graph(self.root)
         self.assertTrue(rows["D00 T01 §1"].done)
         self.assertFalse(rows["D00 T01 §2"].done)
+
+    def test_a_stamp_cut_off_between_its_writes_recovers_on_retry(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        real = tg.atomic
+        calls = []
+
+        def dies_after_the_receipt(path, data):
+            calls.append(path)
+            real(path, data)
+            if len(calls) == 1:
+                raise SystemExit("power lost")  # rollback can't be trusted to run, so leave the receipt as it fell
+        with mock.patch.object(tg, "atomic", dies_after_the_receipt), mock.patch.object(tg.Path, "unlink"):
+            with self.assertRaises(SystemExit):
+                self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
+        receipt = self.root / "docs/reviews/d00-t01-s1.json"
+        self.assertTrue(receipt.exists())
+        self.assertFalse(tg.graph(self.root)["D00 T01 §1"].done)
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        self.assertTrue((self.root / "docs/reviews/d00-t01-s1.orphan-2026-10-13.json").exists())
+
+    def test_stamp_refuses_filing_to_a_stamped_section_and_the_receipt_survives_its_target_shipping(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--"), (3, "C", 0, "none", "--")]).replace(
+            "**Test checkpoint:**", STARTED + "**Test checkpoint:**"))
+        for n in (1, 2, 3):
+            report = self.root / f"docs/reviews/00-workspace/D00-T01-s{n}.md"
+            report.write_text("# Review findings\n\n" + envelope(1), encoding="utf-8")
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("- [ ] Work.", "- [x] Work."), encoding="utf-8")
+        tg.projections(self.root, sync=True)
+        sha = self.commit("three sections")
+        for n in (1, 2, 3):
+            self.write_plan(path=f"docs/reviews/00-workspace/D00-T01-s{n}.md", keep=True, candidate=self.start)
+        sha = self.commit("plan reviews")
+        rounds = lambda n: [{"round": 1, "report": f"docs/reviews/00-workspace/D00-T01-s{n}.md", "verdict": "clean"}]
+        own = lambda n: f"docs/reviews/00-workspace/D00-T01-s{n}-completion.md"
+        for n in (2, 3):
+            self.write_completion(path=own(n))
+        self.stamp("D00 T01 §2", sha, rounds(2), ["true -> ok"], "2026-10-13", plan="docs/reviews/00-workspace/D00-T01-s2.md",
+                   completion={"report": own(2), "verdict": "complete"})
+        self.write_completion(review="1. Gap: x.\n\nCOMPLETION: gaps", notes="- Filed: D00 T01 §2\n", path=own(1))
+        with self.assertRaises(tg.Refused) as caught:
+            self.stamp("D00 T01 §1", sha, rounds(1), ["true -> ok"], "2026-10-13", plan="docs/reviews/00-workspace/D00-T01-s1.md",
+                       completion={"report": own(1), "verdict": "filed"})
+        self.assertIn("open section", str(caught.exception))
+        self.write_completion(review="1. Gap: x.\n\nCOMPLETION: gaps", notes="- Filed: D00 T01 §3\n", path=own(1))
+        self.stamp("D00 T01 §1", sha, rounds(1), ["true -> ok"], "2026-10-13", plan="docs/reviews/00-workspace/D00-T01-s1.md",
+                   completion={"report": own(1), "verdict": "filed"})
+        self.stamp("D00 T01 §3", sha, rounds(3), ["true -> ok"], "2026-10-13", plan="docs/reviews/00-workspace/D00-T01-s3.md",
+                   completion={"report": own(3), "verdict": "complete"})
+        rows = tg.graph(self.root)  # every receipt still validates, the filing one included, now its target shipped
+        self.assertTrue(all(rows[f"D00 T01 §{n}"].done for n in (1, 2, 3)))
 
     def test_stamp_refuses_a_parked_section(self):
         self.tick_work()
