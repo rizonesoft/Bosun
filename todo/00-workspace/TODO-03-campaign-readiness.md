@@ -391,11 +391,13 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 - [ ] Set `max_low_rounds = 32` and `max_repair_cycles = 33` in `.conclave/reviewers.toml`. Done when: `--check-pin --json` reads them back, and `schedule_cap` gives 33.
 - [ ] Allow `max_repair_cycles` from 0 to 33 in `check_schedule` in `scripts/review-dispatch.py`. Done when: `scripts/tests/test_review_dispatch.py` accepts 33 and refuses 34.
 - [ ] Use 33 as the default and the limit in `repair_cap` in `scripts/lib/todo_graph.py`. Done when: `scripts/tests/test_todo_graph.py` allows a 33rd repair with no pin, refuses the 34th naming `park`, and still honours a lower value in the pin.
+- [ ] Prove the whole new limit in `scripts/tests/test_review_policy.py`, through the dispatcher's `check_sequence` on the live pin: rounds 10 to 33 run, round 34 is refused, a clean round stops early, completion follows a clean round 33, and an unresolved round 33 reads `needs-repair`. Done when: the test fails if the pin falls back to 8.
+- [ ] Update the tests that assert the old live values, keeping fixtures that are about history as they are, in `scripts/tests/test_review_policy.py`, `test_review_dispatch.py` and `test_todo_graph.py`. Done when: all three suites pass.
 - [ ] Prove a cycle already under way keeps its own cap in `review_dead_end`. Done when: a test with rounds at an older pin's cap reads `needs-repair` after the pin rises.
 - [ ] Update `AGENTS.md`, `docs/specs/2026-11-07-control-panel-design.md` and `todo/README.md` to the new caps. Done when: a test reads 33 from the design doc's review cap row and from the pin, so they can't drift.
 - [ ] Commit: `review: caps of 33`
 
-**Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py` exits 0, and fails if a 34th repair is allowed or the pin falls back to 3.
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py` exits 0, and fails if a 34th repair is allowed, round 34 runs, or the pin falls back to 3 or 8.
 
 ## Verification
 
