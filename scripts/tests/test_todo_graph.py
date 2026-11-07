@@ -415,9 +415,6 @@ class Graph(Tree):
         self.assertEqual(ordered_refs[-1], "D00 T01 §1")
 
 
-ROUND = "## Round {n}: astra (`m` via `codex`)\n\n- Writer: claude\n\nReview text.\n\n{highest}OVERALL: {overall}\n\n"
-
-
 class Dispositions(Tree):
     CAPS = {"windows-host": True, "arm64-host": False, "office": False, "libreoffice": False, "display-session": False}
 
@@ -426,13 +423,25 @@ class Dispositions(Tree):
         rows = tg.graph(self.root)
         return tg.section_disposition(rows[f"D00 T01 §{n}"], rows, caps or self.CAPS, self.root)
 
-    def findings(self, text, name="D00-T01-s1.md"):
+    def record(self, name="D00-T01-s1.md"):
         folder = self.root / "docs" / "reviews" / "00-x"
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / name).write_text(text, encoding="utf-8")
+        return folder / name
 
-    def rounds(self, count, highest="HIGHEST: P1\n", overall="needs-attention"):
-        return "".join(ROUND.format(n=n, highest=highest, overall=overall) for n in range(1, count + 1))
+    def result(self, review):
+        return {"writer": "claude", "writer_model": "claude-opus-5-5", "reviewer": "astra", "cli": "codex", "model": "m",
+                "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m", "attempt_cli": "codex", "failover": [], "lenses": ["adversarial"], "review": review}
+
+    def completion(self, verdict, name="D00-T01-s1.md"):
+        tg.review_dispatch().record_completion(self.record(name), self.result(f"Text.\n\nCOMPLETION: {verdict}"), "2026-11-07T00:00:00Z", "a" * 40)
+
+    def plan(self, name):
+        tg.review_dispatch().record_completion(self.record(name), self.result("Text.\n\nPLAN: complete\nOVERALL: approve"), "2026-11-07T00:00:00Z", "a" * 40, kind="plan")
+
+    def rounds(self, count, highest="P1", overall="needs-attention", name="D00-T01-s1.md"):
+        for _ in range(count):
+            review = f"### adversarial\n\n## adversarial\n\n1. A finding.\n\nHIGHEST: {highest}\nOVERALL: {overall}"
+            tg.review_dispatch().record(self.record(name), self.result(review), "2026-11-07T00:00:00Z")
 
     def test_every_need_in_the_closed_list(self):
         expected = {"windows-host": "ready", "arm64-host": "waiting-host", "display-session": "waiting-host",
@@ -464,51 +473,65 @@ class Dispositions(Tree):
         self.assertEqual(tg.section_disposition(rows["D00 T01 §1"], rows, self.CAPS, self.root)[0], "parked")
 
     def test_completion_gaps_need_repair(self):
-        self.findings("## Completion review\nCOMPLETION: gaps\n")
+        self.completion("gaps")
         state, reason = self.state()
         self.assertEqual(state, "needs-repair")
         self.assertIn("gaps", reason)
 
     def test_a_complete_completion_stays_ready(self):
-        self.findings("## Completion review\nCOMPLETION: complete\n")
+        self.completion("complete")
         self.assertEqual(self.state()[0], "ready")
 
     def test_section_one_is_not_confused_with_section_ten(self):
-        self.findings("COMPLETION: gaps\n", "D00-T01-s10.md")
+        self.completion("gaps", "D00-T01-s10.md")
         self.assertEqual(self.state()[0], "ready")
 
     def test_only_the_latest_cycle_counts(self):
-        self.findings("COMPLETION: gaps\n")
-        self.findings("## Plan review\nPLAN: complete\n", "D00-T01-s1-cycle2.md")
+        self.completion("gaps")
+        self.plan("D00-T01-s1-cycle2.md")
         self.assertEqual(self.state()[0], "ready")
-        self.findings("COMPLETION: gaps\n", "D00-T01-s1-cycle10.md")
+        self.completion("gaps", "D00-T01-s1-cycle10.md")
         self.assertEqual(self.state()[0], "needs-repair")
 
     def test_rounds_at_the_cap_with_findings_open_need_repair(self):
-        self.findings(self.rounds(9))
+        self.rounds(9)
         state, reason = self.state()
         self.assertEqual(state, "needs-repair")
         self.assertIn("9 review rounds", reason)
 
+    def test_headings_inside_a_review_do_not_hide_a_round(self):
+        # Each fixture review holds a level-two heading, as a reviewer's per-lens format may.
+        self.rounds(1)
+        self.assertEqual(len(tg.review_dispatch().read_findings(self.record().read_text(encoding="utf-8"))["rounds"]), 1)
+
     def test_rounds_under_the_cap_stay_ready(self):
-        self.findings(self.rounds(8))
+        self.rounds(8)
         self.assertEqual(self.state()[0], "ready")
 
     def test_a_clean_last_round_at_the_cap_is_waiting_for_completion_not_stuck(self):
-        self.findings(self.rounds(8) + ROUND.format(n=9, highest="HIGHEST: P3\n", overall="approve"))
+        self.rounds(8)
+        self.rounds(1, "P3", "approve")
         self.assertEqual(self.state()[0], "ready")
 
     def test_rounds_with_no_reply_do_not_count(self):
-        self.findings("".join(f"## Round {n}: none\n\nThe reviewer did not reply.\n\n" for n in range(1, 12)))
+        dispatch = tg.review_dispatch()
+        for _ in range(11):
+            dispatch.record(self.record(), {**self.result(None), "reviewer": None, "execution": "failed", "reason": "no reply"}, "2026-11-07T00:00:00Z")
         self.assertEqual(self.state()[0], "ready")
+
+    def test_a_findings_file_the_dispatcher_cannot_read_needs_repair(self):
+        self.record().write_text("## Round 1: astra\n\nnot as recorded\n", encoding="utf-8")
+        state, reason = self.state()
+        self.assertEqual(state, "needs-repair")
+        self.assertIn("can't read", reason)
 
     def test_the_cap_comes_from_the_pin(self):
         (self.root / ".conclave").mkdir(exist_ok=True)
         (self.root / ".conclave" / "reviewers.toml").write_text('[schedule]\ncompletion_order = "last"\nmax_low_rounds = 2\n', encoding="utf-8")
-        self.findings(self.rounds(3))
-        self.assertEqual(self.state()[0], "needs-repair")
-        self.findings(self.rounds(2))
+        self.rounds(2)
         self.assertEqual(self.state()[0], "ready")
+        self.rounds(1)
+        self.assertEqual(self.state()[0], "needs-repair")
 
     def test_a_stamped_row_is_verified_and_old_answers_are_unchanged(self):
         self.write(todo_file([(1, "A", 0, "attended", "--")]))
@@ -528,6 +551,16 @@ class QueryDisposition(unittest.TestCase):
             self.assertTrue({"ref", "title", "phase", "needs", "state", "reason"} <= set(row))
             self.assertNotEqual(row["state"], "verified")
         self.assertIn(rows[0]["state"], {"ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "parked"})
+
+
+class SkillsDefer(unittest.TestCase):
+    def test_no_runner_skill_keeps_its_own_list_of_host_needs(self):
+        for folder in (".claude", ".codex", ".agents"):
+            for skill in ("process-plan", "process-phase"):
+                with self.subTest(folder=folder, skill=skill):
+                    text = (REPO / folder / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                    self.assertIn("query disposition", text)
+                    self.assertNotIn("`display-session`", text)
 
 
 class Stamp(Tree):

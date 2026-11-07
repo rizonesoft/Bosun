@@ -958,11 +958,11 @@ def disposition(row, rows):
 
 
 def round_cap(root):
-    """Regular rounds a cycle may spend, from the pin, as the dispatcher counts them."""
+    """Regular rounds a cycle may spend, by the dispatcher's own rule, from the pin."""
     try:
-        schedule = tomllib.loads((Path(root) / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"))["schedule"]
-        return 1 + schedule.get("max_low_rounds", 8) if schedule.get("completion_order") == "last" else 33
-    except (OSError, KeyError, ValueError, TypeError):
+        schedule = tomllib.loads((Path(root) / PIN).read_text(encoding="utf-8"))["schedule"]
+        return review_dispatch().schedule_cap(schedule)
+    except (OSError, KeyError, ValueError, TypeError, AttributeError):
         return 9
 
 
@@ -982,25 +982,26 @@ def latest_findings(root, ref):
 
 def review_dead_end(root, ref):
     """Why the section's latest cycle can't go on to a stamp, or None. Only that cycle counts: a newer one is the repair
-    of an older one. Rounds that ran out differ from a clean last round, which is just waiting for its completion."""
+    of an older one. Rounds that ran out differ from a clean last round, which is just waiting for its completion. This
+    reads and counts with the dispatcher's own functions, so the graph and the dispatcher can't disagree."""
     path = latest_findings(root, ref)
     if path is None:
         return None
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+        dispatch = review_dispatch()
+        found = dispatch.read_findings(path.read_bytes().decode("utf-8", "replace"))
+    except (OSError, Refused):
         return None
-    verdicts = re.findall(r"^COMPLETION:\s*(\w+)", text, re.M)
-    if verdicts:
-        return None if verdicts[-1] in ("complete", "completed") else "its completion review returned gaps"
-    rounds = [part for part in re.split(r"^(?=## )", text, flags=re.M) if part.startswith("## Round")]
-    returned = [part for part in rounds if re.search(r"^OVERALL: (?:approve|needs-attention)\s*\Z", part.rstrip() , re.M)]
-    if len(returned) < round_cap(root):
+    if found is None:
+        return "the dispatcher can't read its findings file"
+    completions = [e for e in found["completions"] if dispatch.returned_pass("completion", e)]
+    if completions:
+        verdict = [x.strip() for x in completions[-1]["review"].splitlines() if x.strip()][-1]
+        return None if verdict == "COMPLETION: complete" else "its completion review returned gaps"
+    rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
+    if len(rounds) < round_cap(root) or dispatch.clean(rounds[-1]["review"]):
         return None
-    declared = re.findall(r"^\s*HIGHEST:\s*(P[123]|none)\s*$", returned[-1], re.M | re.I)
-    if len(declared) == 1 and declared[0].lower() in ("p3", "none"):
-        return None
-    return f"its {len(returned)} review rounds ran out with findings open"
+    return f"its {len(rounds)} review rounds ran out with findings open"
 
 
 def section_disposition(row, rows, caps, root=ROOT):
