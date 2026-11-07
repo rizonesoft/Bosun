@@ -121,14 +121,21 @@ def main() -> int:
         except ValueError:
             say(f"--until must look like 2026-11-08T12:00:00Z, not {args.until}")
             return 2
-        with guard.locked():
-            state = guard.load()
-            try:
-                guard.set_wait(state, args.reason, until, args.detail)
-            except ValueError as error:
-                say(str(error))
-                return 1
-            guard.save(state)
+        try:
+            with guard.locked():
+                state = guard.load()
+                if not state.get("active"):
+                    say("no active run, so nothing waits")
+                    return 4  # review-dispatch.py's GUARD_NO_RUN: nothing to wait, which isn't a failure
+                try:
+                    guard.set_wait(state, args.reason, until, args.detail)
+                except ValueError as error:
+                    say(str(error))
+                    return 2
+                guard.save(state)
+        except (OSError, ValueError) as error:  # a lock that timed out, or a state that can't be read or saved
+            say(f"the wait couldn't be saved: {error}")
+            return 1
         guard.log(f"wait: {args.reason} until {guard.stamp(until)}")
         say(f"waiting until {guard.stamp(until)}")
         return 0

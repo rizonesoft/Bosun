@@ -586,7 +586,7 @@ class Waits(unittest.TestCase):
             script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
             done = subprocess.run([*script, "wait", "--reason", "reviewer-unavailable", "--minutes", "30"], env=env,
                                   capture_output=True, text=True)
-            self.assertEqual(done.returncode, 1, "a wait with no active run was saved")
+            self.assertEqual(done.returncode, 4, "a wait with no active run was saved")
             (Path(folder) / "state.json").write_text(json.dumps(active()), encoding="utf-8")
             detail = "auth: the reviewer CLI isn't signed in: sign it in (for Codex, `codex login`). See build/review-failures/x.txt."
             done = subprocess.run([*script, "wait", "--reason", "reviewer-unavailable", "--minutes", "30", "--detail", detail],

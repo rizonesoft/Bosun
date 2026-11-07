@@ -570,7 +570,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
         stderr_path = tmp / "stderr.txt"
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
-        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path], stderr_path)
+        # stderr is watched too: a reviewer looping on errors must not fill the disk either.
+        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path], stderr_path)
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
@@ -689,8 +690,13 @@ def attempt_key(record, kind, position):
     return f"{where}|{kind}|{position}"
 
 
+GUARD_NO_RUN = 4  # what `run-guard.py wait` exits when no run is active
+
+
 def guard_wait(until, detail):
-    """(saved, what the guard said). The run guard waits the run; a repository without one has no run to wait."""
+    """(saved, what the guard said): True when the run now waits, False when there is no run to wait (no guard here,
+    or none active). A guard that is there but couldn't save the wait refuses: claiming a wait that wasn't saved would
+    leave an active run that counts the ended turn as idle."""
     script = ROOT / "scripts" / "run-guard.py"
     if not script.is_file():
         return False, "this repository has no run guard"
@@ -698,8 +704,15 @@ def guard_wait(until, detail):
         done = subprocess.run([sys.executable, str(script), "wait", "--reason", "reviewer-unavailable", "--until",
                                iso(until), "--detail", detail], cwd=ROOT, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"the run guard couldn't be asked: {exc}"
-    return done.returncode == 0, (done.stdout or done.stderr).strip()
+        raise Refused(f"the reviewer is unavailable, and the run guard couldn't be asked to wait ({exc}); nothing was "
+                      f"retried") from None
+    said = (done.stdout or done.stderr).strip()
+    if done.returncode == 0:
+        return True, said
+    if done.returncode == GUARD_NO_RUN:
+        return False, said
+    raise Refused(f"the reviewer is unavailable, and the run guard couldn't save the wait (exit {done.returncode}: "
+                  f"{said[:300]}); nothing was retried")
 
 
 def start_wait(passes, key, entry, until):

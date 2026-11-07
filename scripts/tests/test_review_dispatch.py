@@ -48,6 +48,10 @@ FAKE_CLI = textwrap.dedent('''\
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
     if mode == "fail":
         sys.exit(3)
+    if mode == "floodstderr":
+        while True:
+            sys.stderr.write("x" * 65536)
+            sys.stderr.flush()
     if mode == "stderr":
         sys.stderr.write(os.environ["FAKE_STDERR"])
         sys.exit(1)
@@ -1004,6 +1008,24 @@ class Attempts(Harness):
         with unittest.mock.patch.object(module, "atomic_write", side_effect=OSError(28, "No space left on device")):
             with self.assertRaisesRegex(module.Refused, "can't be saved"):
                 module.before_attempt("docs/reviews/r.md|round|round 1")
+
+    def test_a_guard_that_cant_save_the_wait_refuses_rather_than_claiming_one(self):
+        module = self.module()
+        script = self.repo / "scripts" / "run-guard.py"
+        script.write_text("", encoding="utf-8")
+        for code, outcome in ((0, True), (4, False), (1, None), (2, None)):
+            done = subprocess.CompletedProcess([], code, "said", "")
+            with self.subTest(code), unittest.mock.patch.object(module.subprocess, "run", return_value=done):
+                if outcome is None:
+                    with self.assertRaisesRegex(module.Refused, "couldn't save the wait"):
+                        module.guard_wait(5000.0, "auth")
+                else:
+                    self.assertEqual(module.guard_wait(5000.0, "auth")[0], outcome)
+
+    def test_a_reviewer_flooding_stderr_is_stopped(self):
+        result, summary = self.go(codex="floodstderr")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("returned more than", summary["failover"][0]["reason"])
 
     def test_exit_3_only_after_the_wait_is_saved_and_says_whether_a_run_waits(self):
         module = self.module()
