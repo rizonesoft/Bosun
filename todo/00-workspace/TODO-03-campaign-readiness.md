@@ -88,6 +88,7 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Recognise an exact revert to the last proven commit as unchanged inputs in `skip_reason` in `scripts/ci_status.py`: an empty diff from a proven base, on a later commit, is a proven skip, and from any other base it still proves nothing. Done when: tests prove a pure revert with no other change reads `skipped` under `--gate` and `--use-proven`, and reads `none` with an explicit `--base`.
 - [x] Apply the two hour limit to every gate call in `scripts/ci_status.py`, with or without `--wait-minutes`: no tool starts after it, and each stops at it. A call without `--wait-minutes` still looks once and doesn't poll. Done when: tests with slow tools and one second left prove total time stays within that second and no tool starts after it, and a call with time to spare keeps each tool's own limit.
 - [x] Read `HEAD` from the `.git` files with no process in `scripts/ci_status.py`, covering a branch, a detached head, packed refs and a linked worktree, and bound any `git` call still needed by the recorded wait. Done when: tests against real repos match `git rev-parse` for all four layouts, `--sha HEAD` starts no tool past the limit, an unreadable `HEAD` past the limit gives a gate answer with no traceback and no tool, and a slow `git` with one second left costs at most that second. Cheaper substitute: a short timeout on the call.
+- [ ] Accept only `HEAD` or a full SHA with `--gate` in `scripts/ci_status.py`, since nothing needs another name and a wait is recorded by commit. Done when: tests prove a branch name is refused with exit 2 and a message saying what to pass, a new commit reached through `HEAD` or its full SHA gets its own wait after an older one expired, and `--sha main` still works without `--gate`.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
@@ -103,6 +104,8 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 > **Repair cycle:** 4: 2026-11-07: the completion review found an exact revert and calls with no wait unbounded (after: its completion review returned gaps)
 
 > **Repair cycle:** 5: 2026-11-07: the completion review held that HEAD must respect the limit too (after: its completion review returned gaps)
+
+> **Repair cycle:** 6: 2026-11-07: the completion review found branch names can't recover; nothing needs them (after: its completion review returned gaps)
 
 ## 2. One section disposition across graph, guard and skills
 
