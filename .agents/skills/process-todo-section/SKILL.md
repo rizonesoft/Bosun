@@ -101,7 +101,7 @@ Run gates while iterating, bounded to the touched area: the build for the touche
 
 ### 5. Surface and feature completeness
 
-Before the checkpoint, account for 100% of every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. Confirm the refusal/error/recovery path and undo/reverse path required by the section hold. `review-todo-section` refuses the stamp for an unaccounted control, so decide here. This pass is yours; after the commit, `review-todo-section` runs the independent rounds and final completion and excellence review. Completion gaps remain explicit and prevent stamping.
+Before the checkpoint, account for 100% of every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. Confirm the refusal/error/recovery path and undo/reverse path required by the section hold. `review-todo-section` refuses the stamp for an unaccounted control, so decide here. This pass is yours; after the commit, `review-todo-section` runs the independent rounds and final completion and excellence review. Completion gaps are fixed in this cycle or filed as open sections, then the section stamps.
 
 ### 6. Run the Test checkpoint, for real
 
@@ -118,7 +118,7 @@ Commit the section work (in one or more commits as steps complete), recording th
 <plan corrections, if any>
 ```
 
-Then invoke `review-todo-section` on the same ref. It runs independent rounds, then the one-pass completion and excellence review last (`scripts/review-dispatch.py --kind completion`): implement every in-scope gap and excellence item it lists in this section, file the rest through `add-todo`. Completion gaps keep the section unstamped; preserve the findings and repair through the normal workflow. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
+Then invoke `review-todo-section` on the same ref. It runs independent rounds, then the one-pass completion and excellence review last (`scripts/review-dispatch.py --kind completion`): implement every in-scope gap and excellence item it lists in this section, file the rest through `add-todo`. Completion gaps are settled in the same cycle, fixed (`completed`) or filed (`filed`), and nothing is re-reviewed. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
 
 ### 8. Report
 

@@ -242,7 +242,8 @@ def check_sequence(schedule, kind, found, writer, writer_model):
     if kind != "plan" and len(plans) != 1:
         raise Refused("exactly one returned plan review is required before rounds")
     if completions:
-        raise Refused("completion already returned; preserve its findings and require a new reviewed repair cycle")
+        raise Refused("completion already returned; nothing is re-reviewed: fix its gaps and stamp completed, or file "
+                      "them as open sections and stamp filed")
     if kind == "round":
         if found["completions"]:
             raise Refused("completion is last; retry its failed execution without reopening rounds")

@@ -462,12 +462,9 @@ def schedule_ok(root, data, ref, surface):
             raise Refused(f"invalid current-policy lineage: {exc}: {ref}") from None
         require(data.get("policy") == policy_sha, f"receipt policy differs from its findings: {ref}")
         require(data["round_cap"] == dispatch.schedule_cap(schedule), f"wrong configured review cap: {ref}")
-        # From the third cycle on, the owner's rule lets leftovers be filed as open sections, which completion_record
-        # checks resolve, so one section's polish can't stall the run. Before that, only complete stamps.
-        cycle = re.search(r"-cycle(\d+)\.md$", own)
-        late = cycle is not None and int(cycle[1]) >= 3
-        require(data["completion"]["verdict"] == "complete" or (late and data["completion"]["verdict"] == "filed"),
-                f"completion gaps are not approval before a third review cycle, when leftovers may be filed: {ref}")
+        # One completion pass, as Steward and Recto run (the owner's choice of 2026-11-08): its gaps are fixed in the same
+        # cycle (completed) or filed as open sections (filed), which completion_record checks against the review.
+        require(data["completion"]["verdict"] in COMPLETION_VERDICTS, f"unknown completion verdict: {ref}")
         require(found["completions"] and dispatch.returned_pass("completion", found["completions"][-1]),
                 f"terminal completion returned no review: {ref}")
 
@@ -1005,10 +1002,8 @@ def review_dead_end(root, ref, cycle=1):
         return None
     if found is None:
         return "the dispatcher can't read its findings file"
-    completions = [e for e in found["completions"] if dispatch.returned_pass("completion", e)]
-    if completions:
-        verdict = [x.strip() for x in completions[-1]["review"].splitlines() if x.strip()][-1]
-        return None if verdict == "COMPLETION: complete" else "its completion review returned gaps"
+    if any(dispatch.returned_pass("completion", e) for e in found["completions"]):
+        return None  # a returned completion is settled in its cycle, fixed or filed, so it's never a dead end
     rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
     try:  # the cycle's own policy, as the dispatcher reads it, so a later pin change can't make the two disagree
         cap = dispatch.schedule_cap(dispatch.record_policy(dispatch.load_pin(Path(root) / PIN), found, root)[0]["schedule"])
@@ -1083,7 +1078,11 @@ def repair(root, ref, reason, date):
     root = Path(root)
     row = open_section(root, ref, reason, date)
     require(not PARKED.search(row.body), f"parked, and only the operator can bring it back with unpark: {ref}")
-    why = review_dead_end(root, ref, reopenings(row.body) + 1)
+    cycle = reopenings(row.body) + 1
+    require(not filing_due(root, ref, cycle),
+            f"its completion review returned gaps, which are settled in this cycle: fix them and stamp completed, or "
+            f"file them as open sections and stamp filed: {ref}")
+    why = review_dead_end(root, ref, cycle)
     require(why is not None, f"no dead end to repair in its current cycle: {ref}")
     used, cap = len(REPAIR_CYCLE.findall(row.body)), repair_cap(root, row.body)
     require(used < cap, f"its {cap} repair cycles are used up, so park it: {ref}")
@@ -1108,10 +1107,10 @@ def unpark(root, ref, reason, date):
 
 
 def filing_due(root, ref, cycle):
-    """True when the owner's rule says this cycle files its completion gaps: a third or later cycle, whose completion
-    review returned gaps after a clean last round."""
+    """True when this cycle's completion review returned gaps, so they're fixed or filed and the section stamps in the
+    same cycle, as Steward and Recto run."""
     path = cycle_findings(root, ref, cycle)
-    if cycle < 3 or path is None:
+    if path is None:
         return False
     try:
         dispatch = review_dispatch()
@@ -1121,9 +1120,8 @@ def filing_due(root, ref, cycle):
     if found is None:
         return False
     completions = [e for e in found["completions"] if dispatch.returned_pass("completion", e)]
-    rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
     last = [x.strip() for x in completions[-1]["review"].splitlines() if x.strip()][-1] if completions else ""
-    return last == "COMPLETION: gaps" and bool(rounds) and dispatch.clean(rounds[-1]["review"])
+    return last == "COMPLETION: gaps"  # the dispatcher runs completion only after the rounds came clean
 
 
 def require_open_targets(rows, filed, ref):
@@ -1153,7 +1151,7 @@ def section_disposition(row, rows, caps, root=ROOT):
     # Last, so that needs-repair means this session can really do the repair.
     cycle = reopenings(row.body) + 1
     if filing_due(root, row.ref, cycle):
-        return "needs-filing", "its completion review returned gaps in a third or later cycle, so they're filed and it stamps"
+        return "needs-filing", "its completion review returned gaps, so they're fixed or filed and it stamps in this cycle"
     try:
         dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
     except Refused as unknown:

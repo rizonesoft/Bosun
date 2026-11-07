@@ -111,15 +111,15 @@ class FiledLeftovers(unittest.TestCase):
                     patch.object(dispatch, 'record_policy', return_value=(pin, 'a'*40)):
                 fixtures.tg.schedule_ok(Path(folder), data, 'D00 T01 §1', False)
 
-    def test_cycles_one_and_two_refuse_filed(self):
-        for name in ('D00-T01-s1.md', 'D00-T01-s1-cycle2.md'):
-            with self.subTest(name), self.assertRaisesRegex(fixtures.tg.Refused, 'before a third review cycle'):
-                self.verdict_ok(name, 'filed')
+    def test_every_cycle_accepts_filed_and_completed(self):
+        for name in ('D00-T01-s1.md', 'D00-T01-s1-cycle2.md', 'D00-T01-s1-cycle12.md'):
+            for verdict in ('filed', 'completed'):
+                with self.subTest(name=name, verdict=verdict):
+                    self.verdict_ok(name, verdict)
 
-    def test_the_third_cycle_on_accepts_filed(self):
-        for name in ('D00-T01-s1-cycle3.md', 'D00-T01-s1-cycle12.md'):
-            with self.subTest(name):
-                self.verdict_ok(name, 'filed')
+    def test_an_unknown_verdict_is_refused(self):
+        with self.assertRaises(fixtures.tg.Refused):
+            self.verdict_ok('D00-T01-s1.md', 'polished')
 
     def test_complete_is_accepted_in_any_cycle(self):
         for name in ('D00-T01-s1.md', 'D00-T01-s1-cycle2.md', 'D00-T01-s1-cycle3.md'):
@@ -248,17 +248,22 @@ class CurrentPolicy(unittest.TestCase):
         t.setUp()
         todo = next((t.root / 'todo').rglob('TODO-01-*.md'))
         lines = ''.join(f'> **Repair cycle:** {k}: 2026-11-06: gaps\n\n' for k in range(1, repairs + 1))
-        todo.write_text(todo.read_text().replace(fixtures.STARTED.strip(), lines.rstrip('\n')))
+        text = todo.read_text(encoding='utf-8')
+        at = text.index(fixtures.STARTED.strip())
+        before, after = text[:at] + lines, text[at + len(fixtures.STARTED.strip()):]
+        todo.write_text(before + after, encoding='utf-8')
         (t.root / '.conclave/reviewers.toml').write_bytes((ROOT / '.conclave/reviewers.toml').read_bytes())
         policy_sha = t.commit('live pin and repairs')
-        rel = f'docs/reviews/00-workspace/D00-T01-s1-cycle{repairs + 1}.md'
+        rel = (f'docs/reviews/00-workspace/D00-T01-s1-cycle{repairs + 1}.md' if repairs
+               else 'docs/reviews/00-workspace/D00-T01-s1.md')
         path = t.root / rel
+        path.write_text('', encoding='utf-8')  # this cycle's own records only, under the live pin
         e = entry('plan')
         e.update(policy=policy_sha, attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
                  failover=[], effort='medium', lenses=['plan'])
         d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
-        todo.write_text(todo.read_text().replace(lines.rstrip('\n'), lines + '> **Started:** 2026-11-06T00:00:01Z')
-                        .replace('- [ ] Work.', '- [x] Work.'))
+        todo.write_text((before + '> **Started:** 2026-11-06T00:00:01Z' + after).replace('- [ ] Work.', '- [x] Work.'),
+                        encoding='utf-8')
         candidate = t.commit('build start')
         e.update(review='HIGHEST: none\nOVERALL: approve', lenses=['adversarial'])
         d.record(path, e, '2026-11-06T00:00:02Z')
@@ -291,14 +296,15 @@ class CurrentPolicy(unittest.TestCase):
             if t is not None:
                 t.tearDown()
 
-    def test_a_second_cycle_is_refused_on_the_same_path(self):
+    def test_a_first_cycle_files_and_stamps_on_the_same_path(self):
         t = None
         try:
-            with self.assertRaises(fixtures.tg.Refused) as caught:
-                self.filed_through_stamp(1)
-            self.assertIn('before a third review cycle', str(caught.exception))
+            t, receipt = self.filed_through_stamp(0)
+            self.assertEqual(json.loads((t.root / receipt).read_text(encoding='utf-8'))['completion']['filed'], ['D00 T01 §2'])
+            self.assertTrue(fixtures.tg.graph(t.root)['D00 T01 §1'].done)
         finally:
-            pass
+            if t is not None:
+                t.tearDown()
 
     def test_default_and_invalid_caps(self):
         s = policy()

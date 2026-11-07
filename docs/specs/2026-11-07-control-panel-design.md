@@ -126,7 +126,7 @@ The owner set these on 2026-11-07. `D00 T03` builds them, and every other sectio
 | Permissions | Bypass mode, plus deny rules for destructive and outbound actions |
 | Usage limits | Subscription only, waiting and resuming; never paid API billing |
 | Review dead end | Up to 33 repair cycles, then park and carry on; nothing ships unapproved |
-| Completion gaps | Repaired twice, then filed as tracked sections, so polish can't stall |
+| Completion gaps | Fixed or filed in the same cycle, never re-reviewed, as Steward and Recto run |
 | Desktop | Logged in and unlocked, with sleep and update restarts held |
 | .NET | Start on the RC; move to final when released; Release needs final |
 | Machine changes | Disposable targets in the run; real ones in acceptance |

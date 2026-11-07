@@ -416,6 +416,23 @@ class Graph(Tree):
         self.assertEqual(ordered_refs[-1], "D00 T01 §1")
 
 
+def exhaust(root, path):
+    """The cycle's rounds run out with a P1 open, at the cap the graph itself reads for a record without a policy
+    (counting rounds already there): the one review dead end that still repairs, since completion gaps are fixed or
+    filed in their own cycle."""
+    dispatch = tg.review_dispatch()
+    path = pathlib.Path(path)
+    found = dispatch.read_findings(path.read_text(encoding="utf-8")) if path.exists() else None
+    cap = tg.round_cap(root) - (len([e for e in found["rounds"] if dispatch.returned_review(e)]) if found else 0)
+    result = {"writer": "claude", "writer_model": "claude-opus-5-5", "reviewer": "astra", "cli": "codex", "model": "m",
+              "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m",
+              "attempt_cli": "codex", "failover": [], "lenses": ["adversarial"],
+              "review": "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(cap):
+        dispatch.record(path, result, "2026-11-07T00:00:00Z")
+
+
 class Dispositions(Tree):
     CAPS = {"windows-host": True, "arm64-host": False, "office": False, "libreoffice": False, "display-session": False}
 
@@ -435,6 +452,9 @@ class Dispositions(Tree):
 
     def completion(self, verdict, name="D00-T01-s1.md"):
         tg.review_dispatch().record_completion(self.record(name), self.result(f"Text.\n\nCOMPLETION: {verdict}"), "2026-11-07T00:00:00Z", "a" * 40)
+
+    def exhaust(self, name="D00-T01-s1.md"):
+        exhaust(self.root, self.record(name))
 
     def plan(self, name):
         tg.review_dispatch().record_completion(self.record(name), self.result("Text.\n\nPLAN: complete\nOVERALL: approve"), "2026-11-07T00:00:00Z", "a" * 40, kind="plan")
@@ -473,18 +493,18 @@ class Dispositions(Tree):
         rows = tg.graph(self.root)
         self.assertEqual(tg.section_disposition(rows["D00 T01 §1"], rows, self.CAPS, self.root)[0], "parked")
 
-    def test_completion_gaps_need_repair(self):
+    def test_completion_gaps_are_fixed_or_filed_in_their_cycle(self):
         self.completion("gaps")
         state, reason = self.state()
-        self.assertEqual(state, "needs-repair")
-        self.assertIn("gaps", reason)
+        self.assertEqual(state, "needs-filing")
+        self.assertIn("fixed or filed", reason)
 
     def test_a_complete_completion_stays_ready(self):
         self.completion("complete")
         self.assertEqual(self.state()[0], "ready")
 
     def test_section_one_is_not_confused_with_section_ten(self):
-        self.completion("gaps", "D00-T01-s10.md")
+        self.exhaust("D00-T01-s10.md")
         self.assertEqual(self.state()[0], "ready")
 
     def text(self):
@@ -500,30 +520,30 @@ class Dispositions(Tree):
 
     def test_only_the_current_cycle_counts(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         self.assertEqual(self.disposed()[0], "needs-repair")
         tg.repair(self.root, "D00 T01 §1", "fixing the gaps", "2026-11-07")
         self.assertEqual(self.disposed()[0], "ready")
         self.plan("D00-T01-s1-cycle2.md")
         self.assertEqual(self.disposed()[0], "ready")
-        self.completion("gaps", "D00-T01-s1-cycle2.md")
+        self.exhaust("D00-T01-s1-cycle2.md")
         self.assertEqual(self.disposed()[0], "needs-repair")
 
     def test_a_dead_end_this_session_cannot_repair_reads_what_it_waits_for(self):
         for needs, state in (("attended", "waiting-person"), ("owner-decision", "waiting-person"), ("display-session", "waiting-host")):
             with self.subTest(needs):
                 self.write(todo_file([(1, "A", 0, needs, "--")]))
-                self.completion("gaps")
+                self.exhaust()
                 self.assertEqual(self.disposed()[0], state)
                 self.record().unlink()
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1")]))
-        self.completion("gaps", "D00-T01-s2.md")
+        self.exhaust("D00-T01-s2.md")
         rows = tg.graph(self.root)
         self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "waiting-dependency")
 
     def test_repair_starts_a_new_cycle_keeping_the_findings(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         before = self.record().read_bytes()
         name = tg.repair(self.root, "D00 T01 §1", "fixing the gaps", "2026-11-07")
         self.assertTrue(name.endswith("D00-T01-s1-cycle2.md"), name)
@@ -536,14 +556,14 @@ class Dispositions(Tree):
         with self.assertRaises(tg.Refused) as caught:
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
         self.assertIn("no dead end", str(caught.exception))
-        self.completion("gaps")
+        self.exhaust()
         for bad in (("D00 T01 §9", "x", "2026-11-07"), ("D00 T01 §1", "", "2026-11-07"), ("D00 T01 §1", "two\nlines", "2026-11-07"), ("D00 T01 §1", "x", "soon")):
             with self.subTest(bad), self.assertRaises(tg.Refused):
                 tg.repair(self.root, *bad)
 
     def test_running_repair_again_spends_nothing(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
         with self.assertRaises(tg.Refused):
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
@@ -555,7 +575,7 @@ class Dispositions(Tree):
 
     def test_a_bad_repair_cap_refuses_repair_but_still_answers(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         for value in ("34", "true", '"3"', "-1"):
             with self.subTest(value):
                 self.pin(value)
@@ -567,7 +587,7 @@ class Dispositions(Tree):
                 self.assertIn("max_repair_cycles", reason)
         self.pin("3")  # correcting it brings the row back, with its findings intact
         self.assertEqual(self.disposed()[0], "needs-repair")
-        self.assertIn("COMPLETION: gaps", self.record().read_text(encoding="utf-8"))
+        self.assertIn("HIGHEST: P1", self.record().read_text(encoding="utf-8"))
         self.pin("0")
         with self.assertRaises(tg.Refused) as caught:
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
@@ -575,7 +595,7 @@ class Dispositions(Tree):
 
     def test_an_unusable_pin_refuses_rather_than_assuming_a_cap(self):
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         pin = self.root / ".conclave" / "reviewers.toml"
         pin.parent.mkdir(exist_ok=True)
         for name, text in (("truncated", "[schedule\nmax_"), ("wrong shape", "schedule = 3\n")):
@@ -602,6 +622,7 @@ class Dispositions(Tree):
             with self.assertRaises(tg.Refused):
                 tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
         pin.write_text('[schedule]\nmax_repair_cycles = 3\n', encoding="utf-8")  # correcting it restores the row
+        self.exhaust()  # at the corrected pin's own round cap
         self.assertEqual(self.disposed()[0], "needs-repair")
         pin.unlink()  # a tree with no pin uses the default
         self.assertEqual(self.disposed()[0], "needs-repair")
@@ -661,7 +682,7 @@ class Dispositions(Tree):
 
     def test_a_findings_file_that_cant_be_read_waits_and_recovers(self):
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         real, before = pathlib.Path.read_bytes, self.text()
         for error in (PermissionError("sharing violation"), OSError("locked")):
             def locked(path, *args, **kwargs):
@@ -682,14 +703,14 @@ class Dispositions(Tree):
 
     def with_plan(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         tg.projections(self.root, sync=True)
         return self.root / tg.PLAN
 
     def assert_one_cycle(self, expected):
         """A fresh read picks exactly one cycle, and the earlier findings stand."""
         self.assertTrue(tg.section_findings(self.root, "D00 T01 §1").endswith(expected))
-        self.assertIn("COMPLETION: gaps", self.record().read_text(encoding="utf-8"))
+        self.assertIn("HIGHEST: P1", self.record().read_text(encoding="utf-8"))
 
     def test_a_failed_file_write_leaves_the_tree_unchanged(self):
         plan = self.with_plan()
@@ -737,10 +758,10 @@ class Dispositions(Tree):
 
     def test_the_default_allows_a_thirty_third_repair_and_refuses_the_next(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         for k in range(2, 35):
             tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
-            self.completion("gaps", f"D00-T01-s1-cycle{k}.md")
+            self.exhaust(f"D00-T01-s1-cycle{k}.md")
         self.assertEqual(self.text().count("> **Repair cycle:**"), 33)
         with self.assertRaises(tg.Refused) as caught:
             tg.repair(self.root, "D00 T01 §1", "a thirty fourth", "2026-11-07")
@@ -784,11 +805,11 @@ class Dispositions(Tree):
 
     def third_cycle_with_gaps(self, clean_last=True):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         for k in (2, 3):
             tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
             if k == 2:
-                self.completion("gaps", "D00-T01-s1-cycle2.md")
+                self.exhaust("D00-T01-s1-cycle2.md")
         name = "D00-T01-s1-cycle3.md"
         review = "HIGHEST: none\nOVERALL: approve" if clean_last else "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
         tg.review_dispatch().record(self.record(name), self.result(review), "2026-11-07T00:00:00Z")
@@ -805,17 +826,31 @@ class Dispositions(Tree):
         rows = tg.graph(self.root)
         self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-filing")
 
-    def test_without_clean_rounds_it_is_still_repaired(self):
-        self.third_cycle_with_gaps(clean_last=False)
-        self.assertEqual(self.disposed()[0], "needs-repair")
+    def test_a_first_cycle_with_gaps_after_a_clean_round_needs_filing(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        tg.review_dispatch().record(self.record("D00-T01-s1.md"), self.result("HIGHEST: none\nOVERALL: approve"), "2026-11-07T00:00:00Z")
+        self.completion("gaps", "D00-T01-s1.md")
+        state, reason = self.disposed()
+        self.assertEqual(state, "needs-filing")
+        self.assertIn("fixed or filed", reason)
 
-    def test_the_second_cycle_is_still_repaired(self):
+    def test_repair_refuses_completion_gaps_and_changes_nothing(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
-        tg.repair(self.root, "D00 T01 §1", "one", "2026-11-07")
-        tg.review_dispatch().record(self.record("D00-T01-s1-cycle2.md"), self.result("HIGHEST: none\nOVERALL: approve"), "2026-11-07T00:00:00Z")
-        self.completion("gaps", "D00-T01-s1-cycle2.md")
-        self.assertEqual(self.disposed()[0], "needs-repair")
+        before = self.text()
+        with self.assertRaises(tg.Refused) as caught:
+            tg.repair(self.root, "D00 T01 §1", "more", "2026-11-08")
+        self.assertIn("stamp filed", str(caught.exception))
+        self.assertEqual(self.text(), before)
+        self.assertEqual(self.disposed()[0], "needs-filing")
+
+    def test_the_operator_instructions_point_at_fix_or_file(self):
+        readme = (REPO / "todo" / "README.md").read_text(encoding="utf-8")
+        self.assertIn("reads `needs-filing`", readme)
+        self.assertNotIn("its completion returned gaps, or its rounds ran out", readme)
+        dispatcher = (REPO / "scripts" / "review-dispatch.py").read_text(encoding="utf-8")
+        self.assertNotIn("require a new reviewed repair cycle", dispatcher)
+        self.assertIn("nothing is re-reviewed", dispatcher)
 
     def test_filing_must_go_to_open_sections(self):
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
@@ -838,10 +873,10 @@ class Dispositions(Tree):
     def use_up_repairs(self, count=3):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.pin("3")  # these tests are about what happens at a cap, so a small one keeps them short
-        self.completion("gaps")
+        self.exhaust()
         for k in range(2, count + 2):
             tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
-            self.completion("gaps", f"D00-T01-s1-cycle{k}.md")
+            self.exhaust(f"D00-T01-s1-cycle{k}.md")
 
     def test_a_fourth_repair_is_refused_and_named(self):
         self.use_up_repairs()
@@ -866,7 +901,7 @@ class Dispositions(Tree):
         self.assertEqual(self.disposed()[0], "needs-repair")
         self.assertIn("cycle5", tg.repair(self.root, "D00 T01 §1", "one more", "2026-11-08"))
         self.assertEqual(self.disposed()[0], "ready")
-        self.completion("gaps", "D00-T01-s1-cycle5.md")
+        self.exhaust("D00-T01-s1-cycle5.md")
         with self.assertRaises(tg.Refused):
             tg.repair(self.root, "D00 T01 §1", "and another", "2026-11-08")  # a grant is one cycle
 
@@ -935,7 +970,7 @@ class Dispositions(Tree):
 
     def test_next_work_counts_a_repairable_row_and_is_none_when_nothing_can_run(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
-        self.completion("gaps")
+        self.exhaust()
         rows = tg.graph(self.root)
         self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-repair")
         self.write(todo_file([(1, "A", 0, "attended", "--")]))
@@ -994,7 +1029,8 @@ class SkillsDefer(unittest.TestCase):
                 self.assertIn("query next", text)
                 self.assertNotIn("todo-graph.py query ready", text)
                 self.assertNotIn("no longer counts as runnable", text)
-                self.assertIn("has them filed and stamps from its third", text)
+                self.assertIn("has them fixed or filed and stamps in the same cycle", text)
+                self.assertNotIn("from its third", text)
                 phase = (REPO / folder / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("query disposition` before each row", phase)
                 self.assertNotIn("Skip rows whose `resolve` is not exit 0", phase)
@@ -1016,16 +1052,24 @@ class SkillsDefer(unittest.TestCase):
         for folder in (".claude", ".codex", ".agents"):
             with self.subTest(folder=folder):
                 text = (REPO / folder / "skills" / "review-todo-section" / "SKILL.md").read_text(encoding="utf-8")
-                self.assertIn("From a section's third review cycle on", text)
+                self.assertIn("as Steward and Recto run", text)
+                self.assertIn(":completed'", text)
+                self.assertIn("Nothing is re-reviewed", text)
+                self.assertNotIn("third review cycle", text)
+                skill = (REPO / folder / "skills" / "process-todo-section" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertNotIn("prevent stamping", skill)
+                self.assertNotIn("keep the section unstamped", skill)
                 self.assertNotIn("Only a genuine complete verdict may stamp a new-policy cycle.", text)
                 self.assertIn(":filed'", text)
-                self.assertIn("In the first two cycles, gaps are repaired", text)
                 self.assertIn("todo/findings.md", text)
 
     def test_the_workflow_doc_has_the_third_cycle_rule(self):
         text = (REPO / "docs" / "todo-workflow.md").read_text(encoding="utf-8")
-        self.assertIn("from a section's third review cycle on", text)
+        self.assertIn("never re-reviewed", text)
+        self.assertNotIn("third review cycle", text)
         self.assertNotIn("stamp only on complete", text)
+        design = (REPO / "docs" / "specs" / "2026-11-07-control-panel-design.md").read_text(encoding="utf-8")
+        self.assertIn("Fixed or filed in the same cycle", design)
 
     def test_the_completion_prompt_counts_only_missing_behaviour_as_gaps(self):
         prompt = (REPO / "docs" / "completion-review-prompt.md").read_text(encoding="utf-8")
@@ -1806,9 +1850,9 @@ class Stamp(Tree):
                   "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m",
                   "attempt_cli": "codex", "failover": [], "lenses": [], "review": "Text.\n\nCOMPLETION: gaps"}
         own = self.root / "docs/reviews/00-workspace/D00-T01-s1.md"
-        dispatch.record_completion(own, result, "2026-10-13T00:00:00Z", self.sha)
+        exhaust(self.root, own)
         kept = own.read_bytes()
-        name = tg.repair(self.root, "D00 T01 §1", "the completion review found gaps", "2026-10-21")
+        name = tg.repair(self.root, "D00 T01 §1", "its rounds ran out", "2026-10-21")
         self.assertEqual(name, "docs/reviews/00-workspace/D00-T01-s1-cycle2.md")
         self.restamp_after_repair()
         self.assertEqual(own.read_bytes(), kept)
@@ -1921,10 +1965,10 @@ class Stamp(Tree):
                   "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m",
                   "attempt_cli": "codex", "failover": [], "lenses": [], "review": "Text.\n\nCOMPLETION: gaps"}
         folder = self.root / "docs/reviews/00-workspace"
-        dispatch.record_completion(folder / "D00-T01-s1.md", result, "2026-10-13T00:00:00Z", self.sha)
+        exhaust(self.root, folder / "D00-T01-s1.md")
         for k in range(2, 5):
             tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-10-21")
-            dispatch.record_completion(folder / f"D00-T01-s1-cycle{k}.md", result, "2026-10-13T00:00:00Z", self.sha)
+            exhaust(self.root, folder / f"D00-T01-s1-cycle{k}.md")
         with self.assertRaises(tg.Refused):
             tg.repair(self.root, "D00 T01 §1", "a fourth", "2026-10-21")
         tg.park(self.root, "D00 T01 §1", "three repairs failed", "2026-10-21")
@@ -1934,7 +1978,7 @@ class Stamp(Tree):
         self.restamp_after_repair(name)
         self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
         for k in range(2, 5):  # every cycle's findings stand
-            self.assertIn("COMPLETION: gaps", (folder / f"D00-T01-s1-cycle{k}.md").read_text(encoding="utf-8"))
+            self.assertIn("HIGHEST: P1", (folder / f"D00-T01-s1-cycle{k}.md").read_text(encoding="utf-8"))
 
     def restamp_after_repair(self, cycle="docs/reviews/00-workspace/D00-T01-s1-cycle2.md"):
         """A reopened section re-stamps on its repair: a plan review, a fresh Started line, a completion review and
@@ -1972,11 +2016,16 @@ class Stamp(Tree):
         with open(self.root / cycle, "a", encoding="utf-8", newline="") as handle:
             handle.write("\n" + envelope(1))
         repaired = self.commit("repair reviewed again")
-        # Rounds or a completion review from the regressed cycle's files refuse even with the repair's plan review.
-        for rounds, completion in ((self.reviews, cycle), (cycle_rounds, self.COMPLETION)):
+        # Rounds or a completion review from the regressed cycle's files refuse even with the repair's plan review. The
+        # old rounds are named as their own loop ended, so the only fault left is where they come from.
+        last = len(tg.review_dispatch().read_rounds((self.root / self.PLAN).read_text(encoding="utf-8")))
+        old = self.reviews if last <= 1 else [{"round": last, "report": self.PLAN, "verdict": f"stopped-at-{tg.round_cap(self.root)}"}]
+        for rounds, completion in ((old, cycle), (cycle_rounds, self.COMPLETION)):
+            stopped = rounds[0]["verdict"].startswith("stopped-at-")
             with self.assertRaises(tg.Refused) as ctx:
                 tg.stamp(self.root, "D00 T01 §1", repaired, rounds, ["true -> ok"], "2026-10-22",
-                         completion={"report": completion, "verdict": "complete"}, plan=cycle)
+                         completion={"report": completion, "verdict": "complete"}, plan=cycle,
+                         cap_outcome="repaired in a new cycle" if stopped else None)
             self.assertIn("must come from its repair's findings file", str(ctx.exception))
         tg.stamp(self.root, "D00 T01 §1", repaired, cycle_rounds, ["true -> ok"], "2026-10-22", sync_plan=True,
                  completion={"report": cycle, "verdict": "complete"}, plan=cycle)
