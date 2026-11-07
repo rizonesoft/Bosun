@@ -51,3 +51,25 @@ OVERALL: needs-attention
 
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T20:14:11Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 51729b1bfc594bf6f6f8b0ffca95f46c08961726
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Lines: 6
+- Digest: b7a765af72ce96a9
+
+### consistency: needs-attention
+
+1. **P3, `scripts/ci_status.py:399`: CLI help omits the new `unverified` action.** The module documentation and process-phase policy now define five actions, but `--gate` help still lists only four. Reproduce with `python scripts/ci_status.py --help`. Add `unverified` to the option help so the public interface matches its implementation and consumer policy.
+
+HIGHEST: P3
+OVERALL: needs-attention

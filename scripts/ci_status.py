@@ -396,7 +396,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                         help="a workflow file in .github/workflows/ (repeatable; default build.yml and plan.yml)")
     parser.add_argument("--sha", help="judge this commit's own runs rather than the branch")
     parser.add_argument("--base", help="the remote head before the push, needed to prove a workflow was skipped")
-    parser.add_argument("--gate", action="store_true", help="also print one action: proceed, wait, repair or exhausted")
+    parser.add_argument("--gate", action="store_true", help="also print one action: proceed, wait, repair, exhausted or unverified")
     parser.add_argument("--wait-minutes", type=float, default=0, help="with --gate, poll this long while the action is wait")
     args = parser.parse_args(argv)
     directory = root / ".github" / "workflows"
