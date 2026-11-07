@@ -1015,6 +1015,7 @@ def repair_cap(root, body):
         cap = schedule.get("max_repair_cycles", 3)
     except (OSError, KeyError, ValueError, TypeError):
         cap = 3
+    require(type(cap) is int and 0 <= cap <= 3, f"max_repair_cycles must be an integer from 0 to 3, not {cap!r}")
     return cap + len(REPAIR_GRANTED.findall(body or ""))
 
 
@@ -1031,10 +1032,14 @@ def rewrite_section(root, row, body):
         graph(root)
         if plan_before is not None:
             projections(root, sync=True)
-    except BaseException:
-        atomic(path, original)
-        if plan_before is not None:
-            atomic(plan_path, plan_before)
+    except BaseException as failure:
+        try:
+            atomic(path, original)
+            if plan_before is not None:
+                atomic(plan_path, plan_before)
+        except OSError as stuck:
+            raise Refused(f"{row.ref} could not be restored after {failure!r}: {stuck!r}. {row.path} may hold the new line, "
+                          f"and that is one valid cycle. Run `python scripts/todo-graph.py plan --sync` to finish it") from None
         raise
 
 
@@ -1099,8 +1104,11 @@ def section_disposition(row, rows, caps, root=ROOT):
     # Last, so that needs-repair means this session can really do the repair.
     dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
     if dead_end:
-        used, cap = len(REPAIR_CYCLE.findall(row.body)), repair_cap(root, row.body)
-        return "needs-repair", dead_end + ("; its repair cycles are used up, so park it" if used >= cap else "")
+        try:
+            spent = len(REPAIR_CYCLE.findall(row.body)) >= repair_cap(root, row.body)
+        except Refused as bad_pin:  # one bad setting mustn't stop every row being answered, or be retried by a run
+            return "waiting-person", f"{dead_end}, and {bad_pin}"
+        return "needs-repair", dead_end + ("; its repair cycles are used up, so park it" if spent else "")
     return "ready", "can run now"
 
 

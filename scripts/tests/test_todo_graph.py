@@ -548,14 +548,84 @@ class Dispositions(Tree):
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
         self.assertEqual(self.text().count("> **Repair cycle:**"), 1)
 
-    def test_a_failed_plan_sync_leaves_the_tree_unchanged(self):
+    def pin(self, value):
+        (self.root / ".conclave").mkdir(exist_ok=True)
+        (self.root / ".conclave" / "reviewers.toml").write_text(f'[schedule]\ncompletion_order = "last"\nmax_repair_cycles = {value}\n', encoding="utf-8")
+
+    def test_a_bad_repair_cap_refuses_repair_but_still_answers(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
-        before = self.text()
-        with mock.patch.object(tg, "graph", side_effect=[tg.graph(self.root), tg.Refused("boom")]):
-            with self.assertRaises(tg.Refused):
+        for value in ("4", "true", '"3"', "-1"):
+            with self.subTest(value):
+                self.pin(value)
+                with self.assertRaises(tg.Refused) as caught:
+                    tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+                self.assertIn("max_repair_cycles", str(caught.exception))
+                state, reason = self.disposed()
+                self.assertEqual(state, "waiting-person")
+                self.assertIn("max_repair_cycles", reason)
+        self.pin("3")  # correcting it brings the row back, with its findings intact
+        self.assertEqual(self.disposed()[0], "needs-repair")
+        self.assertIn("COMPLETION: gaps", self.record().read_text(encoding="utf-8"))
+        self.pin("0")
+        with self.assertRaises(tg.Refused) as caught:
+            tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertIn("park it", str(caught.exception))
+
+    def with_plan(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        tg.projections(self.root, sync=True)
+        return self.root / tg.PLAN
+
+    def assert_one_cycle(self, expected):
+        """A fresh read picks exactly one cycle, and the earlier findings stand."""
+        self.assertTrue(tg.section_findings(self.root, "D00 T01 §1").endswith(expected))
+        self.assertIn("COMPLETION: gaps", self.record().read_text(encoding="utf-8"))
+
+    def test_a_failed_file_write_leaves_the_tree_unchanged(self):
+        plan = self.with_plan()
+        before, plan_before = self.text(), plan.read_bytes()
+        with mock.patch.object(tg, "atomic", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
                 tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
-        self.assertEqual(self.text(), before)
+        self.assertEqual((self.text(), plan.read_bytes()), (before, plan_before))
+        self.assert_one_cycle("D00-T01-s1.md")
+
+    def test_a_failed_plan_write_restores_both_files(self):
+        plan = self.with_plan()
+        before, plan_before = self.text(), plan.read_bytes()
+        real, calls = tg.atomic, []
+
+        def flaky(path, data):
+            calls.append(path)
+            if len(calls) == 2:  # the section's write goes through, and the plan's doesn't
+                raise OSError("disk full")
+            return real(path, data)
+        with mock.patch.object(tg, "atomic", side_effect=flaky):
+            with self.assertRaises(OSError):
+                tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertEqual((self.text(), plan.read_bytes()), (before, plan_before))
+        self.assert_one_cycle("D00-T01-s1.md")
+
+    def test_a_failed_rollback_says_how_to_finish_and_leaves_one_valid_cycle(self):
+        self.with_plan()
+        real, calls = tg.atomic, []
+
+        def flaky(path, data):
+            calls.append(path)
+            if len(calls) >= 2:  # the section's write goes through, then nothing else can be written
+                raise OSError("disk full")
+            return real(path, data)
+        with mock.patch.object(tg, "atomic", side_effect=flaky):
+            with self.assertRaises(tg.Refused) as caught:
+                tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertIn("plan --sync", str(caught.exception))
+        self.assert_one_cycle("D00-T01-s1-cycle2.md")  # the line stands, and that is the cycle
+        tg.projections(self.root, sync=True)  # the named command finishes it
+        tg.projections(self.root)
+        with self.assertRaises(tg.Refused):  # and the cycle wasn't spent twice
+            tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
 
     def use_up_repairs(self, count=3):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
@@ -1466,11 +1536,33 @@ class Stamp(Tree):
             self.stamp("D00 T01 §1", self.commit("parked"), self.reviews, ["true -> ok"], "2026-10-21")
         self.assertIn("parked", str(caught.exception))
 
-    def restamp_after_repair(self):
+    def test_exhaustion_park_grant_repair_then_a_stamp(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        dispatch = tg.review_dispatch()
+        result = {"writer": "claude", "writer_model": "claude-opus-5-5", "reviewer": "astra", "cli": "codex", "model": "m",
+                  "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m",
+                  "attempt_cli": "codex", "failover": [], "lenses": [], "review": "Text.\n\nCOMPLETION: gaps"}
+        folder = self.root / "docs/reviews/00-workspace"
+        dispatch.record_completion(folder / "D00-T01-s1.md", result, "2026-10-13T00:00:00Z", self.sha)
+        for k in range(2, 5):
+            tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-10-21")
+            dispatch.record_completion(folder / f"D00-T01-s1-cycle{k}.md", result, "2026-10-13T00:00:00Z", self.sha)
+        with self.assertRaises(tg.Refused):
+            tg.repair(self.root, "D00 T01 §1", "a fourth", "2026-10-21")
+        tg.park(self.root, "D00 T01 §1", "three repairs failed", "2026-10-21")
+        tg.unpark(self.root, "D00 T01 §1", "owner read the findings", "2026-10-22")
+        name = tg.repair(self.root, "D00 T01 §1", "granted", "2026-10-22")
+        self.assertEqual(name, "docs/reviews/00-workspace/D00-T01-s1-cycle5.md")
+        self.restamp_after_repair(name)
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        for k in range(2, 5):  # every cycle's findings stand
+            self.assertIn("COMPLETION: gaps", (folder / f"D00-T01-s1-cycle{k}.md").read_text(encoding="utf-8"))
+
+    def restamp_after_repair(self, cycle="docs/reviews/00-workspace/D00-T01-s1-cycle2.md"):
         """A reopened section re-stamps on its repair: a plan review, a fresh Started line, a completion review and
         rounds, all in its cycle findings file. The regressed cycle's evidence refuses."""
         unstamped = self.commit("unstamp")
-        cycle = "docs/reviews/00-workspace/D00-T01-s1-cycle2.md"
         self.assertEqual(tg.section_findings(self.root, "D00 T01 §1"), cycle)
         # The first cycle's plan review, completion review and rounds approved the work that regressed.
         with self.assertRaises(tg.Refused) as ctx:
