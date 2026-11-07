@@ -1430,10 +1430,12 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
         if sync_plan or original_plan_bytes is not None:
             projections(root, sync=True)
     except BaseException:  # an interrupt between writes must roll back as an error does
-        receipt_path.unlink(missing_ok=True)
         try:
             if not path.is_file() or path.read_bytes() != original_bytes:
                 atomic(path, original_bytes)
+            # Only once the section reads unstamped again: a rollback the disk also refuses then leaves a stamped
+            # section with its receipt, which `plan --sync` completes, never a stamped section with none.
+            receipt_path.unlink(missing_ok=True)
         finally:
             if original_plan_bytes is not None:
                 if not plan_path.is_file() or plan_path.read_bytes() != original_plan_bytes:

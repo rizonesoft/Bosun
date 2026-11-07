@@ -1853,6 +1853,26 @@ class Stamp(Tree):
         self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
         self.assertTrue((self.root / "docs/reviews/d00-t01-s1.orphan-2026-10-13.json").exists())
 
+    def test_a_full_disk_through_the_rollback_leaves_a_stamp_with_its_receipt(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        real = tg.atomic
+        calls = []
+
+        def disk_fills_after_the_section(path, data):
+            calls.append(path)
+            if len(calls) > 2:
+                raise OSError(28, "No space left on device")
+            real(path, data)
+        with mock.patch.object(tg, "atomic", disk_fills_after_the_section):
+            with self.assertRaises(OSError):
+                self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        self.assertGreater(len(calls), 3)  # plan regeneration and the rollback were both refused
+        self.assertTrue((self.root / "docs/reviews/d00-t01-s1.json").exists())
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)  # valid: stamped, with its receipt
+        tg.projections(self.root, sync=True)  # the disk cleared
+        tg.projections(self.root, sync=False)
+
     def test_stamp_refuses_filing_to_a_stamped_section_and_the_receipt_survives_its_target_shipping(self):
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--"), (3, "C", 0, "none", "--")]).replace(
             "**Test checkpoint:**", STARTED + "**Test checkpoint:**"))
