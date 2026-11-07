@@ -80,6 +80,9 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Write `build/ci-gate.cleared` by temporary file then replace as a JSON record, ignoring an incomplete one with a warning, in `scripts/ci_status.py`. Done when: tests prove a partial marker resets nothing, and a marker that can't be saved reads `unverified`.
 - [x] Apply the deadline before the first tool call in `scripts/ci_status.py`, to `git` as well as `gh`, launching no call once it has passed. Done when: fake clock tests with slow tools prove total elapsed time stays within a six-second budget, and an expired two-hour limit launches no `gh` call and reads `unverified`.
 - [x] Run the wait limit and base recovery tests in separate processes in `scripts/tests/test_ci_status.py`. Done when: both start a new interpreter per step.
+- [ ] Refuse `--workflow` with `--gate` in `scripts/ci_status.py`, so a pass always covers every gating workflow and the record it leaves means that. Done when: a test sees exit 2 naming why, and `--workflow` without `--gate` still works. Cheaper substitute: a proof recorded from a partial check.
+- [ ] Record when waiting began before the first lookup in `scripts/ci_status.py`, and clear it on any verdict. Done when: a test interrupts the first lookup and the start stands, total waiting reaches `unverified` at exactly two hours through repeated calls, and a green or red leaves no wait behind.
+- [ ] Give every `unverified` a reason in `scripts/ci_status.py`, naming the elapsed time and limit or the state that couldn't be saved, on its own line before the action and as `reason` in JSON. Done when: tests read it in both forms for each way to reach it, and the action stays the last line.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
@@ -87,6 +90,8 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 > **Repair cycle:** 1: 2026-11-07: the completion review found the repair reset, the wait bound and wait feedback short (after: its completion review returned gaps)
 
 > **Repair cycle:** 2: 2026-11-07: the completion review found a false skip, a partial marker and an unbounded wait (after: its completion review returned gaps)
+
+> **Repair cycle:** 3: 2026-11-07: the completion review found partial checks, the first lookup's time and silent unverified results (after: its completion review returned gaps)
 
 ## 2. One section disposition across graph, guard and skills
 
