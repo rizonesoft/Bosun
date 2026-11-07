@@ -377,6 +377,8 @@ The owner decided on 2026-11-07 that one heartbeat runs every repo from day one,
 
 ## 12. Review caps of 33
 
+> **Started:** 2026-11-07T20:38:47Z
+
 The owner decided on 2026-11-07 that a low cap makes sections fail to ship and the run block itself, as `§1` showed by parking on two small gaps after three repairs. So a cycle may spend 33 review rounds, one adversarial and 32 low, and a section may use 33 repair cycles. A review still stops at its first clean round, so the higher caps cost only what a section really needs. This revises `§3`, which is stamped, so its text stands as history.
 
 **Phase:** 0
