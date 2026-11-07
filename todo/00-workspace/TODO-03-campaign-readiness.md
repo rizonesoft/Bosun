@@ -126,9 +126,14 @@ A section that fails review must either get a real chance to repair or step asid
 - [x] Teach `.claude/skills/review-todo-section/SKILL.md` and its mirrors: repair at a dead end, park at the cap, then carry on. Done when: a test reads that rule from all three.
 - [x] Persist the repair cycle in a `> **Repair cycle:** <K>: <date>: <reason>` line, and count those lines with `Unstamped:` notes through a new `reopenings` in `section_findings`, `build_start` and `review_dead_end` in `scripts/lib/todo_graph.py`, while `suspects` and `settled` keep counting `Unstamped:` notes only, since a section never stamped has no consumers to suspect. Done when: a test goes completion gaps, repair, clean reviews, then a successful `stamp` and `validate`, with the earlier findings kept. Cheaper substitute: changing only the dispatcher.
 - [x] Write a fresh `> **Started:**` line after the repair plan review in `.claude/skills/process-todo-section/SKILL.md` and its mirrors. Done when: a test proves the new plan review precedes the new build start.
+- [ ] Validate `max_repair_cycles` in `repair_cap` in `scripts/lib/todo_graph.py` as the dispatcher does, refusing `repair` on a bad value and naming it in the `needs-repair` reason, without failing `query disposition`. Done when: tests with 4, `true`, `"3"` and -1 refuse, and disposition still answers for every row.
+- [ ] Report a failed rollback in `rewrite_section` in `scripts/lib/todo_graph.py`, naming what the section holds and the command that finishes it. Done when: tests inject a failing file write, a failing plan write and a failing rollback, and a fresh read each time selects exactly one cycle and keeps earlier findings. Cheaper substitute: a test that fails before any write.
+- [ ] Prove exhaustion, parking, a grant, a repair, then a successful stamp and validate, in `scripts/tests/test_todo_graph.py`. Done when: the test ends with the section stamped and the whole tree valid.
 - [ ] Commit: `review: repair cycles and parking`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py` exits 0, and fails if a fourth repair cycle is allowed.
+
+> **Repair cycle:** 1: 2026-11-07: the completion review found three in-scope gaps (after: its completion review returned gaps)
 
 ## 4. Reviewer attempt limits and diagnostics
 

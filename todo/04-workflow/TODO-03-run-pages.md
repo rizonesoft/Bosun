@@ -117,6 +117,7 @@ Starting has to happen in the same way a person would, so the guard's prompt det
 - [ ] Add Stop at end of turn, and Halt with ground and required reason via `run-guard.py halt`. Done when: an empty reason is refused, and the recorded ground shows on the page. Cheaper substitute: writing `state.json` directly.
 - [ ] Add Install and Uninstall watchdog. Done when: state reads back from `health()`, and Activity logs each action.
 - [ ] Start a WSL repo's run through `wt.exe wsl.exe -d <distro> --cd <path> claude`, in `src/Bosun.Panel/Views/RunActions.cs`. Done when: an argument test keeps a spaced path whole.
+- [ ] Show a parked section's reason, repair cycles used and findings link in `RunView.xaml`, with Grant one more repair, which confirms and runs `todo-graph.py unpark`. Done when: a fixture shows them, and the button is the only route the panel offers. Cheaper substitute: telling the operator to find the Markdown file.
 - [ ] Commit: `run: start, stop and halt`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunActions` exits 0, and fails if the change is reverted.

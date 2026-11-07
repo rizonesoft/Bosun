@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 23 | Checklist items: 136
+Sections: 23 | Checklist items: 139
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -18,7 +18,7 @@ Sections: 23 | Checklist items: 136
 | [ ]    | D00 T01 §8  | Run guard state in linked worktrees                    | none        | 4     |
 | [ ]    | D00 T03 §1  | CI status that proves the commit                       | none        | 9     |
 | [ ]    | D00 T03 §2  | One section disposition across graph, guard and skills | none        | 7     |
-| [ ]    | D00 T03 §3  | Review repair cycles and parking                       | none        | 12    |
+| [ ]    | D00 T03 §3  | Review repair cycles and parking                       | none        | 15    |
 | [ ]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none        | 6     |
 | [ ]    | D00 T03 §5  | Usage limits wait and resume                           | none        | 6     |
 | [ ]    | D00 T03 §6  | Run end states and wake checks                         | none        | 9     |
@@ -97,7 +97,7 @@ Sections: 8 | Checklist items: 37
 
 ### Phase 4: Workflow
 
-Sections: 18 | Checklist items: 84
+Sections: 18 | Checklist items: 85
 
 | Status | Reference  | Deliverable                        | Needs           | Items |
 | ------ | ---------- | ---------------------------------- | --------------- | ----- |
@@ -110,7 +110,7 @@ Sections: 18 | Checklist items: 84
 | [ ]    | D04 T02 §2 | Rounds and receipts                | none            | 4     |
 | [ ]    | D04 T03 §1 | status --json for the guard        | none            | 4     |
 | [ ]    | D04 T03 §2 | Run page: state and health         | none            | 5     |
-| [ ]    | D04 T03 §3 | Start, stop and halt               | display-session | 5     |
+| [ ]    | D04 T03 §3 | Start, stop and halt               | display-session | 6     |
 | [ ]    | D04 T03 §4 | Guard log and resumed session tail | none            | 4     |
 | [ ]    | D04 T03 §5 | Run notifications                  | none            | 3     |
 | [ ]    | D04 T03 §6 | Panel view of the heartbeat        | none            | 4     |
@@ -194,4 +194,4 @@ Sections: 5 | Checklist items: 28
 
 Progress: 0/123 verified sections, 7 ready to run now.
 
-Checklist: 41/643 items completed (includes Commit items).
+Checklist: 41/647 items completed (includes Commit items).
