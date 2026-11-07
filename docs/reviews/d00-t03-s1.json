@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T03 \u00a71",
+  "title": "CI status that proves the commit",
+  "implementation_sha": "583766f2953f23ae508898c41f53c22b4bb10a2b",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s1-cycle7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s1-cycle7.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts/tests/test_ci_status.py -> Ran 105 tests, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s1-cycle7.md",
+    "verdict": "filed",
+    "candidate": "583766f2953f23ae508898c41f53c22b4bb10a2b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D00 T03 \u00a713"
+    ]
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s1-cycle7.md",
+    "candidate": "9c93c33c884fb92d905c41fd52061f9b628ad6fc",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "9c93c33c884fb92d905c41fd52061f9b628ad6fc",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

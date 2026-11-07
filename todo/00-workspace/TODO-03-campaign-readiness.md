@@ -36,7 +36,7 @@ title: "TODO-03 -- Campaign readiness"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | CI status that proves the commit | -- | [ ] |
+| 1 | §1 | CI status that proves the commit | -- | [x] |
 | 2 | §2 | One section disposition across graph, guard and skills | -- | [x] |
 | 3 | §3 | Review repair cycles and parking | -- | [x] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [ ] |
@@ -92,7 +92,7 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Read `HEAD` from the `.git` files with no process in `scripts/ci_status.py`, covering a branch, a detached head, packed refs and a linked worktree, and bound any `git` call still needed by the recorded wait. Done when: tests against real repos match `git rev-parse` for all four layouts, `--sha HEAD` starts no tool past the limit, an unreadable `HEAD` past the limit gives a gate answer with no traceback and no tool, and a slow `git` with one second left costs at most that second. Cheaper substitute: a short timeout on the call.
 - [x] Print the recovery when a workflow has no run and nothing proves a skip, as after a fresh clone, in `scripts/ci_status.py`: the `gh workflow run <file>` command, which starts a real run of `HEAD`, as `recovery` in JSON and a line before the action. Add it to the `wait` step in `.claude/skills/process-phase/SKILL.md` and its mirrors. Done when: tests read it in both forms naming only the workflows that need it, a real run then decides in a separate process, and a run that fails stays red.
 - [x] Accept only `HEAD` or a full SHA with `--gate` in `scripts/ci_status.py`, since nothing needs another name and a wait is recorded by commit. Done when: tests prove a branch name is refused with exit 2 and a message saying what to pass, a new commit reached through `HEAD` or its full SHA gets its own wait after an older one expired, and `--sha main` still works without `--gate`.
-- [ ] Commit: `ci: status proves the commit`
+- [x] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
 
@@ -109,6 +109,9 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 > **Repair cycle:** 5: 2026-11-07: the completion review held that HEAD must respect the limit too (after: its completion review returned gaps)
 
 > **Repair cycle:** 6: 2026-11-07: the completion review found branch names can't recover; nothing needs them (after: its completion review returned gaps)
+
+> **Verified:** 2026-11-08 | §1 | 583766f2953f23ae508898c41f53c22b4bb10a2b
+> **Review:** `docs/reviews/d00-t03-s1.json`
 
 ## 2. One section disposition across graph, guard and skills
 

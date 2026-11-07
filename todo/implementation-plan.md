@@ -16,7 +16,7 @@ Sections: 26 | Checklist items: 194
 | [ ]    | D00 T01 §2  | Settled items in review prompts                        | none        | 4     |
 | [ ]    | D00 T01 §3  | Dispatch hook for background reviews                   | none        | 5     |
 | [ ]    | D00 T01 §8  | Run guard state in linked worktrees                    | none        | 4     |
-| [ ]    | D00 T03 §1  | CI status that proves the commit                       | none        | 27    |
+| [x]    | D00 T03 §1  | CI status that proves the commit                       | none        | 27    |
 | [x]    | D00 T03 §2  | One section disposition across graph, guard and skills | none        | 13    |
 | [x]    | D00 T03 §3  | Review repair cycles and parking                       | none        | 18    |
 | [ ]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none        | 6     |
@@ -195,6 +195,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 4/126 verified sections, 7 ready to run now.
+Progress: 5/126 verified sections, 7 ready to run now.
 
-Checklist: 97/702 items completed (includes Commit items).
+Checklist: 98/702 items completed (includes Commit items).
