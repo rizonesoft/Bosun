@@ -49,7 +49,7 @@ title: "TODO-03 -- Campaign readiness"
 
 ## 1. CI status that proves the commit
 
-Exit 0 means only that no red run was seen today, so a commit with no successful run reads as passing. A gate has to say which commit passed.
+Exit 0 means only that no red run was seen today, so a commit with no successful run reads as passing. A gate has to say which commit passed, and what the run does next. **Corrected 2026-11-07** after the plan review: the push range, a gate action and the exit table were added, and the item naming the wrong file was fixed.
 
 **Phase:** 0
 **Needs:** none
@@ -57,17 +57,20 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 
 **Build order:**
 
-1. Extend `scripts/ci_status.py`. Done when: pending, absent and unavailable are separate from green.
-2. Add `--sha`. Done when: a green run on an older commit does not satisfy a newer one.
+1. Extend `scripts/ci_status.py`. Done when: `pending`, `none` and unavailable are separate from `green`, and a proven skip is separate from missing evidence.
+2. Add `--sha`, `--base` and `--gate`. Done when: a green run of an older commit can't satisfy a newer one, and `--gate` prints one action.
 
-- [ ] Report a verdict of `green`, `red`, `pending` or `none` per workflow in `scripts/ci_status.py`. Done when: a new `scripts/tests/test_ci_status.py` (none exists; **Corrected 2026-11-07**) covers an empty run list, all runs pending and an older green with a newer run pending. Cheaper substitute: treating no red as green.
-- [ ] Add `--sha <commit>`, requiring a green run of that commit. Done when: a test with a green older commit exits nonzero.
-- [ ] Skip a workflow when `paths` or `paths-ignore` means the commit never triggers it, naming the reason in `scripts/ci_status.py`. Done when: a Markdown-only commit is not reported as failing `build.yml`.
-- [ ] Return exit 0 for green, 1 for red, 3 for unavailable and 4 for pending in `scripts/ci_status.py`. Done when: the module docstring and tests agree.
-- [ ] Add the bounded red-first policy that the `scripts/ci_status.py` docstring already points to, to `.claude/skills/process-phase/SKILL.md` and its two mirrors: push after each stamped section, then fix a red run on `main` before the next section, three attempts at most. Done when: a test reads the skill text and the three mirrors match.
+- [ ] Report a verdict of `green`, `red`, `pending`, `none` or `skipped` per workflow in `scripts/ci_status.py`. Done when: a new `scripts/tests/test_ci_status.py` covers an empty run list, all runs pending and an older green with a newer run pending, through both text and JSON output. Cheaper substitute: treating no red as green.
+- [ ] Add `--sha <commit>` in `scripts/ci_status.py`, reading runs with `gh run list --commit <sha>` so the lookup can't miss it, and judging by the newest attempt of that commit. Done when: tests prove an exact green passes, a green older commit doesn't, a commit outside the latest ten branch runs is still found, and a newer pending or failed run of the same commit decides.
+- [ ] Add `--base <commit>` in `scripts/ci_status.py`, reading the workflow's `paths` and `paths-ignore` at `--sha` and comparing every file changed in `base..sha`, to report `skipped` with the reason. Done when: tests prove a Markdown-only push is `skipped`, a code commit followed by a Markdown stamp in one push is not, and a missing base, an unreadable workflow or a failed diff reads `none`, never `skipped`. Cheaper substitute: checking only the last commit.
+- [ ] Return one overall exit in `scripts/ci_status.py`: red first as 1, then unavailable as 3, pending as 4, none as 5, and 0 only when every workflow is `green` or `skipped`. Done when: a table test covers mixed results, and the module docstring states this order.
+- [ ] Add `--gate` in `scripts/ci_status.py`, printing one action for a pushed commit: `proceed` on exit 0, `wait` on 3, 4 or 5, `repair` on red with attempts left, and `exhausted` after three. Done when: scenario tests walk each transition, including a repair that goes green. Cheaper substitute: rules only in skill text.
+- [ ] Hold the repair count in `build/ci-repairs.json` with an atomic replace, keyed by the first red commit, reset by a green. Done when: a test proves the count survives a new process, and a corrupt file reads as 0 attempts used with one warning line.
+- [ ] Bound `wait` in `--gate` with `--wait-minutes` in `scripts/ci_status.py`, polling every 60 seconds. Done when: a fake clock shows pending for the whole time ends in `wait`, and pending turning green ends in `proceed`.
+- [ ] Add the red-first policy to `.claude/skills/process-phase/SKILL.md` and its two mirrors: after each stamped section, push, run `--gate` with the pushed commit and the previous remote head, and act on its one action. `exhausted` files the fault through `add-todo` and carries on with local gates, since the owner said the run must not block itself, and `D00 T03 §6` refuses `complete` while `main` is red. Done when: a test proves the three mirrors hold the same text and name each action.
 - [ ] Commit: `ci: status proves the commit`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0.
+**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
 
 ## 2. One section disposition across graph, guard and skills
 
@@ -175,6 +178,7 @@ The owner chose subscription only, so hitting a limit costs time and never money
 2. Add `todo/wakes.json`. Done when: a temporary Need clears by itself when its check passes.
 
 - [ ] Define `complete` in `scripts/lib/run_guard.py` as every section outside phase 99 stamped, with the Verification of each of those files run and each of those phases closed out in `docs/phase-runs/`. Done when: a test with a stamped section but no closeout does not read complete, and phase 99 rows do not prevent it. Cheaper substitute: treating an empty ready list as done.
+- [ ] Refuse `complete` in `scripts/lib/run_guard.py` unless `scripts/ci_status.py --sha` on the pushed head exits 0. Done when: a test with a red head does not read complete, and its acceptance file names the failing workflow.
 - [ ] Add pending file verification and phase closeouts to `query disposition` in `scripts/lib/todo_graph.py`. Done when: a crash after the last stamp leaves work the watchdog resumes.
 - [ ] Keep a run with only `waiting-host` or `waiting-person` rows active in state `waiting`, with `watch` rechecking each tick. Done when: a test proves a row becoming ready resumes the run with no prompt.
 - [ ] End a run whose remaining work outside phase 99 is only parked sections and their dependants as `parked`, never as complete, and write `docs/acceptance/<date>.md` in both `parked` and `complete`, listing every parked section, each blocked dependant with its root blocker, and every phase 99 row with how to run it. Done when: fixtures for both states produce the file, and `parked` is never reported as implementation complete.
