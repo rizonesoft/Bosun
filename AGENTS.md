@@ -23,7 +23,7 @@ The generic review skills check the failure modes this file names for the area a
 - A machine change with no preview, read-back or undo, or a whole-panel elevation where one command would do.
 - A timer, poller or animation that keeps running for a hidden page, a live blur, motion that ignores the system setting, or anything that pushes the idle budget past 150 MB and 1% CPU.
 - An Insight that sends text not shown in its preview or not redacted, that writes a file or changes the machine, or that reads as a review result.
-- A supervisor tick that starts a stopped WSL VM, or that resumes a repo the queue has no room for.
+- A heartbeat tick that starts a stopped WSL VM, that resumes more than one repo in a pass, or a memory hold with no time limit.
 - A hex colour or font size outside `Theme/Generated`, status shown by colour alone, an icon-only control without an automation name, or a stubbed control with no owner section.
 - A value that can't be read displayed as 0 instead of "Not available" with a reason.
 

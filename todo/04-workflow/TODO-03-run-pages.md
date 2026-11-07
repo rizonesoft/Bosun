@@ -47,7 +47,7 @@ title: "TODO-03 -- Unattended run page"
 | 3 | §3 | Start, stop and halt | §2 | [ ] |
 | 4 | §4 | Guard log and resumed session tail | §2 | [ ] |
 | 5 | §5 | Run notifications | §2, D03 T01 §5 | [ ] |
-| 6 | §6 | Fleet supervisor in the logger | §1, D01 T01 §5, D02 T02 §6 | [ ] |
+| 6 | §6 | Panel view of the heartbeat | §1, D01 T01 §5, D02 T02 §6 | [ ] |
 | 7 | §7 | Move repos to the supervisor | §6, §2 | [ ] |
 | 8 | §8 | Commands card and terminal launch | §3 | [ ] |
 
@@ -164,9 +164,9 @@ A stalled run at 3 a.m. should be waiting in the tray at breakfast, and the Over
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunWatch` exits 0, and fails if the change is reverted.
 
-## 6. Fleet supervisor in the logger
+## 6. Panel view of the heartbeat
 
-Each repo has its own scheduled watchdog today, and none of them knows about the others, so ten repos could restart at once on a machine short of memory. The owner decided on 2026-11-07 that Bosun runs the schedule, while each repo keeps its run state, rules and hooks. It lives in `bosun-logger`, which runs from login, because the panel may be closed.
+`D00 T03 §11` built the heartbeat, and it is already running by now. This section shows it in the panel, and has the panel's repo registry drive it through the tool that owns it. **Corrected 2026-11-07:** this built the supervisor inside the logger, until the owner asked for it from day one.
 
 **Phase:** 4
 **Needs:** none
@@ -174,19 +174,15 @@ Each repo has its own scheduled watchdog today, and none of them knows about the
 
 **Build order:**
 
-1. Add a tick loop to `src/logger_main.cpp`. Done when: one tick runs each supervised repo's guard in turn.
-2. Add admission. Done when: a restart waits for room.
+1. Create `src/Bosun.Core/Workflow/HeartbeatClient.cs`. Done when: `bosun heartbeat status --json` parses.
+2. Include it in `bosun status --json`. Done when: pages read one source.
 
-- [ ] Read supervised repos from `%LOCALAPPDATA%\Bosun\supervised.json`, written by `RepoRegistry`, in `src/app.cpp`. Done when: a missing or corrupt file supervises nothing and logs one line, tested in `tests/test_core.cpp`. Cheaper substitute: scanning folders from the logger.
-- [ ] Run `run-guard.py watch` for each Windows repo in `src/app.cpp`, with an argument list, a timeout and no console window. Done when: `tests/supervisor_test.ps1` proves a fake guard in a temporary repo ticks, and a hung one is stopped without blocking the next.
-- [ ] Run a WSL repo's tick through `wsl.exe -d <distro> --cd <path>` with `python3`, only when `wsl.exe --list --running` shows the distro. Done when: `tests/supervisor_test.ps1` proves a stopped distro stays stopped, and that repo reads "WSL not running". Cheaper substitute: a tick that wakes the VM.
-- [ ] Pass admission to the guard through `run-guard.py watch --may-resume <0|1>`, from the queue's memory and slot state. Done when: `scripts/tests/test_run_guard.py` proves a dead run isn't resumed at 0, and no restart is counted. Cheaper substitute: restarting whenever a session is dead.
-- [ ] Resume at most one repo per tick, in the oldest-waiting order, in `src/app.cpp`. Done when: three dead repos resume across three ticks in a test.
-- [ ] Write each tick's outcome to `%LOCALAPPDATA%\Bosun\supervisor\status.json`, atomically. Done when: `bosun status --json` includes it with a `schema_version`.
-- [ ] Keep the logger under its idle budget with the tick loop running. Done when: `tests/panel_budget.ps1` measures no more than 1% CPU with 10 fake repos.
-- [ ] Commit: `supervisor: fleet ticks in the logger`
+- [ ] Read `bosun heartbeat status --json` in `HeartbeatClient.cs`. Done when: fixtures for a tick, a hold, an error and "WSL not running" parse. Cheaper substitute: reading `repos.json` directly.
+- [ ] Call `bosun heartbeat add` and `remove` from `HeartbeatClient.cs`, never writing `repos.json`. Done when: a test proves the panel passes an argument list, and shows a refusal in full.
+- [ ] Report the heartbeat task's state in `HeartbeatClient.cs`, with "Not available" and a reason when it can't be read. Done when: a fixture with the task missing says so. Cheaper substitute: showing the last known state as current.
+- [ ] Commit: `run: panel view of the heartbeat`
 
-**Test checkpoint:** `pwsh tests/supervisor_test.ps1` exits 0, and fails if a stopped distro is started.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~HeartbeatClient` exits 0, and fails if the panel writes `repos.json`.
 
 ## 7. Move repos to the supervisor
 
@@ -207,9 +203,9 @@ A repo must still work without Bosun, so its own watchdog stays available. It st
 
 - [ ] Add a lock around `watch_tick` in `scripts/lib/run_guard.py`. Done when: `scripts/tests/test_run_guard.py` proves two concurrent ticks give one resume. Cheaper substitute: hoping the schedules don't overlap.
 - [ ] Add Supervised by to `health()` in `scripts/lib/run_guard.py`, reading Bosun's status file when present. Done when: a test proves a repo with no Bosun reads as its own watchdog, unchanged.
-- [ ] Add Supervise with Bosun in `RunView.xaml`, running that repo's `run-guard.py uninstall` and adding it to `supervised.json`, for one repo. Done when: a test with a fake repo moves it both ways. Cheaper substitute: removing tasks by hand.
+- [ ] Add Supervise with Bosun in `RunView.xaml`, running `bosun heartbeat add` for one repo. Done when: a test with a fake repo moves it both ways. Cheaper substitute: removing tasks by hand.
 - [ ] Show every repo's supervisor, last tick and heartbeat age in `src/Bosun.Panel/Views/FleetView.xaml`. Done when: a fixture shows Windows and WSL rows with words.
-- [ ] Support a kit with no `--may-resume` in `RepoRegistry`'s `KitProbe`. Done when: such a repo reads "Not supported by this kit" and keeps its own watchdog.
+- [ ] Show "Add the run guard kit first" in `RunView.xaml` for a repo with no `scripts/run-guard.py`, from `KitProbe`, naming the command. Done when: a fixture repo shows it, and Supervise with Bosun is disabled with that reason.
 - [ ] Commit: `supervisor: move repos to Bosun`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Supervise` exits 0, and fails if a repo ends up with both watchdogs.

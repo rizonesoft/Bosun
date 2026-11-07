@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 22 | Checklist items: 118
+Sections: 23 | Checklist items: 130
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -25,6 +25,7 @@ Sections: 22 | Checklist items: 118
 | [ ]    | D00 T03 §7  | Owned session recovery                                 | none        | 6     |
 | [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
 | [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 5     |
+| [ ]    | D00 T03 §11 | One global heartbeat                                   | none        | 12    |
 | [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 7     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
@@ -96,7 +97,7 @@ Sections: 8 | Checklist items: 37
 
 ### Phase 4: Workflow
 
-Sections: 18 | Checklist items: 88
+Sections: 18 | Checklist items: 84
 
 | Status | Reference  | Deliverable                        | Needs           | Items |
 | ------ | ---------- | ---------------------------------- | --------------- | ----- |
@@ -112,7 +113,7 @@ Sections: 18 | Checklist items: 88
 | [ ]    | D04 T03 §3 | Start, stop and halt               | display-session | 5     |
 | [ ]    | D04 T03 §4 | Guard log and resumed session tail | none            | 4     |
 | [ ]    | D04 T03 §5 | Run notifications                  | none            | 3     |
-| [ ]    | D04 T03 §6 | Fleet supervisor in the logger     | none            | 8     |
+| [ ]    | D04 T03 §6 | Panel view of the heartbeat        | none            | 4     |
 | [ ]    | D04 T03 §7 | Move repos to the supervisor       | none            | 6     |
 | [ ]    | D04 T03 §8 | Commands card and terminal launch  | display-session | 10    |
 | [ ]    | D04 T04 §1 | Hooks inspector                    | none            | 5     |
@@ -191,6 +192,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 0/122 verified sections, 5 ready to run now.
+Progress: 0/123 verified sections, 6 ready to run now.
 
-Checklist: 15/629 items completed (includes Commit items).
+Checklist: 15/637 items completed (includes Commit items).

@@ -140,7 +140,9 @@ A run that reaches the finish line writes `docs/acceptance/<date>.md`, listing e
 
 ## Who owns the heartbeat?
 
-The owner decided on 2026-11-07 that Bosun runs the schedule. Each repo keeps its run state, rules and hooks, because hooks fire inside its own session and a repo must still work without Bosun. `bosun-logger` ticks every supervised repo's guard, and it can see what a repo can't: memory and slots across all repos, so it resumes one at a time and only when there is room. A tick never starts a stopped WSL VM. The campaign that builds Bosun keeps the repo's own watchdog, because the supervisor doesn't exist until `D04 T03 §6` lands, and repos move over afterwards.
+The owner decided on 2026-11-07 that Bosun runs one global heartbeat, from day one. Each repo keeps its run state, rules and hooks, because hooks fire inside its own session and a repo must still work without Bosun. One scheduled task, `Bosun heartbeat`, ticks every registered repo's guard every 5 minutes from the installed tool, so a campaign rebuilding Bosun can't disturb it, and Bosun itself runs on it while being built. `D00 T03 §11` builds it before launch, so other repos can be developed in parallel.
+
+It can see what a repo can't: memory across all of them. So it resumes one repo per pass, and holds a pass while memory is short, for at most an hour, because memory pressure should delay a restart and never block it for good. A tick never starts a stopped WSL VM. A task was chosen over a loop in the logger because it keeps firing if a process crashes, and over a Windows service because a service can't easily start sessions in the owner's signed-in account. `Bosun`, `Steward` and `Resolute` move first. A repo with no run guard adds the kit first, and a global guard stays a later decision.
 
 ## How does Bosun use AI?
 

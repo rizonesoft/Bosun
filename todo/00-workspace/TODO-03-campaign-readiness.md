@@ -45,7 +45,8 @@ title: "TODO-03 -- Campaign readiness"
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
-| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, D00 T01 §3 | [ ] |
+| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, D00 T01 §3 | [ ] |
+| 11 | §11 | One global heartbeat | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -210,7 +211,7 @@ A hung resumed session is only reported today, and any Claude session in the che
 - [ ] Hold the run's session and child identity in `scripts/lib/run_guard.py`, and treat only those as live. Done when: `scripts/tests/test_run_guard.py` proves an idle unrelated session does not block `watch`, and that a second writer is still refused while its session is holding the tree.
 - [ ] Stop an owned child and its process tree after `CHILD_HANG_HOURS` with no change, unless `bosun status --json` shows it holding or waiting for a slot. Done when: a test stops a hung child and leaves one waiting in the queue. Cheaper substitute: reporting the hang and leaving it running.
 - [ ] Start a new session with `claude -p "process plan"` when `--resume` fails because the transcript is gone. Done when: a fake CLI returning that error leads to one fresh start, recorded in the guard log.
-- [ ] Add `--verify` to `scripts/run-guard.py status`, checking the task's action, principal, state and a tick within two intervals. Done when: a wrong action path reads unhealthy. Cheaper substitute: checking that the task exists.
+- [ ] Add `--verify` to `scripts/run-guard.py status`, checking the task's action, principal, state and a tick within two intervals, for the repo's own task or for `Bosun heartbeat` when `bosun heartbeat list` holds the repo. Done when: a wrong action path reads unhealthy, and a repo on the heartbeat reads healthy with no task of its own. Cheaper substitute: checking that the task exists.
 - [ ] Record a failed hook in `build/guard-health.json` from the fail-open path in `scripts/run-guard.py`. Done when: a corrupt state file shows up in `status`, and the session still is not blocked.
 - [ ] Commit: `guard: owned session recovery`
 
@@ -280,6 +281,34 @@ One command proves the run can finish before anyone walks away. It holds the own
 - [ ] Commit: `campaign: preflight and machine hold`
 
 **Test checkpoint:** `pwsh scripts/campaign-preflight.ps1` exits 0 on this machine, and exits nonzero with `gh` signed out.
+
+## 11. One global heartbeat
+
+The owner decided on 2026-11-07 that one heartbeat runs every repo from day one, including Bosun while it is being built, so other repos can be developed in parallel. Each repo keeps its run state, rules and hooks. One scheduled task runs the schedule, from the installed tool, so a campaign rebuilding Bosun can't disturb it. A task is used rather than a loop in the logger because it keeps firing if a process crashes. The panel's view of this comes later, in `D04 T03 §6`.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `bosun heartbeat --once` to `src/app.cpp`. Done when: one pass ticks each registered repo's guard in turn.
+2. Add `bosun heartbeat add`, `remove`, `list` and `status`, and the task in `scripts/install.ps1`. Done when: repos move on and off with one command.
+
+- [ ] Read `%LOCALAPPDATA%\Bosun\heartbeat\repos.json` in `src/app.cpp`, each entry with a path and for WSL a distro. Done when: `tests/test_core.cpp` group `heartbeat` proves a missing file means no repos, and a corrupt one ticks nothing and logs one line. Cheaper substitute: a repo list in code.
+- [ ] Add `bosun heartbeat add <path> [--distro <name>]` in `src/app.cpp`, refusing a repo with no `scripts/run-guard.py` and naming the kit command that adds it. Done when: `tests/heartbeat_test.ps1` proves the refusal, a duplicate refused, and the file written by temporary file then replace.
+- [ ] Run that repo's `run-guard.py uninstall` from `add`, and its `install` from `remove`, so a repo never has two watchdogs. Done when: `tests/heartbeat_test.ps1` with a fake guard sees each call, and a failed call leaves the registry unchanged and says why.
+- [ ] Run `python scripts/run-guard.py watch` per Windows repo from `bosun heartbeat --once` in `src/app.cpp`, with an argument list, the repo as working directory, no window and a 120 second limit. Done when: a test proves a fake guard ticks, a hung one is stopped, the next repo still ticks, and a spaced path survives. Cheaper substitute: a shell string.
+- [ ] Run a WSL repo's tick through `wsl.exe -d <distro> --cd <path> -- python3 scripts/run-guard.py watch`, only when `wsl.exe --list --running` shows the distro. Done when: a test with a faked list proves a stopped distro stays stopped, and its row reads "WSL not running". Cheaper substitute: a tick that wakes the VM.
+- [ ] Stop a pass in `src/app.cpp` after a guard prints a line starting `resumed`, carrying on from the next repo next time. Done when: three fake dead repos resume across three passes, in turn. Cheaper substitute: restarting them all at once.
+- [ ] Hold a pass in `src/app.cpp` while available memory is below `heartbeat_floor_mb`, default 2048, in `config.json`, for at most 60 minutes, then tick anyway. Done when: a test proves a hold, its reason in the status, and the tick after the limit, so memory pressure delays a restart and never blocks it for good.
+- [ ] Write `%LOCALAPPDATA%\Bosun\heartbeat\status.json` after each pass, atomically, with each repo's last tick, result and any error. Done when: `bosun heartbeat status` prints it, and `--json` adds `schema_version`.
+- [ ] Accept `heartbeat --once` in `src/logger_main.cpp`, so the task runs with no window. Done when: a test runs it and no console appears, proven by the subsystem of `bosun-logger.exe` and the status file updating.
+- [ ] Create the `Bosun heartbeat` task every 5 minutes in `scripts/install.ps1`, running the installed `bosun-logger.exe`, per user and only when logged in. Done when: `schtasks` shows its action under `%LOCALAPPDATA%\Bosun\bin`, and reinstalling keeps `repos.json`.
+- [ ] Move this machine to the heartbeat: add `D:\GitHub\Bosun`, `R:\GitHub\Steward` and `R:\GitHub\Resolute`, and delete the leftover `guard-e2e run watchdog` task. Done when: `bosun heartbeat status` shows a tick for all three within 10 minutes, and `schtasks` shows no repo watchdog for them.
+- [ ] Commit: `heartbeat: one global heartbeat`
+
+**Test checkpoint:** `pwsh tests/heartbeat_test.ps1` exits 0, and fails if a stopped distro is started, or two dead repos resume in one pass.
 
 ## Verification
 
