@@ -77,7 +77,7 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 
 ## 2. One section disposition across graph, guard and skills
 
-> **Started:** 2026-11-07T18:21:16Z
+> **Started:** 2026-11-07T19:55:58Z
 
 The graph, the guard and the skills each decide differently what can run. One function decides, so a row can't be offered by one and refused by another. **Corrected 2026-11-07:** it also holds the dead-end check the guard kept as `stranded`, and an active remote session counts as a desktop, where this said console only.
 
