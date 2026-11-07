@@ -424,7 +424,14 @@ def real_spawn(state: dict) -> dict:
 
 
 def heartbeat_task_exists() -> bool:
-    return os.name == "nt" and run("schtasks", "/Query", "/TN", "Bosun heartbeat").returncode == 0
+    """Whether the heartbeat's task will really fire: it exists and isn't disabled, as `heartbeat.py status` reads it."""
+    if os.name != "nt":
+        return False
+    done = run("schtasks", "/Query", "/TN", "Bosun heartbeat", "/XML")
+    if done.returncode != 0:
+        return False
+    enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", done.stdout.decode("utf-8", "replace"), re.S | re.I)
+    return enabled is None or enabled.group(1).lower() == "true"
 
 
 def on_heartbeat(root: Path = ROOT) -> bool:

@@ -333,6 +333,13 @@ class Heartbeat(unittest.TestCase):
         with mock.patch.object(guard, "heartbeat_task_exists", return_value=False):
             self.assertFalse(guard.on_heartbeat())
 
+    @unittest.skipUnless(os.name == "nt", "reads Windows Task Scheduler")
+    def test_a_disabled_heartbeat_task_does_not_count(self):
+        xml = "<Task><Settings><Enabled>{}</Enabled></Settings></Task>"
+        for code, text, expected in ((0, xml.format("true"), True), (0, xml.format("false"), False), (1, "", False)):
+            with self.subTest(text), mock.patch.object(guard, "run", return_value=subprocess.CompletedProcess([], code, text.encode(), b"")):
+                self.assertEqual(guard.heartbeat_task_exists(), expected)
+
     def test_a_repo_with_neither_still_warns(self):
         self.listed({"path": str(guard.ROOT / "other"), "state": "active"})
         self.assertFalse(guard.on_heartbeat())
