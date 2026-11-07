@@ -19,6 +19,9 @@ title: "TODO-03 -- Unattended run page"
 - -> XREF: D04 T01 §1 -- consumed by this file
 - -> XREF: D02 T02 §9 -- consumed by this file
 - -> XREF: D03 T01 §5 -- consumed by this file
+- -> XREF: D02 T03 §6 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D02 T02 §11 -- consumed by this file
 
 ## Outcome
 
@@ -34,7 +37,7 @@ title: "TODO-03 -- Unattended run page"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | status --json for the guard | D04 T01 §1 | [ ] |
-| 2 | §2 | Run page: state and health | §1, D02 T02 §9 | [ ] |
+| 2 | §2 | Run page: state and health | §1, D02 T02 §9, D02 T02 §11, D02 T03 §6, D02 T03 §7 | [ ] |
 | 3 | §3 | Start, stop and halt | §2 | [ ] |
 | 4 | §4 | Guard log and resumed session tail | §2 | [ ] |
 | 5 | §5 | Run notifications | §2, D03 T01 §5 | [ ] |
@@ -53,7 +56,7 @@ Fix this at the guard, which owns the data, instead of parsing two formats. Reso
 2. Add a typed reader in `WorkflowClient`. Done when: all seven status words parse.
 
 - [ ] Emit status, session, counters and `health()` as one object, citing `R:\GitHub\Resolute\scripts\lib\run_guard.py:341`. Done when: `scripts/tests/test_run_guard.py` asserts the shape, and plain output is unchanged. Cheaper substitute: parsing the two-line output in C#.
-- [ ] Read it in `src/DevMode.Core/Workflow/RunClient.cs`. Done when: fixtures for active, stalled and expired parse.
+- [ ] Read it in `src/Bosun.Core/Workflow/RunClient.cs`. Done when: fixtures for active, stalled and expired parse.
 - [ ] Commit: `guard: status --json`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if the change is reverted.
@@ -80,7 +83,7 @@ This shows the three catches separately (Stop hook, heartbeat, watchdog), becaus
 - [ ] Feed Runs on Overview and the title bar badge. Done when: they match the page in a test.
 - [ ] Commit: `run: page with state and health`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~RunViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunViewModel` exits 0, and fails if the change is reverted.
 
 ## 3. Start, stop and halt
 
@@ -104,7 +107,7 @@ Starting has to happen in the same way a person would, so the guard's prompt det
 - [ ] Add Install and Uninstall watchdog. Done when: state reads back from `health()`, and Activity logs each action.
 - [ ] Commit: `run: start, stop and halt`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~RunActions` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunActions` exits 0, and fails if the change is reverted.
 
 ## 4. Guard log and resumed session tail
 
@@ -127,7 +130,7 @@ When a run stalls, the first question is what it last did.
 - [ ] Add auto-scroll with pause. Done when: scrolling up pauses, and resume returns to the end.
 - [ ] Commit: `run: log tail`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~RunLogTail` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunLogTail` exits 0, and fails if the change is reverted.
 
 ## 5. Run notifications
 
@@ -146,9 +149,9 @@ A stalled run at 3 a.m. should be waiting in the tray at breakfast, and the Over
 - [ ] Implement `INeedsYouSource` for run state. Done when: a stalled run appears on Overview, and clears when resolved.
 - [ ] Commit: `run: notifications`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~RunWatch` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunWatch` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - An attended check: a real run started from the panel survives a killed session through the watchdog.

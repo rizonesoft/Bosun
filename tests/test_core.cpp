@@ -43,10 +43,10 @@ int main() {
     CHECK(dm::build_command_line(L"x.exe", {L"a&b"}, false) == L"x.exe a&b");
 
     // Repo attribution walks up to the nearest .git and keeps same-named repos apart.
-    std::set<std::string> gits{"R:/GitHub/DevMode", "/home/u/a/app", "/home/u/b/app"};
+    std::set<std::string> gits{"D:/GitHub/Bosun", "/home/u/a/app", "/home/u/b/app"};
     auto has = [&](const std::string& d) { return gits.count(d) > 0; };
-    CHECK(dm::repo_from_path("R:\\GitHub\\DevMode\\src\\x", has) == "R:/GitHub/DevMode");
-    CHECK(dm::repo_from_path("R:\\GitHub\\DevMode\\", has) == "R:/GitHub/DevMode");
+    CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\src\\x", has) == "D:/GitHub/Bosun");
+    CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\", has) == "D:/GitHub/Bosun");
     CHECK(dm::repo_from_path("/home/u/a/app/src", has) != dm::repo_from_path("/home/u/b/app/src", has));
     CHECK(!dm::repo_from_path("C:\\Windows\\System32", has).has_value());
 
@@ -54,8 +54,8 @@ int main() {
     CHECK(!dm::parse_row("ts,side,kind,name,count,private_mb,rss_mb"));
     CHECK(!dm::parse_row("2026-11-07T10:00:00,win,sys,avail"));
     CHECK(!dm::parse_row("2026-11-07T10:00:00,win,sys,available_mb,0,x,0"));
-    auto ok = dm::parse_row("2026-11-07T10:00:00,win,repo,DevMode,3,120,90");
-    CHECK(ok && ok->name == "DevMode" && ok->count == 3 && ok->private_mb == 120 && ok->rss_mb == 90);
+    auto ok = dm::parse_row("2026-11-07T10:00:00,win,repo,Bosun,3,120,90");
+    CHECK(ok && ok->name == "Bosun" && ok->count == 3 && ok->private_mb == 120 && ok->rss_mb == 90);
     CHECK(dm::csv_name("a,b\"c%") == "a%2Cb%22c%25");
     CHECK(dm::csv_name("a,b") != dm::csv_name("a_b"));
 

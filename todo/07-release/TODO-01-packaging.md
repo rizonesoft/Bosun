@@ -22,6 +22,9 @@ title: "TODO-01 -- Packaging and budgets"
 - -> XREF: D05 T02 §3 -- consumed by this file
 - -> XREF: D06 T01 §8 -- consumed by this file
 - -> XREF: D99 T01 §3 -- consumes this file
+- -> XREF: D02 T03 §2 -- consumed by this file
+- -> XREF: D02 T03 §8 -- consumed by this file
+- -> XREF: D02 T03 §9 -- consumed by this file
 
 ## Outcome
 
@@ -36,7 +39,7 @@ title: "TODO-01 -- Packaging and budgets"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Publish and install | D00 T02 §2, D02 T02 §4 | [ ] |
+| 1 | §1 | Publish and install | D00 T02 §2, D02 T02 §4, D02 T03 §2, D02 T03 §8, D02 T03 §9 | [ ] |
 | 2 | §2 | Signing status | §1 | [ ] |
 | 3 | §3 | Uninstall | §1 | [ ] |
 | 4 | §4 | Keyboard and accessibility audit | D04 T04 §3, D05 T02 §3, D06 T01 §8 | [ ] |
@@ -57,16 +60,17 @@ One command gives a self-contained panel with the existing tools.
 
 **Build order:**
 
-1. Create `scripts/publish-panel.ps1`. Done when: `dotnet publish` gives a self-contained win-x64 folder.
+1. Create `scripts/publish-panel.ps1`. Done when: `dotnet publish` gives a self-contained win-x64 folder at `bin/panel`.
 2. Extend `scripts/install.ps1`. Done when: the panel, shortcut and optional tray start are set.
 
-- [ ] Publish `src/DevMode.Panel` self-contained, through `devmode run`. Done when: it runs on a machine with no .NET runtime in the path, checked by clearing `DOTNET_ROOT`. Cheaper substitute: requiring a preview runtime.
-- [ ] Install to `%LOCALAPPDATA%\DevMode\panel`, stopping a running copy first. Done when: `tests/install_test.ps1` reinstalls over a running copy in a temporary `LOCALAPPDATA`, leaving the real install alone. Cheaper substitute: a failed copy behind a locked file.
+- [ ] Publish `src/Bosun.Panel` self-contained to `bin/panel`, through `bosun run`, with intermediate output staying under `build/`. Done when: it runs on a machine with no .NET runtime in the path, checked by clearing `DOTNET_ROOT`. Cheaper substitute: requiring a preview runtime.
+- [ ] Extend `tests/bin_output_test.ps1` to allow `bin/panel` alongside the two tools, still rejecting test binaries and PDBs at the top of `bin/`. Done when: the test passes after a publish and fails with `test_core.exe` copied into `bin/`.
+- [ ] Install from `bin/panel` to `%LOCALAPPDATA%\Bosun\panel`, stopping a running copy first. Done when: `tests/install_test.ps1` reinstalls over a running copy in a temporary `LOCALAPPDATA`, leaving the real install alone. Cheaper substitute: a failed copy behind a locked file.
 - [ ] Create a Start menu shortcut, with no desktop icon. Done when: the shortcut opens the panel with the right icon.
 - [ ] Add the About page per `design/SPEC.md` §16. Done when: version and commit come from build properties.
 - [ ] Commit: `release: publish and install`
 
-**Test checkpoint:** `pwsh tests/install_test.ps1` exits 0: installing to a temporary `LOCALAPPDATA` gives `DevMode.Panel.exe` whose `ProductVersion` holds the current commit.
+**Test checkpoint:** `pwsh tests/install_test.ps1` exits 0: installing to a temporary `LOCALAPPDATA` gives `Bosun.Panel.exe` whose `ProductVersion` holds the current commit.
 
 ## 2. Signing status
 
@@ -100,7 +104,7 @@ Whatever install adds must come off, with logs left unless asked.
 1. Create `scripts/uninstall.ps1`. Done when: panel, shortcut, Run entry and scheduled tasks go.
 2. Offer data removal. Done when: logs and secrets stay unless `-RemoveData` is given.
 
-- [ ] Remove binaries, `DevMode Logger` and panel Run entries, and PATH entry. Done when: a test in a temporary profile shows nothing left. Cheaper substitute: leaving a Run entry pointing at nothing.
+- [ ] Remove binaries, `Bosun Logger` and panel Run entries, and PATH entry. Done when: a test in a temporary profile shows nothing left. Cheaper substitute: leaving a Run entry pointing at nothing.
 - [ ] Remove the API key only with `-RemoveData`, and say so. Done when: the default run leaves `secrets\`, and reports it left it.
 - [ ] Create `tests/uninstall_test.ps1`, installing to and removing from a temporary `LOCALAPPDATA`. Done when: the real install is untouched, and a leftover file fails the test.
 - [ ] Commit: `release: uninstall`
@@ -117,14 +121,14 @@ Page-level tests prove each page. This walks them all, so a gap can't hide betwe
 
 **Build order:**
 
-1. Create `tests/DevMode.Panel.Tests/AccessibilityAudit.cs`. Done when: every view is walked.
+1. Create `tests/Bosun.Panel.Tests/AccessibilityAudit.cs`. Done when: every view is walked.
 2. Fix findings at the view. Done when: the audit passes.
 
 - [ ] Assert names on icon-only controls, 32 px targets, tab order and no colour-only status, for all views. Done when: removing a name fails the audit. Cheaper substitute: an allowlist that grows.
 - [ ] Check live regions on Activity and status changes. Done when: a status change announces, in a test.
 - [ ] Commit: `release: accessibility audit`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~AccessibilityAudit` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AccessibilityAudit` exits 0, and fails if the change is reverted.
 
 ## 5. Performance budget
 

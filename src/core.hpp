@@ -210,7 +210,7 @@ inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048) {
 
 inline std::string render(const Report& r) {
     std::ostringstream o;
-    if (!r.min_avail_mb) return "No samples yet. Is the logger running? Check with: devmode status\n";
+    if (!r.min_avail_mb) return "No samples yet. Is the logger running? Check with: bosun status\n";
     double pct = r.win_samples ? 100.0 * static_cast<double>(r.low_samples) / static_cast<double>(r.win_samples) : 0;
     o << "Times are UTC.\nWindows\n";
     o << "  samples: " << r.win_samples << ", under 2 GB available: " << r.low_samples << " (" << static_cast<int>(pct + 0.5) << "%)\n";

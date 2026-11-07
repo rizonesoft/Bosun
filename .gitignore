@@ -1,6 +1,5 @@
 build/
 __pycache__/
-artifacts/
 bin/
 obj/
 .vs/

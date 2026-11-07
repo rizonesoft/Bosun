@@ -1,33 +1,33 @@
 #!/bin/bash
-# WSL front end for devmode. Windows and WSL jobs share the same slots.
-# Holding a slot means keeping a devmode.exe acquire process alive on a pipe.
+# WSL front end for bosun. Windows and WSL jobs share the same slots.
+# Holding a slot means keeping a bosun.exe acquire process alive on a pipe.
 # When this script ends for any reason the pipe closes and the slot frees.
 set -u
 
-die() { echo "[devmode] $*" >&2; exit 64; }
+die() { echo "[bosun] $*" >&2; exit 64; }
 
-# The installed file supplies defaults; an explicit DEVMODE_EXE still wins.
-explicit_exe="${DEVMODE_EXE:-}"
-[ -r "$HOME/.config/devmode/env" ] && . "$HOME/.config/devmode/env"
-EXE="${explicit_exe:-${DEVMODE_EXE:-devmode.exe}}"
-export DEVMODE_EXE="$EXE"  # A nested shim must use the same executable.
-MIN_GUEST_MB="${DEVMODE_MIN_GUEST_MB:-3072}"
-MAX_WAIT="${DEVMODE_MAX_WAIT:-900}"
+# The installed file supplies defaults; an explicit BOSUN_EXE still wins.
+explicit_exe="${BOSUN_EXE:-}"
+[ -r "$HOME/.config/bosun/env" ] && . "$HOME/.config/bosun/env"
+EXE="${explicit_exe:-${BOSUN_EXE:-bosun.exe}}"
+export BOSUN_EXE="$EXE"  # A nested shim must use the same executable.
+MIN_GUEST_MB="${BOSUN_MIN_GUEST_MB:-3072}"
+MAX_WAIT="${BOSUN_MAX_WAIT:-900}"
 
 guest_avail_mb() { awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo; }
 
-if [ "${1:-}" = "status" ] && [ -n "${DEVMODE_SLOTS:-}" ]; then
+if [ "${1:-}" = "status" ] && [ -n "${BOSUN_SLOTS:-}" ]; then
   shift
-  exec "$EXE" status --slots "$DEVMODE_SLOTS" "$@"  # Later flags win, so a typed --slots still applies.
+  exec "$EXE" status --slots "$BOSUN_SLOTS" "$@"  # Later flags win, so a typed --slots still applies.
 fi
 [ "${1:-}" = "run" ] || exec "$EXE" "$@"
 shift
 
-# Linux variables do not reach devmode.exe by themselves, so they travel as flags.
+# Linux variables do not reach bosun.exe by themselves, so they travel as flags.
 # Flags from the command line come later and win.
 args=(--max-wait "$MAX_WAIT")
-[ -n "${DEVMODE_SLOTS:-}" ] && args+=(--slots "$DEVMODE_SLOTS")
-[ -n "${DEVMODE_MIN_AVAIL_MB:-}" ] && args+=(--min-avail-mb "$DEVMODE_MIN_AVAIL_MB")
+[ -n "${BOSUN_SLOTS:-}" ] && args+=(--slots "$BOSUN_SLOTS")
+[ -n "${BOSUN_MIN_AVAIL_MB:-}" ] && args+=(--min-avail-mb "$BOSUN_MIN_AVAIL_MB")
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do
   case "$1" in
     --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; MAX_WAIT="$2"; args+=("$1" "$2"); shift 2 ;;
@@ -36,15 +36,15 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
     *) die "unknown option $1" ;;
   esac
 done
-[ "${1:-}" = "--" ] || die "usage: devmode run [options] -- command [args]"
+[ "${1:-}" = "--" ] || die "usage: bosun run [options] -- command [args]"
 shift
-[ $# -gt 0 ] || die "usage: devmode run [options] -- command [args]"
+[ $# -gt 0 ] || die "usage: bosun run [options] -- command [args]"
 
 # Already inside a slot, so a script calling itself cannot deadlock.
-[ -n "${DEVMODE_SLOT:-}" ] && exec "$@"
+[ -n "${BOSUN_SLOT:-}" ] && exec "$@"
 
 # Named pipes rather than coproc: bash unsets a coproc's variables the moment it
-# exits, which would abort this script under set -u if devmode.exe failed early.
+# exits, which would abort this script under set -u if bosun.exe failed early.
 pipes="$(mktemp -d)" || die "cannot create a temp folder"
 mkfifo "$pipes/in" "$pipes/out"
 SECONDS=0  # One deadline covers both the slot wait and the guest memory wait.
@@ -57,9 +57,9 @@ reply=""
 read -r reply <&4
 reply="${reply%$'\r'}"
 if [ "${reply%% *}" != "acquired" ]; then
-  echo "[devmode] slot service unavailable, running without a slot" >&2
+  echo "[bosun] slot service unavailable, running without a slot" >&2
   exec 3>&- 4<&-
-  DEVMODE_SLOT=-1 exec "$@"
+  BOSUN_SLOT=-1 exec "$@"
 fi
 SLOT="${reply##* }"
 
@@ -68,10 +68,10 @@ SLOT="${reply##* }"
 if [ "$SLOT" != "0" ] && [ "$SLOT" != "-1" ]; then
   announced=""
   while [ "$(guest_avail_mb)" -lt "$MIN_GUEST_MB" ]; do
-    [ -z "$announced" ] && echo "[devmode] waiting for WSL memory ($(guest_avail_mb) MB available)" >&2
+    [ -z "$announced" ] && echo "[bosun] waiting for WSL memory ($(guest_avail_mb) MB available)" >&2
     announced=1
     if [ "$MAX_WAIT" -gt 0 ] && [ "$SECONDS" -ge "$MAX_WAIT" ]; then
-      echo "[devmode] waited ${SECONDS} s, starting anyway" >&2
+      echo "[bosun] waited ${SECONDS} s, starting anyway" >&2
       break
     fi
     sleep 2
@@ -79,8 +79,8 @@ if [ "$SLOT" != "0" ] && [ "$SLOT" != "-1" ]; then
 fi
 
 # WSLENV carries the marker to any Windows program, so a nested run there passes through too.
-export DEVMODE_SLOT="$SLOT"
-export WSLENV="${WSLENV:+$WSLENV:}DEVMODE_SLOT"
+export BOSUN_SLOT="$SLOT"
+export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
 
 # The command must not inherit the pipe, or a daemon it starts would hold the slot for good.
 # pdeathsig ends the command if this script dies, so a freed slot means the work has stopped.

@@ -1,0 +1,56 @@
+name: plan
+
+# The TODO graph is the execution plan: a malformed graph or a stale generated plan fails CI like any other defect.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'todo/**'
+      - 'docs/reviews/**'
+      - 'scripts/**'
+      - '.claude/**'
+      - '.gitattributes'
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
+  pull_request:
+    paths:
+      - 'todo/**'
+      - 'docs/reviews/**'
+      - 'scripts/**'
+      - '.claude/**'
+      - '.gitattributes'
+      - '.github/workflows/**'
+      - '.github/dependabot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plan-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan-gates:
+    name: Plan gates
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Stamp ancestry checks need real history, not a shallow checkout.
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+      - name: Validate the TODO tree
+        run: python scripts/todo-graph.py validate
+      - name: Check the generated plan is current
+        run: python scripts/todo-graph.py plan --check
+      - name: Tooling tests
+        run: python -m unittest discover -s scripts/tests
+      - name: Agent tiers
+        run: node scripts/verify-agent-tiers.mjs

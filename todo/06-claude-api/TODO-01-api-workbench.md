@@ -20,6 +20,9 @@ title: "TODO-01 -- Claude API workbench"
 - -> XREF: D02 T02 §5 -- consumed by this file
 - -> XREF: D00 T01 §8 -- consumed by this file
 - -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D02 T03 §4 -- consumed by this file
+- -> XREF: D02 T03 §5 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -39,9 +42,9 @@ title: "TODO-01 -- Claude API workbench"
 | 3 | §3 | Client and model list | §1 | [ ] |
 | 4 | §4 | Usage ledger and price table | §3 | [ ] |
 | 5 | §5 | Hard spend caps | §4 | [ ] |
-| 6 | §6 | Workbench: Ask mode | §5, D02 T02 §9 | [ ] |
+| 6 | §6 | Workbench: Ask mode | §5, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [ ] |
 | 7 | §7 | Overflow agent runs | §6, D00 T01 §8 | [ ] |
-| 8 | §8 | Usage page | §4 | [ ] |
+| 8 | §8 | Usage page | §4, D02 T03 §4, D02 T03 §7 | [ ] |
 
 ## 1. DPAPI key store
 
@@ -57,15 +60,15 @@ The key must never pass through Git, arguments, logs or the parent environment. 
 
 **Build order:**
 
-1. Create `src/DevMode.Core/Api/KeyStore.cs`. Done when: a key round-trips and is unreadable as another scope.
+1. Create `src/Bosun.Core/Api/KeyStore.cs`. Done when: a key round-trips and is unreadable as another scope.
 2. Add Settings controls. Done when: Paste and Remove work with a status word.
 
-- [ ] Store with `ProtectedData` at `%LOCALAPPDATA%\DevMode\secrets\anthropic.dpapi`, citing `R:\Codex\conclave\scripts\Manage-Cloud.ps1:46`. Done when: a test uses a fake key, and the file holds no plaintext. Cheaper substitute: a config file, or an environment variable.
+- [ ] Store with `ProtectedData` at `%LOCALAPPDATA%\Bosun\secrets\anthropic.dpapi`, citing `R:\Codex\conclave\scripts\Manage-Cloud.ps1:46`. Done when: a test uses a fake key, and the file holds no plaintext. Cheaper substitute: a config file, or an environment variable.
 - [ ] Show only Stored or Not stored in `design/SPEC.md` §15 controls, using a `PasswordBox` and clearing buffers. Done when: no path can print the value, proven by a scan of log output with a planted key. Cheaper substitute: showing the last four characters.
 - [ ] Add Remove with confirmation. Done when: the file is gone and status reads Not stored.
 - [ ] Commit: `api: DPAPI key store`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~KeyStore` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~KeyStore` exits 0, and fails if the change is reverted.
 
 ## 2. Import the key from 1Password
 
@@ -101,12 +104,12 @@ Use the official SDK. A connection test should spend nothing, so it lists models
 1. Add the `Anthropic` package and `ApiClient`. Done when: the client gets its key from `KeyStore` only.
 2. List models. Done when: Test connection reports a clear result.
 
-- [ ] Construct `AnthropicClient` in `src/DevMode.Core/Api/ApiClient.cs` with the stored key and `ANTHROPIC_API_KEY` ignored. Done when: a test with a fake handler proves the header comes from the store. Cheaper substitute: raw `HttpClient` calls, or reading the environment.
+- [ ] Construct `AnthropicClient` in `src/Bosun.Core/Api/ApiClient.cs` with the stored key and `ANTHROPIC_API_KEY` ignored. Done when: a test with a fake handler proves the header comes from the store. Cheaper substitute: raw `HttpClient` calls, or reading the environment.
 - [ ] List models through the Models API, falling back to the priced list with a notice. Done when: offline shows the fallback and says so.
 - [ ] Map typed SDK exceptions to clear messages, most specific first. Done when: 401, 429 and 5xx each give their own message, and retryable is distinguished. Cheaper substitute: one catch-all message.
 - [ ] Commit: `api: client and model list`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ApiClient` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ApiClient` exits 0, and fails if the change is reverted.
 
 ## 4. Usage ledger and price table
 
@@ -122,11 +125,11 @@ Cost is computed locally from each response's usage, because Anthropic's usage r
 2. Handle unknown prices. Done when: a row reads Unpriced and counts at the highest known rate.
 
 - [ ] Create `design/pricing.json` with its as-of date for `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, confirmed against the live pricing page. Done when: input, output and cached rates are present, and a test recomputes a known case. Cheaper substitute: prices copied without a date.
-- [ ] Append to `%LOCALAPPDATA%\DevMode\api\ledger-YYYY-MM.jsonl` with `request_id`, model, input, cached, cache write, output and cost. Done when: a crash mid-write loses at most the partial last line, which the reader tolerates and reports. Cheaper substitute: keeping spend only in memory.
+- [ ] Append to `%LOCALAPPDATA%\Bosun\api\ledger-YYYY-MM.jsonl` with `request_id`, model, input, cached, cache write, output and cost. Done when: a crash mid-write loses at most the partial last line, which the reader tolerates and reports. Cheaper substitute: keeping spend only in memory.
 - [ ] Treat an unknown model as Unpriced, at the highest known rate. Done when: a test proves the cap still counts it. Cheaper substitute: cost 0 for an unknown model.
 - [ ] Commit: `api: usage ledger and price table`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~Ledger` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Ledger` exits 0, and fails if the change is reverted.
 
 ## 5. Hard spend caps
 
@@ -141,12 +144,12 @@ No defaults: until the operator sets both, the panel sends nothing. The check is
 1. Create `SpendGuard`. Done when: every path to the API goes through it.
 2. Add the cap settings and notices. Done when: 80% warns and 100% refuses.
 
-- [ ] Refuse before sending when a cap is unset or the estimate would pass it, in `src/DevMode.Core/Api/SpendGuard.cs`. Done when: `ApiClient` can't send without a token from `SpendGuard`, enforced by its constructor. Cheaper substitute: a warning after the money is spent.
+- [ ] Refuse before sending when a cap is unset or the estimate would pass it, in `src/Bosun.Core/Api/SpendGuard.cs`. Done when: `ApiClient` can't send without a token from `SpendGuard`, enforced by its constructor. Cheaper substitute: a warning after the money is spent.
 - [ ] Reserve an estimate from `count_tokens` and `max_tokens`, settled from the ledger. Done when: two parallel requests can't both pass on the same headroom, in a test. Cheaper substitute: checking only the spend so far.
 - [ ] Add daily and monthly caps in Settings, with `SpendGuard` as consumer, and a toast at 80%. Done when: both read back, and values must be positive.
 - [ ] Commit: `api: hard spend caps`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~SpendGuard` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SpendGuard` exits 0, and fails if the change is reverted.
 
 ## 6. Workbench: Ask mode
 
@@ -171,7 +174,7 @@ Single requests for smaller questions, with streaming and honest refusal handlin
 - [ ] Disable Start with a clear line when no key or caps exist. Done when: the line links to Settings. Cheaper substitute: a Start that fails after clicking.
 - [ ] Commit: `api: workbench Ask mode`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~WorkbenchAsk` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~WorkbenchAsk` exits 0, and fails if the change is reverted.
 
 ## 7. Overflow agent runs
 
@@ -190,7 +193,7 @@ This is the valuable mode: full Claude Code on the API key when the subscription
 1. Create `OverflowRunner`. Done when: a run starts `claude -p` in a new worktree with stream JSON.
 2. Enforce the budget before spending. Done when: the run's whole budget is reserved against the caps at start and passed as `--max-budget-usd`.
 
-- [ ] Create the worktree under `R:\scratch\devmode-overflow\<run>` with `git worktree add`, on its own branch. Done when: the repo's working tree is untouched, and a repo with a live run is refused the same worktree. Cheaper substitute: running in the main checkout.
+- [ ] Create the worktree under `R:\scratch\bosun-overflow\<run>` with `git worktree add`, on its own branch. Done when: the repo's working tree is untouched, and a repo with a live run is refused the same worktree. Cheaper substitute: running in the main checkout.
 - [ ] Start `claude -p --output-format stream-json --max-budget-usd <budget>`, refusing to start if the installed `claude --help` lacks that flag, with the key only in that child's environment block. Done when: a test reads the child's environment and finds it there, and not in the panel's or in arguments. Cheaper substitute: setting `ANTHROPIC_API_KEY` for the user, or starting a run with no budget flag.
 - [ ] Reserve the whole run budget through `SpendGuard` before launch, releasing the unspent part at the end from the reported cost. Done when: a run whose budget would pass a cap never starts, and two parallel runs can't share the same headroom. Cheaper substitute: checking spend only after the run has cost money.
 - [ ] Watch reported cost as a backstop, stopping the process tree if it passes the budget and recording the overage as a warning. Done when: a fake CLI that overspends is stopped, its cost is recorded, and Activity names the overage. Cheaper substitute: treating the backstop as the cap.
@@ -198,7 +201,7 @@ This is the valuable mode: full Claude Code on the API key when the subscription
 - [ ] Refuse to route reviews through this path. Done when: a task naming `review-dispatch.py` as its reviewer never uses Claude, and the dispatcher's rule stays the guard.
 - [ ] Commit: `api: overflow agent runs`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~OverflowRunner` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~OverflowRunner` exits 0, and fails if the change is reverted.
 
 ## 8. Usage page
 
@@ -222,9 +225,9 @@ The ledger, made readable, with an export and an honest warning about an old pri
 - [ ] Warn when `design/pricing.json` is over 90 days old. Done when: a fake clock shows the warning.
 - [ ] Commit: `api: usage page`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~UsagePage` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~UsagePage` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - An attended check: a small real overflow run is capped, costed and contained.

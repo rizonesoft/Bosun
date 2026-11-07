@@ -20,11 +20,13 @@ title: "TODO-01 -- Brand and theme"
 - -> XREF: D00 T02 §2 -- consumed by this file
 - -> XREF: D02 T02 §9 -- consumed by this file
 - -> XREF: D02 T02 §1 -- consumes this file
+- -> XREF: D02 T03 §1 -- consumes this file
+- -> XREF: D02 T03 §4 -- consumes this file
 
 ## Outcome
 
 - A token edit regenerates dark and light XAML, and `--check` fails on drift.
-- `resources/devmode.ico` carries eight frames and regenerates byte for byte.
+- `resources/bosun.ico` carries eight frames and regenerates byte for byte.
 
 **Adjacency:** all=not-applicable (internal tooling and contracts with no records of their own)
 
@@ -49,7 +51,7 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 
 **Build order:**
 
-1. Create `scripts/build-theme.py`. Done when: it writes `src/DevMode.Panel/Theme/Generated/Dark.xaml` and `Light.xaml` from `design/tokens/colors.json`.
+1. Create `scripts/build-theme.py`. Done when: it writes `src/Bosun.Panel/Theme/Generated/Dark.xaml` and `Light.xaml` from `design/tokens/colors.json`.
 2. Add `--check`. Done when: a hand edit makes it exit nonzero.
 
 - [ ] Emit `C.*` colours and `B.*` brushes plus radius, spacing and type resources, with the key names of `R:\GitHub\Steward\src\Steward.Console\Theme\Dark.xaml:14`. Done when: both files load in a WPF test. Cheaper substitute: editing the generated XAML by hand.
@@ -72,11 +74,11 @@ Steward proved these catch real faults (it raised `TextMute` for contrast). Here
 1. Port `ThemeContrastTests` and `TabStripStyleTests`. Done when: both themes are asserted.
 2. Add the no-hex rule across all XAML. Done when: a stray colour fails.
 
-- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/DevMode.Panel.Tests/ThemeContrastTests.cs`, citing `R:\GitHub\Steward\tests\Steward.Console.Tests`. Done when: a lowered token fails the test. Cheaper substitute: checking only the dark theme.
-- [ ] Fail any hex colour or font size outside `Theme/Generated` in `tests/DevMode.Panel.Tests/XamlRulesTests.cs`. Done when: a hex in a view fails it.
+- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, citing `R:\GitHub\Steward\tests\Steward.Console.Tests`. Done when: a lowered token fails the test. Cheaper substitute: checking only the dark theme.
+- [ ] Fail any hex colour or font size outside `Theme/Generated` in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a hex in a view fails it.
 - [ ] Commit: `theme: contrast and stray colour tests`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ThemeContrast` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ThemeContrast` exits 0, and fails if the change is reverted.
 
 ## 3. Icon generator and ICO
 
@@ -88,7 +90,7 @@ The SVG masters are a first design. This makes them a build product, determinist
 
 **Build order:**
 
-1. Create `scripts/build-icons.py` with `resvg_py` and Pillow. Done when: `resources/devmode.ico` and PNGs regenerate identically.
+1. Create `scripts/build-icons.py` with `resvg_py` and Pillow. Done when: `resources/bosun.ico` and PNGs regenerate identically.
 2. Add tray state overlays. Done when: Normal, Pressure and Needs you exist at 16, 20 and 24 px.
 
 - [ ] Render frames 16, 20, 24, 32, 40, 48, 64 and 256 per `design/SPEC.md` §18, citing `R:\GitHub\Recto\design\tools\build_resources.py:505`. Done when: the ICO holds exactly eight frames, 16, 24 and 32 come from their own masters, and 20 comes from the 16 px master. Cheaper substitute: downscaling the 256 frame for small sizes.
@@ -109,7 +111,7 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 
 **Build order:**
 
-1. Port `Controls.xaml` to `src/DevMode.Panel/Theme/Controls.xaml`. Done when: every style resolves in both themes.
+1. Port `Controls.xaml` to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: every style resolves in both themes.
 2. Add the missing `Btn.Small` and focus visuals. Done when: keyboard focus is visible on all controls.
 
 - [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `R:\GitHub\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
@@ -117,9 +119,9 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 - [ ] Add `DataGrid` styling with tabular numbers for the panel's many tables. Done when: an off-screen render of a table shows it in both themes.
 - [ ] Commit: `theme: control templates`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ControlStyles` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ControlStyles` exits 0, and fails if the change is reverted.
 
 ## Verification
 
 - `python scripts/build-theme.py --check` and `python scripts/build-icons.py --check` pass.
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.

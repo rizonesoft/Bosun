@@ -5,5 +5,5 @@
 #include "app.hpp"
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    return devmode_main({L"log"});
+    return bosun_main({L"log"});
 }

@@ -23,7 +23,7 @@ title: "TODO-02 -- The .NET foundation"
 
 ## Outcome
 
-- `dotnet build DevMode.slnx` and `dotnet test DevMode.slnx` succeed with warnings as errors.
+- `dotnet build Bosun.slnx` and `dotnet test Bosun.slnx` succeed with warnings as errors.
 - The SDK pin moves to the final release when it ships, as one reviewed change.
 
 **Adjacency:** all=not-applicable (internal tooling and contracts with no records of their own)
@@ -48,16 +48,16 @@ Everything later hangs off this shape. The pin allows the RC now and is moved on
 
 **Build order:**
 
-1. Create `global.json`, `Directory.Build.props`, `Directory.Packages.props` and `DevMode.slnx`. Done when: restore succeeds.
-2. Create `src/DevMode.Core`, `src/DevMode.Panel`, `tests/DevMode.Core.Tests` and `tests/DevMode.Panel.Tests`. Done when: the solution builds and an empty test passes.
+1. Create `global.json`, `Directory.Build.props`, `Directory.Packages.props` and `Bosun.slnx`. Done when: restore succeeds.
+2. Create `src/Bosun.Core`, `src/Bosun.Panel`, `tests/Bosun.Core.Tests` and `tests/Bosun.Panel.Tests`. Done when: the solution builds and an empty test passes.
 
 - [ ] Create `global.json` pinning `11.0.100-rc.2.26504.105` with `rollForward: latestFeature` and `allowPrerelease: true`. Done when: `dotnet --version` from the repo prints the RC. Cheaper substitute: no pin at all.
-- [ ] Create `Directory.Build.props` with `TreatWarningsAsErrors`, `Nullable` and artifacts output, plus the `_wpftmp` fix from `R:\GitHub\Isotone\Directory.Build.props`. Done when: a deliberate warning fails the build.
-- [ ] Create `src/DevMode.Panel/DevMode.Panel.csproj` targeting `net11.0-windows`, with `UseWPF` and `InvariantGlobalization=false`, citing `R:\GitHub\Steward\src\Steward.Console\Steward.Console.csproj:25`. Done when: a templated binding runs in a test without throwing. Cheaper substitute: inheriting invariant globalization and crashing on the first binding.
-- [ ] Create `src/DevMode.Core` and both test projects with xunit from `Directory.Packages.props`. Done when: `dotnet test` runs two passing tests.
+- [ ] Create `Directory.Build.props` with `TreatWarningsAsErrors`, `Nullable` and `ArtifactsPath` set to `build/dotnet`, so all .NET output sits under `build/` beside the C++ output, plus the `_wpftmp` fix from `R:\GitHub\Isotone\Directory.Build.props`. Done when: a deliberate warning fails the build, and a full build creates no `artifacts/` folder and no `bin/` or `obj/` folder under `src/` or `tests/`.
+- [ ] Create `src/Bosun.Panel/Bosun.Panel.csproj` targeting `net11.0-windows`, with `UseWPF` and `InvariantGlobalization=false`, citing `R:\GitHub\Steward\src\Steward.Console\Steward.Console.csproj:25`. Done when: a templated binding runs in a test without throwing. Cheaper substitute: inheriting invariant globalization and crashing on the first binding.
+- [ ] Create `src/Bosun.Core` and both test projects with xunit from `Directory.Packages.props`. Done when: `dotnet test` runs two passing tests.
 - [ ] Commit: `dotnet: solution, props and empty projects`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~Foundation` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Foundation` exits 0, and fails if the change is reverted.
 
 ## 2. Add .NET to the gates
 
@@ -69,11 +69,11 @@ A section can only be held to tests that the one-command gate actually runs.
 
 **Build order:**
 
-1. Extend `scripts/check-all.ps1`. Done when: it runs `dotnet test` through `devmode run`.
+1. Extend `scripts/check-all.ps1`. Done when: it runs `dotnet test` through `bosun run`.
 2. Extend `.gitignore`. Done when: `git status` is clean after a build.
 
 - [ ] Add `dotnet build` and `dotnet test` to `scripts/check-all.ps1`. Done when: a failing test makes it exit nonzero. Cheaper substitute: running them outside the queue.
-- [ ] Add `artifacts/`, `bin/`, `obj/`, `.vs/` and `*.user` to `.gitignore`. Done when: `git status --short` is empty after a full build.
+- [ ] Confirm `.gitignore` covers `build/`, `bin/`, `obj/`, `.vs/` and `*.user`, adding what is missing. Done when: `git status --short` is empty after a full build.
 - [ ] Commit: `gates: run the .NET build and tests`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0, and exits nonzero with a failing test added.
@@ -100,5 +100,5 @@ A section can only be held to tests that the one-command gate actually runs.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - `python scripts/todo-graph.py validate` passes.

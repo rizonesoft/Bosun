@@ -19,6 +19,8 @@ title: "TODO-01 -- Agents"
 - -> XREF: D02 T02 §3 -- consumed by this file
 - -> XREF: D03 T02 §1 -- consumed by this file
 - -> XREF: D03 T01 §5 -- consumed by this file
+- -> XREF: D02 T03 §4 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -34,7 +36,7 @@ title: "TODO-01 -- Agents"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Agent catalog | D02 T02 §3 | [ ] |
-| 2 | §2 | Agents page and updates | §1, D03 T02 §1, D02 T02 §9 | [ ] |
+| 2 | §2 | Agents page and updates | §1, D03 T02 §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [ ] |
 | 3 | §3 | Scheduled update check | §2, D03 T01 §5 | [ ] |
 | 4 | §4 | Configuration checks | §2 | [ ] |
 
@@ -48,7 +50,7 @@ Each agent installs differently, so each has a small definition that was checked
 
 **Build order:**
 
-1. Create `design/agents.json` and `src/DevMode.Core/Agents/AgentCatalog.cs`. Done when: each agent has version, latest and update commands.
+1. Create `design/agents.json` and `src/Bosun.Core/Agents/AgentCatalog.cs`. Done when: each agent has version, latest and update commands.
 2. Run on both sides. Done when: WSL reports its own installs.
 
 - [ ] Verify each CLI's real version and update commands on this machine, recording them in `design/agents.json` for `claude`, `codex`, `agy` and `gh`. Done when: each command is shown working in a fixture captured from its real output. Cheaper substitute: guessing update commands from memory.
@@ -56,7 +58,7 @@ Each agent installs differently, so each has a small definition that was checked
 - [ ] Compare with a real version parser. Done when: `2.1.9` sorts below `2.1.319`, in a test. Cheaper substitute: string comparison.
 - [ ] Commit: `agents: catalog`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~AgentCatalog` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AgentCatalog` exits 0, and fails if the change is reverted.
 
 ## 2. Agents page and updates
 
@@ -73,14 +75,14 @@ Updating an agent under a running session can break that session, so it warns fi
 **Build order:**
 
 1. Create `Views/AgentsView.xaml`. Done when: the table shows both sides.
-2. Add Update. Done when: it runs through `devmode run` and reads back.
+2. Add Update. Done when: it runs through `bosun run` and reads back.
 
 - [ ] Build the table per `design/SPEC.md` §11, with running count from the instance scanner. Done when: a missing agent on one side reads Not installed.
 - [ ] Add Update with a warning naming running sessions. Done when: the confirm lists them, Activity logs before and after versions, and failure reports the real exit. Cheaper substitute: updating with no warning or read-back.
 - [ ] Stop an update during an active unattended run unless the operator overrides. Done when: a test with an active guard state refuses by default.
 - [ ] Commit: `agents: page and updates`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~AgentsViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AgentsViewModel` exits 0, and fails if the change is reverted.
 
 ## 3. Scheduled update check
 
@@ -100,7 +102,7 @@ Knowing an update exists shouldn't require opening a page.
 - [ ] Add to Needs you. Done when: an available update appears on Overview.
 - [ ] Commit: `agents: update notices`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~AgentUpdateWatch` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AgentUpdateWatch` exits 0, and fails if the change is reverted.
 
 ## 4. Configuration checks
 
@@ -119,9 +121,9 @@ Some settings have real rules (empty attribution; no key in a session's environm
 - [ ] Add a test scanning check output for secret-shaped strings. Done when: a planted fixture value never appears in the result.
 - [ ] Commit: `agents: configuration checks`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ConfigChecks` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ConfigChecks` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - An attended update of one agent reads back its new version.

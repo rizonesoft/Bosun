@@ -1,0 +1,56 @@
+name: build
+
+# Builds the native tools and runs the tests that need no WSL distro. A change to only the plan or
+# Markdown builds nothing new, so GitHub skips this run when every changed file matches.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'todo/**'
+      - 'docs/**'
+      - '**/*.md'
+  pull_request:
+    paths-ignore:
+      - 'todo/**'
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  windows:
+    name: Build and test on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: cmake -S . -B build
+      - name: Build
+        run: cmake --build build --config Release -- /p:TreatWarningsAsErrors=true
+      - name: Core tests
+        run: build\Release\test_core.exe
+      - name: Queue tests
+        run: pwsh tests\queue_test.ps1 -SkipWsl
+      - name: Build output test
+        run: pwsh tests\bin_output_test.ps1
+
+  linux:
+    name: Test the WSL side on Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Logger tests
+        run: python3 -B tests/test_bosun_log.py
+      - name: Shell scripts parse
+        run: |
+          bash -n wsl/bosun
+          bash -n wsl/install.sh
+          bash -n wsl/queue_test.sh

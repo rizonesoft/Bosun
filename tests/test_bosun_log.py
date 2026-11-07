@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "wsl"))
-import devmode_log as dl
+import bosun_log as dl
 
 
 class RepoForDir(unittest.TestCase):
@@ -19,8 +19,8 @@ class RepoForDir(unittest.TestCase):
         )
 
     def test_windows_mounted_repo_is_attributed(self):
-        gits = {"/mnt/r/GitHub/DevMode"}
-        self.assertEqual(dl.repo_for_dir("/mnt/r/GitHub/DevMode/src", gits.__contains__, {}), "/mnt/r/GitHub/DevMode")
+        gits = {"/mnt/d/GitHub/Bosun"}
+        self.assertEqual(dl.repo_for_dir("/mnt/d/GitHub/Bosun/src", gits.__contains__, {}), "/mnt/d/GitHub/Bosun")
 
     def test_no_repo_is_empty(self):
         self.assertEqual(dl.repo_for_dir("/home/u", set().__contains__, {}), "")

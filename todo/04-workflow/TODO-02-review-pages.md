@@ -18,6 +18,9 @@ title: "TODO-02 -- Review pages"
 - `scripts/review-dispatch.py`, `docs/reviews/`.
 - -> XREF: D04 T01 §1 -- consumed by this file
 - -> XREF: D00 T01 §2 -- consumed by this file
+- -> XREF: D02 T03 §4 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D02 T02 §11 -- consumed by this file
 
 ## Outcome
 
@@ -32,7 +35,7 @@ title: "TODO-02 -- Review pages"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Pin and review-in-flight | D04 T01 §1, D00 T01 §2 | [ ] |
+| 1 | §1 | Pin and review-in-flight | D04 T01 §1, D00 T01 §2, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 2 | §2 | Rounds and receipts | §1 | [ ] |
 
 ## 1. Pin and review-in-flight
@@ -56,7 +59,7 @@ If the reviewer can't run, a run will stall. The pin card shows that before it h
 - [ ] Show marks, ignoring dead ones with the guard's rule. Done when: a dead pid's mark isn't shown as running.
 - [ ] Commit: `reviews: pin and in-flight`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ReviewsPin` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ReviewsPin` exits 0, and fails if the change is reverted.
 
 ## 2. Rounds and receipts
 
@@ -80,9 +83,9 @@ Evidence is what makes a stamp mean something. This makes it readable.
 - [ ] Show findings text from the file named by the record. Done when: an unreadable record is listed as unreadable.
 - [ ] Commit: `reviews: rounds and receipts`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~ReviewsRounds` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ReviewsRounds` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - `python scripts/review-dispatch.py --check-pin --json` matches the page in a live check.

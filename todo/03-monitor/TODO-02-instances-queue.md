@@ -21,6 +21,9 @@ title: "TODO-02 -- Instances and queue"
 - -> XREF: D02 T02 §3 -- consumed by this file
 - -> XREF: D05 T01 §2 -- consumes this file
 - -> XREF: D05 T02 §6 -- consumes this file
+- -> XREF: D02 T03 §4 -- consumed by this file
+- -> XREF: D02 T03 §6 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -36,8 +39,8 @@ title: "TODO-02 -- Instances and queue"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [ ] |
-| 2 | §2 | Instances page | §1, D02 T02 §9 | [ ] |
-| 3 | §3 | Queue page | D01 T01 §5, §2 | [ ] |
+| 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [ ] |
+| 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [ ] |
 
 ## 1. Instance scanner
 
@@ -49,15 +52,15 @@ Agents are recognised by what they are, not by a window title. On WSL the existi
 
 **Build order:**
 
-1. Add `devmode instances --json` to `src/app.cpp` and `wsl/devmode`. Done when: both sides report a shared shape.
-2. Create `src/DevMode.Core/Instances/InstanceClient.cs`. Done when: results merge by repo.
+1. Add `bosun instances --json` to `src/app.cpp` and `wsl/bosun`. Done when: both sides report a shared shape.
+2. Create `src/Bosun.Core/Instances/InstanceClient.cs`. Done when: results merge by repo.
 
 - [ ] List `claude`, `codex`, `agy`, `code` and queued jobs with repo, memory and start time, using the logger's attribution in `src/core.hpp`. Done when: a test process with a set working directory is attributed correctly. Cheaper substitute: matching window titles.
-- [ ] Add the same in `wsl/devmode_log.py`. Done when: `wsl -- devmode instances --json` matches the schema, and a fixture test passes.
+- [ ] Add the same in `wsl/bosun_log.py`. Done when: `wsl -- bosun instances --json` matches the schema, and a fixture test passes.
 - [ ] Mark state from session records and in-flight marks, or Unknown. Done when: state with no evidence reads Unknown. Cheaper substitute: guessing Working from CPU use alone.
 - [ ] Commit: `instances: scanner on both sides`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~InstanceClient` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~InstanceClient` exits 0, and fails if the change is reverted.
 
 ## 2. Instances page
 
@@ -81,7 +84,7 @@ The direct answer to monitoring all the dev instances.
 - [ ] Add Stop: confirm, ask to close, then offer force. Done when: the prompt names process and repo, Activity records it, and a refusal to close doesn't kill. Cheaper substitute: killing immediately with no prompt.
 - [ ] Commit: `instances: page`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.
 
 ## 3. Queue page
 
@@ -102,12 +105,12 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 
 - [ ] Show each waiter's reason, derived from status JSON. Done when: a memory-gated job says it needs 6 GB and how much is free.
 - [ ] Show job history from `jobs-*.jsonl`. Done when: the last 200 appear, newest first, with exit codes.
-- [ ] Add the limits form through `devmode config set`. Done when: a bad value shows beside its field and the file doesn't change, and a saved slot count governs a real job. Cheaper substitute: the panel writing `config.json` directly.
+- [ ] Add the limits form through `bosun config set`. Done when: a bad value shows beside its field and the file doesn't change, and a saved slot count governs a real job. Cheaper substitute: the panel writing `config.json` directly.
 - [ ] Commit: `queue: page and limits`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - An attended check: a real build in Windows and WSL appears in Queue and Instances.

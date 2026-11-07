@@ -135,11 +135,11 @@ Toolchain drift should arrive as a notice, not a surprise. The kit's runner is c
 
 **Build order:**
 
-1. Fill `.conclave/automations/tasks.json`. Done when: `run.py` validates the tasks with `folder` set to `\DevMode\`.
+1. Fill `.conclave/automations/tasks.json`. Done when: `run.py` validates the tasks with `folder` set to `\Bosun\`.
 2. Port the pin checks and repoint `alert.py`. Done when: a failed task writes `last.json` and the alert path is exercised in a test.
 
 - [ ] Port `check-python-pin.py` and `check-visual-studio.py` from `R:\GitHub\Recto\scripts`, and add `check-dotnet-pin.py` from `R:\GitHub\Isotone\scripts`. Done when: each exits 0 on a current pin and nonzero on a stale fixture.
-- [ ] Set `devmode-python-pin`, `devmode-visual-studio` and `devmode-dotnet-pin` in `.conclave/automations/tasks.json`. Done when: the validator in `run.py` accepts it. Cheaper substitute: a task whose name lacks the folder prefix.
+- [ ] Set `bosun-python-pin`, `bosun-visual-studio` and `bosun-dotnet-pin` in `.conclave/automations/tasks.json`. Done when: the validator in `run.py` accepts it. Cheaper substitute: a task whose name lacks the folder prefix.
 - [ ] Point `.conclave/automations/alert.py` at the operator's address, with the key source unchanged. Done when: `scripts/tests/test_automations.py` covers the failure path with a stub sender, sending no real mail. Cheaper substitute: sending a real test email from a test.
 - [ ] Commit: `automations: pin checks on a schedule`
 
@@ -159,18 +159,18 @@ A test deleted or a tolerance widened to get to green must be visible to the rev
 2. Add `scripts/check-all.ps1` as the one-command gate. Done when: it runs every gate and reports the first failure.
 
 - [ ] Port `scripts/weakening-scan.py`. Done when: a fixture diff deleting a test is flagged, and a plain feature diff is not.
-- [ ] Port `scripts/native-std-check.py` and `scripts/native-pe-check.py` against `CMakeLists.txt`. Done when: the built `devmode.exe` passes, and a fixture without CFG fails. Cheaper substitute: skipping PE checks when the build is absent without saying so.
-- [ ] Create `scripts/check-all.ps1` covering `validate`, `plan --check`, tier check, C++ tests, tooling tests and, once present, `dotnet test`. Done when: it exits nonzero when any step fails, and heavy steps go through `devmode run`.
+- [ ] Port `scripts/native-std-check.py` and `scripts/native-pe-check.py` against `CMakeLists.txt`. Done when: the built `bosun.exe` passes, and a fixture without CFG fails. Cheaper substitute: skipping PE checks when the build is absent without saying so.
+- [ ] Create `scripts/check-all.ps1` covering `validate`, `plan --check`, tier check, C++ tests, tooling tests and, once present, `dotnet test`. Done when: it exits nonzero when any step fails, and heavy steps go through `bosun run`.
 - [ ] Commit: `gates: weakening scan, native checks, check-all`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on a clean tree, and exits nonzero with a deliberately stale plan.
 
 ## 7. Private GitHub repo and CI
 
-The kit's CI gate and merge script need a remote. Creating one is outward-facing, so it waits for the operator's answer.
+The kit's CI gate and merge script need a remote. The owner asked for a private repo in the Rizonetech organization on 2026-11-07, with the finish of a public repo in case it is published later.
 
 **Phase:** 0
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
@@ -178,9 +178,9 @@ The kit's CI gate and merge script need a remote. Creating one is outward-facing
 1. Create the private repo and push `main`, once answered. Done when: `git remote -v` shows it.
 2. Add `.github/workflows/build.yml` and `plan.yml`, and port `merge_prs.py`. Done when: `ci_status.py` reports green.
 
-- [ ] Create `rizonetech/DevMode` as private with `gh repo create`, once the owner has answered. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
+- [ ] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
 - [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red.
-- [ ] Port `scripts/merge_prs.py` from `R:\GitHub\Recto\scripts` and add `devmode-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
+- [ ] Port `scripts/merge_prs.py` from `R:\GitHub\Recto\scripts` and add `bosun-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
 - [ ] Commit: `ci: private repo, workflows and merge task`
 
 **Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, and exits 1 after a deliberately red run.
@@ -218,11 +218,11 @@ Registering tasks changes this machine, outside the repo, so a run leaves it for
 1. Run the installer with the operator present. Done when: the tasks are registered.
 2. Run one task. Done when: its `last.json` exists.
 
-- [ ] Run `.conclave/automations/install.ps1`. Done when: `Get-ScheduledTask -TaskPath \DevMode\` lists the tasks, each running through `pythonw.exe`. Cheaper substitute: a task that opens a console window.
-- [ ] Run `python .conclave/automations/run.py devmode-python-pin`. Done when: `build/automations/devmode-python-pin/last.json` records its exit.
+- [ ] Run `.conclave/automations/install.ps1`. Done when: `Get-ScheduledTask -TaskPath \Bosun\` lists the tasks, each running through `pythonw.exe`. Cheaper substitute: a task that opens a console window.
+- [ ] Run `python .conclave/automations/run.py bosun-python-pin`. Done when: `build/automations/bosun-python-pin/last.json` records its exit.
 - [ ] Commit: `automations: register on this machine`
 
-**Test checkpoint:** `Get-ScheduledTask -TaskPath \DevMode\` lists all tasks, and `build/automations/devmode-python-pin/last.json` exists.
+**Test checkpoint:** `Get-ScheduledTask -TaskPath \Bosun\` lists all tasks, and `build/automations/bosun-python-pin/last.json` exists.
 
 ## Verification
 

@@ -15,12 +15,14 @@ title: "TODO-01 -- Memory and overview"
 ## Inputs
 
 - `design/SPEC.md` §2, §3.
-- `docs/specs/2026-11-07-devmode-design.md`, problem statement.
+- `docs/specs/2026-11-07-bosun-design.md`, problem statement.
 - -> XREF: D01 T01 §4 -- consumed by this file
 - -> XREF: D02 T02 §3 -- consumed by this file
 - -> XREF: D03 T02 §1 -- consumed by this file
 - -> XREF: D04 T03 §5 -- consumes this file
 - -> XREF: D05 T01 §3 -- consumes this file
+- -> XREF: D02 T03 §5 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -36,7 +38,7 @@ title: "TODO-01 -- Memory and overview"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [ ] |
-| 2 | §2 | Memory page | §1, D02 T02 §9 | [ ] |
+| 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [ ] |
 | 3 | §3 | History chart with a table equivalent | §2 | [ ] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [ ] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
@@ -51,14 +53,14 @@ Typed access to the core contract, with schema refusal, so pages only deal in va
 
 **Build order:**
 
-1. Create `src/DevMode.Core/Memory/MemoryClient.cs`. Done when: fixture JSON gives typed values.
+1. Create `src/Bosun.Core/Memory/MemoryClient.cs`. Done when: fixture JSON gives typed values.
 2. Handle absence. Done when: a stale snapshot reads as stale.
 
-- [ ] Read `devmode status --json`, `current-*.json` and `report --json`. Done when: fixtures from `D01 T01` parse, and an unknown schema reads as `Unsupported`. Cheaper substitute: parsing the CSV in C#.
+- [ ] Read `bosun status --json`, `current-*.json` and `report --json`. Done when: fixtures from `D01 T01` parse, and an unknown schema reads as `Unsupported`. Cheaper substitute: parsing the CSV in C#.
 - [ ] Mark a snapshot older than 90 seconds as stale, per side. Done when: WSL stopped shows WSL stale and Windows live. Cheaper substitute: showing 0 GB.
 - [ ] Commit: `memory: typed readers`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~MemoryClient` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryClient` exits 0, and fails if the change is reverted.
 
 ## 2. Memory page
 
@@ -69,7 +71,7 @@ This is the question the whole project exists to answer.
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §3.
 **Job:** see in one look how much room is left and who took the rest.
-**Treatment:** cards above a sortable table. Cheaper substitute that fails: a raw dump of `devmode report`.
+**Treatment:** cards above a sortable table. Cheaper substitute that fails: a raw dump of `bosun report`.
 **Chrome:** the shell's page frame and generated `DataGrid` style.
 
 **Build order:**
@@ -77,11 +79,11 @@ This is the question the whole project exists to answer.
 1. Create `Views/MemoryView.xaml`. Done when: cards and the by-repo table show live data.
 2. Add sort and the four states. Done when: each state renders.
 
-- [ ] Build the Windows used, WSL VM and Overlapping builds cards per `design/SPEC.md` §3. Done when: values match `devmode status --json` within a refresh. Cheaper substitute: mock numbers left in the view model.
+- [ ] Build the Windows used, WSL VM and Overlapping builds cards per `design/SPEC.md` §3. Done when: values match `bosun status --json` within a refresh. Cheaper substitute: mock numbers left in the view model.
 - [ ] Build the sortable by-repo table. Done when: sorting by peak puts the highest first, with tabular numbers.
 - [ ] Commit: `memory: page with live cards and repo table`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~MemoryViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryViewModel` exits 0, and fails if the change is reverted.
 
 ## 3. History chart with a table equivalent
 
@@ -105,7 +107,7 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 - [ ] Build the Decision card from `report --json`, stating days logged. Done when: under 7 days says so and gives no recommendation. Cheaper substitute: recommending from too little data.
 - [ ] Commit: `memory: history chart and decision card`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~SeriesChart` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SeriesChart` exits 0, and fails if the change is reverted.
 
 ## 4. Pressure alerts
 
@@ -117,7 +119,7 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 
 **Build order:**
 
-1. Create `src/DevMode.Core/Memory/PressureWatch.cs`. Done when: one notice per episode.
+1. Create `src/Bosun.Core/Memory/PressureWatch.cs`. Done when: one notice per episode.
 2. Add the threshold setting. Done when: changing it changes behaviour.
 
 - [ ] Enter pressure below the floor and leave only 1 GB above it. Done when: a fake-clock test fires once across a noisy dip. Cheaper substitute: a toast on every sample.
@@ -125,7 +127,7 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 - [ ] Run the check while in the tray at 30 second intervals, with the tray state. Done when: the icon changes to Pressure and the words say so.
 - [ ] Commit: `memory: pressure alerts`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~PressureWatch` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~PressureWatch` exits 0, and fails if the change is reverted.
 
 ## 5. Overview page
 
@@ -145,13 +147,13 @@ This is what opens first. It only assembles other pages' state, so it is built a
 2. Build Needs you and Runs. Done when: each row opens its owner.
 
 - [ ] Build the four metric cards per `design/SPEC.md` §2. Done when: they match their pages in a test using shared fakes.
-- [ ] Define `INeedsYouSource` in `src/DevMode.Core`, implemented by each page's owner. Done when: each later page adds rows without changing Overview. Cheaper substitute: Overview querying tools itself.
+- [ ] Define `INeedsYouSource` in `src/Bosun.Core`, implemented by each page's owner. Done when: each later page adds rows without changing Overview. Cheaper substitute: Overview querying tools itself.
 - [ ] Build the empty state. Done when: with nothing pending, it says "Nothing needs you."
 - [ ] Commit: `overview: page`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - A render of each page state exists under `build/renders`.

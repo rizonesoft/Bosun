@@ -1,0 +1,10 @@
+* text=auto
+
+# Read by bash in WSL or by Git's own shell: a CR breaks them, whatever the clone's autocrlf says.
+*.sh text eol=lf
+*.py text eol=lf
+wsl/bosun text eol=lf
+scripts/hooks/* text eol=lf
+
+*.png binary
+*.ico binary

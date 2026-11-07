@@ -1,14 +1,14 @@
 #!/bin/bash
 # WSL integration test for the shim. Uses a private slot namespace.
-# usage: queue_test.sh <path to devmode.exe>
+# usage: queue_test.sh <path to bosun.exe>
 set -u
-export DEVMODE_EXE="$1"
-SHIM="$(cd "$(dirname "$0")" && pwd)/devmode"
-NS="DevModeWslTest$$"
+export BOSUN_EXE="$1"
+SHIM="$(cd "$(dirname "$0")" && pwd)/bosun"
+NS="BosunWslTest$$"
 WORK="$(mktemp -d)"
 fail=0
 check() { if [ "$1" = "0" ]; then echo "ok   $2"; else echo "FAIL $2"; fail=$((fail + 1)); fi; }
-busy() { "$DEVMODE_EXE" status --ns "$NS" --slots "${1:-1}" | tr -d '\r' | head -1; }
+busy() { "$BOSUN_EXE" status --ns "$NS" --slots "${1:-1}" | tr -d '\r' | head -1; }
 
 job() { "$SHIM" run --ns "$NS" --slots 2 --min-avail-mb 0 --min-guest-mb 0 -- bash -c "echo start \$(date +%s%N) >> $WORK/o.txt; sleep 1; echo end \$(date +%s%N) >> $WORK/o.txt"; }
 for _ in 1 2 3 4 5; do job & done
@@ -19,22 +19,22 @@ max=$(sort -k2 -n "$WORK/o.txt" | awk '$1=="start"{c++; if(c>m)m=c} $1=="end"{c-
 "$SHIM" run --ns "$NS" --min-avail-mb 0 -- bash -c 'exit 37'
 [ $? = 37 ]; check $? "exit code passes through"
 
-"$SHIM" run --ns "$NS" --min-avail-mb 0 -- bash -c 'printf "%s|%s" "$1" "$DEVMODE_SLOT" > "$2"' _ 'a b' "$WORK/arg.txt"
-[ "$(cat "$WORK/arg.txt")" = "a b|0" ]; check $? "arguments and DEVMODE_SLOT reach the command"
+"$SHIM" run --ns "$NS" --min-avail-mb 0 -- bash -c 'printf "%s|%s" "$1" "$BOSUN_SLOT" > "$2"' _ 'a b' "$WORK/arg.txt"
+[ "$(cat "$WORK/arg.txt")" = "a b|0" ]; check $? "arguments and BOSUN_SLOT reach the command"
 
-# DEVMODE_SLOTS reaches devmode.exe, which cannot see Linux variables by itself.
-DEVMODE_SLOTS=1 "$SHIM" run --ns "$NS" --min-avail-mb 0 -- sleep 3 &
+# BOSUN_SLOTS reaches bosun.exe, which cannot see Linux variables by itself.
+BOSUN_SLOTS=1 "$SHIM" run --ns "$NS" --min-avail-mb 0 -- sleep 3 &
 first=$!
 sleep 1
-DEVMODE_SLOTS=1 "$SHIM" run --ns "$NS" --min-avail-mb 0 --max-wait 1 -- bash -c 'printf "%s" "$DEVMODE_SLOT" > "$1"' _ "$WORK/slots.txt" 2>/dev/null
-[ "$(cat "$WORK/slots.txt")" = "-1" ]; check $? "DEVMODE_SLOTS=1 makes a second job wait, and max-wait lets it through"
+BOSUN_SLOTS=1 "$SHIM" run --ns "$NS" --min-avail-mb 0 --max-wait 1 -- bash -c 'printf "%s" "$BOSUN_SLOT" > "$1"' _ "$WORK/slots.txt" 2>/dev/null
+[ "$(cat "$WORK/slots.txt")" = "-1" ]; check $? "BOSUN_SLOTS=1 makes a second job wait, and max-wait lets it through"
 wait "$first"
 
-# status honours DEVMODE_SLOTS too, and a nested shim keeps an explicit DEVMODE_EXE.
-got="$(DEVMODE_SLOTS=3 "$SHIM" status --ns "$NS" | tr -d '\r' | head -1)"
-[ "$got" = "slots busy: 0 of 3" ]; check $? "status uses DEVMODE_SLOTS (got $got)"
-got="$("$SHIM" run --ns "$NS" --min-avail-mb 0 -- bash -c 'printf "%s" "$DEVMODE_EXE"')"
-[ "$got" = "$DEVMODE_EXE" ]; check $? "a child inherits the explicit DEVMODE_EXE"
+# status honours BOSUN_SLOTS too, and a nested shim keeps an explicit BOSUN_EXE.
+got="$(BOSUN_SLOTS=3 "$SHIM" status --ns "$NS" | tr -d '\r' | head -1)"
+[ "$got" = "slots busy: 0 of 3" ]; check $? "status uses BOSUN_SLOTS (got $got)"
+got="$("$SHIM" run --ns "$NS" --min-avail-mb 0 -- bash -c 'printf "%s" "$BOSUN_EXE"')"
+[ "$got" = "$BOSUN_EXE" ]; check $? "a child inherits the explicit BOSUN_EXE"
 
 # One deadline covers both waits, so a job that timed out on the slot does not wait again for guest memory.
 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- sleep 4 &
@@ -66,12 +66,12 @@ r=$?
 [ "$r" = 0 ] && [ -f "$WORK/nested" ]; check $? "nested run does not deadlock (exit $r)"
 
 # The nesting marker crosses to Windows too.
-timeout 15 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 0 -- "$DEVMODE_EXE" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 0 -- cmd.exe /d /c exit 7 </dev/null
+timeout 15 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 0 -- "$BOSUN_EXE" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 0 -- cmd.exe /d /c exit 7 </dev/null
 r=$?
 [ "$r" = 7 ]; check $? "a nested run on Windows does not deadlock (exit $r)"
 
 # A broken slot service runs the job with a warning rather than failing it.
-DEVMODE_EXE=/bin/false "$SHIM" run --ns "$NS" -- bash -c 'exit 5' 2>/dev/null
+BOSUN_EXE=/bin/false "$SHIM" run --ns "$NS" -- bash -c 'exit 5' 2>/dev/null
 [ $? = 5 ]; check $? "job still runs if the slot service is unavailable"
 
 rm -rf "$WORK"

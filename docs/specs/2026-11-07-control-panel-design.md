@@ -1,10 +1,10 @@
-# DevMode Panel: control panel design
+# Bosun Panel: control panel design
 
-Status: brainstorm result, 2026-11-07. Interface contract: [design/SPEC.md](../../design/SPEC.md). Mockup: [design/mockups/control-panel.html](../../design/mockups/control-panel.html). Execution plan: [todo/implementation-plan.md](../../todo/implementation-plan.md).
+Status: brainstorm result, 2026-11-07. Renamed from DevMode to Bosun the same day, and moved from `R:\GitHub` to `D:\GitHub`. Interface contract: [design/SPEC.md](../../design/SPEC.md). Mockup: [design/mockups/control-panel.html](../../design/mockups/control-panel.html). Execution plan: [todo/implementation-plan.md](../../todo/implementation-plan.md).
 
 ## What is it for?
 
-DevMode Panel is one window that answers three questions for someone running 5 Windows and 5 WSL repos at once on 32 GB:
+Bosun Panel is one window that answers three questions for someone running 5 Windows and 5 WSL repos at once on 32 GB:
 
 1. **Is it safe to start more work?** Live memory, what is using it, and the queue.
 2. **What needs me?** Stalled runs, sections waiting for a decision, failed automations, agent updates.
@@ -20,7 +20,7 @@ Measured 2026-11-07 by reading each repo.
 | Review dispatcher and pin | Steward | Recto settled items and timing |
 | TODO graph and stamps | Steward `todo_graph.py` | Recto pre-commit hook |
 | Dispatch hook | Recto `dispatch_hook.py` | Resolute pin and record guard |
-| Scheduled automations | Recto, SDK kit | DevMode tasks and alert target |
+| Scheduled automations | Recto, SDK kit | Bosun tasks and alert target |
 | Change gates | Isotone | `weakening-scan`, `native-*-check` |
 | WPF foundation | Steward.Console | Isotone token idea, Resolute capture |
 | Icon pipeline | Office generator | Recto frames, Isotone small sizes |
@@ -39,11 +39,11 @@ Review shape, kept the same as Steward: Claude Opus 5.5 writes, GPT-6 Astra revi
 ## How is it built?
 
 ```text
-DevMode.Panel (WPF, views and view models)
+Bosun.Panel (WPF, views and view models)
    |
-DevMode.Core (net11.0-windows: readers, runners, ledger; no WPF)
+Bosun.Core (net11.0-windows: readers, runners, ledger; no WPF)
    |
-   +-- devmode.exe and the logger: status --json, report --json, current.json, jobs log
+   +-- bosun.exe and the logger: status --json, report --json, current.json, jobs log
    +-- each repo's own scripts: todo-graph.py, review-dispatch.py, run-guard.py
    +-- each repo's files: reviews, .git/run-guard, build/automations, settings.json
    +-- agent CLIs: claude, codex, agy, gh
@@ -52,7 +52,7 @@ DevMode.Core (net11.0-windows: readers, runners, ledger; no WPF)
 
 Rules that keep it honest:
 
-- **The panel never re-implements a tool.** It runs the owning tool with an argument list and reads JSON. No Markdown or CSV parsing of what a command can already report. Missing JSON is added to the tool that owns the data, as `D01 T01` does for `devmode` and `D04 T03 §1` does for the guard.
+- **The panel never re-implements a tool.** It runs the owning tool with an argument list and reads JSON. No Markdown or CSV parsing of what a command can already report. Missing JSON is added to the tool that owns the data, as `D01 T01` does for `bosun` and `D04 T03 §1` does for the guard.
 - **Repos differ, and the panel says so.** A capability probe records what each repo's kit can report (for example, Isotone's `query ready` is plain text). An unsupported repo shows "not supported by this kit", never a guess.
 - **The panel does not write plans or stamps.** `todo/`, receipts and findings stay owned by the skills and the reviewer. The panel reads them, and its write actions are limited to starting, stopping or halting a run, and to machine settings.
 - **It must be cheap.** A memory tool that uses much memory defeats itself. Budget: under 150 MB working set and under 1% average CPU while idle in the tray, enforced by `D07 T01 §5`.
@@ -104,7 +104,7 @@ Safety rules:
 
 ## What about the earlier phase 2 ideas?
 
-The DevMode design left the pressure monitor, background memory priority and parking waiting for real logged peaks. They stay gated: `D05 T02 §5` and `§6` carry an `owner-decision` Need until `devmode report --days 7` has data, which is possible from 2026-11-14. The earlier rejections stand: no working-set cleaners and no hard per-repo caps.
+The Bosun design left the pressure monitor, background memory priority and parking waiting for real logged peaks. They stay gated: `D05 T02 §5` and `§6` carry an `owner-decision` Need until `bosun report --days 7` has data, which is possible from 2026-11-14. The earlier rejections stand: no working-set cleaners and no hard per-repo caps.
 
 ## How does the plan get tested while it is being built?
 
@@ -118,13 +118,19 @@ Each of these is a default that is cheap to change, recorded so nobody has to re
 
 | Decision | Default | Cost of changing |
 | -------- | ------- | ---------------- |
-| Name | DevMode Panel | Rename a project and strings |
+| Name | Bosun Panel | Rename a project and strings |
 | Accent | Mint `#35D6A6`, amber second | Edit the token file |
 | Icon | Prompt `>` plus two queue slots | Edit the SVG masters |
 | Install | Per user, no administrator | Low |
 | Runtime | Self-contained win-x64 | Publish flag |
 | Review cap | Steward's 9 rounds, not Recto's 33 | One line in the pin |
 | Python | Required, as the kit already needs it | n/a |
+| Finish | Mica shell, Lucide glyphs, premium components | Drop `D02 T03` sections |
+| WSL repos | First class, tools run inside the distro | Remove the WSL side |
+
+The finish came from an owner request on 2026-11-07: they like the icon and interface, and asked for Lucide menu icons, button rounding, premium components and visualisation, and a Mica title bar, without yet knowing exactly what they want. The [mockup](../../design/mockups/control-panel.html) was rebuilt to show it, and the owner approved it on 2026-11-07 with one change, a repo selector for the Workflow pages, and expects to fine-tune the rest during the build. `design/SPEC.md` §19 is the contract and `todo/02-shell/TODO-03-premium-components.md` builds it. It costs little at idle because Windows composes Mica outside the panel's process, nothing inside the window blurs live, and animations stop when hidden and honour the system setting. If the system setting, Windows version or high contrast rules out Mica, the same layout falls back to solid `Base`.
+
+The owner asked how WSL repos fit in. They stay in scope, because the problem Bosun solves spans both sides: memory, instances and the queue already cover WSL, and a WSL repo's plan, reviews and runs work the same way once its tools run inside the distro. The one rule is that polling never starts the VM, since a panel that wakes WSL to check on it would spend the memory it exists to protect.
 
 ## What needs the operator?
 

@@ -1,5 +1,5 @@
 {
-  "title": "DevMode implementation plan",
+  "title": "Bosun implementation plan",
   "acceptance": "One command installs the panel and tools; every page in design/SPEC.md works on real data on this machine; an unattended process plan survives a killed session; the panel idles under 150 MB; every section carries a review receipt.",
   "phases": {
     "0": "Repository and tooling",

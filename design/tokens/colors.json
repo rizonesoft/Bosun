@@ -15,7 +15,12 @@
     "Ok": "#46C96B",
     "Warn": "#FFB547",
     "Danger": "#FF6B5E",
-    "Info": "#6EA8FF"
+    "Info": "#6EA8FF",
+    "LineStrong": "#3A4556",
+    "OkSoft": "#2446C96B",
+    "WarnSoft": "#24FFB547",
+    "DangerSoft": "#24FF6B5E",
+    "InfoSoft": "#246EA8FF"
   },
   "light": {
     "Base": "#F4F6F8",
@@ -29,12 +34,22 @@
     "Accent": "#0A7A5E",
     "AccentDim": "#CFEFE5",
     "OnAccent": "#FFFFFF",
-    "Ok": "#1B7A3D",
+    "Ok": "#16703A",
     "Warn": "#8F5A00",
     "Danger": "#C2281C",
-    "Info": "#1F5FBF"
+    "Info": "#1F5FBF",
+    "LineStrong": "#B5BEC9",
+    "OkSoft": "#1216703A",
+    "WarnSoft": "#128F5A00",
+    "DangerSoft": "#12C2281C",
+    "InfoSoft": "#121F5FBF"
   },
-  "radius": { "Card": 8, "Control": 6 },
-  "space": { "XS": 4, "S": 8, "M": 12, "L": 16, "XL": 24 },
-  "type": { "Caption": 11, "Body": 13, "Subtitle": 15, "Title": 21, "Metric": 28 }
+  "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999},
+  "elevation": {
+    "Card": {"Blur": 20, "Depth": 6, "OpacityDark": 0.22, "OpacityLight": 0.07},
+    "Overlay": {"Blur": 44, "Depth": 16, "OpacityDark": 0.42, "OpacityLight": 0.18}
+  },
+  "motion": {"FastMs": 120, "NormalMs": 220, "SlowMs": 400, "PulseMs": 2400, "Ease": [0.2, 0.8, 0.2, 1]},
+  "space": {"XS": 4, "S": 8, "M": 12, "L": 16, "XL": 24},
+  "type": {"Caption": 11, "Body": 13, "Subtitle": 15, "Title": 21, "Metric": 28}
 }

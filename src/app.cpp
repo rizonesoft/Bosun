@@ -46,10 +46,10 @@ uint64_t available_mb() {
 }
 
 struct Options {
-    int slots = static_cast<int>(env_num(L"DEVMODE_SLOTS", 2));
-    uint64_t min_avail_mb = env_num(L"DEVMODE_MIN_AVAIL_MB", 6144);
-    uint64_t max_wait_s = env_num(L"DEVMODE_MAX_WAIT", 900);
-    std::wstring ns = L"DevMode";
+    int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2));
+    uint64_t min_avail_mb = env_num(L"BOSUN_MIN_AVAIL_MB", 6144);
+    uint64_t max_wait_s = env_num(L"BOSUN_MAX_WAIT", 900);
+    std::wstring ns = L"Bosun";
     int days = 7;
     int interval_s = 30;
     bool once = false;
@@ -104,7 +104,7 @@ Slot acquire_slot(const Options& o) {
     for (int i = 0; i < o.slots; ++i) {
         HANDLE h = open_slot(o.ns, i);
         if (!h) {
-            std::cerr << "[devmode] cannot open slot " << i << ", error " << GetLastError() << "\n";
+            std::cerr << "[bosun] cannot open slot " << i << ", error " << GetLastError() << "\n";
             ExitProcess(70);
         }
         handles.push_back(h);
@@ -124,12 +124,12 @@ Slot acquire_slot(const Options& o) {
         }
         auto waited = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
         if (o.max_wait_s && static_cast<uint64_t>(waited) >= o.max_wait_s) {
-            std::cerr << "[devmode] waited " << waited << " s, starting anyway without a slot\n";
+            std::cerr << "[bosun] waited " << waited << " s, starting anyway without a slot\n";
             for (HANDLE h : handles) CloseHandle(h);
             return {};
         }
         if (!announced) {
-            std::cerr << "[devmode] waiting for a build slot (" << available_mb() << " MB available)\n";
+            std::cerr << "[bosun] waiting for a build slot (" << available_mb() << " MB available)\n";
             announced = true;
         }
         Sleep(500);
@@ -164,14 +164,14 @@ bool is_batch(const std::wstring& path) {
 int run_child(const Options& o) {
     std::wstring program = resolve_program(o.command[0]);
     if (program.empty()) {
-        std::wcerr << L"[devmode] command not found: " << o.command[0] << L"\n";
+        std::wcerr << L"[bosun] command not found: " << o.command[0] << L"\n";
         return 127;
     }
     std::vector<std::wstring> rest(o.command.begin() + 1, o.command.end());
     bool batch = is_batch(program);
     auto built = dm::build_command_line(program, rest, batch);
     if (!built) {
-        std::cerr << "[devmode] a batch file cannot safely receive an argument containing a line break\n";
+        std::cerr << "[bosun] a batch file cannot safely receive an argument containing a line break\n";
         return 64;
     }
     std::wstring line = *built;
@@ -185,19 +185,19 @@ int run_child(const Options& o) {
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
     info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
     if (!job || !SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info, sizeof(info))) {
-        std::cerr << "[devmode] cannot create a job object, error " << GetLastError() << "\n";
+        std::cerr << "[bosun] cannot create a job object, error " << GetLastError() << "\n";
         return 70;
     }
 
     STARTUPINFOW si{sizeof(si)};
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(image.c_str(), line.data(), nullptr, nullptr, TRUE, CREATE_SUSPENDED, nullptr, nullptr, &si, &pi)) {
-        std::cerr << "[devmode] cannot start command, error " << GetLastError() << "\n";
+        std::cerr << "[bosun] cannot start command, error " << GetLastError() << "\n";
         CloseHandle(job);
         return 126;
     }
     if (!AssignProcessToJobObject(job, pi.hProcess)) {
-        std::cerr << "[devmode] cannot contain the command in a job, error " << GetLastError() << "\n";
+        std::cerr << "[bosun] cannot contain the command in a job, error " << GetLastError() << "\n";
         TerminateProcess(pi.hProcess, 70);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
@@ -216,15 +216,15 @@ int run_child(const Options& o) {
 
 int cmd_run(const Options& o) {
     if (o.command.empty()) {
-        std::cerr << "usage: devmode run [options] -- command [args]\n";
+        std::cerr << "usage: bosun run [options] -- command [args]\n";
         return 64;
     }
-    if (!env(L"DEVMODE_SLOT").empty()) return run_child(o);  // Already inside a slot.
+    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot.
     Slot slot = acquire_slot(o);
-    SetEnvironmentVariableW(L"DEVMODE_SLOT", std::to_wstring(slot.index).c_str());
+    SetEnvironmentVariableW(L"BOSUN_SLOT", std::to_wstring(slot.index).c_str());
     // WSLENV carries the marker into WSL, so a nested run on the other side also passes through.
     std::wstring wslenv = env(L"WSLENV");
-    SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"DEVMODE_SLOT" : wslenv + L":DEVMODE_SLOT").c_str());
+    SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT" : wslenv + L":BOSUN_SLOT").c_str());
     int code = run_child(o);
     if (slot.handle) ReleaseMutex(slot.handle);
     return code;
@@ -257,14 +257,14 @@ int cmd_status(const Options& o) {
     GlobalMemoryStatusEx(&m);
     std::cout << "slots busy: " << busy << " of " << o.slots << "\n";
     std::cout << "available: " << available_mb() << " of " << m.ullTotalPhys / (1024 * 1024) << " MB\n";
-    HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\DevMode.Logger");
+    HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\Bosun.Logger");
     std::cout << "logger: " << (logger ? "running" : "not running") << "\n";
     if (logger) CloseHandle(logger);
     return 0;
 }
 
 fs::path log_dir() {
-    fs::path p = fs::path(env(L"LOCALAPPDATA")) / L"DevMode" / L"logs";
+    fs::path p = fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"logs";
     fs::create_directories(p);
     return p;
 }
@@ -441,7 +441,7 @@ void prune_logs(int keep_days) {
 }
 
 int cmd_log(const Options& o) {
-    HANDLE single = CreateMutexW(nullptr, TRUE, L"Local\\DevMode.Logger");
+    HANDLE single = CreateMutexW(nullptr, TRUE, L"Local\\Bosun.Logger");
     if (!o.once && GetLastError() == ERROR_ALREADY_EXISTS) return 0;  // One logger per session.
     PDH_HQUERY q = nullptr;
     PDH_HCOUNTER c = nullptr;
@@ -488,24 +488,24 @@ int cmd_report(const Options& o) {
 
 }  // namespace
 
-int devmode_main(const std::vector<std::wstring>& args) {
+int bosun_main(const std::vector<std::wstring>& args) {
     if (args.empty()) {
-        std::cerr << "usage: devmode run|acquire|status|log|report [options] [-- command]\n";
+        std::cerr << "usage: bosun run|acquire|status|log|report [options] [-- command]\n";
         return 64;
     }
     std::vector<std::wstring> rest(args.begin() + 1, args.end());
     Options o;
     try {
         if (!parse_options(rest, o)) {
-            std::cerr << "[devmode] bad options\n";
+            std::cerr << "[bosun] bad options\n";
             return 64;
         }
     } catch (const std::exception&) {
-        std::cerr << "[devmode] bad option value\n";
+        std::cerr << "[bosun] bad option value\n";
         return 64;
     }
     if (o.slots < 1) {
-        std::cerr << "[devmode] --slots must be at least 1\n";
+        std::cerr << "[bosun] --slots must be at least 1\n";
         return 64;
     }
     if (args[0] == L"run") return cmd_run(o);
@@ -513,6 +513,6 @@ int devmode_main(const std::vector<std::wstring>& args) {
     if (args[0] == L"status") return cmd_status(o);
     if (args[0] == L"log") return cmd_log(o);
     if (args[0] == L"report") return cmd_report(o);
-    std::cerr << "[devmode] unknown command\n";
+    std::cerr << "[bosun] unknown command\n";
     return 64;
 }

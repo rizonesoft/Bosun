@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """WSL memory sampler. Writes the same CSV format as the Windows logger.
 
-usage: devmode_log.py <log_dir> [--interval 30] [--once]
+usage: bosun_log.py <log_dir> [--interval 30] [--once]
 """
 import datetime
 import os

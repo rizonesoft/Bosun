@@ -1,0 +1,2 @@
+# GitHub adds the "Report a security vulnerability" entry itself because SECURITY.md exists.
+blank_issues_enabled: false

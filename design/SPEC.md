@@ -1,13 +1,16 @@
-# DevMode Panel interface spec
+# Bosun Panel interface spec
 
 This file is the contract. A TODO section with `Surface: yes` cites a section here in `Fidelity:`, and a surface is done only when every control below is working or deferred to a named owner section. This file wins over the mockup and over memory. Later changes are made here first, dated, with the section that made them.
 
-Mockup: [mockups/control-panel.html](./mockups/control-panel.html). Colours, radii, spacing and type sizes come only from [tokens/colors.json](./tokens/colors.json), and no control sets a hex value.
+Mockup: [mockups/control-panel.html](./mockups/control-panel.html). Colours, radii, elevation, motion, spacing and type sizes come only from [tokens/colors.json](./tokens/colors.json), and no control sets a hex value.
 
 ## 1. Shared chrome
 
-- Window: custom title bar 44 px with the icon, "DevMode Panel", a run badge, and minimise, maximise and close. The maximise button answers `HTMAXBUTTON` so Windows 11 snap layouts appear. Minimum size 960 x 600. Per-monitor DPI v2.
-- Rail: 208 px, groups Monitor, Workflow, Machine, Claude API, App. A page with unsaved edits may refuse navigation, offering Save or Discard.
+- Window: custom title bar 44 px with the icon, "Bosun Panel", a run badge, and minimise, maximise and close. The maximise button answers `HTMAXBUTTON` so Windows 11 snap layouts appear. Minimum size 960 x 600. Per-monitor DPI v2.
+- Backdrop: the title bar and rail sit on Mica, and page content sits on a solid sheet with a rounded top-left corner. Where Mica is unavailable the same layout uses solid `Base`, per §19. Added 2026-11-07 (owner request, `D02 T03 §2`).
+- Rail: 208 px, groups Monitor, Workflow, Machine, Claude API, App, with a Lucide glyph on every row, a sliding marker on the selected row and count badges per §19. A page with unsaved edits may refuse navigation, offering Save or Discard.
+- Repo selector: one selector at the head of the rail's Workflow group sets the repo for Plan, Reviews, Unattended run, and Hooks and automations. It is remembered between sessions and lists registered repos under Windows and WSL. Each of those pages states the repo's name, side and path under its title. With no repos it says "No repos yet" and links to Settings, Repos. Fleet covers all repos and ignores it, and the Monitor pages show both sides with a Side column. Added 2026-11-07 (owner request, `D02 T02 §11`).
+- WSL repos: a WSL repo is registered with its distro and Linux path, and its tools run inside that distro through `wsl.exe --cd` with an argument list. The panel never starts the WSL VM to poll. While WSL is stopped, a WSL repo shows "WSL not running" with a Start WSL button, and its last data is marked with its age.
 - Activity pane: 132 px, resizable with a splitter, 500 entries at most. Each line starts with the word INFO, WARN or FAIL. Every panel action writes a line.
 - Status is never colour alone: each state has a word. Every icon-only control has an automation name and a tooltip. Every target is at least 32 px high.
 - Every page has four drawn states: loading, data, empty (says why and what to do) and failed (quotes the tool's message and offers Retry). A value that cannot be read shows "Not available" with a reason, never 0.
@@ -21,7 +24,7 @@ Four metric cards (Windows available, WSL guest available, Queue, Dev instances)
 
 ## 3. Memory
 
-Cards: Windows used, WSL VM, Overlapping builds. History chart: available memory with the pressure line, range 24 hours, 7 days or 14 days, and Show as table (the accessible equivalent). By repo table sortable by private GB, peak GB and processes. A Decision card summarises the peaks behind the 64 GB question from `devmode report --json` and states when too few days are logged.
+Cards: Windows used, WSL VM, Overlapping builds. History chart: available memory with the pressure line, range 24 hours, 7 days or 14 days, and Show as table (the accessible equivalent). By repo table sortable by private GB, peak GB and processes. A Decision card summarises the peaks behind the 64 GB question from `bosun report --json` and states when too few days are logged.
 
 ## 4. Instances
 
@@ -33,19 +36,19 @@ Slots table (slot, holder command, repo, side, waited, running). Waiting table (
 
 ## 6. Plan
 
-Repo picker. Cards: verified, ready, blocked. Sections grouped by phase with status word, ref, title, needs and rounds. Filter box and status filter. Section detail pane: body rendered as plain formatted text, dependencies with their state, needs, receipt link, findings file link. Graph view: layered dependency drawing with keyboard navigation, with the list as its equivalent. Findings tab shows `todo/findings.md`. Deferred tab shows `query deferred`. An unsupported kit shows "not supported by this kit" with what the probe found.
+Uses the repo selector from §1. Cards: verified, ready, blocked. Sections grouped by phase with status word, ref, title, needs and rounds. Filter box and status filter. Section detail pane: body rendered as plain formatted text, dependencies with their state, needs, receipt link, findings file link. Graph view: layered dependency drawing with keyboard navigation, with the list as its equivalent. Findings tab shows `todo/findings.md`. Deferred tab shows `query deferred`. An unsupported kit shows "not supported by this kit" with what the probe found.
 
 ## 7. Reviews
 
-Pin card (writer route, reviewer, model, CLI found, schedule) from `--check-pin --json`, showing a refusal in full. Review in flight (section, pass, reviewer, elapsed, deadline). Rounds table per section from `--list-rounds --json`. Receipts table from `query rounds`. Selecting a row shows the findings text. This page starts no reviews.
+Uses the repo selector from §1. Pin card (writer route, reviewer, model, CLI found, schedule) from `--check-pin --json`, showing a refusal in full. Review in flight (section, pass, reviewer, elapsed, deadline). Rounds table per section from `--list-rounds --json`. Receipts table from `query rounds`. Selecting a row shows the findings text. This page starts no reviews.
 
 ## 8. Unattended run
 
-Repo picker. Cards: Run (state word, session, start), Heartbeat (age, next due), Watchdog (installed, last tick, stale), Counters (restarts, yields). Last API failure line when present. Controls: Start process plan (primary; opens a Windows Terminal tab in the repo; refuses beside a live session, naming it), Stop at end of turn, Halt with a ground (danger; ground picker and required reason), Install or Uninstall watchdog. Guard log tail with auto-scroll and pause. Status words: Active, Stopped, Drained, Stalled, Halted, Expired, Inactive.
+Uses the repo selector from §1. Cards: Run (state word, session, start), Heartbeat (age, next due), Watchdog (installed, last tick, stale), Counters (restarts, yields). Last API failure line when present. Controls: Start process plan (primary; opens a Windows Terminal tab in the repo; refuses beside a live session, naming it), Stop at end of turn, Halt with a ground (danger; ground picker and required reason), Install or Uninstall watchdog. Guard log tail with auto-scroll and pause. Status words: Active, Stopped, Drained, Stalled, Halted, Expired, Inactive.
 
 ## 9. Hooks and automations
 
-Hooks table merged across user, project and local settings: event, matcher, command, source file, script found. Test runs a harmless hook payload against temporary state and shows the output, and is offered only for a hook known to isolate its state. Any other hook shows Test not available with the reason. Automations table from `tasks.json`, Task Scheduler and `last.json`: task, trigger, last run, result word, Run now, Open log, Install, Remove. Install and Remove act on that one task, and are unavailable, with the reason, where a repo's installer can't target one task.
+Uses the repo selector from §1. Hooks table merged across user, project and local settings: event, matcher, command, source file, script found. Test runs a harmless hook payload against temporary state and shows the output, and is offered only for a hook known to isolate its state. Any other hook shows Test not available with the reason. Automations table from `tasks.json`, Task Scheduler and `last.json`: task, trigger, last run, result word, Run now, Open log, Install, Remove. Install and Remove act on that one task, and are unavailable, with the reason, where a repo's installer can't target one task.
 
 ## 10. Fleet
 
@@ -69,7 +72,7 @@ Ledger table: when, mode, repo, model, input, cached, output, cost. Totals by da
 
 ## 15. Settings
 
-General: Start with Windows in the tray, Theme, Pressure alert threshold, Notifications on or off by type. Repos: list, Add, Remove, Scan folder. Claude API: key status word, Paste new key, Import from 1Password, Remove key, daily cap, monthly cap. Every setting names its consumer in the section that builds it. Save writes atomically and reads back.
+General: Start with Windows in the tray, Theme, Pressure alert threshold, Notifications on or off by type. Repos: list with name, side and state word, Add (a Windows folder, or a WSL distro and Linux path), Remove, Scan folder (a Windows folder, or a Linux folder in a chosen distro). `D:\GitHub\x` and `/mnt/d/GitHub/x` are the same repo and list once, on the side where it was added. Claude API: key status word, Paste new key, Import from 1Password, Remove key, daily cap, monthly cap. Every setting names its consumer in the section that builds it. Save writes atomically and reads back.
 
 ## 16. About
 
@@ -81,4 +84,26 @@ Icon with state overlay: Normal, Pressure, Needs you. The tooltip states the sam
 
 ## 18. Icon
 
-A dark rounded tile with a mint prompt chevron and two bars, mint and amber: the prompt and the two queue slots. Masters: [icon/](./icon/). 40 px and above uses the 256 master. 32, 24 and 16 px are redrawn on the pixel grid with no rim, and 20 px renders from the 16 px file. ICO frames: 16, 20, 24, 32, 40, 48, 64, 256. Edit the masters, never generated files.
+A dark rounded tile with a mint prompt chevron and two bars, mint and amber: the prompt and the two queue slots. Masters: [icon/](./icon/). 40 px and above uses the 256 master. 32, 24 and 16 px are redrawn on the pixel grid with no rim, and 20 px renders from the 16 px file. ICO frames: 16, 20, 24, 32, 40, 48, 64, 256. Edit the masters, never generated files. Menu and control glyphs are not this icon: they come from Lucide, per §19.
+
+## 19. Premium components
+
+Added 2026-11-07 from the owner's request for Lucide menu icons, softer rounding, premium components and a Mica title bar (`D02 T03`). The finish never outranks §1: status keeps its word, every target stays 32 px or more, and a hidden page animates and polls nothing. The whole panel stays within the 150 MB and 1% CPU idle budget.
+
+- Backdrop: Mica through `DWMWA_SYSTEMBACKDROP_TYPE` on Windows 11 build 22621 or later. Solid `Base` on older Windows, with system transparency off, or in high contrast. A change to any of these applies live, without a restart. There is no live blur inside the window.
+- Rounding: cards 12, controls 8, sheet 12, overlays 14, pills fully round.
+- Elevation: cards use a border and at most the `Card` shadow, cached rather than redrawn. Only the palette and toasts use the `Overlay` shadow.
+- Motion: fast 120 ms for hover, normal 220 ms for the rail marker, page changes and overlays, slow 400 ms for values changing. With Windows animation effects off, every change applies at once and no pulse runs.
+- Glyphs: Lucide, through one icon map. A glyph beside a word is decorative. An icon-only control keeps its automation name and tooltip.
+- Count badge: a rail row shows a count only when that page has something waiting, and the automation name says the count in words.
+- Status pill: icon, word and a soft tint of the state's colour. The word is required, and it reads at 4.5:1 or better on `Base`, `Surface` and `Raised`.
+- Segmented control: replaces a short exclusive choice, such as a chart range. It uses the arrow keys, exposes a selected state and keeps a 32 px target.
+- Radial gauge: a value, its unit and a state word in the centre. It is used on metric cards. An unreadable value draws an empty track with "Not available", never 0.
+- Sparkline: a recent trend inside a card. It has no axis, and its automation name gives the latest value and direction in words.
+- Stacked bar: shares of a total, such as memory by group, with a legend giving every value in words.
+- Queue slot: one tile per slot showing free, holder or waiting, with the holder's command and elapsed time. Waiting jobs follow in order, and the memory floor that holds slot 2 is stated in words.
+- Heartbeat: a dot with the age in words and a state word. It pulses only while the page is visible and the run is active.
+- Skeleton: the loading state from §1, shaped like the page's data. It appears only after 150 ms, so a fast load does not flash.
+- Page transition: content fades and rises 4 px over the normal duration, and only the content, never the rail.
+- Command palette: Ctrl+K opens it over any page. It searches pages and the current page's actions. It never runs a danger action without that action's own confirmation. Esc closes it and returns focus. Enter runs the selected row.
+- Toast: a transient in-window result of a panel action, at the bottom right, at most 3 at once, dismissed after 6 s unless hovered or focused. Each is announced through the live region, and each also has its line in the Activity pane, so a missed toast loses nothing. FAIL toasts stay until dismissed. Tray notifications in §17 remain the out-of-window path.

@@ -19,6 +19,9 @@ title: "TODO-04 -- Hooks, automations and fleet"
 - -> XREF: D04 T01 §1 -- consumed by this file
 - -> XREF: D02 T02 §6 -- consumed by this file
 - -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D02 T03 §4 -- consumed by this file
+- -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D02 T02 §11 -- consumed by this file
 
 ## Outcome
 
@@ -33,7 +36,7 @@ title: "TODO-04 -- Hooks, automations and fleet"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Hooks inspector | D04 T01 §1 | [ ] |
+| 1 | §1 | Hooks inspector | D04 T01 §1, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 2 | §2 | Automations panel | §1 | [ ] |
 | 3 | §3 | Fleet page | §1, D02 T02 §6 | [ ] |
 
@@ -51,7 +54,7 @@ Hooks fail silently when a path moves. This merges all sources and proves each s
 
 **Build order:**
 
-1. Create `src/DevMode.Core/Workflow/HookInspector.cs`. Done when: user, project and local settings merge.
+1. Create `src/Bosun.Core/Workflow/HookInspector.cs`. Done when: user, project and local settings merge.
 2. Add Test. Done when: a harmless payload runs against temporary state.
 
 - [ ] Read each settings file, resolving `$CLAUDE_PROJECT_DIR`. Done when: a fixture with a missing script reads Script missing. Cheaper substitute: printing `env` values from settings.
@@ -59,7 +62,7 @@ Hooks fail silently when a path moves. This merges all sources and proves each s
 - [ ] Build the table per `design/SPEC.md` §9. Done when: each row names its source file.
 - [ ] Commit: `hooks: inspector`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~HookInspector` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~HookInspector` exits 0, and fails if the change is reverted.
 
 ## 2. Automations panel
 
@@ -84,7 +87,7 @@ Hooks fail silently when a path moves. This merges all sources and proves each s
 - [ ] Add failed automations to Needs you. Done when: exit 1 appears on Overview.
 - [ ] Commit: `automations: panel`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~AutomationClient` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AutomationClient` exits 0, and fails if the change is reverted.
 
 ## 3. Fleet page
 
@@ -107,9 +110,9 @@ This is how "the latest and the best of all of them" stays true: drift becomes v
 - [ ] Build the read-only table per `design/SPEC.md` §10, linking each cell to its source file. Done when: no control writes into another repo, proven by a test of the view model's commands. Cheaper substitute: a one-click sync that overwrites a repo's owned copy.
 - [ ] Commit: `fleet: page`
 
-**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~Fleet` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Fleet` exits 0, and fails if the change is reverted.
 
 ## Verification
 
-- `dotnet test DevMode.slnx` passes.
+- `dotnet test Bosun.slnx` passes.
 - The Fleet page's live values were spot-checked against two repos.

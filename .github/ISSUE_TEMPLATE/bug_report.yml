@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Bosun does not work the way it should.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems go to private reporting, not here: see SECURITY.md.
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      description: Run `git rev-parse --short HEAD` in your clone.
+    validations:
+      required: true
+  - type: dropdown
+    id: side
+    attributes:
+      label: Where does it happen?
+      options:
+        - Windows
+        - WSL
+        - Both
+        - Bosun Panel
+    validations:
+      required: true
+  - type: input
+    id: windows-build
+    attributes:
+      label: Windows build
+      description: Run `winver` and copy the version and OS build line.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, including any `bosun run` options.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened?
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: Output of `bosun status`
+      render: text

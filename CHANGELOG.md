@@ -1,0 +1,22 @@
+# Changelog
+
+Notable changes to Bosun are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions will follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- `bosun run`: a build queue shared by Windows and WSL, with memory-gated slots.
+- `bosun status`, and `bosun report` over the logged memory data.
+- The login logger on Windows, and the `bosun-log` user service in WSL.
+- `bin/`, holding only the shipped tools after a Release build.
+- CI for the build, the tests and the TODO graph.
+- The Bosun Panel design, interface spec, mockup and implementation plan.
+
+### Changed
+
+- Renamed the project from DevMode to Bosun.
+
+### Fixed
+
+- The WSL side now installs from a folder WSL can read, even when it can't see the drive holding the repository.
