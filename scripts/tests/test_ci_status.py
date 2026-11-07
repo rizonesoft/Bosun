@@ -230,6 +230,27 @@ class Skips(Base):
                 self.assertEqual(self.check(["README.md"], **git)[1]["build.yml"], "none")
         self.assertEqual(self.check(["a.md"] * 301)[1]["build.yml"], "none")
 
+    def exact_revert(self):
+        """A passed, then C with no file different from A."""
+        a, c = OLD, SHA
+        self.assertEqual(self.go(["--gate", "--sha", "BASE"], FakeGh({"build.yml": [run(sha=a)], "plan.yml": [run(sha=a)]}), FakeGit())[0], 0)
+        return FakeGh(), FakeGit([])
+
+    def test_an_exact_revert_to_the_proven_commit_is_a_skip(self):
+        gh, git = self.exact_revert()
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], gh, git)
+        data = json.loads(out)
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertIn("no file differs", data["workflows"][0]["reason"])
+
+    def test_use_proven_recognises_an_exact_revert(self):
+        gh, git = self.exact_revert()
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], gh, git)[0], 0)
+
+    def test_an_explicit_base_proves_nothing_from_no_change(self):
+        gh, git = self.exact_revert()
+        self.assertEqual(self.go(["--sha", "HEAD", "--base", "BASE"], gh, git)[0], ci_status.EXIT_NONE)
+
     def test_empty_diff_proves_nothing(self):
         self.assertEqual(self.check([])[1]["build.yml"], "none")
 
@@ -820,6 +841,47 @@ class Gate(Base):
         self.assertEqual(limits, sorted(limits, reverse=True))  # and each limit shrinks as the budget does
         self.assertTrue(all(timeout > 0 for timeout in limits))
         self.assertIn("action: wait", out.getvalue())
+
+    def nearly_expired(self):
+        """A commit whose two hour limit has one second left, and a tool that uses every second it is given."""
+        self.waiting(0)
+        clock, seen = _Clock(), []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            seen.append((name, timeout))
+            clock.t += timeout
+            return 0, (SHA + "\n" if name == "git" else "[]"), ""
+        return clock, seen, tool
+
+    def test_the_limit_bounds_a_call_with_no_wait(self):
+        clock, seen, tool = self.nearly_expired()
+        wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1
+        real = ci_status.run_tool
+        calls = []
+
+        def counted(name, args, cwd=ci_status.ROOT, timeout=120):
+            if name == "git":  # resolving the commit comes before the limit is known
+                return 0, SHA + "\n", ""
+            calls.append(timeout)
+            return tool(name, args, cwd, timeout)
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", counted), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep, wall=wall)
+        self.assertEqual(calls, [1])  # one call stops at the limit, and none starts after it
+        self.assertEqual(clock.t, 1)
+        self.assertEqual(clock.sleeps, 0)  # with no wait it looks once and doesn't poll
+
+    def test_a_call_with_time_to_spare_keeps_each_tools_limit(self):
+        seen = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            seen.append(timeout)
+            return 0, (SHA + "\n" if name == "git" else "[]"), ""
+        clock = _Clock()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0)
+        self.assertEqual(set(seen), {120})
+        self.assertEqual(clock.sleeps, 0)
 
     def test_without_a_wait_a_tool_keeps_its_own_limit(self):
         seen = []

@@ -176,8 +176,9 @@ def push_filters(workflow_text):
     return filters["paths"], filters["paths-ignore"]
 
 
-def skip_reason(git, workflow, sha, base):
-    """Why this push never triggers the workflow, or None unless that is proven."""
+def skip_reason(git, workflow, sha, base, base_proven=False):
+    """Why this push never triggers the workflow, or None unless that is proven. No change at all proves nothing from an
+    arbitrary base, but from a proven one it means an exact revert, whose inputs are what passed."""
     if not base:
         return None
     try:
@@ -194,8 +195,10 @@ def skip_reason(git, workflow, sha, base):
     except Unavailable:
         return None
     changed = [name for name in out.split("\0") if name]  # NUL separated, because Git quotes non-ASCII names otherwise
-    if code != 0 or not changed or len(changed) > MAX_DIFF_FILES:
+    if code != 0 or len(changed) > MAX_DIFF_FILES:
         return None
+    if not changed:
+        return "no file differs from the last proven commit" if base_proven else None
     paths, ignore = filters
     rules = [path_rule(p) for p in (paths if paths is not None else ignore)]
     if not rules or None in rules:
@@ -208,7 +211,7 @@ def skip_reason(git, workflow, sha, base):
     return None
 
 
-def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, already_proven=False):
+def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, base_proven=False):
     scope = ["--commit", sha] if sha else ["--branch", branch]
     runs = gh_json(runner, ["run", "list", *scope, "--workflow", workflow, "--limit", str(LIMIT), "--json", FIELDS])
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
@@ -224,7 +227,8 @@ def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, alr
              "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer)}
     if verdict == "none" and sha and git:
         # A commit already recorded as proven stays so, unless a real run has since said otherwise, as above.
-        reason = "this commit is already recorded as proven" if already_proven else skip_reason(git, workflow, sha, base)
+        same = base_proven and sha == base
+        reason = "this commit is already recorded as proven" if same else skip_reason(git, workflow, sha, base, base_proven)
         if reason:
             entry.update(verdict="skipped", reason=reason)
     if verdict == "red":
@@ -254,12 +258,12 @@ def overall_exit(verdicts):
     return 0 if verdicts else EXIT_NONE
 
 
-def report(runner, workflows, branch, sha=None, base=None, git=None, already_proven=False):
+def report(runner, workflows, branch, sha=None, base=None, git=None, base_proven=False):
     """The report dict and its exit code. One workflow being unreadable doesn't hide another's red."""
     entries = []
     for workflow in workflows:
         try:
-            entries.append(workflow_status(runner, workflow, branch, sha, base, git, already_proven))
+            entries.append(workflow_status(runner, workflow, branch, sha, base, git, base_proven))
         except Unavailable as exc:
             entries.append({"workflow": workflow, "verdict": "unavailable", "error": str(exc)})
     code = overall_exit([e["verdict"] for e in entries])
@@ -450,16 +454,14 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     if args.wait_minutes < 0:
         parser.error("--wait-minutes can't be negative")
     started = clock()
-    deadline = started + args.wait_minutes * 60
+    deadline = started + args.wait_minutes * 60 if args.wait_minutes else float("inf")  # the two hour limit may lower it
 
     def remaining():
         return max(deadline - clock(), 0)
 
     def bounded(tool, default=120):
-        """A tool call may not outlast the wait, and none starts once it has passed. Without a wait, tools keep their limit."""
+        """A tool call may not outlast the deadline, and none starts once it has passed."""
         def call(arguments):
-            if not args.wait_minutes:
-                return tool(arguments, default)
             left = remaining()
             if left <= 0:
                 raise Unavailable("the wait ran out")
@@ -503,13 +505,13 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             base = resolve_commit(git_call, wanted)
         except Unavailable:
             base = None
-    already_proven = bool(sha) and sha == base and not args.base
-    result, code = report(ask, workflows, args.branch, sha, base, git_call, already_proven)
-    while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
+    base_proven = bool(base) and not args.base
+    result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
+    while args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
         sleep(min(POLL_SECONDS, remaining()))
-        result, code = report(ask, workflows, args.branch, sha, base, git_call, already_proven)
+        result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
