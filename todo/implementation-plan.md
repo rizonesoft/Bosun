@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 24 | Checklist items: 172
+Sections: 24 | Checklist items: 174
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -26,7 +26,7 @@ Sections: 24 | Checklist items: 172
 | [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
 | [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 5     |
 | [ ]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
-| [ ]    | D00 T03 §12 | Review caps of 33                                      | none        | 8     |
+| [ ]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
 | [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 8     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
@@ -195,4 +195,4 @@ Sections: 5 | Checklist items: 28
 
 Progress: 2/124 verified sections, 8 ready to run now.
 
-Checklist: 75/680 items completed (includes Commit items).
+Checklist: 75/682 items completed (includes Commit items).
