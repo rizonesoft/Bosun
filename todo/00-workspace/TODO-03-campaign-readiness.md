@@ -480,6 +480,8 @@ The owner decided on 2026-11-07 that from a section's third review cycle on, onc
 
 ## 15. One completion pass, as Steward and Recto run
 
+> **Started:** 2026-11-07T22:22:16Z
+
 On 2026-11-08 the owner chose the review shape Steward and Recto use, because repairing on completion gaps kept a section looping and an unattended run can't afford that. Their receipts show it: Recto stamped 45 of 45 completion reviews `filed`, Steward 23 `filed`, 6 `completed` and 2 `complete`, and neither repo has a single repair cycle. So the completion review is one pass in every cycle: its missing items are fixed in the same cycle and stamped `completed`, or filed as open sections and stamped `filed`, and nothing is re-reviewed. `repair` stays only for a cycle whose rounds ran out without a clean one, and `park` at its cap. This replaces `§14`'s third-cycle rule.
 
 **Phase:** 0
