@@ -163,10 +163,18 @@ class Commit(Base):
         self.assertNotIn("--branch", lookup)
 
     def test_green_older_commit_cannot_satisfy_a_newer_one(self):
-        # With --commit, gh returns no runs for this commit even though main has an older green.
-        code, verdicts, _ = self.verdicts(["--sha", "HEAD"], FakeGh())
+        older = [run(sha=OLD)]
+
+        def gh(args):
+            # Like the real gh: --commit filters by commit, and --branch returns the older green.
+            if "--commit" in args and args[args.index("--commit") + 1] != OLD:
+                return 0, "[]", ""
+            return 0, json.dumps(older), ""
+        code, verdicts, _ = self.verdicts(["--sha", "HEAD"], gh)
         self.assertEqual(code, ci_status.EXIT_NONE)
         self.assertEqual(verdicts["build.yml"], "none")
+        # The same fake passes the older commit itself, so the test can tell the two apart.
+        self.assertEqual(self.verdicts(["--sha", "BASE"], gh)[0], 0)
 
     def test_newer_attempts_of_the_same_commit_decide(self):
         green = run(created="2026-11-07T10:00:00Z")
@@ -363,7 +371,20 @@ class Gate(Base):
     def test_count_survives_a_new_process_and_green_clears_it(self):
         self.gate(self.red(), SHA)
         self.assertEqual(json.loads(self.state().read_text())["seen"], [SHA])
-        self.assertEqual(self.gate(self.red(), "c" * 40, _Named("c" * 40))[1], "action: repair (attempt 2 of 3)")
+        script = (
+            "import json, sys\n"
+            f"sys.path.insert(0, {str(ROOT / 'scripts')!r})\n"
+            "import ci_status\n"
+            "def gh(args):\n"
+            "    if args[:2] == ['run', 'view']:\n"
+            "        return 0, json.dumps({'jobs': []}), ''\n"
+            "    return 0, json.dumps([{'status': 'completed', 'conclusion': 'failure', 'createdAt': 'x', 'databaseId': 1}]), ''\n"
+            f"def git(args):\n    return 0, {'c' * 40!r} + '\\n', ''\n"
+            f"sys.exit(ci_status.main(['--gate', '--sha', {'c' * 40!r}], runner=gh, root={str(self.root)!r}, git=git))\n"
+        )
+        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(done.stdout.strip().splitlines()[-1], "action: repair (attempt 2 of 3)")
         self.assertEqual(self.gate(self.green())[1], "action: proceed")
         self.assertFalse(self.state().exists())
         self.assertEqual(self.gate(self.red())[1], "action: repair (attempt 1 of 3)")
