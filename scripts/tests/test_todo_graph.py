@@ -782,6 +782,52 @@ class Dispositions(Tree):
         self.assertEqual(state, "needs-repair")
         self.assertIn("33 review rounds", reason)
 
+    def third_cycle_with_gaps(self, clean_last=True):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        for k in (2, 3):
+            tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
+            if k == 2:
+                self.completion("gaps", "D00-T01-s1-cycle2.md")
+        name = "D00-T01-s1-cycle3.md"
+        review = "HIGHEST: none\nOVERALL: approve" if clean_last else "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
+        tg.review_dispatch().record(self.record(name), self.result(review), "2026-11-07T00:00:00Z")
+        self.completion("gaps", name)
+
+    def test_a_third_cycle_with_gaps_after_clean_rounds_needs_filing(self):
+        self.third_cycle_with_gaps()
+        before = self.text()
+        state, reason = self.disposed()
+        self.assertEqual(state, "needs-filing")
+        self.assertIn("filed", reason)
+        self.assertEqual(self.text(), before)  # a restart reads it the same and spends no repair cycle
+        self.assertEqual(self.disposed()[0], "needs-filing")
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-filing")
+
+    def test_without_clean_rounds_it_is_still_repaired(self):
+        self.third_cycle_with_gaps(clean_last=False)
+        self.assertEqual(self.disposed()[0], "needs-repair")
+
+    def test_the_second_cycle_is_still_repaired(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        tg.repair(self.root, "D00 T01 §1", "one", "2026-11-07")
+        tg.review_dispatch().record(self.record("D00-T01-s1-cycle2.md"), self.result("HIGHEST: none\nOVERALL: approve"), "2026-11-07T00:00:00Z")
+        self.completion("gaps", "D00-T01-s1-cycle2.md")
+        self.assertEqual(self.disposed()[0], "needs-repair")
+
+    def test_filing_must_go_to_open_sections(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
+        rows = tg.graph(self.root)
+        tg.require_open_targets(rows, ["D00 T01 §2"], "D00 T01 §1")
+        rows["D00 T01 §2"].done = True
+        with self.assertRaises(tg.Refused) as caught:
+            tg.require_open_targets(rows, ["D00 T01 §2"], "D00 T01 §1")
+        self.assertIn("open section", str(caught.exception))
+        with self.assertRaises(tg.Refused):
+            tg.require_open_targets(rows, ["D00 T01 §9"], "D00 T01 §1")
+
     def test_the_design_doc_and_the_pin_agree_on_the_caps(self):
         schedule = tg.tomllib.loads((REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"))["schedule"]
         self.assertEqual(1 + schedule["max_low_rounds"], 33)
@@ -961,6 +1007,7 @@ class SkillsDefer(unittest.TestCase):
                     self.assertIn("query disposition", text)
                     self.assertNotIn("`display-session`", text)
                     self.assertIn("needs-repair", text)
+                    self.assertIn("needs-filing", text)
                     self.assertNotIn("unpark", text)  # the operator's, never a run's
 
     def test_review_files_leftovers_from_the_third_cycle_in_all_mirrors(self):
@@ -968,8 +1015,16 @@ class SkillsDefer(unittest.TestCase):
             with self.subTest(folder=folder):
                 text = (REPO / folder / "skills" / "review-todo-section" / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("From a section's third review cycle on", text)
+                self.assertNotIn("Only a genuine complete verdict may stamp a new-policy cycle.", text)
                 self.assertIn(":filed'", text)
                 self.assertIn("In the first two cycles, gaps are repaired", text)
+                self.assertIn("todo/findings.md", text)
+
+    def test_the_completion_prompt_counts_only_missing_behaviour_as_gaps(self):
+        prompt = (REPO / "docs" / "completion-review-prompt.md").read_text(encoding="utf-8")
+        self.assertIn("These are suggestions, not gaps", prompt)
+        self.assertIn("every `missing-in-scope` and `missing-out-of-scope` item from Part 1", prompt)
+        self.assertNotIn("`missing-out-of-scope`, `in-scope` and `out-of-scope` item", prompt)
 
     def test_review_teaches_repair_then_park_in_all_mirrors(self):
         for folder in (".claude", ".codex", ".agents"):
@@ -1751,6 +1806,24 @@ class Stamp(Tree):
         self.restamp_after_repair()
         self.assertEqual(own.read_bytes(), kept)
         tg.graph(self.root)  # validation still holds for the whole tree
+
+    def test_a_filed_stamp_persists_and_validates_in_a_fresh_process(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        self.write_completion(review="1. Gap: x.\n\nCOMPLETION: gaps", notes="- Filed: D00 T01 §2\n")
+        receipt = self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True,
+                             completion={"report": self.COMPLETION, "verdict": "filed"})
+        data = json.loads((self.root / receipt).read_text(encoding="utf-8"))
+        self.assertEqual(data["completion"]["filed"], ["D00 T01 §2"])
+        tool = self.root / "scripts"
+        (tool / "lib").mkdir(parents=True, exist_ok=True)
+        for name in ("todo-graph.py", "review-dispatch.py", "lib/todo_graph.py", "lib/host_caps.py"):
+            (tool / name).write_bytes((REPO / "scripts" / name).read_bytes())
+        done = subprocess.run([sys.executable, str(tool / "todo-graph.py"), "validate"], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+        rows = tg.graph(self.root)
+        self.assertTrue(rows["D00 T01 §1"].done)
+        self.assertFalse(rows["D00 T01 §2"].done)
 
     def test_stamp_refuses_a_parked_section(self):
         self.tick_work()

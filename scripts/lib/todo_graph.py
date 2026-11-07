@@ -462,7 +462,12 @@ def schedule_ok(root, data, ref, surface):
             raise Refused(f"invalid current-policy lineage: {exc}: {ref}") from None
         require(data.get("policy") == policy_sha, f"receipt policy differs from its findings: {ref}")
         require(data["round_cap"] == dispatch.schedule_cap(schedule), f"wrong configured review cap: {ref}")
-        require(data["completion"]["verdict"] == "complete", f"completion gaps are not approval: {ref}")
+        # From the third cycle on, the owner's rule lets leftovers be filed as open sections, which completion_record
+        # checks resolve, so one section's polish can't stall the run. Before that, only complete stamps.
+        cycle = re.search(r"-cycle(\d+)\.md$", own)
+        late = cycle is not None and int(cycle[1]) >= 3
+        require(data["completion"]["verdict"] == "complete" or (late and data["completion"]["verdict"] == "filed"),
+                f"completion gaps are not approval before a third review cycle, when leftovers may be filed: {ref}")
         require(found["completions"] and dispatch.returned_pass("completion", found["completions"][-1]),
                 f"terminal completion returned no review: {ref}")
 
@@ -1102,6 +1107,31 @@ def unpark(root, ref, reason, date):
     rewrite_section(root, row, body + f"\n\n> **Repair granted:** {date}: {reason.strip()}")
 
 
+def filing_due(root, ref, cycle):
+    """True when the owner's rule says this cycle files its completion gaps: a third or later cycle, whose completion
+    review returned gaps after a clean last round."""
+    path = cycle_findings(root, ref, cycle)
+    if cycle < 3 or path is None:
+        return False
+    try:
+        dispatch = review_dispatch()
+        found = dispatch.read_findings(path.read_bytes().decode("utf-8", "replace"))
+    except (OSError, Refused):
+        return False
+    if found is None:
+        return False
+    completions = [e for e in found["completions"] if dispatch.returned_pass("completion", e)]
+    rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
+    last = [x.strip() for x in completions[-1]["review"].splitlines() if x.strip()][-1] if completions else ""
+    return last == "COMPLETION: gaps" and bool(rounds) and dispatch.clean(rounds[-1]["review"])
+
+
+def require_open_targets(rows, filed, ref):
+    """Filed work must land in sections still to be built, so it isn't lost in one already stamped."""
+    for target in filed:
+        require(target in rows and not rows[target].done, f"{ref} can only file to an open section, and {target} isn't one")
+
+
 def section_disposition(row, rows, caps, root=ROOT):
     """One state and a reason for an open row, the one answer the guard and the skills use. `disposition` stays for
     `resolve`, `classify` and the plan, whose exit codes are documented."""
@@ -1121,6 +1151,9 @@ def section_disposition(row, rows, caps, root=ROOT):
     if host:
         return "waiting-host", f"this session lacks {', '.join(host)}"
     # Last, so that needs-repair means this session can really do the repair.
+    cycle = reopenings(row.body) + 1
+    if filing_due(root, row.ref, cycle):
+        return "needs-filing", "its completion review returned gaps in a third or later cycle, so they're filed and it stamps"
     try:
         dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
     except Refused as unknown:
@@ -1138,7 +1171,7 @@ def next_work(rows, caps, root=ROOT):
     """The first row this session can run, by phase then table order, or None. What a runner starts next."""
     for row in ordered(rows):
         state, reason = section_disposition(row, rows, caps, root)
-        if state in ("ready", "needs-repair"):
+        if state in ("ready", "needs-repair", "needs-filing"):
             return {"ref": row.ref, "title": row.title, "phase": row.phase, "state": state, "reason": reason}
     return None
 
@@ -1343,6 +1376,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     data["completion"] = completion_record(root, completion, ref, sha)
     for target in data["completion"]["filed"]:
         require(target in rows, f"completion gap filed as {target}, which does not resolve: {ref}")
+    require_open_targets(rows, data["completion"]["filed"], ref)
     data["rounds_spent"] = rounds_recorded(root, reviews)
     if stopped:
         data["cap_outcome"] = cap_outcome.strip()

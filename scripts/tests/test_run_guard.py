@@ -286,6 +286,9 @@ class Rows(unittest.TestCase):
             ("ready", "waiting-host", "waiting-person", "waiting-dependency", "parked", "verified"), 1)]
         self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])
 
+    def test_a_row_needing_filing_is_work(self):
+        self.assertEqual(guard.runnable([{"ref": "D01 T02 §1", "state": "needs-filing"}]), ["D01 T02 §1"])
+
     def test_a_run_with_only_repairable_work_left_goes_on(self):
         rows = [{"ref": "D01 T02 §1", "state": "needs-repair"}, {"ref": "D01 T02 §2", "state": "parked"}]
         self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])

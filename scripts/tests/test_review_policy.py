@@ -4,12 +4,16 @@ import importlib.util
 from pathlib import Path
 import unittest
 import tempfile
+import sys
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # so test_todo_graph imports however the suite is run
 spec = importlib.util.spec_from_file_location('policy_dispatch', ROOT / 'scripts/review-dispatch.py')
 d = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(d)
+
+import test_todo_graph as fixtures  # noqa: E402  (after the sys.path line above)
 
 
 def policy():
@@ -77,6 +81,52 @@ class LivePinCaps(unittest.TestCase):
     def test_an_unresolved_round_thirty_three_has_no_completion(self):
         with self.assertRaisesRegex(d.Refused, 'exhaustion is not approval'):
             self.check('completion', self.found(33))
+
+
+class FiledLeftovers(unittest.TestCase):
+    """The completion verdict a stamp accepts, by cycle, through the graph's own schedule check."""
+
+    def verdict_ok(self, name, verdict, clean_last=True):
+        dispatch = fixtures.tg.review_dispatch()
+        pin = dispatch.load_pin()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / name
+            plan = entry('plan')
+            plan.update(attempt_reviewer='argon', attempt_model=plan['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['plan'])
+            dispatch.record_completion(path, plan, '2026-11-06T00:00:00Z', 'b'*40, 'plan')
+            for clean in (clean_last,):  # one adversarial round, at the pin's effort for it
+                e = entry('round', clean=clean)
+                e.update(attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['adversarial'])
+                dispatch.record(path, e, '2026-11-06T00:00:01Z')
+            done = entry('completion')
+            done['review'] = 'COMPLETION: gaps' if verdict != 'complete' else 'COMPLETION: complete'
+            done.update(attempt_reviewer='argon', attempt_model=done['model'], attempt_cli='agy', failover=[], effort='medium', lenses=[])
+            dispatch.record_completion(path, done, '2026-11-06T00:00:02Z', 'b'*40)
+            data = dict(schedule=pin['schedule'], policy='a'*40, round_cap=dispatch.schedule_cap(pin['schedule']),
+                        plan=dict(report=name), completion=dict(report=name, verdict=verdict, candidate='b'*40),
+                        reviews=[dict(report=name)])
+            with patch.object(dispatch, 'load_pin', return_value=pin), \
+                    patch.object(dispatch, 'record_policy', return_value=(pin, 'a'*40)):
+                fixtures.tg.schedule_ok(Path(folder), data, 'D00 T01 §1', False)
+
+    def test_cycles_one_and_two_refuse_filed(self):
+        for name in ('D00-T01-s1.md', 'D00-T01-s1-cycle2.md'):
+            with self.subTest(name), self.assertRaisesRegex(fixtures.tg.Refused, 'before a third review cycle'):
+                self.verdict_ok(name, 'filed')
+
+    def test_the_third_cycle_on_accepts_filed(self):
+        for name in ('D00-T01-s1-cycle3.md', 'D00-T01-s1-cycle12.md'):
+            with self.subTest(name):
+                self.verdict_ok(name, 'filed')
+
+    def test_complete_is_accepted_in_any_cycle(self):
+        for name in ('D00-T01-s1.md', 'D00-T01-s1-cycle2.md', 'D00-T01-s1-cycle3.md'):
+            with self.subTest(name):
+                self.verdict_ok(name, 'complete')
+
+    def test_a_filed_stamp_still_needs_a_clean_last_round(self):
+        with self.assertRaises(fixtures.tg.Refused):
+            self.verdict_ok('D00-T01-s1-cycle3.md', 'filed', clean_last=False)
 
 
 class CurrentPolicy(unittest.TestCase):

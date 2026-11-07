@@ -307,7 +307,7 @@ def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess:
 def runnable(rows: list[dict]) -> list[str]:
     """The rows this run can take, from `query disposition`, which owns what can run. A needs-repair row is work: the
     skills repair or park it, and the state already checked that this session can."""
-    return [r["ref"] for r in rows if r.get("state") in ("ready", "needs-repair")]
+    return [r["ref"] for r in rows if r.get("state") in ("ready", "needs-repair", "needs-filing")]
 
 
 def real_rows() -> list[str] | None:
