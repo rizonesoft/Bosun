@@ -102,7 +102,7 @@ The graph, the guard and the skills each decide differently what can run. One fu
 
 ## 3. Review repair cycles and parking
 
-> **Started:** 2026-11-07T19:12:32Z
+> **Started:** 2026-11-07T19:25:23Z
 
 A section that fails review must either get a real chance to repair or step aside, never hold up the run in silence. The owner set the cap at three repair cycles. No section ever ships unapproved. **Corrected 2026-11-07:** this depended on §2, but §2 and every other section can only recover from a completion gap through this section, so it can't wait for them. It uses `section_disposition` from the §2 code in the tree.
 
