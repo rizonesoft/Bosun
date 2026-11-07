@@ -52,3 +52,8 @@ wsl -- bash wsl/queue_test.sh /mnt/r/GitHub/DevMode/build/Release/devmode.exe
 The queue tests use a private slot namespace, so they do not affect real jobs.
 
 The design is in `docs/specs/2026-11-07-devmode-design.md`.
+
+## What is being built next?
+
+DevMode Panel, a .NET 11 WPF control panel for memory, dev instances, the queue, plans, reviews, unattended runs, agent updates, machine tuning and extra development on the Claude API key. See the [design](docs/specs/2026-11-07-control-panel-design.md), the [interface spec](design/SPEC.md), the [mockup](design/mockups/control-panel.html) and the [plan](todo/implementation-plan.md).
+

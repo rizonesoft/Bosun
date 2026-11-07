@@ -1,0 +1,113 @@
+---
+schema_version: 1
+id: instances-queue
+domain: 03-monitor
+status: active
+title: "TODO-02 -- Instances and queue"
+---
+
+# TODO-02 -- Instances and queue
+
+> **Goal:** Every agent, editor and build on Windows and WSL appears against its repo, and the queue's holders, waiters, history and limits can be seen and set.
+
+> **Current state:** Measured 2026-11-07. The logger attributes processes to repos by working directory. `run_guard.py` already reads Claude's session records. Nothing lists instances today.
+
+## Inputs
+
+- `design/SPEC.md` §4, §5.
+- `scripts/lib/run_guard.py` `session_records`, the logger's attribution in `src/logger_main.cpp`.
+- -> XREF: D03 T01 §5 -- consumes this file
+- -> XREF: D01 T01 §3 -- consumed by this file
+- -> XREF: D02 T02 §3 -- consumed by this file
+- -> XREF: D05 T01 §2 -- consumes this file
+- -> XREF: D05 T02 §6 -- consumes this file
+
+## Outcome
+
+- An open Claude session on either side appears within a refresh.
+- Queue limits set in the panel govern real jobs.
+
+**Adjacency:** list=applicable; document=not-applicable (nothing carried); settings=applicable @ D03 T02 §3; reporting=applicable @ D03 T02 §3; notifications=not-applicable (none); permissions=applicable @ D03 T02 §2; audit=applicable @ D03 T02 §2; exchange=not-applicable (none); reverse=not-applicable (a stopped process is restarted by the operator)
+
+**Adjacency rationale:** Stop is the only destructive action, so it confirms, names its target and writes to Activity.
+
+## Implementation Order
+
+| Order | Section | Deliverable | Depends On | Status |
+| ----- | ------- | ----------- | ---------- | ------ |
+| 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [ ] |
+| 2 | §2 | Instances page | §1, D02 T02 §9 | [ ] |
+| 3 | §3 | Queue page | D01 T01 §5, §2 | [ ] |
+
+## 1. Instance scanner
+
+Agents are recognised by what they are, not by a window title. On WSL the existing shim reports, rather than each `wsl.exe` call scanning.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `devmode instances --json` to `src/app.cpp` and `wsl/devmode`. Done when: both sides report a shared shape.
+2. Create `src/DevMode.Core/Instances/InstanceClient.cs`. Done when: results merge by repo.
+
+- [ ] List `claude`, `codex`, `agy`, `code` and queued jobs with repo, memory and start time, using the logger's attribution in `src/core.hpp`. Done when: a test process with a set working directory is attributed correctly. Cheaper substitute: matching window titles.
+- [ ] Add the same in `wsl/devmode_log.py`. Done when: `wsl -- devmode instances --json` matches the schema, and a fixture test passes.
+- [ ] Mark state from session records and in-flight marks, or Unknown. Done when: state with no evidence reads Unknown. Cheaper substitute: guessing Working from CPU use alone.
+- [ ] Commit: `instances: scanner on both sides`
+
+**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~InstanceClient` exits 0, and fails if the change is reverted.
+
+## 2. Instances page
+
+The direct answer to monitoring all the dev instances.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §4.
+**Job:** see everything running, and end the one that's stuck.
+**Treatment:** grouped table with row actions. Cheaper substitute that fails: Task Manager's flat list.
+**Chrome:** the shell's page frame and `Btn.Danger`.
+
+**Build order:**
+
+1. Create `Views/InstancesView.xaml`. Done when: rows group by repo.
+2. Add actions. Done when: each works, and Stop confirms.
+
+- [ ] Build the table per `design/SPEC.md` §4. Done when: WSL down shows Windows rows and a notice.
+- [ ] Add Open folder and Open terminal here. Done when: a WSL row opens the right distro and path. Cheaper substitute: Windows paths passed to a WSL shell.
+- [ ] Add Stop: confirm, ask to close, then offer force. Done when: the prompt names process and repo, Activity records it, and a refusal to close doesn't kill. Cheaper substitute: killing immediately with no prompt.
+- [ ] Commit: `instances: page`
+
+**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.
+
+## 3. Queue page
+
+Slots, waiters with a reason, history and limits, all from `D01 T01`.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §5.
+**Job:** see why a build is waiting, and change the limits.
+**Treatment:** three tables and a form. Cheaper substitute that fails: limits that only apply to the panel.
+**Chrome:** the shell's page frame and `Field` styles.
+
+**Build order:**
+
+1. Create `Views/QueueView.xaml`. Done when: live holders and waiters show.
+2. Add history and the limits form. Done when: Save changes real behaviour.
+
+- [ ] Show each waiter's reason, derived from status JSON. Done when: a memory-gated job says it needs 6 GB and how much is free.
+- [ ] Show job history from `jobs-*.jsonl`. Done when: the last 200 appear, newest first, with exit codes.
+- [ ] Add the limits form through `devmode config set`. Done when: a bad value shows beside its field and the file doesn't change, and a saved slot count governs a real job. Cheaper substitute: the panel writing `config.json` directly.
+- [ ] Commit: `queue: page and limits`
+
+**Test checkpoint:** `devmode run -- dotnet test DevMode.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.
+
+## Verification
+
+- `dotnet test DevMode.slnx` passes.
+- An attended check: a real build in Windows and WSL appears in Queue and Instances.

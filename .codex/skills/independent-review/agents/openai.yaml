@@ -1,0 +1,4 @@
+interface:
+  display_name: "Independent review"
+  short_description: "Review by the pinned reviewer (Argon for Codex work), one reviewer, no fallback, a recorded round."
+  default_prompt: "Get an independent review of this change with scripts/review-dispatch.py --writer codex --writer-model <exact-model-version>, then verify and act on every finding. Exit 1 means no review, never an approval."

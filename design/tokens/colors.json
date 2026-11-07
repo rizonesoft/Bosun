@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "dark": {
+    "Base": "#0F1319",
+    "Surface": "#161B23",
+    "Raised": "#1D242E",
+    "Hover": "#262E3A",
+    "Line": "#2D3644",
+    "Text": "#E8EDF3",
+    "TextDim": "#A3AEBD",
+    "TextMute": "#8592A4",
+    "Accent": "#35D6A6",
+    "AccentDim": "#16493C",
+    "OnAccent": "#06221A",
+    "Ok": "#46C96B",
+    "Warn": "#FFB547",
+    "Danger": "#FF6B5E",
+    "Info": "#6EA8FF"
+  },
+  "light": {
+    "Base": "#F4F6F8",
+    "Surface": "#FFFFFF",
+    "Raised": "#ECEFF3",
+    "Hover": "#E2E7ED",
+    "Line": "#CCD3DC",
+    "Text": "#141A22",
+    "TextDim": "#465160",
+    "TextMute": "#5A6676",
+    "Accent": "#0A7A5E",
+    "AccentDim": "#CFEFE5",
+    "OnAccent": "#FFFFFF",
+    "Ok": "#1B7A3D",
+    "Warn": "#8F5A00",
+    "Danger": "#C2281C",
+    "Info": "#1F5FBF"
+  },
+  "radius": { "Card": 8, "Control": 6 },
+  "space": { "XS": 4, "S": 8, "M": 12, "L": 16, "XL": 24 },
+  "type": { "Caption": 11, "Body": 13, "Subtitle": 15, "Title": 21, "Metric": 28 }
+}
