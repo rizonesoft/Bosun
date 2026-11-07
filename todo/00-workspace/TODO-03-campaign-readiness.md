@@ -38,7 +38,7 @@ title: "TODO-03 -- Campaign readiness"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | CI status that proves the commit | -- | [ ] |
 | 2 | §2 | One section disposition across graph, guard and skills | -- | [ ] |
-| 3 | §3 | Review repair cycles and parking | -- | [ ] |
+| 3 | §3 | Review repair cycles and parking | -- | [x] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [ ] |
 | 5 | §5 | Usage limits wait and resume | §2 | [ ] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
@@ -132,7 +132,7 @@ A section that fails review must either get a real chance to repair or step asid
 - [x] Treat an unreadable pin, malformed TOML and a `schedule` of the wrong shape in `repair_cap` in `scripts/lib/todo_graph.py` as a bad value too, with no fallback to a default when the file exists. Done when: tests prove each refuses `repair` with no write and reads `waiting-person`, other rows still answer, a tree with no pin uses 3, and correcting the file restores `needs-repair`. Cheaper substitute: catching every error and assuming 3.
 - [x] Judge exhausted rounds in `review_dead_end` in `scripts/lib/todo_graph.py` by the cycle's initiating committed policy, through the dispatcher's `record_policy`, as the dispatcher does. Done when: tests change the pin both ways after a cycle starts, and the disposition follows the initiating policy.
 - [x] Report a findings file that can't be read in `review_dead_end` in `scripts/lib/todo_graph.py` as `waiting-person`, naming the file and the error, not as `ready`. Done when: tests with a lock and a permission failure refuse `repair` with no write, another row still answers, and the row recovers when the file reads again. Cheaper substitute: treating an unreadable file as no dead end.
-- [ ] Commit: `review: repair cycles and parking`
+- [x] Commit: `review: repair cycles and parking`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0, and fails if an ungranted fourth repair succeeds, or repairable work ends a run.
 
@@ -141,6 +141,9 @@ A section that fails review must either get a real chance to repair or step asid
 > **Repair cycle:** 2: 2026-11-07: the completion review found the pin's unreadable and malformed cases (after: its completion review returned gaps)
 
 > **Repair cycle:** 3: 2026-11-07: the completion review found a locked findings file reads as ready (after: its completion review returned gaps)
+
+> **Verified:** 2026-11-07 | §3 | 14254833faa59c4bed892a1339b42e69ab0a739d
+> **Review:** `docs/reviews/d00-t03-s3.json`
 
 ## 4. Reviewer attempt limits and diagnostics
 
