@@ -33,6 +33,7 @@ Several repos and agent sessions can share a machine until their builds overlap.
 | ---- | ----- |
 | `bosun run`, `status`, `report` and the login logger | Working on Windows 11 and WSL 2 |
 | WSL shim and `bosun-log` user service | Working |
+| One heartbeat for unattended runs, on both sides | Working |
 | Bosun Panel, the desktop control panel | Designed and planned, not built yet |
 
 There are no releases yet, so you build from source.
@@ -59,6 +60,19 @@ Sessions and editors stay open as normal. Only commands wrapped in `bosun run` q
 
 Change the defaults with `--slots`, `--min-avail-mb` and `--max-wait`, or `BOSUN_SLOTS`, `BOSUN_MIN_AVAIL_MB` and `BOSUN_MAX_WAIT`. In WSL, `--min-guest-mb` or `BOSUN_MIN_GUEST_MB` sets the VM threshold.
 
+## How do unattended runs stay alive?
+
+One heartbeat runs them all. A scheduled task ticks each registered repo's run guard every 5 minutes, resuming at most one repo per pass and holding while memory is short, for at most an hour. It never starts a stopped WSL distro.
+
+```
+bosun-heartbeat add D:\GitHub\MyRepo
+bosun-heartbeat add ~/www/site --distro Ubuntu
+bosun-heartbeat status
+bosun-heartbeat remove D:\GitHub\MyRepo
+```
+
+A repo needs the run guard, `scripts/run-guard.py`, to join. Adding it removes that repo's own watchdog task, and removing it brings that back, so a repo still works without Bosun. Set `heartbeat_floor_mb` in `%LOCALAPPDATA%\Bosun\config.json` to change the memory floor from its default of 2048 MB.
+
 ## Where are the logs?
 
 `%LOCALAPPDATA%\Bosun\logs`, one CSV per side per day, sampled every 30 seconds and kept for 14 days. A process is credited to the git repo holding its working directory, otherwise to its parent's repo.
@@ -84,6 +98,7 @@ build\Release\test_core.exe
 pwsh tests\queue_test.ps1
 pwsh tests\stage_wsl_test.ps1
 pwsh tests\bin_output_test.ps1
+pwsh tests\heartbeat_test.ps1
 wsl -- python3 -B tests/test_bosun_log.py
 wsl -- bash wsl/queue_test.sh /mnt/d/GitHub/Bosun/build/Release/bosun.exe
 ```

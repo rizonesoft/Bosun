@@ -40,6 +40,8 @@ jobs:
         run: pwsh tests\queue_test.ps1 -SkipWsl
       - name: Build output test
         run: pwsh tests\bin_output_test.ps1
+      - name: Heartbeat test
+        run: pwsh tests\heartbeat_test.ps1 -SkipWsl
 
   linux:
     name: Test the WSL side on Linux

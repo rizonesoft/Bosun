@@ -178,7 +178,7 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
     state.update(session_id=session, permission_mode=data.get("permission_mode"))
     if not env.task_installed():
-        return heartbeat_note() + " The watchdog task is not installed, so a crash would end this run: run `python scripts/run-guard.py install` first."
+        return heartbeat_note() + " The watchdog task is not installed, so a crash would end this run: run `bosun-heartbeat add .` where Bosun is installed, or `python scripts/run-guard.py install` first."
     return heartbeat_note()
 
 
@@ -423,7 +423,19 @@ def real_spawn(state: dict) -> dict:
     return {"pid": child.pid, "started": process_started(child.pid)}
 
 
+def on_heartbeat(root: Path = ROOT) -> bool:
+    """Whether Bosun's global heartbeat ticks this repo, which stands in for a task of its own."""
+    try:
+        data = json.loads((Path(os.environ["LOCALAPPDATA"]) / "Bosun" / "heartbeat" / "repos.json").read_text(encoding="utf-8"))
+        here = os.path.normcase(str(root.resolve()))
+        return any(os.path.normcase(str(Path(r["path"]).resolve())) == here for r in data["repos"] if not r.get("distro"))
+    except (KeyError, OSError, TypeError, ValueError, AttributeError):
+        return False  # no heartbeat, or one it can't read: the repo's own task is then what counts
+
+
 def real_task_installed() -> bool:
+    if on_heartbeat():
+        return True
     if os.name != "nt":
         return True
     return run("schtasks", "/Query", "/TN", TASK_NAME).returncode == 0

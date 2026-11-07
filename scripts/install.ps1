@@ -26,4 +26,14 @@ $logsWsl = (wsl.exe -d $Distro -- wslpath -a ((Join-Path $env:LOCALAPPDATA 'Bosu
 wsl.exe -d $Distro -- bash "$stageWsl/install.sh" $exeWsl $logsWsl
 if ($LASTEXITCODE) { throw "WSL install failed with exit $LASTEXITCODE" }
 
+# One heartbeat for every repo, run from this installed copy so rebuilding the repo can't disturb it.
+Copy-Item (Join-Path $PSScriptRoot 'heartbeat.py') $bin -Force
+$python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+Set-Content (Join-Path $bin 'bosun-heartbeat.cmd') "@`"$python`" `"$bin\heartbeat.py`" %*" -Encoding ascii
+$windowless = Join-Path (Split-Path $python) 'pythonw.exe'
+if (-not (Test-Path $windowless)) { $windowless = $python }
+schtasks /Create /F /TN 'Bosun heartbeat' /SC MINUTE /MO 5 /IT /TR "`"$windowless`" `"$bin\heartbeat.py`" tick" | Out-Null
+if ($LASTEXITCODE) { throw "could not create the Bosun heartbeat task: exit $LASTEXITCODE" }
+
 & (Join-Path $bin 'bosun.exe') status
+& (Join-Path $bin 'bosun-heartbeat.cmd') status

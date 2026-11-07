@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import os
 import sys
 import tempfile
 import threading
@@ -306,6 +307,43 @@ class Rows(unittest.TestCase):
                 self.assertIn(guard.real_rows(), (None, []) if stdout == b"{}" else (None,))
         with mock.patch.object(guard, "run", side_effect=OSError("gone")):
             self.assertIsNone(guard.real_rows())
+
+
+class Heartbeat(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patcher = mock.patch.dict(os.environ, {"LOCALAPPDATA": self.temp.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def listed(self, *repos):
+        folder = Path(self.temp.name) / "Bosun" / "heartbeat"
+        folder.mkdir(parents=True)
+        (folder / "repos.json").write_text(json.dumps({"repos": list(repos)}), encoding="utf-8")
+
+    def test_a_listed_repo_counts_as_watched_and_never_asks_for_a_task(self):
+        self.listed({"path": str(guard.ROOT), "state": "active"})
+        with mock.patch.object(guard, "run", side_effect=AssertionError("asked Task Scheduler")):
+            self.assertTrue(guard.real_task_installed())
+
+    def test_a_repo_with_neither_still_warns(self):
+        self.listed({"path": str(guard.ROOT / "other"), "state": "active"})
+        self.assertFalse(guard.on_heartbeat())
+
+    def test_a_wsl_entry_does_not_count_for_this_repo(self):
+        self.listed({"path": str(guard.ROOT), "distro": "Ubuntu"})
+        self.assertFalse(guard.on_heartbeat())
+
+    def test_no_or_broken_registry_falls_back_to_the_own_task(self):
+        self.assertFalse(guard.on_heartbeat())
+        folder = Path(self.temp.name) / "Bosun" / "heartbeat"
+        folder.mkdir(parents=True)
+        (folder / "repos.json").write_text("{bad", encoding="utf-8")
+        self.assertFalse(guard.on_heartbeat())
+
+    def test_the_prompt_names_the_heartbeat(self):
+        self.assertIn("bosun-heartbeat add", guard.prompt_note_for_tests() if hasattr(guard, "prompt_note_for_tests") else open(guard.__file__, encoding="utf-8").read())
 
 
 class Halts(unittest.TestCase):

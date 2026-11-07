@@ -9,6 +9,7 @@ Notable changes to Bosun are recorded here. The format follows [Keep a Changelog
 - `bosun run`: a build queue shared by Windows and WSL, with memory-gated slots.
 - `bosun status`, and `bosun report` over the logged memory data.
 - The login logger on Windows, and the `bosun-log` user service in WSL.
+- `bosun-heartbeat`: one scheduled heartbeat for every repo's unattended run.
 - `bin/`, holding only the shipped tools after a Release build.
 - CI for the build, the tests and the TODO graph.
 - The Bosun Panel design, interface spec, mockup and implementation plan.
