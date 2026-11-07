@@ -51,7 +51,7 @@ title: "TODO-03 -- Campaign readiness"
 
 ## 1. CI status that proves the commit
 
-> **Started:** 2026-11-07T20:58:05Z
+> **Started:** 2026-11-07T21:06:27Z
 
 Exit 0 means only that no red run was seen today, so a commit with no successful run reads as passing. A gate has to say which commit passed, and what the run does next. **Corrected 2026-11-07** after the plan review: the push range, a gate action and the exit table were added, and the item naming the wrong file was fixed.
 
