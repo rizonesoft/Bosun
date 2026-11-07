@@ -76,11 +76,17 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Limit total waiting on one commit across every invocation to two hours, recording when it began in `build/ci-gate.json`, after which `--gate` prints `unverified`. Done when: tests across separate processes prove it. `unverified` carries on like `exhausted`, because the run must not block itself, and `D00 T03 §6` refuses `complete` while the head has no green. Cheaper substitute: a run stuck on `wait` forever when `gh` auth is lost.
 - [x] Record the last proven commit in `build/ci-gate.json` and use it as the base when `--base` is omitted, so a restart after a push still has it. Done when: tests in separate processes prove a Markdown-only push after a crash is `skipped` with no `--base` given, and the skill's command needs none.
 - [x] Print a line to stderr while waiting in `scripts/ci_status.py`, once at the first look and once per poll, with each workflow's verdict, elapsed and remaining time, keeping one JSON object on stdout. Done when: tests read both streams, and stdout still parses as one object. Cheaper substitute: thirty silent minutes.
+- [ ] Use the previously gated commit as the base when `--base` is omitted, recording it in `build/ci-gate.json` before polling and keeping it for repeat checks of the same commit, in `scripts/ci_status.py`. Done when: a test with A proven, B changed code and left unverified, then C reverting B and editing Markdown, reads `none`, not `skipped`, and a separate process keeps the base after a restart. Cheaper substitute: the last proven commit, which a revert can fool.
+- [ ] Write `build/ci-gate.cleared` by temporary file then replace as a JSON record, ignoring an incomplete one with a warning, in `scripts/ci_status.py`. Done when: tests prove a partial marker resets nothing, and a marker that can't be saved reads `unverified`.
+- [ ] Apply the deadline before the first tool call in `scripts/ci_status.py`, to `git` as well as `gh`, launching no call once it has passed. Done when: fake clock tests with slow tools prove total elapsed time stays within a six-second budget, and an expired two-hour limit launches no `gh` call and reads `unverified`.
+- [ ] Run the wait limit and base recovery tests in separate processes in `scripts/tests/test_ci_status.py`. Done when: both start a new interpreter per step.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found the repair reset, the wait bound and wait feedback short (after: its completion review returned gaps)
+
+> **Repair cycle:** 2: 2026-11-07: the completion review found a false skip, a partial marker and an unbounded wait (after: its completion review returned gaps)
 
 ## 2. One section disposition across graph, guard and skills
 
