@@ -60,11 +60,11 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 1. Extend `scripts/ci_status.py`. Done when: pending, absent and unavailable are separate from green.
 2. Add `--sha`. Done when: a green run on an older commit does not satisfy a newer one.
 
-- [ ] Report a verdict of `green`, `red`, `pending` or `none` per workflow in `scripts/ci_status.py`. Done when: `scripts/tests/test_ci_status.py` covers an empty run list, all runs pending and an older green with a newer run pending. Cheaper substitute: treating no red as green.
+- [ ] Report a verdict of `green`, `red`, `pending` or `none` per workflow in `scripts/ci_status.py`. Done when: a new `scripts/tests/test_ci_status.py` (none exists; **Corrected 2026-11-07**) covers an empty run list, all runs pending and an older green with a newer run pending. Cheaper substitute: treating no red as green.
 - [ ] Add `--sha <commit>`, requiring a green run of that commit. Done when: a test with a green older commit exits nonzero.
 - [ ] Skip a workflow when `paths` or `paths-ignore` means the commit never triggers it, naming the reason in `scripts/ci_status.py`. Done when: a Markdown-only commit is not reported as failing `build.yml`.
 - [ ] Return exit 0 for green, 1 for red, 3 for unavailable and 4 for pending in `scripts/ci_status.py`. Done when: the module docstring and tests agree.
-- [ ] Add the bounded red-first policy to `.claude/skills/process-phase/SKILL.md`, its two mirrors and `scripts/ci_status.py`: push after each stamped section, then fix a red run on `main` before the next section, three attempts at most. Done when: a test reads the skill text and the three mirrors match.
+- [ ] Add the bounded red-first policy that the `scripts/ci_status.py` docstring already points to, to `.claude/skills/process-phase/SKILL.md` and its two mirrors: push after each stamped section, then fix a red run on `main` before the next section, three attempts at most. Done when: a test reads the skill text and the three mirrors match.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0.
