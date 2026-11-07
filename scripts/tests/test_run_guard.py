@@ -356,7 +356,9 @@ class Heartbeat(unittest.TestCase):
         self.assertFalse(guard.on_heartbeat())
 
     def test_the_prompt_names_the_heartbeat(self):
-        self.assertIn("bosun-heartbeat add", Path(guard.__file__).read_text(encoding="utf-8"))
+        env = World().env()
+        env.task_installed = lambda: False
+        self.assertIn("bosun-heartbeat add", guard.on_prompt({}, {"prompt": "process plan", "session_id": "me"}, env))
 
 
 class Halts(unittest.TestCase):

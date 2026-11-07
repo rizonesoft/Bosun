@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -78,6 +79,8 @@ class FakeWorld(hb.World):
             if name in self.fail:
                 return 1, self.fail[name]
             self.tasks.discard(name)
+            if self.crash_on == "after-uninstall":
+                raise Crash
             return 0, "deleted"
         if command == "install":
             if self.crash_on == "install":
@@ -85,6 +88,8 @@ class FakeWorld(hb.World):
             if name in self.fail:
                 return 1, self.fail[name]
             self.tasks.add(name)
+            if self.crash_on == "after-install":
+                raise Crash
             return 0, "created"
         answer = self.watch.get(repo, "nothing to do")
         if isinstance(answer, tuple):
@@ -268,6 +273,30 @@ class Handoff(Base):
         self.go(["tick"], after)
         self.assertEqual(self.repos(), [])
         self.assertIn(self.task(self.a), after.tasks)  # back on its own watchdog
+        self.assertEqual(after.called("watch"), [])
+
+    def test_crash_right_after_the_scheduler_change_on_add(self):
+        world = self.world(tasks={self.task(self.a)}, crash_on="after-uninstall")
+        with self.assertRaises(Crash):
+            self.go(["add", self.a], world)
+        self.assertEqual(self.repos()[0]["state"], "adding")
+        self.assertNotIn(self.task(self.a), world.tasks)
+        after = self.world(tasks=world.tasks)
+        self.go(["tick"], after)
+        self.assertEqual(self.repos()[0]["state"], "active")
+        self.assertEqual(len(after.called("watch")), 1)  # the heartbeat is now what watches it
+
+    def test_crash_right_after_the_scheduler_change_on_remove(self):
+        self.go(["add", self.a], self.world())
+        crashing = self.world(crash_on="after-install")
+        with self.assertRaises(Crash):
+            self.go(["remove", self.a], crashing)
+        self.assertEqual(self.repos()[0]["state"], "removing")
+        self.assertIn(self.task(self.a), crashing.tasks)
+        after = self.world(tasks=crashing.tasks)
+        self.go(["tick"], after)
+        self.assertEqual(self.repos(), [])
+        self.assertIn(self.task(self.a), after.tasks)
         self.assertEqual(after.called("watch"), [])
 
     def test_an_own_task_that_comes_back_is_removed_with_a_note(self):
@@ -518,9 +547,11 @@ class RealProcesses(Base):
 
     def test_real_run_does_not_wait_for_a_child_the_guard_leaves_behind(self):
         script = ("import subprocess, sys\n"
-                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'], stdin=subprocess.DEVNULL, stdout=sys.stdout.fileno())\n"
+                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(8)'], stdin=subprocess.DEVNULL, stdout=sys.stdout.fileno())\n"
                   "print('resumed, attempt 1', flush=True)\n")
+        started = time.monotonic()
         code, out = hb.World().run([sys.executable, "-c", script], timeout=15)
+        self.assertLess(time.monotonic() - started, 6)  # its 8 second child is still running
         self.assertEqual((code, out.strip()), (0, "resumed, attempt 1"))
 
     def test_real_memory_reading(self):
