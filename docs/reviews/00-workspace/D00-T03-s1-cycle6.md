@@ -87,3 +87,52 @@ OVERALL: needs-attention
 
 HIGHEST: P3
 OVERALL: needs-attention
+
+## Completion review: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:12:42Z
+- Candidate: 541c09c29aceccd649deb6994a7f2d92ea3511e0
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 4122795f40916e899f7b12d3c286599f0e6458da
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lines: 33
+- Digest: d4be059dc5537043
+
+The feature is not complete for all accepted commit references. It also falls short of the strongest CLI alternative in recovery and progress detail.
+
+Reviewed the specified range at `541c09c`; the working tree was clean. No files were modified. Evidence below combines source inspection with an in-memory reproduction; the filesystem-writing test suite was not run.
+
+**Part 1: completeness**
+
+This feature lets the unattended campaign determine whether a pushed commit is proven and choose its next action. Its consumer is `process-phase`. GUI controls, tooltips, shortcuts, dialogs and visual accessibility are not applicable to this section’s `Surface: no` contract.
+
+1. **present:** CLI commands, help and argument refusal paths. `scripts/ci_status.py:449` defines the options and rejects incompatible combinations. Tests include `test_needs_sha`, `test_the_gate_takes_no_workflow_filter` and `test_use_proven_refuses_other_modes`.
+2. **present:** Distinct empty, pending, failed, unavailable and proven results, with red-first aggregation. Evidence: `scripts/ci_status.py:217`, `:255`; tests at `scripts/tests/test_ci_status.py:113`, `:128`, `:321`, `:337`.
+3. **present:** Exact-commit lookup and protection against an older commit’s green result. Evidence: `scripts/ci_status.py:218`; tests at `scripts/tests/test_ci_status.py:157`, `:166`, `:180`.
+4. **present:** Skip evidence from workflow filters and the complete diff against a proven base, including exact reverts and failed intervening commits. Evidence: `scripts/ci_status.py:182`; tests at `scripts/tests/test_ci_status.py:239`, `:743`, `:753`, `:760`.
+5. **present:** Durable repair counting, reset after green and recovery from corrupt, locked or unwritable state. State uses temporary-file replacement. Evidence: `scripts/ci_status.py:280`, `:315`, `:368`; tests at `scripts/tests/test_ci_status.py:446`, `:471`, `:477`, `:484`, `:511`.
+6. **present:** Persistent wait start, bounded subprocesses and sleeps, and interruption recovery. Evidence: `scripts/ci_status.py:354`, `:487`, `:530`; tests at `scripts/tests/test_ci_status.py:527`, `:545`, `:820`, `:826`, `:1009`.
+7. **present:** Direct `HEAD` reading for ordinary branches, detached heads, packed refs and linked worktrees, plus unreadable-HEAD refusal. Evidence: `scripts/ci_status.py:419`; tests at `scripts/tests/test_ci_status.py:895`, `:903`, `:934`.
+8. **missing-in-scope:** A new commit addressed by branch name cannot recover from the previous commit’s expired wait. At `scripts/ci_status.py:509`, the old deadline prevents resolving `--sha main`; the exception path retains the old wait indefinitely. An in-memory reproduction returned `unverified` with zero tool calls twice for `main`, while the new full SHA immediately returned `proceed`. Add coverage for A expiring, `main` advancing to B, and B receiving its own budget. Preserve the prohibition on subprocesses beyond A’s deadline.
+9. **present:** Text and JSON output, wait feedback, failure links and explicit reasons for `unverified`. Evidence: `scripts/ci_status.py:400`, `:558`; tests at `scripts/tests/test_ci_status.py:138`, `:611`, `:809`, `:1057`.
+10. **present:** Read-only proof checks and campaign action consumption. Evidence: `scripts/ci_status.py:330`, `.codex/skills/process-phase/SKILL.md:56`; tests at `scripts/tests/test_ci_status.py:554`, `:1132`. There is no user-content mutation requiring an undo command; green resets campaign bookkeeping.
+
+**Part 2: excellence**
+
+The strongest direct alternative is GitHub CLI: `gh run list --commit <SHA>` followed by `gh run watch <run-id> --exit-status`. It supports commit filtering, step-level progress and a default three-second refresh. It does not itself supply Bosun’s durable campaign repair policy. [Run listing](https://cli.github.com/manual/gh_run_list), [Run watching](https://cli.github.com/manual/gh_run_watch).
+
+1. **in-scope:** Recovery requires changing the command’s commit reference after the branch-name failure above. The alternative can select the new commit’s runs without inheriting Bosun’s expired local wait. **Target:** one invocation of the existing branch-name command checks B after A expires, with no state deletion or reference substitution.
+2. **out-of-scope:** Waiting feedback reports only workflow verdicts, whereas `gh run watch` shows individual steps. An operator cannot distinguish a progressing build from a stalled job through this command alone (`scripts/ci_status.py:560`). **Target:** an optional diagnostic mode reports the active job/step and its run link on each existing poll, retaining one JSON object on stdout. Owner: `00-workspace`, new section for richer CI diagnostics. Keep the agreed 60-second campaign polling policy.
+
+**Gap list**
+
+1. **missing-in-scope:** Resolve a newly advanced branch after its previous commit’s wait expires, with a regression test preserving deadline guarantees.
+2. **in-scope:** Restore one-command recovery for branch-name callers without manual state deletion or SHA substitution.
+3. **out-of-scope:** Add optional job/step progress diagnostics in a new `00-workspace` section; proposed here only, because this review must not modify files.
+
+COMPLETION: gaps
