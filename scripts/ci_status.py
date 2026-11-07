@@ -510,9 +510,9 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             # Which wait applies isn't known yet, so any recorded one bounds this look.
             deadline = min(deadline, clock() + max(WAIT_LIMIT_SECONDS - (wall() - recorded["since"]), 0))
         try:
-            known = isinstance(recorded, dict) and recorded.get("sha") == args.sha and CANDIDATE.fullmatch(args.sha)
-            direct = read_head(root) if git_default and args.sha == "HEAD" else None
-            sha = args.sha if known else direct or resolve_commit(name, args.sha)
+            # A full SHA needs no looking up, so a new commit always gets its own wait.
+            direct = args.sha if CANDIDATE.fullmatch(args.sha) else read_head(root) if git_default and args.sha == "HEAD" else None
+            sha = direct or resolve_commit(name, args.sha)
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:

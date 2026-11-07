@@ -43,3 +43,25 @@ OVERALL: needs-attention
 
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:09:30Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 4122795f40916e899f7b12d3c286599f0e6458da
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Lines: 6
+- Digest: c84ab3eb2f221160
+
+### consistency: needs-attention
+
+1. **P2, `scripts/ci_status.py:511`: A new full SHA inherits an older commit’s expired wait.** After commit A remains unverified for two hours, push commit B and run `python scripts/ci_status.py --gate --sha <B-full-SHA>`. The expired deadline prevents resolving B, and the exception handler retains A’s wait. Every retry returns `unverified` without checking B, even if B’s CI is green. This contradicts the per-commit waiting policy and differs from `--sha HEAD`, which can start B’s fresh budget. A read-only, mocked reproduction confirmed zero tool calls and A passed to `gate_action`. Ensure a new explicit SHA can establish its own wait budget.
+
+HIGHEST: P2
+OVERALL: needs-attention

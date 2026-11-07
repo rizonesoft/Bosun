@@ -946,6 +946,21 @@ class Gate(Base):
         self.assertIn(data["action"], ("wait", "unverified"))
         self.assertIn("ran out", data["error"])
 
+    def test_a_new_full_sha_gets_its_own_wait_after_an_older_one_expired(self):
+        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
+        other = "c" * 40
+        calls = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            calls.append(name)
+            return 0, json.dumps([run(sha=other)]) if name == "gh" else "", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            code = ci_status.main(["--gate", "--sha", other, "--json"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertEqual((code, json.loads(out.getvalue())["action"]), (0, "proceed"))
+        self.assertIn("gh", calls)
+        self.assertNotIn("git", calls)
+
     def test_a_branch_name_past_the_limit_does_not_restart_the_wait(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
         out = io.StringIO()
