@@ -449,10 +449,14 @@ The owner decided on 2026-11-07 that from a section's third review cycle on, onc
 1. Allow `filed` from the third cycle in `schedule_ok` in `scripts/lib/todo_graph.py`. Done when: the stamp accepts it there and refuses it before.
 
 - [ ] Accept a `filed` completion verdict in `schedule_ok` in `scripts/lib/todo_graph.py` when the findings file is a third or later cycle, `-cycle3.md` onwards, and keep refusing it in cycles one and two, naming the rule. Done when: `scripts/tests/test_review_policy.py` proves cycle 2 refuses, cycle 3 is accepted, and `complete` is accepted in any cycle.
-- [ ] Keep every other requirement of a filed stamp: a clean last round, and each `- Filed:` reference resolving to an open section. Done when: tests prove a filed stamp with an unresolved reference, or with no clean round, is still refused.
+- [ ] Keep every other requirement of a filed stamp: a clean last round, and each `- Filed:` reference resolving. Done when: tests prove a filed stamp with an unresolved reference, or with no clean round, is still refused.
+- [ ] Require each filed target to be an open section when `stamp` runs, in `scripts/lib/todo_graph.py`, while validation later doesn't, so the receipt stays valid once that work ships. Done when: tests refuse a stamped target, and a receipt filing to a section later stamped still validates.
+- [ ] Add a `needs-filing` state to `section_disposition` for a third or later cycle whose completion returned gaps after a clean last round, offered by the guard and routed by `process-plan`, `process-phase` and their mirrors to file and stamp. Done when: tests prove the state after a restart, that no repair cycle is spent, and that the runners route it.
+- [ ] Correct `review-todo-section/SKILL.md` and its mirrors so only cycles one and two require a genuine `complete`. Done when: a test finds no unconditional rule left in any mirror.
+- [ ] Prove a real filed stamp in `scripts/tests/test_todo_graph.py` on the stamp fixtures, which use the older pin shape, so the cycle rule itself is proven through `schedule_ok` above: the receipt is written, and a fresh process validates the tree with the parent verified and its filed section open. Done when: the test passes and fails if `stamp` drops the filed list.
 - [ ] Commit: `review: stamp filed leftovers from the third cycle`
 
-**Test checkpoint:** `PYTHONPATH=scripts/tests python -m unittest test_review_policy test_todo_graph` exits 0, and fails if cycle 2 may stamp `filed`.
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0 in PowerShell or bash, and fails if cycle 2 may stamp `filed`.
 
 ## Verification
 
