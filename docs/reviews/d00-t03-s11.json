@@ -1,0 +1,90 @@
+{
+  "ref": "D00 T03 \u00a711",
+  "title": "One global heartbeat",
+  "implementation_sha": "f3f7bc32115585547efa56c7a3b26e8bbcacb628",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s11.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s11.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s11.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s scripts/tests -p test_heartbeat.py -> Ran 58 tests, OK",
+    "pwsh tests/heartbeat_test.ps1 -> all passed"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s11.md",
+    "verdict": "completed",
+    "candidate": "ffa40cedad9b0465c5329d38dab06e09209d3474",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3's three P3 test findings are met in scripts/tests: elapsed time asserted for a left-behind child, on_prompt exercised directly, and crashes injected after each scheduler side effect",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s11.md",
+    "candidate": "3e04ee63f946534eb8fa78f2c2f7b9797b65d5b3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3e04ee63f946534eb8fa78f2c2f7b9797b65d5b3",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 8,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 9
+}

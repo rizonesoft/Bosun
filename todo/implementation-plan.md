@@ -25,7 +25,7 @@ Sections: 27 | Checklist items: 200
 | [ ]    | D00 T03 §7  | Owned session recovery                                 | none        | 6     |
 | [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
 | [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 5     |
-| [ ]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
+| [x]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 14    |
@@ -196,6 +196,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 6/127 verified sections, 7 ready to run now.
+Progress: 7/127 verified sections, 6 ready to run now.
 
-Checklist: 104/708 items completed (includes Commit items).
+Checklist: 105/708 items completed (includes Commit items).

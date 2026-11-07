@@ -46,7 +46,7 @@ title: "TODO-03 -- Campaign readiness"
 | 8 | §8 | Campaign permissions | -- | [ ] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [ ] |
-| 11 | §11 | One global heartbeat | -- | [ ] |
+| 11 | §11 | One global heartbeat | -- | [x] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
@@ -384,9 +384,12 @@ The owner decided on 2026-11-07 that one heartbeat runs every repo from day one,
 - [x] Add `status` and `status --json` with `schema_version`: each repo's state, last tick, result and error, any hold, whether the last pass is stale, and the task's existence, enabled state and action. Done when: tests cover empty, never ticked, unreadable, stale, and a missing or disabled task. Cheaper substitute: printing a saved file.
 - [x] Install `scripts/heartbeat.py` to `%LOCALAPPDATA%\Bosun\bin` with a `bosun-heartbeat.cmd` shim in `scripts/install.ps1`, and create the `Bosun heartbeat` task every 5 minutes through `pythonw.exe`, per user. Done when: `schtasks` shows that action, reinstalling keeps `repos.json`, and `schtasks /Run` updates the status with no window.
 - [x] Move this machine to the heartbeat: add `D:\GitHub\Bosun`, `R:\GitHub\Steward` and `R:\GitHub\Resolute`, and delete the leftover `guard-e2e run watchdog` task. Done when: `bosun-heartbeat status` shows a tick for all three, with the task healthy, and `schtasks` shows no repo watchdog for them.
-- [ ] Commit: `heartbeat: one global heartbeat`
+- [x] Commit: `heartbeat: one global heartbeat`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_heartbeat.py` and `pwsh tests/heartbeat_test.ps1` exit 0, and fail if a stopped distro is started, a live child uses the pass, or a crash mid-handoff leaves no watchdog.
+
+> **Verified:** 2026-11-08 | §11 | f3f7bc32115585547efa56c7a3b26e8bbcacb628
+> **Review:** `docs/reviews/d00-t03-s11.json`
 
 ## 12. Review caps of 33
 
