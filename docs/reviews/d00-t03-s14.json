@@ -1,0 +1,79 @@
+{
+  "ref": "D00 T03 \u00a714",
+  "title": "Stamp filed leftovers from the third cycle",
+  "implementation_sha": "16f0e65f857df7f3e90df7f4c555cd84afea9a03",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s14-cycle3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest test_review_policy test_todo_graph test_run_guard -> Ran 267 tests, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s14-cycle3.md",
+    "verdict": "complete",
+    "candidate": "16f0e65f857df7f3e90df7f4c555cd84afea9a03",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s14-cycle3.md",
+    "candidate": "f5b24df7d59d0d9bd6577f06a50991eca13b4c5f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "f5b24df7d59d0d9bd6577f06a50991eca13b4c5f",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

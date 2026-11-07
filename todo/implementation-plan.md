@@ -28,7 +28,7 @@ Sections: 26 | Checklist items: 194
 | [ ]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
-| [ ]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 14    |
+| [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 14    |
 | [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 8     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
@@ -195,6 +195,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 3/126 verified sections, 8 ready to run now.
+Progress: 4/126 verified sections, 7 ready to run now.
 
-Checklist: 96/702 items completed (includes Commit items).
+Checklist: 97/702 items completed (includes Commit items).

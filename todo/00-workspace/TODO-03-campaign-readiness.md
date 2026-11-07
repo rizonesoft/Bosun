@@ -49,7 +49,7 @@ title: "TODO-03 -- Campaign readiness"
 | 11 | §11 | One global heartbeat | -- | [ ] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
-| 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [ ] |
+| 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -463,13 +463,16 @@ The owner decided on 2026-11-07 that from a section's third review cycle on, onc
 - [x] Route third-cycle completion gaps to filing in the per-row step of `.claude/skills/process-phase/SKILL.md` and in `process-plan/SKILL.md`, and their mirrors, with no sentence left sending every gap to repair. Done when: a test rejects the old sentences in every mirror.
 - [x] Correct `docs/todo-workflow.md`, which still says to stamp only on complete. Done when: a test finds the third-cycle rule there.
 - [x] Restore the section before deleting the receipt in the rollback of `stamp` in `scripts/lib/todo_graph.py`, so a rollback the disk also refuses leaves a stamped section with its receipt rather than one without. Done when: a test that fails every write after the section's, plan regeneration and rollback included, finds the graph valid with the section stamped, and `plan --sync` completes it once the disk clears; and the test fails with the old order.
-- [ ] Commit: `review: stamp filed leftovers from the third cycle`
+- [x] Commit: `review: stamp filed leftovers from the third cycle`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0 in PowerShell or bash, and fails if cycle 2 may stamp `filed`.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found a stamp cut off between writes, untested open targets and a stale doc line (after: its completion review returned gaps)
 
 > **Repair cycle:** 2: 2026-11-07: the completion review found a rollback that deletes the receipt before restoring the section (after: its completion review returned gaps)
+
+> **Verified:** 2026-11-08 | §14 | 16f0e65f857df7f3e90df7f4c555cd84afea9a03
+> **Review:** `docs/reviews/d00-t03-s14.json`
 
 ## Verification
 
