@@ -24,10 +24,11 @@ class Crash(Exception):
 class FakeWorld(hb.World):
     """Stands in for schtasks, wsl.exe and each repo's guard. A fresh one is like a new process with the same disk."""
 
-    def __init__(self, repos=(), tasks=(), avail=8000, watch=None, running=("Ubuntu",), clock=1_000_000.0, crash_on=None):
+    def __init__(self, repos=(), tasks=(), avail=8000, watch=None, running=("Ubuntu",), clock=1_000_000.0, crash_on=None, heartbeat="true"):
         self.repos, self.tasks, self.avail = set(repos), set(tasks), avail
+        self.heartbeat, self.actions = heartbeat, {}
         self.watch, self.running, self.clock, self.crash_on = watch or {}, list(running), clock, crash_on
-        self.calls, self.fail = [], {}
+        self.calls, self.fail, self.check_fail = [], {}, {}
 
     def now(self):
         return self.clock
@@ -57,11 +58,16 @@ class FakeWorld(hb.World):
             return self.answer(argv[argv.index("--cd") + 1], "watch")
         if argv[0] == "schtasks":
             name = argv[argv.index("/TN") + 1]
-            if "/XML" in argv:
-                return (0, self.xml) if name in self.tasks and hasattr(self, "xml") else (1, CANT_FIND)
-            if name in self.fail:
-                return 1, self.fail[name]
-            return (0, "found") if name in self.tasks else (1, CANT_FIND)
+            if name == hb.TASK:
+                if self.heartbeat is None:
+                    return 1, CANT_FIND
+                return 0, f"<Task><Settings><Enabled>{self.heartbeat}</Enabled></Settings><Actions><Exec><Command>pythonw.exe</Command><Arguments>heartbeat.py tick</Arguments></Exec></Actions></Task>"
+            if name in self.check_fail:
+                return 1, self.check_fail[name]
+            if name not in self.tasks:
+                return 1, CANT_FIND
+            # A repo's own task names its folder: by default every fake repo, as they share one folder name here.
+            return 0, f"<Arguments>{self.actions.get(name, ' '.join(sorted(self.repos)))}</Arguments>"
         return self.answer(cwd, argv[-1])
 
     def answer(self, repo, command):
@@ -194,6 +200,32 @@ class Handoff(Base):
         self.assertEqual(self.go(["add", self.a], world)[0], 1)
         self.assertEqual(self.repos(), [])
         self.assertIn(self.task(self.a), world.tasks)
+
+    def test_an_unreadable_own_task_refuses(self):
+        world = self.world()
+        world.check_fail[self.task(self.a)] = "ERROR: Access is denied."
+        self.assertEqual(self.go(["add", self.a], world)[0], 1)
+        self.assertIn("could not check", self.err)
+
+    def test_add_refuses_unless_the_heartbeat_task_will_really_fire(self):
+        for name, heartbeat in (("missing", None), ("disabled", "false")):
+            with self.subTest(name):
+                world = self.world(tasks={self.task(self.a)}, heartbeat=heartbeat)
+                self.assertEqual(self.go(["add", self.a], world)[0], 1)
+                self.assertIn(name, self.err)
+                self.assertIn(self.task(self.a), world.tasks)  # its own watchdog stays
+        world = self.world(heartbeat=None)
+        self.assertEqual(self.go(["add", self.a, "--allow-no-task"], world)[0], 0)
+
+    def test_another_clones_task_of_the_same_name_is_left_alone(self):
+        world = self.world()
+        self.go(["add", self.a], world)
+        world.tasks.add(self.task(self.a))
+        world.actions[self.task(self.a)] = r'"R:\\other\\repo\\scripts\\run-guard.py" watch'
+        self.go(["tick"], world)
+        self.assertIn(self.task(self.a), world.tasks)
+        self.assertEqual(world.called("uninstall"), [])
+        self.assertIsNone(self.status(world)["repos"][0]["note"])
 
     def test_a_failed_restore_keeps_the_repo_on_the_heartbeat(self):
         world = self.world()
@@ -386,6 +418,22 @@ class Wsl(Base):
         call = world.called("python3")[0]
         self.assertEqual(call, ["wsl.exe", "-d", "Ubuntu", "--cd", self.PATH, "--", "python3", "scripts/run-guard.py", "watch"])
 
+    def test_a_distro_stopping_mid_pass_is_not_restarted(self):
+        path = str(Path(self.tmp.name).resolve() / "win")
+        world = FakeWorld(repos=(self.PATH, path))
+        self.go(["add", path], world)
+        self.go(["add", self.PATH, "--distro", "Ubuntu"], world)
+        real = world.answer
+
+        def answer(repo, command):
+            if command == "watch" and repo == path:
+                world.running = []  # stopped while this guard ran
+            return real(repo, command)
+        world.answer = answer
+        self.go(["tick"], world)
+        self.assertEqual(world.called("python3"), [])
+        self.assertEqual(self.status(world)["repos"][1]["result"], "WSL not running")
+
     def test_add_refuses_while_stopped_without_waking_it(self):
         world = self.world(running=())
         self.assertEqual(self.go(["add", self.PATH, "--distro", "Ubuntu"], world)[0], 1)
@@ -400,13 +448,10 @@ class Wsl(Base):
         world = self.world()
         self.go(["add", self.PATH, "--distro", "Ubuntu"], world)
         self.assertEqual(self.go(["remove", self.PATH, "--distro", "Ubuntu"], world)[0], 0)
-        self.assertEqual([c for c in world.calls if c[0] == "schtasks"], [])
+        self.assertEqual([c for c in world.calls if c[0] == "schtasks" and hb.TASK not in c], [])
 
 
 class Status(Base):
-    XML = ("<Task><Settings><Enabled>{on}</Enabled></Settings><Actions><Exec><Command>pythonw.exe</Command>"
-           "<Arguments>heartbeat.py tick</Arguments></Exec></Actions></Task>")
-
     def test_empty_never_ticked_and_stale(self):
         data = self.status()
         self.assertEqual((data["schema_version"], data["repos"], data["stale"], data["last_pass"]), (1, [], True, None))
@@ -429,13 +474,12 @@ class Status(Base):
         self.assertIsNone(data["last_pass"])
 
     def test_task_health(self):
-        world = self.world()
+        world = self.world(heartbeat=None)
         self.assertEqual(self.status(world)["task"]["state"], "missing")
-        world.tasks.add(hb.TASK)
-        world.xml = self.XML.format(on="true")
+        world.heartbeat = "true"
         task = self.status(world)["task"]
         self.assertEqual((task["state"], task["action"]), ("installed", "pythonw.exe heartbeat.py tick"))
-        world.xml = self.XML.format(on="false")
+        world.heartbeat = "false"
         self.assertEqual(self.status(world)["task"]["state"], "disabled")
         world.fail = {}
         world.run = lambda argv, cwd=None, timeout=120: (1, "ERROR: Access is denied.")

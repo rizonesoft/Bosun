@@ -25,11 +25,11 @@ try {
   # Add reads back, and a repo with no guard is refused with what to do.
   $none = Join-Path $work 'no guard'
   New-Item -ItemType Directory -Path $none | Out-Null
-  $out = Beat add $none | Out-String
+  $out = Beat add $none --allow-no-task | Out-String
   Check ($LASTEXITCODE -eq 1 -and $out -like '*run-guard.py*') 'a repo with no guard is refused, naming the fix'
-  Beat add $one | Out-Null
+  Beat add $one --allow-no-task | Out-Null
   Check ($LASTEXITCODE -eq 0) 'a spaced path adds'
-  Beat add $two | Out-Null
+  Beat add $two --allow-no-task | Out-Null
   Check ((Beat list | Out-String) -like "*$two*") 'list reads the repo back'
 
   # One resume per pass: repo one resumes, so repo two waits for the next pass and comes first then.
@@ -53,15 +53,15 @@ try {
     $linux = "/tmp/bosun-heartbeat-$PID"
     wsl.exe -d Ubuntu -e bash -c "mkdir -p '$linux/scripts' && printf 'print(\`"nothing to do\`")\n' > '$linux/scripts/run-guard.py'"
     Check ($LASTEXITCODE -eq 0) 'made a repo in the distro'
-    $out = Beat add '/tmp/does-not-exist' --distro Ubuntu | Out-String
+    $out = Beat add '/tmp/does-not-exist' --distro Ubuntu --allow-no-task | Out-String
     Check ($out -like '*run-guard.py*') 'a WSL path with no guard is refused'
-    Beat add $linux --distro Ubuntu | Out-Null
+    Beat add $linux --distro Ubuntu --allow-no-task | Out-Null
     Check ($LASTEXITCODE -eq 0) 'a WSL repo adds'
     Beat remove $one | Out-Null
     Beat tick | Out-Null
     $s = Status
     Check ($s.repos[0].result -eq 'nothing to do') "the WSL repo ticks inside the distro (got $($s.repos[0].result); $($s.repos[0].error))"
-    $out = Beat add $linux --distro NoSuchDistroHere | Out-String
+    $out = Beat add $linux --distro NoSuchDistroHere --allow-no-task | Out-String
     Check ($out -like "*isn't running*") 'a distro that is not running is refused'
     Beat remove $linux --distro Ubuntu | Out-Null
     Check ($LASTEXITCODE -eq 0 -and (Beat list | Out-String) -like '*no repos*') 'a WSL repo removes'

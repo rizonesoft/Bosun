@@ -423,12 +423,18 @@ def real_spawn(state: dict) -> dict:
     return {"pid": child.pid, "started": process_started(child.pid)}
 
 
+def heartbeat_task_exists() -> bool:
+    return os.name == "nt" and run("schtasks", "/Query", "/TN", "Bosun heartbeat").returncode == 0
+
+
 def on_heartbeat(root: Path = ROOT) -> bool:
-    """Whether Bosun's global heartbeat ticks this repo, which stands in for a task of its own."""
+    """Whether Bosun's global heartbeat ticks this repo, which stands in for a task of its own. Being listed isn't
+    enough: the heartbeat's own task has to exist, or nothing would tick it."""
     try:
         data = json.loads((Path(os.environ["LOCALAPPDATA"]) / "Bosun" / "heartbeat" / "repos.json").read_text(encoding="utf-8"))
         here = os.path.normcase(str(root.resolve()))
-        return any(os.path.normcase(str(Path(r["path"]).resolve())) == here for r in data["repos"] if not r.get("distro"))
+        listed = any(os.path.normcase(str(Path(r["path"]).resolve())) == here for r in data["repos"] if not r.get("distro"))
+        return listed and heartbeat_task_exists()
     except (KeyError, OSError, TypeError, ValueError, AttributeError):
         return False  # no heartbeat, or one it can't read: the repo's own task is then what counts
 

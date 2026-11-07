@@ -324,8 +324,14 @@ class Heartbeat(unittest.TestCase):
 
     def test_a_listed_repo_counts_as_watched_and_never_asks_for_a_task(self):
         self.listed({"path": str(guard.ROOT), "state": "active"})
-        with mock.patch.object(guard, "run", side_effect=AssertionError("asked Task Scheduler")):
+        with mock.patch.object(guard, "heartbeat_task_exists", return_value=True), \
+                mock.patch.object(guard, "run", side_effect=AssertionError("asked for its own task")):
             self.assertTrue(guard.real_task_installed())
+
+    def test_being_listed_is_not_enough_without_the_heartbeat_task(self):
+        self.listed({"path": str(guard.ROOT), "state": "active"})
+        with mock.patch.object(guard, "heartbeat_task_exists", return_value=False):
+            self.assertFalse(guard.on_heartbeat())
 
     def test_a_repo_with_neither_still_warns(self):
         self.listed({"path": str(guard.ROOT / "other"), "state": "active"})
@@ -343,7 +349,7 @@ class Heartbeat(unittest.TestCase):
         self.assertFalse(guard.on_heartbeat())
 
     def test_the_prompt_names_the_heartbeat(self):
-        self.assertIn("bosun-heartbeat add", guard.prompt_note_for_tests() if hasattr(guard, "prompt_note_for_tests") else open(guard.__file__, encoding="utf-8").read())
+        self.assertIn("bosun-heartbeat add", Path(guard.__file__).read_text(encoding="utf-8"))
 
 
 class Halts(unittest.TestCase):

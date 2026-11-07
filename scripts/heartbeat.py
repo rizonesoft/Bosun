@@ -214,10 +214,11 @@ def own_task(repo):
 
 
 def own_task_exists(world, repo):
-    """True or False, and None when Windows wouldn't say. `schtasks` exits 1 for an absent task and for other errors."""
-    code, out = world.run(["schtasks", "/Query", "/TN", own_task(repo)], timeout=30)
+    """True or False, and None when Windows wouldn't say. `schtasks` exits 1 for an absent task and for other errors. A
+    task with this name that runs another folder belongs to another clone of the same name, so it isn't this repo's."""
+    code, out = world.run(["schtasks", "/Query", "/TN", own_task(repo), "/XML"], timeout=30)
     if code == 0:
-        return True
+        return os.path.normcase(os.path.normpath(repo["path"])) in os.path.normcase(out.replace("/", os.sep))
     if code is not None and "cannot find" in out.lower():
         return False
     return None
@@ -247,8 +248,17 @@ def restore_own_task(world, repo):
     return None if code == 0 else f"could not restore {own_task(repo)}: {out.strip()[:MAX_NOTE]}"
 
 
-def add(world, path, distro=None):
+def require_heartbeat_task(world):
+    """Taking a repo off its own watchdog is only safe when the heartbeat that replaces it will really fire."""
+    task = task_health(world)
+    if task["state"] != "installed":
+        raise Refused(f"the {TASK} task is {task['state']}, so this repo would have no watchdog: run scripts/install.ps1, then add the repo")
+
+
+def add(world, path, distro=None, allow_no_task=False):
     repo = {"path": path if distro else str(Path(path).resolve()), "state": "adding"}
+    if not allow_no_task:
+        require_heartbeat_task(world)
     if distro:
         repo["distro"] = distro
         if distro not in running_distros(world):
@@ -317,11 +327,12 @@ def reconcile(world, repos):
     return notes
 
 
-def tick_repo(world, repo, distros):
-    """(result, error) for one repo."""
+def tick_repo(world, repo):
+    """(result, error) for one repo. The distro is checked right before its tick, because an earlier repo's guard can
+    take minutes, and a stale answer would start a distro that has stopped since."""
     distro = repo.get("distro")
     if distro:
-        if distro not in distros:
+        if distro not in running_distros(world):
             return "WSL not running", None
         code, out = world.run(["wsl.exe", "-d", distro, "--cd", repo["path"], "--", "python3", "scripts/run-guard.py", "watch"])
     else:
@@ -382,11 +393,10 @@ def run_pass(world):
 
     start = status.get("next")
     order = sorted(range(len(active)), key=lambda i: (i - (start if isinstance(start, int) else 0)) % max(len(active), 1))
-    distros = running_distros(world) if any(r.get("distro") for r in active) else set()
     next_up = 0
     for index in order:
         repo = active[index]
-        result, error = tick_repo(world, repo, distros)
+        result, error = tick_repo(world, repo)
         entry = results.setdefault(repo["path"], {})
         entry.update(at=now_iso(world.now()), result=result, error=error)
         print(f"{repo['path']}: {error or result}")
@@ -467,6 +477,8 @@ def main(argv=None, world=None):
         sub = commands.add_parser(name)
         sub.add_argument("path")
         sub.add_argument("--distro")
+        if name == "add":
+            sub.add_argument("--allow-no-task", action="store_true", help="add even with no heartbeat task, as a test does")
     for name in ("list", "status"):
         commands.add_parser(name).add_argument("--json", action="store_true")
     commands.add_parser("tick")
@@ -477,7 +489,7 @@ def main(argv=None, world=None):
         if args.command == "tick":
             return tick(world)
         if args.command == "add":
-            print(f"on the heartbeat: {add(world, args.path, args.distro)['path']}")
+            print(f"on the heartbeat: {add(world, args.path, args.distro, args.allow_no_task)['path']}")
         elif args.command == "remove":
             print(f"off the heartbeat: {remove(world, args.path, args.distro)['path']}")
         elif args.command == "list":
