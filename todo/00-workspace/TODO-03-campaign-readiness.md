@@ -129,11 +129,14 @@ A section that fails review must either get a real chance to repair or step asid
 - [x] Validate `max_repair_cycles` in `repair_cap` in `scripts/lib/todo_graph.py` as the dispatcher does, refusing `repair` on a bad value, and reading such a row as `waiting-person` naming the setting, so a run passes over it rather than retrying, and other rows carry on. Done when: tests with 4, `true`, `"3"` and -1 refuse, disposition still answers for every row, and correcting the pin brings the row back to `needs-repair` with its findings intact.
 - [x] Report a failed rollback in `rewrite_section` in `scripts/lib/todo_graph.py`, naming what the section holds and the command that finishes it. Done when: tests inject a failing file write, a failing plan write and a failing rollback, and a fresh read each time selects exactly one cycle and keeps earlier findings. Cheaper substitute: a test that fails before any write.
 - [x] Prove exhaustion, parking, a grant, a repair, then a successful stamp and validate, in `scripts/tests/test_todo_graph.py`. Done when: the test ends with the section stamped and the whole tree valid.
+- [ ] Treat an unreadable pin, malformed TOML and a `schedule` of the wrong shape in `repair_cap` in `scripts/lib/todo_graph.py` as a bad value too, with no fallback to a default when the file exists. Done when: tests prove each refuses `repair` with no write and reads `waiting-person`, other rows still answer, a tree with no pin uses 3, and correcting the file restores `needs-repair`. Cheaper substitute: catching every error and assuming 3.
 - [ ] Commit: `review: repair cycles and parking`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0, and fails if an ungranted fourth repair succeeds, or repairable work ends a run.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found three in-scope gaps (after: its completion review returned gaps)
+
+> **Repair cycle:** 2: 2026-11-07: the completion review found the pin's unreadable and malformed cases (after: its completion review returned gaps)
 
 ## 4. Reviewer attempt limits and diagnostics
 
