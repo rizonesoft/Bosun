@@ -24,3 +24,25 @@ OVERALL: needs-attention
 
 - Planned: --use-proven is the read-only check D00 T03 §6 consumes (P1) in the D00 T03 §1 contract, this commit.
 - Planned: the wait clears only on green or red, tested across processes (P2) in the D00 T03 §1 contract, this commit.
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T20:30:11Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 40ae7311c780dcf124fe2bc3333b12a0cf49d390
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 6
+- Digest: 16238c12ae2b8401
+
+## adversarial: needs-attention
+
+1. **P2, `scripts/ci_status.py:329`: Valid fallback proof is discarded when the primary record is unreadable.** `peek_proven()` reads `ci-gate.json` before accepting `ci-gate.cleared`; a sharing violation sends it into the exception handler and loses the valid marker. Reproduce by holding the primary record with a Windows lock denying reads and replacement, letting a successful gate save its fallback marker, then checking a subsequent Markdown-only commit with `--sha <commit> --use-proven`. With no build run, this returns `none` instead of the proven skip and blocks completion. An in-memory reproduction confirmed that `peek_proven()` returns `None` while `read_gate()` recovers the same marker. Handle primary-record read failures independently so they do not discard valid fallback proof.
+
+HIGHEST: P2
+OVERALL: needs-attention

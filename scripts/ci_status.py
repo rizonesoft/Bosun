@@ -324,19 +324,24 @@ def write_gate(path, state):
 
 def peek_proven(path):
     """The last proven commit, read without changing anything, honouring a cleared marker the gate hasn't taken up yet."""
+    state, problem = {}, None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        state = state if isinstance(state, dict) else {}
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as exc:
+        problem = exc  # the marker exists for just this case, so look there before giving up
     try:
         marker = json.loads(path.with_name(CLEARED.name).read_text(encoding="utf-8"))
-        if isinstance(marker, dict) and isinstance(marker.get("proven"), str):
-            state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-            if state.get("consumed") != f"{marker['proven']} {marker.get('at')}":
-                return marker["proven"]
-    except (OSError, ValueError, AttributeError):
-        pass  # no usable marker: the record below decides
-    try:
-        proven = json.loads(path.read_text(encoding="utf-8")).get("proven")
-    except (OSError, ValueError, AttributeError) as exc:
-        print(f"warning: {path} can't be read ({exc}), so nothing counts as proven", file=sys.stderr)
-        return None
+        if isinstance(marker, dict) and isinstance(marker.get("proven"), str) and "at" in marker \
+                and state.get("consumed") != f"{marker['proven']} {marker['at']}":
+            return marker["proven"]
+    except (OSError, ValueError):
+        pass  # no usable marker, so the record decides
+    if problem:
+        print(f"warning: {path} can't be read ({problem}), so nothing counts as proven", file=sys.stderr)
+    proven = state.get("proven")
     return proven if isinstance(proven, str) else None
 
 

@@ -561,6 +561,25 @@ class Gate(Base):
         self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh())[0], 0)
         self.assertTrue(marker.exists())
 
+    def test_use_proven_finds_the_marker_when_the_record_is_locked(self):
+        marker = self.root / ci_status.CLEARED
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({"proven": SHA, "at": 5}), encoding="utf-8")
+        self.state().mkdir()  # a folder at the path reads as permission denied, like a lock
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh())[0], 0)
+
+    def test_use_proven_with_an_unreadable_record_and_no_marker_proves_nothing(self):
+        self.state().mkdir(parents=True)
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh())[0], ci_status.EXIT_NONE)
+        self.assertIn("can't be read", self.stderr)
+
+    def test_use_proven_ignores_a_marker_already_taken_up(self):
+        marker = self.root / ci_status.CLEARED
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({"proven": SHA, "at": 5}), encoding="utf-8")
+        self.state().write_text(json.dumps({"proven": OLD, "consumed": f"{SHA} 5"}), encoding="utf-8")
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))[0], ci_status.EXIT_NONE)
+
     def test_use_proven_refuses_other_modes(self):
         for extra in (["--gate"], ["--base", "BASE"]):
             with self.subTest(extra):
