@@ -81,7 +81,7 @@ class FakeGit:
         if args[0] == "merge-base":
             return (0 if self.ancestor else 1), "", ""
         if args[0] == "diff":
-            return self.diff_code, "\n".join(self.changed), ""
+            return self.diff_code, "".join(name + "\0" for name in self.changed), ""
         raise AssertionError(args)
 
 
@@ -236,6 +236,28 @@ class Skips(Base):
         gh = FakeGh({"build.yml": [run(conclusion="failure")], "plan.yml": [run()]})
         self.assertEqual(self.verdicts(["--sha", "HEAD", "--base", "BASE"], gh, FakeGit(["README.md"]))[0], 1)
 
+    def test_real_git_non_ascii_name_is_matched(self):
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "t@example.invalid")
+        git("config", "user.name", "t")
+        git("config", "core.hooksPath", "/dev/null")
+        (self.root / "README.md").write_text("a\n")
+        git("add", "-A")
+        git("commit", "-qm", "base")
+        base = git("rev-parse", "HEAD")
+        (self.root / "scripts").mkdir()
+        (self.root / "scripts" / "caf\u00e9.py").write_text("x = 1\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", "code")
+        gh = FakeGh({"build.yml": [run()]})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ci_status.main(["--sha", "HEAD", "--base", base, "--json"], runner=gh, root=self.root)
+        verdicts = {e["workflow"]: e["verdict"] for e in json.loads(out.getvalue())["workflows"]}
+        self.assertEqual(verdicts["plan.yml"], "none")
+
     def test_real_git_code_then_stamp_in_one_push(self):
         def git(*args):
             return subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True, check=True).stdout.strip()
@@ -355,6 +377,23 @@ class Gate(Base):
         self.state().write_text("{not json")
         self.assertEqual(self.gate(self.red())[1], "action: repair (attempt 1 of 3)")
         self.assertEqual(self.stderr.count("warning:"), 1)
+
+    def test_a_count_that_cannot_be_saved_waits_rather_than_crashes(self):
+        real = ci_status.write_repairs
+
+        def full(path, data):
+            raise OSError("no space left on device")
+        ci_status.write_repairs = full
+        self.addCleanup(setattr, ci_status, "write_repairs", real)
+        self.assertEqual(self.gate(self.red()), (1, "action: wait"))
+        self.assertIn("could not record", self.stderr)
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], self.red())
+        self.assertEqual((code, json.loads(out)["action"]), (1, "wait"))
+
+    def test_a_record_that_cannot_be_cleared_still_proceeds(self):
+        self.state().mkdir(parents=True)  # a folder at the path makes unlink fail
+        self.assertEqual(self.gate(self.green()), (0, "action: proceed"))
+        self.assertIn("could not clear", self.stderr)
 
     def test_write_leaves_no_temporary_behind(self):
         self.gate(self.red())
