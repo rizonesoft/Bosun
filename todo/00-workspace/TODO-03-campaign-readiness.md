@@ -76,7 +76,7 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 
 ## 2. One section disposition across graph, guard and skills
 
-The graph, the guard and the skills each decide differently what can run. One function decides, so a row can't be offered by one and refused by another.
+The graph, the guard and the skills each decide differently what can run. One function decides, so a row can't be offered by one and refused by another. **Corrected 2026-11-07:** it also holds the dead-end check the guard kept as `stranded`, and an active remote session counts as a desktop, where this said console only.
 
 **Phase:** 0
 **Needs:** none
@@ -88,10 +88,10 @@ The graph, the guard and the skills each decide differently what can run. One fu
 2. Use it in `scripts/lib/run_guard.py`. Done when: `HOST_NEEDS` is gone.
 
 - [ ] Create `scripts/lib/host_caps.py` reporting `windows-host`, `arm64-host`, `office`, `libreoffice` and `display-session`. Done when: `scripts/tests/test_host_caps.py` proves each from faked probes. Cheaper substitute: a hardcoded list of what this machine has.
-- [ ] Report `display-session` in `scripts/lib/host_caps.py` only for an active, unlocked console session, through `WTSQuerySessionInformation` and `OpenInputDesktop`. Done when: faked locked and disconnected sessions read false, and this machine reads true while unlocked. Cheaper substitute: assuming a logged-in user has a desktop.
-- [ ] Add `section_disposition(row, rows, caps)` in `scripts/lib/todo_graph.py`, keeping the existing `disposition(row, rows)` checks for dependencies and suspect ancestors, and returning `ready`, `waiting-host`, `waiting-person`, `waiting-dependency`, `parked` or `verified` with a reason. Done when: `scripts/tests/test_todo_graph.py` covers every Need in the closed list, including `store-account` and `attended`, and `resolve`, `classify` and plan generation keep their documented exit codes.
-- [ ] Replace `HOST_NEEDS` and `stranded` in `scripts/lib/run_guard.py` with `section_disposition`. Done when: a test proves a `display-session` row runs with a desktop and waits without one. Cheaper substitute: adding `display-session` to an exclusion list.
-- [ ] Add `query disposition` to `scripts/todo-graph.py`, printing JSON. Done when: the guard and skills read the same output.
+- [ ] Report `display-session` in `scripts/lib/host_caps.py` only for an active, unlocked session of this process, through `WTSQuerySessionInformationW` and `OpenInputDesktop` showing the `Default` desktop. Done when: faked locked and disconnected sessions read false, a failed probe reads false, a non-Windows host reads false, and this machine reads true while unlocked. Cheaper substitute: assuming a logged-in user has a desktop.
+- [ ] Add `section_disposition(row, rows, caps)` in `scripts/lib/todo_graph.py`, keeping the existing `disposition(row, rows)` checks for dependencies and suspect ancestors, and returning `ready`, `waiting-host`, `waiting-person`, `waiting-dependency`, `needs-repair`, `parked` or `verified` with a reason. `needs-repair` moves the `stranded` check here, and `parked` reads a `> **Parked:**` line, which `D00 T03 §3` adds. Done when: `scripts/tests/test_todo_graph.py` covers every Need in the closed list, including `store-account` and `attended`, and `resolve`, `classify` and plan generation keep their documented exit codes.
+- [ ] Replace `HOST_NEEDS` and `stranded` in `scripts/lib/run_guard.py` with `query disposition`, offering only `ready` rows and keeping `real_rows` returning None when it can't tell. Done when: a test proves a `display-session` row runs with a desktop and waits without one, and an unreadable answer never ends a run. Cheaper substitute: adding `display-session` to an exclusion list.
+- [ ] Add `query disposition` to `scripts/todo-graph.py`, printing JSON with each open row's ref, state and reason, leaving `query ready`, `resolve` and `classify` unchanged. Done when: a test proves the guard and skills read the same output, and those three keep their documented results.
 - [ ] Update `.claude/skills/process-plan/SKILL.md` and `process-phase/SKILL.md` and their mirrors to use `query disposition`. Done when: no skill names its own list of host Needs.
 - [ ] Commit: `graph: one section disposition`
 
