@@ -6,6 +6,7 @@
     python scripts/ci_status.py --workflow build.yml --branch main
     python scripts/ci_status.py --sha HEAD --base <commit>   # did this commit pass, or was it rightly not built?
     python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30   # also print one action
+    python scripts/ci_status.py --sha HEAD --use-proven      # read only: is this commit proven, by a run or the record?
 
 Each workflow (by default `build.yml` and `plan.yml`, the ones in `.github/workflows/` whose results gate main) gets one
 verdict from the newest run that judged the commit or branch; a cancelled run judges nothing:
@@ -207,7 +208,7 @@ def skip_reason(git, workflow, sha, base):
     return None
 
 
-def workflow_status(runner, workflow, branch, sha=None, base=None, git=None):
+def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, already_proven=False):
     scope = ["--commit", sha] if sha else ["--branch", branch]
     runs = gh_json(runner, ["run", "list", *scope, "--workflow", workflow, "--limit", str(LIMIT), "--json", FIELDS])
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
@@ -222,7 +223,8 @@ def workflow_status(runner, workflow, branch, sha=None, base=None, git=None):
     entry = {"workflow": workflow, "verdict": verdict, "latest_completed": brief(latest),
              "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer)}
     if verdict == "none" and sha and git:
-        reason = skip_reason(git, workflow, sha, base)
+        # A commit already recorded as proven stays so, unless a real run has since said otherwise, as above.
+        reason = "this commit is already recorded as proven" if already_proven else skip_reason(git, workflow, sha, base)
         if reason:
             entry.update(verdict="skipped", reason=reason)
     if verdict == "red":
@@ -252,12 +254,12 @@ def overall_exit(verdicts):
     return 0 if verdicts else EXIT_NONE
 
 
-def report(runner, workflows, branch, sha=None, base=None, git=None):
+def report(runner, workflows, branch, sha=None, base=None, git=None, already_proven=False):
     """The report dict and its exit code. One workflow being unreadable doesn't hide another's red."""
     entries = []
     for workflow in workflows:
         try:
-            entries.append(workflow_status(runner, workflow, branch, sha, base, git))
+            entries.append(workflow_status(runner, workflow, branch, sha, base, git, already_proven))
         except Unavailable as exc:
             entries.append({"workflow": workflow, "verdict": "unavailable", "error": str(exc)})
     code = overall_exit([e["verdict"] for e in entries])
@@ -320,12 +322,22 @@ def write_gate(path, state):
         return False
 
 
-def wait_since(path, sha):
-    """When waiting on this commit began, or None."""
-    waiting = read_gate(path).get("waiting")
-    if isinstance(waiting, dict) and waiting.get("sha") == sha and isinstance(waiting.get("since"), (int, float)):
-        return waiting["since"]
-    return None
+def peek_proven(path):
+    """The last proven commit, read without changing anything, honouring a cleared marker the gate hasn't taken up yet."""
+    try:
+        marker = json.loads(path.with_name(CLEARED.name).read_text(encoding="utf-8"))
+        if isinstance(marker, dict) and isinstance(marker.get("proven"), str):
+            state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            if state.get("consumed") != f"{marker['proven']} {marker.get('at')}":
+                return marker["proven"]
+    except (OSError, ValueError, AttributeError):
+        pass  # no usable marker: the record below decides
+    try:
+        proven = json.loads(path.read_text(encoding="utf-8")).get("proven")
+    except (OSError, ValueError, AttributeError) as exc:
+        print(f"warning: {path} can't be read ({exc}), so nothing counts as proven", file=sys.stderr)
+        return None
+    return proven if isinstance(proven, str) else None
 
 
 def begin_wait(path, sha, now):
@@ -341,22 +353,26 @@ def begin_wait(path, sha, now):
 
 
 def gate_action(code, sha, path, now):
-    """One action for a pushed commit, and any attempt number. A repeat check of the same red commit uses no attempt."""
+    """One action for a pushed commit, and any attempt number, or why it is unverified. A repeat check of the same red
+    commit uses no attempt."""
     state = read_gate(path)
     if code == 0:
         cleared = {"proven": sha, **({"consumed": state["consumed"]} if "consumed" in state else {})}
         if write_gate(path, cleared) or write_gate(path.with_name(CLEARED.name), {"proven": sha, "at": now}):
             return "proceed", None
         print("warning: could not clear the repair count; this commit passed, but carry on as unverified", file=sys.stderr)
-        return "unverified", None
+        return "unverified", f"this commit passed, but neither {path.name} nor {CLEARED.name} could be saved"
     if code != EXIT_RED:
         waiting = state.get("waiting")
         if not isinstance(waiting, dict) or waiting.get("sha") != sha or not isinstance(waiting.get("since"), (int, float)):
             waiting = {"sha": sha, "since": now}
         state["waiting"] = waiting
         if not write_gate(path, state):
-            return "unverified", None
-        return ("unverified", None) if now - waiting["since"] >= WAIT_LIMIT_SECONDS else ("wait", None)
+            return "unverified", f"no answer from CI, and {path.name} couldn't be saved to count the wait"
+        waited = now - waiting["since"]
+        if waited >= WAIT_LIMIT_SECONDS:
+            return "unverified", f"no answer from CI after {int(waited)} seconds, the limit being {WAIT_LIMIT_SECONDS}"
+        return "wait", None
     state.pop("waiting", None)
     if not isinstance(state.get("first_red"), str) or not isinstance(state.get("seen"), list):
         state.update(first_red=sha, seen=[])
@@ -364,7 +380,7 @@ def gate_action(code, sha, path, now):
         state["seen"].append(sha)
     if not write_gate(path, state):
         # A repair that can't be counted could repeat forever.
-        return "unverified", None
+        return "unverified", f"CI is red, and {path.name} couldn't be saved to count repairs"
     repairs_tried = len(state["seen"]) - 1
     if repairs_tried >= MAX_REPAIRS:
         return "exhausted", repairs_tried
@@ -404,6 +420,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                         help="a workflow file in .github/workflows/ (repeatable; default build.yml and plan.yml)")
     parser.add_argument("--sha", help="judge this commit's own runs rather than the branch")
     parser.add_argument("--base", help="the remote head before the push, needed to prove a workflow was skipped")
+    parser.add_argument("--use-proven", action="store_true", help="read only: with --sha, prove a skip against the recorded proven commit")
     parser.add_argument("--gate", action="store_true", help="also print one action: proceed, wait, repair, exhausted or unverified")
     parser.add_argument("--wait-minutes", type=float, default=0, help="with --gate, poll this long while the action is wait")
     args = parser.parse_args(argv)
@@ -415,8 +432,12 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                      else "no workflow to watch, or an empty --branch")
     if args.gate and not args.sha:
         parser.error("--gate needs --sha")
+    if args.gate and args.workflows:
+        parser.error("--gate judges every gating workflow, so a pass means that, and it takes no --workflow")
     if args.base and not args.sha:
         parser.error("--base needs --sha")
+    if args.use_proven and (not args.sha or args.gate or args.base):
+        parser.error("--use-proven needs --sha, and takes no --gate or --base")
     if args.base and args.gate:
         parser.error("--gate proves a skip only against the last proven commit, so it takes no --base")
     if args.wait_minutes and not args.gate:
@@ -451,42 +472,45 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:
                 # Keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
-                result["action"], _ = gate_action(EXIT_UNAVAILABLE, args.sha, root / REPAIRS, wall())
-            print(json.dumps(result, indent=2) if args.json else f"unavailable: {exc}" + (f"\naction: {result['action']}" if args.gate else ""))
+                begin_wait(root / REPAIRS, args.sha, wall())
+                result["action"], why = gate_action(EXIT_UNAVAILABLE, args.sha, root / REPAIRS, wall())
+                if why:
+                    result["reason"] = why
+            print(json.dumps(result, indent=2) if args.json else f"unavailable: {exc}" + (f"\nreason: {result['reason']}" if result.get("reason") else "") + (f"\naction: {result['action']}" if args.gate else ""))
             return EXIT_UNAVAILABLE
         if not sha:
             parser.error(f"--sha is not a commit here: {args.sha}")
     if args.gate:
-        since = wait_since(root / REPAIRS, sha)
-        if since is not None:
-            left = WAIT_LIMIT_SECONDS - (wall() - since)
-            deadline = min(deadline, clock() + max(left, 0))
-            if left <= 0:  # the limit has passed, so this launches nothing more
-                action, _ = gate_action(EXIT_UNAVAILABLE, sha, root / REPAIRS, wall())
-                result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action}
-                print(json.dumps(result, indent=2) if args.json else f"action: {action}")
-                return EXIT_UNAVAILABLE
-    wanted = args.base or (read_gate(root / REPAIRS).get("proven") if args.gate else None)
+        # Recorded before the first lookup, so a process killed during it keeps the time. The two hour limit counts from
+        # here, and one invocation can't run past it. A verdict clears it.
+        left = WAIT_LIMIT_SECONDS - (wall() - begin_wait(root / REPAIRS, sha, wall()))
+        deadline = min(deadline, clock() + max(left, 0))
+        if left <= 0:  # the limit has passed, so this launches nothing more
+            action, why = gate_action(EXIT_UNAVAILABLE, sha, root / REPAIRS, wall())
+            result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action, "reason": why}
+            print(json.dumps(result, indent=2) if args.json else f"reason: {why}\naction: {action}")
+            return EXIT_UNAVAILABLE
+    proven_commit = peek_proven(root / REPAIRS) if args.use_proven else (read_gate(root / REPAIRS).get("proven") if args.gate else None)
+    wanted = args.base or proven_commit
     if isinstance(wanted, str):
         # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
         try:
             base = resolve_commit(git_call, wanted)
         except Unavailable:
             base = None
-    result, code = report(ask, workflows, args.branch, sha, base, git_call)
-    if args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE):
-        # The two hour limit counts from here, and one invocation can't run past it.
-        since = begin_wait(root / REPAIRS, sha, wall())
-        deadline = min(deadline, clock() + max(WAIT_LIMIT_SECONDS - (wall() - since), 0))
+    already_proven = bool(sha) and sha == base and not args.base
+    result, code = report(ask, workflows, args.branch, sha, base, git_call, already_proven)
     while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
         sleep(min(POLL_SECONDS, remaining()))
-        result, code = report(ask, workflows, args.branch, sha, base, git_call)
+        result, code = report(ask, workflows, args.branch, sha, base, git_call, already_proven)
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
-        if attempt is not None:
+        if action == "unverified":
+            result["reason"] = attempt
+        elif attempt is not None:
             result["repair_attempt" if action == "repair" else "repairs_tried"] = attempt
     if args.json:
         print(json.dumps(result, indent=2))
@@ -494,6 +518,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         for entry in result["workflows"]:
             print("\n".join(describe(entry)))
         if args.gate:
+            if result.get("reason"):
+                print(f"reason: {result['reason']}")
             detail = f" (attempt {attempt} of {MAX_REPAIRS})" if result["action"] == "repair" else ""
             print(f"action: {result['action']}{detail}")
     return code

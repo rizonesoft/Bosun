@@ -496,6 +496,102 @@ class Gate(Base):
         wall = lambda: 1_000_000.0 + seconds
         return self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=wall)
 
+    def test_the_gate_takes_no_workflow_filter(self):
+        err = self.err_of(["--gate", "--sha", "HEAD", "--workflow", "build.yml"])
+        self.assertIn("takes no --workflow", err)
+        code, _ = self.go(["--sha", "HEAD", "--workflow", "build.yml"], self.green())
+        self.assertEqual(code, 0)
+
+    def test_the_start_of_a_wait_stands_if_the_first_lookup_is_interrupted(self):
+        def killed(args):
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.go(["--gate", "--sha", "HEAD"], killed, wall=lambda: 1_000_000.0)
+        self.assertEqual(json.loads(self.state().read_text())["waiting"]["since"], 1_000_000.0)
+        code, out = self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertIn("action: unverified", out)
+
+    def test_a_verdict_leaves_no_wait_behind(self):
+        self.gate(FakeGh())
+        self.assertIn("waiting", json.loads(self.state().read_text()))
+        self.gate(self.red())
+        self.assertNotIn("waiting", json.loads(self.state().read_text()))
+        self.gate(FakeGh())
+        self.gate(self.green())
+        self.assertNotIn("waiting", json.loads(self.state().read_text()))
+
+    def test_alternating_waits_keep_the_first_start_across_processes(self):
+        start = 1_000_000.0
+        pending = {"build.yml": [run("queued", None)], "plan.yml": [run()]}
+        steps = [(pending, 0), ({}, 3000), (pending, 6000), ({}, ci_status.WAIT_LIMIT_SECONDS - 1)]
+        for runs, offset in steps:
+            self.assertIn("action: wait", self.fresh(["--gate", "--sha", "HEAD"], runs, wall=start + offset)[1])
+        self.assertEqual(json.loads(self.state().read_text())["waiting"]["since"], start)
+        self.assertIn("action: unverified", self.fresh(["--gate", "--sha", "HEAD"], pending, wall=start + ci_status.WAIT_LIMIT_SECONDS)[1])
+
+    def test_use_proven_recognises_a_skipped_final_stamp_and_changes_nothing(self):
+        self.gate(self.green(), "BASE")
+        gh = FakeGh({"plan.yml": [run()]})
+        self.assertEqual(self.gate(gh, git=FakeGit(["README.md"]))[1], "action: proceed")
+        before = self.state().read_bytes()
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], gh, FakeGit(["README.md"]))[0], 0)  # the stamp itself
+        self.assertEqual(self.state().read_bytes(), before)
+        self.assertEqual(self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))[0], 0)  # and a repeat gate agrees
+
+    def test_use_proven_refuses_code_after_the_proven_commit(self):
+        self.gate(self.green(), "BASE")
+        before = self.state().read_bytes()
+        code, _ = self.go(["--sha", "HEAD", "--use-proven"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
+        self.assertEqual(code, ci_status.EXIT_NONE)
+        self.assertEqual(self.state().read_bytes(), before)
+
+    def test_a_real_red_run_outranks_the_record(self):
+        self.gate(self.green())
+        failed = FakeGh({"build.yml": [run(conclusion="failure")], "plan.yml": [run()]})
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], failed)[0], 1)
+
+    def test_use_proven_with_no_record_proves_nothing(self):
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh())[0], ci_status.EXIT_NONE)
+        self.assertFalse(self.state().exists())
+
+    def test_use_proven_honours_a_marker_the_gate_has_not_taken_up(self):
+        marker = self.root / ci_status.CLEARED
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({"proven": SHA, "at": 5}), encoding="utf-8")
+        self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], FakeGh())[0], 0)
+        self.assertTrue(marker.exists())
+
+    def test_use_proven_refuses_other_modes(self):
+        for extra in (["--gate"], ["--base", "BASE"]):
+            with self.subTest(extra):
+                self.assertIn("--use-proven needs", self.err_of(["--sha", "HEAD", "--use-proven", *extra]))
+        self.assertIn("--use-proven needs", self.err_of(["--use-proven"]))
+
+    def test_every_unverified_says_why_and_the_action_stays_last(self):
+        expired = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
+
+        def cases():
+            self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=lambda: 1_000_000.0)
+            yield "limit", FakeGh(), expired, "7200"
+            self.state().unlink()
+            with mock.patch.object(ci_status, "write_gate", return_value=False):
+                yield "red, unsaved", self.red(), None, "count repairs"
+                yield "waiting, unsaved", FakeGh(), None, "count the wait"
+                (self.root / ci_status.CLEARED).parent.mkdir(exist_ok=True)
+                yield "green, unsaved", self.green(), None, "could be saved"
+        for name, gh, wall, word in cases():
+            with self.subTest(name):
+                extra = {"wall": wall} if wall else {}
+                _, text = self.go(["--gate", "--sha", "HEAD"], gh, **extra)
+                lines = text.strip().splitlines()
+                self.assertEqual(lines[-1], "action: unverified")
+                self.assertIn(word, lines[-2])
+                self.assertTrue(lines[-2].startswith("reason: "))
+                _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, **extra)
+                data = json.loads(raw)
+                self.assertEqual(data["action"], "unverified")
+                self.assertIn(word, data["reason"])
+
     def test_waiting_on_one_commit_is_limited_across_invocations(self):
         start = 1_000_000.0
         self.assertIn("action: wait", self.fresh(["--gate", "--sha", "HEAD"], wall=start)[1])
@@ -557,6 +653,7 @@ class Gate(Base):
         self.waiting(0)
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
         code, out = self.go(["--gate", "--sha", "c" * 40], FakeGh(), _Named("c" * 40), wall=wall)
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": "c" * 40, "since": wall()})
         self.assertIn("action: wait", out)
 
     def fresh(self, argv, runs=None, changed=("README.md",), wall=1_000_000.0):
