@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 25 | Checklist items: 180
+Sections: 26 | Checklist items: 183
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -27,6 +27,8 @@ Sections: 25 | Checklist items: 180
 | [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 5     |
 | [ ]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
+| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
+| [ ]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 3     |
 | [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 8     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
@@ -36,7 +38,6 @@ Sections: 25 | Checklist items: 180
 | [ ]    | D00 T02 §1  | Solution, props and empty projects                     | none        | 5     |
 | [ ]    | D00 T02 §2  | Add .NET to the gates                                  | none        | 3     |
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                | third-party | 4     |
-| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
 
 ### Phase 1: Core data contract
 
@@ -194,6 +195,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 3/125 verified sections, 7 ready to run now.
+Progress: 3/126 verified sections, 8 ready to run now.
 
-Checklist: 83/688 items completed (includes Commit items).
+Checklist: 83/691 items completed (includes Commit items).

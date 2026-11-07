@@ -45,10 +45,11 @@ title: "TODO-03 -- Campaign readiness"
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
-| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, D00 T01 §3 | [ ] |
+| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [ ] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
+| 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -434,6 +435,24 @@ Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers 
 - [ ] Commit: `ci: recovery names its commit`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0, and fails if a moved branch is offered the dispatch command.
+
+## 14. Stamp filed leftovers from the third cycle
+
+The owner decided on 2026-11-07 that from a section's third review cycle on, once its regular rounds are clean, completion gaps are filed as open sections and the section stamps, so one section's polish can't stall the run. `review-todo-section` says so, and `stamp` still refuses `filed` on any current-policy cycle, which this section changes. In the first two cycles only `complete` stamps, because the gaps found early have been the serious ones.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Allow `filed` from the third cycle in `schedule_ok` in `scripts/lib/todo_graph.py`. Done when: the stamp accepts it there and refuses it before.
+
+- [ ] Accept a `filed` completion verdict in `schedule_ok` in `scripts/lib/todo_graph.py` when the findings file is a third or later cycle, `-cycle3.md` onwards, and keep refusing it in cycles one and two, naming the rule. Done when: `scripts/tests/test_review_policy.py` proves cycle 2 refuses, cycle 3 is accepted, and `complete` is accepted in any cycle.
+- [ ] Keep every other requirement of a filed stamp: a clean last round, and each `- Filed:` reference resolving to an open section. Done when: tests prove a filed stamp with an unresolved reference, or with no clean round, is still refused.
+- [ ] Commit: `review: stamp filed leftovers from the third cycle`
+
+**Test checkpoint:** `PYTHONPATH=scripts/tests python -m unittest test_review_policy test_todo_graph` exits 0, and fails if cycle 2 may stamp `filed`.
 
 ## Verification
 
