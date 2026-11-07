@@ -3,6 +3,7 @@
 A probe that fails reads as false: a row waits, and nothing is claimed that wasn't seen. Stdlib only.
 """
 import ctypes
+import os
 import platform
 import shutil
 import sys
@@ -61,14 +62,25 @@ def display_session(on_windows=None, active=session_active, desktop=input_deskto
         return False
 
 
-def app_path_exists(name):
-    """Whether Windows registers an application, the way Office and LibreOffice install."""
+def registered_paths(name):
+    """Where Windows says an application is, per user and per machine, the way Office and LibreOffice install."""
     try:
         import winreg
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{name}"):
-            return True
-    except (ImportError, OSError):
-        return False
+    except ImportError:
+        return []
+    found = []
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{name}") as key:
+                found.append(winreg.QueryValueEx(key, "")[0])
+        except OSError:
+            continue
+    return found
+
+
+def app_path_exists(name, paths=registered_paths, exists=os.path.isfile):
+    """Whether a registered application is really there. An uninstall can leave the registry entry behind."""
+    return any(isinstance(path, str) and exists(os.path.expandvars(path).strip('"')) for path in paths(name))
 
 
 def capabilities(on_windows=None, machine=None, which=shutil.which, registered=app_path_exists, desktop=display_session):

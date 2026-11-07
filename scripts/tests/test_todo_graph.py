@@ -847,6 +847,30 @@ class Dispositions(Tree):
         self.assertEqual(tg.section_disposition(rows["D00 T01 §1"], rows, self.CAPS, self.root)[0], "waiting-person")
 
 
+class QueryNext(Tree):
+    def run_cli(self):
+        """The real command on a copy of the tool, so the fixture tree is what it reads."""
+        tool = self.root / "scripts"
+        (tool / "lib").mkdir(parents=True, exist_ok=True)
+        for name in ("todo-graph.py", "review-dispatch.py", "lib/todo_graph.py", "lib/host_caps.py"):
+            (tool / name).write_bytes((REPO / "scripts" / name).read_bytes())
+        return subprocess.run([sys.executable, str(tool / "todo-graph.py"), "query", "next"], cwd=self.root,
+                              capture_output=True, text=True, encoding="utf-8")
+
+    def test_prints_the_row_to_start(self):
+        self.write(todo_file([(1, "A", 0, "attended", "--"), (2, "B", 3, "none", "--")]))
+        done = self.run_cli()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        answer = json.loads(done.stdout)
+        self.assertEqual((answer["ref"], answer["phase"], answer["state"]), ("D00 T01 §2", 3, "ready"))
+
+    def test_prints_null_when_nothing_can_run(self):
+        self.write(todo_file([(1, "A", 0, "attended", "--")]))
+        done = self.run_cli()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIsNone(json.loads(done.stdout))
+
+
 class QueryDisposition(unittest.TestCase):
     def test_lists_open_rows_with_state_and_reason(self):
         done = subprocess.run([sys.executable, str(REPO / "scripts" / "todo-graph.py"), "query", "disposition"], cwd=REPO,
@@ -867,6 +891,11 @@ class SkillsDefer(unittest.TestCase):
                 text = (REPO / folder / "skills" / "process-plan" / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("query next", text)
                 self.assertNotIn("todo-graph.py query ready", text)
+                self.assertNotIn("no longer counts as runnable", text)
+                self.assertIn("is repaired, then parked", text)
+                phase = (REPO / folder / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("query disposition` before each row", phase)
+                self.assertNotIn("Skip rows whose `resolve` is not exit 0", phase)
 
     def test_no_runner_skill_keeps_its_own_list_of_host_needs(self):
         for folder in (".claude", ".codex", ".agents"):
