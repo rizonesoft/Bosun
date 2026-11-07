@@ -5,7 +5,7 @@
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
     python scripts/todo-graph.py plan --sync | --check
-    python scripts/todo-graph.py query ready | blocked | disposition | stats | deferred | adjacency | plan | rounds
+    python scripts/todo-graph.py query ready | blocked | disposition | next | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
                                                              # 2 no reference in input, 3 verified,
                                                              # 4 waiting; a pasted plan row works too
@@ -31,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from host_caps import capabilities  # noqa: E402
-from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, park, repair, section_disposition, unpark,  # noqa: E402
+from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, next_work, park, repair, section_disposition, unpark,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
                         suspects, unstamp)
 
@@ -64,7 +64,7 @@ def main():
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "disposition", "stats", "deferred", "adjacency", "plan", "rounds"])
+    q.add_argument("kind", choices=["ready", "blocked", "disposition", "next", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -161,6 +161,8 @@ def main():
                       "phases": {str(n): name for n, name in sorted(config["phases"].items())},
                       "sections": [{"ref": r.ref, "path": r.path, "title": r.title, "phase": r.phase,
                                     "status": plan_status(r, rows), "depends": r.depends} for r in ordered(rows)]}
+        elif args.kind == "next":
+            result = next_work(rows, capabilities())
         elif args.kind == "disposition":
             caps = capabilities()
             result = []

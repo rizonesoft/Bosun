@@ -823,6 +823,23 @@ class Dispositions(Tree):
         self.rounds(1)
         self.assertEqual(self.state()[0], "needs-repair")
 
+    def test_next_work_passes_a_host_blocked_earlier_phase(self):
+        self.write(todo_file([(1, "A", 0, "display-session", "--"), (2, "B", 3, "none", "--")]))
+        rows = tg.graph(self.root)
+        work = tg.next_work(rows, self.CAPS, self.root)
+        self.assertEqual((work["ref"], work["phase"], work["state"]), ("D00 T01 §2", 3, "ready"))
+        with_desktop = tg.next_work(rows, {**self.CAPS, "display-session": True}, self.root)
+        self.assertEqual(with_desktop["ref"], "D00 T01 §1")
+
+    def test_next_work_counts_a_repairable_row_and_is_none_when_nothing_can_run(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-repair")
+        self.write(todo_file([(1, "A", 0, "attended", "--")]))
+        rows = tg.graph(self.root)
+        self.assertIsNone(tg.next_work(rows, self.CAPS, self.root))
+
     def test_a_stamped_row_is_verified_and_old_answers_are_unchanged(self):
         self.write(todo_file([(1, "A", 0, "attended", "--")]))
         rows = tg.graph(self.root)
@@ -844,6 +861,13 @@ class QueryDisposition(unittest.TestCase):
 
 
 class SkillsDefer(unittest.TestCase):
+    def test_no_runner_chooses_a_phase_from_query_ready(self):
+        for folder in (".claude", ".codex", ".agents"):
+            with self.subTest(folder=folder):
+                text = (REPO / folder / "skills" / "process-plan" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("query next", text)
+                self.assertNotIn("todo-graph.py query ready", text)
+
     def test_no_runner_skill_keeps_its_own_list_of_host_needs(self):
         for folder in (".claude", ".codex", ".agents"):
             for skill in ("process-plan", "process-phase"):

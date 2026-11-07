@@ -1134,6 +1134,15 @@ def section_disposition(row, rows, caps, root=ROOT):
     return "ready", "can run now"
 
 
+def next_work(rows, caps, root=ROOT):
+    """The first row this session can run, by phase then table order, or None. What a runner starts next."""
+    for row in ordered(rows):
+        state, reason = section_disposition(row, rows, caps, root)
+        if state in ("ready", "needs-repair"):
+            return {"ref": row.ref, "title": row.title, "phase": row.phase, "state": state, "reason": reason}
+    return None
+
+
 def ordered(sections):
     result, placed, pending = [], set(), sorted(
         sections, key=lambda r: (sections[r].phase, sections[r].path, sections[r].order))
