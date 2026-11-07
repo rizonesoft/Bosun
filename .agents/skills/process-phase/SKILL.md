@@ -36,7 +36,7 @@ Read the most recent prior run file for this phase, if one exists: anything unre
 
 1. `python scripts/todo-graph.py validate`: fix every refusal now.
 2. `python scripts/todo-graph.py plan --check`: if stale, `plan --sync`.
-3. For every open row in the phase: `python scripts/todo-graph.py resolve '<ref>'`. Record the exit code. Then read `python scripts/todo-graph.py query disposition`, which gives each open row one state and reason for this session. A row it doesn't call `ready` is a leftover, not a stall: leave the row, ship every exit-0 row, and park when only leftovers remain. Exit 1 or 2 means the plan cites a section that does not exist: repair the reference against the TODO files; a broken reference blocks a park.
+3. For every open row in the phase: `python scripts/todo-graph.py resolve '<ref>'`. Record the exit code. Then read `python scripts/todo-graph.py query disposition`, which gives each open row one state and reason for this session. A row it doesn't call `ready` is a leftover, not a stall: leave the row, ship every `ready` row, re-reading the state after each stamp, and park when only leftovers remain. A row `resolve` passes but this calls `attended` or host-bound waits for its session. Exit 1 or 2 means the plan cites a section that does not exist: repair the reference against the TODO files; a broken reference blocks a park.
 4. Read each open section's TODO file top to bottom for phase-level staleness only (per-section validation happens again inside `process-todo-section`): work already shipped elsewhere, sections made moot by a later decision, Current state blocks contradicted by the tree. Correct with dated `**Corrected YYYY-MM-DD:**` notes.
 
 ### Step 1b: shipped rows are verified, not trusted

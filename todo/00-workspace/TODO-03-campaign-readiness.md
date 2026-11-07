@@ -38,7 +38,7 @@ title: "TODO-03 -- Campaign readiness"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | CI status that proves the commit | -- | [ ] |
 | 2 | §2 | One section disposition across graph, guard and skills | -- | [ ] |
-| 3 | §3 | Review repair cycles and parking | §2 | [ ] |
+| 3 | §3 | Review repair cycles and parking | -- | [ ] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [ ] |
 | 5 | §5 | Usage limits wait and resume | §2 | [ ] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
@@ -102,7 +102,7 @@ The graph, the guard and the skills each decide differently what can run. One fu
 
 ## 3. Review repair cycles and parking
 
-A section that fails review must either get a real chance to repair or step aside, never hold up the run in silence. The owner set the cap at three repair cycles. No section ever ships unapproved.
+A section that fails review must either get a real chance to repair or step aside, never hold up the run in silence. The owner set the cap at three repair cycles. No section ever ships unapproved. **Corrected 2026-11-07:** this depended on §2, but §2 and every other section can only recover from a completion gap through this section, so it can't wait for them. It uses `section_disposition` from the §2 code in the tree.
 
 **Phase:** 0
 **Needs:** none

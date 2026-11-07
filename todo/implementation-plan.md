@@ -192,6 +192,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 0/123 verified sections, 6 ready to run now.
+Progress: 0/123 verified sections, 7 ready to run now.
 
 Checklist: 15/637 items completed (includes Commit items).
