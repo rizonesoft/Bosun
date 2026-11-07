@@ -438,7 +438,7 @@ Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers 
 
 ## 14. Stamp filed leftovers from the third cycle
 
-> **Started:** 2026-11-07T21:34:03Z
+> **Started:** 2026-11-07T21:46:40Z
 
 The owner decided on 2026-11-07 that from a section's third review cycle on, once its regular rounds are clean, completion gaps are filed as open sections and the section stamps, so one section's polish can't stall the run. `review-todo-section` says so, and `stamp` still refuses `filed` on any current-policy cycle, which this section changes. In the first two cycles only `complete` stamps, because the gaps found early have been the serious ones.
 
