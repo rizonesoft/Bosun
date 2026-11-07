@@ -44,7 +44,6 @@ LOCK_WAIT = 5  # seconds, well under every hook's timeout: slow reads happen bef
 
 DRAINED = "no runnable rows left; that is not the plan being done, `todo-graph.py query stats` shows what is blocked or unstamped"
 GROUNDS = ("data-loss", "credentials", "shared-infrastructure", "wrong-calculation", "operator")
-HOST_NEEDS = {"arm64-host", "display-session", "office", "attended"}  # leftovers here, as process-plan says
 
 START = re.compile(r"^\s*(please\s+)?/?process[- ](the\s+)?plan\s*[.!]?\s*$", re.IGNORECASE)
 STOP = re.compile(
@@ -305,35 +304,19 @@ def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL, **hidden())
 
 
-def stranded(ref: str, reviews: Path) -> bool:
-    """A section whose last completion review returned gaps has no route to a stamp, so the run passes over it."""
-    match = re.fullmatch(r"D(\d+) T(\d+) §(\d+)", ref)
-    if not match:
-        return False
-    stem = f"D{match[1]}-T{match[2]}-s{match[3]}"
-    cycles = [p for p in reviews.glob(f"*/{stem}*.md") if p.stem == stem or p.stem.startswith(f"{stem}-")]
-    def cycle(path: Path) -> list:  # so cycle10 comes after cycle9
-        return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", path.stem[len(stem):])]
-
-    for findings in sorted(cycles, key=cycle, reverse=True):  # the latest cycle decides
-        verdicts = re.findall(r"^COMPLETION:\s*(\w+)", findings.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)
-        if verdicts:
-            return verdicts[-1] != "complete"
-    return False
-
-
-def runnable(rows: list[dict], reviews: Path) -> list[str]:
-    return [r["ref"] for r in rows if not (HOST_NEEDS & set(r.get("needs") or [])) and not stranded(r["ref"], reviews)]
+def runnable(rows: list[dict]) -> list[str]:
+    """The rows this run can take, from `query disposition`, which owns what can run."""
+    return [r["ref"] for r in rows if r.get("state") == "ready"]
 
 
 def real_rows() -> list[str] | None:
     """The rows this run can still take. None when that cannot be told, which never ends a run."""
     try:
-        out = run(sys.executable, str(ROOT / "scripts" / "todo-graph.py"), "query", "ready")
+        out = run(sys.executable, str(ROOT / "scripts" / "todo-graph.py"), "query", "disposition")
         if out.returncode != 0:
             return None
-        return runnable(json.loads(out.stdout.decode("utf-8", "replace")), ROOT / "docs" / "reviews")
-    except (OSError, ValueError, subprocess.SubprocessError):
+        return runnable(json.loads(out.stdout.decode("utf-8", "replace")))
+    except (OSError, ValueError, TypeError, AttributeError, subprocess.SubprocessError):
         return None
 
 

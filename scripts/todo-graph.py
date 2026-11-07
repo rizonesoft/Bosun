@@ -5,7 +5,7 @@
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
     python scripts/todo-graph.py plan --sync | --check
-    python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan | rounds
+    python scripts/todo-graph.py query ready | blocked | disposition | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
                                                              # 2 no reference in input, 3 verified,
                                                              # 4 waiting; a pasted plan row works too
@@ -27,7 +27,8 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
+from host_caps import capabilities  # noqa: E402
+from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, section_disposition,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
                         suspects, unstamp)
 
@@ -60,7 +61,7 @@ def main():
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
+    q.add_argument("kind", choices=["ready", "blocked", "disposition", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -139,6 +140,14 @@ def main():
                       "phases": {str(n): name for n, name in sorted(config["phases"].items())},
                       "sections": [{"ref": r.ref, "path": r.path, "title": r.title, "phase": r.phase,
                                     "status": plan_status(r, rows), "depends": r.depends} for r in ordered(rows)]}
+        elif args.kind == "disposition":
+            caps = capabilities()
+            result = []
+            for r in ordered(rows):
+                state, reason = section_disposition(r, rows, caps)
+                if state != "verified":
+                    result.append({"ref": r.ref, "title": r.title, "phase": r.phase, "needs": r.needs,
+                                   "state": state, "reason": reason})
         else:
             code = 0 if args.kind == "ready" else 4
             result = [r.public() for r in ordered(rows) if disposition(r, rows) == code]

@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
@@ -279,42 +280,32 @@ class Watch(unittest.TestCase):
 
 
 class Rows(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.reviews = Path(self.temp.name)
-        (self.reviews / "01-x").mkdir()
+    def test_only_ready_rows_are_offered(self):
+        rows = [{"ref": f"D01 T02 §{n}", "state": state} for n, state in enumerate(
+            ("ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "parked"), 1)]
+        self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])
 
-    def findings(self, name, text):
-        (self.reviews / "01-x" / name).write_text(text, encoding="utf-8")
+    def test_a_display_session_row_runs_with_a_desktop_and_waits_without_one(self):
+        with_desktop = [{"ref": "D01 T03 §1", "needs": ["display-session"], "state": "ready"}]
+        without = [{"ref": "D01 T03 §1", "needs": ["display-session"], "state": "waiting-host"}]
+        self.assertEqual(guard.runnable(with_desktop), ["D01 T03 §1"])
+        self.assertEqual(guard.runnable(without), [])
 
-    def test_a_section_stranded_by_gaps_is_passed_over(self):
-        self.findings("D01-T02-s1.md", "## Completion\nCOMPLETION: gaps\n")
-        self.findings("D01-T02-s2.md", "## Completion\nCOMPLETION: complete\n")
-        rows = [{"ref": f"D01 T02 §{n}"} for n in (1, 2, 3, 10)]
-        self.assertEqual(guard.runnable(rows, self.reviews), ["D01 T02 §2", "D01 T02 §3", "D01 T02 §10"])
+    def answers(self, code, stdout):
+        return mock.patch.object(guard, "run", return_value=subprocess.CompletedProcess([], code, stdout, b""))
 
-    def test_section_one_is_not_stranded_by_section_ten(self):
-        self.findings("D01-T02-s10.md", "COMPLETION: gaps\n")
-        self.assertEqual(guard.runnable([{"ref": "D01 T02 §1"}], self.reviews), ["D01 T02 §1"])
+    def test_real_rows_reads_query_disposition(self):
+        rows = [{"ref": "D01 T03 §1", "state": "ready"}, {"ref": "D01 T03 §2", "state": "parked"}]
+        with self.answers(0, json.dumps(rows).encode()) as run:
+            self.assertEqual(guard.real_rows(), ["D01 T03 §1"])
+        self.assertEqual(run.call_args.args[-2:], ("query", "disposition"))
 
-    def test_a_later_cycle_decides_over_a_returned_gap(self):
-        self.findings("D01-T02-s1.md", "COMPLETION: gaps\n")
-        self.findings("D01-T02-s1-cycle2.md", "COMPLETION: complete\n")
-        self.assertEqual(guard.runnable([{"ref": "D01 T02 §1"}], self.reviews), ["D01 T02 §1"])
-
-    def test_cycle_ten_is_later_than_cycle_nine(self):
-        self.findings("D01-T02-s1-cycle9.md", "COMPLETION: gaps\n")
-        self.findings("D01-T02-s1-cycle10.md", "COMPLETION: complete\n")
-        self.assertEqual(guard.runnable([{"ref": "D01 T02 §1"}], self.reviews), ["D01 T02 §1"])
-
-    def test_the_last_completion_decides_so_a_repair_cycle_clears_it(self):
-        self.findings("D01-T02-s1.md", "COMPLETION: gaps\n\nCOMPLETION: complete\n")
-        self.assertEqual(guard.runnable([{"ref": "D01 T02 §1"}], self.reviews), ["D01 T02 §1"])
-
-    def test_a_row_needing_a_host_this_session_lacks_is_a_leftover(self):
-        rows = [{"ref": "D01 T03 §1", "needs": ["arm64-host"]}, {"ref": "D01 T03 §2", "needs": []}]
-        self.assertEqual(guard.runnable(rows, self.reviews), ["D01 T03 §2"])
+    def test_an_unreadable_answer_never_ends_a_run(self):
+        for code, stdout in ((1, b""), (0, b"not json"), (0, b"[1, 2]"), (0, b"{}")):
+            with self.subTest(stdout), self.answers(code, stdout):
+                self.assertIn(guard.real_rows(), (None, []) if stdout == b"{}" else (None,))
+        with mock.patch.object(guard, "run", side_effect=OSError("gone")):
+            self.assertIsNone(guard.real_rows())
 
 
 class Halts(unittest.TestCase):

@@ -415,6 +415,121 @@ class Graph(Tree):
         self.assertEqual(ordered_refs[-1], "D00 T01 §1")
 
 
+ROUND = "## Round {n}: astra (`m` via `codex`)\n\n- Writer: claude\n\nReview text.\n\n{highest}OVERALL: {overall}\n\n"
+
+
+class Dispositions(Tree):
+    CAPS = {"windows-host": True, "arm64-host": False, "office": False, "libreoffice": False, "display-session": False}
+
+    def state(self, needs="none", caps=None, dep="--", n=1, rows=None):
+        self.write(todo_file([(1, "A", 0, needs, "--")] if n == 1 else [(1, "A", 0, "none", "--"), (2, "B", 0, needs, dep)]))
+        rows = tg.graph(self.root)
+        return tg.section_disposition(rows[f"D00 T01 §{n}"], rows, caps or self.CAPS, self.root)
+
+    def findings(self, text, name="D00-T01-s1.md"):
+        folder = self.root / "docs" / "reviews" / "00-x"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text(text, encoding="utf-8")
+
+    def rounds(self, count, highest="HIGHEST: P1\n", overall="needs-attention"):
+        return "".join(ROUND.format(n=n, highest=highest, overall=overall) for n in range(1, count + 1))
+
+    def test_every_need_in_the_closed_list(self):
+        expected = {"windows-host": "ready", "arm64-host": "waiting-host", "display-session": "waiting-host",
+                    "office": "waiting-host", "libreoffice": "waiting-host", "store-account": "waiting-person",
+                    "attended": "waiting-person", "owner-decision": "waiting-person", "third-party": "waiting-person",
+                    "operator": "waiting-person"}
+        self.assertEqual(set(expected), tg.NEEDS)
+        for need, state in expected.items():
+            with self.subTest(need):
+                self.assertEqual(self.state(need)[0], state)
+
+    def test_a_person_need_beats_a_ready_host(self):
+        self.assertEqual(self.state("windows-host, attended")[0], "waiting-person")
+
+    def test_a_display_session_row_follows_the_session(self):
+        self.assertEqual(self.state("display-session", {**self.CAPS, "display-session": True})[0], "ready")
+        state, reason = self.state("display-session")
+        self.assertEqual(state, "waiting-host")
+        self.assertIn("display-session", reason)
+
+    def test_an_open_prerequisite_waits_and_is_named(self):
+        state, reason = self.state(dep="§1", n=2)
+        self.assertEqual(state, "waiting-dependency")
+        self.assertIn("D00 T01 §1", reason)
+
+    def test_a_parked_section_is_parked(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]).replace("## 1. A\n\n", "## 1. A\n\n> **Parked:** 2026-11-07: x\n\n"))
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.section_disposition(rows["D00 T01 §1"], rows, self.CAPS, self.root)[0], "parked")
+
+    def test_completion_gaps_need_repair(self):
+        self.findings("## Completion review\nCOMPLETION: gaps\n")
+        state, reason = self.state()
+        self.assertEqual(state, "needs-repair")
+        self.assertIn("gaps", reason)
+
+    def test_a_complete_completion_stays_ready(self):
+        self.findings("## Completion review\nCOMPLETION: complete\n")
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_section_one_is_not_confused_with_section_ten(self):
+        self.findings("COMPLETION: gaps\n", "D00-T01-s10.md")
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_only_the_latest_cycle_counts(self):
+        self.findings("COMPLETION: gaps\n")
+        self.findings("## Plan review\nPLAN: complete\n", "D00-T01-s1-cycle2.md")
+        self.assertEqual(self.state()[0], "ready")
+        self.findings("COMPLETION: gaps\n", "D00-T01-s1-cycle10.md")
+        self.assertEqual(self.state()[0], "needs-repair")
+
+    def test_rounds_at_the_cap_with_findings_open_need_repair(self):
+        self.findings(self.rounds(9))
+        state, reason = self.state()
+        self.assertEqual(state, "needs-repair")
+        self.assertIn("9 review rounds", reason)
+
+    def test_rounds_under_the_cap_stay_ready(self):
+        self.findings(self.rounds(8))
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_a_clean_last_round_at_the_cap_is_waiting_for_completion_not_stuck(self):
+        self.findings(self.rounds(8) + ROUND.format(n=9, highest="HIGHEST: P3\n", overall="approve"))
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_rounds_with_no_reply_do_not_count(self):
+        self.findings("".join(f"## Round {n}: none\n\nThe reviewer did not reply.\n\n" for n in range(1, 12)))
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_the_cap_comes_from_the_pin(self):
+        (self.root / ".conclave").mkdir(exist_ok=True)
+        (self.root / ".conclave" / "reviewers.toml").write_text('[schedule]\ncompletion_order = "last"\nmax_low_rounds = 2\n', encoding="utf-8")
+        self.findings(self.rounds(3))
+        self.assertEqual(self.state()[0], "needs-repair")
+        self.findings(self.rounds(2))
+        self.assertEqual(self.state()[0], "ready")
+
+    def test_a_stamped_row_is_verified_and_old_answers_are_unchanged(self):
+        self.write(todo_file([(1, "A", 0, "attended", "--")]))
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.disposition(rows["D00 T01 §1"], rows), 0)  # resolve and query ready keep their contract
+        self.assertEqual(tg.section_disposition(rows["D00 T01 §1"], rows, self.CAPS, self.root)[0], "waiting-person")
+
+
+class QueryDisposition(unittest.TestCase):
+    def test_lists_open_rows_with_state_and_reason(self):
+        done = subprocess.run([sys.executable, str(REPO / "scripts" / "todo-graph.py"), "query", "disposition"], cwd=REPO,
+                              capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        rows = json.loads(done.stdout)
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertTrue({"ref", "title", "phase", "needs", "state", "reason"} <= set(row))
+            self.assertNotEqual(row["state"], "verified")
+        self.assertIn(rows[0]["state"], {"ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "parked"})
+
+
 class Stamp(Tree):
     def setUp(self):
         super().setUp()

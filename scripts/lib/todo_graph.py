@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = "todo/implementation-plan.md"
@@ -27,6 +28,9 @@ ROW = re.compile(r"^\|\s*([1-9]\d*)\s*\|\s*§([1-9]\d*)\s*\|\s*([^|]+)\|\s*([^|]
 NEEDS = {"windows-host", "arm64-host", "display-session", "office", "libreoffice", "store-account",
          "attended", "owner-decision", "third-party", "operator"}
 WAITING = {"owner-decision", "third-party", "operator"}
+# A person has to be there, so a run leaves these however ready they are.
+PERSON_PRESENT = {"attended", "store-account"}
+HOST = {"windows-host", "arm64-host", "office", "libreoffice", "display-session"}
 STATUSES = {"draft", "active", "blocked", "done", "superseded"}
 # stopped-at-33 is the current review-round cap; stopped-at-22, -13, -8 and -3 stay valid on receipts written under
 # earlier caps.
@@ -951,6 +955,76 @@ def disposition(row, rows):
             or any(not settled(d, rows) for d in row.depends):
         return 4
     return 0
+
+
+def round_cap(root):
+    """Regular rounds a cycle may spend, from the pin, as the dispatcher counts them."""
+    try:
+        schedule = tomllib.loads((Path(root) / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"))["schedule"]
+        return 1 + schedule.get("max_low_rounds", 8) if schedule.get("completion_order") == "last" else 33
+    except (OSError, KeyError, ValueError, TypeError):
+        return 9
+
+
+def latest_findings(root, ref):
+    """The findings file of the section's latest review cycle, or None."""
+    m = re.fullmatch(r"D(\d+) T(\d+) §(\d+)", ref)
+    if m is None:
+        return None
+    stem = f"D{m[1]}-T{m[2]}-s{m[3]}"
+    numbered = []
+    for path in (Path(root) / "docs" / "reviews").glob(f"*/{stem}*.md"):
+        cycle = re.fullmatch(re.escape(stem) + r"(?:-cycle(\d+))?", path.stem)
+        if cycle:
+            numbered.append((int(cycle[1] or 1), path))
+    return max(numbered, key=lambda item: item[0])[1] if numbered else None
+
+
+def review_dead_end(root, ref):
+    """Why the section's latest cycle can't go on to a stamp, or None. Only that cycle counts: a newer one is the repair
+    of an older one. Rounds that ran out differ from a clean last round, which is just waiting for its completion."""
+    path = latest_findings(root, ref)
+    if path is None:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    verdicts = re.findall(r"^COMPLETION:\s*(\w+)", text, re.M)
+    if verdicts:
+        return None if verdicts[-1] in ("complete", "completed") else "its completion review returned gaps"
+    rounds = [part for part in re.split(r"^(?=## )", text, flags=re.M) if part.startswith("## Round")]
+    returned = [part for part in rounds if re.search(r"^OVERALL: (?:approve|needs-attention)\s*\Z", part.rstrip() , re.M)]
+    if len(returned) < round_cap(root):
+        return None
+    declared = re.findall(r"^\s*HIGHEST:\s*(P[123]|none)\s*$", returned[-1], re.M | re.I)
+    if len(declared) == 1 and declared[0].lower() in ("p3", "none"):
+        return None
+    return f"its {len(returned)} review rounds ran out with findings open"
+
+
+def section_disposition(row, rows, caps, root=ROOT):
+    """One state and a reason for an open row, the one answer the guard and the skills use. `disposition` stays for
+    `resolve`, `classify` and the plan, whose exit codes are documented."""
+    if row.done:
+        return "verified", "stamped"
+    if re.search(r"^> \*\*Parked:\*\*", row.body, re.M):
+        return "parked", "parked after its repair cycles; the operator reopens it"
+    dead_end = review_dead_end(root, row.ref)
+    if dead_end:
+        return "needs-repair", dead_end
+    person = sorted(set(row.needs) & (WAITING | PERSON_PRESENT))
+    if person:
+        return "waiting-person", f"needs {', '.join(person)}"
+    if row.status != "active":
+        return "waiting-dependency", f"its file is {row.status}"
+    unmet = [d for d in row.depends if not settled(d, rows)]
+    if unmet:
+        return "waiting-dependency", f"waiting on {', '.join(unmet)}"
+    host = sorted(need for need in set(row.needs) & HOST if not caps.get(need))
+    if host:
+        return "waiting-host", f"this session lacks {', '.join(host)}"
+    return "ready", "can run now"
 
 
 def ordered(sections):

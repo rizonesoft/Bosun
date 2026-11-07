@@ -45,6 +45,7 @@ python scripts/todo-graph.py validate
 python scripts/todo-graph.py plan --check
 python scripts/todo-graph.py query ready
 python scripts/todo-graph.py query blocked
+python scripts/todo-graph.py query disposition
 python scripts/todo-graph.py query stats
 python -m unittest discover -s scripts/tests
 ```
@@ -57,7 +58,7 @@ Fix every validator refusal before talking about shipping. If `plan --check` is 
 4. Blocked rows: count and what blocks them (unmet dependencies, waiting Needs, unreachable hosts).
 5. The phase being started, and why it is first.
 
-Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; rows needing a host this session cannot reach (`arm64-host`, `display-session`, `office`, `attended`) are leftovers here even when listed, and `process-phase` re-checks each row with `resolve` rather than trusting a previous list.
+Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; `query disposition` gives each open row one state and reason for this session, so a row it doesn't call `ready` is a leftover here even when `query ready` lists it, and `process-phase` re-reads it rather than trusting a previous list.
 
 If no phase has a ready row, report the leftovers with their blockers and stop. That is a genuine halt.
 
