@@ -29,9 +29,10 @@ is bad usage. No run and an unknown state are never success.
 left, `exhausted` after three repairs have failed, and `unverified` after two hours of waiting on one commit or when its
 state can't be saved. The last two carry on with local gates, because the run must not block itself, and the guard
 refuses `complete` while the head has no green. State lives in `build/ci-gate.json`: the repair attempts, keyed by the
-first red commit, when waiting began, and the last proven commit, which is the base when `--base` is omitted, so a restart
-after a push still has it. A green clears the attempts, and if that file is locked it leaves `build/ci-gate.cleared`,
-which the next read honours. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
+first red commit, when waiting began, and the last proven commit. That commit is the base when `--base` is omitted, so a
+skip means the workflow's inputs haven't changed since something passed, and a restart loses nothing. A failed commit
+before it can't slip through, because its code still shows in the diff. A green clears the attempts, and if that file is
+locked it leaves `build/ci-gate.cleared`, which the next read honours once. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
 `git` runners, the clocks and the sleep are injectable for tests.
 """
 import argparse
@@ -282,11 +283,17 @@ def read_gate(path):
         state = {}
     marker = path.with_name(CLEARED.name)
     try:
-        content = marker.read_text(encoding="utf-8").strip()
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        content = f"{record['proven']} {record['at']}"
+    except FileNotFoundError:
+        return state
     except OSError:
         return state
-    if content and state.get("consumed") != content:  # honoured once, even if the marker can't be deleted
-        state = {"proven": content.split()[0], "consumed": content}
+    except (ValueError, KeyError, TypeError) as exc:
+        print(f"warning: ignoring an incomplete {marker} ({exc!r})", file=sys.stderr)
+        return state
+    if state.get("consumed") != content:  # honoured once, even if the marker can't be deleted
+        state = {"proven": record["proven"], "consumed": content}
         if not write_gate(path, state):
             return state
     try:
@@ -313,6 +320,14 @@ def write_gate(path, state):
         return False
 
 
+def wait_since(path, sha):
+    """When waiting on this commit began, or None."""
+    waiting = read_gate(path).get("waiting")
+    if isinstance(waiting, dict) and waiting.get("sha") == sha and isinstance(waiting.get("since"), (int, float)):
+        return waiting["since"]
+    return None
+
+
 def begin_wait(path, sha, now):
     """Record when waiting on this commit began, before any polling, so a killed process loses none of it. Returns that
     time, or now when it can't be saved."""
@@ -330,14 +345,10 @@ def gate_action(code, sha, path, now):
     state = read_gate(path)
     if code == 0:
         cleared = {"proven": sha, **({"consumed": state["consumed"]} if "consumed" in state else {})}
-        if write_gate(path, cleared):
+        if write_gate(path, cleared) or write_gate(path.with_name(CLEARED.name), {"proven": sha, "at": now}):
             return "proceed", None
-        try:
-            path.with_name(CLEARED.name).write_text(f"{sha} {now}", encoding="utf-8")
-            return "proceed", None
-        except OSError as exc:
-            print(f"warning: could not clear the repair count ({exc}); this commit passed, but carry on as unverified", file=sys.stderr)
-            return "unverified", None
+        print("warning: could not clear the repair count; this commit passed, but carry on as unverified", file=sys.stderr)
+        return "unverified", None
     if code != EXIT_RED:
         waiting = state.get("waiting")
         if not isinstance(waiting, dict) or waiting.get("sha") != sha or not isinstance(waiting.get("since"), (int, float)):
@@ -388,7 +399,7 @@ def resolve_commit(git, ref):
 
 def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sleep=time.sleep, wall=time.time):
     root = Path(root)
-    git = git or (lambda args: run_tool("git", args, cwd=root))
+    git_default = git is None
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", action="store_true", help="print the report as one JSON object")
     parser.add_argument("--branch", default="main", help="the branch whose runs are read (default main)")
@@ -413,27 +424,48 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         parser.error("--wait-minutes needs --gate")
     if args.wait_minutes < 0:
         parser.error("--wait-minutes can't be negative")
-    sha = base = None
-    if args.sha:
-        sha = resolve_commit(git, args.sha)
-        if not sha:
-            parser.error(f"--sha is not a commit here: {args.sha}")
-    if args.base:
-        # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
-        base = resolve_commit(git, args.base)
-    elif args.gate:
-        proven = read_gate(root / REPAIRS).get("proven")
-        base = resolve_commit(git, proven) if isinstance(proven, str) else None
-
     started = clock()
     deadline = started + args.wait_minutes * 60
 
     def remaining():
         return max(deadline - clock(), 0)
 
-    # A tool call may not outlast the wait. Without a wait it keeps the tool's own limit.
-    ask = (lambda call: run_gh(call, timeout=max(remaining(), 1))) if args.wait_minutes and runner is run_gh else runner
-    result, code = report(ask, workflows, args.branch, sha, base, git)
+    def bounded(tool, default=120):
+        """A tool call may not outlast the wait, and none starts once it has passed. Without a wait, tools keep their limit."""
+        def call(arguments):
+            if not args.wait_minutes:
+                return tool(arguments, default)
+            left = remaining()
+            if left <= 0:
+                raise Unavailable("the wait ran out")
+            return tool(arguments, min(left, default))
+        return call
+
+    ask = bounded(run_gh) if runner is run_gh else runner
+    # The git runner stays read-only here, and test runners take only arguments.
+    git_call = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout)) if git_default else git
+    sha = base = None
+    if args.sha:
+        sha = resolve_commit(git_call, args.sha)
+        if not sha:
+            parser.error(f"--sha is not a commit here: {args.sha}")
+    if args.gate:
+        since = wait_since(root / REPAIRS, sha)
+        if since is not None:
+            left = WAIT_LIMIT_SECONDS - (wall() - since)
+            deadline = min(deadline, clock() + max(left, 0))
+            if left <= 0:  # the limit has passed, so this launches nothing more
+                action, _ = gate_action(EXIT_UNAVAILABLE, sha, root / REPAIRS, wall())
+                result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action}
+                print(json.dumps(result, indent=2) if args.json else f"action: {action}")
+                return EXIT_UNAVAILABLE
+    if args.base:
+        # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
+        base = resolve_commit(git_call, args.base)
+    elif args.gate:
+        proven = read_gate(root / REPAIRS).get("proven")
+        base = resolve_commit(git_call, proven) if isinstance(proven, str) else None
+    result, code = report(ask, workflows, args.branch, sha, base, git_call)
     if args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE):
         # The two hour limit counts from here, and one invocation can't run past it.
         since = begin_wait(root / REPAIRS, sha, wall())
@@ -442,7 +474,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
         sleep(min(POLL_SECONDS, remaining()))
-        result, code = report(ask, workflows, args.branch, sha, base, git)
+        result, code = report(ask, workflows, args.branch, sha, base, git_call)
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
