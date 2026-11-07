@@ -47,7 +47,7 @@ title: "TODO-03 -- Campaign readiness"
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [ ] |
-| 12 | §12 | Review caps of 33 | §3 | [ ] |
+| 12 | §12 | Review caps of 33 | §3 | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -399,11 +399,14 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 - [x] Update `AGENTS.md`, `docs/specs/2026-11-07-control-panel-design.md` and `todo/README.md` to the new caps. Done when: a test reads 33 from the design doc's review cap row and from the pin, so they can't drift.
 - [x] Prove on the live pin in `scripts/tests/test_todo_graph.py` that round 32 goes on and an unresolved round 33 reads `needs-repair`. Done when: the test passes, and fails if the pin's cap changes.
 - [x] Replace "operator recovery required" in `scripts/review-dispatch.py` with the repair and park route. Done when: `scripts/tests/test_review_policy.py` reads the route in the message and no mention of an operator.
-- [ ] Commit: `review: caps of 33`
+- [x] Commit: `review: caps of 33`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py` exits 0, and fails if a 34th repair is allowed, round 34 runs, or the pin falls back to 3 or 8.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found round 33 unproven and a stale message (after: its completion review returned gaps)
+
+> **Verified:** 2026-11-07 | §12 | b4b2087235e4375df2a86cfd966d6c58de4fb4d1
+> **Review:** `docs/reviews/d00-t03-s12.json`
 
 ## Verification
 
