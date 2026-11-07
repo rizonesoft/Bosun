@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
-"""Report the CI state of main: the latest completed run of each watched workflow, and runs still in progress.
+"""Report the CI state of main or of one pushed commit, and what a run should do next.
 
-    python scripts/ci_status.py                  # build.yml and plan.yml on main
-    python scripts/ci_status.py --json           # the same report as one JSON object
+    python scripts/ci_status.py                              # build.yml and plan.yml on main
+    python scripts/ci_status.py --json                       # the same report as one JSON object
     python scripts/ci_status.py --workflow build.yml --branch main
+    python scripts/ci_status.py --sha HEAD --base <commit>   # did this commit pass, or was it rightly not built?
+    python scripts/ci_status.py --gate --sha HEAD --base <commit> --wait-minutes 30   # also print one action
 
-For each workflow (by default `build.yml` and `plan.yml`, the ones in `.github/workflows/` whose results gate main) it
-reads the last 10 runs with `gh run list` and reports the latest completed run (green, red or cancelled), its verdict,
-and how many newer runs are still queued or in progress. A cancelled run carries no verdict (a newer push usually
-superseded it), so the verdict is the latest completed run that was not cancelled; with none in the last 10 runs the
-verdict is `none`. For a red verdict it names the failed jobs from `gh run view <id> --json jobs`.
+Each workflow (by default `build.yml` and `plan.yml`, the ones in `.github/workflows/` whose results gate main) gets one
+verdict from the newest run that judged the commit or branch; a cancelled run judges nothing:
 
-Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
-failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
-unknown; that is never treated as green. The red-first policy that consumes this is in the `process-phase` skill.
-Stdlib only; the `gh` runner is injectable for tests.
+    green       the newest run succeeded
+    red         the newest run failed (its failed jobs are named)
+    pending     a newer run is queued or in progress, so nothing older can answer
+    none        no run says anything, and a skip can't be proven
+    skipped     --base was given, and the workflow's own path filters prove this push never triggers it
+
+`--sha` reads that commit's runs with `gh run list --commit`, so an older green can't satisfy it. `--base` is the remote
+head before the push: GitHub filters paths against the whole push, so a code commit followed by a Markdown stamp is not
+skipped. A skip needs proof, so a missing base, an unreadable workflow, a failed diff or a diff over GitHub's 300 file
+limit reads `none`.
+
+The overall exit takes the first that applies across the workflows: 1 any red; 3 any unavailable (`gh` missing, not
+authenticated or failed, which is never green); 4 any pending; 5 any none; 0 only when each is green or skipped. Exit 2
+is bad usage. No run and an unknown state are never success.
+
+`--gate` needs `--sha` and adds one action: `proceed` on exit 0, `wait` on exit 3, 4 or 5, `repair` on red with attempts
+left, and `exhausted` after three repairs have failed. The attempts live in `build/ci-repairs.json`, keyed by the first
+red commit, and a green clears them. The policy that consumes this is in the `process-phase` skill. Stdlib only; the
+`gh` and `git` runners, the clock and the sleep are injectable for tests.
 """
 import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ("build.yml", "plan.yml")
@@ -33,24 +49,33 @@ GREEN = {"success", "neutral", "skipped"}
 NO_VERDICT = {"cancelled", "stale"}
 MAX_JOBS = 20
 MAX_MESSAGE = 300
+MAX_DIFF_FILES = 300  # GitHub always runs a workflow when a push changes more files than its filters will read
+MAX_REPAIRS = 3
+POLL_SECONDS = 60
+REPAIRS = Path("build") / "ci-repairs.json"
+EXIT_RED, EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE = 1, 3, 4, 5
 
 
 class Unavailable(Exception):
     """gh is missing, unauthenticated or failed: the CI state is unknown (exit 3)."""
 
 
-def run_gh(args):
-    """Run gh with args; returns (exit code, stdout, stderr). Raises Unavailable when gh is not installed."""
-    # An explicit path: on Windows a bare which() also searches the working directory, where a planted gh could sit.
-    executable = shutil.which("gh", path=os.environ.get("PATH", ""))
+def run_tool(name, args, cwd=ROOT):
+    """Run a tool; returns (exit code, stdout, stderr). Raises Unavailable when it can't start."""
+    # An explicit path: on Windows a bare which() also searches the working directory, where a planted tool could sit.
+    executable = shutil.which(name, path=os.environ.get("PATH", ""))
     if executable is None:
-        raise Unavailable("gh is not installed or not on PATH")
+        raise Unavailable(f"{name} is not installed or not on PATH")
     try:
-        done = subprocess.run([executable, *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+        done = subprocess.run([executable, *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise Unavailable(f"gh could not run: {exc}") from None
+        raise Unavailable(f"{name} could not run: {exc}") from None
     return done.returncode, done.stdout, done.stderr
+
+
+def run_gh(args):
+    return run_tool("gh", args)
 
 
 def gh_json(runner, args):
@@ -83,9 +108,101 @@ def brief(run):
                                                               "createdAt", "event")}
 
 
-def workflow_status(runner, workflow, branch):
-    runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--limit", str(LIMIT),
-                            "--json", FIELDS])
+def path_rule(pattern):
+    """A GitHub path filter as a regex: ** crosses folders, * does not. None for a form this can't judge."""
+    if not pattern or pattern.startswith("!") or any(c in pattern for c in "[]{}+"):
+        return None
+    out = ""
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out += "(?:.*/)?"
+            i += 3
+        elif pattern.startswith("**", i):
+            out += ".*"
+            i += 2
+        elif pattern[i] == "*":
+            out += "[^/]*"
+            i += 1
+        elif pattern[i] == "?":
+            out += "[^/]"
+            i += 1
+        else:
+            out += re.escape(pattern[i])
+            i += 1
+    return re.compile(out + r"\Z")
+
+
+def push_filters(workflow_text):
+    """The (paths, paths-ignore) lists under on.push, or None when they can't be read with confidence."""
+    lines = [line.rstrip() for line in workflow_text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    index = next((i for i, line in enumerate(lines) if re.fullmatch(r"['\"]?on['\"]?:", line)), None)
+    if index is None:
+        return None
+    filters = {"paths": None, "paths-ignore": None}
+    in_push, push_indent, key, key_indent = False, 0, None, 0
+    for line in lines[index + 1:]:
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            break
+        text = line.strip()
+        if not in_push:
+            if text == "push:":
+                in_push, push_indent = True, indent
+            continue
+        if indent <= push_indent:
+            break
+        if key and indent > key_indent and text.startswith("- "):
+            filters[key].append(text[2:].strip().strip("'\""))
+            continue
+        name = text.rstrip(":")
+        if text.endswith(":") and name in filters:
+            key, key_indent = name, indent
+            filters[key] = []
+        elif text.endswith(":") or ":" in text:
+            key = None
+        else:
+            return None
+    if not in_push:
+        return None
+    return filters["paths"], filters["paths-ignore"]
+
+
+def skip_reason(git, workflow, sha, base):
+    """Why this push never triggers the workflow, or None unless that is proven."""
+    if not base:
+        return None
+    try:
+        code, text, _ = git(["show", f"{sha}:.github/workflows/{workflow}"])
+        if code != 0:
+            return None
+        filters = push_filters(text)
+        if filters is None or (filters[0] is None and filters[1] is None) or None not in filters:
+            return None
+        code, _, _ = git(["merge-base", "--is-ancestor", base, sha])
+        if code != 0:
+            return None
+        code, out, _ = git(["diff", "--name-only", "--no-renames", base, sha])
+    except Unavailable:
+        return None
+    changed = [line for line in out.splitlines() if line.strip()]
+    if code != 0 or not changed or len(changed) > MAX_DIFF_FILES:
+        return None
+    paths, ignore = filters
+    rules = [path_rule(p) for p in (paths if paths is not None else ignore)]
+    if not rules or None in rules:
+        return None
+    matched = [any(rule.match(name) for rule in rules) for name in changed]
+    if paths is not None and not any(matched):
+        return f"none of the {len(changed)} changed files match its paths filter"
+    if ignore is not None and all(matched):
+        return f"all {len(changed)} changed files match its paths-ignore filter"
+    return None
+
+
+def workflow_status(runner, workflow, branch, sha=None, base=None, git=None):
+    scope = ["--commit", sha] if sha else ["--branch", branch]
+    runs = gh_json(runner, ["run", "list", *scope, "--workflow", workflow, "--limit", str(LIMIT), "--json", FIELDS])
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
         raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
     runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""), reverse=True)
@@ -93,10 +210,15 @@ def workflow_status(runner, workflow, branch):
     latest = completed[0] if completed else None
     decisive = next((r for r in completed if verdict_of(r) != "cancelled"), None)
     newer = [r for r in runs if r.get("status") != "completed"
-             and (latest is None or str(r.get("createdAt") or "") > str(latest.get("createdAt") or ""))]
-    entry = {"workflow": workflow, "verdict": verdict_of(decisive), "latest_completed": brief(latest),
+             and (decisive is None or str(r.get("createdAt") or "") > str(decisive.get("createdAt") or ""))]
+    verdict = "pending" if newer else verdict_of(decisive)
+    entry = {"workflow": workflow, "verdict": verdict, "latest_completed": brief(latest),
              "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer)}
-    if entry["verdict"] == "red":
+    if verdict == "none" and sha and git:
+        reason = skip_reason(git, workflow, sha, base)
+        if reason:
+            entry.update(verdict="skipped", reason=reason)
+    if verdict == "red":
         entry["failed_jobs"] = failed_jobs(runner, decisive.get("databaseId"))
     return entry
 
@@ -114,14 +236,74 @@ def failed_jobs(runner, run_id):
     return [{"name": j.get("name"), "conclusion": j.get("conclusion"), "url": j.get("url")} for j in failed[:MAX_JOBS]]
 
 
-def report(runner, workflows, branch):
-    """The report dict and its exit code; Unavailable propagates (exit 3)."""
-    entries = [workflow_status(runner, w, branch) for w in workflows]
-    code = 1 if any(e["verdict"] == "red" for e in entries) else 0
-    return {"branch": branch, "workflows": entries, "exit": code}, code
+def overall_exit(verdicts):
+    """Red first, then unavailable, pending and none; 0 only when every workflow is green or skipped."""
+    for verdict, code in (("red", EXIT_RED), ("unavailable", EXIT_UNAVAILABLE), ("pending", EXIT_PENDING),
+                          ("none", EXIT_NONE)):
+        if verdict in verdicts:
+            return code
+    return 0 if verdicts else EXIT_NONE
+
+
+def report(runner, workflows, branch, sha=None, base=None, git=None):
+    """The report dict and its exit code. One workflow being unreadable doesn't hide another's red."""
+    entries = []
+    for workflow in workflows:
+        try:
+            entries.append(workflow_status(runner, workflow, branch, sha, base, git))
+        except Unavailable as exc:
+            entries.append({"workflow": workflow, "verdict": "unavailable", "error": str(exc)})
+    code = overall_exit([e["verdict"] for e in entries])
+    result = {"branch": branch, "sha": sha, "base": base, "workflows": entries, "exit": code}
+    errors = [e["error"] for e in entries if e.get("error")]
+    if errors:
+        result["error"] = errors[0]
+    return result, code
+
+
+def read_repairs(path):
+    """The repair record; a corrupt file reads as none used, with one line saying so."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data.get("first_red"), str) and isinstance(data.get("seen"), list):
+            return data
+        raise ValueError("wrong shape")
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, AttributeError) as exc:
+        print(f"warning: {path} is unreadable ({exc}); counting no repairs used", file=sys.stderr)
+        return {}
+
+
+def write_repairs(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def gate_action(code, sha, path):
+    """One action for a pushed commit. A repeat check of the same red commit uses no repair attempt."""
+    if code == 0:
+        path.unlink(missing_ok=True)
+        return "proceed", None
+    if code != EXIT_RED:
+        return "wait", None
+    state = read_repairs(path) or {"first_red": sha, "seen": []}
+    if sha not in state["seen"]:
+        state["seen"].append(sha)
+        write_repairs(path, state)
+    repairs_tried = len(state["seen"]) - 1
+    if repairs_tried >= MAX_REPAIRS:
+        return "exhausted", repairs_tried
+    return "repair", repairs_tried + 1
 
 
 def describe(entry):
+    if entry["verdict"] == "unavailable":
+        return [f"{entry['workflow']}: unavailable: {entry['error']}"]
+    if entry["verdict"] == "skipped":
+        return [f"{entry['workflow']}: skipped: {entry['reason']}"]
     run = entry["verdict_run"]
     where = f" at {run['headSha'][:12]} ({run['url']})" if run and run.get("headSha") and run.get("url") else ""
     lines = [f"{entry['workflow']}: {entry['verdict']}{where}"]
@@ -134,32 +316,69 @@ def describe(entry):
     return lines
 
 
-def main(argv=None, runner=run_gh, root=ROOT):
+def resolve_commit(git, ref):
+    """The full SHA of a commit, or None."""
+    try:
+        code, out, _ = git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+    except Unavailable:
+        return None
+    return out.strip() if code == 0 and out.strip() else None
+
+
+def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sleep=time.sleep):
+    root = Path(root)
+    git = git or (lambda args: run_tool("git", args, cwd=root))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--json", action="store_true", help="print the report as one JSON object")
     parser.add_argument("--branch", default="main", help="the branch whose runs are read (default main)")
     parser.add_argument("--workflow", action="append", dest="workflows",
                         help="a workflow file in .github/workflows/ (repeatable; default build.yml and plan.yml)")
+    parser.add_argument("--sha", help="judge this commit's own runs rather than the branch")
+    parser.add_argument("--base", help="the remote head before the push, needed to prove a workflow was skipped")
+    parser.add_argument("--gate", action="store_true", help="also print one action: proceed, wait, repair or exhausted")
+    parser.add_argument("--wait-minutes", type=float, default=0, help="with --gate, poll this long while the action is wait")
     args = parser.parse_args(argv)
-    directory = Path(root) / ".github" / "workflows"
+    directory = root / ".github" / "workflows"
     workflows = args.workflows or [w for w in WORKFLOWS if (directory / w).is_file()]
     missing = [w for w in workflows if "/" in w or "\\" in w or not (directory / w).is_file()]
     if missing or not workflows or not args.branch.strip():
         parser.error(f"no such workflow in .github/workflows/: {', '.join(missing)}" if missing
                      else "no workflow to watch, or an empty --branch")
-    try:
-        result, code = report(runner, workflows, args.branch)
-    except Unavailable as exc:
-        if args.json:
-            print(json.dumps({"branch": args.branch, "error": str(exc), "exit": 3}))
-        else:
-            print(f"ci-status unknown: {exc}")
-        return 3
+    if args.gate and not args.sha:
+        parser.error("--gate needs --sha")
+    if args.base and not args.sha:
+        parser.error("--base needs --sha")
+    if args.wait_minutes and not args.gate:
+        parser.error("--wait-minutes needs --gate")
+    if args.wait_minutes < 0:
+        parser.error("--wait-minutes can't be negative")
+    sha = base = None
+    if args.sha:
+        sha = resolve_commit(git, args.sha)
+        if not sha:
+            parser.error(f"--sha is not a commit here: {args.sha}")
+    if args.base:
+        # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
+        base = resolve_commit(git, args.base)
+
+    deadline = clock() + args.wait_minutes * 60
+    result, code = report(runner, workflows, args.branch, sha, base, git)
+    while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and clock() < deadline:
+        sleep(POLL_SECONDS)
+        result, code = report(runner, workflows, args.branch, sha, base, git)
+    if args.gate:
+        action, attempt = gate_action(code, sha, root / REPAIRS)
+        result["action"] = action
+        if attempt is not None:
+            result["repair_attempt" if action == "repair" else "repairs_tried"] = attempt
     if args.json:
         print(json.dumps(result, indent=2))
     else:
         for entry in result["workflows"]:
             print("\n".join(describe(entry)))
+        if args.gate:
+            detail = f" (attempt {attempt} of {MAX_REPAIRS})" if result["action"] == "repair" else ""
+            print(f"action: {result['action']}{detail}")
     return code
 
 

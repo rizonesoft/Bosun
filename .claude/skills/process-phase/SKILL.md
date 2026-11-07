@@ -51,6 +51,15 @@ Read the phase as a user would use it, end to end, against its governing documen
 
 In the generated plan's table order, for each open row: `process-todo-section` (whose one-pass plan review comes before the build), then `review-todo-section`, whose one-pass completion and excellence review comes last, after clean regular rounds and whose verdict every new stamp carries (`stamp --completion '<findings file>:complete'`, beside the plan review's `--plan` findings file). Every gap it files becomes a new section through `add-todo` in this phase or the one that owns it. Record each outcome in the run file, with the completion verdict and any sections filed. Commit the section work, then its stamp commit. Skip rows whose `resolve` is not exit 0 here, and re-check them after each stamp: the graph moves as rows flip. When every remaining open row is a leftover, the phase parks: write a column-0 `PARKED <UTC stamp> <one-line reason>` line in the run file followed by the park record (each leftover, what blocks it, where the blocker lives), commit the run file, and return to `process-plan` (or end, if pinned).
 
+### Red-first CI
+
+After each stamped section, push, then run `python scripts/ci_status.py --gate --sha HEAD --base <the remote head before this push> --wait-minutes 30`, and act on the one action it prints:
+
+- `proceed`: start the next row.
+- `wait`: CI hasn't answered, or `gh` is unavailable. Run the same command again, and don't start the next row. This costs time, not repair attempts, and the guard's own limits still apply.
+- `repair`: fix the red run on `main` before the next row, commit, push and run the gate again. A repeat check of the same commit uses no attempt, and the count survives a restart.
+- `exhausted`: three repairs have failed. File the fault through `add-todo` with the failing workflow and its URL, then carry on with the next row on local gates, because the run must not block itself. The guard refuses `complete` while `main` is red, so the fault stays visible at the end.
+
 ## Step 4: closeout
 
 When the phase table is all `[x]`: `process-todo-file` on any file the phase exhausted, re-run the full test suite once, confirm `query stats` and the regenerated plan show the phase complete, write the closeout under a `## Closeout` heading in the run file (what shipped, what was repaired, what was learned), commit, and report. A phase is complete when its table says so and the closeout is written: not before.
