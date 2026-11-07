@@ -177,9 +177,9 @@ def check_schedule(schedule, clis):
     keys = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
     if not isinstance(schedule, dict) or not keys <= set(schedule) <= keys | {"completion_order", "max_repair_cycles", "max_low_rounds"}:
         raise Refused(f"[schedule] needs exactly {', '.join(sorted(keys))}")
-    repairs = schedule.get("max_repair_cycles", 3)
-    if type(repairs) is not int or not 0 <= repairs <= 3:
-        raise Refused("max_repair_cycles must be an integer from 0 to 3")
+    repairs = schedule.get("max_repair_cycles", 33)
+    if type(repairs) is not int or not 0 <= repairs <= 33:
+        raise Refused("max_repair_cycles must be an integer from 0 to 33")
     if "completion_order" in schedule or "max_low_rounds" in schedule:
         if schedule.get("completion_order") != "last":
             raise Refused("completion_order must be last")

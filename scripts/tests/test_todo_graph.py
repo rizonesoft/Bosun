@@ -46,6 +46,7 @@ claude = ["astra"]
 
 [schedule]
 severity_stop_after = 3
+max_repair_cycles = 3
 plan = { effort = "medium", lenses = ["plan"] }
 completion = { effort = "medium" }
 rounds = [{ effort = "low", lenses = ["adversarial"] }]
@@ -555,7 +556,7 @@ class Dispositions(Tree):
     def test_a_bad_repair_cap_refuses_repair_but_still_answers(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
-        for value in ("4", "true", '"3"', "-1"):
+        for value in ("34", "true", '"3"', "-1"):
             with self.subTest(value):
                 self.pin(value)
                 with self.assertRaises(tg.Refused) as caught:
@@ -734,8 +735,45 @@ class Dispositions(Tree):
         with self.assertRaises(tg.Refused):  # and the cycle wasn't spent twice
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
 
+    def test_the_default_allows_a_thirty_third_repair_and_refuses_the_next(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        for k in range(2, 35):
+            tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
+            self.completion("gaps", f"D00-T01-s1-cycle{k}.md")
+        self.assertEqual(self.text().count("> **Repair cycle:**"), 33)
+        with self.assertRaises(tg.Refused) as caught:
+            tg.repair(self.root, "D00 T01 §1", "a thirty fourth", "2026-11-07")
+        self.assertIn("park it", str(caught.exception))
+
+    def test_a_cycle_under_way_keeps_its_cap_when_the_live_pin_rises(self):
+        live = (REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8")
+        self.assertIn("max_low_rounds = 32", live)  # the rise itself
+        pin = self.root / ".conclave" / "reviewers.toml"
+        pin.parent.mkdir(exist_ok=True)
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True)
+        pin.write_text(live.replace("max_low_rounds = 32", "max_low_rounds = 8"), encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "the old pin"], check=True)
+        old = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        review = "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
+        for _ in range(9):
+            tg.review_dispatch().record(self.record(), {**self.result(review), "policy": old}, "2026-11-07T00:00:00Z")
+        pin.write_text(live, encoding="utf-8")
+        self.assertEqual(self.disposed()[0], "needs-repair")
+
+    def test_the_design_doc_and_the_pin_agree_on_the_caps(self):
+        schedule = tg.tomllib.loads((REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"))["schedule"]
+        self.assertEqual(1 + schedule["max_low_rounds"], 33)
+        design = (REPO / "docs" / "specs" / "2026-11-07-control-panel-design.md").read_text(encoding="utf-8")
+        self.assertIn(f"| Review cap | {1 + schedule['max_low_rounds']} rounds a cycle", design)
+        self.assertIn(f"Up to {schedule['max_repair_cycles']} repair cycles", design)
+
     def use_up_repairs(self, count=3):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.pin("3")  # these tests are about what happens at a cap, so a small one keeps them short
         self.completion("gaps")
         for k in range(2, count + 2):
             tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")

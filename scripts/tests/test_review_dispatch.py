@@ -1148,7 +1148,7 @@ class RepositoryPin(unittest.TestCase):
                                        "gemini": ["astra"], "muse": ["astra"], "meta": ["astra"]})
         schedule = pin["schedule"]
         self.assertEqual(schedule["completion_order"], "last")
-        self.assertEqual(schedule["max_low_rounds"], 8)
+        self.assertEqual(schedule["max_low_rounds"], 32)
         self.assertEqual(schedule["plan"], {"effort": "medium", "lenses": ["plan"]})
         self.assertEqual(schedule["completion"], {"effort": "medium"})
         self.assertEqual(schedule["rounds"], [{"effort": "medium", "lenses": ["adversarial"]}])
@@ -1198,12 +1198,12 @@ class RepairCycles(unittest.TestCase):
 
     def schedule(self, repairs):
         pin = self.module().load_pin(Path(__file__).resolve().parents[2] / ".conclave" / "reviewers.toml")
-        self.assertEqual(pin["schedule"]["max_repair_cycles"], 3)
+        self.assertEqual(pin["schedule"]["max_repair_cycles"], 33)
         return pin["schedule"] | {"max_repair_cycles": repairs}
 
-    def test_the_pin_reads_three_and_refuses_more(self):
+    def test_the_pin_reads_thirty_three_and_refuses_more(self):
         module = self.module()
-        for value, allowed in ((0, True), (3, True), (4, False), (-1, False), ("3", False), (True, False)):
+        for value, allowed in ((0, True), (33, True), (34, False), (-1, False), ("33", False), (True, False)):
             with self.subTest(value):
                 if allowed:
                     module.check_schedule(self.schedule(value), {"codex"})
@@ -1217,7 +1217,7 @@ class RepairCycles(unittest.TestCase):
         import sys
         root = Path(__file__).resolve().parents[2]
         done = subprocess.run([sys.executable, str(root / "scripts" / "review-dispatch.py"), "--check-pin", "--json"], capture_output=True, text=True, cwd=root)
-        self.assertEqual(json.loads(done.stdout)["schedule"]["max_repair_cycles"], 3)
+        self.assertEqual(json.loads(done.stdout)["schedule"]["max_repair_cycles"], 33)
 
     def test_an_old_cycle_file_is_refused_once_a_newer_one_exists(self):
         module = self.module()

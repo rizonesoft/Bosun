@@ -1020,7 +1020,7 @@ def review_dead_end(root, ref, cycle=1):
 def repair_cap(root, body):
     """Repair cycles this section may use: the pin's limit plus each one the operator granted. A tree with no pin uses
     the default. A pin that exists but can't be used refuses, because guessing could spend a cycle the owner capped."""
-    cap = 3
+    cap = 33
     try:
         text = (Path(root) / PIN).read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -1033,8 +1033,8 @@ def repair_cap(root, body):
         except ValueError as exc:
             raise Refused(f"max_repair_cycles can't be read, because {PIN} is malformed: {exc}") from None
         require(isinstance(schedule, dict), f"max_repair_cycles can't be read, because [schedule] in {PIN} isn't a table")
-        cap = schedule.get("max_repair_cycles", 3)
-    require(type(cap) is int and 0 <= cap <= 3, f"max_repair_cycles must be an integer from 0 to 3, not {cap!r}")
+        cap = schedule.get("max_repair_cycles", 33)
+    require(type(cap) is int and 0 <= cap <= 33, f"max_repair_cycles must be an integer from 0 to 33, not {cap!r}")
     return cap + len(REPAIR_GRANTED.findall(body or ""))
 
 

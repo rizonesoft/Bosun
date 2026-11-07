@@ -7,7 +7,7 @@ description: Quality-gate a just-implemented TODO section with self-review, inde
 
 The gate between "code exists" and "the row says `[x]`". Nothing else may flip that row, and the flip happens only through `python scripts/todo-graph.py stamp`, which refuses a section with unticked items, an open prerequisite, a waiting Need, or no review evidence.
 
-One writer and one independent reviewer: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer. New cycles run one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (default 8), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. The dispatcher records its committed policy and actual execution outcomes. Historical receipts and in-flight cycles retain their initiating policy, reviewer and findings. Never resume an operator-paused section without explicit authorization.
+One writer and one independent reviewer: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer. New cycles run one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (the pin's value), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. The dispatcher records its committed policy and actual execution outcomes. Historical receipts and in-flight cycles retain their initiating policy, reviewer and findings. Never resume an operator-paused section without explicit authorization.
 
 ## Use this skill when
 

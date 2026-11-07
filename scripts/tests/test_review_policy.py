@@ -34,6 +34,47 @@ def entry(kind='round', clean=False):
                 policy='a'*40, execution='returned', candidate='b'*40)
 
 
+class LivePinCaps(unittest.TestCase):
+    """The whole limit on the real pin, through the dispatcher's own sequence check: 33 rounds in a cycle."""
+
+    def setUp(self):
+        self.schedule = d.load_pin()['schedule']
+
+    def found(self, rounds, last_clean=False):
+        entries = [entry('round') for _ in range(rounds)]
+        if last_clean:
+            entries[-1] = entry('round', clean=True)
+        return dict(plans=[entry('plan')], rounds=entries, completions=[])
+
+    def check(self, kind, found):
+        d.check_sequence(self.schedule, kind, found, 'codex', 'gpt-6-astra')
+
+    def test_the_pin_gives_thirty_three(self):
+        self.assertEqual(d.schedule_cap(self.schedule), 33)
+        self.assertEqual(self.schedule['max_repair_cycles'], 33)
+
+    def test_rounds_ten_to_thirty_three_run(self):
+        for spent in range(9, 33):  # the round about to run is spent + 1
+            with self.subTest(round=spent + 1):
+                self.check('round', self.found(spent))
+
+    def test_round_thirty_four_is_refused(self):
+        with self.assertRaisesRegex(d.Refused, 'budget exhausted'):
+            self.check('round', self.found(33))
+
+    def test_a_clean_round_stops_early(self):
+        with self.assertRaisesRegex(d.Refused, 'rounds are clean'):
+            self.check('round', self.found(2, last_clean=True))
+        self.check('completion', self.found(2, last_clean=True))
+
+    def test_completion_follows_a_clean_round_thirty_three(self):
+        self.check('completion', self.found(33, last_clean=True))
+
+    def test_an_unresolved_round_thirty_three_has_no_completion(self):
+        with self.assertRaisesRegex(d.Refused, 'exhaustion is not approval'):
+            self.check('completion', self.found(33))
+
+
 class CurrentPolicy(unittest.TestCase):
     def test_malformed_lineage_refuses_without_traceback(self):
         with self.assertRaisesRegex(d.Refused, 'malformed'):
@@ -68,7 +109,7 @@ class CurrentPolicy(unittest.TestCase):
                     dispatch.record_completion(path, e, '2026-11-06T00:00:00Z', 'b'*40, kind)
                 else:
                     dispatch.record(path, e, '2026-11-06T00:00:01Z')
-            data = dict(schedule=pin['schedule'], policy='a'*40, round_cap=9,
+            data = dict(schedule=pin['schedule'], policy='a'*40, round_cap=dispatch.schedule_cap(pin['schedule']),
                         plan=dict(report='review.md'), completion=dict(report='review.md', verdict='complete'),
                         reviews=[dict(report='review.md')])
             with patch.object(dispatch, 'load_pin', return_value=pin), \

@@ -125,7 +125,7 @@ The owner set these on 2026-11-07. `D00 T03` builds them, and every other sectio
 | Finish line | Implementation complete, then a short attended acceptance pass |
 | Permissions | Bypass mode, plus deny rules for destructive and outbound actions |
 | Usage limits | Subscription only, waiting and resuming; never paid API billing |
-| Review dead end | Up to 3 repair cycles, then park and carry on; nothing ships unapproved |
+| Review dead end | Up to 33 repair cycles, then park and carry on; nothing ships unapproved |
 | Desktop | Logged in and unlocked, with sleep and update restarts held |
 | .NET | Start on the RC; move to final when released; Release needs final |
 | Machine changes | Disposable targets in the run; real ones in acceptance |
@@ -161,7 +161,7 @@ Each of these is a default that is cheap to change, recorded so nobody has to re
 | Icon | Prompt `>` plus two queue slots | Edit the SVG masters |
 | Install | Per user, no administrator | Low |
 | Runtime | Self-contained win-x64 | Publish flag |
-| Review cap | Steward's 9 rounds, not Recto's 33 | One line in the pin |
+| Review cap | 33 rounds a cycle, so a section isn't blocked by a low cap | One line in the pin |
 | Python | Required, as the kit already needs it | n/a |
 | Key store | Windows Credential Manager, entered in Settings | Swap `KeyStore` |
 | Finish | Mica shell, Lucide glyphs, premium components | Drop `D02 T03` sections |
