@@ -45,8 +45,9 @@ title: "TODO-03 -- Campaign readiness"
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
-| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, D00 T01 §3 | [ ] |
+| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [ ] |
+| 12 | §12 | Review caps of 33 | §3 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -334,6 +335,7 @@ One command proves the run can finish before anyone walks away. It holds the own
 - [ ] Create `scripts/campaign-admin-setup.ps1`, run once elevated, to pause Windows Update restarts and register a SYSTEM task that installs the final .NET 11 SDK side by side with `dotnet-install.ps1 -Channel 11.0 -Quality GA -InstallDir`, given the folder of the `dotnet.exe` that the watchdog's launch environment resolves, retrying daily. Done when: the task exists, before release its run changes nothing, and it removes itself only after that environment's `dotnet --list-sdks` shows a final 11.0.1xx SDK. Cheaper substitute: the script's default folder, which belongs to the SYSTEM account.
 - [ ] Add `-Restore` to `scripts/campaign-admin-setup.ps1` for update settings. Done when: `docs/acceptance` lists this as a step.
 - [ ] Run the preflight on this machine. Done when: it exits 0 and its output is quoted here.
+- [ ] Run a disposable campaign in a real session on a disposable repo with a fake CI answer, and read its log. Done when: `wait` starts no next row, `repair` repairs and rechecks, `exhausted` and `unverified` file the fault and carry on, and each holds after the session restarts.
 - [ ] Prove recovery once: kill the session on the disposable repo and see the watchdog resume it. Done when: the guard log shows the restart.
 - [ ] Commit: `campaign: preflight and machine hold`
 
@@ -372,6 +374,28 @@ The owner decided on 2026-11-07 that one heartbeat runs every repo from day one,
 - [ ] Commit: `heartbeat: one global heartbeat`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_heartbeat.py` and `pwsh tests/heartbeat_test.ps1` exit 0, and fail if a stopped distro is started, a live child uses the pass, or a crash mid-handoff leaves no watchdog.
+
+## 12. Review caps of 33
+
+The owner decided on 2026-11-07 that a low cap makes sections fail to ship and the run block itself, as `§1` showed by parking on two small gaps after three repairs. So a cycle may spend 33 review rounds, one adversarial and 32 low, and a section may use 33 repair cycles. A review still stops at its first clean round, so the higher caps cost only what a section really needs. This revises `§3`, which is stamped, so its text stands as history.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Change `.conclave/reviewers.toml`. Done when: the pin reads 32 low rounds and 33 repair cycles.
+2. Change the limits in `scripts/review-dispatch.py` and `scripts/lib/todo_graph.py`. Done when: a value over 33 is refused.
+
+- [ ] Set `max_low_rounds = 32` and `max_repair_cycles = 33` in `.conclave/reviewers.toml`. Done when: `--check-pin --json` reads them back, and `schedule_cap` gives 33.
+- [ ] Allow `max_repair_cycles` from 0 to 33 in `check_schedule` in `scripts/review-dispatch.py`. Done when: `scripts/tests/test_review_dispatch.py` accepts 33 and refuses 34.
+- [ ] Use 33 as the default and the limit in `repair_cap` in `scripts/lib/todo_graph.py`. Done when: `scripts/tests/test_todo_graph.py` allows a 33rd repair with no pin, refuses the 34th naming `park`, and still honours a lower value in the pin.
+- [ ] Prove a cycle already under way keeps its own cap in `review_dead_end`. Done when: a test with rounds at an older pin's cap reads `needs-repair` after the pin rises.
+- [ ] Update `AGENTS.md`, `docs/specs/2026-11-07-control-panel-design.md` and `todo/README.md` to the new caps. Done when: a test reads 33 from the design doc's review cap row and from the pin, so they can't drift.
+- [ ] Commit: `review: caps of 33`
+
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py` exits 0, and fails if a 34th repair is allowed or the pin falls back to 3.
 
 ## Verification
 
