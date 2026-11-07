@@ -65,3 +65,25 @@ OVERALL: needs-attention
 
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:10:38Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 4122795f40916e899f7b12d3c286599f0e6458da
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: quality
+- Lines: 6
+- Digest: 48997ba68d554130
+
+### quality: needs-attention
+
+1. **P3, `scripts/tests/test_ci_status.py:946`: The expired-wait test accepts the wrong action.** The fixture reaches the two-hour limit with an unreadable HEAD, but accepts both `wait` and `unverified`. Returning `wait` indefinitely would therefore pass this assertion. Reproduce by substituting `wait` for the resulting action: the assertion still succeeds. Require `unverified` and assert that the recorded wait remains unchanged.
+
+HIGHEST: P3
+OVERALL: needs-attention

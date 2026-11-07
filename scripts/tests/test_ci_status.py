@@ -943,8 +943,9 @@ class Gate(Base):
             code = ci_status.main(["--gate", "--sha", "HEAD", "--json"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
         self.assertEqual((code, calls), (ci_status.EXIT_UNAVAILABLE, []))
         data = json.loads(out.getvalue())
-        self.assertIn(data["action"], ("wait", "unverified"))
+        self.assertEqual(data["action"], "unverified")
         self.assertIn("ran out", data["error"])
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0})
 
     def test_a_new_full_sha_gets_its_own_wait_after_an_older_one_expired(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
