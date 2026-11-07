@@ -199,6 +199,8 @@ A section that fails review must either get a real chance to repair or step asid
 
 ## 4. Reviewer attempt limits and diagnostics
 
+> **Started:** 2026-11-07T23:24:52Z
+
 Failed attempts don't count as reviews, and each one changes the tree, so a broken reviewer looks like progress and retries forever. Only Astra reviews Claude's work, and there is no fallback, so an outage must wait.
 
 **Corrected 2026-11-08:** a failed attempt is written into the findings file today as `## Round N: none` (`record` in `scripts/review-dispatch.py`), which is what changes the tree; this section moves failed attempts to `build/review-attempts.json`, so the findings file holds returned reviews only. `build/` is gitignored, so `real_signature` already leaves it out; the item below proves that rather than changing it. The run has no waiting state yet, so this section adds one (`wait_until` and a reason) to `scripts/lib/run_guard.py`, and `§5` reuses it for usage limits instead of building its own.
