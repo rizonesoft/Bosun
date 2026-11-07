@@ -284,6 +284,8 @@ One command proves the run can finish before anyone walks away. It holds the own
 
 ## 11. One global heartbeat
 
+> **Started:** 2026-11-07T18:49:50Z
+
 The owner decided on 2026-11-07 that one heartbeat runs every repo from day one, including Bosun while it is being built, so other repos can be developed in parallel. Each repo keeps its run state, rules and hooks. One scheduled task runs the schedule, from an installed copy, so a campaign rebuilding Bosun can't disturb it. A task is used rather than a loop in the logger because it keeps firing if a process crashes. The panel's view of this comes later, in `D04 T03 §6`. **Corrected 2026-11-07** after the plan review: this was C++ in `src/app.cpp`, which has no JSON or crash-safe state, and it is now Python like the guard it drives, with the handoff, lock, durable state, WSL and config contracts added.
 
 **Phase:** 0
