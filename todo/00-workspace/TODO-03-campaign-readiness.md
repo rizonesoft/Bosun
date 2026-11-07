@@ -457,9 +457,14 @@ The owner decided on 2026-11-07 that from a section's third review cycle on, onc
 - [x] Correct `review-todo-section/SKILL.md` and its mirrors so only cycles one and two require a genuine `complete`. Done when: a test finds no unconditional rule left in any mirror.
 - [x] Prove a real filed stamp in `scripts/tests/test_todo_graph.py` on the stamp fixtures, which use the older pin shape, so the cycle rule itself is proven through `schedule_ok` above: the receipt is written, and a fresh process validates the tree with the parent verified and its filed section open. Done when: the test passes and fails if `stamp` drops the filed list.
 - [x] Count only Part 1's missing items as gaps in `docs/completion-review-prompt.md`, and have `review-todo-section/SKILL.md` and its mirrors record Part 2's excellence suggestions in `todo/findings.md`, as the owner decided on 2026-11-07 so the plan can finish. Done when: a test reads the prompt's rule and each mirror's.
+- [ ] Recover a stamp cut off between its receipt and section writes in `stamp` in `scripts/lib/todo_graph.py`: an unstamped section's existing receipt is kept beside its name as an orphan, and the stamp is written afresh. Done when: a test cuts power after the receipt write and a retry stamps, keeping the orphan.
+- [ ] Prove through `stamp` itself that filing to a stamped section is refused, and that the filing receipt still validates once its target ships, in `scripts/tests/test_todo_graph.py`. Done when: the test passes and fails if `require_open_targets` is dropped.
+- [ ] Correct `docs/todo-workflow.md`, which still says to stamp only on complete. Done when: a test finds the third-cycle rule there.
 - [ ] Commit: `review: stamp filed leftovers from the third cycle`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0 in PowerShell or bash, and fails if cycle 2 may stamp `filed`.
+
+> **Repair cycle:** 1: 2026-11-07: the completion review found a stamp cut off between writes, untested open targets and a stale doc line (after: its completion review returned gaps)
 
 ## Verification
 
