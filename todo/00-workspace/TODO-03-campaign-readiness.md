@@ -397,8 +397,8 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 - [x] Update the tests that assert the old live values, keeping fixtures that are about history as they are, in `scripts/tests/test_review_policy.py`, `test_review_dispatch.py` and `test_todo_graph.py`. Done when: all three suites pass.
 - [x] Prove a cycle already under way keeps its own cap in `review_dead_end`. Done when: a test with rounds at an older pin's cap reads `needs-repair` after the pin rises.
 - [x] Update `AGENTS.md`, `docs/specs/2026-11-07-control-panel-design.md` and `todo/README.md` to the new caps. Done when: a test reads 33 from the design doc's review cap row and from the pin, so they can't drift.
-- [ ] Prove on the live pin in `scripts/tests/test_todo_graph.py` that round 32 goes on and an unresolved round 33 reads `needs-repair`. Done when: the test passes, and fails if the pin's cap changes.
-- [ ] Replace "operator recovery required" in `scripts/review-dispatch.py` with the repair and park route. Done when: `scripts/tests/test_review_policy.py` reads the route in the message and no mention of an operator.
+- [x] Prove on the live pin in `scripts/tests/test_todo_graph.py` that round 32 goes on and an unresolved round 33 reads `needs-repair`. Done when: the test passes, and fails if the pin's cap changes.
+- [x] Replace "operator recovery required" in `scripts/review-dispatch.py` with the repair and park route. Done when: `scripts/tests/test_review_policy.py` reads the route in the message and no mention of an operator.
 - [ ] Commit: `review: caps of 33`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_review_dispatch.py scripts/tests/test_todo_graph.py` exits 0, and fails if a 34th repair is allowed, round 34 runs, or the pin falls back to 3 or 8.

@@ -249,7 +249,7 @@ def check_sequence(schedule, kind, found, writer, writer_model):
         if rounds and clean(rounds[-1]["review"]):
             raise Refused("rounds are clean; completion is next")
         if len(rounds) >= schedule_cap(schedule):
-            raise Refused("review budget exhausted with unresolved findings; operator recovery required")
+            raise Refused("review budget exhausted with unresolved findings; run todo-graph.py repair, or park once its repair cycles are used up")
     if kind == "completion" and (not rounds or not clean(rounds[-1]["review"])
             or not returned_review(found["rounds"][-1])):
         raise Refused("completion requires a clean terminal round; exhaustion is not approval")

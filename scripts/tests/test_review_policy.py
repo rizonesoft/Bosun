@@ -59,8 +59,12 @@ class LivePinCaps(unittest.TestCase):
                 self.check('round', self.found(spent))
 
     def test_round_thirty_four_is_refused(self):
-        with self.assertRaisesRegex(d.Refused, 'budget exhausted'):
+        with self.assertRaisesRegex(d.Refused, 'budget exhausted') as caught:
             self.check('round', self.found(33))
+        message = str(caught.exception)
+        self.assertIn('todo-graph.py repair', message)
+        self.assertIn('park', message)
+        self.assertNotIn('operator', message)
 
     def test_a_clean_round_stops_early(self):
         with self.assertRaisesRegex(d.Refused, 'rounds are clean'):

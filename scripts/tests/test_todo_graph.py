@@ -764,6 +764,24 @@ class Dispositions(Tree):
         pin.write_text(live, encoding="utf-8")
         self.assertEqual(self.disposed()[0], "needs-repair")
 
+    def test_on_the_live_pin_round_32_goes_on_and_an_unresolved_33_needs_repair(self):
+        live = (REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8")
+        pin = self.root / ".conclave" / "reviewers.toml"
+        pin.parent.mkdir(exist_ok=True)
+        pin.write_text(live, encoding="utf-8")
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"], ["add", "-A"], ["commit", "-qm", "pin"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True)
+        policy = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        review = "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
+        for _ in range(32):
+            tg.review_dispatch().record(self.record(), {**self.result(review), "policy": policy}, "2026-11-07T00:00:00Z")
+        self.assertEqual(self.disposed()[0], "ready")
+        tg.review_dispatch().record(self.record(), {**self.result(review), "policy": policy}, "2026-11-07T00:00:00Z")
+        state, reason = self.disposed()
+        self.assertEqual(state, "needs-repair")
+        self.assertIn("33 review rounds", reason)
+
     def test_the_design_doc_and_the_pin_agree_on_the_caps(self):
         schedule = tg.tomllib.loads((REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"))["schedule"]
         self.assertEqual(1 + schedule["max_low_rounds"], 33)
