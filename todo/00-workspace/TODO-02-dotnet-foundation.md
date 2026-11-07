@@ -20,6 +20,8 @@ title: "TODO-02 -- The .NET foundation"
 - -> XREF: D02 T01 §1 -- consumes this file
 - -> XREF: D02 T02 §3 -- consumes this file
 - -> XREF: D07 T01 §1 -- consumes this file
+- -> XREF: D00 T03 §10 -- consumed by this file
+- -> XREF: D00 T03 §6 -- consumed by this file
 
 ## Outcome
 
@@ -34,7 +36,7 @@ title: "TODO-02 -- The .NET foundation"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Solution, props and empty projects | -- | [ ] |
+| 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [ ] |
 | 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [ ] |
 | 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [ ] |
 
@@ -80,10 +82,10 @@ A section can only be held to tests that the one-command gate actually runs.
 
 ## 3. Move the SDK pin to the .NET 11 release
 
-.NET 11 is due on 2026-11-10. The RC's go-live licence covers development until then, and this section moves everything at once when the final release is out.
+.NET 11 is due on 2026-11-10. The RC's go-live licence covers development until then, and this section moves everything at once when the final release is out. The owner chose to start on the RC, so `D00 T03 §6` clears the Need when `D00 T03 §10` has installed the final SDK, and Release waits for it.
 
 **Phase:** 0
-**Needs:** third-party,attended
+**Needs:** third-party
 **Surface:** no
 
 **Build order:**
@@ -93,7 +95,7 @@ A section can only be held to tests that the one-command gate actually runs.
 
 - [ ] Set `global.json` to the final 11.0.1xx SDK with `allowPrerelease: false`. Done when: `dotnet --version` prints the final SDK. Cheaper substitute: leaving the RC pinned after release.
 - [ ] Update prerelease versions in `Directory.Packages.props`. Done when: searching the repo for `rc.2` finds nothing outside dated notes.
-- [ ] Remove the `third-party` Need from this section once the release is confirmed on the .NET download page. Done when: the page's latest version is recorded in the commit body.
+- [ ] Confirm the release on the .NET download page. Done when: the page's latest version is recorded in the commit body.
 - [ ] Commit: `dotnet: move to the .NET 11 release`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on the final SDK.

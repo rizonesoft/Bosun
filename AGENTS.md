@@ -9,9 +9,9 @@ This repository follows the Conclave-SDK 3-agent conventions.
 - The panel never re-implements a tool: it runs the owning tool with an argument list and reads JSON, and missing data is added to the tool that owns it. It never writes to `todo/`, receipts or findings, and it never writes run state.
 - Verify with `pwsh scripts/check-all.ps1` once `D00 T01 §6` has landed. Until then: `python scripts/todo-graph.py validate`, `python -m unittest discover -s scripts/tests`, `node scripts/verify-agent-tiers.mjs`, and the commands in `README.md`. Run full builds and test suites through `bosun run --`.
 - Plans live in `todo/` and are driven by the `todo` kit skills; see [TODO workflow](./docs/todo-workflow.md). Validate with `python scripts/todo-graph.py validate`. Domains: `00-workspace`, `01-core`, `02-shell`, `03-monitor`, `04-workflow`, `05-machine`, `06-claude-api`, `07-release`, `99-manual`. Numbers are stable addresses.
-- Claude Opus 5.5 (`claude-opus-5-5`) is the writer. Independent review runs through `scripts/review-dispatch.py` and `.conclave/reviewers.toml`: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer, including through the panel's API key. Each section runs one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (default 8), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. Never resume an operator-paused section without explicit authorization.
+- Claude Opus 5.5 (`claude-opus-5-5`) is the writer. Independent review runs through `scripts/review-dispatch.py` and `.conclave/reviewers.toml`: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer, and no review runs through the panel's API keys. Each section runs one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (default 8), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. Never resume an operator-paused section without explicit authorization.
 - An unattended run starts from the prompt `process plan`. `scripts/run-guard.py` holds it open through hooks, a heartbeat and a watchdog task. Trunk-based `main`: commit completed, verified steps directly, and never amend a candidate under review, bypass hooks or force-push. Every clone runs `git config core.hooksPath scripts/hooks`.
-- Never commit key material or live secrets. The Claude API key lives only in a DPAPI CurrentUser file outside Git and reaches only the child process that needs it. No spend caps set means no API calls.
+- Never commit key material or live secrets. API keys live only in Windows Credential Manager, entered in Settings, and reach only the child process that needs them. No spend caps set means no API calls to any provider.
 
 ## Review failure modes
 
@@ -22,6 +22,8 @@ The generic review skills check the failure modes this file names for the area a
 - A path that sends an API request without passing `SpendGuard`, a key reaching a log, an argument or the panel's own environment, or an unknown model's cost counted as zero.
 - A machine change with no preview, read-back or undo, or a whole-panel elevation where one command would do.
 - A timer, poller or animation that keeps running for a hidden page, a live blur, motion that ignores the system setting, or anything that pushes the idle budget past 150 MB and 1% CPU.
+- An Insight that sends text not shown in its preview or not redacted, that writes a file or changes the machine, or that reads as a review result.
+- A supervisor tick that starts a stopped WSL VM, or that resumes a repo the queue has no room for.
 - A hex colour or font size outside `Theme/Generated`, status shown by colour alone, an icon-only control without an automation name, or a stubbed control with no owner section.
 - A value that can't be read displayed as 0 instead of "Not available" with a reason.
 

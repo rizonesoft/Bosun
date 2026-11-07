@@ -96,7 +96,7 @@ The design is in `docs/specs/2026-11-07-bosun-design.md`.
 
 ## What is being built next?
 
-Bosun Panel, a .NET 11 WPF control panel for memory, dev instances, the queue, plans, reviews, unattended runs, agent updates, machine tuning and extra development on the Claude API key. These images come from the design [mockup](design/mockups/control-panel.html), with sample data and a simulated Mica backdrop. The panel itself is not built yet.
+Bosun Panel, a .NET 11 WPF control panel for memory, dev instances, the queue, plans, reviews, unattended runs, agent updates, machine tuning and extra development on your own Anthropic and OpenAI API keys. These images come from the design [mockup](design/mockups/control-panel.html), with sample data and a simulated Mica backdrop. The panel itself is not built yet.
 
 ![Bosun Panel design preview: the Overview page](docs/images/panel-overview.png)
 

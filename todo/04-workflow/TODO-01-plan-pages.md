@@ -23,13 +23,16 @@ title: "TODO-01 -- Plan pages"
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
 - -> XREF: D02 T02 §11 -- consumed by this file
+- -> XREF: D03 T01 §5 -- consumed by this file
+- -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D06 T02 §9 -- consumes this file
 
 ## Outcome
 
 - Each supported repo shows its plan, and an unsupported one says what the probe found.
 - The panel never writes to `todo/`.
 
-**Adjacency:** list=applicable; document=not-applicable (the Markdown is the document); settings=not-applicable (no settings); reporting=applicable @ D04 T01 §2; notifications=not-applicable (the run page owns them); permissions=not-applicable (read-only); audit=not-applicable (receipts are the audit); exchange=not-applicable (none); reverse=not-applicable (read-only)
+**Adjacency:** list=applicable @ D04 T01 §2; document=not-applicable (the Markdown is the document); settings=not-applicable (no settings); reporting=applicable @ D04 T01 §2; notifications=not-applicable (the run page owns them); permissions=not-applicable (read-only); audit=not-applicable (receipts are the audit); exchange=not-applicable (none); reverse=not-applicable (read-only)
 
 **Adjacency rationale:** Deliberately read-only: stamps stay with the skills so a button can never bypass a review.
 
@@ -41,7 +44,7 @@ title: "TODO-01 -- Plan pages"
 | 2 | §2 | Plan board | §1, D02 T02 §9, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 3 | §3 | Section detail | §2 | [ ] |
 | 4 | §4 | Dependency graph view | §3 | [ ] |
-| 5 | §5 | Findings and deferred tabs | §3 | [ ] |
+| 5 | §5 | Findings and deferred tabs | §3, D03 T01 §5 | [ ] |
 
 ## 1. Workflow client
 

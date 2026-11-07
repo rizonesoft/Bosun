@@ -8,7 +8,7 @@ Mockup: [mockups/control-panel.html](./mockups/control-panel.html). Colours, rad
 
 - Window: custom title bar 44 px with the icon, "Bosun Panel", a run badge, and minimise, maximise and close. The maximise button answers `HTMAXBUTTON` so Windows 11 snap layouts appear. Minimum size 960 x 600. Per-monitor DPI v2.
 - Backdrop: the title bar and rail sit on Mica, and page content sits on a solid sheet with a rounded top-left corner. Where Mica is unavailable the same layout uses solid `Base`, per §19. Added 2026-11-07 (owner request, `D02 T03 §2`).
-- Rail: 208 px, groups Monitor, Workflow, Machine, Claude API, App, with a Lucide glyph on every row, a sliding marker on the selected row and count badges per §19. A page with unsaved edits may refuse navigation, offering Save or Discard.
+- Rail: 208 px, groups Monitor, Workflow, Machine, API, App, with a Lucide glyph on every row, a sliding marker on the selected row and count badges per §19. A page with unsaved edits may refuse navigation, offering Save or Discard.
 - Repo selector: one selector at the head of the rail's Workflow group sets the repo for Plan, Reviews, Unattended run, and Hooks and automations. It is remembered between sessions and lists registered repos under Windows and WSL. Each of those pages states the repo's name, side and path under its title. With no repos it says "No repos yet" and links to Settings, Repos. Fleet covers all repos and ignores it, and the Monitor pages show both sides with a Side column. Added 2026-11-07 (owner request, `D02 T02 §11`).
 - WSL repos: a WSL repo is registered with its distro and Linux path, and its tools run inside that distro through `wsl.exe --cd` with an argument list. The panel never starts the WSL VM to poll. While WSL is stopped, a WSL repo shows "WSL not running" with a Start WSL button, and its last data is marked with its age.
 - Activity pane: 132 px, resizable with a splitter, 500 entries at most. Each line starts with the word INFO, WARN or FAIL. Every panel action writes a line.
@@ -44,7 +44,7 @@ Uses the repo selector from §1. Pin card (writer route, reviewer, model, CLI fo
 
 ## 8. Unattended run
 
-Uses the repo selector from §1. Cards: Run (state word, session, start), Heartbeat (age, next due), Watchdog (installed, last tick, stale), Counters (restarts, yields). Last API failure line when present. Controls: Start process plan (primary; opens a Windows Terminal tab in the repo; refuses beside a live session, naming it), Stop at end of turn, Halt with a ground (danger; ground picker and required reason), Install or Uninstall watchdog. Guard log tail with auto-scroll and pause. Status words: Active, Stopped, Drained, Stalled, Halted, Expired, Inactive.
+Uses the repo selector from §1. Cards: Run (state word, session, start), Heartbeat (age, next due), Watchdog (installed, last tick, stale), Counters (restarts, yields). Last API failure line when present. A Supervised by word shows Bosun or the repo's own watchdog, with Supervise with Bosun (`D04 T03 §7`). Controls: Start process plan (primary; opens a Windows Terminal tab in the repo, using the shell for its side; refuses beside a live session, naming it), Stop at end of turn, Halt with a ground (danger; ground picker and required reason), Install or Uninstall watchdog. Commands card (`D04 T03 §8`): built-in commands for the selected repo (start the campaign, guard status, plan status, preflight) and the operator's own, each with Copy and Open in terminal. Open in terminal starts a new Windows Terminal tab in the repo, running PowerShell for a Windows repo and Bash in its distro for a WSL repo. Guard log tail with auto-scroll and pause. Status words: Active, Waiting (with what for, and until when), Parked, Complete, Stopped, Drained, Stalled, Halted, Expired, Inactive. Drained appears only for kits older than `D00 T03 §6`. Updated 2026-11-07.
 
 ## 9. Hooks and automations
 
@@ -52,7 +52,7 @@ Uses the repo selector from §1. Hooks table merged across user, project and loc
 
 ## 10. Fleet
 
-One row per registered repo: run guard kind, dispatcher features, graph kind, hook events, remaining ports. Read-only, with a link to the source file behind each cell. Ports stay deliberate work in that repo.
+One row per registered repo: supervisor, last tick, heartbeat age, run guard kind, dispatcher features, graph kind, hook events, remaining ports. Read-only, with a link to the source file behind each cell. Ports stay deliberate work in that repo.
 
 ## 11. Agents
 
@@ -64,15 +64,15 @@ Recommendations table: finding, evidence, effect, needs, action. Each change off
 
 ## 13. Workbench
 
-Budget card (today and month against the caps, with bar and words). New task: Mode (Overflow agent or Ask), Repo, Model, Effort, Task text, Budget for this run (required for an overflow agent, and reserved against the caps before it starts), Start and Stop. Without a stored key, or with no caps set, Start is disabled with a line saying what to do, linking to Settings. Run list: state word, mode, repo, cost so far, worktree path, Open worktree, Open log. Ask streams text as it arrives. A refusal shows its category and message. Model list comes from the Models API, falling back to the priced list with a notice.
+Budget card (today and month against the caps, with bar and words). New task: Mode (Overflow agent or Ask), Provider (Anthropic or OpenAI), Repo, Model, Effort, Task text, Budget for this run (required for an overflow agent, and reserved against the caps before it starts), Start and Stop. Without a stored key, or with no caps set, Start is disabled with a line saying what to do, linking to Settings. Run list: state word, mode, repo, cost so far, worktree path, Open worktree, Open log. Ask streams text as it arrives. A refusal shows its category and message. Model list comes from the provider's model list, falling back to the priced list with a notice. An overflow agent runs Claude Code on the Anthropic key and Codex on the OpenAI key. Where a CLI has no native budget limit, a local gateway reserves each request's maximum cost and refuses one that would pass the budget, before it reaches the provider. Provider added 2026-11-07 (owner request, `D06 T01 §9`).
 
 ## 14. Usage
 
-Ledger table: when, mode, repo, model, input, cached, output, cost. Totals by day, month and model. Export CSV. The dated price table is shown, with a warning when it is older than 90 days or a model has no price, in which case the row is marked "Unpriced" and counted against the caps at the highest known price.
+Ledger table: when, mode, provider, repo, model, input, cached, output, cost. Totals by day, month, provider and model. Export CSV. The dated price table is shown, with a warning when it is older than 90 days or a model has no price, in which case the row is marked "Unpriced" and counted against the caps at the highest known price.
 
 ## 15. Settings
 
-General: Start with Windows in the tray, Theme, Pressure alert threshold, Notifications on or off by type. Repos: list with name, side and state word, Add (a Windows folder, or a WSL distro and Linux path), Remove, Scan folder (a Windows folder, or a Linux folder in a chosen distro). `D:\GitHub\x` and `/mnt/d/GitHub/x` are the same repo and list once, on the side where it was added. Claude API: key status word, Paste new key, Import from 1Password, Remove key, daily cap, monthly cap. Every setting names its consumer in the section that builds it. Save writes atomically and reads back.
+General: Start with Windows in the tray, Theme, Pressure alert threshold, Notifications on or off by type. Repos: list with name, side and state word, Add (a Windows folder, or a WSL distro and Linux path), Remove, Scan folder (a Windows folder, or a Linux folder in a chosen distro). Project folders: a list of folders to watch for new repos, each with its side and for WSL its distro, with Add, Remove, Scan now and the last result. New repos are listed as found, with Add and Add all, and never added silently. A scan of a WSL folder runs only while that distro is running. Added 2026-11-07 (owner request, `D02 T02 §12`). `D:\GitHub\x` and `/mnt/d/GitHub/x` are the same repo and list once, on the side where it was added. API keys: for Anthropic and for OpenAI, a key status word, Paste new key, Remove key and Test connection. Import from 1Password appears only when `op` is installed. Keys live in Windows Credential Manager and are never shown again after saving. One daily cap and one monthly cap in US dollars cover both providers. Insights: on or off, default provider and model, per-feature choice, and "don't ask again" choices to revoke, per §20. Every setting names its consumer in the section that builds it. Save writes atomically and reads back.
 
 ## 16. About
 
@@ -107,3 +107,17 @@ Added 2026-11-07 from the owner's request for Lucide menu icons, softer rounding
 - Page transition: content fades and rises 4 px over the normal duration, and only the content, never the rail.
 - Command palette: Ctrl+K opens it over any page. It searches pages and the current page's actions. It never runs a danger action without that action's own confirmation. Esc closes it and returns focus. Enter runs the selected row.
 - Toast: a transient in-window result of a panel action, at the bottom right, at most 3 at once, dismissed after 6 s unless hovered or focused. Each is announced through the live region, and each also has its line in the Activity pane, so a missed toast loses nothing. FAIL toasts stay until dismissed. Tray notifications in §17 remain the out-of-window path.
+
+## 20. Insights
+
+Added 2026-11-07 from the owner's request to make Bosun intelligent (`D06 T02`). Insights explain what the tools measure. They are off until switched on in Settings, run only on a button press and never run for a hidden page. Without a key, every other feature works and these buttons do not appear. An insight changes nothing: a suggested action links to the owning page, with that page's own confirmation and undo. It is never a review: it writes no findings, receipts or `todo/` files, and it can't clear a finding or a stamp.
+
+- Preview: before each send, a dialog shows the redacted text, provider, model and estimated cost, with items the operator can remove and Send. "Don't ask again for this feature in this repo" is available and revocable, and redaction still applies. If redaction fails, nothing is sent.
+- Selection: a default provider and model in Settings, an optional choice per feature, and a choice in the preview. Only providers with a stored key are listed. A saved model no longer offered is never replaced silently.
+- Answers: a summary, findings citing numbered evidence, confidence and next steps. A claim with no real citation reads "Unverified". Instructions found inside evidence are not followed. Each request is in the ledger and has a line in Activity, without its content.
+- Explain this failure: on a failed page state, a failed queue job, a stalled or waiting run, and a parked section.
+- Overnight briefing: an Overview card. Facts (stamped, parked, waiting, restarts, failed automations, memory lows) show with no key, and Summarise adds a few lines beneath them.
+- Memory advisor: Advise on the Memory Decision card, about RAM, thresholds and colliding repos. With under 7 days logged it says how many days the advice rests on.
+- Finding patterns: on Reviews, for this repo or all repos, each pattern linking to its findings.
+- Plan drafts: on Plan, a description becomes a draft checked by that repo's validator in a temporary copy. It offers Copy only, since the panel never writes to `todo/`.
+- Second opinion: on any unstamped section with findings, from a model family other than the section's writer, so Claude's work goes only to OpenAI. Every answer is labelled "Advice, not a review".

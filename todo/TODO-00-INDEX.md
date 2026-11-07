@@ -8,6 +8,7 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-01-kit-completion.md | Port the best of the sibling kits into this repo |
 | 00 | 00-workspace/TODO-02-dotnet-foundation.md | .NET 11 solution, build props and projects |
+| 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
 | 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers |
 | 02 | 02-shell/TODO-01-brand-and-theme.md | Generated theme, icon pipeline and control templates |
 | 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, registry, tray |
@@ -20,7 +21,8 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | 04 | 04-workflow/TODO-04-hooks-fleet.md | Hooks, scheduled tasks and kit generations |
 | 05 | 05-machine/TODO-01-agents-page.md | Versions and updates for each agent |
 | 05 | 05-machine/TODO-02-optimise-page.md | Preview, apply, verify and undo machine changes |
-| 06 | 06-claude-api/TODO-01-api-workbench.md | Key, caps, ledger, requests and overflow agents |
+| 06 | 06-claude-api/TODO-01-api-workbench.md | Keys, caps, ledger, requests and overflow agents on both providers |
+| 06 | 06-claude-api/TODO-02-insights.md | Explain failures, briefing, memory advisor, patterns, drafts, second opinion |
 | 07 | 07-release/TODO-01-packaging.md | Install, signing state, budgets, accessibility and docs |
 | 99 | 99-manual/TODO-01-operator-steps.md | BIOS, the 64 GB decision, first walkthrough |
 

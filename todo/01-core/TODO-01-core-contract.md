@@ -18,13 +18,15 @@ title: "TODO-01 -- The core data contract"
 - `src/app.cpp`, `src/logger_main.cpp`, `wsl/bosun`, `wsl/bosun_log.py`.
 - -> XREF: D03 T01 §1 -- consumes this file
 - -> XREF: D03 T02 §1 -- consumes this file
+- -> XREF: D00 T03 §10 -- consumed by this file
+- -> XREF: D04 T03 §6 -- consumes this file
 
 ## Outcome
 
 - `bosun status --json` names each slot's holder and each waiter, on either side.
 - A job log and live snapshot exist, and limits live in one config file with defined precedence.
 
-**Adjacency:** list=applicable; document=not-applicable (no carried documents); settings=applicable @ D01 T01 §5; reporting=applicable @ D01 T01 §4; notifications=not-applicable (the panel owns notices); permissions=not-applicable (per-user files, no roles); audit=applicable @ D01 T01 §2; exchange=not-applicable (the files are the exchange); reverse=not-applicable (records are append-only)
+**Adjacency:** list=applicable @ D01 T01 §3; document=not-applicable (no carried documents); settings=applicable @ D01 T01 §5; reporting=applicable @ D01 T01 §4; notifications=not-applicable (the panel owns notices); permissions=not-applicable (per-user files, no roles); audit=applicable @ D01 T01 §2; exchange=not-applicable (the files are the exchange); reverse=not-applicable (records are append-only)
 
 **Adjacency rationale:** This domain only adds reporting. The queue's guarantees (a dead owner frees its slot, no daemon) are unchanged, and records never gain authority over the mutexes.
 
@@ -32,7 +34,7 @@ title: "TODO-01 -- The core data contract"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Slot holder and waiter records | -- | [ ] |
+| 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [ ] |
 | 2 | §2 | Job history log | §1 | [ ] |
 | 3 | §3 | status --json | §1 | [ ] |
 | 4 | §4 | report --json and logger snapshots | §2 | [ ] |

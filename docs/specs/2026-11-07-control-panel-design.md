@@ -81,7 +81,7 @@ The mockup shows all of them. Short version:
 
 ## How does the Claude API key fit in?
 
-Extra development has two modes, and the second is the one that matters:
+Extra development has two modes on either provider, Anthropic or OpenAI, and the second is the one that matters. The OpenAI provider was added on 2026-11-07 at the owner's request. On that key, Ask uses the official `OpenAI` package and an overflow agent runs Codex CLI the same way, with a local gateway enforcing the budget before each request:
 
 1. **Ask:** one request through the official `Anthropic` NuGet package, for things like explaining a finding or summarising a memory report. No tools. Default model `claude-opus-5-5`, streaming on, with cheaper models one click away.
 2. **Overflow agent:** runs Claude Code headless (`claude -p`, stream JSON) in a new git worktree, with the API key placed only in that child's environment. This gets the full harness, hooks, run guard and skills without re-implementing any of them, for when subscription limits are reached or more parallel work is wanted.
@@ -96,7 +96,7 @@ Rejected for now:
 
 Safety rules:
 
-- The key lives in a Windows DPAPI CurrentUser file outside Git. It can be imported once from the 1Password Conclave vault, and normal use makes no 1Password calls. Status shows only "stored" or "not stored". The key is never in arguments, logs or the parent environment.
+- Keys are entered in Settings and live in Windows Credential Manager, protected by DPAPI for the current user, outside Git. Each can also be imported once from 1Password when `op` is installed, and normal use makes no 1Password calls. Status shows only "stored" or "not stored". The key is never in arguments, logs or the parent environment.
 - **No caps, no calls.** Daily and monthly caps have no defaults: until the operator sets them, the panel sends nothing. A request that would pass a cap is refused before it is sent.
 - Cost comes from the panel's own ledger, using `usage` from each response and a dated price table (`design/pricing.json`). Anthropic's usage and cost reports need an Admin API key, so they are an optional later comparison, not the source.
 - Overflow runs need a budget. The whole budget is reserved against the caps before the run starts and passed as `--max-budget-usd`. Watching reported cost is only a backstop.
@@ -104,13 +104,49 @@ Safety rules:
 
 ## What about the earlier phase 2 ideas?
 
-The Bosun design left the pressure monitor, background memory priority and parking waiting for real logged peaks. They stay gated: `D05 T02 §5` and `§6` carry an `owner-decision` Need until `bosun report --days 7` has data, which is possible from 2026-11-14. The earlier rejections stand: no working-set cleaners and no hard per-repo caps.
+The Bosun design left the pressure monitor, background memory priority and parking waiting for real logged peaks. The owner decided on 2026-11-07 to build both now, inert: the monitor with automatic action off until thresholds are set from `bosun report --days 7`, possible from 2026-11-14, and parking with an empty list. The earlier rejections stand: no working-set cleaners and no hard per-repo caps.
 
 ## How does the plan get tested while it is being built?
 
 The plan builds the system with the system. `D00` finishes the kit in this repo, so every later section is reviewed and stamped the way Steward's are. The first unattended `process plan` here is the live test of the guard, heartbeat, hooks and reviewer, and the panel then displays that same run.
 
-Surface sections must be able to run unattended, so they do not need a visible desktop. Pages render off screen through `RenderTargetBitmap` into PNGs a reviewer can read, and XAML is checked as XML for contrast and stray colours. Only the end-to-end UI Automation smoke test needs a desktop session (`D02 T02 §10`).
+Surface sections must be able to run unattended, so they do not need a visible desktop. Pages render off screen through `RenderTargetBitmap` into PNGs a reviewer can read, and XAML is checked as XML for contrast and stray colours. Only sections proving real keyboard or UI Automation behaviour need a desktop, which the campaign keeps available, and the end-to-end UI Automation smoke test needs a desktop session (`D02 T02 §10`).
+
+## How are repos found and runs opened?
+
+The owner asked for both on 2026-11-07. Settings holds a list of project folders on either side. On this machine those are `D:\GitHub` on Windows and `~/www` and `~/projects` in WSL. Bosun lists new repos it finds there and adds them when told. These paths are the owner's settings, kept in `panel.json`, never in the code. The Unattended run page has a Commands card for each repo, with Copy and Open in terminal, using PowerShell on Windows and Bash in WSL.
+
+## How does the unattended campaign run?
+
+The owner set these on 2026-11-07. `D00 T03` builds them, and every other section waits for its preflight.
+
+| Decision | Choice |
+| -------- | ------ |
+| Finish line | Implementation complete, then a short attended acceptance pass |
+| Permissions | Bypass mode, plus deny rules for destructive and outbound actions |
+| Usage limits | Subscription only, waiting and resuming; never paid API billing |
+| Review dead end | Up to 3 repair cycles, then park and carry on; nothing ships unapproved |
+| Desktop | Logged in and unlocked, with sleep and update restarts held |
+| .NET | Start on the RC; move to final when released; Release needs final |
+| Machine changes | Disposable targets in the run; real ones in acceptance |
+| API keys | Fake APIs in the run; live keys in acceptance, `D99 T01 §5` |
+| Pressure monitor | Built, automatic action off until logs exist |
+| Parking | Built, with an empty list |
+| Signing | Unsigned; revisit if the repo goes public |
+| Base kit | `R:\GitHub\Steward`, confirmed |
+| Licence | `GPL-3.0-or-later`, confirmed |
+
+A run that reaches the finish line writes `docs/acceptance/<date>.md`, listing every step left for the owner and any parked section.
+
+## Who owns the heartbeat?
+
+The owner decided on 2026-11-07 that Bosun runs the schedule. Each repo keeps its run state, rules and hooks, because hooks fire inside its own session and a repo must still work without Bosun. `bosun-logger` ticks every supervised repo's guard, and it can see what a repo can't: memory and slots across all repos, so it resumes one at a time and only when there is room. A tick never starts a stopped WSL VM. The campaign that builds Bosun keeps the repo's own watchdog, because the supervisor doesn't exist until `D04 T03 §6` lands, and repos move over afterwards.
+
+## How does Bosun use AI?
+
+The owner asked for this on 2026-11-07, and `design/SPEC.md` §20 is the contract. Bosun already gathers what a model needs, so AI explains and never acts. The features are Explain this failure, Overnight briefing, Memory advisor, Finding patterns, Plan drafts and Second opinion. Each runs on a button press, inside the spend caps, with a preview of redacted text, a provider and model the operator chooses, and cited evidence.
+
+Rejected: AI in queue admission, which must stay fast and predictable; automatic machine tuning; AI repairing stalled runs by itself, which would spend with nobody watching; and AI as a stand-in for the pinned reviewer. Ask Bosun, plain questions in the command palette, was offered and left out of this version.
 
 ## What did we decide by default?
 
@@ -125,6 +161,7 @@ Each of these is a default that is cheap to change, recorded so nobody has to re
 | Runtime | Self-contained win-x64 | Publish flag |
 | Review cap | Steward's 9 rounds, not Recto's 33 | One line in the pin |
 | Python | Required, as the kit already needs it | n/a |
+| Key store | Windows Credential Manager, entered in Settings | Swap `KeyStore` |
 | Finish | Mica shell, Lucide glyphs, premium components | Drop `D02 T03` sections |
 | WSL repos | First class, tools run inside the distro | Remove the WSL side |
 

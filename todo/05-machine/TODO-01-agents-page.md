@@ -21,13 +21,14 @@ title: "TODO-01 -- Agents"
 - -> XREF: D03 T01 §5 -- consumed by this file
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D07 T01 §4 -- consumes this file
 
 ## Outcome
 
 - Installed and latest are shown per side, with a real reason when latest can't be found.
 - An update runs in the queue and reads its version back.
 
-**Adjacency:** list=applicable; document=not-applicable (none); settings=applicable @ D05 T01 §3; reporting=not-applicable (none); notifications=applicable @ D05 T01 §3; permissions=applicable @ D05 T01 §2; audit=applicable @ D05 T01 §2; exchange=not-applicable (none); reverse=not-applicable (agents do not support rollback here; the prior version is recorded)
+**Adjacency:** list=applicable @ D05 T01 §2; document=not-applicable (none); settings=applicable @ D05 T01 §3; reporting=not-applicable (none); notifications=applicable @ D05 T01 §3; permissions=applicable @ D05 T01 §2; audit=applicable @ D05 T01 §2; exchange=not-applicable (none); reverse=not-applicable (agents do not support rollback here; the prior version is recorded)
 
 **Adjacency rationale:** Reverse is limited: the prior version is recorded so the operator can reinstall it by hand.
 
@@ -80,6 +81,7 @@ Updating an agent under a running session can break that session, so it warns fi
 - [ ] Build the table per `design/SPEC.md` §11, with running count from the instance scanner. Done when: a missing agent on one side reads Not installed.
 - [ ] Add Update with a warning naming running sessions. Done when: the confirm lists them, Activity logs before and after versions, and failure reports the real exit. Cheaper substitute: updating with no warning or read-back.
 - [ ] Stop an update during an active unattended run unless the operator overrides. Done when: a test with an active guard state refuses by default.
+- [ ] Add Check now to `Views/AgentsView.xaml`. Done when: a press runs one check, and overlap is refused.
 - [ ] Commit: `agents: page and updates`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AgentsViewModel` exits 0, and fails if the change is reverted.
@@ -119,6 +121,7 @@ Some settings have real rules (empty attribution; no key in a session's environm
 
 - [ ] Check that `attribution.commit` and `attribution.pr` are empty in `~/.claude/settings.json`, that pins resolve, and that a session's environment has no API key. Done when: each is covered by fixtures, and output holds booleans and key names only. Cheaper substitute: displaying a settings value or token.
 - [ ] Add a test scanning check output for secret-shaped strings. Done when: a planted fixture value never appears in the result.
+- [ ] Build the configuration checks table in `Views/AgentsView.xaml`. Done when: a test proves each row shows only a boolean word and a planted value never appears.
 - [ ] Commit: `agents: configuration checks`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ConfigChecks` exits 0, and fails if the change is reverted.

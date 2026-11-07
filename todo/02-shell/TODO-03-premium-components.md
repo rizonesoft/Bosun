@@ -82,7 +82,7 @@ The generator owns these like every other token, so no view carries a shadow or 
 Windows composes Mica outside the process, so it costs the panel almost nothing, but it only exists on some systems and must be dropped live when the operator turns transparency off or enters high contrast.
 
 **Phase:** 2
-**Needs:** windows-host, display-session
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §1 and §19, Backdrop.
 **Job:** the shell looks native on Windows 11 and stays legible everywhere else.
@@ -99,7 +99,7 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 - [ ] Set `DWMWA_SYSTEMBACKDROP_TYPE` to `DWMSBT_MAINWINDOW` in `src/Bosun.Panel/Shell/Backdrop.cs`, with the frame extended and the `HwndSource` background transparent. Done when: `DwmGetWindowAttribute` reads back the value on this machine. Cheaper substitute: an image of a wallpaper behind the window.
 - [ ] Set `DWMWA_USE_IMMERSIVE_DARK_MODE` from the active theme in `Backdrop.cs`. Done when: read-back follows a live theme change in both directions.
 - [ ] Draw solid `Base` under the title bar and rail when the policy says solid, in `src/Bosun.Panel/Shell/MainWindow.xaml`. Done when: off-screen renders with the policy forced solid show no transparent pixel. Cheaper substitute: leaving the window transparent, which paints black or stale pixels.
-- [ ] Reapply the policy on `WM_SETTINGCHANGE` and `SystemParameters.StaticPropertyChanged` in `Backdrop.cs`. Done when: toggling Windows transparency on this machine switches the window with no restart.
+- [ ] Reapply the policy on `WM_SETTINGCHANGE` and `SystemParameters.StaticPropertyChanged` in `Backdrop.cs`. Done when: a test writes `EnableTransparency` and restores it, and the window switches with no restart.
 - [ ] Add the rounded sheet with `Radius.Sheet` in `MainWindow.xaml`. Done when: the off-screen render in both themes shows the top-left corner rounded and the rail outside the sheet.
 - [ ] Log a failed DWM call as one WARN line in the Activity pane, and fall back to solid in `Backdrop.cs`. Done when: a test seam returning a failure HRESULT leaves the window solid with one WARN line. Cheaper substitute: ignoring the HRESULT.
 - [ ] Commit: `shell: Mica backdrop with a solid fallback`
@@ -111,7 +111,7 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 One map keeps glyphs consistent and lets a test catch a kind the icon pack does not have.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §1 Rail, and §19 Glyphs and Count badge.
 **Job:** the operator finds a page by shape and sees at a glance which pages have something waiting.
@@ -137,7 +137,7 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 These two appear on nearly every page. Status keeps its word, so a pill without one must not compile into a page.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §19, Status pill and Segmented control.
 **Job:** the operator reads a state at a glance, with no reliance on colour, and flips a short choice in one press.
@@ -164,7 +164,7 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 These are drawn from data and stay cheap: they draw once per data change and hold no timer. An unreadable value must never look like zero.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §19, Radial gauge, Sparkline and Stacked bar.
 **Job:** the operator sees how full memory is and which way it is going without reading a table.
@@ -234,6 +234,10 @@ Every page has a loading state under `design/SPEC.md` §1. A shared shape stops 
 - [ ] Mark the skeleton busy through `AutomationProperties.ItemStatus` and the live region, once per load. Done when: a test sees one "Loading" announcement. Cheaper substitute: placeholder blocks a screen reader announces as nothing.
 - [ ] Keep current data on a background refresh in `PageFrame.xaml`. Done when: a test proves a 5 s poll never shows the skeleton over existing data.
 - [ ] Add the page transition with `Motion.Normal` in `PageFrame.xaml`. Done when: a test proves opacity and offset animate only on navigation, and apply at once with motion off.
+- [ ] Add a failed state with the tool's message and Retry to `PageFrame.xaml`. Done when: a test with a failing fake shows the message, and Retry calls the page's refresh once. Cheaper substitute: a generic error line.
+- [ ] Add an empty state slot to `PageFrame.xaml`, with each page giving why and what to do. Done when: a test proves a page can't declare empty with no text.
+- [ ] Add a `NotAvailable` value template with its reason to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: a null value shows "Not available" and the reason, never 0.
+- [ ] Show a stopped distro's last data with its age in `PageFrame.xaml`. Done when: a fixture reads the age in words on any `UsesSelectedRepo` page.
 - [ ] Commit: `shell: skeleton and page transitions`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Skeleton` exits 0, and fails if the 150 ms delay is removed.
@@ -243,7 +247,7 @@ Every page has a loading state under `design/SPEC.md` §1. A shared shape stops 
 A keyboard route to every page and action. It adds no action of its own, so it must not become a way around a danger confirmation.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §19, Command palette.
 **Job:** the operator reaches any page or current action without the mouse.
@@ -271,7 +275,7 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 A short result where the operator is looking. The Activity pane stays the record, so a toast never holds the only copy of anything.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §19, Toast.
 **Job:** the operator sees that an action finished without watching the Activity pane.

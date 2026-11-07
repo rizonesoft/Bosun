@@ -3,6 +3,7 @@ schema_version: 1
 id: packaging
 domain: 07-release
 status: active
+depends_on: ["core-contract", "brand-and-theme", "application-shell", "premium-components", "memory-page", "instances-queue", "plan-pages", "review-pages", "run-pages", "hooks-fleet", "agents-page", "optimise-page", "api-workbench"]
 title: "TODO-01 -- Packaging and budgets"
 ---
 
@@ -25,6 +26,15 @@ title: "TODO-01 -- Packaging and budgets"
 - -> XREF: D02 T03 §2 -- consumed by this file
 - -> XREF: D02 T03 §8 -- consumed by this file
 - -> XREF: D02 T03 §9 -- consumed by this file
+- -> XREF: D00 T02 §3 -- consumed by this file
+- -> XREF: D03 T01 §5 -- consumed by this file
+- -> XREF: D04 T01 §5 -- consumed by this file
+- -> XREF: D04 T02 §2 -- consumed by this file
+- -> XREF: D04 T03 §4 -- consumed by this file
+- -> XREF: D05 T01 §2 -- consumed by this file
+- -> XREF: D06 T01 §13 -- consumed by this file
+- -> XREF: D06 T01 §12 -- consumed by this file
+- -> XREF: D04 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -39,11 +49,11 @@ title: "TODO-01 -- Packaging and budgets"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Publish and install | D00 T02 §2, D02 T02 §4, D02 T03 §2, D02 T03 §8, D02 T03 §9 | [ ] |
+| 1 | §1 | Publish and install | D00 T02 §3 | [ ] |
 | 2 | §2 | Signing status | §1 | [ ] |
 | 3 | §3 | Uninstall | §1 | [ ] |
-| 4 | §4 | Keyboard and accessibility audit | D04 T04 §3, D05 T02 §3, D06 T01 §8 | [ ] |
-| 5 | §5 | Performance budget | §1, D04 T04 §3, D06 T01 §8 | [ ] |
+| 4 | §4 | Keyboard and accessibility audit | §1 | [ ] |
+| 5 | §5 | Performance budget | §1 | [ ] |
 | 6 | §6 | Documentation | §4, §5 | [ ] |
 
 ## 1. Publish and install
@@ -68,25 +78,27 @@ One command gives a self-contained panel with the existing tools.
 - [ ] Install from `bin/panel` to `%LOCALAPPDATA%\Bosun\panel`, stopping a running copy first. Done when: `tests/install_test.ps1` reinstalls over a running copy in a temporary `LOCALAPPDATA`, leaving the real install alone. Cheaper substitute: a failed copy behind a locked file.
 - [ ] Create a Start menu shortcut, with no desktop icon. Done when: the shortcut opens the panel with the right icon.
 - [ ] Add the About page per `design/SPEC.md` §16. Done when: version and commit come from build properties.
+- [ ] Create `tests/install_test.ps1`, installing to a temporary `LOCALAPPDATA`. Done when: it fails with the panel missing, and leaves the real install alone.
+- [ ] Add .NET runtime, log folders, Open crash folder and licence text to the About page, in `Views/AboutView.xaml`. Done when: a test reads each, and the licence matches `LICENSE`.
 - [ ] Commit: `release: publish and install`
 
 **Test checkpoint:** `pwsh tests/install_test.ps1` exits 0: installing to a temporary `LOCALAPPDATA` gives `Bosun.Panel.exe` whose `ProductVersion` holds the current commit.
 
 ## 2. Signing status
 
-Unsigned builds work for a private tool but SmartScreen will complain. Whether to pay for a certificate is the operator's call.
+Unsigned builds work for a private tool, but SmartScreen warns on other machines. The owner chose to ship unsigned on 2026-11-07 and revisit it when the repo goes public (`D99 T01 §4`).
 
 **Phase:** 7
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
 
 1. Port `scripts/signing-status.ps1`. Done when: it reports all binaries.
-2. Sign, once answered. Done when: the answer is recorded and the gate reflects it.
+2. Record the decision. Done when: the script reports unsigned as the expected state.
 
 - [ ] Port from `R:\GitHub\Steward\scripts\signing-status.ps1`. Done when: every `.exe`, `.dll` and `.ps1` lists its state.
-- [ ] Record the decision here, and make it a gate if signing is chosen. Done when: `STATUS` output matches the decision. Cheaper substitute: claiming signed while unsigned.
+- [ ] Record unsigned as the decision in `scripts/signing-status.ps1`. Done when: `STATUS` output says unsigned by decision, and a signed file is reported as a mismatch. Cheaper substitute: claiming signed while unsigned.
 - [ ] Commit: `release: signing status`
 
 **Test checkpoint:** `pwsh scripts/signing-status.ps1` lists every shipped binary and exits per the recorded decision.
@@ -174,4 +186,5 @@ README, troubleshooting and a clear note on what the panel will and won't do.
 ## Verification
 
 - `pwsh scripts/check-all.ps1 -Perf` passes on the published build.
+- `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified with a receipt, or parked and named in `docs/acceptance/`.
 - A clean install and uninstall round-trip passes.

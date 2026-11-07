@@ -8,22 +8,32 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 12 | Checklist items: 48
+Sections: 22 | Checklist items: 113
 
-| Status | Reference  | Deliverable                              | Needs                 | Items |
-| ------ | ---------- | ---------------------------------------- | --------------------- | ----- |
-| [ ]    | D00 T01 §1 | Review-in-flight marks for the guard     | none                  | 4     |
-| [ ]    | D00 T01 §2 | Settled items in review prompts          | none                  | 4     |
-| [ ]    | D00 T01 §3 | Dispatch hook for background reviews     | none                  | 5     |
-| [ ]    | D00 T01 §4 | Pre-commit hook and clone setup          | none                  | 4     |
-| [ ]    | D00 T01 §5 | Scheduled automations for this repo      | none                  | 4     |
-| [ ]    | D00 T01 §6 | Gates: weakening scan and native checks  | none                  | 4     |
-| [ ]    | D00 T01 §7 | Private GitHub repo and CI               | none                  | 4     |
-| [ ]    | D00 T01 §8 | Run guard state in linked worktrees      | none                  | 4     |
-| [ ]    | D00 T01 §9 | Register scheduled tasks on this machine | attended              | 3     |
-| [ ]    | D00 T02 §1 | Solution, props and empty projects       | none                  | 5     |
-| [ ]    | D00 T02 §2 | Add .NET to the gates                    | none                  | 3     |
-| [ ]    | D00 T02 §3 | Move the SDK pin to the .NET 11 release  | third-party, attended | 4     |
+| Status | Reference   | Deliverable                                            | Needs       | Items |
+| ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
+| [ ]    | D00 T01 §1  | Review-in-flight marks for the guard                   | none        | 4     |
+| [ ]    | D00 T01 §2  | Settled items in review prompts                        | none        | 4     |
+| [ ]    | D00 T01 §3  | Dispatch hook for background reviews                   | none        | 5     |
+| [ ]    | D00 T01 §8  | Run guard state in linked worktrees                    | none        | 4     |
+| [ ]    | D00 T03 §1  | CI status that proves the commit                       | none        | 6     |
+| [ ]    | D00 T03 §2  | One section disposition across graph, guard and skills | none        | 7     |
+| [ ]    | D00 T03 §3  | Review repair cycles and parking                       | none        | 9     |
+| [ ]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none        | 6     |
+| [ ]    | D00 T03 §5  | Usage limits wait and resume                           | none        | 6     |
+| [ ]    | D00 T03 §6  | Run end states and wake checks                         | none        | 8     |
+| [ ]    | D00 T03 §7  | Owned session recovery                                 | none        | 6     |
+| [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
+| [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 5     |
+| [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 7     |
+| [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
+| [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
+| [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                | none        | 4     |
+| [ ]    | D00 T01 §7  | Private GitHub repo and CI                             | none        | 4     |
+| [ ]    | D00 T01 §9  | Register scheduled tasks on this machine               | none        | 3     |
+| [ ]    | D00 T02 §1  | Solution, props and empty projects                     | none        | 5     |
+| [ ]    | D00 T02 §2  | Add .NET to the gates                                  | none        | 3     |
+| [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                | third-party | 4     |
 
 ### Phase 1: Core data contract
 
@@ -39,128 +49,148 @@ Sections: 5 | Checklist items: 21
 
 ### Phase 2: Shell and brand
 
-Sections: 24 | Checklist items: 131
+Sections: 25 | Checklist items: 152
 
-| Status | Reference   | Deliverable                                 | Needs                         | Items |
-| ------ | ----------- | ------------------------------------------- | ----------------------------- | ----- |
-| [ ]    | D02 T01 §1  | Generate the theme from tokens              | none                          | 4     |
-| [ ]    | D02 T01 §2  | Contrast and stray colour tests             | none                          | 3     |
-| [ ]    | D02 T01 §3  | Icon generator and ICO                      | none                          | 5     |
-| [ ]    | D02 T02 §3  | Process runner                              | none                          | 4     |
-| [ ]    | D02 T02 §8  | Pollers that stop when nothing is looking   | none                          | 3     |
-| [ ]    | D02 T02 §9  | Off-screen page rendering for review        | none                          | 4     |
-| [ ]    | D02 T01 §4  | Control templates                           | none                          | 4     |
-| [ ]    | D02 T02 §1  | Startup, single instance and crash handling | none                          | 4     |
-| [ ]    | D02 T02 §2  | View model base and accessibility helpers   | none                          | 4     |
-| [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none                          | 4     |
-| [ ]    | D02 T02 §5  | Settings store and theme switching          | none                          | 4     |
-| [ ]    | D02 T02 §6  | Repo registry and capability probe          | none                          | 7     |
-| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none                          | 4     |
-| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session               | 3     |
-| [ ]    | D02 T02 §11 | Workflow repo selector                      | none                          | 9     |
-| [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none                          | 8     |
-| [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | windows-host, display-session | 9     |
-| [ ]    | D02 T03 §3  | Lucide icon map and rail marker             | none                          | 6     |
-| [ ]    | D02 T03 §4  | Status pill and segmented control           | none                          | 7     |
-| [ ]    | D02 T03 §5  | Gauge, sparkline and stacked bar            | none                          | 8     |
-| [ ]    | D02 T03 §6  | Queue slot and heartbeat visuals            | none                          | 5     |
-| [ ]    | D02 T03 §7  | Skeleton and page transitions               | none                          | 6     |
-| [ ]    | D02 T03 §8  | Command palette                             | none                          | 8     |
-| [ ]    | D02 T03 §9  | In-window toasts                            | none                          | 8     |
+| Status | Reference   | Deliverable                                 | Needs           | Items |
+| ------ | ----------- | ------------------------------------------- | --------------- | ----- |
+| [ ]    | D02 T01 §1  | Generate the theme from tokens              | none            | 4     |
+| [ ]    | D02 T01 §2  | Contrast and stray colour tests             | none            | 3     |
+| [ ]    | D02 T01 §3  | Icon generator and ICO                      | none            | 5     |
+| [ ]    | D02 T02 §3  | Process runner                              | none            | 4     |
+| [ ]    | D02 T02 §8  | Pollers that stop when nothing is looking   | none            | 4     |
+| [ ]    | D02 T02 §9  | Off-screen page rendering for review        | none            | 4     |
+| [ ]    | D02 T01 §4  | Control templates                           | none            | 4     |
+| [ ]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 4     |
+| [ ]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 4     |
+| [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 10    |
+| [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 5     |
+| [ ]    | D02 T02 §6  | Repo registry and capability probe          | none            | 7     |
+| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 5     |
+| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 3     |
+| [ ]    | D02 T02 §11 | Workflow repo selector                      | display-session | 9     |
+| [ ]    | D02 T02 §12 | Project folders on both sides               | none            | 8     |
+| [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none            | 8     |
+| [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | display-session | 9     |
+| [ ]    | D02 T03 §3  | Lucide icon map and rail marker             | display-session | 6     |
+| [ ]    | D02 T03 §4  | Status pill and segmented control           | display-session | 7     |
+| [ ]    | D02 T03 §5  | Gauge, sparkline and stacked bar            | display-session | 8     |
+| [ ]    | D02 T03 §6  | Queue slot and heartbeat visuals            | none            | 5     |
+| [ ]    | D02 T03 §7  | Skeleton and page transitions               | none            | 10    |
+| [ ]    | D02 T03 §8  | Command palette                             | display-session | 8     |
+| [ ]    | D02 T03 §9  | In-window toasts                            | display-session | 8     |
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 30
+Sections: 8 | Checklist items: 37
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1 | Memory readers                        | none  | 3     |
-| [ ]    | D03 T01 §2 | Memory page                           | none  | 3     |
-| [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 4     |
+| [ ]    | D03 T01 §2 | Memory page                           | none  | 4     |
+| [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 4     |
 | [ ]    | D03 T02 §1 | Instance scanner                      | none  | 4     |
-| [ ]    | D03 T02 §2 | Instances page                        | none  | 4     |
+| [ ]    | D03 T02 §2 | Instances page                        | none  | 5     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 4     |
-| [ ]    | D03 T01 §5 | Overview page                         | none  | 4     |
+| [ ]    | D03 T01 §5 | Overview page                         | none  | 7     |
 
 ### Phase 4: Workflow
 
-Sections: 15 | Checklist items: 54
+Sections: 18 | Checklist items: 88
 
-| Status | Reference  | Deliverable                        | Needs | Items |
-| ------ | ---------- | ---------------------------------- | ----- | ----- |
-| [ ]    | D04 T01 §1 | Workflow client                    | none  | 5     |
-| [ ]    | D04 T01 §2 | Plan board                         | none  | 4     |
-| [ ]    | D04 T01 §3 | Section detail                     | none  | 3     |
-| [ ]    | D04 T01 §4 | Dependency graph view              | none  | 3     |
-| [ ]    | D04 T01 §5 | Findings and deferred tabs         | none  | 3     |
-| [ ]    | D04 T02 §1 | Pin and review-in-flight           | none  | 3     |
-| [ ]    | D04 T02 §2 | Rounds and receipts                | none  | 4     |
-| [ ]    | D04 T03 §1 | status --json for the guard        | none  | 3     |
-| [ ]    | D04 T03 §2 | Run page: state and health         | none  | 4     |
-| [ ]    | D04 T03 §3 | Start, stop and halt               | none  | 4     |
-| [ ]    | D04 T03 §4 | Guard log and resumed session tail | none  | 3     |
-| [ ]    | D04 T03 §5 | Run notifications                  | none  | 3     |
-| [ ]    | D04 T04 §1 | Hooks inspector                    | none  | 4     |
-| [ ]    | D04 T04 §2 | Automations panel                  | none  | 5     |
-| [ ]    | D04 T04 §3 | Fleet page                         | none  | 3     |
+| Status | Reference  | Deliverable                        | Needs           | Items |
+| ------ | ---------- | ---------------------------------- | --------------- | ----- |
+| [ ]    | D04 T01 §1 | Workflow client                    | none            | 5     |
+| [ ]    | D04 T01 §2 | Plan board                         | none            | 4     |
+| [ ]    | D04 T01 §3 | Section detail                     | none            | 3     |
+| [ ]    | D04 T01 §4 | Dependency graph view              | none            | 3     |
+| [ ]    | D04 T01 §5 | Findings and deferred tabs         | none            | 3     |
+| [ ]    | D04 T02 §1 | Pin and live review                | none            | 4     |
+| [ ]    | D04 T02 §2 | Rounds and receipts                | none            | 4     |
+| [ ]    | D04 T03 §1 | status --json for the guard        | none            | 4     |
+| [ ]    | D04 T03 §2 | Run page: state and health         | none            | 5     |
+| [ ]    | D04 T03 §3 | Start, stop and halt               | display-session | 5     |
+| [ ]    | D04 T03 §4 | Guard log and resumed session tail | none            | 4     |
+| [ ]    | D04 T03 §5 | Run notifications                  | none            | 3     |
+| [ ]    | D04 T03 §6 | Fleet supervisor in the logger     | none            | 8     |
+| [ ]    | D04 T03 §7 | Move repos to the supervisor       | none            | 6     |
+| [ ]    | D04 T03 §8 | Commands card and terminal launch  | display-session | 10    |
+| [ ]    | D04 T04 §1 | Hooks inspector                    | none            | 5     |
+| [ ]    | D04 T04 §2 | Automations panel                  | none            | 8     |
+| [ ]    | D04 T04 §3 | Fleet page                         | none            | 4     |
 
 ### Phase 5: Agents and machine
 
-Sections: 10 | Checklist items: 36
+Sections: 10 | Checklist items: 42
 
-| Status | Reference  | Deliverable                                     | Needs          | Items |
-| ------ | ---------- | ----------------------------------------------- | -------------- | ----- |
-| [ ]    | D05 T01 §1 | Agent catalog                                   | none           | 4     |
-| [ ]    | D05 T01 §2 | Agents page and updates                         | none           | 4     |
-| [ ]    | D05 T01 §3 | Scheduled update check                          | none           | 4     |
-| [ ]    | D05 T01 §4 | Configuration checks                            | none           | 3     |
-| [ ]    | D05 T02 §1 | Diagnostics                                     | none           | 3     |
-| [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none           | 4     |
-| [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none           | 4     |
-| [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender       | none           | 3     |
-| [ ]    | D05 T02 §5 | Pressure monitor and background memory priority | owner-decision | 4     |
-| [ ]    | D05 T02 §6 | Parking idle repos                              | owner-decision | 3     |
+| Status | Reference  | Deliverable                                     | Needs | Items |
+| ------ | ---------- | ----------------------------------------------- | ----- | ----- |
+| [ ]    | D05 T01 §1 | Agent catalog                                   | none  | 4     |
+| [ ]    | D05 T01 §2 | Agents page and updates                         | none  | 5     |
+| [ ]    | D05 T01 §3 | Scheduled update check                          | none  | 4     |
+| [ ]    | D05 T01 §4 | Configuration checks                            | none  | 4     |
+| [ ]    | D05 T02 §1 | Diagnostics                                     | none  | 3     |
+| [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none  | 4     |
+| [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none  | 6     |
+| [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender       | none  | 3     |
+| [ ]    | D05 T02 §5 | Pressure monitor and background memory priority | none  | 6     |
+| [ ]    | D05 T02 §6 | Parking idle repos                              | none  | 3     |
 
 ### Phase 6: Claude API
 
-Sections: 8 | Checklist items: 37
+Sections: 23 | Checklist items: 116
 
-| Status | Reference  | Deliverable                   | Needs    | Items |
-| ------ | ---------- | ----------------------------- | -------- | ----- |
-| [ ]    | D06 T01 §1 | DPAPI key store               | none     | 4     |
-| [ ]    | D06 T01 §2 | Import the key from 1Password | attended | 5     |
-| [ ]    | D06 T01 §3 | Client and model list         | none     | 4     |
-| [ ]    | D06 T01 §4 | Usage ledger and price table  | none     | 4     |
-| [ ]    | D06 T01 §5 | Hard spend caps               | none     | 4     |
-| [ ]    | D06 T01 §6 | Workbench: Ask mode           | none     | 5     |
-| [ ]    | D06 T01 §7 | Overflow agent runs           | none     | 7     |
-| [ ]    | D06 T01 §8 | Usage page                    | none     | 4     |
+| Status | Reference   | Deliverable                             | Needs           | Items |
+| ------ | ----------- | --------------------------------------- | --------------- | ----- |
+| [ ]    | D06 T01 §1  | Key store in Windows Credential Manager | none            | 5     |
+| [ ]    | D06 T01 §2  | Optional import from 1Password          | none            | 5     |
+| [ ]    | D06 T01 §3  | Client and model list                   | none            | 6     |
+| [ ]    | D06 T01 §4  | Usage ledger and price table            | none            | 4     |
+| [ ]    | D06 T01 §5  | Hard spend caps                         | none            | 4     |
+| [ ]    | D06 T01 §6  | Workbench: Ask mode                     | none            | 8     |
+| [ ]    | D06 T01 §7  | Overflow agent runs                     | none            | 8     |
+| [ ]    | D06 T01 §8  | Usage page                              | none            | 6     |
+| [ ]    | D06 T01 §9  | OpenAI client and model list            | none            | 4     |
+| [ ]    | D06 T01 §10 | OpenAI prices and ledger                | none            | 4     |
+| [ ]    | D06 T01 §11 | Spend guard across providers            | none            | 3     |
+| [ ]    | D06 T01 §12 | Workbench Ask on OpenAI                 | none            | 4     |
+| [ ]    | D06 T01 §13 | Overflow agent runs on Codex            | none            | 8     |
+| [ ]    | D06 T02 §1  | Evidence bundles and redaction          | none            | 6     |
+| [ ]    | D06 T02 §2  | Send preview and consent                | display-session | 5     |
+| [ ]    | D06 T02 §3  | Insight service and cited answers       | none            | 6     |
+| [ ]    | D06 T02 §4  | Provider and model selection            | display-session | 5     |
+| [ ]    | D06 T02 §5  | Explain this failure                    | display-session | 4     |
+| [ ]    | D06 T02 §6  | Overnight briefing                      | display-session | 4     |
+| [ ]    | D06 T02 §7  | Memory advisor                          | display-session | 4     |
+| [ ]    | D06 T02 §8  | Finding patterns                        | display-session | 4     |
+| [ ]    | D06 T02 §9  | Plan drafts                             | display-session | 5     |
+| [ ]    | D06 T02 §10 | Second opinion on a stuck section       | display-session | 4     |
 
 ### Phase 7: Release
 
-Sections: 6 | Checklist items: 25
+Sections: 6 | Checklist items: 27
 
-| Status | Reference  | Deliverable                      | Needs          | Items |
-| ------ | ---------- | -------------------------------- | -------------- | ----- |
-| [ ]    | D07 T01 §1 | Publish and install              | none           | 6     |
-| [ ]    | D07 T01 §2 | Signing status                   | owner-decision | 3     |
-| [ ]    | D07 T01 §3 | Uninstall                        | none           | 4     |
-| [ ]    | D07 T01 §4 | Keyboard and accessibility audit | none           | 3     |
-| [ ]    | D07 T01 §5 | Performance budget               | none           | 4     |
-| [ ]    | D07 T01 §6 | Documentation                    | none           | 5     |
+| Status | Reference  | Deliverable                      | Needs | Items |
+| ------ | ---------- | -------------------------------- | ----- | ----- |
+| [ ]    | D07 T01 §1 | Publish and install              | none  | 8     |
+| [ ]    | D07 T01 §2 | Signing status                   | none  | 3     |
+| [ ]    | D07 T01 §3 | Uninstall                        | none  | 4     |
+| [ ]    | D07 T01 §4 | Keyboard and accessibility audit | none  | 3     |
+| [ ]    | D07 T01 §5 | Performance budget               | none  | 4     |
+| [ ]    | D07 T01 §6 | Documentation                    | none  | 5     |
 
 ### Phase 99: Manual, operator only
 
-Sections: 4 | Checklist items: 18
+Sections: 5 | Checklist items: 28
 
 | Status | Reference  | Deliverable                            | Needs                    | Items |
 | ------ | ---------- | -------------------------------------- | ------------------------ | ----- |
 | [ ]    | D99 T01 §1 | Enable XMP in the BIOS                 | operator, attended       | 3     |
 | [ ]    | D99 T01 §2 | Decide on 64 GB of RAM                 | operator, owner-decision | 3     |
-| [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 3     |
-| [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 9     |
+| [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 4     |
+| [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
+| [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 0/92 verified sections, 4 ready to run now.
+Progress: 0/122 verified sections, 5 ready to run now.
 
-Checklist: 1/400 items completed (includes Commit items).
+Checklist: 1/624 items completed (includes Commit items).

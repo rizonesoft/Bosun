@@ -22,13 +22,19 @@ title: "TODO-03 -- Unattended run page"
 - -> XREF: D02 T03 §6 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
 - -> XREF: D02 T02 §11 -- consumed by this file
+- -> XREF: D02 T02 §4 -- consumed by this file
+- -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D06 T02 §5 -- consumes this file
+- -> XREF: D01 T01 §5 -- consumed by this file
+- -> XREF: D02 T02 §6 -- consumed by this file
+- -> XREF: D07 T01 §5 -- consumes this file
 
 ## Outcome
 
 - The panel shows the same state as `run-guard.py status --json`.
 - Start refuses beside a live session, and halting records a ground.
 
-**Adjacency:** list=applicable; document=not-applicable (nothing carried); settings=not-applicable (none); reporting=applicable @ D04 T03 §2; notifications=applicable @ D04 T03 §5; permissions=applicable @ D04 T03 §3; audit=applicable @ D04 T03 §4; exchange=not-applicable (none); reverse=applicable @ D04 T03 §3
+**Adjacency:** list=applicable @ D04 T03 §2; document=not-applicable (nothing carried); settings=not-applicable (none); reporting=applicable @ D04 T03 §2; notifications=applicable @ D04 T03 §5; permissions=applicable @ D04 T03 §3; audit=applicable @ D04 T03 §4; exchange=not-applicable (none); reverse=applicable @ D04 T03 §3
 
 **Adjacency rationale:** Start's reverse is Stop. The guard stays the only owner of run state: the panel calls its commands and never writes `state.json`.
 
@@ -37,14 +43,17 @@ title: "TODO-03 -- Unattended run page"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | status --json for the guard | D04 T01 §1 | [ ] |
-| 2 | §2 | Run page: state and health | §1, D02 T02 §9, D02 T02 §11, D02 T03 §6, D02 T03 §7 | [ ] |
+| 2 | §2 | Run page: state and health | §1, D02 T02 §11, D02 T03 §6, D02 T03 §7, D03 T01 §5 | [ ] |
 | 3 | §3 | Start, stop and halt | §2 | [ ] |
 | 4 | §4 | Guard log and resumed session tail | §2 | [ ] |
 | 5 | §5 | Run notifications | §2, D03 T01 §5 | [ ] |
+| 6 | §6 | Fleet supervisor in the logger | §1, D01 T01 §5, D02 T02 §6 | [ ] |
+| 7 | §7 | Move repos to the supervisor | §6, §2 | [ ] |
+| 8 | §8 | Commands card and terminal launch | §3 | [ ] |
 
 ## 1. status --json for the guard
 
-Fix this at the guard, which owns the data, instead of parsing two formats. Resolute already has a `--json` form to borrow from.
+Fix this at the guard, which owns the data, instead of parsing two formats. Resolute's `todo-graph.py` query has a `--json` form to borrow the shape from.
 
 **Phase:** 4
 **Needs:** none
@@ -53,10 +62,11 @@ Fix this at the guard, which owns the data, instead of parsing two formats. Reso
 **Build order:**
 
 1. Add `--json` to `scripts/run-guard.py`. Done when: it prints one object with `schema_version`.
-2. Add a typed reader in `WorkflowClient`. Done when: all seven status words parse.
+2. Add a typed reader in `WorkflowClient`. Done when: every status word parses, old and new.
 
-- [ ] Emit status, session, counters and `health()` as one object, citing `R:\GitHub\Resolute\scripts\lib\run_guard.py:341`. Done when: `scripts/tests/test_run_guard.py` asserts the shape, and plain output is unchanged. Cheaper substitute: parsing the two-line output in C#.
-- [ ] Read it in `src/Bosun.Core/Workflow/RunClient.cs`. Done when: fixtures for active, stalled and expired parse.
+- [ ] Emit status, session, counters and `health()` as one object, citing `health()` at `R:\GitHub\Resolute\scripts\lib\run_guard.py:470`. Done when: `scripts/tests/test_run_guard.py` asserts the shape, and plain output is unchanged. Cheaper substitute: parsing the two-line output in C#.
+- [ ] Read it in `src/Bosun.Core/Workflow/RunClient.cs`. Done when: fixtures for active, stalled, expired, waiting, parked and complete parse with their reasons, and older kits' words still parse.
+- [ ] Read `RunClient` for the selected repo, running inside its distro for a WSL repo through `WorkflowClient`. Done when: a WSL fixture returns data, and a stopped distro shows "WSL not running" with no `wsl.exe` command run. Cheaper substitute: Windows repos only.
 - [ ] Commit: `guard: status --json`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if the change is reverted.
@@ -81,6 +91,7 @@ This shows the three catches separately (Stop hook, heartbeat, watchdog), becaus
 - [ ] Build cards per `design/SPEC.md` §8. Done when: a stale tick reads as Watchdog not ticking, with its age. Cheaper substitute: one overall green light.
 - [ ] Show the last API failure. Done when: a rate-limit record appears with its time.
 - [ ] Feed Runs on Overview and the title bar badge. Done when: they match the page in a test.
+- [ ] Implement `IRunsSource` and `IRunBadgeSource` from `RunClient` in `src/Bosun.Core/Workflow/RunSources.cs`. Done when: fixtures fill the Overview Runs table and the title bar badge.
 - [ ] Commit: `run: page with state and health`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunViewModel` exits 0, and fails if the change is reverted.
@@ -90,7 +101,7 @@ This shows the three catches separately (Stop hook, heartbeat, watchdog), becaus
 Starting has to happen in the same way a person would, so the guard's prompt detection and its session records all behave normally.
 
 **Phase:** 4
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §8.
 **Job:** start or end a run without remembering commands.
@@ -105,6 +116,7 @@ Starting has to happen in the same way a person would, so the guard's prompt det
 - [ ] Launch through `wt.exe -d <repo> claude "process plan"`, after checking for a live session. Done when: a live session refuses by name, and a missing `wt.exe` falls back to a console window with a notice. Cheaper substitute: spawning a hidden `claude -p`, which has no live view.
 - [ ] Add Stop at end of turn, and Halt with ground and required reason via `run-guard.py halt`. Done when: an empty reason is refused, and the recorded ground shows on the page. Cheaper substitute: writing `state.json` directly.
 - [ ] Add Install and Uninstall watchdog. Done when: state reads back from `health()`, and Activity logs each action.
+- [ ] Start a WSL repo's run through `wt.exe wsl.exe -d <distro> --cd <path> claude`, in `src/Bosun.Panel/Views/RunActions.cs`. Done when: an argument test keeps a spaced path whole.
 - [ ] Commit: `run: start, stop and halt`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunActions` exits 0, and fails if the change is reverted.
@@ -128,6 +140,7 @@ When a run stalls, the first question is what it last did.
 
 - [ ] Tail both files with a shared reader that handles rotation. Done when: a rotated file doesn't lose position or crash. Cheaper substitute: re-reading the whole file every refresh.
 - [ ] Add auto-scroll with pause. Done when: scrolling up pauses, and resume returns to the end.
+- [ ] Read the guard log tail for the selected repo, running inside its distro for a WSL repo through `WorkflowClient`. Done when: a WSL fixture returns data, and a stopped distro shows "WSL not running" with no `wsl.exe` command run. Cheaper substitute: Windows repos only.
 - [ ] Commit: `run: log tail`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunLogTail` exits 0, and fails if the change is reverted.
@@ -150,6 +163,86 @@ A stalled run at 3 a.m. should be waiting in the tray at breakfast, and the Over
 - [ ] Commit: `run: notifications`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RunWatch` exits 0, and fails if the change is reverted.
+
+## 6. Fleet supervisor in the logger
+
+Each repo has its own scheduled watchdog today, and none of them knows about the others, so ten repos could restart at once on a machine short of memory. The owner decided on 2026-11-07 that Bosun runs the schedule, while each repo keeps its run state, rules and hooks. It lives in `bosun-logger`, which runs from login, because the panel may be closed.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add a tick loop to `src/logger_main.cpp`. Done when: one tick runs each supervised repo's guard in turn.
+2. Add admission. Done when: a restart waits for room.
+
+- [ ] Read supervised repos from `%LOCALAPPDATA%\Bosun\supervised.json`, written by `RepoRegistry`, in `src/app.cpp`. Done when: a missing or corrupt file supervises nothing and logs one line, tested in `tests/test_core.cpp`. Cheaper substitute: scanning folders from the logger.
+- [ ] Run `run-guard.py watch` for each Windows repo in `src/app.cpp`, with an argument list, a timeout and no console window. Done when: `tests/supervisor_test.ps1` proves a fake guard in a temporary repo ticks, and a hung one is stopped without blocking the next.
+- [ ] Run a WSL repo's tick through `wsl.exe -d <distro> --cd <path>` with `python3`, only when `wsl.exe --list --running` shows the distro. Done when: `tests/supervisor_test.ps1` proves a stopped distro stays stopped, and that repo reads "WSL not running". Cheaper substitute: a tick that wakes the VM.
+- [ ] Pass admission to the guard through `run-guard.py watch --may-resume <0|1>`, from the queue's memory and slot state. Done when: `scripts/tests/test_run_guard.py` proves a dead run isn't resumed at 0, and no restart is counted. Cheaper substitute: restarting whenever a session is dead.
+- [ ] Resume at most one repo per tick, in the oldest-waiting order, in `src/app.cpp`. Done when: three dead repos resume across three ticks in a test.
+- [ ] Write each tick's outcome to `%LOCALAPPDATA%\Bosun\supervisor\status.json`, atomically. Done when: `bosun status --json` includes it with a `schema_version`.
+- [ ] Keep the logger under its idle budget with the tick loop running. Done when: `tests/panel_budget.ps1` measures no more than 1% CPU with 10 fake repos.
+- [ ] Commit: `supervisor: fleet ticks in the logger`
+
+**Test checkpoint:** `pwsh tests/supervisor_test.ps1` exits 0, and fails if a stopped distro is started.
+
+## 7. Move repos to the supervisor
+
+A repo must still work without Bosun, so its own watchdog stays available. It stands aside when Bosun supervises the repo, and a double tick can't resume twice.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §8 and §10.
+**Job:** see every repo's heartbeat in one place, and choose who supervises it.
+**Treatment:** a Supervised by word per repo, and Supervise with Bosun or Use the repo's own watchdog. Cheaper substitute that fails: two watchdogs fighting.
+**Chrome:** the Unattended run and Fleet pages.
+
+**Build order:**
+
+1. Add a tick lock to `scripts/lib/run_guard.py`. Done when: two ticks together resume once.
+2. Add the switch in `src/Bosun.Panel/Views/RunView.xaml`. Done when: moving a repo removes its own task and restores it on the way back.
+
+- [ ] Add a lock around `watch_tick` in `scripts/lib/run_guard.py`. Done when: `scripts/tests/test_run_guard.py` proves two concurrent ticks give one resume. Cheaper substitute: hoping the schedules don't overlap.
+- [ ] Add Supervised by to `health()` in `scripts/lib/run_guard.py`, reading Bosun's status file when present. Done when: a test proves a repo with no Bosun reads as its own watchdog, unchanged.
+- [ ] Add Supervise with Bosun in `RunView.xaml`, running that repo's `run-guard.py uninstall` and adding it to `supervised.json`, for one repo. Done when: a test with a fake repo moves it both ways. Cheaper substitute: removing tasks by hand.
+- [ ] Show every repo's supervisor, last tick and heartbeat age in `src/Bosun.Panel/Views/FleetView.xaml`. Done when: a fixture shows Windows and WSL rows with words.
+- [ ] Support a kit with no `--may-resume` in `RepoRegistry`'s `KitProbe`. Done when: such a repo reads "Not supported by this kit" and keeps its own watchdog.
+- [ ] Commit: `supervisor: move repos to Bosun`
+
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Supervise` exits 0, and fails if a repo ends up with both watchdogs.
+
+## 8. Commands card and terminal launch
+
+The owner wants the commands kept in one place, with a button to open a run in a new terminal: PowerShell on Windows, Bash in WSL. Commands run in a terminal the operator can see, so the panel never hides what a command does.
+
+**Phase:** 4
+**Needs:** display-session
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §8, Commands card.
+**Job:** start or inspect a run in one press, without remembering commands.
+**Treatment:** a card of commands with Copy and Open in terminal. Cheaper substitute that fails: a text file of commands.
+**Chrome:** the Unattended run page, with `Btn` and Lucide glyphs.
+
+**Build order:**
+
+1. Create `src/Bosun.Core/Workflow/TerminalLauncher.cs`. Done when: each side builds the right argument list.
+2. Add the card to `src/Bosun.Panel/Views/RunView.xaml`. Done when: built-in and stored commands open and copy.
+
+- [ ] Build `wt.exe -d <repo> pwsh -NoExit -Command <command>` for a Windows repo in `TerminalLauncher.cs`, as an argument list. Done when: `tests/Bosun.Core.Tests/TerminalLauncherTests.cs` keeps a spaced path and quotes whole. Cheaper substitute: one command string.
+- [ ] Build `wt.exe wsl.exe -d <distro> --cd <path> -- bash -lc <command>; exec bash` for a WSL repo in `TerminalLauncher.cs`. Done when: the test keeps a spaced path whole, and the shell stays open after the command.
+- [ ] Fall back to a console window with a notice when `wt.exe` is missing, in `TerminalLauncher.cs`. Done when: a test with no `wt.exe` opens `pwsh` or `wsl.exe` directly.
+- [ ] Add the built-in commands from the repo's capabilities in `RunView.xaml`: start the campaign with bypass mode, guard status, plan status, and preflight where the repo has it, using `python3` for a WSL repo. Done when: a fixture repo with no preflight doesn't list it, and a WSL fixture shows `python3`. Cheaper substitute: the same list for every kit.
+- [ ] Offer Start WSL before opening a terminal in a stopped distro. Done when: a test proves pressing Open in terminal is what starts it, and polling never does.
+- [ ] Add stored commands per repo in `panel.json`, with Add, Edit and Remove. Done when: a test reads them back, and a command on one repo doesn't show on another. Cheaper substitute: one global list.
+- [ ] Add Copy to each command. Done when: the clipboard holds the exact text in a test.
+- [ ] Warn when a stored command looks like it holds a secret, and still let the operator save it. Done when: a test with a planted token shows the notice, without blocking the save.
+- [ ] Log each launch to `ActivityLog.cs`, naming the repo and command. Done when: a test finds one line per press.
+- [ ] Commit: `run: commands card and terminal launch`
+
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~TerminalLauncher` exits 0, and fails if a spaced path splits.
 
 ## Verification
 

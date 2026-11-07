@@ -10,7 +10,7 @@ title: "TODO-01 -- Finish the agent kit"
 
 > **Goal:** This repo runs the newest review and run machinery from every sibling, tested here, so each later section is built and stamped through it.
 
-> **Current state:** Measured 2026-11-07. Steward's guard, dispatcher, graph and prompts were copied in on 2026-11-07 and the SDK kit seeded the rest. Recto's review-in-flight marks, settled items and dispatch hook, and Isotone's gates, are not yet ported. No GitHub remote exists.
+> **Current state:** Measured 2026-11-07. Steward's guard, dispatcher, graph and prompts were copied in on 2026-11-07 and the SDK kit seeded the rest. Recto's review-in-flight marks, settled items and dispatch hook, and Isotone's gates, are not yet ported. The private repo `rizonetech/Bosun` exists, `origin` is set, and `build.yml`, `plan.yml` and Dependabot run on `main`.
 
 ## Inputs
 
@@ -20,6 +20,7 @@ title: "TODO-01 -- Finish the agent kit"
 - -> XREF: D00 T02 §2 -- consumes this file
 - -> XREF: D04 T02 §1 -- consumes this file
 - -> XREF: D06 T01 §7 -- consumes this file
+- -> XREF: D00 T03 §10 -- consumed by this file
 
 ## Outcome
 
@@ -37,7 +38,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 1 | §1 | Review-in-flight marks for the guard | -- | [ ] |
 | 2 | §2 | Settled items in review prompts | §1 | [ ] |
 | 3 | §3 | Dispatch hook for background reviews | §1 | [ ] |
-| 4 | §4 | Pre-commit hook and clone setup | -- | [ ] |
+| 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [ ] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
@@ -175,11 +176,11 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 
 **Build order:**
 
-1. Create the private repo and push `main`, once answered. Done when: `git remote -v` shows it.
+1. Create the private repo and push `main`. Done when: `git remote -v` shows it.
 2. Add `.github/workflows/build.yml` and `plan.yml`, and port `merge_prs.py`. Done when: `ci_status.py` reports green.
 
 - [x] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
-- [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red.
+- [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red on a disposable pull request branch, closed afterwards. Actions stay on major tags, kept current by Dependabot.
 - [ ] Port `scripts/merge_prs.py` from `R:\GitHub\Recto\scripts` and add `bosun-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
 - [ ] Commit: `ci: private repo, workflows and merge task`
 
@@ -207,15 +208,15 @@ Overflow runs use linked worktrees, where `.git` is a file, so `scripts/lib/run_
 
 ## 9. Register scheduled tasks on this machine
 
-Registering tasks changes this machine, outside the repo, so a run leaves it for the operator.
+Registering this repo's own per-user tasks changes this machine, outside the repo. The owner cleared every waiting step for the unattended run on 2026-11-07.
 
 **Phase:** 0
-**Needs:** attended
+**Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Run the installer with the operator present. Done when: the tasks are registered.
+1. Run the installer. Done when: the tasks are registered.
 2. Run one task. Done when: its `last.json` exists.
 
 - [ ] Run `.conclave/automations/install.ps1`. Done when: `Get-ScheduledTask -TaskPath \Bosun\` lists the tasks, each running through `pythonw.exe`. Cheaper substitute: a task that opens a console window.

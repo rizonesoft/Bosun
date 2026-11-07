@@ -15,7 +15,7 @@ title: "TODO-02 -- Instances and queue"
 ## Inputs
 
 - `design/SPEC.md` §4, §5.
-- `scripts/lib/run_guard.py` `session_records`, the logger's attribution in `src/logger_main.cpp`.
+- `scripts/lib/run_guard.py` `session_records`, the logger's attribution in `src/core.hpp`.
 - -> XREF: D03 T01 §5 -- consumes this file
 - -> XREF: D01 T01 §3 -- consumed by this file
 - -> XREF: D02 T02 §3 -- consumed by this file
@@ -30,7 +30,7 @@ title: "TODO-02 -- Instances and queue"
 - An open Claude session on either side appears within a refresh.
 - Queue limits set in the panel govern real jobs.
 
-**Adjacency:** list=applicable; document=not-applicable (nothing carried); settings=applicable @ D03 T02 §3; reporting=applicable @ D03 T02 §3; notifications=not-applicable (none); permissions=applicable @ D03 T02 §2; audit=applicable @ D03 T02 §2; exchange=not-applicable (none); reverse=not-applicable (a stopped process is restarted by the operator)
+**Adjacency:** list=applicable @ D03 T02 §2; document=not-applicable (nothing carried); settings=applicable @ D03 T02 §3; reporting=applicable @ D03 T02 §3; notifications=not-applicable (none); permissions=applicable @ D03 T02 §2; audit=applicable @ D03 T02 §2; exchange=not-applicable (none); reverse=not-applicable (a stopped process is restarted by the operator)
 
 **Adjacency rationale:** Stop is the only destructive action, so it confirms, names its target and writes to Activity.
 
@@ -82,6 +82,7 @@ The direct answer to monitoring all the dev instances.
 - [ ] Build the table per `design/SPEC.md` §4. Done when: WSL down shows Windows rows and a notice.
 - [ ] Add Open folder and Open terminal here. Done when: a WSL row opens the right distro and path. Cheaper substitute: Windows paths passed to a WSL shell.
 - [ ] Add Stop: confirm, ask to close, then offer force. Done when: the prompt names process and repo, Activity records it, and a refusal to close doesn't kill. Cheaper substitute: killing immediately with no prompt.
+- [ ] Show a build job's queue slot on its row in `Views/InstancesView.xaml`, from `bosun status --json`. Done when: a fixture job shows "Slot 1".
 - [ ] Commit: `instances: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.

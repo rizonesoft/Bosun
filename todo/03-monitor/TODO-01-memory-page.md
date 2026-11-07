@@ -23,13 +23,18 @@ title: "TODO-01 -- Memory and overview"
 - -> XREF: D05 T01 §3 -- consumes this file
 - -> XREF: D02 T03 §5 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D02 T02 §4 -- consumed by this file
+- -> XREF: D04 T01 §5 -- consumes this file
+- -> XREF: D04 T04 §2 -- consumes this file
+- -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D06 T02 §5 -- consumes this file
 
 ## Outcome
 
 - The Memory page shows live data and history from `D01 T01` JSON.
 - A pressure toast fires below the configured floor, once per episode.
 
-**Adjacency:** list=applicable; document=not-applicable (nothing carried); settings=applicable @ D03 T01 §4; reporting=applicable @ D03 T01 §3; notifications=applicable @ D03 T01 §4; permissions=not-applicable (per-user); audit=not-applicable (read-only); exchange=not-applicable (CSV logs are already files); reverse=not-applicable (read-only)
+**Adjacency:** list=applicable @ D03 T01 §2; document=not-applicable (nothing carried); settings=applicable @ D03 T01 §4; reporting=applicable @ D03 T01 §3; notifications=applicable @ D03 T01 §4; permissions=not-applicable (per-user); audit=not-applicable (read-only); exchange=not-applicable (CSV logs are already files); reverse=not-applicable (read-only)
 
 **Adjacency rationale:** Read-only pages over logged data, with one tunable threshold.
 
@@ -81,6 +86,7 @@ This is the question the whole project exists to answer.
 
 - [ ] Build the Windows used, WSL VM and Overlapping builds cards per `design/SPEC.md` §3. Done when: values match `bosun status --json` within a refresh. Cheaper substitute: mock numbers left in the view model.
 - [ ] Build the sortable by-repo table. Done when: sorting by peak puts the highest first, with tabular numbers.
+- [ ] Add a Side column to the by-repo table in `Views/MemoryView.xaml`. Done when: a fixture shows a Windows and a WSL repo with their words.
 - [ ] Commit: `memory: page with live cards and repo table`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryViewModel` exits 0, and fails if the change is reverted.
@@ -105,6 +111,8 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 - [ ] Draw with a `DrawingVisual` and no chart dependency. Done when: 14 days of minute data draws in under 50 ms, in a test. Cheaper substitute: adding a charting package.
 - [ ] Add Show as table, and an automation summary of the lowest point. Done when: a screen reader string names lowest value and time.
 - [ ] Build the Decision card from `report --json`, stating days logged. Done when: under 7 days says so and gives no recommendation. Cheaper substitute: recommending from too little data.
+- [ ] Add the 24 hours, 7 days and 14 days `SegmentedControl` to `Views/MemoryView.xaml`. Done when: each range changes the data, and the table shows the same points.
+- [ ] Draw the pressure line from `PanelSettings` in `Controls/SeriesChart.cs`. Done when: a threshold change moves the line with no restart.
 - [ ] Commit: `memory: history chart and decision card`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SeriesChart` exits 0, and fails if the change is reverted.
@@ -149,6 +157,9 @@ This is what opens first. It only assembles other pages' state, so it is built a
 - [ ] Build the four metric cards per `design/SPEC.md` §2. Done when: they match their pages in a test using shared fakes.
 - [ ] Define `INeedsYouSource` in `src/Bosun.Core`, implemented by each page's owner. Done when: each later page adds rows without changing Overview. Cheaper substitute: Overview querying tools itself.
 - [ ] Build the empty state. Done when: with nothing pending, it says "Nothing needs you."
+- [ ] Build the Needs you table with state word, what, where and Open in `Views/OverviewView.xaml`. Done when: Open goes to the owning page.
+- [ ] Define `IRunsSource` in `src/Bosun.Core` and build the Runs table with repo, state, ready, verified and heartbeat. Done when: a fake source fills it. `D04 T03 §2` implements the source.
+- [ ] Feed rail count badges from `INeedsYouSource` by page in `src/Bosun.Panel/Shell/MainViewModel.cs`. Done when: a fake row on Plan shows a count of 1 on that rail row.
 - [ ] Commit: `overview: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.

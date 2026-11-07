@@ -114,7 +114,7 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 1. Port `Controls.xaml` to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: every style resolves in both themes.
 2. Add the missing `Btn.Small` and focus visuals. Done when: keyboard focus is visible on all controls.
 
-- [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `R:\GitHub\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
+- [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `Btn.Chrome`, `LogBox`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `R:\GitHub\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
 - [ ] Add `FocusVisualStyle` and a 32 px minimum height for every interactive control. Done when: a test walks the styles and asserts both.
 - [ ] Add `DataGrid` styling with tabular numbers for the panel's many tables. Done when: an off-screen render of a table shows it in both themes.
 - [ ] Commit: `theme: control templates`

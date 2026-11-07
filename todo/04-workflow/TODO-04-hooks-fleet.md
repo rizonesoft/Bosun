@@ -22,13 +22,14 @@ title: "TODO-04 -- Hooks, automations and fleet"
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
 - -> XREF: D02 T02 §11 -- consumed by this file
+- -> XREF: D03 T01 §5 -- consumed by this file
 
 ## Outcome
 
 - Hooks are listed with their source and whether their script exists.
 - Fleet shows each repo's generation from probes, read-only.
 
-**Adjacency:** list=applicable; document=not-applicable (none); settings=not-applicable (settings files stay owned by Claude Code); reporting=applicable @ D04 T04 §3; notifications=applicable @ D04 T04 §2; permissions=not-applicable (per-user); audit=applicable @ D04 T04 §2; exchange=not-applicable (none); reverse=applicable @ D04 T04 §2
+**Adjacency:** list=applicable @ D04 T04 §1; document=not-applicable (none); settings=not-applicable (settings files stay owned by Claude Code); reporting=applicable @ D04 T04 §3; notifications=applicable @ D04 T04 §2; permissions=not-applicable (per-user); audit=applicable @ D04 T04 §2; exchange=not-applicable (none); reverse=applicable @ D04 T04 §2
 
 **Adjacency rationale:** The panel shows hooks but does not edit them. Fleet reports drift but never copies files, because the SDK's rule is that a project owns its copy.
 
@@ -37,7 +38,7 @@ title: "TODO-04 -- Hooks, automations and fleet"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Hooks inspector | D04 T01 §1, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
-| 2 | §2 | Automations panel | §1 | [ ] |
+| 2 | §2 | Automations panel | §1, D03 T01 §5 | [ ] |
 | 3 | §3 | Fleet page | §1, D02 T02 §6 | [ ] |
 
 ## 1. Hooks inspector
@@ -60,6 +61,7 @@ Hooks fail silently when a path moves. This merges all sources and proves each s
 - [ ] Read each settings file, resolving `$CLAUDE_PROJECT_DIR`. Done when: a fixture with a missing script reads Script missing. Cheaper substitute: printing `env` values from settings.
 - [ ] Add Test only for hooks known to isolate their state, starting with `run-guard.py hook` under `RUN_GUARD_STATE` pointed at a temporary file. Any other hook, including `campaign_guard.py`, shows Test not available with the reason. Done when: the live state file doesn't change, proven by a test, and a Recto fixture's Test is refused. Cheaper substitute: firing an unknown hook, whose side effects the panel can't know, against a live repo.
 - [ ] Build the table per `design/SPEC.md` §9. Done when: each row names its source file.
+- [ ] Read `HookInspector` for the selected repo, running inside its distro for a WSL repo through `WorkflowClient`. Done when: a WSL fixture returns data, and a stopped distro shows "WSL not running" with no `wsl.exe` command run. Cheaper substitute: Windows repos only.
 - [ ] Commit: `hooks: inspector`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~HookInspector` exits 0, and fails if the change is reverted.
@@ -85,6 +87,9 @@ Hooks fail silently when a path moves. This merges all sources and proves each s
 - [ ] Run `run.py <name>` for Run now. Done when: the result updates, and it runs through the task's own wrapper.
 - [ ] Add `-Task <name>` to `.conclave/automations/install.ps1` and call it for Install and Remove. A repo whose installer lacks it shows those two actions unavailable, with the reason. Done when: one task appears and disappears, the others are untouched, and Activity logs both. Cheaper substitute: `-Uninstall`, which removes every task in the folder.
 - [ ] Add failed automations to Needs you. Done when: exit 1 appears on Overview.
+- [ ] Read the automations table for the selected repo, running inside its distro for a WSL repo through `WorkflowClient`. Done when: a WSL fixture returns data, and a stopped distro shows "WSL not running" with no `wsl.exe` command run. Cheaper substitute: Windows repos only.
+- [ ] Add Open log to each automation row in `Views/HooksView.xaml`. Done when: a fixture opens the task's log, and a missing log says so.
+- [ ] Raise the automation failed tray notification from `AutomationClient`. Done when: a fixture with a failed `last.json` notifies once per failure.
 - [ ] Commit: `automations: panel`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AutomationClient` exits 0, and fails if the change is reverted.
@@ -108,6 +113,7 @@ This is how "the latest and the best of all of them" stays true: drift becomes v
 
 - [ ] Read each repo's generation from the files, recording features rather than hashes where the copies are adapted. Done when: fixtures for Steward, Recto, Isotone and this repo classify as expected. Cheaper substitute: byte comparison, which calls every adapted copy drifted.
 - [ ] Build the read-only table per `design/SPEC.md` §10, linking each cell to its source file. Done when: no control writes into another repo, proven by a test of the view model's commands. Cheaper substitute: a one-click sync that overwrites a repo's owned copy.
+- [ ] Add a remaining ports column to `Views/FleetView.xaml`. Done when: a fixture's count matches its source file link.
 - [ ] Commit: `fleet: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Fleet` exits 0, and fails if the change is reverted.

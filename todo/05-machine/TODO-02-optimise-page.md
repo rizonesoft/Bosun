@@ -21,13 +21,14 @@ title: "TODO-02 -- Optimise"
 - -> XREF: D07 T01 §4 -- consumes this file
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D99 T01 §5 -- consumed by this file
 
 ## Outcome
 
 - Earlier changes appear as Applied with an undo.
 - Nothing changes without a preview and a read-back.
 
-**Adjacency:** list=applicable; document=not-applicable (none); settings=applicable @ D05 T02 §3; reporting=not-applicable (none); notifications=not-applicable (none); permissions=applicable @ D05 T02 §2; audit=applicable @ D05 T02 §2; exchange=not-applicable (none); reverse=applicable @ D05 T02 §2
+**Adjacency:** list=applicable @ D05 T02 §3; document=not-applicable (none); settings=applicable @ D05 T02 §5; reporting=not-applicable (none); notifications=not-applicable (none); permissions=applicable @ D05 T02 §2; audit=applicable @ D05 T02 §2; exchange=not-applicable (none); reverse=applicable @ D05 T02 §2
 
 **Adjacency rationale:** The framework enforces reverse: an item without an undo can't be applied, only described.
 
@@ -37,7 +38,7 @@ title: "TODO-02 -- Optimise"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Diagnostics | D02 T02 §3 | [ ] |
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [ ] |
-| 3 | §3 | Optimise page, WSL cap and startup entries | §2, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [ ] |
+| 3 | §3 | Optimise page, WSL cap and startup entries | §2, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor and background memory priority | §2 | [ ] |
 | 6 | §6 | Parking idle repos | §3, D03 T02 §2 | [ ] |
@@ -75,7 +76,7 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 2. Add per-action elevation. Done when: only that action prompts UAC.
 
 - [ ] Define Preview, Apply, Verify and Undo in `src/Bosun.Core/Optimise/IOptimisation.cs`, with backups in `%LOCALAPPDATA%\Bosun\backups\`. Done when: a failing verify automatically offers undo, and Activity logs each step. Cheaper substitute: applying and hoping.
-- [ ] Run elevated steps through `runas` with one fixed command, not a general elevated helper. Done when: a refused UAC prompt leaves no change. Cheaper substitute: elevating the whole panel.
+- [ ] Run elevated steps through `runas` with one fixed command, not a general elevated helper, behind an `IElevation` seam. Done when: a faked refusal leaves no change in a test. A real UAC prompt is proven in `D99 T01 §5`. Cheaper substitute: elevating the whole panel.
 - [ ] Show Discord, Creative Cloud and pagefile as Applied, recording the current values as their baseline. Done when: the original values, where unknown, say so instead of being invented. Cheaper substitute: claiming a backup exists from the old session.
 - [ ] Commit: `optimise: change framework`
 
@@ -100,7 +101,9 @@ The first real items, chosen because they are the ones this machine has already 
 
 - [ ] Build the table per `design/SPEC.md` §12. Done when: items for the operator show instructions, like XMP. Cheaper substitute: an Apply button for a BIOS setting.
 - [ ] Edit `.wslconfig` preserving all other keys and comments. Done when: a fixture keeps unrelated content byte for byte, and a running WSL gets a restart notice with no forced shutdown. Cheaper substitute: rewriting the file from a template, or running `wsl --shutdown` unasked.
-- [ ] Toggle Run key entries with a saved copy. Done when: undo restores the exact value.
+- [ ] Toggle Run key entries with a saved copy, tested against a disposable key under `HKCU\Software\Bosun\Test`. Done when: undo restores the exact value, and the real Run key is untouched by tests.
+- [ ] Add per-row Preview, Apply, Verify and Undo buttons in `Views/OptimiseView.xaml`. Done when: Apply is disabled until Preview has run, and a test walks all four against a disposable target. Cheaper substitute: one Apply button.
+- [ ] Show what a waiting row waits for and until when, in `Views/OptimiseView.xaml`. Done when: a fixture row reads its date in words.
 - [ ] Commit: `optimise: page, WSL cap, startup entries`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~OptimisePage` exits 0, and fails if the change is reverted.
@@ -126,30 +129,32 @@ These are later speedups rather than memory fixes, so they are reported, not pus
 
 ## 5. Pressure monitor and background memory priority
 
-Earlier design left these waiting for real peaks. The thresholds must come from logged data, so a run can't take this section until the operator answers.
+Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 to build it now with automatic action off, so nothing acts until they set thresholds from `bosun report --days 7`, possible from 2026-11-14.
 
 **Phase:** 5
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Record thresholds from `bosun report --days 7`, once answered. Done when: the answer is in the section.
+1. Add thresholds and an off switch to `src/Bosun.Core/PanelSettings.cs`. Done when: automatic action is off by default and reads back.
 2. Add the monitor. Done when: `MemoryHigh` lowers under pressure, and memory priority applies to named background apps.
 
 - [ ] Measure how quickly WSL returns memory, from the logs and a controlled test. Done when: the measured figure is recorded in `docs/specs/2026-11-07-bosun-design.md`. Cheaper substitute: picking thresholds from memory.
-- [ ] Lower the live `user.slice` `MemoryHigh` in `wsl/bosun_log.py` under pressure, restoring it after. Done when: a controlled test shows it lowered and restored. Cheaper substitute: killing work under pressure.
+- [ ] Lower the live `user.slice` `MemoryHigh` in `wsl/bosun_log.py` under pressure, restoring it after. Done when: a controlled test on a disposable slice shows it lowered and restored. Cheaper substitute: killing work under pressure.
 - [ ] Set low memory priority through `SetProcessInformation` for operator-listed apps. Done when: the priority reads back, and nothing is killed or trimmed. Cheaper substitute: a working-set cleaner, rejected in the design.
+- [ ] Add the pressure thresholds and listed apps to Settings, with `PanelSettings` as store, warning below the 6 GB queue floor by default. Done when: a test reads them back, and no action runs while the switch is off. Cheaper substitute: thresholds set in code.
+- [ ] Keep the listed apps in `PanelSettings` empty by default. Done when: a fresh install lowers the priority of nothing.
 - [ ] Commit: `machine: pressure monitor and memory priority`
 
 **Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe pressure` exits 0, and fails if the change is reverted.
 
 ## 6. Parking idle repos
 
-One action that stops an idle repo's dev servers and databases, also from the earlier design, and also waiting for evidence that it would help.
+One action that stops an idle repo's dev servers and databases, also from the earlier design. The owner chose on 2026-11-07 to build it with an empty list, so nothing can be parked until they add a repo.
 
 **Phase:** 5
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §4.
 **Job:** free memory held by a repo that isn't being worked on, and bring it back.
@@ -158,7 +163,7 @@ One action that stops an idle repo's dev servers and databases, also from the ea
 
 **Build order:**
 
-1. Define what can be parked per repo, once answered. Done when: the list is per repo and explicit.
+1. Add per-repo park commands, empty by default. Done when: the list is per repo and explicit.
 2. Add the action. Done when: park and resume round-trip.
 
 - [ ] Record per-repo park commands in `panel.json`, with `D03 T02 §1` attribution. Done when: nothing is parked that isn't listed. Cheaper substitute: guessing services by name.
@@ -170,4 +175,4 @@ One action that stops an idle repo's dev servers and databases, also from the ea
 ## Verification
 
 - `dotnet test Bosun.slnx` passes.
-- A real item round-trips: preview, apply, verify, undo.
+- A disposable item round-trips: preview, apply, verify, undo. A real item round-trips in `D99 T01 §5`.

@@ -21,13 +21,15 @@ title: "TODO-02 -- Review pages"
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
 - -> XREF: D02 T02 §11 -- consumed by this file
+- -> XREF: D07 T01 §4 -- consumes this file
+- -> XREF: D06 T02 §8 -- consumes this file
 
 ## Outcome
 
 - Pin problems show the dispatcher's refusal in full.
 - A review in flight appears with its elapsed time and deadline.
 
-**Adjacency:** list=applicable; document=not-applicable (findings files are the document); settings=not-applicable (the pin is committed); reporting=applicable @ D04 T02 §2; notifications=not-applicable (run page); permissions=not-applicable (read-only); audit=applicable @ D04 T02 §2; exchange=not-applicable (none); reverse=not-applicable (read-only)
+**Adjacency:** list=applicable @ D04 T02 §2; document=not-applicable (findings files are the document); settings=not-applicable (the pin is committed); reporting=applicable @ D04 T02 §2; notifications=not-applicable (run page); permissions=not-applicable (read-only); audit=applicable @ D04 T02 §2; exchange=not-applicable (none); reverse=not-applicable (read-only)
 
 **Adjacency rationale:** This page starts no reviews. A review run outside the skills could not count anyway, and the pin stays a committed file.
 
@@ -35,10 +37,10 @@ title: "TODO-02 -- Review pages"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Pin and review-in-flight | D04 T01 §1, D00 T01 §2, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
+| 1 | §1 | Pin and live review | D04 T01 §1, D00 T01 §2, D02 T02 §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 2 | §2 | Rounds and receipts | §1 | [ ] |
 
-## 1. Pin and review-in-flight
+## 1. Pin and live review
 
 If the reviewer can't run, a run will stall. The pin card shows that before it happens.
 
@@ -57,6 +59,7 @@ If the reviewer can't run, a run will stall. The pin card shows that before it h
 
 - [ ] Build the pin card per `design/SPEC.md` §7. Done when: a broken pin fixture shows the refusal in full. Cheaper substitute: a green tick that hides the reason.
 - [ ] Show marks, ignoring dead ones with the guard's rule. Done when: a dead pid's mark isn't shown as running.
+- [ ] Read the pin and review records for the selected repo, running inside its distro for a WSL repo through `WorkflowClient`. Done when: a WSL fixture returns data, and a stopped distro shows "WSL not running" with no `wsl.exe` command run. Cheaper substitute: Windows repos only.
 - [ ] Commit: `reviews: pin and in-flight`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ReviewsPin` exits 0, and fails if the change is reverted.

@@ -32,6 +32,9 @@ title: "TODO-02 -- The application shell"
 - -> XREF: D04 T01 §2 -- consumes this file
 - -> XREF: D04 T02 §1 -- consumes this file
 - -> XREF: D04 T04 §1 -- consumes this file
+- -> XREF: D03 T01 §5 -- consumes this file
+- -> XREF: D04 T03 §6 -- consumes this file
+- -> XREF: D99 T01 §3 -- consumes this file
 
 ## Outcome
 
@@ -57,6 +60,7 @@ title: "TODO-02 -- The application shell"
 | 9 | §9 | Off-screen page rendering for review | D02 T01 §1 | [ ] |
 | 10 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
 | 11 | §11 | Workflow repo selector | §6 | [ ] |
+| 12 | §12 | Project folders on both sides | §6 | [ ] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -73,7 +77,7 @@ Steward has neither single-instance nor crash handling, which the review of its 
 
 - [ ] Add a named mutex and activation pipe in `App.xaml.cs`. Done when: a second process exits 0 and the first window comes to the front. Cheaper substitute: two panels polling at once.
 - [ ] Handle `DispatcherUnhandledException`, `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException`, writing to `%LOCALAPPDATA%\Bosun\crash\`. Done when: a test seam throwing on each path leaves a report without secrets. Cheaper substitute: swallowing the exception and carrying on silently.
-- [ ] Create `src/Bosun.Panel/app.manifest` with per-monitor v2 and `asInvoker`, citing `R:\GitHub\Steward\src\Steward.Console\app.manifest:27`. Done when: a test reads the manifest and asserts both. Cheaper substitute: copying `requireAdministrator`.
+- [ ] Create `src/Bosun.Panel/app.manifest` with per-monitor v2 and `asInvoker`, citing `R:\GitHub\Steward\src\Steward.Console\app.manifest:27-28`. Done when: a test reads the manifest and asserts both. Cheaper substitute: copying `requireAdministrator`.
 - [ ] Commit: `shell: single instance and crash reports`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Startup` exits 0, and fails if the change is reverted.
@@ -91,7 +95,7 @@ These are small, proven and worth reusing unchanged, with their tests.
 1. Port `Observable`, `AsyncCommand`, `LiveRegion`, `SelectionGuard` and `UiLogSink`. Done when: each has its test passing here.
 2. Add a Lucide kind test. Done when: each icon name resolves against the enum.
 
-- [ ] Port `Observable.cs` and `LiveRegion.cs` from `R:\GitHub\Steward\src\Steward.Console`. Done when: re-entry is refused and announcements fire in `tests/Bosun.Panel.Tests`.
+- [ ] Port `ViewModels\Observable.cs` and `Services\LiveRegion.cs` from `R:\GitHub\Steward\src\Steward.Console`. Done when: re-entry is refused and announcements fire in `tests/Bosun.Panel.Tests`.
 - [ ] Port `SelectionGuard.cs` and `UiLogSink.cs`. Done when: a guarded rail refuses leaving a dirty page, and the sink caps at 500 entries. Cheaper substitute: undoing the selection afterwards, which does not hold in WPF.
 - [ ] Add `MahApps.Metro.IconPacks.Lucide` and a test that every `Section.Icon` parses. Done when: a misspelled kind fails the test.
 - [ ] Commit: `shell: view model base and helpers`
@@ -135,9 +139,15 @@ This is the frame every page sits in. Snap layouts need real hit testing, which 
 1. Build `MainWindow.xaml` per `design/SPEC.md` §1. Done when: the off-screen render matches the mockup's layout in both themes.
 2. Handle `WM_NCHITTEST`. Done when: hovering maximise reports `HTMAXBUTTON`.
 
-- [ ] Build the title bar, rail and activity pane with the `Section` record from `R:\GitHub\Steward\src\Steward.Console\ViewModels\MainViewModel.cs:29`. Done when: adding a page is one row, and pages bind through implicit `DataTemplate`s. Cheaper substitute: a static screenshot-like layout with no navigation.
+- [ ] Build the title bar, rail and activity pane with the `Section` record from `R:\GitHub\Steward\src\Steward.Console\ViewModels\MainViewModel.cs:112`. Done when: adding a page is one row, and pages bind through implicit `DataTemplate`s. Cheaper substitute: a static screenshot-like layout with no navigation.
 - [ ] Return `HTMAXBUTTON` from a `WM_NCHITTEST` hook. Done when: a test with synthetic coordinates gets the right code. Cheaper substitute: custom caption buttons without snap layouts.
 - [ ] Add placeholder pages for every rail entry, each deferring to its owning section. Done when: each rail row opens a page that names its owner section, and none is a dead control.
+- [ ] Create `src/Bosun.Panel/Shell/PageFrame.xaml` and `PageBase.cs`, holding the header and the content host. Done when: a page renders through them, and a page with `UsesSelectedRepo` gets the repo line. Cheaper substitute: each view drawing its own header.
+- [ ] Create `src/Bosun.Panel/Shell/ActivityLog.cs` over `UiLogSink`, with each line starting INFO, WARN or FAIL. Done when: a test with no prefix given refuses the line.
+- [ ] Log every panel action through `AsyncCommand` to `ActivityLog.cs`. Done when: a test runs a command and finds one line, and a view can't add a command without it. Cheaper substitute: each view logging by hand.
+- [ ] Add the run badge to the title bar in `MainWindow.xaml`, fed by `IRunBadgeSource`. Done when: a fake source shows its word, and the badge is hidden with no run.
+- [ ] Set `MinWidth` 960 and `MinHeight` 600 in `MainWindow.xaml`. Done when: a test reads both.
+- [ ] Add the Activity pane splitter in `MainWindow.xaml`, saved in `PanelSettings`. Done when: a drag resizes it within limits, and the size reads back after a restart. Cheaper substitute: a fixed height.
 - [ ] Commit: `shell: chrome, rail and activity pane`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Shell` exits 0, and fails if the change is reverted.
@@ -162,6 +172,7 @@ Settings live in one atomic file. Theme is the first consumer.
 - [ ] Persist `%LOCALAPPDATA%\Bosun\panel.json` with `schema_version` and temp-then-rename. Done when: a corrupt file is kept as `.bad` and defaults load with a notice. Cheaper substitute: losing the corrupt file silently.
 - [ ] Follow `SystemEvents.UserPreferenceChanged` and swap `Theme/Generated` dictionaries in `App.xaml.cs`. Done when: a test flips the preference and a brush resolves to the other theme.
 - [ ] Build the General part of the Settings page per `design/SPEC.md` §15. Done when: theme and start-with-Windows save and read back. Cheaper substitute: a setting nothing reads.
+- [ ] Write and remove the `Bosun Panel` Run value for Start with Windows in the tray, in `src/Bosun.Core/StartupEntry.cs`, behind a registry seam. Done when: a test proves on, off and read-back with the real key untouched. Cheaper substitute: a setting nothing reads.
 - [ ] Commit: `shell: settings store and live theme`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Settings` exits 0, and fails if the change is reverted.
@@ -213,6 +224,7 @@ The panel's most common state is closed. The tray is what makes it useful while 
 - [ ] Show `resources/tray-*.ico` with a tooltip in words in `src/Bosun.Panel/TrayViewModel.cs`. Done when: a test maps each state to icon and text. Cheaper substitute: colour-only state.
 - [ ] Add the menu per `design/SPEC.md` §17, and the first-close notice. Done when: Exit stops every poller, and closing the window keeps running after saying so once.
 - [ ] Add toast notifications with per-type settings and a one-hour pause. Done when: a disabled type raises nothing, in a test with a fake sink.
+- [ ] Add the Needs you tray state in `src/Bosun.Panel/Shell/TrayIcon.cs`, read from `INeedsYouSource`. Done when: a fake source with one row shows the overlay and tooltip words, and none shows Normal.
 - [ ] Commit: `shell: tray and notifications`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Tray` exits 0, and fails if the change is reverted.
@@ -232,6 +244,7 @@ A monitor that burns CPU while hidden defeats itself. One scheduler owns all ref
 
 - [ ] Register a refresh per page with intervals per `design/SPEC.md` §1. Done when: hiding a page stops its calls within one interval, in a fake-clock test. Cheaper substitute: a timer per view model that is never stopped.
 - [ ] Add failure backoff and overlap refusal. Done when: a slow tool never runs twice at once, and the page shows its failed state with the message.
+- [ ] Add a Refresh button to `PageFrame.xaml`, calling the page's scheduled refresh once. Done when: a test proves one extra call and no overlap with a running poll. Cheaper substitute: waiting for the next tick.
 - [ ] Commit: `core: refresh scheduler`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RefreshScheduler` exits 0, and fails if the change is reverted.
@@ -280,7 +293,7 @@ One real launch proves the parts work together: the process starts, every page o
 The owner asked for one clear place to choose the repo, rather than a picker on some pages. It owns which repo the Workflow pages show, and each page only reads it.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §1, Repo selector and WSL repos.
 **Job:** the operator picks the repo to work on once, on either side, and every Workflow page follows.
@@ -303,6 +316,34 @@ The owner asked for one clear place to choose the repo, rather than a picker on 
 - [ ] Commit: `shell: workflow repo selector`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SelectedRepo` exits 0, and fails if a page keeps its own selection.
+
+## 12. Project folders on both sides
+
+The owner keeps repos in several folders on both sides, so a one-off Scan isn't enough. Folders are the operator's settings and never appear in code, which also keeps this right for a public release.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §15, Project folders.
+**Job:** say where projects live once, and hear about new ones.
+**Treatment:** a list of folders with side and last result, and found repos with Add and Add all. Cheaper substitute that fails: a hardcoded `GitHub` folder.
+**Chrome:** the Settings page frame and generated `DataGrid` style.
+
+**Build order:**
+
+1. Add folders to `src/Bosun.Core/RepoRegistry.cs`. Done when: they save and read back with side and distro.
+2. Add the scan. Done when: new repos are found on both sides, and a stopped distro stays stopped.
+
+- [ ] Store project folders in `panel.json` through `RepoRegistry.cs`, each with a side, a path and for WSL a distro, empty by default. Done when: `RepoRegistryTests` reads them back, and a missing folder stays listed and reads Missing. Cheaper substitute: folders named in code.
+- [ ] Add a Linux path check through `wsl.exe -d <distro> --cd` in `RepoRegistry.cs` when adding a WSL folder, expanding `~`. Done when: a fixture accepts `~/www` and shows the full path.
+- [ ] Find repos two levels deep under each folder in `src/Bosun.Core/RepoScanner.cs`, skipping `node_modules` and `vendor`. Done when: a fixture tree finds nested repos and ignores those folders. Cheaper substitute: a whole-drive search.
+- [ ] Scan WSL folders only while `WslState` shows the distro running, on opening Settings and on Scan now. Done when: a test proves a stopped distro is never started, and its row reads "WSL not running". Cheaper substitute: a timer that wakes the VM.
+- [ ] Add the Project folders table with Add, Remove and Scan now in `Views/SettingsView.xaml`. Done when: a test with a fake scanner adds and removes a folder on each side. Cheaper substitute: a text box of paths.
+- [ ] List found repos with Add and Add all in `Views/SettingsView.xaml`, showing a count on the Settings rail row. Done when: a test proves nothing joins the registry until Add, and an added repo doesn't return. Cheaper substitute: adding everything found.
+- [ ] Register `D:\GitHub`, `~/www` and `~/projects` on this machine through the Settings page, as `D99 T01 §3`'s first step. Done when: that section's note records it.
+- [ ] Commit: `shell: project folders on both sides`
+
+**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RepoScanner` exits 0, and fails if a stopped distro is started.
 
 ## Verification
 
