@@ -84,6 +84,8 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Record when waiting began before the first lookup in `scripts/ci_status.py`, and clear it only on green or red. Done when: tests interrupt the first lookup and the start stands, alternating pending, none and unavailable across separate processes reaches `unverified` at exactly two hours, and a green or red leaves no wait behind.
 - [x] Add `--use-proven` to `scripts/ci_status.py`, a read-only check for `--sha` that takes the recorded proven commit as its base and treats that commit itself as proven unless a real run says otherwise. Done when: tests prove a skipped build on a final Markdown stamp exits 0, code after it exits 5, a red run of the proven commit exits 1, and the record's bytes don't change.
 - [x] Give every `unverified` a reason in `scripts/ci_status.py`, naming the elapsed time and limit or the state that couldn't be saved, on its own line before the action and as `reason` in JSON. Done when: tests read it in both forms for each way to reach it, and the action stays the last line.
+- [ ] Recognise an exact revert to the last proven commit as unchanged inputs in `skip_reason` in `scripts/ci_status.py`: an empty diff from a proven base, on a later commit, is a proven skip, and from any other base it still proves nothing. Done when: tests prove a pure revert with no other change reads `skipped` under `--gate` and `--use-proven`, and reads `none` with an explicit `--base`.
+- [ ] Apply the two hour limit to every gate call in `scripts/ci_status.py`, with or without `--wait-minutes`: no tool starts after it, and each stops at it. A call without `--wait-minutes` still looks once and doesn't poll. Done when: tests with slow tools and one second left prove total time stays within that second and no tool starts after it, and a call with time to spare keeps each tool's own limit.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
@@ -94,7 +96,9 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 
 > **Repair cycle:** 3: 2026-11-07: the completion review found partial checks, the first lookup's time and silent unverified results (after: its completion review returned gaps)
 
-> **Parked:** 2026-11-07: three repair cycles used; two small gaps left: an exact revert gets no skip, and the wait limit doesn't bound tools without --wait-minutes
+> **Repair granted:** 2026-11-07: the owner granted one more repair for two small gaps
+
+> **Repair cycle:** 4: 2026-11-07: the completion review found an exact revert and calls with no wait unbounded (after: its completion review returned gaps)
 
 ## 2. One section disposition across graph, guard and skills
 
