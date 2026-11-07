@@ -31,7 +31,8 @@ Copy-Item (Join-Path $PSScriptRoot 'heartbeat.py') $bin -Force
 $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
 Set-Content (Join-Path $bin 'bosun-heartbeat.cmd') "@`"$python`" `"$bin\heartbeat.py`" %*" -Encoding ascii
 $windowless = Join-Path (Split-Path $python) 'pythonw.exe'
-if (-not (Test-Path $windowless)) { $windowless = $python }
+# A console every five minutes would interrupt the desktop, so with no windowless runner nothing is scheduled.
+if (-not (Test-Path $windowless)) { throw "pythonw.exe isn't next to $python, so the heartbeat would open a console every five minutes: install Python from python.org, which includes it, then run this again" }
 schtasks /Create /F /TN 'Bosun heartbeat' /SC MINUTE /MO 5 /IT /TR "`"$windowless`" `"$bin\heartbeat.py`" tick" | Out-Null
 if ($LASTEXITCODE) { throw "could not create the Bosun heartbeat task: exit $LASTEXITCODE" }
 

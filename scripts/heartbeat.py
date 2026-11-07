@@ -17,6 +17,7 @@ import argparse
 from datetime import datetime, timezone
 import json
 import os
+import posixpath
 from pathlib import Path
 import re
 import shutil
@@ -179,11 +180,27 @@ def save_repos(repos):
 
 
 def load_status():
+    """(status, problem). No file is a first run, with no problem; one that can't be read or parsed is history that's
+    unavailable, which is said, never shown as a first run."""
     try:
         data = json.loads(status_path().read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    except FileNotFoundError:
+        return {}, None
+    except OSError as exc:
+        return {}, f"status.json can't be read: {exc}"
+    except ValueError:
+        return {}, "status.json is not valid JSON"
+    if not isinstance(data, dict):
+        return {}, "status.json has the wrong shape"
+    return data, None
+
+
+def save_status(status):
+    """Write the status, and say so instead of stopping when the disk refuses: supervision matters more than history."""
+    try:
+        write_atomic(status_path(), status)
+    except OSError as exc:
+        print(f"status not saved: {exc}")
 
 
 def floor_mb():
@@ -204,6 +221,18 @@ def same_path(a, b):
     return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
 
 
+def repo_key(repo):
+    """One repo's identity. A WSL repo is its distro and its path, compared as Linux does, case and all; a Windows repo
+    is its path, compared as Windows does."""
+    if repo.get("distro"):
+        return f"wsl:{repo['distro']}:{posixpath.normpath(repo['path'])}"
+    return os.path.normcase(os.path.normpath(repo["path"]))
+
+
+def same_repo(repo, path, distro):
+    return repo_key(repo) == repo_key({"path": path, "distro": distro})
+
+
 def running_distros(world):
     code, out = world.run(["wsl.exe", "--list", "--running", "--quiet"], timeout=30)
     return {line.strip() for line in out.splitlines() if line.strip()} if code == 0 else set()
@@ -213,15 +242,22 @@ def own_task(repo):
     return f"{Path(repo['path']).name} run watchdog"
 
 
-def own_task_exists(world, repo):
-    """True or False, and None when Windows wouldn't say. `schtasks` exits 1 for an absent task and for other errors. A
-    task with this name that runs another folder belongs to another clone of the same name, so it isn't this repo's."""
+def own_task_owner(world, repo):
+    """"ours", "other" (a task of this name that runs another folder: another clone of the same name), "absent", or None
+    when Windows wouldn't say. `schtasks` exits 1 for an absent task and for other errors."""
     code, out = world.run(["schtasks", "/Query", "/TN", own_task(repo), "/XML"], timeout=30)
     if code == 0:
-        return os.path.normcase(os.path.normpath(repo["path"])) in os.path.normcase(out.replace("/", os.sep))
+        ours = os.path.normcase(os.path.normpath(repo["path"])) in os.path.normcase(out.replace("/", os.sep))
+        return "ours" if ours else "other"
     if code is not None and "cannot find" in out.lower():
-        return False
+        return "absent"
     return None
+
+
+def own_task_exists(world, repo):
+    """True or False, and None when Windows wouldn't say. Another clone's task of the same name isn't this repo's."""
+    owner = own_task_owner(world, repo)
+    return None if owner is None else owner == "ours"
 
 
 def guard(world, repo, command):
@@ -242,8 +278,18 @@ def remove_own_task(world, repo):
 
 
 def restore_own_task(world, repo):
+    """None when the repo has its own task again, or why it doesn't. The guard's installer replaces any task of the
+    same name, so one belonging to another clone is left alone and named."""
     if repo.get("distro"):
         return None
+    owner = own_task_owner(world, repo)
+    if owner == "ours":
+        return None
+    if owner is None:
+        return f"could not check {own_task(repo)}"
+    if owner == "other":
+        return (f"{own_task(repo)} belongs to another clone with the same folder name, so it wasn't replaced: rename "
+                f"this folder, or remove that clone's task, then try again")
     code, out = guard(world, repo, "install")
     return None if code == 0 else f"could not restore {own_task(repo)}: {out.strip()[:MAX_NOTE]}"
 
@@ -273,7 +319,7 @@ def add(world, path, distro=None, allow_no_task=False):
             raise Refused(f"{repo['path']} has no scripts/run-guard.py: copy the run guard from a repo that has it, such as Steward")
     with Lock(world, LOCK_WAIT_SECONDS):
         repos = load_repos()
-        if any(same_path(r["path"], repo["path"]) and r.get("distro") == distro for r in repos):
+        if any(same_repo(r, repo["path"], distro) for r in repos):
             raise Refused(f"already on the heartbeat: {repo['path']}")
         save_repos(repos + [repo])
         problem = remove_own_task(world, repo)
@@ -289,7 +335,7 @@ def remove(world, path, distro=None):
     with Lock(world, LOCK_WAIT_SECONDS):
         repos = load_repos()
         wanted = path if distro else str(Path(path).resolve())
-        matches = [r for r in repos if same_path(r["path"], wanted) and r.get("distro") == distro]
+        matches = [r for r in repos if same_repo(r, wanted, distro)]
         if not matches:
             raise Refused(f"not on the heartbeat: {wanted}")
         repo = matches[0]
@@ -312,16 +358,16 @@ def reconcile(world, repos):
         if state == "removing":
             problem = restore_own_task(world, repo)
             if problem:
-                notes[repo["path"]] = problem
+                notes[repo_key(repo)] = problem
             else:
                 repos.remove(repo)
         else:
             exists = own_task_exists(world, repo) if not repo.get("distro") else False
             if exists:
                 problem = remove_own_task(world, repo)
-                notes[repo["path"]] = problem or f"removed {own_task(repo)}, which had come back"
+                notes[repo_key(repo)] = problem or f"removed {own_task(repo)}, which had come back"
             elif exists is None:
-                notes[repo["path"]] = f"could not check {own_task(repo)}"
+                notes[repo_key(repo)] = f"could not check {own_task(repo)}"
             if state == "adding" and exists is not None and not (exists and problem):
                 repo["state"] = "active"
     return notes
@@ -353,26 +399,39 @@ def tick(world):
     except Busy:
         print("busy: another heartbeat process is running")
         return 0
+    except OSError as exc:  # the lock file itself can't be made, so one pass at a time can't be promised
+        print(f"nothing ticked: the heartbeat's lock can't be taken: {exc}")
+        return 0
 
 
 def run_pass(world):
-    status = load_status()
+    status, history = load_status()
     now = world.now()
     status.update(schema_version=SCHEMA, last_pass=now_iso(now), hold=None, error=None)
+    if history:
+        print(f"starting the history afresh: {history}")
     try:
         repos = load_repos()
     except ValueError as exc:
         status["error"] = str(exc)
-        write_atomic(status_path(), status)
+        save_status(status)
         print(f"nothing ticked: {exc}")
         return 0
+    before = json.dumps(repos, sort_keys=True)
     notes = reconcile(world, repos)
-    save_repos(repos)
+    if json.dumps(repos, sort_keys=True) != before:  # an unchanged registry needs no write, so a full disk can't stop it
+        try:
+            save_repos(repos)
+        except OSError as exc:
+            status["error"] = f"repos.json can't be saved, so the handoffs above are finished again next pass: {exc}"
+            print(status["error"])
     results = status.get("repos") if isinstance(status.get("repos"), dict) else {}
+    results = {(k if k.startswith("wsl:") else os.path.normcase(os.path.normpath(k))): v for k, v in results.items()}
     active = [r for r in repos if r.get("state") == "active"]
-    results = {k: v for k, v in results.items() if any(same_path(k, r["path"]) for r in repos)}
-    for path, note in notes.items():
-        results.setdefault(path, {})["note"] = note
+    keys = {repo_key(r) for r in repos}
+    results = {k: v for k, v in results.items() if k in keys}
+    for key, note in notes.items():
+        results.setdefault(key, {})["note"] = note
 
     floor, warning = floor_mb()
     status["warning"] = warning
@@ -386,7 +445,7 @@ def run_pass(world):
         if now - since < HOLD_SECONDS:
             status.update(hold_since=since, repos=results,
                           hold=f"holding: {available} MB available, under the {floor} MB floor, for up to {int((since + HOLD_SECONDS - now) // 60)} more minutes")
-            write_atomic(status_path(), status)
+            save_status(status)
             print(status["hold"])
             return 0
     status["hold_since"] = None
@@ -397,14 +456,14 @@ def run_pass(world):
     for index in order:
         repo = active[index]
         result, error = tick_repo(world, repo)
-        entry = results.setdefault(repo["path"], {})
+        entry = results.setdefault(repo_key(repo), {})
         entry.update(at=now_iso(world.now()), result=result, error=error)
         print(f"{repo['path']}: {error or result}")
         if result and RESUMED.match(result):
             next_up = (index + 1) % len(active)
             break
     status.update(next=next_up, repos=results)
-    write_atomic(status_path(), status)
+    save_status(status)
     return 0
 
 
@@ -419,14 +478,30 @@ def task_health(world):
     enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", out, re.S | re.I)
     action = " ".join(m.group(1).strip() for m in (command, arguments) if m)
     is_enabled = enabled is None or enabled.group(1).lower() == "true"
-    return {"state": "installed" if is_enabled else "disabled", "enabled": is_enabled, "action": action or None}
+    broken = action_problem(world, command.group(1) if command else "", arguments.group(1) if arguments else "")
+    state = "broken" if broken else "installed" if is_enabled else "disabled"
+    return {"state": state, "enabled": is_enabled, "action": action or None, "problem": broken}
+
+
+def action_problem(world, command, arguments):
+    """Why a task's action can't run, or None: its program and the script it's given both have to be there, or the task
+    fires and does nothing."""
+    program = command.strip().strip('"')
+    if not program:
+        return "it has no program to run"
+    if not (world.is_file(program) or (not os.path.dirname(program) and shutil.which(program))):
+        return f"its program is missing: {program}"
+    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', arguments)
+    if script and not world.is_file(script.group(1) or script.group(2)):
+        return f"its script is missing: {script.group(1) or script.group(2)}"
+    return None
 
 
 def report(world):
     """Everything `status` shows, read fresh. Nothing unknown is shown as fine."""
-    saved = load_status()
+    saved, history = load_status()
     result = {"schema_version": SCHEMA, "repos": [], "error": None, "hold": saved.get("hold"), "warning": saved.get("warning"),
-              "last_pass": saved.get("last_pass"), "task": task_health(world), "stale": True}
+              "last_pass": saved.get("last_pass"), "task": task_health(world), "stale": True, "history": history}
     try:
         repos = load_repos()
     except ValueError as exc:
@@ -441,7 +516,9 @@ def report(world):
             pass
     ticks = saved.get("repos") if isinstance(saved.get("repos"), dict) else {}
     for repo in repos:
-        tick_info = next((v for k, v in ticks.items() if same_path(k, repo["path"])), {})
+        key = repo_key(repo)
+        tick_info = next((v for k, v in ticks.items() if k == key or (not repo.get("distro") and not k.startswith("wsl:")
+                                                                         and same_path(k, repo["path"]))), {})
         result["repos"].append({"path": repo["path"], "distro": repo.get("distro"), "state": repo.get("state"),
                                 "last_tick": tick_info.get("at"), "result": tick_info.get("result"),
                                 "error": tick_info.get("error"), "note": tick_info.get("note")})
@@ -451,6 +528,10 @@ def report(world):
 def print_status(data):
     task = data["task"]
     print(f"task: {task['state']}" + (f" ({task['action']})" if task["action"] else ""))
+    if task.get("problem"):
+        print(f"task problem: {task['problem']}")
+    if data.get("history"):
+        print(f"history unavailable: {data['history']}")
     if data["error"]:
         print(f"error: {data['error']}")
     if data["hold"]:
@@ -504,7 +585,7 @@ def main(argv=None, world=None):
                 print(json.dumps(data, indent=2))
             else:
                 print_status(data)
-    except (Refused, Busy, ValueError) as exc:
+    except (Refused, Busy, ValueError, OSError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     return 0

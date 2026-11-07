@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import heartbeat as hb  # noqa: E402
 
 CANT_FIND = "ERROR: The system cannot find the file specified."
+HB_EXE = r"C:\Python\pythonw.exe"
+HB_SCRIPT = r"C:\Bosun\bin\heartbeat.py"
 
 
 class Crash(Exception):
@@ -30,6 +32,7 @@ class FakeWorld(hb.World):
         self.heartbeat, self.actions = heartbeat, {}
         self.watch, self.running, self.clock, self.crash_on = watch or {}, list(running), clock, crash_on
         self.calls, self.fail, self.check_fail = [], {}, {}
+        self.files = {HB_EXE, HB_SCRIPT}  # the heartbeat task's program and script, there unless a test removes them
 
     def now(self):
         return self.clock
@@ -47,7 +50,7 @@ class FakeWorld(hb.World):
         return str(Path(path)) in self.repos or any(str(Path(r)) == str(Path(path)) for r in self.repos)
 
     def is_file(self, path):
-        return any(str(path) == str(Path(r) / "scripts" / "run-guard.py") for r in self.repos)
+        return str(path) in self.files or any(str(path) == str(Path(r) / "scripts" / "run-guard.py") for r in self.repos)
 
     def run(self, argv, cwd=None, timeout=120):
         self.calls.append(argv)
@@ -56,13 +59,18 @@ class FakeWorld(hb.World):
                 return 0, "\n".join(self.running) + "\n"
             if "test" in argv:
                 return (0, "") if argv[argv.index("--cd") + 1] in self.repos else (1, "")
-            return self.answer(argv[argv.index("--cd") + 1], "watch")
+            where = (argv[argv.index("-d") + 1], argv[argv.index("--cd") + 1])
+            if where in self.watch:
+                return 0, self.watch[where] + "\n"
+            return self.answer(where[1], "watch")
         if argv[0] == "schtasks":
             name = argv[argv.index("/TN") + 1]
             if name == hb.TASK:
                 if self.heartbeat is None:
                     return 1, CANT_FIND
-                return 0, f"<Task><Settings><Enabled>{self.heartbeat}</Enabled></Settings><Actions><Exec><Command>pythonw.exe</Command><Arguments>heartbeat.py tick</Arguments></Exec></Actions></Task>"
+                # As the real task's XML has it: the program and the script each in literal quotes.
+                return 0, (f'<Task><Settings><Enabled>{self.heartbeat}</Enabled></Settings><Actions><Exec>'
+                           f'<Command>"{HB_EXE}"</Command><Arguments>"{HB_SCRIPT}" tick</Arguments></Exec></Actions></Task>')
             if name in self.check_fail:
                 return 1, self.check_fail[name]
             if name not in self.tasks:
@@ -231,6 +239,39 @@ class Handoff(Base):
         self.assertIn(self.task(self.a), world.tasks)
         self.assertEqual(world.called("uninstall"), [])
         self.assertIsNone(self.status(world)["repos"][0]["note"])
+
+    def test_removing_never_replaces_another_clones_task_of_the_same_name(self):
+        world = self.world()
+        self.go(["add", self.a], world)
+        world.tasks.add(self.task(self.a))
+        world.actions[self.task(self.a)] = r'"R:\\other\\repo\\scripts\\run-guard.py" watch'
+        code, _ = self.go(["remove", self.a], world)
+        self.assertEqual(code, 1)
+        self.assertIn("another clone", self.err)
+        self.assertEqual(world.called("install"), [])  # the installer would have replaced that clone's task
+        self.assertEqual([r["state"] for r in self.repos()], ["active"])  # still supervised, by the heartbeat
+
+    def test_removing_a_repo_whose_own_task_is_back_needs_no_install(self):
+        world = self.world()
+        self.go(["add", self.a], world)
+        world.tasks.add(self.task(self.a))
+        world.actions[self.task(self.a)] = f'"{self.a}\\scripts\\run-guard.py" watch'
+        self.assertEqual(self.go(["remove", self.a], world)[0], 0)
+        self.assertEqual(world.called("install"), [])
+        self.assertEqual(self.repos(), [])
+
+    def test_a_heartbeat_task_whose_program_or_script_is_gone_is_broken(self):
+        for missing in (HB_EXE, HB_SCRIPT):
+            with self.subTest(missing):
+                world = self.world()
+                world.files.discard(missing)
+                task = self.status(world)["task"]
+                self.assertEqual(task["state"], "broken")
+                self.assertIn(missing, task["problem"])
+                code, _ = self.go(["add", self.a], world)
+                self.assertEqual(code, 1)  # the repo keeps its own watchdog
+                self.assertIn("broken", self.err)
+                self.assertEqual(world.called("uninstall"), [])
 
     def test_a_failed_restore_keeps_the_repo_on_the_heartbeat(self):
         world = self.world()
@@ -447,6 +488,24 @@ class Wsl(Base):
         call = world.called("python3")[0]
         self.assertEqual(call, ["wsl.exe", "-d", "Ubuntu", "--cd", self.PATH, "--", "python3", "scripts/run-guard.py", "watch"])
 
+    def test_the_same_path_in_two_distros_keeps_two_results(self):
+        world = self.world(running=("Ubuntu", "Debian"))
+        world.watch = {("Ubuntu", self.PATH): "ubuntu tick", ("Debian", self.PATH): "debian tick"}
+        for distro in ("Ubuntu", "Debian"):
+            self.assertEqual(self.go(["add", self.PATH, "--distro", distro], world)[0], 0)
+        self.go(["tick"], world)
+        results = {r["distro"]: r["result"] for r in self.status(world)["repos"]}
+        self.assertEqual(results, {"Ubuntu": "ubuntu tick", "Debian": "debian tick"})
+
+    def test_linux_paths_differing_only_in_case_are_two_repos(self):
+        upper = "/home/u/www/Site"
+        world = FakeWorld(repos=(self.PATH, upper))
+        self.assertEqual(self.go(["add", self.PATH, "--distro", "Ubuntu"], world)[0], 0)
+        self.assertEqual(self.go(["add", upper, "--distro", "Ubuntu"], world)[0], 0, self.err)
+        self.assertEqual(sorted(r["path"] for r in self.repos()), sorted([self.PATH, upper]))
+        self.assertEqual(self.go(["remove", upper, "--distro", "Ubuntu"], world)[0], 0)
+        self.assertEqual([r["path"] for r in self.repos()], [self.PATH])
+
     def test_a_distro_stopping_mid_pass_is_not_restarted(self):
         path = str(Path(self.tmp.name).resolve() / "win")
         world = FakeWorld(repos=(self.PATH, path))
@@ -480,6 +539,115 @@ class Wsl(Base):
         self.assertEqual([c for c in world.calls if c[0] == "schtasks" and hb.TASK not in c], [])
 
 
+class Storage(Base):
+    """A full disk or a locked file must not stop the repos already on the heartbeat from being supervised."""
+
+    def test_an_unchanged_registry_is_not_rewritten_so_a_full_disk_still_ticks(self):
+        world = self.world()
+        self.go(["add", self.a], world)
+        real = hb.write_atomic
+
+        def full(path, data):
+            if Path(path).name == "repos.json":
+                raise OSError(28, "No space left on device")
+            return real(path, data)
+        with mock.patch.object(hb, "write_atomic", full):
+            self.assertEqual(self.go(["tick"], world)[0], 0)
+        self.assertEqual(len(world.called("watch")), 1)  # the guard still ran
+
+    def test_a_status_file_the_disk_refuses_still_lets_every_repo_tick(self):
+        world = self.world()
+        for repo in (self.a, self.b):
+            self.go(["add", repo], world)
+        with mock.patch.object(hb, "write_atomic", side_effect=OSError(28, "No space left on device")):
+            code, out = self.go(["tick"], world)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(world.called("watch")), 2)
+        self.assertIn("status not saved", out)
+
+    def test_a_handoff_the_disk_refuses_is_said_and_supervision_goes_on(self):
+        world = self.world()
+        self.go(["add", self.a], world)
+        world.tasks.add(hb.own_task({"path": self.a}))  # its own task came back, so reconcile changes the registry
+        repos = json.loads((Path(self.tmp.name) / "Bosun" / "heartbeat" / "repos.json").read_text())
+        repos["repos"][0]["state"] = "adding"
+        (Path(self.tmp.name) / "Bosun" / "heartbeat" / "repos.json").write_text(json.dumps(repos))
+        real = hb.write_atomic
+
+        def full(path, data):
+            if Path(path).name == "repos.json":
+                raise OSError(28, "No space left on device")
+            return real(path, data)
+        with mock.patch.object(hb, "write_atomic", full):
+            code, out = self.go(["tick"], world)
+        self.assertEqual(code, 0)
+        self.assertIn("repos.json can't be saved", out)
+        self.assertEqual(self.repos()[0]["state"], "adding")  # unchanged on disk, finished again next pass
+
+    def test_a_lock_that_cant_be_made_skips_the_pass_without_a_traceback(self):
+        with mock.patch.object(hb.Lock, "__enter__", side_effect=PermissionError("locked")):
+            code, out = self.go(["tick"], self.world())
+        self.assertEqual(code, 0)
+        self.assertIn("lock can't be taken", out)
+
+    def test_a_command_the_disk_refuses_is_refused_not_a_traceback(self):
+        world = self.world()
+        with mock.patch.object(hb, "write_atomic", side_effect=OSError(28, "No space left on device")):
+            code, _ = self.go(["add", self.a], world)
+        self.assertEqual(code, 1)
+        self.assertIn("No space left", self.err)
+
+
+class History(Base):
+    """No status file is a first run; one that can't be read is history that's unavailable, and says why."""
+
+    def test_no_file_is_a_first_run(self):
+        self.assertIsNone(self.status()["history"])
+
+    def test_a_corrupt_file_is_unavailable_history(self):
+        world = self.world()
+        self.go(["tick"], world)
+        (Path(self.tmp.name) / "Bosun" / "heartbeat" / "status.json").write_text("{bad")
+        self.assertIn("not valid JSON", self.status(world)["history"])
+        self.assertIn("history unavailable", self.go(["status"], world)[1])
+
+    def test_an_inaccessible_file_is_unavailable_history(self):
+        world = self.world()
+        self.go(["tick"], world)
+        real = Path.read_text
+
+        def denied(path, *args, **kwargs):
+            if path.name == "status.json":
+                raise PermissionError("Access is denied")
+            return real(path, *args, **kwargs)
+        with mock.patch.object(Path, "read_text", denied):
+            history = self.status(world)["history"]
+        self.assertIn("can't be read", history)
+        self.assertIn("Access is denied", history)
+
+
+class Windowless(unittest.TestCase):
+    """A scheduled action that opens a console every few minutes is refused, never installed."""
+
+    def test_the_installer_refuses_without_pythonw(self):
+        text = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("$windowless = $python", text)
+        self.assertRegex(text, r"if \(-not \(Test-Path \$windowless\)\) \{ throw ")
+
+    def test_the_guard_refuses_to_schedule_without_pythonw(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("run_guard_cli", ROOT / "scripts" / "run-guard.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        with tempfile.TemporaryDirectory() as folder:
+            lone = Path(folder) / "python.exe"
+            lone.write_text("")
+            with mock.patch.object(cli.sys, "executable", str(lone)), \
+                    mock.patch.object(cli.subprocess, "run", side_effect=AssertionError("scheduled a console")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(cli.install(), 1)
+
+
 class Status(Base):
     def test_empty_never_ticked_and_stale(self):
         data = self.status()
@@ -507,7 +675,7 @@ class Status(Base):
         self.assertEqual(self.status(world)["task"]["state"], "missing")
         world.heartbeat = "true"
         task = self.status(world)["task"]
-        self.assertEqual((task["state"], task["action"]), ("installed", "pythonw.exe heartbeat.py tick"))
+        self.assertEqual((task["state"], task["action"]), ("installed", f'"{HB_EXE}" "{HB_SCRIPT}" tick'))
         world.heartbeat = "false"
         self.assertEqual(self.status(world)["task"]["state"], "disabled")
         world.fail = {}

@@ -344,9 +344,21 @@ class Heartbeat(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "reads Windows Task Scheduler")
     def test_a_disabled_heartbeat_task_does_not_count(self):
-        xml = "<Task><Settings><Enabled>{}</Enabled></Settings></Task>"
+        xml = ('<Task><Settings><Enabled>{}</Enabled></Settings><Actions><Exec><Command>"' + sys.executable.replace('{', '{{') + '"</Command>'
+               '</Exec></Actions></Task>')
         for code, text, expected in ((0, xml.format("true"), True), (0, xml.format("false"), False), (1, "", False)):
             with self.subTest(text), mock.patch.object(guard, "run", return_value=subprocess.CompletedProcess([], code, text.encode(), b"")):
+                self.assertEqual(guard.heartbeat_task_exists(), expected)
+
+    @unittest.skipUnless(os.name == "nt", "reads Windows Task Scheduler")
+    def test_a_heartbeat_task_whose_program_or_script_is_gone_does_not_count(self):
+        here = Path(__file__).resolve()
+        xml = ('<Task><Settings><Enabled>true</Enabled></Settings><Actions><Exec><Command>"{}"</Command>'
+               '<Arguments>"{}" tick</Arguments></Exec></Actions></Task>')
+        for exe, script, expected in ((sys.executable, here, True), (here.with_name("gone.exe"), here, False),
+                                      (sys.executable, here.with_name("gone.py"), False)):
+            done = subprocess.CompletedProcess([], 0, xml.format(exe, script).encode(), b"")
+            with self.subTest(exe=exe, script=script), mock.patch.object(guard, "run", return_value=done):
                 self.assertEqual(guard.heartbeat_task_exists(), expected)
 
     def test_a_repo_with_neither_still_warns(self):

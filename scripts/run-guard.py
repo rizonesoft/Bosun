@@ -32,8 +32,11 @@ def say(text: str) -> None:
 def install() -> int:
     python = Path(sys.executable)
     windowless = python.with_name("pythonw.exe")
-    runner = windowless if windowless.exists() else python
-    action = f'"{runner}" "{Path(__file__).resolve()}" watch'
+    if not windowless.exists():  # a console every few minutes would interrupt the desktop, so nothing is scheduled
+        say(f"pythonw.exe isn't next to {python}, so the watchdog would open a console each time: install Python from "
+            f"python.org, which includes it, then run this again")
+        return 1
+    action = f'"{windowless}" "{Path(__file__).resolve()}" watch'
     done = subprocess.run(["schtasks", "/Create", "/F", "/TN", guard.TASK_NAME, "/SC", "MINUTE", "/MO", str(guard.WATCH_MINUTES), "/IT", "/TR", action], capture_output=True, text=True)
     say((done.stdout or done.stderr).strip())
     return done.returncode

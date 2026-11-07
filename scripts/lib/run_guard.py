@@ -431,8 +431,17 @@ def heartbeat_task_exists() -> bool:
     done = run("schtasks", "/Query", "/TN", "Bosun heartbeat", "/XML")
     if done.returncode != 0:
         return False
-    enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", done.stdout.decode("utf-8", "replace"), re.S | re.I)
-    return enabled is None or enabled.group(1).lower() == "true"
+    text = done.stdout.decode("utf-8", "replace")
+    enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", text, re.S | re.I)
+    if not (enabled is None or enabled.group(1).lower() == "true"):
+        return False
+    # A task whose program or script is gone fires and does nothing, so it doesn't count as a watchdog.
+    command = re.search(r"<Command>(.*?)</Command>", text, re.S)
+    if not command or not Path(command.group(1).strip().strip('"')).is_file():
+        return False
+    arguments = re.search(r"<Arguments>(.*?)</Arguments>", text, re.S)
+    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', arguments.group(1) if arguments else "")
+    return script is None or Path(script.group(1) or script.group(2)).is_file()
 
 
 def on_heartbeat(root: Path = ROOT) -> bool:
