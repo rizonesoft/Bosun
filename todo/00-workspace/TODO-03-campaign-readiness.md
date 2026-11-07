@@ -201,6 +201,8 @@ A section that fails review must either get a real chance to repair or step asid
 
 Failed attempts don't count as reviews, and each one changes the tree, so a broken reviewer looks like progress and retries forever. Only Astra reviews Claude's work, and there is no fallback, so an outage must wait.
 
+**Corrected 2026-11-08:** a failed attempt is written into the findings file today as `## Round N: none` (`record` in `scripts/review-dispatch.py`), which is what changes the tree; this section moves failed attempts to `build/review-attempts.json`, so the findings file holds returned reviews only. `build/` is gitignored, so `real_signature` already leaves it out; the item below proves that rather than changing it. The run has no waiting state yet, so this section adds one (`wait_until` and a reason) to `scripts/lib/run_guard.py`, and `§5` reuses it for usage limits instead of building its own.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -212,12 +214,13 @@ Failed attempts don't count as reviews, and each one changes the tree, so a brok
 
 - [ ] Classify a failed attempt as `auth`, `model`, `rate-limit`, `timeout`, `invalid-verdict` or `other`, with any retry-after time, in `scripts/review-dispatch.py`. Done when: `scripts/tests/test_review_dispatch.py` covers each from captured CLI output. Cheaper substitute: reducing every failure to an exit number.
 - [ ] Keep up to 4 KB of redacted stderr in `build/review-failures/` from `scripts/review-dispatch.py`. Done when: a planted key in stderr never reaches the file. Cheaper substitute: discarding stderr.
-- [ ] Cap attempts per pass at 5 with exponential backoff, recording each in `build/review-attempts.json` rather than the findings file. Done when: a fake failing CLI stops at 5, and the tree's signature is unchanged.
-- [ ] Exclude `build/` state from `signature` in `scripts/lib/run_guard.py`. Done when: a test proves an attempt record does not reset `idle` or `restarts`.
-- [ ] Mark the run `waiting` with reason `reviewer-unavailable` after the attempt cap, for `auth`, `model` and repeated `rate-limit` failures. Done when: the guard rechecks every 30 minutes, and a recovered reviewer resumes the run. Cheaper substitute: switching to a different reviewer.
+- [ ] Cap attempts per pass at 5 with exponential backoff, recording each in `build/review-attempts.json` rather than the findings file, keyed by findings file, kind and position so the count carries across invocations and clears when the pass returns. Backoff is 30 seconds doubling, slept only while the next wait is 5 minutes or less; `auth` and `model` don't retry, since waiting can't fix them. Done when: a fake failing CLI stops at 5 across separate invocations, the findings file is unchanged, and the tree's signature is unchanged.
+- [ ] Keep `build/` state out of `signature` in `scripts/lib/run_guard.py`, which `.gitignore` already does. Done when: a test proves an attempt record does not reset `idle` or `restarts`.
+- [ ] Add a waiting state to `scripts/lib/run_guard.py` (`wait_until` and a reason, set by `python scripts/run-guard.py wait --reason <why> --minutes <n>`), during which `watch` spawns nothing and counts no restart, `on_stop` lets the turn end without counting it idle, and `MAX_QUIET_HOURS` doesn't run. Done when: a fake clock across the wait ends in a resume, not `stalled` or `expired`.
+- [ ] Mark the run waiting with reason `reviewer-unavailable` from `scripts/review-dispatch.py` when a pass reaches the attempt cap, or at once for `auth` and `model`, for 30 minutes or until a longer `rate-limit` retry-after, exiting 3; and route exit 3 in `process-phase/SKILL.md` and its mirrors to end the turn. Done when: the guard rechecks every 30 minutes, and a recovered reviewer resumes the run. Cheaper substitute: switching to a different reviewer.
 - [ ] Commit: `review: attempt limits and failure classes`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py` exits 0, and fails if a sixth attempt runs.
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_run_guard.py` exits 0, and fails if a sixth attempt runs.
 
 ## 5. Usage limits wait and resume
 
