@@ -62,6 +62,9 @@ PIN = ".conclave/reviewers.toml"
 PLAN_KEYS = {"report", "candidate", "reviewer", "model", "effort", "lenses"}
 STARTED = re.compile(r"^> \*\*Started:\*\* .+$", re.M)
 UNSTAMPED = re.compile(r"^> \*\*Unstamped:\*\* ", re.M)
+REPAIR_CYCLE = re.compile(r"^> \*\*Repair cycle:\*\* ", re.M)
+REPAIR_GRANTED = re.compile(r"^> \*\*Repair granted:\*\* ", re.M)
+PARKED = re.compile(r"^> \*\*Parked:\*\* [^\n]*\n?", re.M)
 # A round scripts/review-dispatch.py recorded in a findings file, reviewed or not ("## Round 2: none").
 ROUND_RECORD = re.compile(r"^## Round ([0-9]+): ", re.M)
 ADJACENCY_KEYS = ["list", "document", "settings", "reporting", "notifications", "permissions",
@@ -341,24 +344,30 @@ def unstamped_notes(body):
     return len(UNSTAMPED.findall(body or ""))
 
 
+def reopenings(body):
+    """How many review cycles came before this one: each `unstamp` and each `repair` starts a fresh one. A repaired
+    section was never stamped, so it has no consumers to suspect, and `unstamped_notes` alone decides that."""
+    return unstamped_notes(body) + len(REPAIR_CYCLE.findall(body or ""))
+
+
 def build_start(root, path, body, ref):
     """The commit the section's build began at: the first commit of its TODO file in which the section's own text
     holds its whole `> **Started:**` line (another section's identical or longer Started line does not count), or,
     for a section that never recorded one, the first commit naming the section outside todo/ and docs/. A reopened
     section's build is its repair: the first commit that holds the Started line and every Unstamped note, so the
-    repair's plan review must come after the unstamp and the repair records a fresh Started line after it."""
+    repair's plan review must come after the unstamp and the repair records a fresh Started line after it. A `repair` line counts the same way."""
     started = STARTED.search(body or "")
     first = None
     if started:
         line = started[0].rstrip("\r")
-        notes = unstamped_notes(body)
+        notes = reopenings(body)
         number = ref.rsplit("§", 1)[1]
         out = subprocess.run(["git", "-C", str(root), "log", "--reverse", "--format=%H", "--", path],
                              capture_output=True, text=True, timeout=60)
         for sha in out.stdout.split() if out.returncode == 0 else []:
             shown = subprocess.run(["git", "-C", str(root), "show", f"{sha}:{path}"], capture_output=True, timeout=30)
             section = section_text(shown.stdout.decode("utf-8", "replace"), number) if shown.returncode == 0 else None
-            if section is not None and line in section.splitlines() and unstamped_notes(section) >= notes:
+            if section is not None and line in section.splitlines() and reopenings(section) >= notes:
                 first = sha
                 break
     else:
@@ -382,7 +391,7 @@ def section_findings(root, ref):
     require(len(domains) == 1, f"no single todo/{m[1]}-<domain> folder for: {ref}")
     files = sorted((Path(root) / "todo" / domains[0]).glob(f"TODO-{m[2]}-*.md"))
     require(len(files) == 1, f"no single todo/{domains[0]}/TODO-{m[2]}-*.md file for: {ref}")
-    notes = unstamped_notes(section_text(read_text(files[0]), m[3]))
+    notes = reopenings(section_text(read_text(files[0]), m[3]))
     cycle = f"-cycle{notes + 1}" if notes else ""
     return f"docs/reviews/{domains[0]}/D{m[1]}-T{m[2]}-s{m[3]}{cycle}.md"
 
@@ -966,25 +975,20 @@ def round_cap(root):
         return 9
 
 
-def latest_findings(root, ref):
-    """The findings file of the section's latest review cycle, or None."""
+def cycle_findings(root, ref, cycle):
+    """The findings file of one review cycle of the section, or None before that cycle's first review."""
     m = re.fullmatch(r"D(\d+) T(\d+) §(\d+)", ref)
     if m is None:
         return None
-    stem = f"D{m[1]}-T{m[2]}-s{m[3]}"
-    numbered = []
-    for path in (Path(root) / "docs" / "reviews").glob(f"*/{stem}*.md"):
-        cycle = re.fullmatch(re.escape(stem) + r"(?:-cycle(\d+))?", path.stem)
-        if cycle:
-            numbered.append((int(cycle[1] or 1), path))
-    return max(numbered, key=lambda item: item[0])[1] if numbered else None
+    name = f"D{m[1]}-T{m[2]}-s{m[3]}" + (f"-cycle{cycle}" if cycle > 1 else "") + ".md"
+    return next(iter((Path(root) / "docs" / "reviews").glob(f"*/{name}")), None)
 
 
-def review_dead_end(root, ref):
-    """Why the section's latest cycle can't go on to a stamp, or None. Only that cycle counts: a newer one is the repair
+def review_dead_end(root, ref, cycle=1):
+    """Why the section's current cycle can't go on to a stamp, or None. Only that cycle counts: a newer one is the repair
     of an older one. Rounds that ran out differ from a clean last round, which is just waiting for its completion. This
     reads and counts with the dispatcher's own functions, so the graph and the dispatcher can't disagree."""
-    path = latest_findings(root, ref)
+    path = cycle_findings(root, ref, cycle)
     if path is None:
         return None
     try:
@@ -1004,16 +1008,83 @@ def review_dead_end(root, ref):
     return f"its {len(rounds)} review rounds ran out with findings open"
 
 
+def repair_cap(root, body):
+    """Repair cycles this section may use: the pin's limit plus each one the operator granted."""
+    try:
+        schedule = tomllib.loads((Path(root) / PIN).read_text(encoding="utf-8"))["schedule"]
+        cap = schedule.get("max_repair_cycles", 3)
+    except (OSError, KeyError, ValueError, TypeError):
+        cap = 3
+    return cap + len(REPAIR_GRANTED.findall(body or ""))
+
+
+def rewrite_section(root, row, body):
+    """Replace one section's text, atomically, and keep the plan in step. If the plan can't sync, the file goes back."""
+    path = Path(root) / row.path
+    original = path.read_bytes()
+    plan_path = Path(root) / PLAN
+    plan_before = plan_path.read_bytes() if plan_path.is_file() else None
+    text = read_text(path)
+    require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
+    atomic(path, text.replace(row.body, body))
+    try:
+        graph(root)
+        if plan_before is not None:
+            projections(root, sync=True)
+    except BaseException:
+        atomic(path, original)
+        if plan_before is not None:
+            atomic(plan_path, plan_before)
+        raise
+
+
+def open_section(root, ref, reason, date):
+    rows = graph(root)
+    require(ref in rows, "unresolved section: " + ref)
+    require(not rows[ref].done, f"already stamped, so an audit reopens it with unstamp: {ref}")
+    require(bool(reason.strip()) and "\n" not in reason, "--reason must be one line")
+    require(re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) is not None, f"invalid date: {date}")
+    return rows[ref]
+
+
+def repair(root, ref, reason, date):
+    """Start a new review cycle for a section at a dead end, and return its findings file. Earlier findings stay as they
+    are. Only the section's line is written, so an interruption can't leave two files disagreeing, and a second run
+    finds no dead end in the new cycle and spends nothing."""
+    root = Path(root)
+    row = open_section(root, ref, reason, date)
+    require(not PARKED.search(row.body), f"parked, and only the operator can bring it back with unpark: {ref}")
+    why = review_dead_end(root, ref, reopenings(row.body) + 1)
+    require(why is not None, f"no dead end to repair in its current cycle: {ref}")
+    used, cap = len(REPAIR_CYCLE.findall(row.body)), repair_cap(root, row.body)
+    require(used < cap, f"its {cap} repair cycles are used up, so park it: {ref}")
+    rewrite_section(root, row, row.body + f"\n\n> **Repair cycle:** {used + 1}: {date}: {reason.strip()} (after: {why})")
+    return section_findings(root, ref)
+
+
+def park(root, ref, reason, date):
+    root = Path(root)
+    row = open_section(root, ref, reason, date)
+    require(not PARKED.search(row.body), f"already parked: {ref}")
+    rewrite_section(root, row, row.body + f"\n\n> **Parked:** {date}: {reason.strip()}")
+
+
+def unpark(root, ref, reason, date):
+    """The operator's way back from a parked section. It grants one more repair cycle and keeps every finding."""
+    root = Path(root)
+    row = open_section(root, ref, reason, date)
+    require(bool(PARKED.search(row.body)), f"not parked: {ref}")
+    body = re.sub(r"\n*> \*\*Parked:\*\* [^\n]*", "", row.body)
+    rewrite_section(root, row, body + f"\n\n> **Repair granted:** {date}: {reason.strip()}")
+
+
 def section_disposition(row, rows, caps, root=ROOT):
     """One state and a reason for an open row, the one answer the guard and the skills use. `disposition` stays for
     `resolve`, `classify` and the plan, whose exit codes are documented."""
     if row.done:
         return "verified", "stamped"
-    if re.search(r"^> \*\*Parked:\*\*", row.body, re.M):
-        return "parked", "parked after its repair cycles; the operator reopens it"
-    dead_end = review_dead_end(root, row.ref)
-    if dead_end:
-        return "needs-repair", dead_end
+    if PARKED.search(row.body):
+        return "parked", "parked after its repair cycles; `unpark` is the operator's"
     person = sorted(set(row.needs) & (WAITING | PERSON_PRESENT))
     if person:
         return "waiting-person", f"needs {', '.join(person)}"
@@ -1025,6 +1096,11 @@ def section_disposition(row, rows, caps, root=ROOT):
     host = sorted(need for need in set(row.needs) & HOST if not caps.get(need))
     if host:
         return "waiting-host", f"this session lacks {', '.join(host)}"
+    # Last, so that needs-repair means this session can really do the repair.
+    dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
+    if dead_end:
+        used, cap = len(REPAIR_CYCLE.findall(row.body)), repair_cap(root, row.body)
+        return "needs-repair", dead_end + ("; its repair cycles are used up, so park it" if used >= cap else "")
     return "ready", "can run now"
 
 
@@ -1198,6 +1274,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     require(ref in rows, "unresolved section: " + ref)
     row = rows[ref]
     require(not row.done, f"already verified: {ref}")
+    require(not PARKED.search(row.body), f"parked, and only the operator can bring it back with unpark: {ref}")
     require(all(settled(d, rows) for d in row.depends),
             f"open prerequisite, or one resting on a reopened section: {ref}")
     require(not set(row.needs) & WAITING,

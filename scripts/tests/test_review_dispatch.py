@@ -1179,5 +1179,78 @@ class RepositoryPin(unittest.TestCase):
         self.assertEqual(pin["schedule"]["severity_stop_after"], todo_graph.SEVERITY_CUTOFF_ROUND)
 
 
+
+class RepairCycles(unittest.TestCase):
+    """Written with the dispatcher's own functions, so these exercise what a real cycle does."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+
+    def module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("review_dispatch_repair", Path(__file__).resolve().parents[1] / "review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def schedule(self, repairs):
+        pin = self.module().load_pin(Path(__file__).resolve().parents[2] / ".conclave" / "reviewers.toml")
+        self.assertEqual(pin["schedule"]["max_repair_cycles"], 3)
+        return pin["schedule"] | {"max_repair_cycles": repairs}
+
+    def test_the_pin_reads_three_and_refuses_more(self):
+        module = self.module()
+        for value, allowed in ((0, True), (3, True), (4, False), (-1, False), ("3", False), (True, False)):
+            with self.subTest(value):
+                if allowed:
+                    module.check_schedule(self.schedule(value), {"codex"})
+                else:
+                    with self.assertRaises(module.Refused):
+                        module.check_schedule(self.schedule(value), {"codex"})
+
+    def test_check_pin_reports_the_cap(self):
+        import json
+        import subprocess
+        import sys
+        root = Path(__file__).resolve().parents[2]
+        done = subprocess.run([sys.executable, str(root / "scripts" / "review-dispatch.py"), "--check-pin", "--json"], capture_output=True, text=True, cwd=root)
+        self.assertEqual(json.loads(done.stdout)["schedule"]["max_repair_cycles"], 3)
+
+    def test_an_old_cycle_file_is_refused_once_a_newer_one_exists(self):
+        module = self.module()
+        (self.folder / "D00-T03-s1.md").write_text("x", encoding="utf-8")
+        self.assertIsNone(module.older_cycle(self.folder / "D00-T03-s1.md"))
+        (self.folder / "D00-T03-s1-cycle2.md").write_text("x", encoding="utf-8")
+        (self.folder / "D00-T03-s10-cycle9.md").write_text("x", encoding="utf-8")  # another section's
+        self.assertEqual(module.older_cycle(self.folder / "D00-T03-s1.md"), "D00-T03-s1-cycle2.md")
+        self.assertIsNone(module.older_cycle(self.folder / "D00-T03-s1-cycle2.md"))
+        (self.folder / "D00-T03-s1-cycle10.md").write_text("x", encoding="utf-8")
+        self.assertEqual(module.older_cycle(self.folder / "D00-T03-s1-cycle2.md"), "D00-T03-s1-cycle10.md")
+        self.assertIsNone(module.older_cycle(self.folder / "notes.md"))
+
+    def test_a_whole_second_cycle_runs_in_its_own_file(self):
+        module = self.module()
+        result = {"writer": "claude", "writer_model": "claude-opus-5-5", "reviewer": "astra", "cli": "codex", "model": "m", "effort": "medium",
+                  "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m", "attempt_cli": "codex", "failover": [], "lenses": ["plan"]}
+        schedule = {"completion_order": "last", "max_low_rounds": 8}
+        first = self.folder / "D00-T03-s1.md"
+        module.record_completion(first, {**result, "review": "T.\n\nPLAN: complete\nOVERALL: approve"}, "2026-11-07T00:00:00Z", "a" * 40, kind="plan")
+        module.record(first, {**result, "review": "T.\n\nHIGHEST: none\nOVERALL: approve"}, "2026-11-07T00:00:00Z")
+        module.record_completion(first, {**result, "review": "T.\n\nCOMPLETION: gaps"}, "2026-11-07T00:00:00Z", "a" * 40)
+        found = module.read_findings(first.read_text(encoding="utf-8"))
+        with self.assertRaises(module.Refused):  # the old cycle takes nothing more
+            module.check_sequence(schedule, "round", found, "claude", "claude-opus-5-5")
+        second = self.folder / "D00-T03-s1-cycle2.md"
+        empty = {"rounds": [], "completions": [], "plans": []}
+        module.check_sequence(schedule, "plan", empty, "claude", "claude-opus-5-5")
+        module.record_completion(second, {**result, "review": "T.\n\nPLAN: complete\nOVERALL: approve"}, "2026-11-07T00:00:00Z", "a" * 40, kind="plan")
+        found = module.read_findings(second.read_text(encoding="utf-8"))
+        module.check_sequence(schedule, "round", found, "claude", "claude-opus-5-5")
+        self.assertEqual(module.older_cycle(first), second.name)
+
+
 if __name__ == "__main__":
     unittest.main()

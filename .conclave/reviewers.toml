@@ -23,6 +23,7 @@ meta = ["astra"]
 [schedule]
 completion_order = "last"
 max_low_rounds = 8
+max_repair_cycles = 3
 severity_stop_after = 0
 
 [schedule.plan]

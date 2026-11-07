@@ -175,8 +175,11 @@ def check_schedule(schedule, clis):
     Antigravity reviewer keeps the effort its model name carries), every lens known."""
     efforts = [e for e in EFFORTS["claude"] if all(e in EFFORTS[cli] for cli in clis if cli in EFFORTS)]
     keys = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
-    if not isinstance(schedule, dict) or not keys <= set(schedule) <= keys | {"completion_order", "max_low_rounds"}:
+    if not isinstance(schedule, dict) or not keys <= set(schedule) <= keys | {"completion_order", "max_repair_cycles", "max_low_rounds"}:
         raise Refused(f"[schedule] needs exactly {', '.join(sorted(keys))}")
+    repairs = schedule.get("max_repair_cycles", 3)
+    if type(repairs) is not int or not 0 <= repairs <= 3:
+        raise Refused("max_repair_cycles must be an integer from 0 to 3")
     if "completion_order" in schedule or "max_low_rounds" in schedule:
         if schedule.get("completion_order") != "last":
             raise Refused("completion_order must be last")
@@ -881,6 +884,18 @@ def list_rounds(records_dir):
     return {"records": records, **({"unreadable": unreadable} if unreadable else {})}
 
 
+def older_cycle(record):
+    """The newest cycle file when `record` isn't it, or None. A repair's reviews must not land on the cycle they replace."""
+    path = Path(record)
+    match = re.fullmatch(r"(D\d+-T\d+-s\d+)(?:-cycle(\d+))?", path.stem)
+    if not match:
+        return None
+    mine = int(match[2] or 1)
+    newer = [(int(found[1]), candidate.name) for candidate in path.parent.glob(f"{match[1]}-cycle*.md")
+             if (found := re.fullmatch(re.escape(match[1]) + r"-cycle(\d+)", candidate.stem)) and int(found[1]) > mine]
+    return max(newer)[1] if newer else None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--writer", choices=WRITERS, help="The agent whose work is under review")
@@ -939,6 +954,9 @@ def main(argv=None):
         return 0
     if not args.writer or not args.prompt:
         parser.error("--writer and --prompt are required unless --check-pin or --list-rounds is given")
+    if args.record and (newest := older_cycle(args.record)):
+        print(f"refused: {args.record} is an old review cycle; this section's reviews now go to {newest}", file=sys.stderr)
+        return 2
     one_pass = args.kind in PASSES
     if one_pass and not (args.candidate and CANDIDATE.fullmatch(args.candidate)):
         parser.error(f"--kind {args.kind} needs --candidate, the full 40-character commit under review")

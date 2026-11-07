@@ -283,8 +283,14 @@ class Watch(unittest.TestCase):
 class Rows(unittest.TestCase):
     def test_only_ready_rows_are_offered(self):
         rows = [{"ref": f"D01 T02 §{n}", "state": state} for n, state in enumerate(
-            ("ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "parked"), 1)]
+            ("ready", "waiting-host", "waiting-person", "waiting-dependency", "parked", "verified"), 1)]
         self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])
+
+    def test_a_run_with_only_repairable_work_left_goes_on(self):
+        rows = [{"ref": "D01 T02 §1", "state": "needs-repair"}, {"ref": "D01 T02 §2", "state": "parked"}]
+        self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])
+        reason = guard.on_stop(active(), {"session_id": "me", "stop_hook_active": True}, World(rows=guard.runnable(rows)).env())
+        self.assertIn("D01 T02 §1", reason)
 
     def test_a_display_session_row_runs_with_a_desktop_and_waits_without_one(self):
         with_desktop = [{"ref": "D01 T03 §1", "needs": ["display-session"], "state": "ready"}]

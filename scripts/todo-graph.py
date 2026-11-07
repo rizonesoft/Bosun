@@ -15,6 +15,9 @@
         --completion '<findings file>:<complete|completed|filed>' \
         --review '<round>:<report path>:<clean|fixed|stopped-at-33|stopped-low-severity>' --check '<command> -> <result>' \
         [--cap-outcome '<what was done when the review cap was reached>']   # required with a stopped verdict
+    python scripts/todo-graph.py repair 'D02 T01 §1' --reason '<why>'   # a dead end before any stamp: a new review cycle
+    python scripts/todo-graph.py park 'D02 T01 §1' --reason '<why>'     # its repair cycles are used up: set it aside
+    python scripts/todo-graph.py unpark 'D02 T01 §1' --reason '<why>'   # the operator's: one more repair cycle
     python scripts/todo-graph.py unstamp 'D02 T01 §1' --reason '<what regressed, and the repair section>'
 
 Format and rules: todo/README.md. Stdlib only.
@@ -28,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from host_caps import capabilities  # noqa: E402
-from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, section_disposition,  # noqa: E402
+from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, park, repair, section_disposition, unpark,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
                         suspects, unstamp)
 
@@ -84,7 +87,25 @@ def main():
     u.add_argument("ref")
     u.add_argument("--reason", required=True)
     u.add_argument("--date", default=date.today().isoformat())
+    for name, about in (("repair", "start a new review cycle for a section at a dead end, keeping its findings"),
+                        ("park", "set a section aside after its repair cycles"),
+                        ("unpark", "the operator's way back: grants one more repair cycle")):
+        action = sub.add_parser(name, help=about)
+        action.add_argument("ref")
+        action.add_argument("--reason", required=True)
+        action.add_argument("--date", default=date.today().isoformat())
     args = p.parse_args()
+    if args.command == "repair":
+        print(f"repairing {args.ref}; its reviews now go to {repair(ROOT, args.ref, args.reason, args.date)}")
+        return 0
+    if args.command == "park":
+        park(ROOT, args.ref, args.reason, args.date)
+        print(f"parked {args.ref}; plan synchronized")
+        return 0
+    if args.command == "unpark":
+        unpark(ROOT, args.ref, args.reason, args.date)
+        print(f"unparked {args.ref}, with one more repair cycle; plan synchronized")
+        return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)
         print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")

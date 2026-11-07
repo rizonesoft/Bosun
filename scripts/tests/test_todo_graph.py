@@ -486,12 +486,125 @@ class Dispositions(Tree):
         self.completion("gaps", "D00-T01-s10.md")
         self.assertEqual(self.state()[0], "ready")
 
-    def test_only_the_latest_cycle_counts(self):
+    def text(self):
+        return (self.root / "todo/00-workspace/TODO-01-a.md").read_text(encoding="utf-8")
+
+    def row(self):
+        rows = tg.graph(self.root)
+        return rows["D00 T01 §1"], rows
+
+    def disposed(self, caps=None):
+        row, rows = self.row()
+        return tg.section_disposition(row, rows, caps or self.CAPS, self.root)
+
+    def test_only_the_current_cycle_counts(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
+        self.assertEqual(self.disposed()[0], "needs-repair")
+        tg.repair(self.root, "D00 T01 §1", "fixing the gaps", "2026-11-07")
+        self.assertEqual(self.disposed()[0], "ready")
         self.plan("D00-T01-s1-cycle2.md")
-        self.assertEqual(self.state()[0], "ready")
-        self.completion("gaps", "D00-T01-s1-cycle10.md")
-        self.assertEqual(self.state()[0], "needs-repair")
+        self.assertEqual(self.disposed()[0], "ready")
+        self.completion("gaps", "D00-T01-s1-cycle2.md")
+        self.assertEqual(self.disposed()[0], "needs-repair")
+
+    def test_a_dead_end_this_session_cannot_repair_reads_what_it_waits_for(self):
+        for needs, state in (("attended", "waiting-person"), ("owner-decision", "waiting-person"), ("display-session", "waiting-host")):
+            with self.subTest(needs):
+                self.write(todo_file([(1, "A", 0, needs, "--")]))
+                self.completion("gaps")
+                self.assertEqual(self.disposed()[0], state)
+                self.record().unlink()
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1")]))
+        self.completion("gaps", "D00-T01-s2.md")
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "waiting-dependency")
+
+    def test_repair_starts_a_new_cycle_keeping_the_findings(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        before = self.record().read_bytes()
+        name = tg.repair(self.root, "D00 T01 §1", "fixing the gaps", "2026-11-07")
+        self.assertTrue(name.endswith("D00-T01-s1-cycle2.md"), name)
+        self.assertEqual(self.record().read_bytes(), before)
+        self.assertIn("> **Repair cycle:** 1: 2026-11-07: fixing the gaps", self.text())
+        self.assertFalse((self.root / name).exists())  # it appears at the cycle's plan review
+
+    def test_repair_refuses_what_it_cannot_do(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        with self.assertRaises(tg.Refused) as caught:
+            tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertIn("no dead end", str(caught.exception))
+        self.completion("gaps")
+        for bad in (("D00 T01 §9", "x", "2026-11-07"), ("D00 T01 §1", "", "2026-11-07"), ("D00 T01 §1", "two\nlines", "2026-11-07"), ("D00 T01 §1", "x", "soon")):
+            with self.subTest(bad), self.assertRaises(tg.Refused):
+                tg.repair(self.root, *bad)
+
+    def test_running_repair_again_spends_nothing(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        with self.assertRaises(tg.Refused):
+            tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertEqual(self.text().count("> **Repair cycle:**"), 1)
+
+    def test_a_failed_plan_sync_leaves_the_tree_unchanged(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        before = self.text()
+        with mock.patch.object(tg, "graph", side_effect=[tg.graph(self.root), tg.Refused("boom")]):
+            with self.assertRaises(tg.Refused):
+                tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertEqual(self.text(), before)
+
+    def use_up_repairs(self, count=3):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.completion("gaps")
+        for k in range(2, count + 2):
+            tg.repair(self.root, "D00 T01 §1", f"repair {k}", "2026-11-07")
+            self.completion("gaps", f"D00-T01-s1-cycle{k}.md")
+
+    def test_a_fourth_repair_is_refused_and_named(self):
+        self.use_up_repairs()
+        state, reason = self.disposed()
+        self.assertEqual(state, "needs-repair")
+        self.assertIn("park it", reason)
+        with self.assertRaises(tg.Refused) as caught:
+            tg.repair(self.root, "D00 T01 §1", "again", "2026-11-07")
+        self.assertIn("park it", str(caught.exception))
+
+    def test_parking_and_the_operators_way_back(self):
+        self.use_up_repairs()
+        tg.park(self.root, "D00 T01 §1", "three repairs failed", "2026-11-07")
+        self.assertEqual(self.disposed()[0], "parked")
+        with self.assertRaises(tg.Refused):
+            tg.repair(self.root, "D00 T01 §1", "again", "2026-11-07")
+        with self.assertRaises(tg.Refused):
+            tg.park(self.root, "D00 T01 §1", "again", "2026-11-07")
+        tg.unpark(self.root, "D00 T01 §1", "owner read the findings", "2026-11-08")
+        self.assertNotIn("**Parked:**", self.text())
+        self.assertIn("> **Repair granted:** 2026-11-08: owner read the findings", self.text())
+        self.assertEqual(self.disposed()[0], "needs-repair")
+        self.assertIn("cycle5", tg.repair(self.root, "D00 T01 §1", "one more", "2026-11-08"))
+        self.assertEqual(self.disposed()[0], "ready")
+        self.completion("gaps", "D00-T01-s1-cycle5.md")
+        with self.assertRaises(tg.Refused):
+            tg.repair(self.root, "D00 T01 §1", "and another", "2026-11-08")  # a grant is one cycle
+
+    def test_unpark_refuses_a_section_not_parked(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        with self.assertRaises(tg.Refused):
+            tg.unpark(self.root, "D00 T01 §1", "x", "2026-11-07")
+
+    def test_a_parked_sections_dependants_wait(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1")]))
+        tg.park(self.root, "D00 T01 §1", "x", "2026-11-07")
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "waiting-dependency")
+
+    def test_a_repair_line_is_not_a_reason_to_suspect_consumers(self):
+        self.assertEqual(tg.unstamped_notes("> **Repair cycle:** 1: x"), 0)
+        self.assertEqual(tg.reopenings("> **Repair cycle:** 1: x\n> **Unstamped:** y"), 2)
 
     def test_rounds_at_the_cap_with_findings_open_need_repair(self):
         self.rounds(9)
@@ -561,6 +674,17 @@ class SkillsDefer(unittest.TestCase):
                     text = (REPO / folder / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                     self.assertIn("query disposition", text)
                     self.assertNotIn("`display-session`", text)
+                    self.assertIn("needs-repair", text)
+                    self.assertNotIn("unpark", text)  # the operator's, never a run's
+
+    def test_review_teaches_repair_then_park_in_all_mirrors(self):
+        for folder in (".claude", ".codex", ".agents"):
+            with self.subTest(folder=folder):
+                text = (REPO / folder / "skills" / "review-todo-section" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("todo-graph.py repair", text)
+                self.assertIn("`park`", text)
+                reopened = (REPO / folder / "skills" / "process-todo-section" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("`unstamp` or `repair` reopened", reopened)
 
 
 class Stamp(Tree):
@@ -1317,6 +1441,30 @@ class Stamp(Tree):
         self.assertIn("- [ ] Commit:", text)
         tg.projections(self.root)  # the plan was synced
         self.restamp_after_repair()
+
+    def test_gaps_repair_clean_reviews_then_a_stamp(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        dispatch = tg.review_dispatch()
+        result = {"writer": "claude", "writer_model": "claude-opus-5-5", "reviewer": "astra", "cli": "codex", "model": "m",
+                  "effort": "medium", "execution": "returned", "attempt_reviewer": "astra", "attempt_model": "m",
+                  "attempt_cli": "codex", "failover": [], "lenses": [], "review": "Text.\n\nCOMPLETION: gaps"}
+        own = self.root / "docs/reviews/00-workspace/D00-T01-s1.md"
+        dispatch.record_completion(own, result, "2026-10-13T00:00:00Z", self.sha)
+        kept = own.read_bytes()
+        name = tg.repair(self.root, "D00 T01 §1", "the completion review found gaps", "2026-10-21")
+        self.assertEqual(name, "docs/reviews/00-workspace/D00-T01-s1-cycle2.md")
+        self.restamp_after_repair()
+        self.assertEqual(own.read_bytes(), kept)
+        tg.graph(self.root)  # validation still holds for the whole tree
+
+    def test_stamp_refuses_a_parked_section(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        tg.park(self.root, "D00 T01 §1", "x", "2026-10-21")
+        with self.assertRaises(tg.Refused) as caught:
+            self.stamp("D00 T01 §1", self.commit("parked"), self.reviews, ["true -> ok"], "2026-10-21")
+        self.assertIn("parked", str(caught.exception))
 
     def restamp_after_repair(self):
         """A reopened section re-stamps on its repair: a plan review, a fresh Started line, a completion review and

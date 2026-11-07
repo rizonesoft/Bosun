@@ -58,7 +58,7 @@ Fix every validator refusal before talking about shipping. If `plan --check` is 
 4. Blocked rows: count and what blocks them (unmet dependencies, waiting Needs, unreachable hosts).
 5. The phase being started, and why it is first.
 
-Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; `query disposition` gives each open row one state and reason for this session, so a row it doesn't call `ready` is a leftover here even when `query ready` lists it, and `process-phase` re-reads it rather than trusting a previous list.
+Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; `query disposition` gives each open row one state and reason for this session, so a row it doesn't call `ready` is a leftover here even when `query ready` lists it. A `needs-repair` row is work too, and it counts as a ready row when choosing a phase: `process-phase` repairs or parks it. Otherwise `process-phase` re-reads it rather than trusting a previous list.
 
 If no phase has a ready row, report the leftovers with their blockers and stop. That is a genuine halt.
 

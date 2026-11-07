@@ -120,6 +120,8 @@ Optional stamp companions, written by hand before stamping: `> **Started:** <UTC
 
 A passing validator proves structure, not that the work was done. The receipt is the evidence: the plan and completion reviews and the review rounds with their findings files, and checks with quoted results.
 
+A section at a review dead end before any stamp (its completion returned gaps, or its rounds ran out with findings open) reads `needs-repair` in `query disposition`. `python scripts/todo-graph.py repair '<ref>' --reason '<why>'` adds a `> **Repair cycle:**` line and starts a new cycle file, keeping every earlier finding, up to the pin's `max_repair_cycles`. At that cap `park` adds `> **Parked:**`, which `stamp` refuses, and its dependants wait. `unpark` is the operator's: it removes that line and adds `> **Repair granted:**`, one more cycle.
+
 An audit that finds a stamped section regressed reopens it only through `python scripts/todo-graph.py unstamp '<ref>' --reason '<what regressed; repair -> XREF: <ref>>'`: it removes the two stamp lines, unticks the `Commit:` item and the row, reopens the file, keeps the receipt as `docs/reviews/<ref>.revoked-<date>.json`, adds `> **Unstamped:** <date>: <reason>` to the section and syncs the plan, all or nothing. The section then re-stamps with a fresh receipt on its repair: its findings file becomes `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>-cycle<n+1>.md` (n being its `Unstamped:` notes), which must hold the repair's plan review, completion review and every round, and its build start is the first commit holding its `Started:` line and every `Unstamped:` note, so the repair records a fresh `Started:` line after its plan review.
 
 ## Commands
