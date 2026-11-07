@@ -111,3 +111,5 @@ The strongest direct alternative is GitHub CLI: dispatch with `gh workflow run`,
 2. **in-scope, G2:** `scripts/ci_status.py:554`: expose actionable missing-run recovery before polling, reducing avoidable delay from 1,800 seconds to zero sleeps.
 
 COMPLETION: gaps
+
+- Filed: D00 T03 §13 (the recovery command names its commit, and is printed at the first look)

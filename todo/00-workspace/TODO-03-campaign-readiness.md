@@ -48,6 +48,7 @@ title: "TODO-03 -- Campaign readiness"
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [ ] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
+| 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -414,6 +415,25 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 
 > **Verified:** 2026-11-07 | §12 | b4b2087235e4375df2a86cfd966d6c58de4fb4d1
 > **Review:** `docs/reviews/d00-t03-s12.json`
+
+## 13. CI gate recovery that names its commit
+
+Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers are filed from a section's third cycle on. The gate names `gh workflow run <file> --ref <branch>` when nothing proves a commit, which runs whatever the branch holds then, and it prints this only after polling.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Name the commit in the recovery in `scripts/ci_status.py`. Done when: a moved branch is explained, never silently run.
+2. Print the recovery at the first look. Done when: no sleep comes before it.
+
+- [ ] Compare the branch's remote head with the checked commit through `gh api` in `scripts/ci_status.py`, offering the dispatch command only when they match, and otherwise saying the branch has moved on and its newer head is what to gate. Done when: `scripts/tests/test_ci_status.py` covers a match, a moved branch and an unreadable head.
+- [ ] Print the recovery to stderr at the first look, before any sleep, keeping one JSON object on stdout. Done when: a test with a 30 minute wait reads it before the first sleep.
+- [ ] Commit: `ci: recovery names its commit`
+
+**Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0, and fails if a moved branch is offered the dispatch command.
 
 ## Verification
 

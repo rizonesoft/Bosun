@@ -963,6 +963,14 @@ class SkillsDefer(unittest.TestCase):
                     self.assertIn("needs-repair", text)
                     self.assertNotIn("unpark", text)  # the operator's, never a run's
 
+    def test_review_files_leftovers_from_the_third_cycle_in_all_mirrors(self):
+        for folder in (".claude", ".codex", ".agents"):
+            with self.subTest(folder=folder):
+                text = (REPO / folder / "skills" / "review-todo-section" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("From a section's third review cycle on", text)
+                self.assertIn(":filed'", text)
+                self.assertIn("In the first two cycles, gaps are repaired", text)
+
     def test_review_teaches_repair_then_park_in_all_mirrors(self):
         for folder in (".claude", ".codex", ".agents"):
             with self.subTest(folder=folder):
