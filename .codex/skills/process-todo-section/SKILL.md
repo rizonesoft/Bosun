@@ -118,7 +118,7 @@ Commit the section work (in one or more commits as steps complete), recording th
 <plan corrections, if any>
 ```
 
-Then invoke `review-todo-section` on the same ref. It runs independent rounds, then the one-pass completion and excellence review last (`scripts/review-dispatch.py --kind completion`): implement every in-scope gap and excellence item it lists in this section, file the rest through `add-todo`. Completion gaps are settled in the same cycle, fixed (`completed`) or filed (`filed`), and nothing is re-reviewed. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
+Then invoke `review-todo-section` on the same ref. It runs independent rounds, then the one-pass completion and excellence review last (`scripts/review-dispatch.py --kind completion`): fix each missing item it lists in this section, or file it through `add-todo`, and record its excellence suggestions in `todo/findings.md`, where nothing waits on them. Completion gaps are settled in the same cycle, fixed (`completed`) or filed (`filed`), and nothing is re-reviewed. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
 
 ### 8. Report
 

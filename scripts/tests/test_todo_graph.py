@@ -1059,6 +1059,8 @@ class SkillsDefer(unittest.TestCase):
                 skill = (REPO / folder / "skills" / "process-todo-section" / "SKILL.md").read_text(encoding="utf-8")
                 self.assertNotIn("prevent stamping", skill)
                 self.assertNotIn("keep the section unstamped", skill)
+                self.assertNotIn("implement every in-scope gap and excellence item", skill)
+                self.assertIn("record its excellence suggestions in `todo/findings.md`", skill)
                 self.assertNotIn("Only a genuine complete verdict may stamp a new-policy cycle.", text)
                 self.assertIn(":filed'", text)
                 self.assertIn("todo/findings.md", text)

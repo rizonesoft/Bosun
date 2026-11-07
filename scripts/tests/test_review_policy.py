@@ -241,7 +241,7 @@ class CurrentPolicy(unittest.TestCase):
         finally:
             t.tearDown()
 
-    def filed_through_stamp(self, repairs):
+    def filed_through_stamp(self, repairs, verdict='filed'):
         """A real current-policy cycle after `repairs` repairs: committed live pin, real repair lines, dispatcher
         records, completion gaps filed to the open D00 T01 §2, then the real stamp. Returns (fixture, receipt)."""
         t = fixtures.Stamp('runTest')
@@ -269,10 +269,14 @@ class CurrentPolicy(unittest.TestCase):
         d.record(path, e, '2026-11-06T00:00:02Z')
         e.update(review='1. A gap.\n\nCOMPLETION: gaps', lenses=[])
         d.record_completion(path, e, '2026-11-06T00:00:03Z', candidate, 'completion')
-        with open(path, 'a', encoding='utf-8', newline='') as handle:
-            handle.write('\n- Filed: D00 T01 §2\n')  # a writer's note, after the record's counted lines
+        if verdict == 'filed':
+            with open(path, 'a', encoding='utf-8', newline='') as handle:
+                handle.write('\n- Filed: D00 T01 §2\n')  # a writer's note, after the record's counted lines
+        else:  # completed: the gap is fixed in this cycle, in a commit after the review, and nothing is re-reviewed
+            (t.root / 'fix.txt').write_text('the gap, fixed' + '\n', encoding='utf-8')
+            candidate = t.commit('fix the completion gap')
         receipt = t.stamp('D00 T01 §1', candidate, [{'round': 1, 'report': rel, 'verdict': 'clean'}], ['real gate'],
-                          '2026-11-06', plan=rel, completion={'report': rel, 'verdict': 'filed'})
+                          '2026-11-06', plan=rel, completion={'report': rel, 'verdict': verdict})
         return t, receipt
 
     def test_a_third_cycle_files_and_stamps_through_the_real_path(self):
@@ -292,6 +296,25 @@ class CurrentPolicy(unittest.TestCase):
             rows = fixtures.tg.graph(t.root)
             self.assertTrue(rows['D00 T01 §1'].done)
             self.assertFalse(rows['D00 T01 §2'].done)
+        finally:
+            if t is not None:
+                t.tearDown()
+
+    def test_a_first_cycle_fixes_and_stamps_completed_on_the_same_path(self):
+        t = None
+        try:
+            t, receipt = self.filed_through_stamp(0, 'completed')
+            data = json.loads((t.root / receipt).read_text(encoding='utf-8'))
+            self.assertEqual(data['completion']['verdict'], 'completed')
+            self.assertEqual(data['completion']['filed'], [])
+            tool = t.root / 'scripts'
+            (tool / 'lib').mkdir(parents=True, exist_ok=True)
+            for name in ('todo-graph.py', 'review-dispatch.py', 'lib/todo_graph.py', 'lib/host_caps.py'):
+                (tool / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            done = subprocess.run([sys.executable, str(tool / 'todo-graph.py'), 'validate'], cwd=t.root,
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+            self.assertTrue(fixtures.tg.graph(t.root)['D00 T01 §1'].done)
         finally:
             if t is not None:
                 t.tearDown()
