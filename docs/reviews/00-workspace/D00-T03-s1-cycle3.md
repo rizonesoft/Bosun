@@ -48,3 +48,25 @@ OVERALL: needs-attention
 
 HIGHEST: P1
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T20:23:25Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 555dd884430d781bf4d182109504328ec9e77cc3
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Lines: 6
+- Digest: f56d0be41347428c
+
+### consistency: needs-attention
+
+1. **P3, `todo/00-workspace/TODO-03-campaign-readiness.md:73`: The checked policy still instructs passing the previous remote head to `--gate`.** The candidate now rejects `--gate --base`, while the process-phase skill correctly omits it. Reproduce by following that checklist instruction: `python scripts/ci_status.py --gate --sha HEAD --base HEAD^ --json` exits 2 without a gate action. Update the checklist to require the persisted proven commit and remove the previous-remote-head instruction.
+
+HIGHEST: P3
+OVERALL: needs-attention
