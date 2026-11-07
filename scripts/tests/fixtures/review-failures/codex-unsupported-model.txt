@@ -1,0 +1,21 @@
+OpenAI Codex v0.167.0
+--------
+workdir: D:\GitHub\Bosun
+model: no-such-model-zz9
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a1b855-25e2-71e3-87ae-8cf7d765acc2
+--------
+user
+Reply with the single word ok.
+
+warning: Model metadata for `no-such-model-zz9` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
+hook: UserPromptSubmit
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+hook: UserPromptSubmit Completed
+ERROR: The 'no-such-model-zz9' model is not supported when using Codex with a ChatGPT account.
+ERROR: The 'no-such-model-zz9' model is not supported when using Codex with a ChatGPT account.

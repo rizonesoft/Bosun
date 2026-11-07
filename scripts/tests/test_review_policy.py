@@ -386,7 +386,7 @@ class CurrentPolicy(unittest.TestCase):
     def test_invocation_selects_low_variant_and_records_simulated_result(self):
         pin = d.load_pin()
         seen = []
-        def run(argv, stdin, timeout, watched):
+        def run(argv, stdin, timeout, watched, stderr_path=None):
             seen.append(argv)
             watched[0].write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
             return 0, None

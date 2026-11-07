@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import argparse
+import calendar
+import time
 import json
 import os
 import subprocess
@@ -64,8 +66,14 @@ def watch() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("hook", "watch", "status", "install", "uninstall"):
+    for name in ("hook", "watch", "install", "uninstall"):
         commands.add_parser(name)
+    commands.add_parser("status").add_argument("--json", action="store_true", help="print only the JSON")
+    wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
+    wait.add_argument("--reason", required=True)
+    wait.add_argument("--until", help="when the wait ends, as 2026-11-08T12:00:00Z")
+    wait.add_argument("--minutes", type=float, help="or how long it lasts")
+    wait.add_argument("--detail", help="what is wrong and how to recover, shown by status")
     start = commands.add_parser("start")
     start.add_argument("--session", required=True)
     start.add_argument("--permission-mode")
@@ -91,9 +99,38 @@ def main() -> int:
 
     if args.command == "status":
         state = guard.load()
-        say("active" if state.get("active") else (state.get("status") or "inactive"))
-        detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "restarts", "yields", "last_restart", "last_error", "heartbeat_at", "last_api_failure") if state.get(k) is not None}
-        say(json.dumps({**detail, **guard.health(state)}))
+        word = ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
+        detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "restarts", "yields", "last_restart", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
+        if guard.waiting(state):
+            detail["wait_until"] = guard.stamp(state["wait_until"])
+        data = {"state": word, **detail, **guard.health(state)}
+        if args.json:
+            say(json.dumps(data))
+            return 0
+        say(word)
+        if word == "waiting":
+            say(f"waiting for {state['wait_reason']} until {detail['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
+        say(json.dumps(data))
+        return 0
+    if args.command == "wait":
+        if (args.until is None) == (args.minutes is None):
+            say("give --until or --minutes")
+            return 2
+        try:
+            until = calendar.timegm(time.strptime(args.until, "%Y-%m-%dT%H:%M:%SZ")) if args.until else time.time() + args.minutes * 60
+        except ValueError:
+            say(f"--until must look like 2026-11-08T12:00:00Z, not {args.until}")
+            return 2
+        with guard.locked():
+            state = guard.load()
+            try:
+                guard.set_wait(state, args.reason, until, args.detail)
+            except ValueError as error:
+                say(str(error))
+                return 1
+            guard.save(state)
+        guard.log(f"wait: {args.reason} until {guard.stamp(until)}")
+        say(f"waiting until {guard.stamp(until)}")
         return 0
     if args.command == "watch":
         return watch()

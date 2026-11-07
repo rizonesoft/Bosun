@@ -133,6 +133,29 @@ def end_run(state: dict, status: str, why: str) -> None:
     state.update(active=False, status=status, why=why, ended=stamp())
 
 
+def waiting(state: dict, now: float | None = None) -> bool:
+    """True while the run waits for something only time can bring back, such as an unavailable reviewer."""
+    until = state.get("wait_until")
+    return isinstance(until, (int, float)) and (time.time() if now is None else now) < until
+
+
+def set_wait(state: dict, reason: str, until: float, detail: str | None = None) -> None:
+    if not state.get("active"):
+        raise ValueError("no active run, so nothing waits")
+    if not reason.strip():
+        raise ValueError("a wait needs a reason")
+    state.update(wait_until=until, wait_reason=reason.strip(), wait_detail=(detail or "").strip() or None, wait_set=stamp())
+
+
+def end_wait(state: dict, now: float, signature: str) -> None:
+    """A wait that has passed gives the run a fresh no-progress budget: neither the time spent waiting nor the resume
+    that follows it is a sign that the run is stuck."""
+    for key in ("wait_until", "wait_reason", "wait_detail", "wait_set"):
+        state.pop(key, None)
+    state.update(restarts=0, idle=0, yields=0, changed_at=now, restart_signature=signature, signature=signature,
+                 last_wait_ended=stamp(now))
+
+
 def is_stop(prompt: str) -> bool:
     """A plain order to stop the run. Anything less plain goes to the model to judge: see on_prompt."""
     return bool(STOP.match(prompt))
@@ -142,8 +165,9 @@ def heartbeat_note() -> str:
     return (
         "Unattended run guard is active. If this session is interactive and CronList shows no heartbeat, create one "
         f"now with CronCreate, cron \"{CRON}\", prompt: \"Run heartbeat: run `python scripts/run-guard.py status`. If it "
-        "prints active and no turn is in progress, continue process-plan at the next ready row. If it prints anything "
-        "else, CronDelete this job and end the turn.\" Never ask the operator; record decisions in the run file. If the "
+        "prints active and no turn is in progress, continue process-plan at the next ready row. If it prints waiting, end "
+        "the turn and keep this job. If it prints anything else, CronDelete this job and end the turn.\" Never ask the "
+        "operator; record decisions in the run file. If the "
         "operator asks to stop or pause, run `python scripts/run-guard.py halt --ground operator --reason <their words>`."
     )
 
@@ -200,6 +224,8 @@ def send_back(left: list[str] | None, state: dict) -> str:
 def on_stop(state: dict, data: dict, env: Env) -> str | None:
     if not state.get("active") or state.get("session_id") != data.get("session_id"):
         return None
+    if waiting(state):
+        return None  # the turn may end: nothing can be done until the wait passes, and that is not idleness
     left = env.rows()
     if left == []:
         end_run(state, "drained", DRAINED)
@@ -258,6 +284,10 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         return "inactive"
     now = time.time() if now is None else now
     signature = env.signature()
+    if state.get("wait_until") is not None:
+        if waiting(state, now):
+            return f"waiting: {state.get('wait_reason')} until {stamp(state['wait_until'])}"
+        end_wait(state, now, signature)
     if signature != state.get("restart_signature"):
         state.update(restart_signature=signature, restarts=0, changed_at=now)
     quiet = (now - state.get("changed_at", now)) / 3600

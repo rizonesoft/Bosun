@@ -523,6 +523,87 @@ class Signature(unittest.TestCase):
         (self.root / "a.txt").write_text("one", encoding="utf-8")
         self.assertEqual(guard.real_signature(self.root), guard.real_signature(self.root))
 
+    def test_a_review_attempt_record_in_build_is_not_progress(self):
+        (self.root / ".gitignore").write_text((guard.ROOT / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "ignore"],
+                       cwd=self.root, check=True, capture_output=True)
+        before = guard.real_signature(self.root)
+        (self.root / "build" / "review-failures").mkdir(parents=True)
+        (self.root / "build" / "review-attempts.json").write_text('{"passes": {}}', encoding="utf-8")
+        (self.root / "build" / "review-failures" / "x.txt").write_text("failed", encoding="utf-8")
+        self.assertEqual(guard.real_signature(self.root), before)
+        world, state = World(signature=before), active(signature=before, restart_signature=before, restarts=1, idle=2)
+        guard.on_stop(state, {"session_id": "me"}, world.env())
+        guard.watch(state, world.env())
+        self.assertEqual((state["idle"], state["restarts"]), (3, 2), "an attempt record reset idle or restarts")
+
+
+class Waits(unittest.TestCase):
+    """A run that waits for an unavailable reviewer neither spins nor stalls, and resumes when the wait passes."""
+
+    def test_nothing_resumes_and_no_restart_counts_while_waiting(self):
+        world, state = World(), active(restarts=2)
+        guard.set_wait(state, "reviewer-unavailable", 1000 + 1800, "auth: sign in")
+        for minute in range(0, 30, 5):
+            self.assertTrue(guard.watch(state, world.env(), now=1000 + minute * 60).startswith("waiting: reviewer-unavailable"))
+        self.assertEqual((world.spawned, state["restarts"]), ([], 2))
+
+    def test_the_turn_may_end_while_waiting_without_counting_idle(self):
+        world, state = World(), active(idle=0)
+        guard.set_wait(state, "reviewer-unavailable", time.time() + 600)
+        self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, world.env()))
+        self.assertEqual(state["idle"], 0)
+
+    def test_an_outage_across_many_waits_and_past_the_quiet_limit_resumes(self):
+        world, state = World(), active(changed_at=0)
+        now = 0.0
+        hours = guard.MAX_QUIET_HOURS + 6
+        while now < hours * 3600:
+            guard.set_wait(state, "reviewer-unavailable", now + 1800)
+            for _ in range(6):  # the heartbeat looks every 5 minutes
+                now += 300
+                result = guard.watch(state, world.env(), now=now)
+                self.assertNotIn(result, ("stalled", "expired"))
+            # each resume changes nothing, as a reviewer that's still down leaves the tree as it was
+        self.assertTrue(state["active"])
+        self.assertTrue(world.spawned, "nothing resumed after a wait")
+        self.assertLess(state["restarts"], guard.MAX_RESTARTS)
+
+    def test_a_recovered_reviewer_resumes_the_run(self):
+        world, state = World(), active()
+        guard.set_wait(state, "reviewer-unavailable", 1000)
+        self.assertIn("attempt 1", guard.watch(state, world.env(), now=1001))
+        self.assertNotIn("wait_until", state)
+
+    def test_no_wait_without_an_active_run(self):
+        with self.assertRaises(ValueError):
+            guard.set_wait({}, "reviewer-unavailable", 1000)
+
+    def test_status_shows_the_wait_and_how_to_recover(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {**os.environ, "RUN_GUARD_STATE": str(Path(folder) / "state.json")}
+            script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+            done = subprocess.run([*script, "wait", "--reason", "reviewer-unavailable", "--minutes", "30"], env=env,
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, "a wait with no active run was saved")
+            (Path(folder) / "state.json").write_text(json.dumps(active()), encoding="utf-8")
+            detail = "auth: the reviewer CLI isn't signed in: sign it in (for Codex, `codex login`). See build/review-failures/x.txt."
+            done = subprocess.run([*script, "wait", "--reason", "reviewer-unavailable", "--minutes", "30", "--detail", detail],
+                                  env=env, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            text = subprocess.run([*script, "status"], env=env, capture_output=True, text=True).stdout
+            self.assertEqual(text.splitlines()[0], "waiting")
+            self.assertIn("codex login", text)
+            self.assertIn("build/review-failures/x.txt", text)
+            data = json.loads(subprocess.run([*script, "status", "--json"], env=env, capture_output=True, text=True).stdout)
+            self.assertEqual((data["state"], data["wait_reason"]), ("waiting", "reviewer-unavailable"))
+            self.assertIn("codex login", data["wait_detail"])
+            self.assertRegex(data["wait_until"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_the_heartbeat_keeps_its_job_while_the_run_waits(self):
+        self.assertIn("If it prints waiting, end the turn and keep this job", guard.heartbeat_note())
+
 
 
 

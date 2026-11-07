@@ -48,6 +48,9 @@ FAKE_CLI = textwrap.dedent('''\
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
     if mode == "fail":
         sys.exit(3)
+    if mode == "stderr":
+        sys.stderr.write(os.environ["FAKE_STDERR"])
+        sys.exit(1)
     if mode == "sleep":
         time.sleep(30)
     if mode == "flood":
@@ -141,6 +144,20 @@ class Harness(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
+    def attempts(self):
+        path = self.repo / "build" / "review-attempts.json"
+        return json.loads(path.read_text(encoding="utf-8"))["passes"] if path.exists() else {}
+
+    def elapse(self):
+        """Stand in for a backoff having passed: every pass's not-before moves into the past."""
+        path = self.repo / "build" / "review-attempts.json"
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for entry in data["passes"].values():
+                if "not_before" in entry:
+                    entry["not_before"] = 0
+            path.write_text(json.dumps(data), encoding="utf-8")
+
     def module(self):
         spec = importlib.util.spec_from_file_location("dispatch_under_test", self.repo / "scripts/review-dispatch.py")
         module = importlib.util.module_from_spec(spec)
@@ -199,12 +216,16 @@ class Dispatch(Harness):
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "timed out"}])
 
     def test_no_review_is_never_an_approval(self):
+        # A failed attempt writes nothing to the findings file: it is kept in build/, apart from the tree's reviews.
         record = self.repo / "docs/reviews/round.md"
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                         codex="fail")
         self.assertEqual(result.returncode, 1)
         self.assertIsNone(summary["reviewer"])
-        self.assertIn("not an approval", record.read_text())
+        self.assertFalse(record.exists())
+        (entry,) = self.attempts().values()
+        self.assertEqual((entry["count"], entry["last_class"]), (1, "other"))
+        self.assertEqual(summary["attempt"]["attempt"], 1)
 
     def test_a_writer_without_a_route_is_refused_before_any_reviewer_runs(self):
         # The fixture routes only Claude, so Codex and Gemini work has no reviewer here and nothing runs.
@@ -222,12 +243,17 @@ class Dispatch(Harness):
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                    codex="fail")
+        self.assertNotIn("round", summary)  # nothing was recorded
+        self.assertNotIn("## Round 2", record.read_text())
+        self.elapse()
+        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         text = record.read_text()
         self.assertEqual(summary["round"], 2)
         self.assertTrue(text.startswith("# Findings\n"))
         self.assertIn("## Round 1: sol (`gpt-6.1-sol` via `codex`)", text)
-        self.assertIn("## Round 2: none", text)
-        self.assertIn("- Skipped: sol (exited 3)", text)
+        self.assertIn("## Round 2: sol (`gpt-6.1-sol` via `codex`)", text)
+        self.assertNotIn(": none", text)
+        self.assertEqual(self.attempts(), {}, "a returned review clears its pass")
 
     def check_pin(self, *args):
         result, _ = self.dispatch("--check-pin", *args)
@@ -336,7 +362,8 @@ class Dispatch(Harness):
         self.assertIn("--writer and --prompt are required", result.stderr)
 
     def test_list_rounds_reads_back_what_record_wrote(self):
-        # Two rounds written by record itself: one reviewed, one where the reviewer returned no review.
+        # A reviewed round written by record itself, then a failed attempt, which record no longer writes. Rounds
+        # with no review that older files hold are still read: see the test below.
         record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), codex="fail")
@@ -344,14 +371,11 @@ class Dispatch(Harness):
         self.assertEqual(result.returncode, 0, result.stderr)
         (only,) = listing["records"]
         self.assertEqual(only["path"], "docs/reviews/00-design/D00-T01-s1.md")
-        reviewed, skipped = only["rounds"]
+        (reviewed,) = only["rounds"]
         self.assertEqual({k: reviewed[k] for k in ("number", "reviewer", "model", "cli", "writer", "effort", "skipped")},
                          {"number": 1, "reviewer": "sol", "model": "gpt-6.1-sol", "cli": "codex", "writer": "claude",
                           "effort": "xhigh", "skipped": []})
         self.assertRegex(reviewed["run"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-        self.assertEqual({k: skipped[k] for k in ("number", "reviewer", "model", "cli", "effort", "skipped")},
-                         {"number": 2, "reviewer": None, "model": None, "cli": None, "effort": None,
-                          "skipped": [{"reviewer": "sol", "reason": "exited 3"}]})
         self.assertNotIn("unreadable", listing)
 
     def test_list_rounds_still_reads_rounds_recorded_under_earlier_reviewers(self):
@@ -739,12 +763,15 @@ class Dispatch(Harness):
 
     def test_the_completion_review_is_one_pass(self):
         record = self.repo / "docs/reviews/c.md"
-        # A pass that returned no review records `none` and may be followed by another pass.
+        # A pass that returned no review records nothing and may be followed by another attempt.
         result, _ = self.complete(record, codex="fail")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("## Completion review: none\n", record.read_text(encoding="utf-8"))
+        self.assertFalse(record.exists())
+        self.elapse()
         result, _ = self.complete(record, codex="completionblocked")
         self.assertEqual(result.returncode, 1, "COMPLETION: blocked is not a review")
+        self.assertEqual(next(iter(self.attempts().values()))["last_class"], "invalid-verdict")
+        self.elapse()
         result, _ = self.complete(record, codex="completion")
         self.assertEqual(result.returncode, 0, result.stderr)
         before = record.read_bytes()
@@ -859,6 +886,152 @@ SCHEDULED_PIN = FIXTURE_PIN + textwrap.dedent('''
 ''')
 
 
+FIXTURES = SCRIPTS / "tests" / "fixtures" / "review-failures"
+
+
+class Attempts(Harness):
+    """A failed attempt is kept in build/, classified, capped at 5 a pass and waited out, never retried forever."""
+
+    def go(self, record=None, **modes):
+        record = record or self.repo / "docs/reviews/r.md"
+        return self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), **modes)
+
+    def outside_build(self):
+        return sorted((str(p.relative_to(self.repo)), p.read_bytes()) for p in self.repo.rglob("*")
+                      if p.is_file() and "build" not in p.relative_to(self.repo).parts)
+
+    def test_each_class_from_cli_output(self):
+        module = self.module()
+        captured = {"codex-not-signed-in.txt": "auth", "codex-unsupported-model.txt": "model"}
+        for name, expected in captured.items():
+            with self.subTest(name):
+                self.assertEqual(module.classify("exited 1", (FIXTURES / name).read_text(encoding="utf-8")), (expected, None))
+        # Representative wording: no rate limit or timeout could be produced on purpose to capture one.
+        cases = [("exited 1", "ERROR: unexpected status 429 Too Many Requests: Rate limit reached. Retry-After: 120",
+                  ("rate-limit", 120)),
+                 ("exited 1", "You've hit your usage limit. Try again in 5 minutes.", ("rate-limit", 300)),
+                 ("exited 1", "rate limit exceeded", ("rate-limit", None)),
+                 ("timed out", "", ("timeout", None)),
+                 ("invalid terminal verdict", "", ("invalid-verdict", None)),
+                 ("could not review: no access", "", ("invalid-verdict", None)),
+                 ("exited 3", "segfault", ("other", None))]
+        for reason, detail, expected in cases:
+            with self.subTest(detail or reason):
+                self.assertEqual(module.classify(reason, detail), expected)
+
+    def test_a_planted_key_never_reaches_the_failure_file(self):
+        key = "sk-proj-" + "A1b2C3d4E5f6G7h8I9j0" * 2
+        result, summary = self.go(codex="stderr", stderr=f"ERROR: something broke, api_key={key}\nBearer {key}\n")
+        self.assertEqual(result.returncode, 1)
+        kept = self.repo / summary["attempt"]["failure"]
+        text = kept.read_text(encoding="utf-8")
+        self.assertNotIn(key, text)
+        self.assertIn("[redacted]", text)
+        self.assertIn("something broke", text)
+        self.assertLessEqual(len(kept.read_bytes()), 4096)
+        self.assertNotIn("detail", summary)
+
+    def test_five_attempts_a_pass_then_it_waits_and_a_sixth_never_runs(self):
+        before = self.outside_build()
+        codes = []
+        for _ in range(6):
+            result, _ = self.go(codex="fail")
+            codes.append(result.returncode)
+            self.elapse()
+        self.assertEqual(codes, [1, 1, 1, 1, 3, 3])
+        self.assertEqual(len(self.calls()), 5, "a sixth attempt ran")
+        self.assertEqual(self.outside_build(), before, "a failed attempt changed the tree")
+        (entry,) = self.attempts().values()
+        self.assertEqual(entry["count"], 5)
+        self.assertIn("wait_until", entry)
+
+    def test_auth_waits_at_once_and_says_how_to_recover(self):
+        result, _ = self.go(codex="stderr", stderr=(FIXTURES / "codex-not-signed-in.txt").read_text(encoding="utf-8"))
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("codex login", result.stderr)
+        self.assertIn("No run is waiting", result.stderr)  # this scratch repository has no run guard
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_a_far_not_before_runs_no_cli_in_another_process(self):
+        self.go(codex="stderr", stderr="429 Too Many Requests. Retry-After: 3600")
+        self.log.unlink(missing_ok=True)
+        result, _ = self.go()
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(self.calls(), [], "a CLI ran before its retry-after")
+
+    def test_a_new_window_after_the_wait_keeps_the_position(self):
+        record = self.repo / "docs/reviews/r.md"
+        self.go(record)  # round 1
+        for _ in range(5):
+            self.go(record, codex="fail")
+            self.elapse()
+        path = self.repo / "build" / "review-attempts.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        (key,) = data["passes"]
+        self.assertTrue(key.endswith("|round|round 2"), key)
+        data["passes"][key]["wait_until"] = 0  # the wait has passed
+        path.write_text(json.dumps(data), encoding="utf-8")
+        result, summary = self.go(record)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["round"], 2)
+        self.assertEqual(self.attempts(), {})
+
+    def test_an_unreadable_attempt_file_refuses_before_any_cli(self):
+        path = self.repo / "build" / "review-attempts.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{bad", encoding="utf-8")
+        result, _ = self.go()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("attempt count is unknown", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_short_not_before_is_slept_and_each_attempt_is_reserved_first(self):
+        module = self.module()
+        clock = [1000.0]
+        slept = []
+        module.CLOCK = lambda: clock[0]
+        module.SLEEP = lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s))
+        key = "docs/reviews/r.md|round|round 1"
+        module.save_attempts({key: {"count": 1, "not_before": 1120.0}})
+        entry = module.before_attempt(key)
+        self.assertEqual(slept, [120.0])
+        # A kill now loses nothing: a fresh read already counts this attempt.
+        self.assertEqual(self.module().load_attempts()[key]["count"], 2)
+        self.assertEqual(entry["count"], 2)
+
+    def test_a_save_that_fails_refuses_before_any_cli(self):
+        module = self.module()
+        with unittest.mock.patch.object(module, "atomic_write", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaisesRegex(module.Refused, "can't be saved"):
+                module.before_attempt("docs/reviews/r.md|round|round 1")
+
+    def test_exit_3_only_after_the_wait_is_saved_and_says_whether_a_run_waits(self):
+        module = self.module()
+        order = []
+        real_save = module.save_attempts
+        module.save_attempts = lambda passes: (order.append("saved"), real_save(passes))
+        for saved, said in ((True, "The run waits."), (False, "No run is waiting")):
+            with self.subTest(saved):
+                order.clear()
+                module.guard_wait = lambda until, detail, s=saved: (order.append("guard"), (s, "no active run"))[1]
+                message = module.start_wait({}, "k", {"last_class": "auth", "count": 1}, 5000.0)
+                self.assertEqual(order, ["saved", "guard"])
+                self.assertIn(said, message)
+
+
+class SkillsKnowTheWait(unittest.TestCase):
+    def test_every_skill_that_calls_the_dispatcher_ends_the_turn_on_exit_3(self):
+        repo = SCRIPTS.parent
+        for folder in (".claude", ".codex", ".agents"):
+            for skill in ("process-todo-section", "review-todo-section", "process-phase"):
+                with self.subTest(folder=folder, skill=skill):
+                    text = (repo / folder / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                    self.assertRegex(text, r"[Ee]xits? (1 or )?3")
+                    self.assertIn("without building, retrying or stamping", text)
+                    self.assertNotIn("or `none` with the reason when the reviewer returned no review", text)
+                    self.assertNotIn("When the dispatcher exits 1, no review happened: run the pass again", text)
+
+
 class Schedule(Harness):
     """The pin's [schedule]: the dispatcher picks each pass's effort and lenses from the rounds already recorded."""
 
@@ -904,8 +1077,9 @@ class Schedule(Harness):
                                         str(self.findings), codex="fail")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(summary["position"], 2)
+        self.elapse()
         summary, (call,) = self.round()
-        self.assertEqual((summary["position"], summary["round"], self.effort_of(call)), (2, 3, "medium"))
+        self.assertEqual((summary["position"], summary["round"], self.effort_of(call)), (2, 2, "medium"))
 
     def test_a_self_review_or_a_reply_without_a_verdict_does_not_move_the_position(self):
         # scripts/lib/todo_graph.py stamp replays `scheduled`, so neither may count as a review, like an outage.

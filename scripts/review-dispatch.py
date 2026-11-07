@@ -45,6 +45,26 @@ MAX_OUTPUT_BYTES = 2_000_000
 # The prompt's reply format ends with an OVERALL line; `blocked` means the reviewer never saw the work.
 BLOCKED = re.compile(r"^\s*(?:OVERALL|COMPLETION):\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
+# Failed attempts: kept apart from the findings file, which holds returned reviews only, so a broken reviewer never
+# changes the tree and never looks like progress. Each pass (findings file, kind, position) gets MAX_ATTEMPTS a window.
+ATTEMPTS = ROOT / "build" / "review-attempts.json"
+FAILURES = ROOT / "build" / "review-failures"
+MAX_ATTEMPTS = 5
+BACKOFF_SECONDS = 30  # doubling after each failed attempt of a pass
+SLEEP_LIMIT = 300  # a wait this short is slept here; a longer one is the run guard's
+WAIT_SECONDS = 30 * 60  # how long the run waits for an unavailable reviewer before it looks again
+KEEP_BYTES = 4096
+CLASSES = ("auth", "model", "rate-limit", "timeout", "invalid-verdict", "other")
+RECOVERY = {
+    "auth": "the reviewer CLI isn't signed in: sign it in (for Codex, `codex login`)",
+    "model": "the pinned model isn't available to this account: change it in .conclave/reviewers.toml",
+    "rate-limit": "the reviewer's usage limit is reached; it resets on its own",
+    "timeout": "the reviewer ran past its timeout",
+    "invalid-verdict": "the reviewer's reply had no usable verdict line",
+    "other": "the reviewer failed; the diagnostic file says how",
+}
+CLOCK = time.time
+SLEEP = time.sleep
 CLEANUP_SECONDS = 10
 
 
@@ -461,17 +481,18 @@ def feed(pipe, text):
         pass  # the reviewer stopped reading or exited; its exit code and output decide the round
 
 
-def run(argv, stdin_text, timeout, watched):
+def run(argv, stdin_text, timeout, watched, stderr_path=None):
     """Run one reviewer in its own process group, watching the size of every file it writes while it runs, so neither
     a hang nor a flood of output can take the dispatcher or the disk down. The group is ended afterwards whatever
     happened. Returns (exit code, None) or (None, the reason it returned no review)."""
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     stdout_path = watched[0]
-    with open(stdout_path, "wb") as output:
+    with open(stdout_path, "wb") as output, \
+            (open(stderr_path, "wb") if stderr_path else open(os.devnull, "wb")) as errors:
         try:
             process = subprocess.Popen(argv, cwd=ROOT,
                                        stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                                       stdout=output, stderr=subprocess.DEVNULL, **group)
+                                       stdout=output, stderr=errors, **group)
         except (OSError, ValueError) as exc:
             return None, f"could not start: {getattr(exc, 'strerror', None) or type(exc).__name__}"
         try:
@@ -527,12 +548,14 @@ def review(pin, writer, prompt_path, timeout, plan=None):
 
     def none(reason):
         return {"writer": writer, "reviewer": None, "failover": [{"reviewer": name, "reason": reason}], "review": None,
+                "detail": detail,
                 "attempt_reviewer": name, "attempt_model": reviewer["model"], "attempt_cli": reviewer["cli"],
                 "execution": ("timeout" if "timed out" in reason else "missing" if "not installed" in reason
                               else "empty" if "returned no review" in reason else "failed"),
                 **scheduled_fields}
 
     # The resolved path, not the bare name: on Windows a CLI is often a .cmd shim that Popen cannot find by name.
+    detail = ""
     executable = find_cli(reviewer["cli"])
     if executable is None:
         return none(f"{reviewer['cli']} is not installed")
@@ -545,12 +568,15 @@ def review(pin, writer, prompt_path, timeout, plan=None):
             # The pointer an Antigravity shim gets must name the prompt with its scheduled lenses.
             prompt_file = tmp / "prompt.md"
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
+        stderr_path = tmp / "stderr.txt"
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
-        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path])
+        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path], stderr_path)
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
             text = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else ""
+        else:
+            detail = tail(stderr_path) + tail(stdout_path)
     finally:
         remove_scratch(tmp)
     if problem is None and not (text or "").strip():
@@ -563,6 +589,197 @@ def review(pin, writer, prompt_path, timeout, plan=None):
             "execution": "returned", "attempt_reviewer": name, "attempt_model": reviewer["model"],
             "attempt_cli": reviewer["cli"],
             "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}
+
+
+def tail(path, size=65536):
+    """The end of a file the reviewer wrote, as text, or "" when there is none."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(max(0, os.path.getsize(path) - size))
+            return handle.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+SECRETS = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}"),
+    re.compile(r"\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+    re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}"),
+    re.compile(r"(?i)\b((?:api[_-]?key|token|secret|password|authorization)\s*[:=]\s*)\S+"),
+)
+
+
+def redact(text):
+    """Text with anything that looks like a credential, and the value of any credential in the environment, removed."""
+    for name, value in os.environ.items():
+        if len(value) >= 8 and re.search(r"KEY|TOKEN|SECRET|PASSWORD", name, re.I):
+            text = text.replace(value, "[redacted]")
+    for pattern in SECRETS:
+        text = pattern.sub(lambda m: (m.group(1) + " " if m.re.groups and m.group(1) and m.group(1).lower() == "bearer"
+                                      else m.group(1) if m.re.groups and m.group(1) else "") + "[redacted]", text)
+    return text
+
+
+RETRY_AFTER = re.compile(r"(?i)retry[- ]after\D{0,3}(\d+)|(?:try again|retry) in (\d+(?:\.\d+)?)\s*(s|sec|seconds?|m|mins?|minutes?|h|hours?)\b")
+
+
+def classify(reason, detail):
+    """The class of a failed attempt, and the retry-after seconds the reviewer gave, if any."""
+    if "timed out" in reason:
+        return "timeout", None
+    if reason == "invalid terminal verdict" or reason.startswith("could not review: "):
+        return "invalid-verdict", None
+    text = f"{reason}\n{detail}"
+    if re.search(r"(?i)\b401\b|unauthori[sz]ed|not (?:logged|signed) in|please (?:log|sign) ?in|login required|"
+                 r"invalid api key|missing bearer|authentication (?:failed|required)", text):
+        return "auth", None
+    if re.search(r"(?i)model[^\n]{0,80}\b(?:is not supported|not found|does not exist|unsupported|not available|"
+                 r"unavailable)\b|unknown model|invalid model|does not have access to (?:the )?model", text):
+        return "model", None
+    if re.search(r"(?i)\b429\b|rate.?limit|too many requests|usage limit|quota", text):
+        found = RETRY_AFTER.search(text)
+        if not found:
+            return "rate-limit", None
+        if found.group(1):
+            return "rate-limit", int(found.group(1))
+        unit = found.group(3).lower()[0]
+        return "rate-limit", int(float(found.group(2)) * {"s": 1, "m": 60, "h": 3600}[unit])
+    return "other", None
+
+
+def iso(seconds):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
+
+
+class Waiting(Exception):
+    """The pass waits for the reviewer: exit 3, and the run guard (when there is a run) waits with it."""
+
+
+def load_attempts():
+    """Every pass's attempts. A file that can't be read refuses: guessing would hand back attempts that were spent."""
+    try:
+        text = ATTEMPTS.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise Refused(f"{ATTEMPTS} can't be read ({exc}), so the attempt count is unknown and no reviewer was run")
+    try:
+        data = json.loads(text)
+    except ValueError:
+        raise Refused(f"{ATTEMPTS} is not valid JSON, so the attempt count is unknown and no reviewer was run") from None
+    if not isinstance(data, dict) or not isinstance(data.get("passes"), dict):
+        raise Refused(f"{ATTEMPTS} has the wrong shape, so the attempt count is unknown and no reviewer was run")
+    return data["passes"]
+
+
+def save_attempts(passes):
+    try:
+        atomic_write(ATTEMPTS, json.dumps({"schema_version": 1, "passes": passes}, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        raise Refused(f"{ATTEMPTS} can't be saved ({exc}), so no reviewer was run") from None
+
+
+def attempt_key(record, kind, position):
+    try:
+        where = Path(record).resolve().relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        where = str(Path(record).resolve())
+    return f"{where}|{kind}|{position}"
+
+
+def guard_wait(until, detail):
+    """(saved, what the guard said). The run guard waits the run; a repository without one has no run to wait."""
+    script = ROOT / "scripts" / "run-guard.py"
+    if not script.is_file():
+        return False, "this repository has no run guard"
+    try:
+        done = subprocess.run([sys.executable, str(script), "wait", "--reason", "reviewer-unavailable", "--until",
+                               iso(until), "--detail", detail], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"the run guard couldn't be asked: {exc}"
+    return done.returncode == 0, (done.stdout or done.stderr).strip()
+
+
+def start_wait(passes, key, entry, until):
+    """Save the pass's wait, then ask the guard to wait the run, and say plainly which happened."""
+    entry["wait_until"] = until
+    passes[key] = entry
+    save_attempts(passes)
+    cls = entry.get("last_class", "other")
+    where = f" See {entry['last_failure']}." if entry.get("last_failure") else ""
+    detail = f"{cls}: {RECOVERY[cls]}.{where}"
+    saved, said = guard_wait(until, detail)
+    run = "The run waits." if saved else f"No run is waiting: {said}."
+    return f"reviewer unavailable ({detail}) No attempt starts before {iso(until)}. {run}"
+
+
+def before_attempt(key):
+    """Reserve this attempt before the CLI starts, so a kill can't hand it back. Waits a short not-before here, and
+    raises Waiting for a long one, or while the pass's window is closed."""
+    passes = load_attempts()
+    entry = dict(passes.get(key) or {})
+    now = CLOCK()
+    if entry.get("wait_until") is not None:
+        if now < entry["wait_until"]:
+            raise Waiting(start_wait(passes, key, entry, entry["wait_until"]))
+        entry = {"count": 0, "windows": entry.get("windows", 1) + 1}  # its wait passed: a new window, same position
+    if entry.get("not_before") is not None and now < entry["not_before"]:
+        if entry["not_before"] - now > SLEEP_LIMIT:
+            raise Waiting(start_wait(passes, key, entry, entry["not_before"]))
+        SLEEP(entry["not_before"] - now)
+    if entry.get("count", 0) >= MAX_ATTEMPTS:
+        raise Waiting(start_wait(passes, key, entry, CLOCK() + WAIT_SECONDS))
+    entry.update(count=entry.get("count", 0) + 1, reserved_at=iso(CLOCK()))
+    entry.setdefault("windows", 1)
+    entry.pop("not_before", None)
+    passes[key] = entry
+    save_attempts(passes)
+    return entry
+
+
+def keep_failure(key, entry, cls, reason, detail):
+    """Up to KEEP_BYTES of the failure, credentials removed, in build/review-failures/. None when it can't be kept."""
+    name = re.sub(r"[^A-Za-z0-9.-]+", "-", key).strip("-")[-80:]
+    path = FAILURES / f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(CLOCK()))}-{name}-{entry['count']}.txt"
+    body = redact(f"pass: {key}\nattempt: {entry['count']} of {MAX_ATTEMPTS}\nclass: {cls}\nreason: {reason}\n\n{detail}")
+    data = body.encode("utf-8")
+    if len(data) > KEEP_BYTES:
+        data = data[:200] + b"\n[...]\n" + data[-(KEEP_BYTES - 210):]
+    try:
+        atomic_write(path, data.decode("utf-8", "replace"))
+    except OSError:
+        return None
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def after_attempt(key, entry, result):
+    """Clear the pass when a review came back. Otherwise record the failure, and either set when the next attempt may
+    start or start the pass's wait (raising Waiting)."""
+    passes = load_attempts()
+    if result["reviewer"]:
+        passes.pop(key, None)
+        save_attempts(passes)
+        return None
+    reason = result["failover"][0]["reason"] if result.get("failover") else "returned no review"
+    cls, retry_after = classify(reason, result.get("detail") or "")
+    entry.update(last_class=cls, last_reason=reason[:300], last_at=iso(CLOCK()),
+                 last_failure=keep_failure(key, entry, cls, reason, result.get("detail") or ""))
+    now = CLOCK()
+    if cls in ("auth", "model") or entry["count"] >= MAX_ATTEMPTS:  # waiting can't fix auth or model, so no retry
+        raise Waiting(start_wait(passes, key, entry, now + max(WAIT_SECONDS, retry_after or 0)))
+    delay = retry_after if retry_after else BACKOFF_SECONDS * 2 ** (entry["count"] - 1)
+    entry["not_before"] = now + delay
+    if delay > SLEEP_LIMIT:
+        raise Waiting(start_wait(passes, key, entry, entry["not_before"]))
+    passes[key] = entry
+    save_attempts(passes)
+    return {"key": key, "attempt": entry["count"], "of": MAX_ATTEMPTS, "class": cls, "next": iso(entry["not_before"]),
+            "failure": entry["last_failure"]}
 
 
 def blocked(text):
@@ -999,6 +1216,14 @@ def main(argv=None):
         if args.writer_model:
             if not MODEL.fullmatch(args.writer_model):
                 raise Refused("invalid exact writer model")
+        key = entry = None
+        if args.record:
+            position = args.kind
+            if args.kind == "round":
+                known = read_rounds(existing_findings(Path(args.record), "round")) or []
+                position = f"round {len(known) + 1}"  # the number record gives the next round
+            key = attempt_key(args.record, args.kind, position)
+            entry = before_attempt(key)
         result = review(pin, args.writer, args.prompt, args.timeout, plan)
         if args.writer_model:
             result["writer_model"] = args.writer_model
@@ -1009,9 +1234,17 @@ def main(argv=None):
             if not returned:
                 result.update(reviewer=None, execution="invalid", review=None,
                               failover=[{"reviewer": result["attempt_reviewer"], "reason": "invalid terminal verdict"}])
+        if key:
+            attempt = after_attempt(key, entry, result)
+            if attempt:
+                result["attempt"] = attempt
+    except Waiting as exc:
+        print("review-dispatch waiting: " + str(exc), file=sys.stderr)
+        return 3
     except (Refused, Unrecorded, OSError) as exc:
         print("review-dispatch refused: " + str(exc), file=sys.stderr)
         return 2
+    result.pop("detail", None)  # kept, redacted, in build/review-failures/; never in the findings file or stdout
     when = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if one_pass:
         result.update(kind=args.kind, candidate=args.candidate)
@@ -1023,7 +1256,7 @@ def main(argv=None):
         # re-checks it).
         result["severity_stop"] = bool(result["reviewer"]) and plan["position"] > stop_after \
             and clean(result["review"])
-    if args.record:
+    if args.record and result["reviewer"]:  # a failed attempt is in build/review-attempts.json, not the findings file
         try:
             if one_pass:
                 record_completion(Path(args.record), result, when, args.candidate, args.kind)

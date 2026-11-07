@@ -1,0 +1,33 @@
+OpenAI Codex v0.167.0
+--------
+workdir: D:\GitHub\Bosun
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a1b855-47bf-7542-92d2-991d0721a132
+--------
+user
+Reply with the single word ok.
+
+2026-11-07T23:25:59.329714Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+2026-11-07T23:25:59.392090Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+2026-11-07T23:25:59.621830Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+ERROR: Reconnecting... 2/5
+2026-11-07T23:26:00.114193Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+ERROR: Reconnecting... 3/5
+2026-11-07T23:26:00.990506Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+ERROR: Reconnecting... 4/5
+2026-11-07T23:26:02.485407Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+ERROR: Reconnecting... 5/5
+2026-11-07T23:26:05.684839Z ERROR codex_api::endpoint::responses_websocket: failed to connect to Responses WebSocket stage=Unknown
+warning: Falling back from WebSockets to HTTPS transport. unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses, cf-ray: a57019d53961e2c5-CPT
+ERROR: Reconnecting... 1/5
+ERROR: Reconnecting... 2/5
+ERROR: Reconnecting... 3/5
+ERROR: Reconnecting... 4/5
+ERROR: Reconnecting... 5/5
+ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a5701a0a1aa31640-CPT, request id: req_520fd2034ec94b5da098e752830559f6
+ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a5701a0a1aa31640-CPT, request id: req_520fd2034ec94b5da098e752830559f6
