@@ -56,7 +56,7 @@ In the generated plan's table order, for each open row: `process-todo-section` (
 After each stamped section, push, then run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30`, and act on the one action it prints. It remembers the last proven commit, so a restart after a push loses nothing:
 
 - `proceed`: start the next row.
-- `wait`: CI hasn't answered, or `gh` is unavailable. Run the same command again, and don't start the next row. This costs time, not repair attempts, and it ends in `unverified` after two hours on one commit.
+- `wait`: CI hasn't answered, or `gh` is unavailable. If it prints a `gh workflow run` command, as after a fresh clone, run that first, because a real run is the way to find out. Run the same command again, and don't start the next row. This costs time, not repair attempts, and it ends in `unverified` after two hours on one commit.
 - `repair`: fix the red run on `main` before the next row, commit, push and run the gate again. A repeat check of the same commit uses no attempt, and the count survives a restart.
 - `unverified`: two hours went by with no answer, or the gate couldn't save its state. Do as for `exhausted`, naming the reason.
 - `exhausted`: three repairs have failed. File the fault through `add-todo` with the failing workflow and its URL, then carry on with the next row on local gates, because the run must not block itself. The guard refuses `complete` while `main` is red, so the fault stays visible at the end.

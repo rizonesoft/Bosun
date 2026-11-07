@@ -233,7 +233,7 @@ class Skips(Base):
     def exact_revert(self):
         """A passed, then C with no file different from A."""
         a, c = OLD, SHA
-        self.assertEqual(self.go(["--gate", "--sha", "BASE"], FakeGh({"build.yml": [run(sha=a)], "plan.yml": [run(sha=a)]}), FakeGit())[0], 0)
+        self.assertEqual(self.go(["--gate", "--sha", OLD], FakeGh({"build.yml": [run(sha=a)], "plan.yml": [run(sha=a)]}), FakeGit())[0], 0)
         return FakeGh(), FakeGit([])
 
     def test_an_exact_revert_to_the_proven_commit_is_a_skip(self):
@@ -369,7 +369,7 @@ class Gate(Base):
         self.assertEqual(self.gate(self.green()), (0, "action: proceed"))
 
     def test_proceed_on_a_proven_skip(self):
-        self.gate(self.green(), "BASE")
+        self.gate(self.green(), OLD)
         gh = FakeGh({"plan.yml": [run()]})
         self.assertEqual(self.gate(gh, git=FakeGit(["a.md"])), (0, "action: proceed"))
 
@@ -552,7 +552,7 @@ class Gate(Base):
         self.assertIn("action: unverified", self.fresh(["--gate", "--sha", "HEAD"], pending, wall=start + ci_status.WAIT_LIMIT_SECONDS)[1])
 
     def test_use_proven_recognises_a_skipped_final_stamp_and_changes_nothing(self):
-        self.gate(self.green(), "BASE")
+        self.gate(self.green(), OLD)
         gh = FakeGh({"plan.yml": [run()]})
         self.assertEqual(self.gate(gh, git=FakeGit(["README.md"]))[1], "action: proceed")
         before = self.state().read_bytes()
@@ -561,7 +561,7 @@ class Gate(Base):
         self.assertEqual(self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))[0], 0)  # and a repeat gate agrees
 
     def test_use_proven_refuses_code_after_the_proven_commit(self):
-        self.gate(self.green(), "BASE")
+        self.gate(self.green(), OLD)
         before = self.state().read_bytes()
         code, _ = self.go(["--sha", "HEAD", "--use-proven"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
         self.assertEqual(code, ci_status.EXIT_NONE)
@@ -710,7 +710,7 @@ class Gate(Base):
 
     def test_a_restart_after_a_push_still_has_its_base(self):
         green = {"build.yml": [run(sha=OLD)], "plan.yml": [run(sha=OLD)]}
-        self.assertEqual(self.fresh(["--gate", "--sha", "BASE"], green)[0], 0)
+        self.assertEqual(self.fresh(["--gate", "--sha", OLD], green)[0], 0)
         record = json.loads(self.state().read_text())
         self.assertEqual(record["proven"], OLD)
         code, out, err = self.fresh(["--gate", "--sha", "HEAD", "--json"], {"plan.yml": [run()]})
@@ -720,7 +720,7 @@ class Gate(Base):
 
     def test_a_restart_while_waiting_keeps_the_proven_base(self):
         green = {"build.yml": [run(sha=OLD)], "plan.yml": [run(sha=OLD)]}
-        self.fresh(["--gate", "--sha", "BASE"], green)
+        self.fresh(["--gate", "--sha", OLD], green)
         for _ in range(2):  # the same answer from a new process each time
             code, out, err = self.fresh(["--gate", "--sha", "HEAD", "--json"], changed=["src/a.cpp"])
             data = json.loads(out)
@@ -801,7 +801,7 @@ class Gate(Base):
         self.assertEqual([p.name for p in (self.root / "build").iterdir() if p.name.endswith(".tmp")], [])
 
     def test_a_code_push_after_a_restart_is_not_skipped(self):
-        self.gate(self.green(), "BASE", FakeGit())
+        self.gate(self.green(), OLD, FakeGit())
         gh = FakeGh({"plan.yml": [run()]})
         code, out = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["src/a.cpp"]))
         self.assertEqual((code, json.loads(out)["action"]), (ci_status.EXIT_NONE, "wait"))
@@ -962,16 +962,57 @@ class Gate(Base):
         self.assertIn("gh", calls)
         self.assertNotIn("git", calls)
 
-    def test_a_branch_name_past_the_limit_does_not_restart_the_wait(self):
-        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
-        out = io.StringIO()
+    def test_with_no_run_and_no_proof_it_names_the_recovery(self):
+        gh = FakeGh({"plan.yml": [run()]})  # build.yml has no run, and with no record nothing proves a skip
+        code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))
+        lines = text.strip().splitlines()
+        self.assertEqual(lines[-1], "action: wait")
+        self.assertEqual(lines[-2], "to get a real run: gh workflow run build.yml --ref main")
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
+
+    def test_a_proven_skip_or_a_run_needs_no_recovery(self):
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], self.green())
+        self.assertNotIn("recovery", json.loads(raw))
+        pending = FakeGh({"build.yml": [run("queued", None)], "plan.yml": [run()]})
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], pending)
+        self.assertNotIn("recovery", json.loads(raw))
+
+    def test_after_a_fresh_clone_a_real_run_decides(self):
+        self.assertIn("gh workflow run", self.fresh(["--gate", "--sha", "HEAD"])[1])
+        code, out, _ = self.fresh(["--gate", "--sha", "HEAD"], {"build.yml": [run()], "plan.yml": [run()]})
+        self.assertEqual((code, out.strip().splitlines()[-1]), (0, "action: proceed"))
+
+    def test_after_a_fresh_clone_a_real_failure_stays_red(self):
+        code, out, _ = self.fresh(["--gate", "--sha", "HEAD"], {"build.yml": [run(conclusion="failure")], "plan.yml": [run()]})
+        self.assertEqual((code, out.strip().splitlines()[-1]), (1, "action: repair (attempt 1 of 3)"))
+
+    def test_the_gate_takes_only_head_or_a_full_sha(self):
+        self.assertIn("HEAD or a full SHA", self.err_of(["--gate", "--sha", "main"]))
+        self.assertIn("HEAD or a full SHA", self.err_of(["--gate", "--sha", "abc123"]))
+        self.assertEqual(self.go(["--sha", "HEAD"], self.green())[0], 0)  # without a gate, names still work
+        self.assertEqual(self.go(["--sha", OLD], FakeGh({"build.yml": [run(sha=OLD)], "plan.yml": [run(sha=OLD)]}))[0], 0)
+
+    def test_head_moving_on_gets_its_own_wait_with_no_state_to_delete(self):
+        git = self.git_files()
+        old = git("rev-parse", "HEAD")
+        self.go(["--gate", "--sha", old], FakeGh(), _Named(old), wall=lambda: 1_000_000.0)
+        expired = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
 
         def tool(name, args, cwd=ci_status.ROOT, timeout=120):
-            raise AssertionError("no tool starts past the limit")
+            return 0, "[]", ""
+        out = io.StringIO()
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
-            code = ci_status.main(["--gate", "--sha", "main", "--json"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
-        self.assertEqual((code, json.loads(out.getvalue())["action"]), (ci_status.EXIT_UNAVAILABLE, "unverified"))
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0})
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=expired)
+        self.assertIn("action: unverified", out.getvalue())
+        (self.root / "a.txt").write_text("b")
+        git("add", "-A")
+        git("commit", "-qm", "two")
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=expired)
+        self.assertIn("action: wait", out.getvalue())
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": git("rev-parse", "HEAD"), "since": expired()})
 
     def test_a_slow_git_with_one_second_left_costs_only_that_second(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
@@ -982,8 +1023,9 @@ class Gate(Base):
             clock.t += timeout
             return 0, SHA + "\n", ""
         out = io.StringIO()
-        with mock.patch.object(ci_status, "run_tool", slow), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-            ci_status.main(["--gate", "--sha", "main"], root=self.root, clock=clock.now, sleep=clock.sleep,
+        with mock.patch.object(ci_status, "run_tool", slow), mock.patch.object(ci_status, "read_head", return_value=None), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep,
                            wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1 + clock.t)
         self.assertEqual(spent[0], ("git", 1))
         self.assertEqual(clock.t, 1)
@@ -1133,7 +1175,7 @@ class Policy(unittest.TestCase):
         sections = {self.section(folder) for folder in (".claude", ".codex", ".agents")}
         self.assertEqual(len(sections), 1)
         text = sections.pop()
-        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo"):
+        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo", "gh workflow run"):
             self.assertIn(word, text)
 
 

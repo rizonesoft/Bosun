@@ -472,6 +472,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                      else "no workflow to watch, or an empty --branch")
     if args.gate and not args.sha:
         parser.error("--gate needs --sha")
+    if args.gate and args.sha != "HEAD" and not CANDIDATE.fullmatch(args.sha):
+        parser.error("--gate takes --sha HEAD or a full SHA, because a wait is recorded by commit")
     if args.gate and args.workflows:
         parser.error("--gate judges every gating workflow, so a pass means that, and it takes no --workflow")
     if args.base and not args.sha:
@@ -516,8 +518,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:
-                # The name couldn't be looked up, so a wait already recorded carries on rather than restarting. With
-                # none, it is keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
+                # HEAD couldn't be read at all, so a wait already recorded carries on rather than restarting. With none,
+                # it is keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
                 key = recorded["sha"] if isinstance(recorded, dict) and isinstance(recorded.get("sha"), str) else args.sha
                 begin_wait(root / REPAIRS, key, wall())
                 result["action"], why = gate_action(EXIT_UNAVAILABLE, key, root / REPAIRS, wall())
@@ -555,6 +557,10 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         sleep(min(POLL_SECONDS, remaining()))
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
     if args.gate:
+        missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
+        if missing:
+            # With no run and no proof, as after a fresh clone, a real run of this commit is the way to find out.
+            result["recovery"] = "; ".join(f"gh workflow run {name} --ref {args.branch}" for name in missing)
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
         if action == "unverified":
@@ -567,6 +573,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         for entry in result["workflows"]:
             print("\n".join(describe(entry)))
         if args.gate:
+            if result.get("recovery"):
+                print(f"to get a real run: {result['recovery']}")
             if result.get("reason"):
                 print(f"reason: {result['reason']}")
             detail = f" (attempt {attempt} of {MAX_REPAIRS})" if result["action"] == "repair" else ""
