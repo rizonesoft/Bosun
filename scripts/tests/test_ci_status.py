@@ -328,7 +328,7 @@ class Unreachable(Base):
 
 class Gate(Base):
     def gate(self, gh, sha="HEAD", git=None, extra=()):
-        code, out = self.go(["--gate", "--sha", sha, "--base", "BASE", *extra], gh, git or FakeGit())
+        code, out = self.go(["--gate", "--sha", sha, *extra], gh, git or FakeGit())
         return code, out.strip().splitlines()[-1]
 
     def red(self):
@@ -348,8 +348,60 @@ class Gate(Base):
         self.assertEqual(self.gate(self.green()), (0, "action: proceed"))
 
     def test_proceed_on_a_proven_skip(self):
+        self.gate(self.green(), "BASE")
         gh = FakeGh({"plan.yml": [run()]})
         self.assertEqual(self.gate(gh, git=FakeGit(["a.md"])), (0, "action: proceed"))
+
+    def test_the_gate_takes_no_base(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.go(["--gate", "--sha", "HEAD", "--base", "BASE"], self.green())
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("takes no --base", self.err_of(["--gate", "--sha", "HEAD", "--base", "BASE"]))
+
+    def err_of(self, argv):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+            ci_status.main(argv, runner=self.green(), root=self.root, git=FakeGit())
+        return err.getvalue()
+
+    def test_git_timing_out_is_a_gate_answer_not_a_usage_error(self):
+        def stuck(args):
+            raise ci_status.Unavailable("git could not run: timed out")
+        for extra, text in ((["--json"], '"action": "wait"'), ([], "action: wait")):
+            with self.subTest(extra):
+                code, out = self.go(["--gate", "--sha", "HEAD", *extra], self.green(), stuck)
+                self.assertEqual(code, ci_status.EXIT_UNAVAILABLE)
+                self.assertIn(text, out)
+        code, out = self.go(["--sha", "HEAD"], self.green(), stuck)  # without a gate too
+        self.assertEqual(code, ci_status.EXIT_UNAVAILABLE)
+        self.assertIn("unavailable", out)
+
+    def test_git_staying_unavailable_still_ends(self):
+        def stuck(args):
+            raise ci_status.Unavailable("git could not run")
+        wall = lambda: 1_000_000.0
+        self.go(["--gate", "--sha", "HEAD"], self.green(), stuck, wall=wall)
+        later = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
+        self.assertIn("action: unverified", self.go(["--gate", "--sha", "HEAD"], self.green(), stuck, wall=later)[1])
+
+    def test_a_bad_commit_is_still_a_usage_error(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.go(["--gate", "--sha", "nope"], self.green())
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_no_tool_starts_once_the_wait_has_passed(self):
+        clock, seen = _Clock(), []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            seen.append(name)
+            clock.t += timeout  # one call uses the whole budget
+            return 0, SHA + "\n", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "HEAD", "--wait-minutes", "0.1"], root=self.root, clock=clock.now, sleep=clock.sleep)
+        self.assertEqual(seen, ["git"])
+        self.assertEqual(clock.t, 6)
+        self.assertIn("action: wait", out.getvalue())
 
     def test_wait_on_pending_none_and_unavailable(self):
         self.assertEqual(self.gate(FakeGh({"build.yml": [run("queued", None)], "plan.yml": [run()]})), (4, "action: wait"))

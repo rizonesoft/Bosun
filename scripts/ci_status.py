@@ -5,7 +5,7 @@
     python scripts/ci_status.py --json                       # the same report as one JSON object
     python scripts/ci_status.py --workflow build.yml --branch main
     python scripts/ci_status.py --sha HEAD --base <commit>   # did this commit pass, or was it rightly not built?
-    python scripts/ci_status.py --gate --sha HEAD --base <commit> --wait-minutes 30   # also print one action
+    python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30   # also print one action
 
 Each workflow (by default `build.yml` and `plan.yml`, the ones in `.github/workflows/` whose results gate main) gets one
 verdict from the newest run that judged the commit or branch; a cancelled run judges nothing:
@@ -389,11 +389,8 @@ def describe(entry):
 
 
 def resolve_commit(git, ref):
-    """The full SHA of a commit, or None."""
-    try:
-        code, out, _ = git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
-    except Unavailable:
-        return None
+    """The full SHA of a commit, or None when it isn't one. Unavailable means git couldn't say, which is different."""
+    code, out, _ = git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
     return out.strip() if code == 0 and out.strip() else None
 
 
@@ -420,6 +417,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         parser.error("--gate needs --sha")
     if args.base and not args.sha:
         parser.error("--base needs --sha")
+    if args.base and args.gate:
+        parser.error("--gate proves a skip only against the last proven commit, so it takes no --base")
     if args.wait_minutes and not args.gate:
         parser.error("--wait-minutes needs --gate")
     if args.wait_minutes < 0:
@@ -446,7 +445,15 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     git_call = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout)) if git_default else git
     sha = base = None
     if args.sha:
-        sha = resolve_commit(git_call, args.sha)
+        try:
+            sha = resolve_commit(git_call, args.sha)
+        except Unavailable as exc:
+            result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
+            if args.gate:
+                # Keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
+                result["action"], _ = gate_action(EXIT_UNAVAILABLE, args.sha, root / REPAIRS, wall())
+            print(json.dumps(result, indent=2) if args.json else f"unavailable: {exc}" + (f"\naction: {result['action']}" if args.gate else ""))
+            return EXIT_UNAVAILABLE
         if not sha:
             parser.error(f"--sha is not a commit here: {args.sha}")
     if args.gate:
@@ -459,12 +466,13 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                 result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action}
                 print(json.dumps(result, indent=2) if args.json else f"action: {action}")
                 return EXIT_UNAVAILABLE
-    if args.base:
+    wanted = args.base or (read_gate(root / REPAIRS).get("proven") if args.gate else None)
+    if isinstance(wanted, str):
         # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
-        base = resolve_commit(git_call, args.base)
-    elif args.gate:
-        proven = read_gate(root / REPAIRS).get("proven")
-        base = resolve_commit(git_call, proven) if isinstance(proven, str) else None
+        try:
+            base = resolve_commit(git_call, wanted)
+        except Unavailable:
+            base = None
     result, code = report(ask, workflows, args.branch, sha, base, git_call)
     if args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE):
         # The two hour limit counts from here, and one invocation can't run past it.
