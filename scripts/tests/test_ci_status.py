@@ -418,7 +418,8 @@ class Gate(Base):
             clock.t += timeout  # one call uses the whole budget
             return 0, SHA + "\n", ""
         out = io.StringIO()
-        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        with mock.patch.object(ci_status, "run_tool", tool), mock.patch.object(ci_status, "RESOLVE_SECONDS", 120), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             ci_status.main(["--gate", "--sha", "HEAD", "--wait-minutes", "0.1"], root=self.root, clock=clock.now, sleep=clock.sleep)
         self.assertEqual(seen, ["git"])
         self.assertEqual(clock.t, 6)
@@ -836,7 +837,7 @@ class Gate(Base):
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             ci_status.main(["--gate", "--sha", "HEAD", "--wait-minutes", "0.1"], root=self.root, clock=clock.now, sleep=clock.sleep)
         self.assertLessEqual(clock.t, 6)  # the whole call stays inside a six second budget
-        self.assertEqual(seen[0], ("git", 6))  # git shares it too, from the very first call
+        self.assertEqual(seen[0], ("git", ci_status.RESOLVE_SECONDS))  # naming the commit has its own short limit
         limits = [timeout for _, timeout in seen]
         self.assertEqual(limits, sorted(limits, reverse=True))  # and each limit shrinks as the budget does
         self.assertTrue(all(timeout > 0 for timeout in limits))
@@ -853,6 +854,19 @@ class Gate(Base):
             return 0, (SHA + "\n" if name == "git" else "[]"), ""
         return clock, seen, tool
 
+    def test_a_stalled_git_can_only_cost_its_short_limit(self):
+        clock, spent = _Clock(), []
+
+        def stalled(name, args, cwd=ci_status.ROOT, timeout=120):
+            spent.append(timeout)
+            clock.t += timeout
+            raise ci_status.Unavailable(f"{name} could not run: timed out")
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", stalled), contextlib.redirect_stdout(out):
+            code = ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep)
+        self.assertEqual((code, spent, clock.t), (ci_status.EXIT_UNAVAILABLE, [ci_status.RESOLVE_SECONDS], ci_status.RESOLVE_SECONDS))
+        self.assertIn("action: wait", out.getvalue())
+
     def test_the_limit_bounds_a_call_with_no_wait(self):
         clock, seen, tool = self.nearly_expired()
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1
@@ -860,7 +874,8 @@ class Gate(Base):
         calls = []
 
         def counted(name, args, cwd=ci_status.ROOT, timeout=120):
-            if name == "git":  # resolving the commit comes before the limit is known
+            if name == "git":  # naming the commit comes before the limit can be looked up, so it has its own short one
+                self.assertEqual(timeout, ci_status.RESOLVE_SECONDS)
                 return 0, SHA + "\n", ""
             calls.append(timeout)
             return tool(name, args, cwd, timeout)
@@ -880,7 +895,8 @@ class Gate(Base):
         clock = _Clock()
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(io.StringIO()):
             ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0)
-        self.assertEqual(set(seen), {120})
+        self.assertEqual(seen[0], ci_status.RESOLVE_SECONDS)
+        self.assertEqual(set(seen[1:]), {120})
         self.assertEqual(clock.sleeps, 0)
 
     def test_without_a_wait_a_tool_keeps_its_own_limit(self):
@@ -891,7 +907,8 @@ class Gate(Base):
             return 0, (SHA + "\n" if name == "git" else "[]"), ""
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(io.StringIO()):
             ci_status.main(["--sha", "HEAD"], root=self.root)
-        self.assertEqual(set(seen), {120})
+        self.assertEqual(seen[0], ci_status.RESOLVE_SECONDS)
+        self.assertEqual(set(seen[1:]), {120})
 
     def test_write_leaves_no_temporary_behind(self):
         self.gate(self.red())

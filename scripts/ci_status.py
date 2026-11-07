@@ -57,6 +57,7 @@ MAX_JOBS = 20
 MAX_MESSAGE = 300
 MAX_DIFF_FILES = 300  # GitHub always runs a workflow when a push changes more files than its filters will read
 MAX_REPAIRS = 3
+RESOLVE_SECONDS = 5  # naming the commit has to come first, so it is a quick local look with its own short limit
 POLL_SECONDS = 60
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
@@ -473,8 +474,9 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     git_call = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout)) if git_default else git
     sha = base = None
     if args.sha:
+        name = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout), RESOLVE_SECONDS) if git_default else git
         try:
-            sha = resolve_commit(git_call, args.sha)
+            sha = resolve_commit(name, args.sha)
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:
