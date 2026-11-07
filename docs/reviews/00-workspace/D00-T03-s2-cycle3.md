@@ -24,3 +24,25 @@ OVERALL: needs-attention
 
 - Planned: execution re-reads disposition, the conflicting routes go, in all mirrors (P1) in the D00 T03 §2 contract, this commit.
 - Planned: the native desktop probes are tested through simulated Windows calls (P2) in the D00 T03 §2 contract, this commit.
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T20:05:53Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: e598a1b4cb4a1be32bdff02262d3ec68ddc49351
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 6
+- Digest: fee3bda462adaea5
+
+## adversarial: approve
+
+No actionable adversarial defects found in the candidate range. Review was read-only; tests were not run.
+
+HIGHEST: none
+OVERALL: approve
