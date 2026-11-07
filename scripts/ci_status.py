@@ -30,7 +30,9 @@ is bad usage. No run and an unknown state are never success.
 left, `exhausted` after three repairs have failed, and `unverified` after two hours of waiting on one commit or when its
 state can't be saved. The last two carry on with local gates, because the run must not block itself, and the guard
 refuses `complete` while the head has no green. State lives in `build/ci-gate.json`: the repair attempts, keyed by the
-first red commit, when waiting began, and the last proven commit. That commit is the base when `--base` is omitted, so a
+first red commit, when waiting began, and the last proven commit. Waiting is limited across every call, and no tool starts
+after the limit. The one exception is naming a commit such as HEAD, a quick local look with its own 5 second limit, since
+a wait is recorded by commit and this is how to learn which applies; a full SHA with a recorded wait needs no look at all. That commit is the base when `--base` is omitted, so a
 skip means the workflow's inputs haven't changed since something passed, and a restart loses nothing. A failed commit
 before it can't slip through, because its code still shows in the diff. A green clears the attempts, and if that file is
 locked it leaves `build/ci-gate.cleared`, which the next read honours once. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
@@ -57,6 +59,7 @@ MAX_JOBS = 20
 MAX_MESSAGE = 300
 MAX_DIFF_FILES = 300  # GitHub always runs a workflow when a push changes more files than its filters will read
 MAX_REPAIRS = 3
+CANDIDATE = re.compile(r"[0-9a-f]{40}")
 RESOLVE_SECONDS = 5  # naming the commit has to come first, so it is a quick local look with its own short limit
 POLL_SECONDS = 60
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
@@ -475,8 +478,10 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     sha = base = None
     if args.sha:
         name = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout), RESOLVE_SECONDS) if git_default else git
+        recorded = read_gate(root / REPAIRS).get("waiting") if args.gate else None
         try:
-            sha = resolve_commit(name, args.sha)
+            known = isinstance(recorded, dict) and recorded.get("sha") == args.sha and CANDIDATE.fullmatch(args.sha)
+            sha = args.sha if known else resolve_commit(name, args.sha)
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:

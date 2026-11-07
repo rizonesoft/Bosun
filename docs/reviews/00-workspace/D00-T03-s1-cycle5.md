@@ -43,3 +43,25 @@ OVERALL: needs-attention
 
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:00:47Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 317b159f55ca30473bb8733e0b356a143cf417dd
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Lines: 6
+- Digest: a09cfe082dda9ba1
+
+### consistency: needs-attention
+
+1. **P2** `scripts/ci_status.py:476`: The new five-second resolution limit still violates the module’s shared deadline rule and leaves Round 1’s finding unresolved. The persisted two-hour deadline is applied only after `resolve_commit()`. Reproduce with a recorded wait that has one second remaining, then run `python scripts/ci_status.py --gate --sha <recorded-commit>` while Git stalls on disk I/O: resolution receives five seconds, exceeding the remaining budget. An expired wait still launches Git. Enforce the recorded deadline before resolution rather than substituting a separate timeout.
+
+HIGHEST: P2
+OVERALL: needs-attention

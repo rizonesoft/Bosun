@@ -867,6 +867,19 @@ class Gate(Base):
         self.assertEqual((code, spent, clock.t), (ci_status.EXIT_UNAVAILABLE, [ci_status.RESOLVE_SECONDS], ci_status.RESOLVE_SECONDS))
         self.assertIn("action: wait", out.getvalue())
 
+    def test_a_full_sha_with_a_recorded_wait_past_its_limit_starts_no_tool(self):
+        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
+        calls = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            calls.append(name)
+            return 0, "[]", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            ci_status.main(["--gate", "--sha", SHA], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertEqual(calls, [])
+        self.assertIn("action: unverified", out.getvalue())
+
     def test_the_limit_bounds_a_call_with_no_wait(self):
         clock, seen, tool = self.nearly_expired()
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1
