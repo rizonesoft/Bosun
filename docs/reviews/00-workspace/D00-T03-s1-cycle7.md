@@ -43,3 +43,25 @@ OVERALL: needs-attention
 
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:17:38Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 9c93c33c884fb92d905c41fd52061f9b628ad6fc
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Lines: 6
+- Digest: 149706c2f223ea23
+
+## consistency: approve
+
+No consistency findings in the candidate range.
+
+HIGHEST: none
+OVERALL: approve
