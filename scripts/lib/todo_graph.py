@@ -994,7 +994,9 @@ def review_dead_end(root, ref, cycle=1):
     try:
         dispatch = review_dispatch()
         found = dispatch.read_findings(path.read_bytes().decode("utf-8", "replace"))
-    except (OSError, Refused):
+    except OSError as exc:  # a lock or a permission problem, which says nothing about the review
+        raise Refused(f"{path.name} can't be read, so its review state is unknown: {exc}") from None
+    except Refused:  # no reviewer kit in this tree, so there's no review state to read
         return None
     if found is None:
         return "the dispatcher can't read its findings file"

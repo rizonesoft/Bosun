@@ -658,6 +658,27 @@ class Dispositions(Tree):
         rows = tg.graph(self.root)
         self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "ready")
 
+    def test_a_findings_file_that_cant_be_read_waits_and_recovers(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
+        self.completion("gaps")
+        real, before = pathlib.Path.read_bytes, self.text()
+        for error in (PermissionError("sharing violation"), OSError("locked")):
+            def locked(path, *args, **kwargs):
+                if path.name == "D00-T01-s1.md":
+                    raise error
+                return real(path, *args, **kwargs)
+            with self.subTest(str(error)), mock.patch.object(pathlib.Path, "read_bytes", locked):
+                state, reason = self.disposed()
+                self.assertEqual(state, "waiting-person")
+                self.assertIn("D00-T01-s1.md", reason)
+                self.assertIn(str(error), reason)
+                with self.assertRaises(tg.Refused):
+                    tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+                self.assertEqual(self.text(), before)
+                rows = tg.graph(self.root)
+                self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "ready")
+        self.assertEqual(self.disposed()[0], "needs-repair")  # it reads again, and the row is back
+
     def with_plan(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
