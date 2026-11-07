@@ -1005,8 +1005,11 @@ def review_dead_end(root, ref, cycle=1):
     rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
     try:  # the cycle's own policy, as the dispatcher reads it, so a later pin change can't make the two disagree
         cap = dispatch.schedule_cap(dispatch.record_policy(dispatch.load_pin(Path(root) / PIN), found, root)[0]["schedule"])
-    except (Refused, dispatch.Refused, OSError, KeyError, ValueError):
-        cap = round_cap(root)
+    except (Refused, dispatch.Refused, OSError, KeyError, ValueError) as exc:
+        if any(e.get("policy") for e in [*found["plans"], *found["rounds"], *found["completions"]]):
+            # The cycle names its policy and it can't be read, as in a shallow clone. Guessing could spend a repair.
+            raise Refused(f"the review policy of its current cycle can't be read: {exc}") from None
+        cap = round_cap(root)  # a record from before policies were recorded
     if len(rounds) < cap or dispatch.clean(rounds[-1]["review"]):
         return None
     return f"its {len(rounds)} review rounds ran out with findings open"
@@ -1116,7 +1119,10 @@ def section_disposition(row, rows, caps, root=ROOT):
     if host:
         return "waiting-host", f"this session lacks {', '.join(host)}"
     # Last, so that needs-repair means this session can really do the repair.
-    dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
+    try:
+        dead_end = review_dead_end(root, row.ref, reopenings(row.body) + 1)
+    except Refused as unknown:
+        return "waiting-person", str(unknown)
     if dead_end:
         try:
             spent = len(REPAIR_CYCLE.findall(row.body)) >= repair_cap(root, row.body)

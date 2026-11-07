@@ -639,6 +639,25 @@ class Dispositions(Tree):
         pin.write_text(low, encoding="utf-8")  # lowering the pin later doesn't end it early
         self.assertEqual(self.disposed()[0], "ready")
 
+    def test_a_cycle_whose_policy_cant_be_read_waits_and_spends_nothing(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
+        pin = self.root / ".conclave" / "reviewers.toml"
+        pin.parent.mkdir(exist_ok=True)
+        pin.write_text((REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8"), encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "init", "-q"], check=True)
+        review = "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
+        for _ in range(3):  # the policy commit isn't here, as in a shallow clone
+            tg.review_dispatch().record(self.record(), {**self.result(review), "policy": "f" * 40}, "2026-11-07T00:00:00Z")
+        state, reason = self.disposed()
+        self.assertEqual(state, "waiting-person")
+        self.assertIn("review policy", reason)
+        before = self.text()
+        with self.assertRaises(tg.Refused):
+            tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        self.assertEqual(self.text(), before)
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "ready")
+
     def with_plan(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
