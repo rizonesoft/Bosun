@@ -946,6 +946,17 @@ class Gate(Base):
         self.assertIn(data["action"], ("wait", "unverified"))
         self.assertIn("ran out", data["error"])
 
+    def test_a_branch_name_past_the_limit_does_not_restart_the_wait(self):
+        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
+        out = io.StringIO()
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            raise AssertionError("no tool starts past the limit")
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            code = ci_status.main(["--gate", "--sha", "main", "--json"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertEqual((code, json.loads(out.getvalue())["action"]), (ci_status.EXIT_UNAVAILABLE, "unverified"))
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0})
+
     def test_a_slow_git_with_one_second_left_costs_only_that_second(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
         clock, spent = _Clock(), []

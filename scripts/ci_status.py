@@ -516,9 +516,11 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:
-                # Keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
-                begin_wait(root / REPAIRS, args.sha, wall())
-                result["action"], why = gate_action(EXIT_UNAVAILABLE, args.sha, root / REPAIRS, wall())
+                # The name couldn't be looked up, so a wait already recorded carries on rather than restarting. With
+                # none, it is keyed by what was asked for, so the two hour limit still applies if git stays unavailable.
+                key = recorded["sha"] if isinstance(recorded, dict) and isinstance(recorded.get("sha"), str) else args.sha
+                begin_wait(root / REPAIRS, key, wall())
+                result["action"], why = gate_action(EXIT_UNAVAILABLE, key, root / REPAIRS, wall())
                 if why:
                     result["reason"] = why
             print(json.dumps(result, indent=2) if args.json else f"unavailable: {exc}" + (f"\nreason: {result['reason']}" if result.get("reason") else "") + (f"\naction: {result['action']}" if args.gate else ""))
