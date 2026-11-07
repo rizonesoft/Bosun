@@ -24,3 +24,25 @@ OVERALL: needs-attention
 
 - Planned: the checkpoint runs all three suites (P1) in the D00 T03 §3 contract, this commit.
 - Planned: a bad repair cap reads waiting-person, so a run passes over it and it recovers when corrected (P2) in the D00 T03 §3 contract, this commit.
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T19:30:18Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: fa3161e7497a959c524f36ab577d583cae35ceae
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 6
+- Digest: 197ff4af2769edee
+
+### adversarial: approve
+
+No actionable adversarial defects identified in the candidate diff. Review was static; tests were not run under the read-only constraint.
+
+HIGHEST: none
+OVERALL: approve
