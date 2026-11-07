@@ -25,10 +25,14 @@ The overall exit takes the first that applies across the workflows: 1 any red; 3
 authenticated or failed, which is never green); 4 any pending; 5 any none; 0 only when each is green or skipped. Exit 2
 is bad usage. No run and an unknown state are never success.
 
-`--gate` needs `--sha` and adds one action: `proceed` on exit 0, `wait` on exit 3, 4 or 5 or when the repair count can't
-be saved, `repair` on red with attempts left, and `exhausted` after three repairs have failed. The attempts live in `build/ci-repairs.json`, keyed by the first
-red commit, and a green clears them. The policy that consumes this is in the `process-phase` skill. Stdlib only; the
-`gh` and `git` runners, the clock and the sleep are injectable for tests.
+`--gate` needs `--sha` and adds one action: `proceed` on exit 0, `wait` on exit 3, 4 or 5, `repair` on red with attempts
+left, `exhausted` after three repairs have failed, and `unverified` after two hours of waiting on one commit or when its
+state can't be saved. The last two carry on with local gates, because the run must not block itself, and the guard
+refuses `complete` while the head has no green. State lives in `build/ci-gate.json`: the repair attempts, keyed by the
+first red commit, when waiting began, and the last proven commit, which is the base when `--base` is omitted, so a restart
+after a push still has it. A green clears the attempts, and if that file is locked it leaves `build/ci-gate.cleared`,
+which the next read honours. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
+`git` runners, the clocks and the sleep are injectable for tests.
 """
 import argparse
 import json
@@ -52,7 +56,9 @@ MAX_MESSAGE = 300
 MAX_DIFF_FILES = 300  # GitHub always runs a workflow when a push changes more files than its filters will read
 MAX_REPAIRS = 3
 POLL_SECONDS = 60
-REPAIRS = Path("build") / "ci-repairs.json"
+WAIT_LIMIT_SECONDS = 2 * 60 * 60
+REPAIRS = Path("build") / "ci-gate.json"
+CLEARED = Path("build") / "ci-gate.cleared"
 EXIT_RED, EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE = 1, 3, 4, 5
 
 
@@ -60,7 +66,7 @@ class Unavailable(Exception):
     """gh is missing, unauthenticated or failed: the CI state is unknown (exit 3)."""
 
 
-def run_tool(name, args, cwd=ROOT):
+def run_tool(name, args, cwd=ROOT, timeout=120):
     """Run a tool; returns (exit code, stdout, stderr). Raises Unavailable when it can't start."""
     # An explicit path: on Windows a bare which() also searches the working directory, where a planted tool could sit.
     executable = shutil.which(name, path=os.environ.get("PATH", ""))
@@ -68,14 +74,14 @@ def run_tool(name, args, cwd=ROOT):
         raise Unavailable(f"{name} is not installed or not on PATH")
     try:
         done = subprocess.run([executable, *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=120)
+                              errors="replace", timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Unavailable(f"{name} could not run: {exc}") from None
     return done.returncode, done.stdout, done.stderr
 
 
-def run_gh(args):
-    return run_tool("gh", args)
+def run_gh(args, timeout=120):
+    return run_tool("gh", args, timeout=timeout)
 
 
 def gh_json(runner, args):
@@ -261,46 +267,78 @@ def report(runner, workflows, branch, sha=None, base=None, git=None):
     return result, code
 
 
-def read_repairs(path):
-    """The repair record; a corrupt file reads as none used, with one line saying so."""
+def read_gate(path):
+    """The gate's record; an unreadable one reads as nothing known, with one line saying so. A cleared marker means a
+    green that couldn't rewrite this file, so its attempts are over."""
+    state = {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data.get("first_red"), str) and isinstance(data.get("seen"), list):
-            return data
-        raise ValueError("wrong shape")
+        state = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("wrong shape")
     except FileNotFoundError:
-        return {}
-    except (OSError, ValueError, AttributeError) as exc:
+        state = {}
+    except (OSError, ValueError) as exc:
         print(f"warning: {path} is unreadable ({exc}); counting no repairs used", file=sys.stderr)
-        return {}
-
-
-def write_repairs(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(data), encoding="utf-8")
-    os.replace(temporary, path)
-
-
-def gate_action(code, sha, path):
-    """One action for a pushed commit. A repeat check of the same red commit uses no repair attempt."""
-    if code == 0:
+        state = {}
+    marker = path.with_name(CLEARED.name)
+    try:
+        proven = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return state
+    state = {"proven": proven}
+    if write_gate(path, state):
         try:
-            path.unlink(missing_ok=True)
+            marker.unlink()
+        except OSError:
+            pass  # it says the same again next time
+    return state
+
+
+def write_gate(path, state):
+    """True when saved, by temporary file then replace."""
+    temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(state), encoding="utf-8")
+        os.replace(temporary, path)
+        return True
+    except OSError as exc:
+        print(f"warning: could not save {path} ({exc})", file=sys.stderr)
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        return False
+
+
+def gate_action(code, sha, path, now):
+    """One action for a pushed commit, and any attempt number. A repeat check of the same red commit uses no attempt."""
+    state = read_gate(path)
+    if code == 0:
+        if write_gate(path, {"proven": sha}):
+            return "proceed", None
+        try:
+            path.with_name(CLEARED.name).write_text(sha, encoding="utf-8")
+            return "proceed", None
         except OSError as exc:
-            print(f"warning: could not clear {path} ({exc})", file=sys.stderr)
-        return "proceed", None
+            print(f"warning: could not clear the repair count ({exc}); this commit passed, but carry on as unverified", file=sys.stderr)
+            return "unverified", None
     if code != EXIT_RED:
-        return "wait", None
-    state = read_repairs(path) or {"first_red": sha, "seen": []}
+        waiting = state.get("waiting")
+        if not isinstance(waiting, dict) or waiting.get("sha") != sha or not isinstance(waiting.get("since"), (int, float)):
+            waiting = {"sha": sha, "since": now}
+        state["waiting"] = waiting
+        if not write_gate(path, state):
+            return "unverified", None
+        return ("unverified", None) if now - waiting["since"] >= WAIT_LIMIT_SECONDS else ("wait", None)
+    state.pop("waiting", None)
+    if not isinstance(state.get("first_red"), str) or not isinstance(state.get("seen"), list):
+        state.update(first_red=sha, seen=[])
     if sha not in state["seen"]:
         state["seen"].append(sha)
-        try:
-            write_repairs(path, state)
-        except OSError as exc:
-            # A repair that can't be counted could repeat forever, so hold until the count can be kept.
-            print(f"warning: could not record the repair count in {path} ({exc}); waiting", file=sys.stderr)
-            return "wait", None
+    if not write_gate(path, state):
+        # A repair that can't be counted could repeat forever.
+        return "unverified", None
     repairs_tried = len(state["seen"]) - 1
     if repairs_tried >= MAX_REPAIRS:
         return "exhausted", repairs_tried
@@ -333,7 +371,7 @@ def resolve_commit(git, ref):
     return out.strip() if code == 0 and out.strip() else None
 
 
-def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sleep=time.sleep):
+def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sleep=time.sleep, wall=time.time):
     root = Path(root)
     git = git or (lambda args: run_tool("git", args, cwd=root))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -368,14 +406,26 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     if args.base:
         # An unknown base can't prove a skip, but it mustn't stop the commit's own runs being read.
         base = resolve_commit(git, args.base)
+    elif args.gate:
+        proven = read_gate(root / REPAIRS).get("proven")
+        base = resolve_commit(git, proven) if isinstance(proven, str) else None
 
-    deadline = clock() + args.wait_minutes * 60
-    result, code = report(runner, workflows, args.branch, sha, base, git)
-    while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and clock() < deadline:
-        sleep(POLL_SECONDS)
-        result, code = report(runner, workflows, args.branch, sha, base, git)
+    started = clock()
+    deadline = started + args.wait_minutes * 60
+
+    def remaining():
+        return max(deadline - clock(), 0)
+
+    # A tool call may not outlast the wait. Without a wait it keeps the tool's own limit.
+    ask = (lambda call: run_gh(call, timeout=max(remaining(), 1))) if args.wait_minutes and runner is run_gh else runner
+    result, code = report(ask, workflows, args.branch, sha, base, git)
+    while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
+        states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
+        print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
+        sleep(min(POLL_SECONDS, remaining()))
+        result, code = report(ask, workflows, args.branch, sha, base, git)
     if args.gate:
-        action, attempt = gate_action(code, sha, root / REPAIRS)
+        action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
         if attempt is not None:
             result["repair_attempt" if action == "repair" else "repairs_tried"] = attempt

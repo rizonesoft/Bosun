@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -354,7 +355,7 @@ class Gate(Base):
         self.assertEqual(self.gate(FakeGh({"build.yml": [run("queued", None)], "plan.yml": [run()]})), (4, "action: wait"))
         self.assertEqual(self.gate(FakeGh()), (5, "action: wait"))
         self.assertEqual(self.gate(FakeGh(fail={"build.yml": "x", "plan.yml": "x"})), (3, "action: wait"))
-        self.assertFalse(self.state().exists())
+        self.assertNotIn("seen", json.loads(self.state().read_text()))  # waiting spends no repair attempt
 
     def test_repairs_count_by_commit_then_exhaust(self):
         git_for = lambda: FakeGit()
@@ -386,35 +387,128 @@ class Gate(Base):
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertEqual(done.stdout.strip().splitlines()[-1], "action: repair (attempt 2 of 3)")
         self.assertEqual(self.gate(self.green())[1], "action: proceed")
-        self.assertFalse(self.state().exists())
+        self.assertEqual(json.loads(self.state().read_text()), {"proven": SHA})
         self.assertEqual(self.gate(self.red())[1], "action: repair (attempt 1 of 3)")
 
     def test_a_repair_that_goes_green_proceeds(self):
         self.assertIn("repair", self.gate(self.red())[1])
         self.assertEqual(self.gate(self.green()), (0, "action: proceed"))
 
-    def test_corrupt_record_reads_as_none_used_with_one_warning(self):
+    def test_corrupt_record_reads_as_none_used_with_a_warning(self):
         self.state().parent.mkdir(parents=True)
         self.state().write_text("{not json")
         self.assertEqual(self.gate(self.red())[1], "action: repair (attempt 1 of 3)")
-        self.assertEqual(self.stderr.count("warning:"), 1)
+        self.assertIn("warning:", self.stderr)
 
-    def test_a_count_that_cannot_be_saved_waits_rather_than_crashes(self):
-        real = ci_status.write_repairs
+    def test_state_that_cannot_be_saved_carries_on_as_unverified(self):
+        with mock.patch.object(ci_status, "write_gate", return_value=False):
+            self.assertEqual(self.gate(self.red()), (1, "action: unverified"))
+            self.assertEqual(self.gate(FakeGh()), (5, "action: unverified"))
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], self.green())
+        self.assertEqual((code, json.loads(out)["action"]), (0, "proceed"))
 
-        def full(path, data):
-            raise OSError("no space left on device")
-        ci_status.write_repairs = full
-        self.addCleanup(setattr, ci_status, "write_repairs", real)
-        self.assertEqual(self.gate(self.red()), (1, "action: wait"))
-        self.assertIn("could not record", self.stderr)
-        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], self.red())
-        self.assertEqual((code, json.loads(out)["action"]), (1, "wait"))
+    def test_a_locked_record_through_a_green_leaves_a_full_budget_for_the_next_fault(self):
+        for sha in (SHA, "c" * 40, "d" * 40, "e" * 40):
+            self.gate(self.red(), sha, _Named(sha))
+        self.assertEqual(self.gate(self.red(), "e" * 40, _Named("e" * 40))[1], "action: exhausted")
+        with mock.patch.object(ci_status, "write_gate", return_value=False):
+            self.assertEqual(self.gate(self.green()), (0, "action: proceed"))  # the marker holds it
+        self.assertTrue((self.root / ci_status.CLEARED).exists())
+        script = (
+            "import json, sys\n"
+            f"sys.path.insert(0, {str(ROOT / 'scripts')!r})\n"
+            "import ci_status\n"
+            "def gh(args):\n"
+            "    if args[:2] == ['run', 'view']:\n"
+            "        return 0, json.dumps({'jobs': []}), ''\n"
+            "    return 0, json.dumps([{'status': 'completed', 'conclusion': 'failure', 'createdAt': 'x', 'databaseId': 1}]), ''\n"
+            f"def git(args):\n    return 0, {'f' * 40!r} + '\\n', ''\n"
+            f"sys.exit(ci_status.main(['--gate', '--sha', {'f' * 40!r}], runner=gh, root={str(self.root)!r}, git=git))\n"
+        )
+        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertEqual(done.stdout.strip().splitlines()[-1], "action: repair (attempt 1 of 3)")
+        self.assertFalse((self.root / ci_status.CLEARED).exists())
 
-    def test_a_record_that_cannot_be_cleared_still_proceeds(self):
-        self.state().mkdir(parents=True)  # a folder at the path makes unlink fail
-        self.assertEqual(self.gate(self.green()), (0, "action: proceed"))
+    def test_when_neither_record_can_be_written_a_green_is_unverified(self):
+        (self.root / ci_status.CLEARED).mkdir(parents=True)  # a folder where the marker goes
+        with mock.patch.object(ci_status, "write_gate", return_value=False):
+            self.assertEqual(self.gate(self.green()), (0, "action: unverified"))
         self.assertIn("could not clear", self.stderr)
+
+    def waiting(self, seconds):
+        wall = lambda: 1_000_000.0 + seconds
+        return self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=wall)
+
+    def test_waiting_on_one_commit_is_limited_across_invocations(self):
+        self.assertIn("action: wait", self.waiting(0)[1])
+        self.assertIn("action: wait", self.waiting(ci_status.WAIT_LIMIT_SECONDS - 1)[1])
+        self.assertIn("action: unverified", self.waiting(ci_status.WAIT_LIMIT_SECONDS)[1])
+        record = json.loads(self.state().read_text())
+        self.assertEqual(record["waiting"]["since"], 1_000_000.0)  # durable, not reset by each call
+
+    def test_a_new_commit_starts_its_own_wait(self):
+        self.waiting(0)
+        wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
+        code, out = self.go(["--gate", "--sha", "c" * 40], FakeGh(), _Named("c" * 40), wall=wall)
+        self.assertIn("action: wait", out)
+
+    def test_a_restart_after_a_push_still_has_its_base(self):
+        self.assertEqual(self.gate(self.green(), "BASE", FakeGit()), (0, "action: proceed"))
+        self.assertEqual(json.loads(self.state().read_text())["proven"], OLD)
+        # A new process, no --base: this Markdown-only push is proven skipped from the record.
+        gh = FakeGh({"plan.yml": [run()]})
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        data = json.loads(out)
+        self.assertEqual((code, data["action"], data["base"]), (0, "proceed", OLD))
+        self.assertEqual(data["workflows"][0]["verdict"], "skipped")
+
+    def test_a_code_push_after_a_restart_is_not_skipped(self):
+        self.gate(self.green(), "BASE", FakeGit())
+        gh = FakeGh({"plan.yml": [run()]})
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["src/a.cpp"]))
+        self.assertEqual((code, json.loads(out)["action"]), (ci_status.EXIT_NONE, "wait"))
+
+    def test_waiting_prints_progress_and_keeps_stdout_one_object(self):
+        clock = _Clock()
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "2"], FakeGh(), clock=clock.now, sleep=clock.sleep)
+        data = json.loads(out)  # one object, untouched by progress
+        self.assertEqual(data["action"], "wait")
+        lines = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
+        self.assertEqual(len(lines), 2)
+        self.assertIn("build.yml none", lines[0])
+        self.assertIn("0s elapsed, 120s left", lines[0])
+        self.assertIn("60s elapsed, 60s left", lines[1])
+
+    def test_the_wait_is_a_real_bound(self):
+        clock = _Clock()
+        self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0.1"], FakeGh(), clock=clock.now, sleep=clock.sleep)
+        self.assertEqual(clock.t, 6)  # six seconds, not the sixty of one poll
+        self.assertEqual(clock.sleeps, 1)
+
+    def test_a_tool_call_cannot_outlast_the_wait(self):
+        clock, seen = _Clock(), []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            seen.append(timeout)
+            clock.t += 2  # a slow gh
+            return 0, "[]", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "HEAD", "--wait-minutes", "0.1"], root=self.root, git=FakeGit(), clock=clock.now, sleep=clock.sleep)
+        self.assertEqual(seen[0], 6)
+        self.assertLess(seen[1], 6)  # shrinks as the budget does
+        self.assertTrue(all(value >= 1 for value in seen))
+
+    def test_without_a_wait_a_tool_keeps_its_own_limit(self):
+        seen = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            seen.append(timeout)
+            return 0, "[]", ""
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(io.StringIO()):
+            ci_status.main(["--sha", "HEAD"], root=self.root, git=FakeGit())
+        self.assertEqual(set(seen), {120})
 
     def test_write_leaves_no_temporary_behind(self):
         self.gate(self.red())
@@ -499,7 +593,7 @@ class Policy(unittest.TestCase):
         sections = {self.section(folder) for folder in (".claude", ".codex", ".agents")}
         self.assertEqual(len(sections), 1)
         text = sections.pop()
-        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "add-todo"):
+        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo"):
             self.assertIn(word, text)
 
 
