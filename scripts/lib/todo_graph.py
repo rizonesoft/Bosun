@@ -1003,18 +1003,32 @@ def review_dead_end(root, ref, cycle=1):
         verdict = [x.strip() for x in completions[-1]["review"].splitlines() if x.strip()][-1]
         return None if verdict == "COMPLETION: complete" else "its completion review returned gaps"
     rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
-    if len(rounds) < round_cap(root) or dispatch.clean(rounds[-1]["review"]):
+    try:  # the cycle's own policy, as the dispatcher reads it, so a later pin change can't make the two disagree
+        cap = dispatch.schedule_cap(dispatch.record_policy(dispatch.load_pin(Path(root) / PIN), found, root)[0]["schedule"])
+    except (Refused, dispatch.Refused, OSError, KeyError, ValueError):
+        cap = round_cap(root)
+    if len(rounds) < cap or dispatch.clean(rounds[-1]["review"]):
         return None
     return f"its {len(rounds)} review rounds ran out with findings open"
 
 
 def repair_cap(root, body):
-    """Repair cycles this section may use: the pin's limit plus each one the operator granted."""
+    """Repair cycles this section may use: the pin's limit plus each one the operator granted. A tree with no pin uses
+    the default. A pin that exists but can't be used refuses, because guessing could spend a cycle the owner capped."""
+    cap = 3
     try:
-        schedule = tomllib.loads((Path(root) / PIN).read_text(encoding="utf-8"))["schedule"]
+        text = (Path(root) / PIN).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        text = None
+    except (OSError, ValueError) as exc:
+        raise Refused(f"max_repair_cycles can't be read, because {PIN} is unreadable: {exc}") from None
+    if text is not None:
+        try:
+            schedule = tomllib.loads(text).get("schedule", {})
+        except ValueError as exc:
+            raise Refused(f"max_repair_cycles can't be read, because {PIN} is malformed: {exc}") from None
+        require(isinstance(schedule, dict), f"max_repair_cycles can't be read, because [schedule] in {PIN} isn't a table")
         cap = schedule.get("max_repair_cycles", 3)
-    except (OSError, KeyError, ValueError, TypeError):
-        cap = 3
     require(type(cap) is int and 0 <= cap <= 3, f"max_repair_cycles must be an integer from 0 to 3, not {cap!r}")
     return cap + len(REPAIR_GRANTED.findall(body or ""))
 

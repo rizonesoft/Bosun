@@ -572,6 +572,73 @@ class Dispositions(Tree):
             tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
         self.assertIn("park it", str(caught.exception))
 
+    def test_an_unusable_pin_refuses_rather_than_assuming_a_cap(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
+        self.completion("gaps")
+        pin = self.root / ".conclave" / "reviewers.toml"
+        pin.parent.mkdir(exist_ok=True)
+        for name, text in (("truncated", "[schedule\nmax_"), ("wrong shape", "schedule = 3\n")):
+            with self.subTest(name):
+                pin.write_text(text, encoding="utf-8")
+                before = self.text()
+                with self.assertRaises(tg.Refused) as caught:
+                    tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+                self.assertIn("max_repair_cycles", str(caught.exception))
+                self.assertEqual(self.text(), before)
+                state, reason = self.disposed()
+                self.assertEqual(state, "waiting-person")
+                self.assertIn("max_repair_cycles", reason)
+                rows = tg.graph(self.root)  # the other row still answers
+                self.assertEqual(tg.section_disposition(rows["D00 T01 §2"], rows, self.CAPS, self.root)[0], "ready")
+        real = pathlib.Path.read_text
+
+        def locked(path, *args, **kwargs):
+            if path.name == "reviewers.toml":
+                raise PermissionError("locked")
+            return real(path, *args, **kwargs)
+        with mock.patch.object(pathlib.Path, "read_text", locked):
+            self.assertEqual(self.disposed()[0], "waiting-person")
+            with self.assertRaises(tg.Refused):
+                tg.repair(self.root, "D00 T01 §1", "x", "2026-11-07")
+        pin.write_text('[schedule]\nmax_repair_cycles = 3\n', encoding="utf-8")  # correcting it restores the row
+        self.assertEqual(self.disposed()[0], "needs-repair")
+        pin.unlink()  # a tree with no pin uses the default
+        self.assertEqual(self.disposed()[0], "needs-repair")
+
+    def test_exhaustion_follows_the_cycles_own_policy_when_the_pin_changes(self):
+        live = (REPO / ".conclave" / "reviewers.toml").read_text(encoding="utf-8")
+        pin = self.root / ".conclave" / "reviewers.toml"
+        pin.parent.mkdir(exist_ok=True)
+        low = re.sub(r"max_low_rounds = \d+", "max_low_rounds = 2", live)
+        high = re.sub(r"max_low_rounds = \d+", "max_low_rounds = 8", live)
+        self.assertNotEqual(low, high)
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True)
+
+        def commit(text):
+            pin.write_text(text, encoding="utf-8")
+            subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "pin", "--allow-empty"], check=True)
+            return subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
+        def cycle(policy, count):
+            dispatch = tg.review_dispatch()
+            self.record().unlink(missing_ok=True)
+            for _ in range(count):
+                review = "1. A finding.\n\nHIGHEST: P1\nOVERALL: needs-attention"
+                dispatch.record(self.record(), {**self.result(review), "policy": policy}, "2026-11-07T00:00:00Z")
+        started_low = commit(low)
+        cycle(started_low, 3)
+        self.assertEqual(self.disposed()[0], "needs-repair")  # at its own cap of 1 + 2
+        pin.write_text(high, encoding="utf-8")  # raising the pin later doesn't reopen it
+        self.assertEqual(self.disposed()[0], "needs-repair")
+        started_high = commit(high)
+        cycle(started_high, 3)
+        self.assertEqual(self.disposed()[0], "ready")  # under its own cap of 1 + 8
+        pin.write_text(low, encoding="utf-8")  # lowering the pin later doesn't end it early
+        self.assertEqual(self.disposed()[0], "ready")
+
     def with_plan(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.completion("gaps")
