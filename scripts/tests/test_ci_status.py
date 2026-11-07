@@ -971,6 +971,15 @@ class Gate(Base):
         _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
         self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
 
+    def test_the_recovery_survives_the_whole_wait(self):
+        clock = _Clock()
+        gh = FakeGh({"plan.yml": [run()]})
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]), clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
+        self.assertEqual(data["recovery"], "gh workflow run build.yml --ref main")
+        self.assertEqual(clock.t, 1800)
+
     def test_a_proven_skip_or_a_run_needs_no_recovery(self):
         _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], self.green())
         self.assertNotIn("recovery", json.loads(raw))

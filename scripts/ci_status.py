@@ -555,6 +555,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
         sleep(min(POLL_SECONDS, remaining()))
+        if remaining() <= 0:  # no tool may start now, so the last real answer stands
+            break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
     if args.gate:
         missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]

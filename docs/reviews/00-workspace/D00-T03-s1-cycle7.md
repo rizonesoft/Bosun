@@ -21,3 +21,25 @@ PLAN: gaps
 OVERALL: needs-attention
 
 - Planned: the gate names the gh workflow run command, and a real run of HEAD is the recovery (P2) in the D00 T03 §1 contract, this commit.
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T21:16:32Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 9c93c33c884fb92d905c41fd52061f9b628ad6fc
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 6
+- Digest: 439a185ad181610a
+
+## adversarial: needs-attention
+
+1. **P2, `scripts/ci_status.py:560`: The documented polling command suppresses the recovery command when it is needed.** After a fresh clone at a Markdown-only commit with no build run, execute `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30`. The final sleep reaches the deadline, then `report()` replaces the earlier `none` verdicts with `unavailable` because no tool may start. Recovery generation only considers `none`, so it prints no dispatch command. Repeating the prescribed command eventually reaches `unverified` without recovering. Reproduced with a fake clock and empty run responses: zero wait produces recovery commands; 30 minutes produces exit 3, `wait`, and no recovery. Preserve the missing-run recovery information across deadline exhaustion or emit it before polling.
+
+HIGHEST: P2
+OVERALL: needs-attention
