@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 26 | Checklist items: 194
+Sections: 27 | Checklist items: 198
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -29,6 +29,7 @@ Sections: 26 | Checklist items: 194
 | [x]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 14    |
+| [ ]    | D00 T03 §15 | One completion pass, as Steward and Recto run          | none        | 4     |
 | [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 8     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
@@ -195,6 +196,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 5/126 verified sections, 7 ready to run now.
+Progress: 5/127 verified sections, 8 ready to run now.
 
-Checklist: 98/702 items completed (includes Commit items).
+Checklist: 98/706 items completed (includes Commit items).

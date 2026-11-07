@@ -45,11 +45,12 @@ title: "TODO-03 -- Campaign readiness"
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
-| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, D00 T01 §3 | [ ] |
+| 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [ ] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
+| 15 | §15 | One completion pass, as Steward and Recto run | §14 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -476,6 +477,27 @@ The owner decided on 2026-11-07 that from a section's third review cycle on, onc
 
 > **Verified:** 2026-11-08 | §14 | 16f0e65f857df7f3e90df7f4c555cd84afea9a03
 > **Review:** `docs/reviews/d00-t03-s14.json`
+
+## 15. One completion pass, as Steward and Recto run
+
+On 2026-11-08 the owner chose the review shape Steward and Recto use, because repairing on completion gaps kept a section looping and an unattended run can't afford that. Their receipts show it: Recto stamped 45 of 45 completion reviews `filed`, Steward 23 `filed`, 6 `completed` and 2 `complete`, and neither repo has a single repair cycle. So the completion review is one pass in every cycle: its missing items are fixed in the same cycle and stamped `completed`, or filed as open sections and stamped `filed`, and nothing is re-reviewed. `repair` stays only for a cycle whose rounds ran out without a clean one, and `park` at its cap. This replaces `§14`'s third-cycle rule.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Accept `completed` and `filed` in any cycle in `schedule_ok` in `scripts/lib/todo_graph.py`. Done when: a first cycle stamps either.
+2. Route gaps after a clean round to `needs-filing` in any cycle, in `filing_due`. Done when: a first cycle reads `needs-filing`.
+3. Say so in the skills, the workflow doc and the design doc. Done when: none still sends gaps to repair.
+
+- [ ] Accept `complete`, `completed` and `filed` in any current-policy cycle in `schedule_ok` in `scripts/lib/todo_graph.py`, keeping every other check. Done when: `scripts/tests/test_review_policy.py` stamps `filed` and `completed` in a first cycle through the helper and through the real current-policy `stamp`.
+- [ ] Return true from `filing_due` in `scripts/lib/todo_graph.py` in any cycle whose completion returned gaps after a clean last round, with `section_disposition` giving a reason that says fix or file. Done when: a test finds a first-cycle row `needs-filing`, and a cycle whose rounds never came clean still `needs-repair`.
+- [ ] Replace the third-cycle rule in `review-todo-section/SKILL.md`, `process-todo-section/SKILL.md`, `process-plan/SKILL.md` and `process-phase/SKILL.md`, all three mirrors, and in `docs/todo-workflow.md` and the design doc's decisions table, with the one-pass rule: fix and stamp `completed`, or file and stamp `filed`, never re-review. Done when: a test finds the rule in each and none of the old sentences.
+- [ ] Commit: `review: one completion pass, as Steward and Recto run`
+
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0, and fails if a first cycle can't stamp `filed`.
 
 ## Verification
 
