@@ -31,8 +31,7 @@ left, `exhausted` after three repairs have failed, and `unverified` after two ho
 state can't be saved. The last two carry on with local gates, because the run must not block itself, and the guard
 refuses `complete` while the head has no green. State lives in `build/ci-gate.json`: the repair attempts, keyed by the
 first red commit, when waiting began, and the last proven commit. Waiting is limited across every call, and no tool starts
-after the limit. The one exception is naming a commit such as HEAD, a quick local look with its own 5 second limit, since
-a wait is recorded by commit and this is how to learn which applies; a full SHA with a recorded wait needs no look at all. That commit is the base when `--base` is omitted, so a
+after the limit: HEAD is read from the `.git` files with no process, and any other name is looked up within what remains. That commit is the base when `--base` is omitted, so a
 skip means the workflow's inputs haven't changed since something passed, and a restart loses nothing. A failed commit
 before it can't slip through, because its code still shows in the diff. A green clears the attempts, and if that file is
 locked it leaves `build/ci-gate.cleared`, which the next read honours once. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
@@ -60,7 +59,7 @@ MAX_MESSAGE = 300
 MAX_DIFF_FILES = 300  # GitHub always runs a workflow when a push changes more files than its filters will read
 MAX_REPAIRS = 3
 CANDIDATE = re.compile(r"[0-9a-f]{40}")
-RESOLVE_SECONDS = 5  # naming the commit has to come first, so it is a quick local look with its own short limit
+RESOLVE_SECONDS = 5  # a name other than HEAD still needs git, and that is a quick local look
 POLL_SECONDS = 60
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
@@ -417,6 +416,34 @@ def describe(entry):
     return lines
 
 
+def read_head(root):
+    """The commit HEAD names, read from the `.git` files with no process, or None when that can't be told here."""
+    try:
+        git_dir = Path(root) / ".git"
+        if git_dir.is_file():  # a linked worktree points at its own folder
+            git_dir = (Path(root) / git_dir.read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()).resolve()
+        common = git_dir
+        if (git_dir / "commondir").is_file():
+            common = (git_dir / (git_dir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if CANDIDATE.fullmatch(head):
+            return head
+        if not head.startswith("ref: "):
+            return None
+        ref = head[5:].strip()
+        for folder in (git_dir, common):
+            if (folder / ref).is_file():
+                value = (folder / ref).read_text(encoding="utf-8").strip()
+                return value if CANDIDATE.fullmatch(value) else None
+        for line in (common / "packed-refs").read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1] == ref and CANDIDATE.fullmatch(parts[0]):
+                return parts[0]
+    except (OSError, IndexError, ValueError):
+        pass  # the caller falls back to asking git
+    return None
+
+
 def resolve_commit(git, ref):
     """The full SHA of a commit, or None when it isn't one. Unavailable means git couldn't say, which is different."""
     code, out, _ = git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
@@ -479,9 +506,13 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     if args.sha:
         name = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout), RESOLVE_SECONDS) if git_default else git
         recorded = read_gate(root / REPAIRS).get("waiting") if args.gate else None
+        if isinstance(recorded, dict) and isinstance(recorded.get("since"), (int, float)):
+            # Which wait applies isn't known yet, so any recorded one bounds this look.
+            deadline = min(deadline, clock() + max(WAIT_LIMIT_SECONDS - (wall() - recorded["since"]), 0))
         try:
             known = isinstance(recorded, dict) and recorded.get("sha") == args.sha and CANDIDATE.fullmatch(args.sha)
-            sha = args.sha if known else resolve_commit(name, args.sha)
+            direct = read_head(root) if git_default and args.sha == "HEAD" else None
+            sha = args.sha if known else direct or resolve_commit(name, args.sha)
         except Unavailable as exc:
             result = {"branch": args.branch, "sha": None, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "error": str(exc)}
             if args.gate:
@@ -498,6 +529,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         # Recorded before the first lookup, so a process killed during it keeps the time. The two hour limit counts from
         # here, and one invocation can't run past it. A verdict clears it.
         left = WAIT_LIMIT_SECONDS - (wall() - begin_wait(root / REPAIRS, sha, wall()))
+        # A new commit's wait starts fresh, so an older commit's limit no longer applies once the commit is known.
+        deadline = (started + args.wait_minutes * 60 if args.wait_minutes else float("inf"))
         deadline = min(deadline, clock() + max(left, 0))
         if left <= 0:  # the limit has passed, so this launches nothing more
             action, why = gate_action(EXIT_UNAVAILABLE, sha, root / REPAIRS, wall())

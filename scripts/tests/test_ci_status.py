@@ -880,6 +880,105 @@ class Gate(Base):
         self.assertEqual(calls, [])
         self.assertIn("action: unverified", out.getvalue())
 
+    def git_files(self):
+        """A real repo with commits, to compare read_head against git itself."""
+        def git(*args):
+            return subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True, check=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "t@example.invalid")
+        git("config", "user.name", "t")
+        (self.root / "a.txt").write_text("a")
+        git("add", "-A")
+        git("commit", "-qm", "one")
+        return git
+
+    def test_read_head_matches_git_on_a_branch_detached_and_packed(self):
+        git = self.git_files()
+        self.assertEqual(ci_status.read_head(self.root), git("rev-parse", "HEAD"))
+        git("pack-refs", "--all")
+        self.assertEqual(ci_status.read_head(self.root), git("rev-parse", "HEAD"))
+        git("checkout", "-q", "--detach")
+        self.assertEqual(ci_status.read_head(self.root), git("rev-parse", "HEAD"))
+
+    def test_read_head_matches_git_in_a_linked_worktree(self):
+        git = self.git_files()
+        with tempfile.TemporaryDirectory() as other:
+            tree = Path(other) / "tree"
+            git("worktree", "add", "-q", "-b", "side", str(tree))
+            self.assertEqual(ci_status.read_head(tree), git("rev-parse", "side"))
+            git("worktree", "remove", "--force", str(tree))
+
+    def test_read_head_says_nothing_it_cannot_tell(self):
+        self.assertIsNone(ci_status.read_head(self.root))  # no repo
+        (self.root / ".git").mkdir()
+        (self.root / ".git" / "HEAD").write_text("ref: refs/heads/none\n")
+        self.assertIsNone(ci_status.read_head(self.root))  # an unborn branch
+        (self.root / ".git" / "HEAD").write_text("garbage\n")
+        self.assertIsNone(ci_status.read_head(self.root))
+
+    def test_head_past_the_limit_starts_no_tool(self):
+        git = self.git_files()
+        head = git("rev-parse", "HEAD")
+        self.go(["--gate", "--sha", head], FakeGh(), _Named(head), wall=lambda: 1_000_000.0)
+        calls = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            calls.append(name)
+            return 0, "[]", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertEqual(calls, [])
+        self.assertIn("action: unverified", out.getvalue())
+
+    def test_an_unreadable_head_past_the_limit_is_an_answer_with_no_tool(self):
+        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
+        calls = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            calls.append(name)
+            return 0, "[]", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            code = ci_status.main(["--gate", "--sha", "HEAD", "--json"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertEqual((code, calls), (ci_status.EXIT_UNAVAILABLE, []))
+        data = json.loads(out.getvalue())
+        self.assertIn(data["action"], ("wait", "unverified"))
+        self.assertIn("ran out", data["error"])
+
+    def test_a_slow_git_with_one_second_left_costs_only_that_second(self):
+        self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
+        clock, spent = _Clock(), []
+
+        def slow(name, args, cwd=ci_status.ROOT, timeout=120):
+            spent.append((name, timeout))
+            clock.t += timeout
+            return 0, SHA + "\n", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", slow), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            ci_status.main(["--gate", "--sha", "main"], root=self.root, clock=clock.now, sleep=clock.sleep,
+                           wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1 + clock.t)
+        self.assertEqual(spent[0], ("git", 1))
+        self.assertEqual(clock.t, 1)
+
+    def test_a_new_commit_is_not_held_to_an_older_commits_limit(self):
+        git = self.git_files()
+        old = git("rev-parse", "HEAD")
+        self.go(["--gate", "--sha", old], FakeGh(), _Named(old), wall=lambda: 1_000_000.0)
+        (self.root / "a.txt").write_text("b")
+        git("add", "-A")
+        git("commit", "-qm", "two")
+        calls = []
+
+        def tool(name, args, cwd=ci_status.ROOT, timeout=120):
+            calls.append(name)
+            return 0, "[]", ""
+        out = io.StringIO()
+        with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
+            ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
+        self.assertIn("gh", calls)
+        self.assertIn("action: wait", out.getvalue())
+
     def test_the_limit_bounds_a_call_with_no_wait(self):
         clock, seen, tool = self.nearly_expired()
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 1
@@ -888,12 +987,13 @@ class Gate(Base):
 
         def counted(name, args, cwd=ci_status.ROOT, timeout=120):
             if name == "git":  # naming the commit comes before the limit can be looked up, so it has its own short one
-                self.assertEqual(timeout, ci_status.RESOLVE_SECONDS)
+                self.assertEqual(timeout, 1)  # the recorded wait bounds this too
                 return 0, SHA + "\n", ""
             calls.append(timeout)
             return tool(name, args, cwd, timeout)
         out = io.StringIO()
-        with mock.patch.object(ci_status, "run_tool", counted), contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+        with mock.patch.object(ci_status, "run_tool", counted), mock.patch.object(ci_status, "read_head", return_value=None), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, clock=clock.now, sleep=clock.sleep, wall=wall)
         self.assertEqual(calls, [1])  # one call stops at the limit, and none starts after it
         self.assertEqual(clock.t, 1)
