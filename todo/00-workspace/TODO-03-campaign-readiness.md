@@ -37,7 +37,7 @@ title: "TODO-03 -- Campaign readiness"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | CI status that proves the commit | -- | [ ] |
-| 2 | §2 | One section disposition across graph, guard and skills | -- | [ ] |
+| 2 | §2 | One section disposition across graph, guard and skills | -- | [x] |
 | 3 | §3 | Review repair cycles and parking | -- | [x] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [ ] |
 | 5 | §5 | Usage limits wait and resume | §2 | [ ] |
@@ -102,13 +102,16 @@ The graph, the guard and the skills each decide differently what can run. One fu
 - [x] Re-read `query disposition` before each row in `.claude/skills/process-phase/SKILL.md` and its mirrors, remove the route through `resolve` exit 0, and say in `.claude/skills/process-plan/SKILL.md` and its mirrors that a section with completion gaps is repaired rather than passed over. Done when: a test reads each from all three mirrors, and `next_work` tests prove a host-blocked row is skipped and a repairable row chosen.
 - [x] Test `session_active` and `input_desktop` in `scripts/lib/host_caps.py` through simulated Windows calls, covering a failed call, a disconnected session, a locked desktop and an open one. Done when: `scripts/tests/test_host_caps.py` fails if either wrapper always answers yes.
 - [x] Test the real `query next` command in `scripts/tests/test_todo_graph.py`, including its null answer and exit status. Done when: removing its registration in `scripts/todo-graph.py` fails the test.
-- [ ] Commit: `graph: one section disposition`
+- [x] Commit: `graph: one section disposition`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_todo_graph.py scripts/tests/test_host_caps.py scripts/tests/test_run_guard.py` exits 0, and fails if `section_disposition` returns ready for an `attended` row, a locked session reads as a desktop, or the guard offers a `waiting-host` row.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found unreadable evidence read as ready; D00 T03 §3 fixed it (after: its completion review returned gaps)
 
 > **Repair cycle:** 2: 2026-11-07: the completion review found the registry probe and the query next command unproven (after: its completion review returned gaps)
+
+> **Verified:** 2026-11-07 | §2 | 9092587489aa58689a4d5ef03775694a18e923ec
+> **Review:** `docs/reviews/d00-t03-s2.json`
 
 ## 3. Review repair cycles and parking
 
