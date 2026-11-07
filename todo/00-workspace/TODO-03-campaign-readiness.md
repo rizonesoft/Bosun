@@ -71,9 +71,14 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 - [x] Hold the repair count in `build/ci-repairs.json` with an atomic replace, keyed by the first red commit, reset by a green. Done when: a test proves the count survives a new process, and a corrupt file reads as 0 attempts used with one warning line.
 - [x] Bound `wait` in `--gate` with `--wait-minutes` in `scripts/ci_status.py`, polling every 60 seconds. Done when: a fake clock shows pending for the whole time ends in `wait`, and pending turning green ends in `proceed`.
 - [x] Add the red-first policy to `.claude/skills/process-phase/SKILL.md` and its two mirrors: after each stamped section, push, run `--gate` with the pushed commit and the previous remote head, and act on its one action. `exhausted` files the fault through `add-todo` and carries on with local gates, since the owner said the run must not block itself, and `D00 T03 §6` refuses `complete` while `main` is red. Done when: a test proves the three mirrors hold the same text and name each action.
+- [ ] Reset the repair budget durably in `gate_action` in `scripts/ci_status.py`: on green, try to clear `build/ci-repairs.json`, and when that fails, mark it cleared by commit so the next red starts a fresh budget. Done when: `scripts/tests/test_ci_status.py` holds the file locked through a green, unlocks it, and the next independent red gets a full three repairs. Cheaper substitute: a warning, which lets one locked file exhaust the next fault's budget.
+- [ ] Bound `--wait-minutes` in `scripts/ci_status.py` by the remaining time, in the sleep and in each tool call. Done when: tests with a fake clock prove a six-second budget sleeps at most six seconds, a slow tool's timeout shrinks to what remains, and fractions work.
+- [ ] Print a line to stderr while waiting in `scripts/ci_status.py`, once at the first look and once per poll, with each workflow's verdict, elapsed and remaining time, keeping one JSON object on stdout. Done when: tests read both streams, and stdout still parses as one object. Cheaper substitute: thirty silent minutes.
 - [ ] Commit: `ci: status proves the commit`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_ci_status.py` exits 0, and fails if an empty run list exits 0 or a code commit before a Markdown stamp reads `skipped`.
+
+> **Repair cycle:** 1: 2026-11-07: the completion review found the repair reset, the wait bound and wait feedback short (after: its completion review returned gaps)
 
 ## 2. One section disposition across graph, guard and skills
 
