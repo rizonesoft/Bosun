@@ -94,6 +94,8 @@ Exit 0 means only that no red run was seen today, so a commit with no successful
 
 > **Repair cycle:** 3: 2026-11-07: the completion review found partial checks, the first lookup's time and silent unverified results (after: its completion review returned gaps)
 
+> **Parked:** 2026-11-07: three repair cycles used; two small gaps left: an exact revert gets no skip, and the wait limit doesn't bound tools without --wait-minutes
+
 ## 2. One section disposition across graph, guard and skills
 
 > **Started:** 2026-11-07T20:03:09Z
