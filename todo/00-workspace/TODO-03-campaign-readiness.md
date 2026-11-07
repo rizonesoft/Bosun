@@ -98,11 +98,15 @@ The graph, the guard and the skills each decide differently what can run. One fu
 - [x] Add `query next` to `scripts/todo-graph.py`, printing the first row this session can run, by phase then table order, or null. Done when: a test with a host-blocked earlier phase names the later phase's row, a repairable row counts, and it prints null when nothing can run.
 - [x] Choose the phase through `query next` at every step of `.claude/skills/process-plan/SKILL.md` and `process-phase/SKILL.md` and their mirrors, using `query disposition` for the leftovers. Done when: no skill names its own list of host Needs, and a test proves none chooses a phase from `query ready`.
 - [x] Read unreadable findings or an unreadable review policy as `waiting-person` with the reason in `section_disposition` in `scripts/lib/todo_graph.py`, and never fabricate a cap, which `D00 T03 §3` shipped at `14254833`. Done when: `test_a_findings_file_that_cant_be_read_waits_and_recovers`, `test_a_cycle_whose_policy_cant_be_read_waits_and_spends_nothing` and `test_an_unusable_pin_refuses_rather_than_assuming_a_cap` in `scripts/tests/test_todo_graph.py` pass, and fail if the code is reverted.
+- [ ] Check that a registered program really exists, reading per-user and per-machine App Paths, in `app_path_exists` in `scripts/lib/host_caps.py`. Done when: `scripts/tests/test_host_caps.py` proves a stale entry reads false, a quoted path and a per-user entry read true, and both hives are read. Cheaper substitute: trusting that the registry key exists.
+- [ ] Test the real `query next` command in `scripts/tests/test_todo_graph.py`, including its null answer and exit status. Done when: removing its registration in `scripts/todo-graph.py` fails the test.
 - [ ] Commit: `graph: one section disposition`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_todo_graph.py scripts/tests/test_host_caps.py scripts/tests/test_run_guard.py` exits 0, and fails if `section_disposition` returns ready for an `attended` row, a locked session reads as a desktop, or the guard offers a `waiting-host` row.
 
 > **Repair cycle:** 1: 2026-11-07: the completion review found unreadable evidence read as ready; D00 T03 §3 fixed it (after: its completion review returned gaps)
+
+> **Repair cycle:** 2: 2026-11-07: the completion review found the registry probe and the query next command unproven (after: its completion review returned gaps)
 
 ## 3. Review repair cycles and parking
 
