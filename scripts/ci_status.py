@@ -282,15 +282,17 @@ def read_gate(path):
         state = {}
     marker = path.with_name(CLEARED.name)
     try:
-        proven = marker.read_text(encoding="utf-8").strip()
+        content = marker.read_text(encoding="utf-8").strip()
     except OSError:
         return state
-    state = {"proven": proven}
-    if write_gate(path, state):
-        try:
-            marker.unlink()
-        except OSError:
-            pass  # it says the same again next time
+    if content and state.get("consumed") != content:  # honoured once, even if the marker can't be deleted
+        state = {"proven": content.split()[0], "consumed": content}
+        if not write_gate(path, state):
+            return state
+    try:
+        marker.unlink()
+    except OSError as exc:
+        print(f"warning: could not remove {marker} ({exc}); it has been honoured and won't be again", file=sys.stderr)
     return state
 
 
@@ -311,14 +313,27 @@ def write_gate(path, state):
         return False
 
 
+def begin_wait(path, sha, now):
+    """Record when waiting on this commit began, before any polling, so a killed process loses none of it. Returns that
+    time, or now when it can't be saved."""
+    state = read_gate(path)
+    waiting = state.get("waiting")
+    if isinstance(waiting, dict) and waiting.get("sha") == sha and isinstance(waiting.get("since"), (int, float)):
+        return waiting["since"]
+    state["waiting"] = {"sha": sha, "since": now}
+    write_gate(path, state)
+    return now
+
+
 def gate_action(code, sha, path, now):
     """One action for a pushed commit, and any attempt number. A repeat check of the same red commit uses no attempt."""
     state = read_gate(path)
     if code == 0:
-        if write_gate(path, {"proven": sha}):
+        cleared = {"proven": sha, **({"consumed": state["consumed"]} if "consumed" in state else {})}
+        if write_gate(path, cleared):
             return "proceed", None
         try:
-            path.with_name(CLEARED.name).write_text(sha, encoding="utf-8")
+            path.with_name(CLEARED.name).write_text(f"{sha} {now}", encoding="utf-8")
             return "proceed", None
         except OSError as exc:
             print(f"warning: could not clear the repair count ({exc}); this commit passed, but carry on as unverified", file=sys.stderr)
@@ -419,6 +434,10 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     # A tool call may not outlast the wait. Without a wait it keeps the tool's own limit.
     ask = (lambda call: run_gh(call, timeout=max(remaining(), 1))) if args.wait_minutes and runner is run_gh else runner
     result, code = report(ask, workflows, args.branch, sha, base, git)
+    if args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE):
+        # The two hour limit counts from here, and one invocation can't run past it.
+        since = begin_wait(root / REPAIRS, sha, wall())
+        deadline = min(deadline, clock() + max(WAIT_LIMIT_SECONDS - (wall() - since), 0))
     while args.gate and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)

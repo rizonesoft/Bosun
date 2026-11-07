@@ -27,3 +27,27 @@ OVERALL: needs-attention
 - Planned: a durable two-hour limit on waiting, then unverified, which carries on (P1) in the D00 T03 §1 contract, this commit.
 - Planned: the last proven commit is the base, so a restart keeps it (P1) in the D00 T03 §1 contract, this commit.
 - Planned: separate-process reset test, with a defined outcome when nothing can be written (P2) in the D00 T03 §1 contract, this commit.
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-07T20:12:47Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 51729b1bfc594bf6f6f8b0ffca95f46c08961726
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 8
+- Digest: 1f9be358024e348f
+
+### adversarial: needs-attention
+
+1. **P2, `scripts/ci_status.py:428`: The durable wait starts after polling finishes.** With unavailable CI and the prescribed `--wait-minutes 30`, repeated invocations return `wait` after 120 minutes and only return `unverified` after 150 minutes. Reproduced with an injected clock. Cancellation before the first polling window finishes persists no waiting timestamp, so restarting loses that elapsed time entirely. Persist the start before polling and cap each invocation by the remaining durable budget.
+
+2. **P2, `scripts/ci_status.py:288-294`: An undeletable clearing marker repeatedly erases new repair attempts.** After the fallback marker is created, a Windows handle denying deletion can make `marker.unlink()` fail while the state file remains writable. Every subsequent read then replaces the current repair record with the old marker’s `proven` value. Reproduced by simulating that sharing violation: five distinct red commits all returned `repair, 1`, never `exhausted`. Record that the marker has been consumed durably, so deletion failure cannot reset subsequent attempts.
+
+HIGHEST: P2
+OVERALL: needs-attention

@@ -447,6 +447,53 @@ class Gate(Base):
         record = json.loads(self.state().read_text())
         self.assertEqual(record["waiting"]["since"], 1_000_000.0)  # durable, not reset by each call
 
+    def test_the_limit_counts_from_the_first_look_and_caps_a_call(self):
+        clock = _Clock()
+        wall = lambda: 1_000_000.0 + clock.t
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "30"], FakeGh(), clock=clock.now, sleep=clock.sleep, wall=wall)
+        self.assertEqual(clock.t, 1800)
+        self.assertEqual(json.loads(self.state().read_text())["waiting"]["since"], 1_000_000.0)
+        # Three more 30 minute calls take it to exactly two hours, not two and a half.
+        for _ in range(3):
+            code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "30"], FakeGh(), clock=clock.now, sleep=clock.sleep, wall=wall)
+        self.assertEqual(clock.t, ci_status.WAIT_LIMIT_SECONDS)
+        self.assertIn("action: unverified", out)
+
+    def test_a_call_past_the_limit_does_not_poll(self):
+        self.waiting(0)
+        clock = _Clock()
+        wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "30"], FakeGh(), clock=clock.now, sleep=clock.sleep, wall=wall)
+        self.assertEqual(clock.sleeps, 0)
+        self.assertIn("action: unverified", out)
+
+    def test_a_killed_process_keeps_the_time_it_waited(self):
+        clock = _Clock()
+        wall = lambda: 1_000_000.0 + clock.t
+
+        def killed(seconds):
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "30"], FakeGh(), clock=clock.now, sleep=killed, wall=wall)
+        self.assertEqual(json.loads(self.state().read_text())["waiting"]["since"], 1_000_000.0)
+
+    def test_a_marker_that_cannot_be_deleted_is_honoured_once(self):
+        marker = self.root / ci_status.CLEARED
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"{OLD} 5", encoding="utf-8")
+        real = Path.unlink
+
+        def stuck(path, *args, **kwargs):
+            if path.name == marker.name:
+                raise PermissionError("sharing violation")
+            return real(path, *args, **kwargs)
+        with mock.patch.object(Path, "unlink", stuck):
+            actions = [self.gate(self.red(), sha * 40, _Named(sha * 40))[1] for sha in "cdef"]
+        self.assertEqual(actions, ["action: repair (attempt 1 of 3)", "action: repair (attempt 2 of 3)",
+                                   "action: repair (attempt 3 of 3)", "action: exhausted"])
+        self.assertIn("won't be again", self.stderr)
+        self.assertEqual(json.loads(self.state().read_text())["proven"], OLD)
+
     def test_a_new_commit_starts_its_own_wait(self):
         self.waiting(0)
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
