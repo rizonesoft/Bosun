@@ -50,7 +50,7 @@ title: "TODO-03 -- Campaign readiness"
 | 12 | §12 | Review caps of 33 | §3 | [x] |
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
-| 15 | §15 | One completion pass, as Steward and Recto run | §14 | [ ] |
+| 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -499,9 +499,12 @@ On 2026-11-08 the owner chose the review shape Steward and Recto use, because re
 - [x] Replace the third-cycle rule in `review-todo-section/SKILL.md`, `process-todo-section/SKILL.md`, `process-plan/SKILL.md` and `process-phase/SKILL.md`, all three mirrors, and in `docs/todo-workflow.md` and the design doc's decisions table, with the one-pass rule: fix and stamp `completed`, or file and stamp `filed`, never re-review. Done when: a test finds the rule in each and none of the old sentences.
 - [x] Stop treating completion gaps as a dead end in `review_dead_end` in `scripts/lib/todo_graph.py`, and refuse `repair` on them with the fix-or-file route. Done when: a test proves the refusal leaves the section text and findings unchanged, and a cycle whose rounds ran out still repairs.
 - [x] Point the dispatcher's completion-already-returned refusal in `scripts/review-dispatch.py` and the repair paragraph in `todo/README.md` at fix or file. Done when: a test reads both and neither asks for a new repair cycle after completion.
-- [ ] Commit: `review: one completion pass, as Steward and Recto run`
+- [x] Commit: `review: one completion pass, as Steward and Recto run`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_policy.py scripts/tests/test_todo_graph.py scripts/tests/test_run_guard.py` exits 0, and fails if a first cycle can't stamp `filed`.
+
+> **Verified:** 2026-11-08 | §15 | d739c38da88f0fb9848fbb49db8e94dcef756afc
+> **Review:** `docs/reviews/d00-t03-s15.json`
 
 ## Verification
 
