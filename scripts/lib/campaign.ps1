@@ -49,7 +49,7 @@ function Stop-Tree([int]$processId) {
 }
 
 # Run $exe with $arguments under a limit of $seconds, its PATH set to $searchPath and its stdin closed. Returns Code,
-# Out (stdout and stderr together) and TimedOut. A probe past its limit is stopped with its whole tree.
+# Out (stdout and stderr together) and TimedOut. An $environment value of $null removes that variable. A probe past its limit is stopped with its whole tree.
 function Invoke-Probe([string]$exe, [string[]]$arguments, [int]$seconds, [string]$searchPath, [string]$workingDirectory = '', [hashtable]$environment = @{}) {
   $info = New-Object System.Diagnostics.ProcessStartInfo
   $info.FileName = $exe
@@ -61,7 +61,9 @@ function Invoke-Probe([string]$exe, [string[]]$arguments, [int]$seconds, [string
   $info.CreateNoWindow = $true
   if ($workingDirectory) { $info.WorkingDirectory = $workingDirectory }
   if ($searchPath) { $info.Environment['PATH'] = $searchPath }
-  foreach ($k in $environment.Keys) { $info.Environment[$k] = $environment[$k] }
+  foreach ($k in $environment.Keys) {
+    if ($null -eq $environment[$k]) { [void]$info.Environment.Remove($k) } else { $info.Environment[$k] = $environment[$k] }
+  }
   try { $p = [Diagnostics.Process]::Start($info) }
   catch { return [pscustomobject]@{ Code = -1; Out = "could not start ${exe}: $($_.Exception.Message)"; TimedOut = $false } }
   $p.StandardInput.Close()

@@ -764,6 +764,9 @@ class UsageLimits(unittest.TestCase):
 
     def test_only_a_subscription_sign_in_may_launch(self):
         cases = [({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}, (True, "")),
+                 # `claude setup-token`'s long-lived token, which needs the subscription; `auth status` as it read on 2026-11-08
+                 ({"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "firstParty"}, (True, "")),
+                 ({"loggedIn": True, "authMethod": "oauth_token", "apiProvider": "vertex"}, (False, "subscription-unavailable")),
                  ({"loggedIn": False}, (False, "sign-in-needed")),
                  ("not json", (False, "sign-in-needed")),
                  ({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock"}, (False, "subscription-unavailable")),

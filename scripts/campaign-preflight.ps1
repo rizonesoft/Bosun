@@ -15,6 +15,8 @@ param(
   [string]$ReviewerModel = 'gpt-6-astra',
   [string]$Distro = 'Ubuntu',
   [double]$MinFreeGB = 50,
+  [int]$MinLoginDays = 30,
+  [string]$UserEnvKey = 'HKCU:\Environment',
   [string[]]$FreeDrives = @('D:\', 'R:\'),
   [string]$HoldRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
   [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
@@ -139,6 +141,40 @@ function Test-Gh {
   if (-not $r) { return }
   if ($r.Code -ne 0) { Fail "gh is not signed in (gh auth status: $(Tail $r.Out))" '`gh auth login`, then run the preflight again'; return }
   Pass 'gh signed in'
+}
+
+# Claude as the watchdog's sessions see it: the user's CLAUDE_CODE_OAUTH_TOKEN from the registry, as Task Scheduler
+# hands it on, and none of the variables the guard strips (run_guard.py SCRUBBED). The token is passed, never printed.
+function Test-Claude {
+  $login = 'run `claude`, then /login with the subscription account, and run the preflight again'
+  $long = 'in your own terminal run `claude setup-token` (a long-lived token for unattended jobs), then `pwsh scripts/store-claude-token.ps1` to keep it as your user variable CLAUDE_CODE_OAUTH_TOKEN, and run the preflight again'
+  $token = Get-RegValue $UserEnvKey 'CLAUDE_CODE_OAUTH_TOKEN'
+  $environment = @{ CLAUDE_CODE_OAUTH_TOKEN = $token }  # $null removes one this shell has but the watchdog wouldn't
+  foreach ($k in 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY') { $environment[$k] = $null }
+  $quiet = [IO.Path]::GetTempPath()  # outside any repo, so no project's hooks run
+  $r = Probe 'claude' @('auth', 'status', '--json') $login $quiet $environment
+  if (-not $r) { return }
+  $status = $null
+  if ($r.Out -match '(?s)\{.*\}') { try { $status = $Matches[0] | ConvertFrom-Json } catch { $status = $null } }
+  if (-not $status -or -not $status.loggedIn) { Fail "claude is not signed in ($(Tail $r.Out))" $login; return }
+  if ($status.apiProvider -ne 'firstParty') { Fail "claude is set to use $($status.apiProvider), which bills a cloud account" 'unset CLAUDE_CODE_USE_* and any provider in its settings, then run the preflight again'; return }
+  switch ($status.authMethod) {
+    'oauth_token' { $how = 'a long-lived token (claude setup-token)' }
+    'claude.ai' {
+      $ends = $status.loginExpiresAt
+      if ($ends -and $ends -isnot [datetime]) { try { $ends = [datetime]::Parse([string]$ends, [Globalization.CultureInfo]::InvariantCulture) } catch { $ends = $null } }
+      if (-not $ends) { Fail "claude auth status doesn't say when the sign-in ends, so the campaign may lose it" $long; return }
+      $days = [math]::Floor(($ends.ToUniversalTime() - [datetime]::UtcNow).TotalDays)
+      if ($days -lt $MinLoginDays) { Fail "the Claude sign-in ends on $($ends.ToUniversalTime().ToString('yyyy-MM-dd')), in $days days, sooner than the $MinLoginDays a campaign may need" $long; return }
+      $how = "the subscription sign-in, which ends on $($ends.ToUniversalTime().ToString('yyyy-MM-dd'))"
+    }
+    default { Fail "claude would sign in with $($status.authMethod), which bills an API account" "remove the API key or apiKeyHelper, then $login"; return }
+  }
+  # `auth status` reads a token as signed in without trying it, so only a real reply proves it works.
+  $r = Probe 'claude' @('-p', 'Reply with the single word READY and nothing else.', '--model', 'haiku') $login $quiet $environment
+  if (-not $r) { return }
+  if ($r.Code -ne 0 -or $r.Out -notmatch 'READY') { Fail "claude signed in with $how but didn't reply READY (exit $($r.Code)): $(Tail $r.Out)" $(if ($status.authMethod -eq 'oauth_token') { "the token may be wrong or revoked: $long" } else { $login }); return }
+  Pass "claude signed in with $how, and replied"
 }
 
 function Test-Codex {
@@ -301,7 +337,7 @@ function Test-Owner {
 
 $Checks = [ordered]@{
   bosun = { Test-Bosun }; cmake = { Test-CMake }; denylist = { Test-DenyList }; dotnet = { Test-Dotnet }; gh = { Test-Gh }
-  codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; ci = { Test-Ci }; guard = { Test-Guard }
+  claude = { Test-Claude }; codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; ci = { Test-Ci }; guard = { Test-Guard }
   space = { Test-Space }; hold = { Test-Hold }; setup = { Test-Setup }; lock = { Test-Lock }; owner = { Test-Owner }
 }
 $names = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })

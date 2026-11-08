@@ -72,6 +72,7 @@ ACCOUNT_ERRORS = {"oauth_org_not_allowed", "account_on_hold", "billing_error"}
 SCRUBBED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY",
             "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
 
+SUBSCRIPTION_SIGN_INS = ("claude.ai", "oauth_token")  # `claude auth status --json` authMethod values, 2026-11-08
 KNOWN_MODES = ("acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan")  # claude --help, 2026-11-08
 CAMPAIGN_MODE = "bypassPermissions"  # the owner's choice: a hidden session can't answer a prompt
 
@@ -854,7 +855,9 @@ def subscription_verdict(data: object) -> tuple:
     if data.get("apiProvider") != "firstParty":
         return False, "subscription-unavailable", (f"Claude Code is set to use {data.get('apiProvider')}, which bills a cloud account: "
                                                    "unset CLAUDE_CODE_USE_* and any provider in its settings so the subscription is used")
-    if data.get("authMethod") != "claude.ai":
+    # claude.ai is the stored sign-in; oauth_token is `claude setup-token`'s long-lived token in CLAUDE_CODE_OAUTH_TOKEN,
+    # which only a subscription can make. Anything else (api_key, an apiKeyHelper) bills an API account.
+    if data.get("authMethod") not in SUBSCRIPTION_SIGN_INS:
         return False, "subscription-unavailable", (f"Claude Code would sign in with {data.get('authMethod')}, which bills an API account: "
                                                    "remove the API key or apiKeyHelper from the environment and settings, then sign in with the subscription")
     return True, "", ""

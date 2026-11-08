@@ -113,6 +113,65 @@ try {
   $r = Preflight "$d;$system" @('-Only', 'codex')
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   codex signed in, and gpt-6-astra replied') 'a signed-in codex whose reviewer replies passes'
 
+  # Claude, as the watchdog's sessions would sign in. The fake reports a token sign-in only when the token reaches it,
+  # and an API key sign-in only when one does.
+  $claudeKey = "HKCU:\Software\BosunTest\preflight-env-$PID"
+  New-Item -Path $claudeKey -Force | Out-Null
+  $d = Tool 'claude-fake' 'claude' (@(
+      'if not "%1"=="auth" goto reply',
+      'if defined ANTHROPIC_API_KEY (echo {"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}& exit /b 0)',
+      'if defined CLAUDE_CODE_OAUTH_TOKEN (echo {"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}& exit /b 0)',
+      'echo %FAKE_CLAUDE_STATUS%',
+      'echo Warning: a line on stderr 1>&2',
+      'exit /b 0',
+      ':reply',
+      'if "%CLAUDE_CODE_OAUTH_TOKEN%"=="bad" (echo Invalid API key& exit /b 1)',
+      'if defined FAKE_CLAUDE_MUTE (echo API Error& exit /b 1)',
+      'echo READY') -join "`r`n")
+  $claude = @('-Only', 'claude', '-UserEnvKey', $claudeKey)
+  function Status([int]$days) { '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","loginExpiresAt":"' + [datetime]::UtcNow.AddDays($days).ToString('o') + '"}' }
+  $env:FAKE_CLAUDE_STATUS = '{"loggedIn":false}'
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match 'claude is not signed in' -and $r.Text -match 'fix: run `claude`, then /login') 'a signed-out claude fails with its fix'
+  $env:FAKE_CLAUDE_STATUS = Status 10
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match 'the Claude sign-in ends on \d{4}-\d{2}-\d{2}, in (9|10) days, sooner than the 30' -and $r.Text -match 'claude setup-token' -and $r.Text -match 'store-claude-token\.ps1') 'a sign-in that ends within 30 days fails, naming setup-token'
+  $env:FAKE_CLAUDE_STATUS = '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}'
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match "doesn't say when the sign-in ends") 'a sign-in with no end date fails'
+  $env:FAKE_CLAUDE_STATUS = Status 60
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   claude signed in with the subscription sign-in, which ends on') 'a sign-in with 60 days left that replies passes'
+  $env:ANTHROPIC_API_KEY = 'a-secret-value'
+  $r = Preflight "$d;$system" $claude
+  Remove-Item Env:ANTHROPIC_API_KEY
+  Check ($r.Code -eq 0 -and $r.Text -notmatch 'a-secret-value') 'an API key in this shell is stripped, as the guard strips it'
+  $env:FAKE_CLAUDE_STATUS = '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"bedrock","loginExpiresAt":"2099-01-01T00:00:00Z"}'
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match 'set to use bedrock') 'a cloud provider fails'
+  $env:FAKE_CLAUDE_STATUS = Status 60
+  $env:FAKE_CLAUDE_MUTE = '1'
+  $r = Preflight "$d;$system" $claude
+  Remove-Item Env:FAKE_CLAUDE_MUTE
+  Check ($r.Code -eq 1 -and $r.Text -match "didn't reply READY") 'a claude that does not reply fails'
+  # The token from the user's registry reaches the probe; a bad one fails on the real reply, never printed.
+  $env:FAKE_CLAUDE_STATUS = Status 3
+  'tok-ok-123' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey | Out-Null
+  Check ((Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-ok-123') 'store-claude-token.ps1 keeps a piped token in the given key'
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   claude signed in with a long-lived token' -and $r.Text -notmatch 'tok-ok-123') 'a stored token passes even with the claude.ai sign-in nearly over, and is never printed'
+  $env:CLAUDE_CODE_OAUTH_TOKEN = 'from-this-shell'
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Remove | Out-Null
+  $r = Preflight "$d;$system" $claude
+  Remove-Item Env:CLAUDE_CODE_OAUTH_TOKEN
+  Check ($r.Code -eq 1 -and $r.Text -match 'in [23] days') 'a token only this shell has is not what the watchdog sees, so it does not count'
+  'bad' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey | Out-Null
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match "didn't reply READY" -and $r.Text -match 'the token may be wrong or revoked') 'a token that does not work fails on the real reply'
+  $out = 'one two' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey
+  Check ($LASTEXITCODE -eq 2 -and (Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'bad') 'a value with a space inside is refused and changes nothing'
+  Remove-Item Env:FAKE_CLAUDE_STATUS
+
   $d = Tool 'wsl-none' 'wsl' "echo There is no distribution with the supplied name.`r`nexit /b 1"
   $r = Preflight "$d;$system" @('-Only', 'wsl')
   Check ($r.Code -eq 1 -and $r.Text -match "WSL Ubuntu doesn't start" -and $r.Text -match 'wsl --install -d Ubuntu') 'a missing WSL distro fails with its fix'
@@ -316,6 +375,8 @@ finally {
   if ($key -and $variable) { $key.DeleteValue($variable, $false) }
   Remove-Item Env:BOSUN_FAKE_POWERCFG, Env:BOSUN_TEST_CI, Env:BOSUN_TEST_GUARD -ErrorAction Ignore
   Remove-Item -LiteralPath "HKCU:\Software\BosunTest\preflight-$PID" -Recurse -ErrorAction Ignore
+  Remove-Item -LiteralPath "HKCU:\Software\BosunTest\preflight-env-$PID" -Recurse -ErrorAction Ignore
+  Remove-Item Env:FAKE_CLAUDE_STATUS, Env:FAKE_CLAUDE_MUTE, Env:CLAUDE_CODE_OAUTH_TOKEN, Env:ANTHROPIC_API_KEY -ErrorAction Ignore
   Remove-Item -Recurse -Force $work -ErrorAction Ignore
 }
 if ($failed) { "$failed failed"; exit 1 }
