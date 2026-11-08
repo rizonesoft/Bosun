@@ -56,6 +56,19 @@ def _parser():
 
 
 PARSER = _parser()
+NO_REVIEW = ("--check-pin", "--list-rounds", "--help")  # the dispatcher's only runs that start no reviewer
+
+
+def starts_no_reviewer(words: list[str]) -> bool:
+    """True when these dispatcher arguments ask only for --check-pin, --list-rounds or --help, as argparse reads them:
+    whole, after `=`, or shortened. Any other run is a review, `--prompt=x` and `--pro x` included."""
+    for word in words:
+        option = word.split("=", 1)[0]
+        if word == "-h" or (option.startswith("--") and len(option) > 3 and any(name.startswith(option) for name in NO_REVIEW)):
+            return True
+    return False
+
+
 INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
 
 
@@ -69,7 +82,7 @@ def runs(command: str, powershell: bool) -> tuple:
         if INTERPRETER.fullmatch(os.path.basename(words[0]).lower()):
             words = [w for w in words[1:] if not w.startswith("-")][:1] + words[1:]
         script = os.path.basename(words[0]).lower() if words else ""
-        reviewing |= script == "review-dispatch.py" and "--prompt" in words
+        reviewing |= script == "review-dispatch.py" and not starts_no_reviewer(words[1:])
         stamping |= script == "todo-graph.py" and "stamp" in words
     return reviewing, stamping
 
@@ -112,7 +125,8 @@ def verdict(payload: dict, repo: Path = ROOT) -> str | None:
         return None
     command = HEREDOC.sub("", command)  # a heredoc's body is text, never a command, wherever its lines fall
     powershell = tool == "PowerShell"
-    launched = powershell and "review-dispatch.py" in command and "--prompt" in command and POWERSHELL_LAUNCHER.search(command)
+    launched = powershell and "review-dispatch.py" in command and POWERSHELL_LAUNCHER.search(command) \
+        and not starts_no_reviewer(PARSER.tokens_of(command))
     reviewing, stamping = runs(command, powershell)
     reviewing = reviewing or bool(launched)
     if (reviewing or stamping) and pin_dirty(repo):

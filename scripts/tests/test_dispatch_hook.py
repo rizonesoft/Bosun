@@ -46,6 +46,16 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(REVIEW, background=True)))
         self.assertIsNone(hook.verdict(payload("python3 scripts/review-dispatch.py --prompt p.md 2>&1 | tail -5", background=True)))
 
+    def test_every_spelling_argparse_accepts_is_a_review(self):
+        for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
+            command = f"python scripts/review-dispatch.py {args}"
+            with self.subTest(args):
+                self.assertIn("not detached", hook.verdict(payload(command + " &", background=True)))
+                self.assertIn("run_in_background", hook.verdict(payload(command)))
+        for args in ("--check-pin", "--check-pin --json", "--list-rounds", "--list --json", "-h", "--help"):
+            with self.subTest(args):
+                self.assertIsNone(hook.verdict(payload(f"python scripts/review-dispatch.py {args}")))
+
     def test_calls_that_run_no_review_pass(self):
         for command in ("python scripts/review-dispatch.py --check-pin", "python scripts/review-dispatch.py --list-rounds --json",
                         "python scripts/review-dispatch.py --help", 'git commit -m "run review-dispatch.py --prompt later"',
