@@ -926,6 +926,20 @@ class LaunchBoundary(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.out.read_text().splitlines()] if self.out.exists() else []
 
+    @staticmethod
+    def stop_tree(pid):
+        """Stop a launched child and everything it started, and wait until it has gone."""
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=60)
+        else:
+            try:
+                os.killpg(pid, 9)
+            except OSError:
+                pass
+        deadline = time.time() + 30
+        while guard.pid_alive(pid) and time.time() < deadline:
+            time.sleep(0.1)
+
     def test_the_sign_in_check_runs_without_paid_keys_and_reads_each_answer(self):
         for mode, expected in (("ok", True), ("out", False), ("garbage", False)):
             with self.subTest(mode), mock.patch.dict(os.environ, {"FAKE_CLAUDE_MODE": mode}):
@@ -944,6 +958,9 @@ class LaunchBoundary(unittest.TestCase):
         state_path = Path(self.temp.name) / "state.json"
         with mock.patch.object(guard, "STATE", state_path):
             child = guard.real_spawn(active(session_id="sess-1", permission_mode="bypassPermissions"))
+        # Its whole tree stops before the folder goes: on Windows the cmd wrapper can still hold resumed-session.log
+        # open after the fake has written its call, and the folder then can't be removed (seen on CI, 2026-11-08).
+        self.addCleanup(self.stop_tree, child["pid"])
         deadline = time.time() + 30
         while not self.calls() and time.time() < deadline:
             time.sleep(0.1)
