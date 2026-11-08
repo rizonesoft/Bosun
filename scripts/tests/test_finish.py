@@ -176,7 +176,10 @@ class Wakes(Tree):
         for wake in tg.load_wakes(ROOT):
             with self.subTest(wake=wake["section"]):
                 self.assertIn(wake["section"], rows)
-                self.assertIn(wake["need"], rows[wake["section"]].needs)
+                row = rows[wake["section"]]
+                # Still waiting on its Need, or already woken from it: either way the wake names a real Need.
+                self.assertTrue(wake["need"] in row.needs or f"its `{wake['need']}` check" in row.body,
+                                f"{wake['section']} neither needs {wake['need']} nor was woken from it")
 
 
 class DotnetFinal(unittest.TestCase):
