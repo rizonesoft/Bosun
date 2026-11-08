@@ -1,7 +1,7 @@
 """A stand-in for powercfg.exe over a JSON file named by BOSUN_FAKE_POWERCFG, for the campaign hold tests.
 
 Answers /getactivescheme, /q <scheme> <sub> <setting>, /setacvalueindex and /setdcvalueindex <scheme> <sub> <setting>
-<value>, and /setactive <scheme>, in powercfg's own output format. With BOSUN_FAKE_POWERCFG_FAIL set, every set
+<value>, and /setactive <scheme>, in powercfg's own output format. An optional "active" names the plan /getactivescheme reports. With BOSUN_FAKE_POWERCFG_FAIL set, every set
 command fails, as a locked-down policy would make it.
 """
 import json
@@ -23,7 +23,8 @@ def save():
 
 
 if args[:1] == ["/getactivescheme"]:
-    print(f"Power Scheme GUID: {scheme}  (Balanced)")
+    # "active" stands in for the owner switching to another plan; the held one keeps its values.
+    print(f"Power Scheme GUID: {state.get('active', scheme)}  (Balanced)")
 elif args[:1] == ["/q"] and len(args) == 4:
     key = f"{args[2]}/{args[3]}".upper()
     if args[1] != scheme or key not in state["values"]:

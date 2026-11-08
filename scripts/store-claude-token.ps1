@@ -3,24 +3,62 @@
 # it and outlast a claude.ai sign-in, which ends on the date `claude auth status --json` gives as loginExpiresAt. The
 # token is read without echo and never printed.
 #
-#   pwsh scripts/store-claude-token.ps1            paste the token when asked
-#   pwsh scripts/store-claude-token.ps1 -Remove    take it out again; sessions go back to the stored claude.ai sign-in
+# A setup token lasts one year from the day it was made (https://code.claude.com/docs/en/authentication), and nothing
+# reports when, so this also records that day in %LOCALAPPDATA%\Bosun\claude-token.json (the date only, never the token)
+# for the preflight to check.
+#
+#   pwsh scripts/store-claude-token.ps1                          paste the token made today when asked
+#   pwsh scripts/store-claude-token.ps1 -IssuedOn 2026-11-01     a token made on an earlier day
+#   pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <day>   record the day for a token already stored
+#   pwsh scripts/store-claude-token.ps1 -Remove                  take both out; sessions go back to the claude.ai sign-in
 #
 # Keep a copy in the 1Password Conclave vault too: this variable is not a recovery source.
 param(
   [switch]$Remove,
+  [switch]$RecordOnly,
+  [string]$IssuedOn = '',
   [string]$Key = 'HKCU:\Environment',
-  [string]$Name = 'CLAUDE_CODE_OAUTH_TOKEN'
+  [string]$Name = 'CLAUDE_CODE_OAUTH_TOKEN',
+  [string]$Record = (Join-Path $env:LOCALAPPDATA 'Bosun\claude-token.json')
 )
 $ErrorActionPreference = 'Stop'
 
+function Save-Issued([string]$day) {
+  New-Item -ItemType Directory -Force (Split-Path $Record) | Out-Null
+  $tmp = "$Record.$PID.tmp"
+  Set-Content -LiteralPath $tmp -Value (@{ issued = $day } | ConvertTo-Json -Compress) -Encoding utf8
+  Move-Item -LiteralPath $tmp -Destination $Record -Force
+}
+
 if ($Remove) {
   if (Test-Path -LiteralPath $Key) { Remove-ItemProperty -LiteralPath $Key -Name $Name -ErrorAction Ignore }
+  Remove-Item -LiteralPath $Record -ErrorAction Ignore
   if ((Get-Item -LiteralPath $Key -ErrorAction Ignore) -and $null -ne (Get-Item -LiteralPath $Key).GetValue($Name, $null)) {
     "could not remove $Name from $Key"
     exit 1
   }
-  "removed $Name; open a new shell for it to take effect there"
+  "removed $Name and its issue date; open a new shell for it to take effect there"
+  exit 0
+}
+
+$today = [datetime]::UtcNow.ToString('yyyy-MM-dd')
+if (-not $IssuedOn) {
+  if ($RecordOnly) { '-RecordOnly needs -IssuedOn <the day you ran claude setup-token>; nothing changed'; exit 2 }
+  $IssuedOn = $today
+}
+$day = [datetime]::MinValue
+if (-not [datetime]::TryParseExact($IssuedOn, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture, 'None', [ref]$day) -or $IssuedOn -gt $today) {
+  "-IssuedOn must be a day in yyyy-MM-dd form, not after today ($today); nothing changed"
+  exit 2
+}
+
+if ($RecordOnly) {
+  if (-not (Get-Item -LiteralPath $Key -ErrorAction Ignore) -or -not (Get-Item -LiteralPath $Key).GetValue($Name, $null)) {
+    "no $Name is stored in $Key to record a day for; nothing changed"
+    exit 2
+  }
+  Save-Issued $IssuedOn
+  "recorded that the stored token was made on $IssuedOn; it lasts until $($day.AddYears(1).ToString('yyyy-MM-dd'))"
   exit 0
 }
 
@@ -38,4 +76,5 @@ Set-ItemProperty -LiteralPath $Key -Name $Name -Value $plain -Type String
 $back = (Get-Item -LiteralPath $Key).GetValue($Name, $null)
 $plain = $null
 if (-not $back) { "could not read $Name back from $Key"; exit 1 }
-"stored $Name ($($back.Length) characters); the watchdog's next session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"
+Save-Issued $IssuedOn
+"stored $Name ($($back.Length) characters), made on $IssuedOn and lasting until $($day.AddYears(1).ToString('yyyy-MM-dd')); the watchdog's next session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"

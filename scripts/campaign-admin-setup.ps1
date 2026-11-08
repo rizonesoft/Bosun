@@ -19,13 +19,16 @@ param(
   [string]$DotnetDir = '',
   [string]$Vhdx = 'R:\Conclave.vhdx',
   [string]$TaskStore = '',
-  [string]$TaskPrefix = 'Bosun'
+  [string]$TaskPrefix = 'Bosun',
+  [string]$SearchPath = ''  # the PATH the watchdog launches with; the registry's when empty
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\campaign.ps1')
 
-if (-not $DotnetDir) { $DotnetDir = Resolve-WatchdogDotnet }
-if (-not $DotnetDir) {
+# Only preview and apply need dotnet's folder, for the SDK task; undo needs only the record, so it works after an
+# uninstall.
+if (-not $DotnetDir -and -not $Restore) { $DotnetDir = Resolve-WatchdogDotnet $(if ($SearchPath) { $SearchPath } else { Get-RegistryPath }) }
+if (-not $DotnetDir -and -not $Restore) {
   "FAIL no dotnet.exe on the PATH the watchdog launches with (the machine and user PATH in the registry)"
   "     fix: install the .NET SDK (winget install Microsoft.DotNet.SDK.10), then run this again"
   exit 1

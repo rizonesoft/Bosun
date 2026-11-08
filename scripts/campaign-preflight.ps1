@@ -17,6 +17,7 @@ param(
   [double]$MinFreeGB = 50,
   [int]$MinLoginDays = 30,
   [string]$UserEnvKey = 'HKCU:\Environment',
+  [string]$TokenRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\claude-token.json'),
   [string[]]$FreeDrives = @('D:\', 'R:\'),
   [string]$HoldRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
   [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
@@ -159,7 +160,16 @@ function Test-Claude {
   if (-not $status -or -not $status.loggedIn) { Fail "claude is not signed in ($(Tail $r.Out))" $login; return }
   if ($status.apiProvider -ne 'firstParty') { Fail "claude is set to use $($status.apiProvider), which bills a cloud account" 'unset CLAUDE_CODE_USE_* and any provider in its settings, then run the preflight again'; return }
   switch ($status.authMethod) {
-    'oauth_token' { $how = 'a long-lived token (claude setup-token)' }
+    'oauth_token' {
+      # A setup token lasts a year from the day it was made, which nothing reports, so the store script records the day.
+      $issued = $null
+      try { $issued = [datetime]::ParseExact([string](Get-Content -LiteralPath $TokenRecord -Raw | ConvertFrom-Json).issued, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch { $issued = $null }
+      if (-not $issued) { Fail "the stored token's issue day isn't recorded at $TokenRecord, so its year can't be checked" '`pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>`, then run the preflight again'; return }
+      $ends = $issued.AddYears(1)
+      $days = [math]::Floor(($ends - [datetime]::UtcNow.Date).TotalDays)
+      if ($days -lt $MinLoginDays) { Fail "the stored token, made on $($issued.ToString('yyyy-MM-dd')), ends on $($ends.ToString('yyyy-MM-dd')), in $days days, sooner than the $MinLoginDays a campaign may need" $long; return }
+      $how = "a long-lived token (claude setup-token), which ends on $($ends.ToString('yyyy-MM-dd'))"
+    }
     'claude.ai' {
       $ends = $status.loginExpiresAt
       if ($ends -and $ends -isnot [datetime]) { try { $ends = [datetime]::Parse([string]$ends, [Globalization.CultureInfo]::InvariantCulture) } catch { $ends = $null } }
@@ -280,6 +290,9 @@ function Test-Hold {
   $fix = '`pwsh scripts/campaign-hold.ps1 -Apply`'
   try { $saved = Read-Json $HoldRecord } catch { Fail $_.Exception.Message $fix; return }
   if (-not $saved) { Fail "the hold isn't applied (no record at $HoldRecord)" $fix; return }
+  # The values Windows obeys are the active plan's, so a plan switched to after the hold isn't held at all.
+  try { $active = Get-ActiveScheme $PowerCfg } catch { Fail "the active power plan can't be read: $($_.Exception.Message)" $fix; return }
+  if ($active -ne $saved.Scheme) { Fail "the active power plan is $active, not the held $($saved.Scheme), so its sleep and display timeouts apply" "``powercfg /setactive $($saved.Scheme)``, then run the preflight again"; return }
   try { $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme } catch { Fail "the held values can't be read: $($_.Exception.Message)" $fix; return }
   $drift = @()
   foreach ($p in $now.Power) { foreach ($line in 'AC', 'DC') { if ($p.$line -ne 0) { $drift += "$($p.Setting) $line is $($p.$line)" } } }

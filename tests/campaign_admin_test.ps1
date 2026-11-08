@@ -66,6 +66,17 @@ try {
   $r = Setup @('-Restore')
   Check ($r.Code -eq 0 -and (Policy) -eq $before) 'and restore returns the state from before the first apply'
 
+  # Undo needs only the record: it runs with no dotnet anywhere, as after the SDK was uninstalled.
+  Reset
+  $r = Setup @('-Apply')
+  $empty = Join-Path $work 'no-dotnet'
+  New-Item -ItemType Directory -Force $empty | Out-Null
+  $noDotnet = @($common | Where-Object { $_ -ne '-DotnetDir' -and $_ -ne $dotnetDir }) + @('-SearchPath', $empty)
+  $out = & $pwsh -NoProfile -File $setup -Restore @noDotnet 2>&1
+  Check ($LASTEXITCODE -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun attach D' $store)) "restore runs with no dotnet on the watchdog's PATH ($(($out | Select-Object -Last 1)))"
+  $out = & $pwsh -NoProfile -File $setup -Apply @noDotnet 2>&1
+  Check ($LASTEXITCODE -eq 1 -and ($out -join ' ') -match 'no dotnet.exe') 'while apply still needs it'
+
   # A corrupt record is refused before anything changes.
   Reset
   [IO.File]::WriteAllText($record, '{ not json')

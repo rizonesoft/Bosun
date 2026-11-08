@@ -128,7 +128,8 @@ try {
       'if "%CLAUDE_CODE_OAUTH_TOKEN%"=="bad" (echo Invalid API key& exit /b 1)',
       'if defined FAKE_CLAUDE_MUTE (echo API Error& exit /b 1)',
       'echo READY') -join "`r`n")
-  $claude = @('-Only', 'claude', '-UserEnvKey', $claudeKey)
+  $tokenRecord = Join-Path $work 'claude-token.json'
+  $claude = @('-Only', 'claude', '-UserEnvKey', $claudeKey, '-TokenRecord', $tokenRecord)
   function Status([int]$days) { '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","loginExpiresAt":"' + [datetime]::UtcNow.AddDays($days).ToString('o') + '"}' }
   $env:FAKE_CLAUDE_STATUS = '{"loggedIn":false}'
   $r = Preflight "$d;$system" $claude
@@ -156,19 +157,34 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match "didn't reply READY") 'a claude that does not reply fails'
   # The token from the user's registry reaches the probe; a bad one fails on the real reply, never printed.
   $env:FAKE_CLAUDE_STATUS = Status 3
-  'tok-ok-123' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey | Out-Null
+  'tok-ok-123' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord | Out-Null
   Check ((Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-ok-123') 'store-claude-token.ps1 keeps a piped token in the given key'
+  Check ((Get-Content $tokenRecord -Raw) -notmatch 'tok-ok-123' -and (Get-Content $tokenRecord -Raw | ConvertFrom-Json).issued -eq [datetime]::UtcNow.ToString('yyyy-MM-dd')) 'and records the day it was made, never the token'
   $r = Preflight "$d;$system" $claude
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   claude signed in with a long-lived token' -and $r.Text -notmatch 'tok-ok-123') 'a stored token passes even with the claude.ai sign-in nearly over, and is never printed'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   claude signed in with a long-lived token \(claude setup-token\), which ends on' -and $r.Text -notmatch 'tok-ok-123') 'a stored token passes even with the claude.ai sign-in nearly over, and is never printed'
+  # A setup token lasts a year from the day it was made: one with under 30 days left fails, and so does one with no day.
+  $old = [datetime]::UtcNow.AddDays(-350).ToString('yyyy-MM-dd')
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -RecordOnly -IssuedOn $old | Out-Null
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match "the stored token, made on $old, ends on" -and $r.Text -match 'claude setup-token') 'a token with under 30 days of its year left fails, naming setup-token'
+  Remove-Item $tokenRecord
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match "issue day isn't recorded" -and $r.Text -match '-RecordOnly -IssuedOn') 'a token with no recorded day fails, naming how to record it'
+  $future = [datetime]::UtcNow.AddDays(2).ToString('yyyy-MM-dd')
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -RecordOnly -IssuedOn $future | Out-Null
+  Check ($LASTEXITCODE -eq 2 -and -not (Test-Path $tokenRecord)) 'a day after today is refused and records nothing'
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -RecordOnly -IssuedOn ([datetime]::UtcNow.ToString('yyyy-MM-dd')) | Out-Null
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 0) '-RecordOnly records the day for a token already stored'
   $env:CLAUDE_CODE_OAUTH_TOKEN = 'from-this-shell'
-  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Remove | Out-Null
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -Remove | Out-Null
   $r = Preflight "$d;$system" $claude
   Remove-Item Env:CLAUDE_CODE_OAUTH_TOKEN
   Check ($r.Code -eq 1 -and $r.Text -match 'in [23] days') 'a token only this shell has is not what the watchdog sees, so it does not count'
-  'bad' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey | Out-Null
+  'bad' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord | Out-Null
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 1 -and $r.Text -match "didn't reply READY" -and $r.Text -match 'the token may be wrong or revoked') 'a token that does not work fails on the real reply'
-  $out = 'one two' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey
+  $out = 'one two' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord
   Check ($LASTEXITCODE -eq 2 -and (Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'bad') 'a value with a space inside is refused and changes nothing'
   Remove-Item Env:FAKE_CLAUDE_STATUS
 
@@ -263,6 +279,12 @@ try {
   & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 600
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'the hold drifted: VIDEOIDLE AC is 600') 'a held value that drifted fails with its fix'
+  & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 0
+  $fake = Get-Content $powerState -Raw | ConvertFrom-Json
+  $fake | Add-Member -NotePropertyName active -NotePropertyValue '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -Force
+  $fake | ConvertTo-Json -Depth 5 | Set-Content $powerState -Encoding utf8
+  $r = Preflight $system $holdArgs
+  Check ($r.Code -eq 1 -and $r.Text -match 'the active power plan is 8c5e7fda' -and $r.Text -match 'powercfg /setactive 381b4222') 'another power plan made active after the hold fails, naming the held one'
   Remove-Item Env:BOSUN_FAKE_POWERCFG
 
   $policy = "HKCU:\Software\BosunTest\preflight-$PID\AU"
