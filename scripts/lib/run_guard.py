@@ -254,17 +254,21 @@ def heartbeat_note() -> str:
     )
 
 
-def snapshot(env: Env, subscription: bool = False) -> Env:
+def snapshot(env: Env, subscription: bool = False, state: dict | None = None, now: float | None = None) -> Env:
     """Takes the slow reads now, so the lock is never held across them and a stop can always get in. With nothing to
-    run, that includes the finish line and the wakes, which ask git, CI and each wake's check."""
+    run, that includes the finish line and the wakes, which ask git, CI and each wake's check; but not while the run
+    waits (`state`), whose wait is the backoff: only a run waiting on its rows checks its wakes then."""
     rows, signature = env.rows(), env.signature()
     env = replace(env, rows=lambda: rows, signature=lambda: signature)
     if rows == []:
-        try:
-            found = env.finish()
-        except Exception as error:
-            found = {"state": "unknown", "detail": repr(error)}
-        woken = env.wakes()
+        held = bool(state) and waiting(state, now)
+        found = {"state": "unknown", "detail": "not asked while the run waits"}
+        if not held:
+            try:
+                found = env.finish()
+            except Exception as error:
+                found = {"state": "unknown", "detail": repr(error)}
+        woken = env.wakes() if not held or state.get("wait_reason") == "rows-waiting" else []
         env = replace(env, finish=lambda: found, wakes=lambda: woken)
     if subscription:
         answer = env.subscription()
@@ -925,9 +929,10 @@ def health(state: dict, path: Path = STATE, env: Env = REAL, now: float | None =
 
 def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) -> str:
     """One scheduled tick, with its result kept: slow reads first, then the lock, then the state as it now stands."""
-    if not load(path).get("active"):
+    peek = load(path)
+    if not peek.get("active"):
         return "inactive"
-    env = snapshot(env, subscription=True)
+    env = snapshot(env, subscription=True, state=peek, now=now)
     with locked(path):
         state = load(path)
         merge_pending_wait(state, path, time.time() if now is None else now)
@@ -953,7 +958,7 @@ def hook(raw: str, env: Env = REAL, path: Path = STATE) -> str:
     event = data.get("hook_event_name")
     peek = load(path)
     if event == "Stop" and peek.get("active") and peek.get("session_id") == data.get("session_id"):
-        env = snapshot(env)
+        env = snapshot(env, state=peek)
     elif event == "UserPromptSubmit" and START.match(str(data.get("prompt") or "")):
         installed, modes = env.task_installed(), env.modes()
         env = replace(env, task_installed=lambda: installed, modes=lambda: modes)

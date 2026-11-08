@@ -1071,6 +1071,20 @@ class SlowReads(unittest.TestCase):
         guard.snapshot(guard.replace(env, rows=lambda: ["D00 T01 §1"]))
         self.assertEqual(calls, [], "with work to do, the finish line isn't asked")
 
+    def test_a_waiting_run_asks_nothing_slow_until_its_wait_passes(self):
+        calls = []
+        env = guard.replace(World(rows=()).env(), finish=lambda: calls.append("finish") or {"state": "ci-unavailable"},
+                            wakes=lambda: calls.append("wakes") or [])
+        waiting_on_ci = active(wait_until=2000.0, wait_reason="ci-unavailable")
+        guard.snapshot(env, state=waiting_on_ci, now=1000)
+        self.assertEqual(calls, [], "a wait's backoff was skipped")
+        waiting_on_rows = active(wait_until=2000.0, wait_reason="rows-waiting")
+        guard.snapshot(env, state=waiting_on_rows, now=1000)
+        self.assertEqual(calls, ["wakes"], "a run waiting on its rows checks only its wakes")
+        calls.clear()
+        guard.snapshot(env, state=waiting_on_ci, now=2001)
+        self.assertEqual(calls, ["finish", "wakes"], "once the wait passed, the finish line is asked again")
+
     def test_a_slow_fetch_or_ci_is_unavailable_not_an_end(self):
         def run(*args, cwd=None, timeout=20):
             if "query" in args:
