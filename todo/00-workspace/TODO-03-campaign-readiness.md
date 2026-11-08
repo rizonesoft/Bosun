@@ -41,7 +41,7 @@ title: "TODO-03 -- Campaign readiness"
 | 3 | §3 | Review repair cycles and parking | -- | [x] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [x] |
 | 5 | §5 | Usage limits wait and resume | §2 | [x] |
-| 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
+| 6 | §6 | Run end states and wake checks | §3, §5 | [x] |
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [x] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [x] |
@@ -291,9 +291,12 @@ The owner chose subscription only, so hitting a limit costs time and never money
 - [x] Create `todo/wakes.json`, mapping a section and Need to a check command, with `python scripts/todo-graph.py wake --check` (read-only, 60 second timeout a check, listing those that pass) and `wake --apply` (clearing each passing Need from its section, idempotent, so an interrupted apply is finished by the next). The watchdog's tick runs `--check` while a run waits and resumes the run when one passes; the resumed session runs `--apply` first and commits it through its normal steps. Done when: tests cover the tick-to-resume-to-apply path, a check that passes and one that fails, a missing executable, a timeout, a repeated apply and a commit that fails. Cheaper substitute: an operator editing the section.
 - [x] Create `scripts/dotnet-final-available.py`, which exits 0 when `dotnet --list-sdks` lists a final 11.0.1xx SDK and 1 otherwise, naming what it found, and add the first wake in `todo/wakes.json` for `D00 T02 §3` `third-party` with it. Done when: a faked `dotnet --list-sdks` with a final 11.0.1xx SDK passes, with only the RC fails, and with no `dotnet` fails saying so.
 - [x] Extend `.claude/skills/process-plan/SKILL.md` and `process-phase/SKILL.md` and their mirrors to dispatch work items from `query disposition`: section execution, file verification and phase closeout. Done when: a test simulating a crash after the final stamp resumes only the verification and closeout, then reads complete. Cheaper substitute: only listing the pending work.
-- [ ] Commit: `guard: end states and wake checks`
+- [x] Commit: `guard: end states and wake checks`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if an empty ready list reads complete.
+
+> **Verified:** 2026-11-08 | §6 | c17292d7acefd927053b584bece842d73500c9f7
+> **Review:** `docs/reviews/d00-t03-s6.json`
 
 ## 7. Owned session recovery
 
