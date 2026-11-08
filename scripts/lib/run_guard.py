@@ -17,6 +17,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -46,6 +47,7 @@ LOCK_WAIT = 5  # seconds, well under every hook's timeout: slow reads happen bef
 USAGE_WAIT = 30 * 60  # a usage limit that gives no reset time is looked at again after this
 SIGN_IN_WAIT = 30 * 60
 OVERLOADED_WAIT = 5 * 60
+LONGEST_RESET = 8 * 86400  # a weekly limit's reset is the furthest a real one goes; anything past it is misread
 # StopFailure's `error` (https://code.claude.com/docs/en/hooks), by what the run does about it.
 FAILURE_CLASSES = {
     "rate_limit": "usage-limit",
@@ -285,7 +287,18 @@ def failure_class(data: dict) -> str:
 
 
 def reset_time(text: str, now: float) -> float | None:
-    """When a usage limit resets, from the words that report it, or None when they don't say."""
+    """When a usage limit resets, from the words that report it, or None when they don't say, or say something no real
+    reset could be (not a number, already past, or more than 8 days off): the 30 minute wait then looks again."""
+    try:
+        until = _reset_time(text, now)
+    except (ValueError, OverflowError, OSError):
+        return None
+    if until is None or not math.isfinite(until) or until <= now or until > now + LONGEST_RESET:
+        return None
+    return until
+
+
+def _reset_time(text: str, now: float) -> float | None:
     found = re.search(r"\|(\d{10})\b", text)
     if found:
         return float(found.group(1))

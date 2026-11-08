@@ -556,7 +556,7 @@ class UsageLimits(unittest.TestCase):
                 self.assertEqual(guard.failure_class({"error": error}), kind)
 
     def test_each_reset_form(self):
-        now = 1_000_000.0
+        now = 1_762_590_000.0  # ten thousand seconds before the epoch reset below
         self.assertEqual(guard.reset_time("Claude AI usage limit reached|1000900", now), None)  # not ten digits
         self.assertEqual(guard.reset_time("Claude AI usage limit reached|1762600000", now), 1762600000.0)
         self.assertEqual(guard.reset_time("Your limit resets in 3 hours.", now), now + 3 * 3600)
@@ -566,6 +566,19 @@ class UsageLimits(unittest.TestCase):
         self.assertEqual((clock.tm_hour, clock.tm_min), (17, 0))
         self.assertTrue(now < at <= now + 86400)
         self.assertIsNone(guard.reset_time("429 Too Many Requests", now))
+        for wild in ("resets in 100000000 hours", "resets in " + "9" * 400 + " hours", "usage limit|0000000001",
+                     "resets in 9 days... resets in 300 hours"):
+            with self.subTest(wild[:30]):
+                self.assertIsNone(guard.reset_time(wild, now))
+
+    def test_a_wild_reset_still_saves_a_30_minute_wait_through_the_hook(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            guard.save(active(), path)
+            guard.hook(json.dumps(self.failure("rate_limit", "resets in 100000000 hours")), World().env(), path)
+            state = guard.load(path)
+            self.assertEqual(state["wait_reason"], "usage-limit")
+            self.assertLess(state["wait_until"] - time.time(), 1801)
 
     def test_a_usage_limit_without_a_reset_waits_30_minutes(self):
         state = active()
