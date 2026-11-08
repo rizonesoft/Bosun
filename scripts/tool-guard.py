@@ -200,6 +200,11 @@ def strip_prefixes(words: list[str]) -> tuple:
                     # env -S splits its string into the command it runs, so that string is the command.
                     text = value if value else (words[1] if len(words) > 1 else "")
                     text = text[1:-1] if len(text) > 1 and text[0] == text[-1] and text[0] in "'\"" else text
+                    if "\\" in text or "$" in text:
+                        # GNU env -S has escapes (\\_ is a space, \\c ends it) and ${VAR} of its own; not modelled, so
+                        # unread, which the deny list refuses rather than lets through.
+                        raise Refusal("its env -S string uses escapes or variables this hook can't read: run the command "
+                                      "directly instead")
                     words = tokens_of(text) + (words[1:] if value else words[2:])
                     continue
                 words = words[2:] if option in valued and not value else words[1:]

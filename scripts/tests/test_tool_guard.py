@@ -80,6 +80,9 @@ class Pushes(Base):
             with self.subTest(form):
                 self.refused(form)
         self.allowed("env -S 'git push origin main'")
+        for form in ("env -S 'git\\_push\\_--force'", "env -S 'git push ${FORCE}'"):
+            with self.subTest(form):
+                self.assertIn("can't read", self.refused(form))
 
     def test_a_push_past_a_prefix_s_options_is_seen(self):
         for prefix in ("env -u X", "env -i", "nice -n 5", "timeout 60", "sudo -u me", "env -C /tmp"):
