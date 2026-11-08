@@ -86,6 +86,11 @@ class Pushes(Base):
         self.refused(f"env -iC {self.outside} rm -rf sub")
         self.refused(f"env -iC{self.outside} rm -rf sub")
         self.allowed("env -iv git status")
+        for form in ('env --split-str "git push --force origin main"', "env --split 'git push -f'", "env --sp='git push --mirror'"):
+            with self.subTest(form):
+                self.refused(form)
+        self.refused(f"env --chd {self.outside} rm -rf sub")
+        self.refused(f"env --chdir {self.outside} rm -rf sub")
         for form in ("env -S 'git\\_push\\_--force'", "env -S 'git push ${FORCE}'"):
             with self.subTest(form):
                 self.assertIn("can't read", self.refused(form))

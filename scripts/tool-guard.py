@@ -158,6 +158,25 @@ PREFIX_VALUES = {"env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string
                  "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "-p", "-r", "-t"},
                  "stdbuf": {"-i", "-o", "-e"}, "timeout": {"-s", "--signal", "-k", "--kill-after"}}
 PREFIX_POSITIONALS = {"timeout": 1}  # `timeout DURATION command`
+# Each prefix's long options, so a shortening GNU accepts (`--split-str`, `--chd`) is read as the option it names.
+LONG_OPTIONS = {
+    "env": ("--unset", "--chdir", "--split-string", "--ignore-environment", "--null", "--debug", "--default-signal",
+            "--ignore-signal", "--block-signal", "--list-signal-handling", "--help", "--version"),
+    "nice": ("--adjustment", "--help", "--version"),
+    "timeout": ("--signal", "--kill-after", "--foreground", "--preserve-status", "--verbose", "--help", "--version"),
+    "stdbuf": ("--input", "--output", "--error", "--help", "--version"),
+    "sudo": ("--user", "--group", "--host", "--prompt", "--role", "--type", "--login", "--shell", "--preserve-env",
+             "--set-home", "--non-interactive", "--background", "--help", "--version"),
+}
+
+
+def long_option(head: str, option: str) -> str:
+    """A long option as its prefix names it in full: GNU accepts any shortening that only one option starts with."""
+    names = LONG_OPTIONS.get(head, ())
+    if option in names:
+        return option
+    matches = [name for name in names if name.startswith(option)]
+    return matches[0] if len(matches) == 1 else option
 
 
 CHDIR = {"-C", "--chdir"}  # env's way to run its command in another folder
@@ -191,6 +210,8 @@ def strip_prefixes(words: list[str]) -> tuple:
                 break
             if words[0].startswith("-"):
                 option, _, value = words[0].partition("=")
+                if words[0].startswith("--") and len(option) > 2:
+                    option = long_option(head, option)
                 if not words[0].startswith("--") and len(words[0]) > 2:
                     # A cluster of short options, as getopt reads it: flags until the first that takes a value, which
                     # takes the rest of the cluster or, when nothing is left, the next word. -vS 'cmd', -iCDIR, -n5.
