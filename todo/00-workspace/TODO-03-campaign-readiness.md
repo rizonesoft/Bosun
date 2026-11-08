@@ -422,23 +422,24 @@ One command proves the run can finish before anyone walks away. It holds the own
 - [x] Have the owner reboot once, then check that D: is attached with its letter, the heartbeat ticks Bosun within 10 minutes of sign-in, and this session resumes, recording the result and date in `docs/acceptance/preflight.md`. Done when: the record shows it passed.
 - [x] Check Claude in `scripts/campaign-preflight.ps1` as the watchdog's sessions sign in: the user's `CLAUDE_CODE_OAUTH_TOKEN` from the registry passed to the probe (never printed) and the guard's `SCRUBBED` variables removed; `claude auth status --json` signed in on `firstParty`; a `claude.ai` sign-in ending no sooner than `-MinLoginDays` (default 30) away, or a `setup-token` token (`oauth_token`); and a real reply, since `auth status` reads any token as signed in without trying it. Add `scripts/store-claude-token.ps1`, which keeps a pasted or piped token in the user variable without echo and refuses one with whitespace inside, with `-Remove` to undo. Found 2026-11-08: a probe session warned the sign-in ends between 2026-11-15 and 2026-11-18, which would stop a campaign of more than a week, and nothing checked it. Done when: `tests/preflight_test.ps1` proves a signed-out claude, a sign-in ending within 30 days (naming `claude setup-token`), one with no end date, a cloud provider and a mute claude each fail with their fix; an API key in the shell is stripped; a stored token passes without being printed; a token only the shell has doesn't count; and a token that doesn't reply fails.
 - [x] Accept `oauth_token` as a subscription sign-in in `subscription_verdict` in `scripts/lib/run_guard.py`, since `claude setup-token` needs the subscription, while `api_key` is still refused. Done when: `test_only_a_subscription_sign_in_may_launch` passes `oauth_token` on `firstParty` and refuses it on another provider.
-- [ ] Have the owner run `claude setup-token` in their own terminal, keep the token with `pwsh scripts/store-claude-token.ps1` and a copy in the 1Password Conclave vault. Done when: `pwsh scripts/campaign-preflight.ps1 -Only claude` passes with a long-lived token.
-- [ ] Run the preflight on this machine after the reboot. Done when: it exits 0 and its output is quoted here. Ran 2026-11-08 at `fa9b3fd`, exit 0, before the Claude check existed, so it runs again once the token is stored. Its first run failed CI with the fix "push HEAD" on a commit already pushed, because no proven commit was recorded and `ci_status.py` named the real-run recovery only under `--gate`; `1799735` names it on a read-only check too.
+- [x] Have the owner run `claude setup-token` in their own terminal, keep the token with `pwsh scripts/store-claude-token.ps1` and a copy in the 1Password Conclave vault. Done when: `pwsh scripts/campaign-preflight.ps1 -Only claude` passes with a long-lived token. The owner stored it on 2026-11-08; the check passed with "claude signed in with a long-lived token (claude setup-token), and replied".
+- [x] Run the preflight on this machine after the reboot. Done when: it exits 0 and its output is quoted here. Ran 2026-11-08 at `98111b2`, exit 0, with the Claude check and the stored token. An earlier run at `fa9b3fd` failed CI with the fix "push HEAD" on a commit already pushed, because no proven commit was recorded and `ci_status.py` named the real-run recovery only under `--gate`; `1799735` names it on a read-only check too.
 
   ```text
-  ok   bosun (available: 4758 of 32601 MB / logger: running)
+  ok   bosun (available: 6066 of 32601 MB / logger: running)
   ok   cmake 4.3.1 at C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.EXE
   ok   deny list self-test (9 cases)
   ok   .NET 11 SDK 11.0.100-rc.2.26504.105 (a release candidate; the final installs when it ships)
   ok   gh signed in
+  ok   claude signed in with a long-lived token (claude setup-token), and replied
   ok   codex signed in, and gpt-6-astra replied
   ok   WSL Ubuntu sees /mnt/d/GitHub/Bosun
   ok   clean tree
-  ok   HEAD fa9b3fde68ce is main on the remote
-  ok   CI green on HEAD (build.yml: green at fa9b3fde68ce (https://github.com/rizonetech/Bosun/actions/runs/42469206331) / plan.yml: green at fa9b3fde68ce (https://github.com/rizonetech/Bosun/actions/runs/42469206338))
+  ok   HEAD 98111b263252 is main on the remote
+  ok   CI green on HEAD (build.yml: green at 98111b263252 (https://github.com/rizonetech/Bosun/actions/runs/42473188764) / plan.yml: green at 98111b263252 (https://github.com/rizonetech/Bosun/actions/runs/42473188916))
   ok   watchdog healthy (run-guard.py status --verify)
   ok   drive D:\ has 981 GB free
-  ok   drive R:\ has 333 GB free
+  ok   drive R:\ has 332 GB free
   ok   hold applied: no sleep, hibernate or display timeout, no screen saver lock
   ok   admin setup in place: update restarts held, tasks 'Bosun dotnet final' and 'Bosun attach D' as defined
   ok   no machine inactivity lock
