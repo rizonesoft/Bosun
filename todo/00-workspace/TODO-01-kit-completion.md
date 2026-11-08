@@ -96,6 +96,8 @@ Without settled items, a reviewer reopens decisions the writer already resolved,
 
 ## 3. Dispatch hook for background reviews
 
+> **Started:** 2026-11-08T01:44:56Z
+
 A review must run so the session hears when it ends, and a stamp must not sit on an edited pin. Recto's hook enforces the first and Resolute's the second.
 
 **Corrected 2026-11-08:** both now live at `D:\GitHub\Recto\scripts\dispatch_hook.py` and `D:\GitHub\Resolute\scripts\dispatch_hook.py`. Resolute's hook checks only `.conclave/reviewers.toml`, though its docstring also names `docs/reviews/`; the port checks the pin only, since the dispatcher appends each round to a findings file and the writer adds its notes there before they are committed, so refusing on findings edits would stop the campaign's own steps. A review can outlast the shell tool's 10 minute limit, so `run_in_background` is right, and the review skills say so. Claude Code has no non-interactive hook listing, so registration is proven by `scripts/tests/test_hook_commands.py` and by running the registered command.
