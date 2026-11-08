@@ -576,8 +576,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
             text = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else ""
-        else:
-            detail = tail(stderr_path) + tail(stdout_path)
+        # Read before the scratch folder goes, so a reply found empty or without a verdict afterwards keeps its why.
+        detail = tail(stderr_path) + tail(stdout_path)
     finally:
         remove_scratch(tmp)
     if problem is None and not (text or "").strip():

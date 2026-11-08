@@ -48,6 +48,11 @@ FAKE_CLI = textwrap.dedent('''\
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
     if mode == "fail":
         sys.exit(3)
+    if mode == "quiet":
+        sys.stderr.write(os.environ.get("FAKE_STDERR", ""))
+        if name == "codex":
+            open(args[args.index("-o") + 1], "w").write(os.environ.get("FAKE_SAY", ""))
+        sys.exit(0)
     if mode == "floodstderr":
         while True:
             sys.stderr.write("x" * 65536)
@@ -1021,6 +1026,59 @@ class Attempts(Harness):
                         module.guard_wait(5000.0, "auth")
                 else:
                     self.assertEqual(module.guard_wait(5000.0, "auth")[0], outcome)
+
+    def test_a_zero_exit_reply_with_no_review_keeps_its_explanation(self):
+        for say, cls in (("", "other"),):  # under this legacy pin a reply with no verdict line is still a review
+            with self.subTest(say=say):
+                record = self.repo / f"docs/reviews/q{len(say)}.md"
+                result, summary = self.go(record, codex="quiet", stderr="note: the sandbox refused the repository\n", say=say)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                text = (self.repo / summary["attempt"]["failure"]).read_text(encoding="utf-8")
+                self.assertIn("the sandbox refused the repository", text)
+
+    def test_a_dispatcher_killed_after_its_reservation_keeps_the_attempt(self):
+        record = self.repo / "docs/reviews/k.md"
+        system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
+        env = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
+               "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), "FAKE_CODEX": "sleep", **system_root,
+               **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
+        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        process = subprocess.Popen([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), "--writer", "claude",
+                                    "--prompt", str(self.prompt), "--record", str(record)], env=env,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)
+        try:
+            deadline = time.monotonic() + 30
+            while not self.calls() and time.monotonic() < deadline:  # the CLI started, so the reservation is saved
+                time.sleep(0.1)
+            self.assertTrue(self.calls(), "the fake CLI never started")
+        finally:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+            else:
+                os.killpg(process.pid, 9)
+            process.wait(30)
+        (entry,) = self.attempts().values()
+        self.assertEqual(entry["count"], 1)
+        self.assertNotIn("not_before", entry)
+        result, _ = self.go(record, codex="fail")  # a fresh process counts on from the killed one
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(next(iter(self.attempts().values()))["count"], 2)
+
+    def test_a_failed_save_in_one_process_leaves_the_last_saved_count_for_the_next(self):
+        record = self.repo / "docs/reviews/s.md"
+        self.go(record, codex="fail")
+        before = self.attempts()
+        script = (f"import importlib.util, sys\n"
+                  f"spec = importlib.util.spec_from_file_location('d', {str(self.repo / 'scripts/review-dispatch.py')!r})\n"
+                  f"d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)\n"
+                  f"def full(path, text): raise OSError(28, 'No space left on device')\n"
+                  f"d.atomic_write = full\n"
+                  f"d.CLOCK = lambda: 2_000_000_000\n"
+                  f"try:\n    d.before_attempt({next(iter(before))!r})\nexcept d.Refused as e:\n    print('refused', e); sys.exit(2)\n")
+        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("can't be saved", done.stdout)
+        self.assertEqual(self.attempts(), before, "a failed save changed the saved count")
 
     def test_a_reviewer_flooding_stderr_is_stopped(self):
         result, summary = self.go(codex="floodstderr")
