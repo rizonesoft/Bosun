@@ -22,7 +22,7 @@ Sections: 29 | Checklist items: 230
 | [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none           | 13    |
 | [x]    | D00 T03 §5  | Usage limits wait and resume                           | none           | 8     |
 | [x]    | D00 T03 §6  | Run end states and wake checks                         | none           | 9     |
-| [ ]    | D00 T03 §7  | Owned session recovery                                 | none           | 7     |
+| [x]    | D00 T03 §7  | Owned session recovery                                 | none           | 7     |
 | [x]    | D00 T03 §8  | Campaign permissions                                   | none           | 8     |
 | [x]    | D00 T03 §9  | Named core tests and CMake resolution                  | none           | 7     |
 | [x]    | D00 T03 §11 | One global heartbeat                                   | none           | 16    |
@@ -198,6 +198,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 14/129 verified sections, 4 ready to run now.
+Progress: 15/129 verified sections, 4 ready to run now.
 
-Checklist: 173/738 items completed (includes Commit items).
+Checklist: 174/738 items completed (includes Commit items).

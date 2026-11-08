@@ -42,7 +42,7 @@ title: "TODO-03 -- Campaign readiness"
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [x] |
 | 5 | §5 | Usage limits wait and resume | §2 | [x] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [x] |
-| 7 | §7 | Owned session recovery | §5 | [ ] |
+| 7 | §7 | Owned session recovery | §5 | [x] |
 | 8 | §8 | Campaign permissions | -- | [x] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [x] |
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [ ] |
@@ -321,9 +321,12 @@ A hung resumed session is only reported today, and any Claude session in the che
 - [x] When the run's child exits while its review is in flight, wait for the review, then resume the same session once. Done when: a test with a dead child and a live review mark waits, and with the mark gone resumes once with `--resume`.
 - [x] Add `--verify` to `scripts/run-guard.py status`, checking the task's action (its program and script exist and it runs this repo's `run-guard.py watch`, or the heartbeat's `heartbeat.py tick`), principal (an interactive token for this user), state (enabled) and a recent tick (beside the state), for the repo's own task or for `Bosun heartbeat` when its `repos.json` lists the repo. A tick is recent within two of its task's intervals: `last-tick.json` within 20 minutes for the repo's own task (every 10); for the heartbeat (every 5, from `scripts/install.ps1`), its `last_pass` in `status.json` within 10 minutes, and this repo's tick within one more pass per active repo, since a pass stops after the first resume and rotates, or a `hold` the heartbeat reports, which is healthy. Each check gives a reason; exit 0 healthy, 1 not, in text and `--json`. Done when: tests read unhealthy, each with its reason, for a wrong action path, a wrong subcommand or repository script, another user or a password logon, a disabled task, a missing, stale or failed tick, unreadable task data and a missing registration; and read healthy for a repo on the heartbeat with no task of its own, during a heartbeat hold, and with the repo's tick lagging behind a rotation. Cheaper substitute: checking that the task exists.
 - [x] Record a failed hook in `guard-health.json` beside the state from the fail-open path in `scripts/run-guard.py` (atomic write, the last 10 failures kept, cleared by the next hook that runs clean), the write itself failing open, and let `status` read a corrupt state as `unreadable` with its error instead of raising, so health still shows. Done when: a corrupt state file shows up in `status` (text and `--json`), a hook against it still exits 0 with its message, an unwritable record still lets the hook exit 0, the failure reads back, and a clean hook clears it.
-- [ ] Commit: `guard: owned session recovery`
+- [x] Commit: `guard: owned session recovery`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if an idle unrelated session blocks `watch`, or a busy one or one of unknown status doesn't.
+
+> **Verified:** 2026-11-08 | §7 | 890c5987a1065eab1489e6e7418d6c7bd1b5a9be
+> **Review:** `docs/reviews/d00-t03-s7.json`
 
 ## 8. Campaign permissions
 

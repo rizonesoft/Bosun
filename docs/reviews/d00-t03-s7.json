@@ -1,0 +1,90 @@
+{
+  "ref": "D00 T03 \u00a77",
+  "title": "Owned session recovery",
+  "implementation_sha": "890c5987a1065eab1489e6e7418d6c7bd1b5a9be",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s7.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python -m unittest test_run_guard test_finish test_heartbeat test_review_dispatch test_todo_graph -> Ran 508 tests, OK (skipped=3)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s7.md",
+    "verdict": "completed",
+    "candidate": "12846ebcaf4d4736c69f66ecc879462cb59ee88f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 ended on one P3: the cancellation test now sends the real stop hook while the tree is being stopped (fixed after round 3); the completion pass's two gaps were fixed in 890c598",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s7.md",
+    "candidate": "2172bd879616542c47dd96fa9f929b8c6713577a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "2172bd879616542c47dd96fa9f929b8c6713577a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
