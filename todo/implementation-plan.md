@@ -8,12 +8,12 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 30 | Checklist items: 247
+Sections: 30 | Checklist items: 249
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
 | [x]    | D00 T01 §1  | Review-in-flight marks for the guard                            | none           | 6     |
-| [ ]    | D00 T01 §2  | Settled items in review prompts                                 | none           | 6     |
+| [ ]    | D00 T01 §2  | Settled items in review prompts                                 | none           | 8     |
 | [x]    | D00 T01 §3  | Dispatch hook for background reviews                            | none           | 11    |
 | [ ]    | D00 T01 §8  | Run guard state in linked worktrees                             | none           | 4     |
 | [x]    | D00 T03 §1  | CI status that proves the commit                                | none           | 27    |
@@ -202,4 +202,4 @@ Sections: 5 | Checklist items: 28
 
 Progress: 16/131 verified sections, 7 ready to run now.
 
-Checklist: 192/761 items completed (includes Commit items).
+Checklist: 192/763 items completed (includes Commit items).
