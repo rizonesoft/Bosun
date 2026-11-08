@@ -391,6 +391,8 @@ Five test checkpoints pass a name to a test program that ignores it, so they can
 
 ## 10. Preflight and machine hold
 
+> **Started:** 2026-11-08T09:15:26Z
+
 One command proves the run can finish before anyone walks away. It holds the owner's decisions: logged in and unlocked, no sleep or update restarts, and the final .NET SDK installed when it ships. Every other section waits for this one. It is attended on purpose: it runs once with the owner present, by naming it to `process-todo-section`, and the unattended campaign starts only after it is stamped.
 
 **Phase:** 0
