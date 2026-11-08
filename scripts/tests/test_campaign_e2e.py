@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -278,6 +279,15 @@ def seed(work: Path) -> dict:
     return {"clone": clone, "origin": origin, "fakes": fakes, "state": state, "env": env}
 
 
+def remove_tree(path):
+    """Remove a work folder, git's read-only object files included, raising if anything is left: `ignore_errors` hid
+    that on Windows, and a folder stayed behind after every run."""
+    def writable(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onexc=writable)
+
+
 def stop_tree(pid):
     if not pid:
         return
@@ -316,7 +326,7 @@ class ScriptedCi(unittest.TestCase):
     def setUpClass(cls):
         cls.work = Path(tempfile.mkdtemp(prefix="bosun-campaign-fixture-", dir=str(SCRATCH) if SCRATCH.is_dir() else None))
         # Registered before seeding: a failed setUpClass skips tearDownClass, which left a folder behind each time.
-        cls.addClassCleanup(shutil.rmtree, cls.work, ignore_errors=True)
+        cls.addClassCleanup(remove_tree, cls.work)
         cls.seeded = seed(cls.work)
         cls.clone = cls.seeded["clone"]
 
@@ -403,7 +413,7 @@ class DisposableCampaign(unittest.TestCase):
         SCRATCH.mkdir(parents=True, exist_ok=True)
         work = Path(tempfile.mkdtemp(prefix="bosun-campaign-e2e-", dir=str(SCRATCH)))
         if os.environ.get("BOSUN_E2E_KEEP") != "1":
-            self.addCleanup(lambda: shutil.rmtree(work, ignore_errors=True))
+            self.addCleanup(remove_tree, work)
         seeded = seed(work)
         self.clone, self.env, self.state, fakes = seeded["clone"], seeded["env"], seeded["state"], seeded["fakes"]
         self.base = self.git("rev-parse", "HEAD").strip()
