@@ -238,6 +238,8 @@ Failed attempts don't count as reviews, and each one changes the tree, so a brok
 
 The owner chose subscription only, so hitting a limit costs time and never money. Today three restarts with nothing changed call the run stalled, which can happen long before a limit resets.
 
+**Corrected 2026-11-08:** Claude Code's `StopFailure` hook input (https://code.claude.com/docs/en/hooks) carries `error`, one of `rate_limit`, `overloaded`, `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `cloud_credential_error` or `unknown`, with `error_details` and `last_assistant_message` as text. A usage limit arrives as `rate_limit`, and no reset-time field is documented, so the reset is read from that text when it gives one. `D00 T03 §4` already built the waiting state (`set_wait`, `waiting`, `end_wait`), during which `watch` counts no restart and a fresh budget follows; this section uses it.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -247,8 +249,8 @@ The owner chose subscription only, so hitting a limit costs time and never money
 1. Add wait state to `scripts/lib/run_guard.py`. Done when: a usage limit records when to retry.
 2. Keep paid keys away from the run. Done when: a resumed session can't see one.
 
-- [ ] Classify `StopFailure` data as `usage-limit`, `auth`, `overloaded` or `other` in `scripts/lib/run_guard.py`, storing `wait_until` from any reset time, or 30 minutes after the last failure when none is given. Done when: `scripts/tests/test_run_guard.py` covers each case. Cheaper substitute: only recording the failure text.
-- [ ] Leave `restarts` and `MAX_QUIET_HOURS` unchanged while `wait_until` is in the future. Done when: a fake clock across a 5 hour limit ends in a resume, not `stalled`.
+- [ ] Classify `StopFailure` data in `scripts/lib/run_guard.py` by its `error` field: `rate_limit` as `usage-limit`; `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error` and `cloud_credential_error` as `auth`; `overloaded` and `server_error` as `overloaded`; anything else as `other`. A usage limit waits until the reset its text gives (an epoch after `|`, `in N minutes` or `hours`, or `at H[:MM]am/pm`, the next such local time), or 30 minutes after the failure when none is given; `overloaded` waits 5 minutes; `other` only records. Done when: `scripts/tests/test_run_guard.py` covers each `error` value and each reset form. Cheaper substitute: only recording the failure text.
+- [ ] Leave `restarts` and `MAX_QUIET_HOURS` unchanged while `wait_until` is in the future. Done when: a fake clock across a 5 hour limit ends in a resume, not `stalled`. Already shipped: `D00 T03 §4` (fc5190c), `watch` and `end_wait` in `scripts/lib/run_guard.py`; the test across a 5 hour usage limit is this section's.
 - [ ] Remove `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` and `CLAUDE_CODE_USE_BEDROCK` from the environment passed by `resume_command`'s launch in `scripts/lib/run_guard.py`. Done when: a test with all of them set reads a clean child environment. Cheaper substitute: relying on them being unset.
 - [ ] Write one guard log line in `scripts/lib/run_guard.py` when one of those variables was removed, naming the variable and no value. Done when: a test sees the line, and the run carries on.
 - [ ] Treat `auth` as `waiting` with reason `sign-in-needed`, and write one line to the guard log. Done when: a test proves it never spins and resumes after sign-in returns.
