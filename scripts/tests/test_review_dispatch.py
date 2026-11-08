@@ -44,8 +44,10 @@ FAKE_CLI = textwrap.dedent('''\
     if args and args[-1].startswith(pointer):
         path = args[-1][len(pointer):].split(" exactly.")[0]
         from_file = open(path).read() if os.path.isfile(path) else None
+    marks = os.path.join(os.getcwd(), "build", "review-in-flight")
     with open(os.environ["FAKE_LOG"], "a") as log:
-        log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
+        log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file,
+                              "in_flight": sorted(os.listdir(marks)) if os.path.isdir(marks) else []}) + "\\n")
     if mode == "fail":
         sys.exit(3)
     if mode == "quiet":
@@ -1097,6 +1099,41 @@ class Attempts(Harness):
                 message = module.start_wait({}, "k", {"last_class": "auth", "count": 1}, 5000.0)
                 self.assertEqual(order, ["saved", "guard"])
                 self.assertIn(said, message)
+
+
+class InFlightMarks(Harness):
+    """The dispatcher's own mark: there while the reviewer runs, read by the guard, gone however the review ends."""
+
+    def marks(self):
+        folder = self.repo / "build" / "review-in-flight"
+        return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+
+    def test_the_mark_stands_while_the_reviewer_runs_and_goes_after_success_failure_and_timeout(self):
+        for mode, extra in (("ok", ()), ("fail", ()), ("sleep", ("--timeout", "2"))):
+            with self.subTest(mode):
+                self.log.unlink(missing_ok=True)
+                self.dispatch("--writer", "claude", "--prompt", str(self.prompt), *extra, codex=mode)
+                (call,) = self.calls()
+                self.assertEqual(len(call["in_flight"]), 1, "the reviewer ran without its mark")
+                self.assertRegex(call["in_flight"][0], r"^\d+-sol\.json$")
+                self.assertEqual(self.marks(), [], "the mark outlived the review")
+
+    def test_the_guard_reads_a_running_dispatcher_s_mark_as_live(self):
+        sys.path.insert(0, str(SCRIPTS / "lib"))
+        import run_guard
+        module = self.module()
+        module.IN_FLIGHT = self.repo / "build" / "review-in-flight"
+        with module.in_flight("sol", 60):
+            self.assertIn("sol", run_guard.review_in_flight(self.repo))
+        self.assertIsNone(run_guard.review_in_flight(self.repo))
+
+    def test_a_mark_that_cant_be_written_runs_no_reviewer(self):
+        (self.repo / "build").mkdir()
+        (self.repo / "build" / "review-in-flight").write_text("a file where the folder would go", encoding="utf-8")
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("review-in-flight mark can't be written", result.stderr)
+        self.assertEqual(self.calls(), [])
 
 
 class SkillsKnowTheWait(unittest.TestCase):

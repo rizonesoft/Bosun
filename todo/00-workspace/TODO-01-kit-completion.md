@@ -62,12 +62,14 @@ Steward's guard has no idea a review is running, so a Stop hook can push the ses
 1. Add the marks to `scripts/review-dispatch.py`, from Recto. Done when: a running dispatch leaves `build/review-in-flight/<pid>-<reviewer>.json` and removes it on exit.
 2. Teach `scripts/lib/run_guard.py` to wait on a live mark. Done when: the Stop hook lets a turn end while a live mark exists and not after it expires.
 
-- [ ] Write the mark `{pid, reviewer, started, deadline}` in `scripts/review-dispatch.py`, citing Recto's `in_flight`. Done when: the file exists during a dispatch and is gone after success, failure and timeout. Cheaper substitute: writing the mark only on the success path.
-- [ ] Add `review_in_flight` to `on_stop` in `scripts/lib/run_guard.py`, citing `D:\GitHub\Recto\scripts\campaign_guard.py:780`. Done when: a stale mark from a dead process or past its deadline is ignored. Cheaper substitute: trusting the file's existence without checking the process.
-- [ ] Add cases to `scripts/tests/test_run_guard.py`. Done when: live, dead and expired marks each produce the expected Stop decision.
+- [x] Write the mark `{pid, reviewer, started, deadline}` in `scripts/review-dispatch.py`, citing Recto's `in_flight`. Done when: the file exists during a dispatch and is gone after success, failure and timeout. Cheaper substitute: writing the mark only on the success path.
+- [x] Add `review_in_flight` to `on_stop` in `scripts/lib/run_guard.py`, citing `D:\GitHub\Recto\scripts\campaign_guard.py:780`. Done when: a stale mark from a dead process or past its deadline is ignored. Cheaper substitute: trusting the file's existence without checking the process.
+- [x] Add cases to `scripts/tests/test_run_guard.py`. Done when: live, dead and expired marks each produce the expected Stop decision, and repeated Stops while a live mark stands leave `idle`, `yields` and the run active, with the turn sent back as usual once it is gone.
+- [x] Refuse to launch a reviewer whose mark can't be written, in `scripts/review-dispatch.py` (where Recto only skips it), so a review never runs unprotected: exit 2 naming the folder. Done when: a test with an unwritable mark folder runs no CLI.
+- [x] Prove the dispatcher's own marks in `scripts/tests/test_review_dispatch.py`: a fake reviewer sees its mark while it runs, the guard's `review_in_flight` reads it as live, and it is gone after success, failure and timeout. Done when: the tests fail if the dispatcher stops writing marks.
 - [ ] Commit: `guard: wait for a review in flight`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `python -m unittest scripts/tests/test_run_guard.py scripts/tests/test_review_dispatch.py` exits 0, and fails if either half is reverted.
 
 ## 2. Settled items in review prompts
 

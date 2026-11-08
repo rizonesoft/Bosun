@@ -571,7 +571,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
         stderr_path = tmp / "stderr.txt"
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
         # stderr is watched too: a reviewer looping on errors must not fill the disk either.
-        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path], stderr_path)
+        with in_flight(name, timeout):
+            _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path], stderr_path)
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
@@ -793,6 +794,38 @@ def after_attempt(key, entry, result):
     save_attempts(passes)
     return {"key": key, "attempt": entry["count"], "of": MAX_ATTEMPTS, "class": cls, "next": iso(entry["not_before"]),
             "failure": entry["last_failure"]}
+
+
+IN_FLIGHT = ROOT / "build" / "review-in-flight"
+
+
+class in_flight:
+    """While a reviewer runs, a file of its own under build/review-in-flight/ names this dispatcher (its pid and a
+    deadline past its timeout), so the run guard's Stop hook lets the session end its turn to wait for the review rather
+    than push it on to work that would change the tree under the reviewer. Each review has its own file, so one
+    finishing never hides another. Ported from Recto (D:\\GitHub\\Recto\\scripts\\review-dispatch.py:542), with one
+    change: a mark that can't be written refuses the review, since an unprotected one is what the mark prevents."""
+
+    def __init__(self, reviewer, timeout):
+        self.path = IN_FLIGHT / f"{os.getpid()}-{reviewer}.json"
+        self.doc = {"pid": os.getpid(), "reviewer": reviewer,
+                    "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "deadline": time.time() + timeout + 60}
+
+    def __enter__(self):
+        try:
+            atomic_write(self.path, json.dumps(self.doc) + "\n")
+        except OSError as exc:
+            raise Refused(f"the review-in-flight mark can't be written in {IN_FLIGHT} ({exc}), so the run guard couldn't "
+                          f"tell a review is running: no reviewer was run") from None
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            pass  # a leftover mark holds nothing: the guard checks its process and its deadline
+        return False
 
 
 def blocked(text):

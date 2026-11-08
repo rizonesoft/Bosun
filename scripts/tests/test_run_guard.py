@@ -539,6 +539,50 @@ class Signature(unittest.TestCase):
         self.assertEqual((state["idle"], state["restarts"]), (3, 2), "an attempt record reset idle or restarts")
 
 
+class ReviewInFlight(unittest.TestCase):
+    """A review that is running lets the turn end, and only while its dispatcher lives and its deadline holds."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.marks = self.root / "build" / "review-in-flight"
+        self.marks.mkdir(parents=True)
+
+    def mark(self, pid, deadline, name="astra"):
+        (self.marks / f"{pid}-{name}.json").write_text(json.dumps({"pid": pid, "reviewer": name, "deadline": deadline}), encoding="utf-8")
+
+    def env(self):
+        return guard.replace(World().env(), reviewing=lambda: guard.review_in_flight(self.root))
+
+    def dead_pid(self):
+        done = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
+        return int(done.stdout)
+
+    def test_live_dead_and_expired_marks(self):
+        self.assertIsNone(guard.review_in_flight(self.root))
+        self.mark(self.dead_pid(), time.time() + 600, "dead")
+        self.mark(os.getpid(), time.time() - 1, "expired")
+        (self.marks / "garbage.json").write_text("{bad", encoding="utf-8")
+        self.assertIsNone(guard.review_in_flight(self.root), "a dead or expired mark held the run")
+        self.assertIsNotNone(guard.on_stop(active(), {"session_id": "me"}, self.env()), "the turn wasn't sent back")
+        self.mark(os.getpid(), time.time() + 600, "live")
+        self.assertIn("live", guard.review_in_flight(self.root))
+        self.assertIsNone(guard.on_stop(active(), {"session_id": "me"}, self.env()))
+
+    def test_repeated_stops_during_a_review_keep_the_idle_budget(self):
+        world = World()
+        state = active(signature=world.sig, idle=1, yields=1)
+        self.mark(os.getpid(), time.time() + 600)
+        env = self.env()
+        for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
+            self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, env))
+        self.assertEqual((state["idle"], state["yields"], state["active"]), (1, 1, True))
+        for path in self.marks.iterdir():
+            path.unlink()
+        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, env))
+
+
 class Modes(unittest.TestCase):
     """A run's permission mode is one Claude Code accepts, checked the same way however the run starts."""
 

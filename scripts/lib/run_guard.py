@@ -92,6 +92,8 @@ class Env:
     task_installed: Callable[[], bool] = lambda: True
     # The modes `claude --permission-mode` accepts, as its --help lists them.
     modes: Callable[[], set] = lambda: set(KNOWN_MODES)
+    # Which review is in flight now, or None.
+    reviewing: Callable[[], object] = lambda: None
     # (ok, reason, detail): whether a launch now would run on the subscription.
     subscription: Callable[[], tuple] = lambda: (True, "", "")
 
@@ -316,11 +318,37 @@ def send_back(left: list[str] | None, state: dict) -> str:
     )
 
 
+def pid_alive(pid: int) -> bool:
+    return process_started(pid) is not None
+
+
+def review_in_flight(root: Path = ROOT) -> str | None:
+    """A reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/, or None. A
+    mark counts only while its process lives and its deadline hasn't passed, so a crashed dispatcher's leftover never
+    holds a run. Ported from Recto (D:\\GitHub\\Recto\\scripts\\campaign_guard.py:780)."""
+    folder = Path(root) / "build" / "review-in-flight"
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return None
+    for name in names:
+        try:
+            doc = json.loads((folder / name).read_text(encoding="utf-8"))
+            pid, deadline = int(doc["pid"]), float(doc["deadline"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if pid > 0 and time.time() <= deadline and pid_alive(pid):
+            return f"{doc.get('reviewer', 'reviewer')}, dispatcher pid {pid}"
+    return None
+
+
 def on_stop(state: dict, data: dict, env: Env) -> str | None:
     if not state.get("active") or state.get("session_id") != data.get("session_id"):
         return None
-    if waiting(state):
-        return None  # the turn may end: nothing can be done until the wait passes, and that is not idleness
+    if waiting(state) or env.reviewing():
+        # The turn may end, and it isn't idleness: nothing can be done until a wait passes, and a review in flight
+        # must not have the tree change under it. Its notification, or the heartbeat, resumes the row.
+        return None
     left = env.rows()
     if left == []:
         end_run(state, "drained", DRAINED)
@@ -697,7 +725,7 @@ def real_task_installed() -> bool:
 
 
 REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed,
-           real_modes, real_subscription)
+           real_modes, review_in_flight, real_subscription)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:
