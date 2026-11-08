@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import tomllib
 
@@ -1165,13 +1166,199 @@ def section_disposition(row, rows, caps, root=ROOT):
     return "ready", "can run now"
 
 
+ACCEPTANCE_PHASE = 99  # the acceptance pass: run with the owner, after implementation is complete
+INDEX_FILE = "todo/TODO-00-INDEX.md"
+PHASE_RUNS = "docs/phase-runs"
+WAKES = "todo/wakes.json"
+WAKE_SECONDS = 60
+
+
+def git_out(root, *args):
+    """A git command's output, or None when it fails: evidence that can't be read never counts."""
+    try:
+        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def line_commit(root, path, predicate):
+    """The commit that last wrote the first line of `path` matching `predicate`, from git blame, or None."""
+    full = Path(root) / path
+    try:
+        lines = read_text(full).splitlines()
+    except OSError:
+        return None
+    for number, line in enumerate(lines, 1):
+        if predicate(line, lines[:number]):
+            blame = git_out(root, "blame", "-L", f"{number},{number}", "--porcelain", "--", path)
+            commit = blame.split()[0] if blame else None
+            return None if not commit or set(commit) == {"0"} else commit  # all zeros: not committed yet
+    return None
+
+
+def stamp_commit(root, row):
+    return git_out(root, "log", "-1", "--format=%H", "--", row.receipt) if row.receipt else None
+
+
+def written_after(root, stamps, evidence):
+    """True when the evidence commit descends from every stamp commit: written after the newest stamp it covers."""
+    if not evidence:
+        return False
+    for stamp in stamps:
+        if not stamp:
+            return False
+        if stamp != evidence and git_out(root, "merge-base", "--is-ancestor", stamp, evidence) is None:
+            return False
+    return True
+
+
+def completed_line(name):
+    def matches(line, before):
+        section = next((l for l in reversed(before) if l.startswith("## ")), "")
+        return name in line and "Completed" in section
+    return matches
+
+
+def file_closed(root, path, rows):
+    """A file's Verification ran: it sits under Completed in the index, written there after its newest stamp."""
+    name = Path(path).name
+    evidence = line_commit(root, INDEX_FILE, completed_line(name))
+    return written_after(root, [stamp_commit(root, r) for r in rows.values() if r.path == path], evidence)
+
+
+def phase_closed(root, phase, rows):
+    """A phase is closed out: a run file of that phase holds a `## Closeout` written after its newest stamp."""
+    stamps = [stamp_commit(root, r) for r in rows.values() if r.phase == phase]
+    folder = Path(root) / PHASE_RUNS
+    for run in sorted(folder.glob(f"*-phase-{phase}.md")) if folder.is_dir() else []:
+        evidence = line_commit(root, run.relative_to(root).as_posix(), lambda line, before: line.strip() == "## Closeout")
+        if written_after(root, stamps, evidence):
+            return True
+    return False
+
+
+def root_blockers(row, rows):
+    """The open sections at the bottom of what holds this one back: open, and waiting on nothing open themselves."""
+    roots, stack, seen = set(), [row.ref], set()
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        open_deps = [d for d in rows[current].depends if not rows[d].done]
+        if not open_deps and not rows[current].done:
+            roots.add(current)
+        stack.extend(open_deps)
+    return sorted(roots)
+
+
+def pending_closeouts(root, rows):
+    """(files whose Verification is owed, phases whose closeout is owed): outside the acceptance phase, every section
+    stamped, and no evidence written since. A file that also holds acceptance sections closes in acceptance."""
+    files, phases = [], []
+    for path in sorted({r.path for r in rows.values()}):
+        mine = [r for r in rows.values() if r.path == path]
+        if all(r.phase != ACCEPTANCE_PHASE for r in mine) and all(r.done for r in mine) and not file_closed(root, path, rows):
+            files.append(path)
+    for phase in sorted({r.phase for r in rows.values() if r.phase != ACCEPTANCE_PHASE}):
+        mine = [r for r in rows.values() if r.phase == phase]
+        if all(r.done for r in mine) and not phase_closed(root, phase, rows):
+            phases.append(phase)
+    return files, phases
+
+
+def finish(root, rows, caps):
+    """What is left before implementation is complete, for the run guard to decide how a run with nothing to run
+    ends or waits: open sections outside acceptance with the states of their root blockers, owed file verifications
+    and phase closeouts, acceptance rows, and files that wait on acceptance to close."""
+    open_rows = [r for r in ordered(rows) if not r.done and r.phase != ACCEPTANCE_PHASE]
+    roots = {}
+    for row in open_rows:
+        for ref in root_blockers(row, rows):
+            roots[ref] = section_disposition(rows[ref], rows, caps, root)[0]
+    files, phases = pending_closeouts(root, rows)
+    blocked = {r.ref: root_blockers(r, rows) for r in open_rows}
+    return {"complete": not open_rows and not files and not phases, "open": [r.ref for r in open_rows], "roots": roots,
+            "blocked": blocked, "pending_files": files, "pending_phases": phases,
+            "acceptance": [{"ref": r.ref, "title": r.title, "needs": r.needs} for r in ordered(rows)
+                           if r.phase == ACCEPTANCE_PHASE and not r.done],
+            "files_waiting_on_acceptance": sorted({r.path for r in rows.values() if r.phase == ACCEPTANCE_PHASE})}
+
+
+def work_items(root, rows):
+    """The close-out work a runner owes once sections are stamped: each a `needs-verification` file or a
+    `needs-closeout` phase, as `query disposition` and `query next` list them."""
+    files, phases = pending_closeouts(root, rows)
+    return ([{"ref": f"file {path}", "title": Path(path).name, "phase": min(r.phase for r in rows.values() if r.path == path),
+              "state": "needs-verification", "reason": "every section is stamped: run process-todo-file on it"} for path in files]
+            + [{"ref": f"phase {phase}", "title": f"phase {phase}", "phase": phase, "state": "needs-closeout",
+                "reason": "every row is stamped: write its closeout (process-phase step 4)"} for phase in phases])
+
+
 def next_work(rows, caps, root=ROOT):
-    """The first row this session can run, by phase then table order, or None. What a runner starts next."""
+    """The first row this session can run, by phase then table order, or None. What a runner starts next. Once no
+    section can run, a file verification or phase closeout that is owed is next."""
     for row in ordered(rows):
         state, reason = section_disposition(row, rows, caps, root)
         if state in ("ready", "needs-repair", "needs-filing"):
             return {"ref": row.ref, "title": row.title, "phase": row.phase, "state": state, "reason": reason}
-    return None
+    items = work_items(root, rows)
+    return items[0] if items else None
+
+
+def load_wakes(root=ROOT):
+    """todo/wakes.json: each a section, the Need it waits on, and the command whose success means it's met."""
+    path = Path(root) / WAKES
+    if not path.is_file():
+        return []
+    data = json.loads(read_text(path))
+    require(isinstance(data, list) and all(isinstance(w, dict) and isinstance(w.get("section"), str)
+                                           and isinstance(w.get("need"), str) and isinstance(w.get("check"), list)
+                                           and all(isinstance(c, str) for c in w["check"]) for w in data),
+            f"{WAKES} must be a list of {{section, need, check: [command words]}}")
+    return data
+
+
+def wake_check(root, rows, run=subprocess.run):
+    """The wakes whose check passes now, read only: each still open and still carrying its Need. A check that is
+    missing, times out or fails is simply not passing."""
+    passing = []
+    for wake in load_wakes(root):
+        row = rows.get(wake["section"])
+        if row is None or row.done or wake["need"] not in row.needs:
+            continue
+        command = [sys.executable if word == "python" else word for word in wake["check"]]
+        try:
+            done = run(command, cwd=root, capture_output=True, text=True, timeout=WAKE_SECONDS)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0:
+            passing.append({"section": wake["section"], "need": wake["need"]})
+    return passing
+
+
+def clear_need(root, ref, need, date):
+    """Take one Need off a section, noting it; nothing to do when it's already gone, so a repeat finishes the job."""
+    row = graph(root)[ref]
+    if need not in row.needs:
+        return False
+    left = [n for n in row.needs if n != need]
+    match = re.search(r"^\*\*Needs:\*\* .*$", row.body, re.M)
+    require(match, f"no Needs line in {ref}")
+    body = row.body[:match.start()] + f"**Needs:** {', '.join(left) if left else 'none'}" + row.body[match.end():]
+    body += f"\n\n> **Woken:** {date}: its `{need}` check in {WAKES} passed"
+    rewrite_section(root, row, body)
+    return True
+
+
+def wake_apply(root, date, run=subprocess.run):
+    """Clear every Need whose wake passes now, returning what was cleared."""
+    applied = []
+    for wake in wake_check(root, graph(root), run):
+        if clear_need(root, wake["section"], wake["need"], date):
+            applied.append(wake)
+    return applied
 
 
 def ordered(sections):

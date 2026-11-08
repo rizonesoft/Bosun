@@ -13,6 +13,8 @@ This skill does not ship a section and does not write a stamp. It audits, then c
 
 One continuous loop. You do not stop between sections or phases:
 
+Before step 1, and again whenever a run is resumed, run `python scripts/todo-graph.py wake --apply`: it clears each Need whose check in `todo/wakes.json` passes now; commit what it changed (`todo: wake <ref>`). `query next` and `query disposition` also list close-out work once a phase's or a file's sections are all stamped: a `needs-verification` item is a file to close with `process-todo-file`, and a `needs-closeout` item is a phase whose closeout `process-phase` step 4 writes. When the run guard names a finishing step, take it: `needs-push` pushes the finished work so CI can prove it, and `needs-ci-repair` fixes a red head under `process-phase`'s red-first policy.
+
 1. Audit (below), then start `process-phase` on the phase `python scripts/todo-graph.py query next` names, in this same turn.
 2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query next` and start the phase it names.
 3. Stop only when `python scripts/todo-graph.py query next` prints null: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts. A wait is not a halt: when `scripts/review-dispatch.py` exits 3, the reviewer is unavailable and the run guard holds the run, so end the turn there, without building, retrying or stamping, and let the guard resume it.

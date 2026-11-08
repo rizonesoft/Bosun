@@ -24,6 +24,7 @@ Format and rules: todo/README.md. Stdlib only.
 """
 import argparse
 from datetime import date
+import datetime
 import json
 from pathlib import Path
 import re
@@ -33,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from host_caps import capabilities  # noqa: E402
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, next_work, park, repair, section_disposition, unpark,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
-                        suspects, unstamp)
+                        suspects, unstamp, finish, work_items, wake_check, wake_apply)
 
 
 def review_round(value):
@@ -64,7 +65,11 @@ def main():
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "disposition", "next", "stats", "deferred", "adjacency", "plan", "rounds"])
+    q.add_argument("kind", choices=["ready", "blocked", "disposition", "next", "stats", "deferred", "adjacency", "plan", "rounds", "finish"])
+    w = sub.add_parser("wake", help="the Needs todo/wakes.json can check: --check lists those met now, --apply clears them")
+    mode = w.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--apply", action="store_true")
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -171,10 +176,21 @@ def main():
                 if state != "verified":
                     result.append({"ref": r.ref, "title": r.title, "phase": r.phase, "needs": r.needs,
                                    "state": state, "reason": reason})
+            result.extend({**item, "needs": []} for item in work_items(ROOT, rows))
+        elif args.kind == "finish":
+            result = finish(ROOT, rows, capabilities())
         else:
             code = 0 if args.kind == "ready" else 4
             result = [r.public() for r in ordered(rows) if disposition(r, rows) == code]
         print(json.dumps(result, indent=2, ensure_ascii=False))
+    elif args.command == "wake":
+        if args.check:
+            print(json.dumps(wake_check(ROOT, rows), indent=2))
+        else:
+            applied = wake_apply(ROOT, datetime.date.today().isoformat())
+            print(json.dumps(applied, indent=2))
+            if applied:
+                projections(ROOT, sync=True)
     elif args.command == "build":
         atomic(ROOT / "build/todo-cache.json",
                json.dumps([r.public() for r in ordered(rows)], indent=2, ensure_ascii=False) + "\n")

@@ -92,6 +92,13 @@ class Env:
     task_installed: Callable[[], bool] = lambda: True
     # The modes `claude --permission-mode` accepts, as its --help lists them.
     modes: Callable[[], set] = lambda: set(KNOWN_MODES)
+    # What a run with no runnable row does next: {"state": complete | parked | waiting | ci-pending | ci-unavailable
+    # | needs-push | needs-ci-repair | unknown, "detail": str, "report": the acceptance text}.
+    finish: Callable[[], dict] = lambda: {"state": "unknown"}
+    # The wakes in todo/wakes.json whose check passes now (read only).
+    wakes: Callable[[], list] = lambda: []
+    # Write the acceptance file for a run that ends complete or parked, returning its path; OSError when it can't.
+    write_acceptance: Callable[[str, str], str] = lambda kind, text: ""
     # Which review is in flight now, or None.
     reviewing: Callable[[], object] = lambda: None
     # (ok, reason, detail): whether a launch now would run on the subscription.
@@ -308,8 +315,16 @@ def heartbeat_current(state: dict, now: float | None = None) -> bool:
     return age < HEARTBEAT_RENEW_DAYS * 86400
 
 
+FINISH_STEPS = {
+    "needs-push": "push the finished work to origin/main, so CI can prove it",
+    "needs-ci-repair": "CI is red on the pushed head: fix it under process-phase's red-first policy",
+}
+
+
 def send_back(left: list[str] | None, state: dict) -> str:
     rows = "the next ready row" if not left else f"{len(left)} runnable rows, first {left[0]}"
+    if left and left[0] in FINISH_STEPS:
+        rows = f"one finishing step: {FINISH_STEPS[left[0]]}"
     heartbeat = "" if heartbeat_current(state) else "The heartbeat is not armed or is about to expire: create it again with CronCreate if this session is interactive, deleting any old one. "
     return heartbeat + (
         f"Unattended run is active: {rows}. Do not stop or report: continue process-plan now. A section that cannot be "
@@ -351,8 +366,10 @@ def on_stop(state: dict, data: dict, env: Env) -> str | None:
         return None
     left = env.rows()
     if left == []:
-        end_run(state, "drained", DRAINED)
-        return None
+        settled = settle(state, env, time.time())
+        if not settled.startswith("work: "):
+            return None  # it waits, and the turn may end, or it ended
+        left = [settled[len("work: "):]]
     signature = env.signature()
     if signature != state.get("signature"):
         state.update(signature=signature, idle=0, yields=0, changed_at=time.time())
@@ -459,7 +476,9 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     now = time.time() if now is None else now
     signature = env.signature()
     if state.get("wait_until") is not None:
-        if waiting(state, now):
+        # A run waiting on its rows wakes early when a wake's check passes: the resumed session clears the Need.
+        woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and env.wakes()
+        if waiting(state, now) and not woken:
             return f"waiting: {state.get('wait_reason')} until {stamp(state['wait_until'])}"
         end_wait(state, now, signature)
     if signature != state.get("restart_signature"):
@@ -483,8 +502,11 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         return "expired"
     left = env.rows()
     if left == []:
-        end_run(state, "drained", DRAINED)
-        return "drained"
+        settled = settle(state, env, now)
+        if settled == "waiting":
+            return f"waiting: {state.get('wait_reason')} until {stamp(state['wait_until'])}"
+        if not settled.startswith("work: "):
+            return settled
     if state.get("restarts", 0) >= MAX_RESTARTS:
         end_run(state, "stalled", f"{MAX_RESTARTS} resumes changed nothing")
         return "stalled"
@@ -519,10 +541,44 @@ def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess:
     return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL, **hidden())
 
 
+WORK_STATES = ("ready", "needs-repair", "needs-filing", "needs-verification", "needs-closeout")
+# How long a run with nothing to run waits before it looks again, by why it waits.
+LOOK_AGAIN = {"rows-waiting": 30 * 60, "ci-pending": 10 * 60, "ci-unavailable": 30 * 60, "acceptance-unwritable": 10 * 60}
+FINISH_WORK = ("needs-push", "needs-ci-repair")  # what the finish line asks of the session itself
+
+
+def settle(state: dict, env: Env, now: float) -> str:
+    """What a run with no runnable row does, from what the graph and CI say is left. Returns "work: <item>" when the
+    session has a finishing step to take, "waiting" when only time, a person, a host or CI can move it (rechecked by
+    the watchdog, its quiet time and restarts suspended), or the status it ended with."""
+    try:
+        found = env.finish() or {}
+    except Exception as error:  # an unreadable finish line never ends a run; the next look tries again
+        found = {"state": "unknown", "detail": repr(error)}
+    kind, detail = found.get("state"), found.get("detail") or ""
+    if kind in FINISH_WORK:
+        return f"work: {kind}"
+    if kind in ("waiting", "ci-pending", "ci-unavailable"):
+        reason = "rows-waiting" if kind == "waiting" else kind
+        set_wait(state, reason, now + LOOK_AGAIN[reason], detail)
+        return "waiting"
+    if kind in ("complete", "parked"):
+        try:
+            path = env.write_acceptance(kind, found.get("report") or "")
+        except OSError as error:
+            set_wait(state, "acceptance-unwritable", now + LOOK_AGAIN["acceptance-unwritable"],
+                     f"the acceptance file couldn't be written ({error}); the run tries again")
+            return "waiting"
+        end_run(state, kind, f"{detail}; acceptance: {path}" if detail else f"acceptance: {path}")
+        return kind
+    end_run(state, "drained", DRAINED)
+    return "drained"
+
+
 def runnable(rows: list[dict]) -> list[str]:
     """The rows this run can take, from `query disposition`, which owns what can run. A needs-repair row is work: the
     skills repair or park it, and the state already checked that this session can."""
-    return [r["ref"] for r in rows if r.get("state") in ("ready", "needs-repair", "needs-filing")]
+    return [r["ref"] for r in rows if r.get("state") in WORK_STATES]
 
 
 def real_rows() -> list[str] | None:
@@ -677,6 +733,85 @@ def real_subscription() -> tuple:
     return subscription_verdict(data)
 
 
+CI_ANSWERS = {0: None, 1: "needs-ci-repair", 4: "ci-pending", 5: "ci-pending"}  # scripts/ci_status.py's exits
+
+
+def acceptance_report(kind: str, found: dict) -> str:
+    """The acceptance file's text: what the owner's acceptance pass starts from."""
+    lines = [f"# Acceptance: implementation {'complete' if kind == 'complete' else 'parked'}", "",
+             f"Written by the run guard on {stamp()} when the unattended run ended {kind}.", ""]
+    parked = sorted(ref for ref, s in found.get("roots", {}).items() if s == "parked")
+    if parked:
+        lines += ["## Parked sections", "", *(f"- {ref}" for ref in parked), ""]
+        lines += ["## Blocked by them", ""]
+        lines += [f"- {ref}: held by {', '.join(roots)}" for ref, roots in sorted(found.get("blocked", {}).items())
+                  if ref not in parked]
+        lines += [""]
+    lines += ["## Acceptance rows (phase 99)", "", "Run each with the owner: `process-phase 99`.", ""]
+    lines += [f"- {r['ref']}: {r['title']}" + (f" (needs {', '.join(r['needs'])})" if r.get("needs") else "")
+              for r in found.get("acceptance", [])] or ["- none"]
+    lines += ["", "## Files that close in acceptance", ""]
+    lines += [f"- {path}" for path in found.get("files_waiting_on_acceptance", [])] or ["- none"]
+    return "\n".join(lines) + "\n"
+
+
+def real_finish(root: Path = ROOT) -> dict:
+    """What a run with nothing to run does next, from `query finish`, git and CI."""
+    try:
+        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "query", "finish", cwd=root)
+        found = json.loads(out.stdout.decode("utf-8", "replace")) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        found = None
+    if not isinstance(found, dict):
+        return {"state": "unknown", "detail": "query finish couldn't be read"}
+    if not found["complete"]:
+        roots = found.get("roots", {})
+        if roots and all(s == "parked" for s in roots.values()):
+            kind = "parked"
+        else:
+            waits = sorted(f"{ref} ({s})" for ref, s in roots.items() if s != "parked")
+            return {"state": "waiting", "detail": f"waiting on {', '.join(waits) or 'its rows'}"}
+    else:
+        kind = "complete"
+    fetched = run("git", "fetch", "-q", "origin", "main", cwd=root)
+    head = run("git", "rev-parse", "HEAD", cwd=root).stdout.decode().strip()
+    remote = run("git", "rev-parse", "origin/main", cwd=root).stdout.decode().strip()
+    if fetched.returncode != 0 or not remote:
+        return {"state": "ci-unavailable", "detail": "origin/main couldn't be fetched"}
+    if head != remote:
+        return {"state": "needs-push", "detail": f"local {head[:7]} isn't origin/main {remote[:7]}"}
+    ci = run(sys.executable, str(root / "scripts" / "ci_status.py"), "--sha", head, "--use-proven", cwd=root)
+    answer = CI_ANSWERS.get(ci.returncode, "ci-unavailable")
+    if answer:
+        return {"state": answer, "detail": f"CI on {head[:7]}: {ci.stdout.decode('utf-8', 'replace').strip()[-300:]}"}
+    return {"state": kind, "detail": f"CI proven on {head[:7]}", "report": acceptance_report(kind, found)}
+
+
+def real_wakes(root: Path = ROOT) -> list:
+    try:
+        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "wake", "--check", cwd=root)
+        return json.loads(out.stdout.decode("utf-8", "replace")) if out.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []
+
+
+def write_acceptance(kind: str, text: str, root: Path = ROOT, today: str | None = None) -> str:
+    """docs/acceptance/<date>.md, atomically and read back; never over an earlier one, which a second the same day
+    keeps as <date>-2.md. Raises OSError when it can't be written or doesn't read back."""
+    folder = root / "docs" / "acceptance"
+    folder.mkdir(parents=True, exist_ok=True)
+    day = today or time.strftime("%Y-%m-%d")
+    path, n = folder / f"{day}.md", 2
+    while path.exists():
+        path, n = folder / f"{day}-{n}.md", n + 1
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+    if path.read_text(encoding="utf-8") != text:
+        raise OSError(f"{path} didn't read back as written")
+    return path.relative_to(root).as_posix()
+
+
 def real_spawn(state: dict) -> dict:
     claude = shutil.which("claude")
     if not claude:
@@ -730,7 +865,7 @@ def real_task_installed() -> bool:
 
 
 REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed,
-           real_modes, review_in_flight, real_subscription)
+           real_modes, real_finish, real_wakes, write_acceptance, review_in_flight, real_subscription)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:

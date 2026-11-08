@@ -1048,6 +1048,16 @@ class SkillsDefer(unittest.TestCase):
                     self.assertIn("needs-filing", text)
                     self.assertNotIn("unpark", text)  # the operator's, never a run's
 
+    def test_the_runners_dispatch_close_out_work_wakes_and_finishing_steps(self):
+        for folder in (".claude", ".codex", ".agents"):
+            with self.subTest(folder=folder):
+                plan = (REPO / folder / "skills" / "process-plan" / "SKILL.md").read_text(encoding="utf-8")
+                phase = (REPO / folder / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
+                for words in ("wake --apply", "needs-verification", "needs-closeout", "needs-push", "needs-ci-repair"):
+                    self.assertIn(words, plan)
+                self.assertIn("`needs-verification` item", phase)
+                self.assertIn("`needs-closeout` item", phase)
+
     def test_review_files_leftovers_from_the_third_cycle_in_all_mirrors(self):
         for folder in (".claude", ".codex", ".agents"):
             with self.subTest(folder=folder):

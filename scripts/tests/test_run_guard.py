@@ -944,6 +944,149 @@ class SavingAWait(unittest.TestCase):
         self.assertEqual(world.spawned, [])
 
 
+class EndStates(unittest.TestCase):
+    """No runnable row is not one state: complete, parked, waiting and a finishing step each lead somewhere else."""
+
+    def env(self, world, finish, wakes=(), writes=None):
+        written = writes if writes is not None else []
+
+        def write(kind, text):
+            if isinstance(written, Exception):
+                raise written
+            written.append((kind, text))
+            return f"docs/acceptance/2026-11-08{'-2' if len(written) > 1 else ''}.md"
+        found = finish if callable(finish) else (lambda: dict(finish))
+        return guard.replace(world.env(), finish=found, wakes=lambda: list(wakes), write_acceptance=write)
+
+    def test_complete_and_parked_write_the_acceptance_file_and_end(self):
+        for kind in ("complete", "parked"):
+            with self.subTest(kind):
+                world, state, writes = World(rows=()), active(), []
+                env = self.env(world, {"state": kind, "detail": "CI proven", "report": "# Acceptance"}, writes=writes)
+                self.assertEqual(guard.watch(state, env, now=1000), kind)
+                self.assertEqual((state["active"], state["status"]), (False, kind))
+                self.assertEqual(writes, [(kind, "# Acceptance")])
+                self.assertIn("docs/acceptance/", state["why"])
+
+    def test_parked_is_never_reported_complete(self):
+        world, state = World(rows=()), active()
+        guard.watch(state, self.env(world, {"state": "parked", "report": "x"}), now=1000)
+        self.assertNotEqual(state["status"], "complete")
+
+    def test_a_failed_acceptance_write_keeps_the_run_and_tries_again(self):
+        world, state = World(rows=()), active()
+        env = self.env(world, {"state": "complete", "report": "x"}, writes=OSError("disk full"))
+        self.assertTrue(guard.watch(state, env, now=1000).startswith("waiting: acceptance-unwritable"))
+        self.assertTrue(state["active"])
+        writes = []
+        self.assertEqual(guard.watch(state, self.env(world, {"state": "complete", "report": "x"}, writes=writes), now=1000 + 601), "complete")
+        self.assertEqual(len(writes), 1)
+
+    def test_waiting_rows_keep_the_run_past_the_quiet_limit_and_resume_when_one_clears(self):
+        world, state = World(rows=()), active(changed_at=0, restarts=2, restart_signature="one")
+        env = self.env(world, {"state": "waiting", "detail": "waiting on D00 T02 §3 (waiting-person)"})
+        now = 0.0
+        while now < (guard.MAX_QUIET_HOURS + 10) * 3600:
+            now += 300
+            self.assertTrue(guard.watch(state, env, now=now).startswith("waiting: rows-waiting"))
+        self.assertTrue(state["active"])
+        self.assertEqual(world.spawned, [])
+        world.rows = ("D00 T02 §3",)  # the person answered: the row is ready
+        now += 1801
+        self.assertIn("attempt 1", guard.watch(state, env, now=now))
+
+    def test_a_passing_wake_resumes_a_waiting_run_before_its_deadline(self):
+        world, state = World(rows=()), active()
+        guard.watch(state, self.env(world, {"state": "waiting"}), now=1000)
+        self.assertEqual(state["wait_reason"], "rows-waiting")
+        world.rows = ("D00 T02 §3",)
+        env = self.env(world, {"state": "waiting"}, wakes=[{"section": "D00 T02 §3", "need": "third-party"}])
+        self.assertIn("attempt 1", guard.watch(state, env, now=1060))
+
+    def test_each_ci_answer_has_its_next_step(self):
+        for kind, expect in (("ci-pending", 600), ("ci-unavailable", 1800)):
+            with self.subTest(kind):
+                world, state = World(rows=()), active()
+                self.assertTrue(guard.watch(state, self.env(world, {"state": kind}), now=1000).startswith(f"waiting: {kind}"))
+                self.assertEqual(state["wait_until"], 1000 + expect)
+        for kind, words in (("needs-push", "push the finished work"), ("needs-ci-repair", "red-first policy")):
+            with self.subTest(kind):
+                world, state = World(rows=()), active()
+                reason = guard.on_stop(state, {"session_id": "me"}, self.env(world, {"state": kind}))
+                self.assertIn(words, reason)
+                self.assertIn("attempt 1", guard.watch(state, self.env(world, {"state": kind}), now=1000))
+
+    def test_recovery_to_green_ends_complete(self):
+        world, state = World(rows=()), active()
+        answers = iter([{"state": "needs-ci-repair"}, {"state": "ci-pending"}, {"state": "complete", "report": "x"}])
+        env = self.env(world, lambda: next(answers))
+        self.assertIn("red-first policy", guard.on_stop(state, {"session_id": "me"}, env))
+        self.assertTrue(guard.watch(state, env, now=1000).startswith("waiting: ci-pending"))
+        self.assertEqual(guard.watch(state, env, now=1000 + 601), "complete")
+
+    def test_an_unreadable_finish_line_drains_as_before(self):
+        world, state = World(rows=()), active()
+        self.assertEqual(guard.watch(state, self.env(world, {"state": "unknown"}), now=1000), "drained")
+
+
+class Acceptance(unittest.TestCase):
+    def test_the_file_is_written_atomically_read_back_and_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first = guard.write_acceptance("complete", "# one\n", root, "2026-11-08")
+            second = guard.write_acceptance("parked", "# two\n", root, "2026-11-08")
+            self.assertEqual((first, second), ("docs/acceptance/2026-11-08.md", "docs/acceptance/2026-11-08-2.md"))
+            self.assertEqual((root / first).read_text(encoding="utf-8"), "# one\n")
+            self.assertEqual(list((root / "docs" / "acceptance").glob("*.tmp")), [])
+
+    def test_a_write_the_disk_refuses_raises_for_the_guard_to_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "docs").mkdir()
+            (Path(folder) / "docs" / "acceptance").write_text("a file where the folder would go", encoding="utf-8")
+            with self.assertRaises(OSError):
+                guard.write_acceptance("complete", "# x\n", Path(folder), "2026-11-08")
+
+    def test_the_report_names_parked_blocked_acceptance_rows_and_files(self):
+        found = {"roots": {"D01 T01 §2": "parked"}, "blocked": {"D01 T01 §3": ["D01 T01 §2"], "D01 T01 §2": ["D01 T01 §2"]},
+                 "acceptance": [{"ref": "D99 T01 §1", "title": "Acceptance", "needs": ["attended"]}],
+                 "files_waiting_on_acceptance": ["todo/99-x/TODO-01.md"]}
+        text = guard.acceptance_report("parked", found)
+        for words in ("implementation parked", "- D01 T01 §2", "D01 T01 §3: held by D01 T01 §2", "D99 T01 §1", "needs attended",
+                      "todo/99-x/TODO-01.md"):
+            self.assertIn(words, text)
+
+
+class RealFinish(unittest.TestCase):
+    """real_finish maps the graph, git and CI to the next step."""
+
+    def run_with(self, finish, head="a" * 40, remote="a" * 40, ci=0, fetch=0):
+        def run(*args, cwd=None):
+            if "query" in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps(finish).encode(), b"")
+            if args[:2] == ("git", "fetch"):
+                return subprocess.CompletedProcess(args, fetch, b"", b"")
+            if args[:3] == ("git", "rev-parse", "HEAD"):
+                return subprocess.CompletedProcess(args, 0, head.encode(), b"")
+            if args[:2] == ("git", "rev-parse"):
+                return subprocess.CompletedProcess(args, 0, remote.encode(), b"")
+            return subprocess.CompletedProcess(args, ci, b"ci said", b"")
+        with mock.patch.object(guard, "run", side_effect=run):
+            return guard.real_finish()["state"]
+
+    def test_the_mapping(self):
+        done = {"complete": True, "roots": {}, "blocked": {}, "acceptance": [], "files_waiting_on_acceptance": []}
+        self.assertEqual(self.run_with(done), "complete")
+        self.assertEqual(self.run_with(done, remote="b" * 40), "needs-push")
+        self.assertEqual(self.run_with(done, fetch=1), "ci-unavailable")
+        for code, kind in ((1, "needs-ci-repair"), (4, "ci-pending"), (5, "ci-pending"), (3, "ci-unavailable"), (2, "ci-unavailable")):
+            with self.subTest(code=code):
+                self.assertEqual(self.run_with(done, ci=code), kind)
+        parked = {**done, "complete": False, "roots": {"D01 T01 §2": "parked"}}
+        self.assertEqual(self.run_with(parked), "parked")
+        mixed = {**done, "complete": False, "roots": {"D01 T01 §2": "parked", "D00 T02 §3": "waiting-person"}}
+        self.assertEqual(self.run_with(mixed), "waiting")
+
+
 class Waits(unittest.TestCase):
     """A run that waits for an unavailable reviewer neither spins nor stalls, and resumes when the wait passes."""
 
