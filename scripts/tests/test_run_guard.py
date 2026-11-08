@@ -594,9 +594,22 @@ class Modes(unittest.TestCase):
                              ["claude", "-p", "process plan", "--resume", "sess-9", "--permission-mode", "bypassPermissions"])
 
     def test_the_modes_come_from_claude_s_own_help(self):
-        modes = guard.real_modes()
-        self.assertIn("bypassPermissions", modes)
-        self.assertGreaterEqual(len(modes), 3)
+        text = ('  --permission-mode <mode>   Permission mode to use for the session\n'
+                '                             (choices: "alpha", "betaMode",\n'
+                '                             "gamma")\n  --other  something (choices: "nope")\n')
+        done = subprocess.CompletedProcess([], 0, text.encode(), b"")
+        with mock.patch.object(guard.subprocess, "run", return_value=done):
+            self.assertEqual(guard.real_modes(), {"alpha", "betaMode", "gamma"})
+
+    def test_help_that_cant_be_read_falls_back_to_the_known_modes(self):
+        for failure in (FileNotFoundError("no claude"), subprocess.TimeoutExpired("claude", 30)):
+            with self.subTest(type(failure).__name__), mock.patch.object(guard.subprocess, "run", side_effect=failure):
+                self.assertEqual(guard.real_modes(), set(guard.KNOWN_MODES))
+        with mock.patch.object(guard.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"no options here", b"")):
+            self.assertEqual(guard.real_modes(), set(guard.KNOWN_MODES))
+
+    def test_this_machine_s_claude_lists_bypass_mode(self):
+        self.assertIn("bypassPermissions", guard.real_modes())
 
 
 class UsageLimits(unittest.TestCase):
