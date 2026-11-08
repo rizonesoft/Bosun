@@ -148,6 +148,14 @@ PREFIX_POSITIONALS = {"timeout": 1}  # `timeout DURATION command`
 CHDIR = {"-C", "--chdir"}  # env's way to run its command in another folder
 
 
+def within(outer: str | None, inner: str | None) -> str | None:
+    """The folder `inner` names when it is reached from `outer`: an absolute one stands alone, a relative one is taken
+    from `outer`, as env and each shell it starts do."""
+    if not outer or not inner:
+        return inner or outer
+    return inner if os.path.isabs(windows_path(inner)) else os.path.join(outer, inner)
+
+
 def strip_prefixes(words: list[str]) -> tuple:
     """(the command's own words, the prefixes it was run through, the folder a prefix runs it in or None):
     PowerShell's call and dot-source operators, an opening bracket, `VAR=value`, and prefixes that run the rest of the
@@ -172,8 +180,7 @@ def strip_prefixes(words: list[str]) -> tuple:
                     option, value = words[0][:2], words[0][2:]  # a short option's value, attached: -CDIR, -n5
                 if head == "env" and option in CHDIR:
                     folder = value if value else (words[1] if len(words) > 1 else None)
-                    # Each env runs the next in its folder, so a relative one is taken from the folder before it.
-                    chdir = folder if not chdir or not folder or os.path.isabs(windows_path(folder)) else os.path.join(chdir, folder)
+                    chdir = within(chdir, folder)  # each env runs the next in its folder
                 words = words[2:] if option in valued and not value else words[1:]
             elif plain:
                 words, plain = words[1:], plain - 1
@@ -220,7 +227,7 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
         words, _, chdir = strip_prefixes(tokens_of(part.lstrip("(")))
         inner = inner_command(words)
         if inner and inner[0]:
-            found.extend((text, shell, folder or chdir) for text, shell, folder in segments(*inner))
+            found.extend((text, shell, within(chdir, folder)) for text, shell, folder in segments(*inner))
         else:
             found.append((" ".join(shlex.quote(w) if " " in w else w for w in words), powershell, chdir))
     return found

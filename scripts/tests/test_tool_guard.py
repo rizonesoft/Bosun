@@ -153,6 +153,9 @@ class CompletionGaps(Base):
         self.refused(f"env -C {self.outside} env -C . rm -rf sub")
         self.refused(f"env -C {self.base} env -C outside rm -rf sub")
         self.allowed(f"env -C {self.project} env -C build rm -rf x")
+        self.refused(f'env -C {self.outside} bash -c "env -C . rm -rf sub"')
+        self.refused(f'env -C {self.base} bash -c "env -C outside rm -rf sub"')
+        self.allowed(f'env -C {self.project} bash -c "env -C build rm -rf x"')
         self.allowed("env -Cbuild rm -rf x")
         self.allowed("env -C build rm -rf x")
         self.allowed(f"env -C {self.outside} ls && rm -rf build/x")  # its folder is that one command's only
