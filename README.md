@@ -60,6 +60,13 @@ Sessions and editors stay open as normal. Only commands wrapped in `bosun run` q
 
 Change the defaults with `--slots`, `--min-avail-mb` and `--max-wait`, or `BOSUN_SLOTS`, `BOSUN_MIN_AVAIL_MB` and `BOSUN_MAX_WAIT`. In WSL, `--min-guest-mb` or `BOSUN_MIN_GUEST_MB` sets the VM threshold.
 
+## What stops a job from filling the disk?
+
+A job and everything it starts end together, and together they may write at most 100 GB. A job over that budget is stopped, children and all, and `bosun run` exits 74 and says why. A command that writes without end, such as a test whose fake child floods a log, would otherwise fill the drive, and a full system drive takes Windows and the WSL disk image on it down with it. Change the budget with `--max-write-gb` or `BOSUN_MAX_WRITE_GB`, and 0 turns it off.
+
+- **Windows:** the job object that holds the command counts what every process in it writes, and closing it ends anything the command left behind.
+- **WSL:** the command runs in its own systemd scope, and anything it leaves behind is stopped when it ends. systemd gives user jobs the `io` controller only through a root setting, so turn the budget on once with `sudo ~/.local/share/bosun/enable-write-budget.sh`, then `wsl --shutdown`. Until then the budget is off in WSL, and `bosun run` says so once per boot.
+
 ## How do unattended runs stay alive?
 
 One heartbeat runs them all. A scheduled task ticks each registered repo's run guard every 5 minutes, resuming at most one repo per pass and holding while memory is short, for at most an hour. It never starts a stopped WSL distro.

@@ -49,6 +49,7 @@ struct Options {
     int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2));
     uint64_t min_avail_mb = env_num(L"BOSUN_MIN_AVAIL_MB", 6144);
     uint64_t max_wait_s = env_num(L"BOSUN_MAX_WAIT", 900);
+    uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100);
     std::wstring ns = L"Bosun";
     int days = 7;
     int interval_s = 30;
@@ -73,6 +74,7 @@ bool parse_options(const std::vector<std::wstring>& args, Options& o) {
         if (a == L"--slots") o.slots = std::stoi(v);
         else if (a == L"--min-avail-mb") o.min_avail_mb = std::stoull(v);
         else if (a == L"--max-wait") o.max_wait_s = std::stoull(v);
+        else if (a == L"--max-write-gb") o.max_write_gb = std::stoull(v);
         else if (a == L"--ns") o.ns = v;
         else if (a == L"--days") o.days = std::stoi(v);
         else if (a == L"--interval") o.interval_s = std::stoi(v);
@@ -205,9 +207,26 @@ int run_child(const Options& o) {
         return 70;
     }
     ResumeThread(pi.hThread);
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    // The job counts what every process in the tree writes, a child the command left behind included, so a runaway is
+    // stopped wherever in the tree it is, before it fills the drive.
+    bool over = false;
+    while (WaitForSingleObject(pi.hProcess, 1000) == WAIT_TIMEOUT) {
+        JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION io{};
+        if (QueryInformationJobObject(job, JobObjectBasicAndIoAccountingInformation, &io, sizeof(io), nullptr) &&
+            dm::over_write_budget(io.IoInfo.WriteTransferCount, o.max_write_gb)) {
+            over = true;
+            TerminateJobObject(job, 74);
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            break;
+        }
+    }
     DWORD code = 1;
     GetExitCodeProcess(pi.hProcess, &code);
+    if (over) {
+        std::cerr << "[bosun] stopped the command and everything it started: together they wrote more than "
+                  << o.max_write_gb << " GB (--max-write-gb). Something in it writes without a limit.\n";
+        code = 74;
+    }
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     CloseHandle(job);

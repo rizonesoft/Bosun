@@ -17,6 +17,28 @@ import unittest.mock
 SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
 
+
+def kill_tree(pid):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        os.killpg(pid, 9)
+
+
+def run_tree(argv, timeout, **kwargs):
+    """subprocess.run with captured text output, except that a timeout stops the whole tree. run's own timeout kills
+    only the direct child, so a fake reviewer the dispatcher had started kept running after its test: on 2026-11-08
+    one flooding stderr wrote 287 GB and filled the disk."""
+    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **group, **kwargs) as process:
+        try:
+            out, err = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(process.pid)
+            process.communicate()
+            raise
+    return subprocess.CompletedProcess(argv, process.returncode, out, err)
+
 # One writer, one Codex reviewer, one route, no fallback. Most of the suite exercises the dispatcher against this
 # fixture, never against the repository's own pin, which a project may change; MultiCli adds the other CLIs.
 FIXTURE_PIN = textwrap.dedent('''    schema_version = 1
@@ -147,8 +169,8 @@ class Harness(unittest.TestCase):
                "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
                **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
-        result = subprocess.run([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
-                                capture_output=True, text=True, env=env, timeout=60, cwd=cwd)
+        result = run_tree([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
+                          timeout=60, env=env, cwd=cwd)
         summary = json.loads(result.stdout) if result.stdout.strip().startswith("{") else None
         return result, summary
 
@@ -174,6 +196,35 @@ class Harness(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+
+
+class HarnessTimeout(unittest.TestCase):
+    def test_a_timeout_stops_the_grandchild_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "grandchild.pid"
+            script = ("import subprocess, sys, time\n"
+                      # Its output goes elsewhere, as the dispatcher sends a reviewer's to files, so no pipe of ours
+                      # waits for it.
+                      "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+                      "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                      f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+                      "time.sleep(60)\n")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_tree([sys.executable, "-c", script], timeout=3)
+            grandchild = int(pid_file.read_text())
+            time.sleep(0.5)
+            if os.name == "nt":
+                alive = str(grandchild) in subprocess.run(["tasklist", "/FI", f"PID eq {grandchild}", "/NH"],
+                                                          capture_output=True, text=True).stdout
+            else:
+                try:
+                    os.kill(grandchild, 0)
+                    alive = True
+                except OSError:
+                    alive = False
+            if alive:
+                kill_tree(grandchild)
+            self.assertFalse(alive, "the grandchild outlived the timeout")
 
 
 class Dispatch(Harness):
@@ -1054,10 +1105,7 @@ class Attempts(Harness):
                 time.sleep(0.1)
             self.assertTrue(self.calls(), "the fake CLI never started")
         finally:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
-            else:
-                os.killpg(process.pid, 9)
+            kill_tree(process.pid)
             process.wait(30)
         (entry,) = self.attempts().values()
         self.assertEqual(entry["count"], 1)

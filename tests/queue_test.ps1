@@ -124,6 +124,32 @@ Check ($job.WaitForExit(10000)) 'nested run does not deadlock'
 Check ($job.ExitCode -eq 0) "nested run exits 0 (got $($job.ExitCode))"
 Check ((Get-Content "$work\nested.txt") -match '^end') 'the nested command really ran'
 
+# A child that writes without end is stopped at the write budget while the command itself sits idle, as a test suite
+# does while a fake reviewer it started floods a log: the shape that filled C: on 2026-11-08.
+$flood = Join-Path $work 'flood.py'
+Set-Content $flood @'
+import subprocess, sys, time
+if sys.argv[1] == "child":
+    with open(sys.argv[2], "wb") as out:
+        while True:
+            out.write(b"x" * 1048576)
+            out.flush()
+subprocess.Popen([sys.executable, __file__, "child", sys.argv[1]])
+time.sleep(120)
+'@
+$python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+$started = Get-Date
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-write-gb 1 -- $python $flood (Join-Path $work 'flood.bin') 2>$null
+$code = $LASTEXITCODE
+$t = ((Get-Date) - $started).TotalSeconds
+$size = (Get-Item (Join-Path $work 'flood.bin')).Length
+Check ($code -eq 74) "a job over its write budget exits 74 (got $code)"
+Check ($t -lt 60) "it is stopped well before the command's own 120 s (took $([int]$t) s)"
+Check ($size -lt 3GB) "the runaway child was stopped near the budget ($([math]::Round($size / 1GB, 1)) GB written)"
+Start-Sleep -Milliseconds 500
+Check ((Get-Item (Join-Path $work 'flood.bin')).Length -eq $size) 'nothing is still writing after the job ends'
+Remove-Item (Join-Path $work 'flood.bin')
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'

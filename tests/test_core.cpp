@@ -31,6 +31,14 @@ static void slots() {
     CHECK(dm::slot_admits(1, 6144, 6144));
 }
 
+static void write_budget() {
+    const uint64_t gb = uint64_t{1} << 30;
+    CHECK(!dm::over_write_budget(100 * gb, 100));     // at the budget is still within it
+    CHECK(dm::over_write_budget(100 * gb + 1, 100));
+    CHECK(dm::over_write_budget(287 * gb, 100));      // the flood that filled C: on 2026-11-08
+    CHECK(!dm::over_write_budget(UINT64_MAX, 0));     // 0 turns the budget off
+}
+
 static void quoting() {
     // Quoting follows the CommandLineToArgvW rules.
     CHECK(dm::quote_arg(L"plain") == L"plain");
@@ -113,6 +121,7 @@ struct Group {
 
 static const Group groups[] = {
     {"slots", slots, nullptr},
+    {"write_budget", write_budget, nullptr},
     {"quoting", quoting, nullptr},
     {"batch", batch, nullptr},
     {"repos", repos, nullptr},

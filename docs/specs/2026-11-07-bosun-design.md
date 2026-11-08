@@ -18,7 +18,8 @@ A snapshot on 2026-11-07 showed Windows using about 16.3 GB of RAM with only 3 C
 - A nested `bosun run` sees `BOSUN_SLOT` and runs straight through, so a script that calls itself cannot deadlock on its own slot.
 - On Windows the child runs in a kill-on-close job object, so the slot is never released while an orphaned build keeps running.
 - In WSL, a shim holds a slot through a background `bosun.exe acquire` process on a pipe. When the shim dies for any reason, the pipe closes, the Windows process exits and the slot frees. The shim also waits for guest memory, because the VM has its own ceiling that Windows cannot see.
-- In WSL, the command runs with a parent-death signal, so it stops if the shim dies. Linux applies that only to the direct child, so a descendant that detaches itself can outlive the slot. This is an accepted limit.
+- In WSL, the command runs with a parent-death signal, so it stops if the shim dies, and in its own transient systemd scope, so anything it left running is stopped when it ends. Only a descendant of a shim that was itself killed can outlive the slot, because then nothing is left to stop the scope. This is an accepted limit.
+- A job and everything it starts may write at most `--max-write-gb` (100 GB by default, 0 for none). On Windows the job object's I/O accounting is checked every second; in WSL the scope's `io.stat`, which needs the `io` controller delegated to user sessions by `wsl/enable-write-budget.sh`. A job over the budget is stopped whole and exits 74. A command that writes without end would otherwise fill the drive, and a full system drive takes Windows and the WSL disk image on it down with it.
 - A batch file argument containing a line break is refused, because cmd.exe cannot safely receive one.
 - Waiters poll, so the queue is not first-in, first-out. That is acceptable for a handful of jobs.
 

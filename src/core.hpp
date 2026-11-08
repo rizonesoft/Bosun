@@ -16,6 +16,13 @@ inline bool slot_admits(int slot, uint64_t avail_mb, uint64_t min_avail_mb) {
     return slot == 0 || avail_mb >= min_avail_mb;
 }
 
+// A job and everything it started may write at most budget_gb in all; 0 means no budget. A command that writes without
+// end (a test whose fake child floods a log, a loop that never stops) would otherwise fill the drive, and a full system
+// drive takes Windows and the WSL disk image on it down with it.
+inline bool over_write_budget(uint64_t written_bytes, uint64_t budget_gb) {
+    return budget_gb != 0 && written_bytes > budget_gb * (uint64_t{1} << 30);
+}
+
 // Quotes one argument by the rules CommandLineToArgvW parses.
 inline std::wstring quote_arg(const std::wstring& a) {
     if (!a.empty() && a.find_first_of(L" \t\n\v\"") == std::wstring::npos) return a;

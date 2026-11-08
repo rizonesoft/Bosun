@@ -8,6 +8,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$HOME/bin" "$HOME/.config/bosun" "$HOME/.local/share/bosun" "$HOME/.config/systemd/user"
 install -m 755 "$here/bosun" "$HOME/bin/bosun"
 install -m 644 "$here/bosun_log.py" "$HOME/.local/share/bosun/bosun_log.py"
+install -m 755 "$here/enable-write-budget.sh" "$HOME/.local/share/bosun/enable-write-budget.sh"
 printf 'BOSUN_EXE=%q\n' "$exe" > "$HOME/.config/bosun/env"
 
 cat > "$HOME/.config/systemd/user/bosun-log.service" <<EOF

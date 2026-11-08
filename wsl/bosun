@@ -13,6 +13,7 @@ EXE="${explicit_exe:-${BOSUN_EXE:-bosun.exe}}"
 export BOSUN_EXE="$EXE"  # A nested shim must use the same executable.
 MIN_GUEST_MB="${BOSUN_MIN_GUEST_MB:-3072}"
 MAX_WAIT="${BOSUN_MAX_WAIT:-900}"
+MAX_WRITE_GB="${BOSUN_MAX_WRITE_GB:-100}"
 
 guest_avail_mb() { awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo; }
 
@@ -32,6 +33,7 @@ while [ $# -gt 0 ] && [ "$1" != "--" ]; do
   case "$1" in
     --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; MAX_WAIT="$2"; args+=("$1" "$2"); shift 2 ;;
     --min-guest-mb) [ $# -ge 2 ] || die "--min-guest-mb needs a value"; MIN_GUEST_MB="$2"; shift 2 ;;
+    --max-write-gb) [ $# -ge 2 ] || die "--max-write-gb needs a value"; MAX_WRITE_GB="$2"; shift 2 ;;
     --slots|--min-avail-mb|--ns) [ $# -ge 2 ] || die "$1 needs a value"; args+=("$1" "$2"); shift 2 ;;
     *) die "unknown option $1" ;;
   esac
@@ -82,15 +84,66 @@ fi
 export BOSUN_SLOT="$SLOT"
 export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
 
+case "$MAX_WRITE_GB" in ''|*[!0-9]*) die "--max-write-gb must be a whole number of GB" ;; esac
+
+# The job runs in its own transient scope, so its whole tree is known: whatever it leaves behind is stopped when it
+# ends, as the job object does on Windows, and what the tree writes is counted against the budget. A command that
+# writes without end would otherwise fill the WSL disk image, and the Windows drive it lives on.
+unit="bosun-job-$$-$RANDOM"
+scope=""
+# --expand-environment=no keeps the command byte-exact: systemd-run would otherwise expand $VAR and $$ in its arguments.
+# A systemd too old to have it (before 254) runs the job without a scope, as before.
+if command -v systemd-run >/dev/null && systemctl --user show-environment >/dev/null 2>&1 &&
+  systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
+  scope="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$unit.scope"
+  launch=(systemd-run --user --scope --quiet --collect --expand-environment=no --unit="$unit" -p IOAccounting=yes --)
+else
+  launch=()
+fi
+over="$(mktemp)" || die "cannot create a temp file"
+watch_pid=""
+if [ -n "$scope" ] && [ "$MAX_WRITE_GB" -gt 0 ]; then
+  (
+    budget=$((MAX_WRITE_GB * 1073741824))
+    for _ in $(seq 50); do [ -e "$scope/cgroup.procs" ] && break; sleep 0.1; done
+    if [ ! -e "$scope/io.stat" ]; then
+      # The user manager is only given the io controller by a root setting, so say once per boot how to turn it on.
+      warned="${XDG_RUNTIME_DIR:-/tmp}/bosun-io-warned"
+      if [ -e "$scope/cgroup.procs" ] && [ ! -e "$warned" ]; then
+        : >"$warned"
+        echo "[bosun] the write budget is off in WSL because systemd doesn't give user jobs the io controller. Turn it on once with: sudo $HOME/.local/share/bosun/enable-write-budget.sh" >&2
+      fi
+      exit 0
+    fi
+    while [ -e "$scope/cgroup.procs" ]; do
+      written=$(awk '{for (i = 2; i <= NF; i++) if ($i ~ /^wbytes=/) { sub(/wbytes=/, "", $i); s += $i }} END {printf "%.0f", s + 0}' "$scope/io.stat" 2>/dev/null)
+      if [ "${written:-0}" -gt "$budget" ]; then
+        echo over >"$over"
+        echo 1 >"$scope/cgroup.kill"
+        exit 0
+      fi
+      sleep 1
+    done
+  ) 3>&- 4<&- &
+  watch_pid=$!
+fi
+
 # The command must not inherit the pipe, or a daemon it starts would hold the slot for good.
 # pdeathsig ends the command if this script dies, so a freed slot means the work has stopped.
-# Linux only applies it to the direct child; a descendant that detaches itself can outlive it.
 if command -v setpriv >/dev/null; then
-  setpriv --pdeathsig TERM -- "$@" 3>&- 4<&-
+  setpriv --pdeathsig TERM -- "${launch[@]}" "$@" 3>&- 4<&-
 else
-  "$@" 3>&- 4<&-
+  "${launch[@]}" "$@" 3>&- 4<&-
 fi
 code=$?
+# Anything the command started and left running ends with it, so nothing it began can keep writing.
+[ -n "$scope" ] && [ -e "$scope/cgroup.kill" ] && echo 1 >"$scope/cgroup.kill" 2>/dev/null
+[ -n "$watch_pid" ] && { kill "$watch_pid" 2>/dev/null; wait "$watch_pid" 2>/dev/null; }
+if [ -s "$over" ]; then
+  echo "[bosun] stopped the command and everything it started: together they wrote more than $MAX_WRITE_GB GB (--max-write-gb). Something in it writes without a limit." >&2
+  code=74
+fi
+rm -f "$over"
 exec 3>&- 4<&-
 wait "$hold_pid" 2>/dev/null
 exit "$code"

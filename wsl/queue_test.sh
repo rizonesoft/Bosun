@@ -70,6 +70,34 @@ timeout 15 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-wait 0 -- "$B
 r=$?
 [ "$r" = 7 ]; check $? "a nested run on Windows does not deadlock (exit $r)"
 
+# A $ in the command reaches it unexpanded: the scope the job runs in must not rewrite it.
+got="$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- printf '%s' 'a$HOME$$b')"
+[ "$got" = 'a$HOME$$b' ]; check $? "a \$ in the command arrives intact (got $got)"
+
+# Whatever a job leaves running ends with it, even a child that detached itself into its own session.
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- bash -c 'setsid sleep 300 >/dev/null 2>&1 < /dev/null & echo $! > "$1"' _ "$WORK/orphan.pid"
+sleep 1
+orphan="$(cat "$WORK/orphan.pid")"
+if kill -0 "$orphan" 2>/dev/null; then r=1; kill -9 "$orphan"; else r=0; fi
+check "$r" "a child the job left behind is stopped when the job ends"
+
+# A child that writes without end is stopped at the write budget while the command itself sits idle.
+probe="bosun-probe-$$"
+io_ok=$(systemd-run --user --scope --quiet --collect --unit="$probe" -p IOAccounting=yes -- bash -c \
+  "test -e /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$probe.scope/io.stat && echo yes")
+if [ "$io_ok" = yes ]; then
+  SECONDS=0
+  "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 1 -- bash -c \
+    '(while :; do dd if=/dev/zero bs=1M count=64 oflag=direct status=none; done > "$1") & sleep 120' _ "$WORK/flood.bin" 2>/dev/null
+  r=$?
+  size=$(stat -c %s "$WORK/flood.bin")
+  [ "$r" = 74 ] && [ "$SECONDS" -lt 60 ]; check $? "a job over its write budget is stopped with 74 (exit $r after $SECONDS s)"
+  [ "$size" -lt $((3 * 1073741824)) ]; check $? "the runaway was stopped near the budget ($size bytes)"
+  rm -f "$WORK/flood.bin"
+else
+  echo "skip the WSL write budget: user jobs have no io controller (sudo ~/.local/share/bosun/enable-write-budget.sh turns it on)"
+fi
+
 # A broken slot service runs the job with a warning rather than failing it.
 BOSUN_EXE=/bin/false "$SHIM" run --ns "$NS" -- bash -c 'exit 5' 2>/dev/null
 [ $? = 5 ]; check $? "job still runs if the slot service is unavailable"
