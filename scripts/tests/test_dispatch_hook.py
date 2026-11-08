@@ -1,0 +1,115 @@
+"""scripts/dispatch_hook.py: a review runs in the shell tool's background, never detached or on an edited pin."""
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location("dispatch_hook", ROOT / "scripts" / "dispatch_hook.py")
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+
+REVIEW = "python scripts/review-dispatch.py --writer claude --writer-model claude-opus-5-5 --prompt p.md --record f.md"
+
+
+def payload(command, tool="Bash", background=None):
+    tool_input = {"command": command}
+    if background is not None:
+        tool_input["run_in_background"] = background
+    return {"tool_name": tool, "tool_input": tool_input}
+
+
+class Clean(unittest.TestCase):
+    """A clean pin, so only the launch form decides."""
+
+    def setUp(self):
+        patch = mock.patch.object(hook, "pin_dirty", return_value=False)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_detached_reviews_are_refused(self):
+        for command, tool in ((REVIEW + " &", "Bash"), ("nohup " + REVIEW, "Bash"), (REVIEW + " & disown", "Bash"),
+                              ("setsid " + REVIEW, "Bash"), (f"Start-Job {{ {REVIEW} }}", "PowerShell"),
+                              (f"Start-Process python -ArgumentList 'scripts/review-dispatch.py --prompt p.md'", "PowerShell"),
+                              (REVIEW + " &", "PowerShell")):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, tool, background=True)))
+
+    def test_a_foreground_review_is_refused_and_a_background_one_passes(self):
+        self.assertIn("run_in_background", hook.verdict(payload(REVIEW)))
+        self.assertIsNone(hook.verdict(payload(REVIEW, background=True)))
+        self.assertIsNone(hook.verdict(payload("python3 scripts/review-dispatch.py --prompt p.md 2>&1 | tail -5", background=True)))
+
+    def test_calls_that_run_no_review_pass(self):
+        for command in ("python scripts/review-dispatch.py --check-pin", "python scripts/review-dispatch.py --list-rounds --json",
+                        "python scripts/review-dispatch.py --help", 'git commit -m "run review-dispatch.py --prompt later"',
+                        "cat <<EOF\nreview-dispatch.py --prompt x\nEOF", "git status && npm test"):
+            with self.subTest(command):
+                self.assertIsNone(hook.verdict(payload(command)))
+
+    def test_other_tools_pass(self):
+        self.assertIsNone(hook.verdict({"tool_name": "Read", "tool_input": {"file_path": "x"}}))
+
+
+class Pin(unittest.TestCase):
+    """The pin is the owner's: a review or a stamp waits while it has uncommitted changes."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name)
+        git = lambda *a: subprocess.run(["git", "-C", str(self.repo), *a], check=True, capture_output=True)
+        git("init", "-q")
+        (self.repo / ".conclave").mkdir()
+        (self.repo / ".conclave" / "reviewers.toml").write_text("schema_version = 1\n", encoding="utf-8")
+        (self.repo / "docs" / "reviews").mkdir(parents=True)
+        (self.repo / "docs" / "reviews" / "f.md").write_text("# Findings\n", encoding="utf-8")
+        git("add", "-A")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x")
+
+    def decide(self, command, background=True):
+        return hook.verdict(payload(command, background=background), self.repo)
+
+    def test_a_dirty_pin_refuses_a_review_and_a_stamp_staged_or_not(self):
+        stamp = "python scripts/todo-graph.py stamp 'D00 T01 §3' --sha abc"
+        self.assertIsNone(self.decide(REVIEW))
+        self.assertIsNone(self.decide(stamp))
+        (self.repo / ".conclave" / "reviewers.toml").write_text("schema_version = 2\n", encoding="utf-8")
+        for command in (REVIEW, stamp):
+            with self.subTest(command):
+                self.assertIn("reviewer pin is the owner's", self.decide(command))
+        subprocess.run(["git", "-C", str(self.repo), "add", "-A"], check=True)
+        self.assertIn("reviewer pin is the owner's", self.decide(stamp))
+
+    def test_a_modified_findings_file_does_not_stop_the_campaign(self):
+        (self.repo / "docs" / "reviews" / "f.md").write_text("# Findings\n\n- Planned: x\n", encoding="utf-8")
+        self.assertIsNone(self.decide(REVIEW))
+        self.assertIsNone(self.decide("python scripts/todo-graph.py stamp 'D00 T01 §3'"))
+
+
+class Process(unittest.TestCase):
+    def run_hook(self, raw):
+        return subprocess.run([sys.executable, str(ROOT / "scripts" / "dispatch_hook.py")], input=raw,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_exit_2_refuses_with_the_reason_on_stderr(self):
+        done = self.run_hook(json.dumps(payload(REVIEW + " &", background=True)))
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("not detached", done.stderr)
+
+    def test_a_malformed_payload_fails_open_with_a_message(self):
+        for raw in ("", "not json", "[1]"):
+            with self.subTest(raw):
+                done = self.run_hook(raw)
+                self.assertEqual(done.returncode, 0)
+                self.assertIn("couldn't read its input", done.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

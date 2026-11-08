@@ -1137,6 +1137,19 @@ class InFlightMarks(Harness):
 
 
 class SkillsKnowTheWait(unittest.TestCase):
+    def test_each_agent_s_mirror_says_how_it_runs_and_waits_for_a_review(self):
+        repo = SCRIPTS.parent
+        own = {".claude": "run_in_background", ".codex": "write_stdin", ".agents": "at least 35 minutes"}
+        for folder, words in own.items():
+            for skill in ("review-todo-section", "process-todo-section"):
+                with self.subTest(folder=folder, skill=skill):
+                    text = (repo / folder / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                    self.assertIn(words, text)
+                    self.assertIn("final output and exit status", text)
+                    for other, theirs in own.items():
+                        if other != folder:
+                            self.assertNotIn(theirs, text, f"{folder} carries {other}'s instruction")
+
     def test_every_skill_that_calls_the_dispatcher_ends_the_turn_on_exit_3(self):
         repo = SCRIPTS.parent
         for folder in (".claude", ".codex", ".agents"):

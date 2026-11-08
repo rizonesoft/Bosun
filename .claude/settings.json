@@ -77,6 +77,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/dispatch_hook.py\"",
+            "timeout": 30
+          }
+        ]
       }
     ]
   }

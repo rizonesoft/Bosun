@@ -41,13 +41,24 @@ class HookInterpreter(unittest.TestCase):
                 with self.subTest(command=command, interpreter=interpreter):
                     done = self.run_with_only(interpreter, command)
                     self.assertEqual(done.returncode, 0, done.stderr)
-                    self.assertRegex(done.stdout, r"ran: project/scripts/(run-guard|tool-guard)\.py")
+                    self.assertRegex(done.stdout, r"ran: project/scripts/(run-guard|tool-guard|dispatch_hook)\.py")
 
     def test_the_deny_list_hook_sees_every_shell_and_connector_tool(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        (group,) = settings["hooks"]["PreToolUse"]
-        self.assertEqual(group["matcher"], "Bash|PowerShell|mcp__.*")
-        self.assertIn("scripts/tool-guard.py", group["hooks"][0]["command"])
+        groups = {g["hooks"][0]["command"].rsplit("/", 1)[-1].strip('"'): g["matcher"] for g in settings["hooks"]["PreToolUse"]}
+        self.assertEqual(groups, {"tool-guard.py": "Bash|PowerShell|mcp__.*", "dispatch_hook.py": "Bash|PowerShell"})
+
+    def test_the_registered_dispatch_hook_refuses_a_detached_review_and_passes_a_background_one(self):
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        (command,) = [g["hooks"][0]["command"] for g in settings["hooks"]["PreToolUse"] if "dispatch_hook" in g["hooks"][0]["command"]]
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=ROOT.as_posix())
+        review = "python scripts/review-dispatch.py --writer claude --prompt p.md"
+        for tool_input, code in (({"command": review + " &"}, 2), ({"command": review}, 2),
+                                 ({"command": review, "run_in_background": True}, 0), ({"command": "git status"}, 0)):
+            payload = json.dumps({"tool_name": "Bash", "tool_input": tool_input})
+            with self.subTest(tool_input):
+                done = subprocess.run([find_bash(), "-c", command], input=payload, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(done.returncode, code, done.stderr)
 
 
 if __name__ == "__main__":

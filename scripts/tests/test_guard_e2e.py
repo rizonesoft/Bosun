@@ -103,5 +103,82 @@ class ResumedSession(unittest.TestCase):
               f"commit tree: {', '.join(sorted(tree))}")
 
 
+FAKE_CODEX = """import os, sys
+args = sys.argv[1:]
+if os.environ.get("FAKE_CODEX") == "fail":
+    sys.exit(3)
+open(args[args.index("-o") + 1], "w").write("The change is fine.\\n\\nOVERALL: approve")
+"""
+PIN = """schema_version = 1
+
+[reviewers.sol]
+cli = "codex"
+model = "gpt-6.1-sol"
+effort = "low"
+
+[routes]
+claude = ["sol"]
+"""
+
+
+@unittest.skipUnless(os.environ.get("BOSUN_E2E") == "1", "starts real Claude sessions, which spend subscription usage: set BOSUN_E2E=1")
+class BackgroundReview(unittest.TestCase):
+    """A real session, with the dispatch hook installed, runs a review in the background and hears how it ended."""
+
+    def session(self, mode):
+        claude = shutil.which("claude")
+        self.assertIsNotNone(claude, "claude is not on PATH")
+        repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-review-"))
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        (repo / "scripts").mkdir()
+        for name in ("review-dispatch.py", "dispatch_hook.py"):
+            shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
+        (repo / ".conclave").mkdir()
+        (repo / ".conclave" / "reviewers.toml").write_text(PIN, encoding="utf-8")
+        (repo / "prompt.md").write_text("Review nothing. Do not modify any file.\n", encoding="utf-8")
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        hooks = [g for g in settings["hooks"]["PreToolUse"] if "dispatch_hook" in g["hooks"][0]["command"]]
+        (repo / ".claude").mkdir()
+        (repo / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": hooks}}), encoding="utf-8")
+        # Committed, as a real repository has its pin: the hook refuses a review on an uncommitted one.
+        for args in (["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "setup"]):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+        fake_bin = repo.parent / f"{repo.name}-bin"
+        fake_bin.mkdir()
+        self.addCleanup(lambda: shutil.rmtree(fake_bin, ignore_errors=True))
+        (fake_bin / "fake_codex.py").write_text(FAKE_CODEX, encoding="utf-8")
+        if os.name == "nt":
+            (fake_bin / "codex.cmd").write_text(f'@"{sys.executable}" "{fake_bin / "fake_codex.py"}" %*\r\n', encoding="utf-8")
+        else:
+            (fake_bin / "codex").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake_bin / "fake_codex.py"}" "$@"\n', encoding="utf-8")
+            (fake_bin / "codex").chmod(0o755)
+        env = guard.child_env(os.environ)
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+        env["FAKE_CODEX"] = mode
+        # Inline, since the session's shell builds PATH from its own snapshot and would not see the fake reviewer.
+        posix_bin = fake_bin.as_posix()
+        if os.name == "nt":
+            posix_bin = "/" + posix_bin[0].lower() + posix_bin[2:]
+        task = ("This is an automated test. Run this exact command with your Bash tool, with run_in_background set to "
+                f"true: PATH=\"{posix_bin}:$PATH\" FAKE_CODEX={mode} python scripts/review-dispatch.py --writer claude --prompt prompt.md\n"
+                "Wait until you are told it has finished; don't poll it with sleep. Then read its output and reply with "
+                "exactly one line and nothing else: EXIT=<its exit code> REVIEWER=<the value of \"reviewer\" in its JSON "
+                "output, or null>")
+        done = subprocess.run([claude, "-p", task, "--permission-mode", "bypassPermissions"], cwd=repo, env=env,
+                              capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
+        print(f"\n{mode}: exit {done.returncode}; said: {done.stdout.strip()[-200:]}")
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        return done.stdout
+
+    def test_a_review_that_returns_reaches_the_session(self):
+        out = self.session("ok")
+        self.assertRegex(out, r"EXIT=0\s+REVIEWER=sol")
+
+    def test_a_review_that_fails_reaches_the_session_too(self):
+        out = self.session("fail")
+        self.assertRegex(out, r"EXIT=1\s+REVIEWER=null")
+
+
 if __name__ == "__main__":
     unittest.main()
