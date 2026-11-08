@@ -1420,6 +1420,21 @@ class Verify(unittest.TestCase):
         self.unhealthy("can't be read", code=1, task="ERROR: Access is denied.")
         self.unhealthy("is missing", code=1, task="ERROR: The system cannot find the file specified.")
 
+    def test_an_escaped_path_in_the_xml_is_decoded(self):
+        self.root = Path("C:/R&D/here")
+        self.files = {"C:/py/pythonw.exe", str(self.root / "scripts" / "run-guard.py")}
+        escaped = str(self.root / "scripts" / "run-guard.py").replace("&", "&amp;")
+        self.assertTrue(self.run_verify(task=xml(arguments=f'"{escaped}" watch'))["healthy"])
+        with tempfile.TemporaryDirectory() as folder:
+            program, script = Path(folder) / "a&b.exe", Path(folder) / "a&b.py"
+            program.write_text("", encoding="utf-8")
+            script.write_text("", encoding="utf-8")
+            text = xml(command=str(program).replace("&", "&amp;"), arguments=f'"{str(script).replace("&", "&amp;")}" tick')
+            with mock.patch.object(guard, "os") as fake_os, mock.patch.object(guard, "run",
+                                                                           return_value=subprocess.CompletedProcess([], 0, text.encode(), b"")):
+                fake_os.name = "nt"
+                self.assertTrue(guard.heartbeat_task_exists())
+
     def test_a_repo_on_the_heartbeat_reads_healthy_with_no_task_of_its_own(self):
         found = self.run_verify(listed=True)
         self.assertEqual((found["healthy"], found["watchdog"]), (True, guard.HEARTBEAT_TASK), found)

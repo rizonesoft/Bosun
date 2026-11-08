@@ -682,6 +682,15 @@ class Status(Base):
         world.run = lambda argv, cwd=None, timeout=120: (1, "ERROR: Access is denied.")
         self.assertEqual(self.status(world)["task"]["state"], "unreadable")
 
+    def test_task_health_decodes_the_xml(self):
+        world = self.world()
+        exe, script = r"C:\R&D\pythonw.exe", r"C:\R&D\heartbeat.py"
+        world.files |= {exe, script}
+        world.run = lambda argv, cwd=None, timeout=120: (0, '<Task><Actions><Exec><Command>"C:\\R&amp;D\\pythonw.exe"</Command>'
+                                                            '<Arguments>"C:\\R&amp;D\\heartbeat.py" tick</Arguments></Exec></Actions></Task>')
+        task = self.status(world)["task"]
+        self.assertEqual((task["state"], task["problem"]), ("installed", None), task)
+
 
 class RealProcesses(Base):
     """What fakes can't prove: the operating system's lock and a real child process."""

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import html
 import json
 import math
 import os
@@ -1110,11 +1111,10 @@ def heartbeat_task_exists() -> bool:
     if not (enabled is None or enabled.group(1).lower() == "true"):
         return False
     # A task whose program or script is gone fires and does nothing, so it doesn't count as a watchdog.
-    command = re.search(r"<Command>(.*?)</Command>", text, re.S)
-    if not command or not Path(command.group(1).strip().strip('"')).is_file():
+    command = xml_field(text, "Command")
+    if not command or not Path(command.strip().strip('"')).is_file():
         return False
-    arguments = re.search(r"<Arguments>(.*?)</Arguments>", text, re.S)
-    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', arguments.group(1) if arguments else "")
+    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', xml_field(text, "Arguments") or "")
     return script is None or Path(script.group(1) or script.group(2)).is_file()
 
 
@@ -1238,12 +1238,16 @@ def read_json_file(path: Path):
         return {"__unreadable__": repr(error)}
 
 
+def xml_field(xml: str, tag: str) -> str | None:
+    """One element's text from a task's XML, decoded: Task Scheduler writes `&` in a path as `&amp;`."""
+    found = re.search(rf"<{tag}>(.*?)</{tag}>", xml, re.S)
+    return html.unescape(found.group(1)) if found else None
+
+
 def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: set, is_file: Callable[[str], bool]) -> list[str]:
     problems = []
-    command = re.search(r"<Command>(.*?)</Command>", xml, re.S)
-    arguments = re.search(r"<Arguments>(.*?)</Arguments>", xml, re.S)
-    program = command.group(1).strip().strip('"') if command else ""
-    args = arguments.group(1) if arguments else ""
+    program = (xml_field(xml, "Command") or "").strip().strip('"')
+    args = xml_field(xml, "Arguments") or ""
     if not program:
         problems.append("its action has no program")
     elif not is_file(program):
@@ -1258,12 +1262,11 @@ def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: se
         problems.append(f"its action runs another script: {script}")
     if word not in re.findall(r"[\w-]+", args.replace(script, " ")):
         problems.append(f"its action doesn't run `{word}`: {args.strip()}")
-    logon = re.search(r"<LogonType>(.*?)</LogonType>", xml, re.S)
-    user = re.search(r"<UserId>(.*?)</UserId>", xml, re.S)
-    if not logon or logon.group(1).strip() != "InteractiveToken":
-        problems.append(f"it doesn't run in this user's session (logon {logon.group(1).strip() if logon else 'not given'})")
-    if not user or user.group(1).strip().lower() not in ids:
-        problems.append(f"it runs as another user: {user.group(1).strip() if user else 'not given'}")
+    logon, user = (xml_field(xml, "LogonType") or "").strip(), (xml_field(xml, "UserId") or "").strip()
+    if logon != "InteractiveToken":
+        problems.append(f"it doesn't run in this user's session (logon {logon or 'not given'})")
+    if user.lower() not in ids:
+        problems.append(f"it runs as another user: {user or 'not given'}")
     enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", xml, re.S | re.I)
     if enabled and enabled.group(1).lower() == "false":
         problems.append("it is disabled")

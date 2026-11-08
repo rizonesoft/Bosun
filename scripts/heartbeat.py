@@ -15,6 +15,7 @@ replace, so a crash can't lose it, and a handoff a crash interrupted is finished
 """
 import argparse
 from datetime import datetime, timezone
+import html
 import json
 import os
 import posixpath
@@ -473,12 +474,13 @@ def task_health(world):
         if code is not None and "cannot find" in out.lower():
             return {"state": "missing", "enabled": False, "action": None}
         return {"state": "unreadable", "enabled": None, "action": None}
-    command = re.search(r"<Command>(.*?)</Command>", out, re.S)
-    arguments = re.search(r"<Arguments>(.*?)</Arguments>", out, re.S)
+    # Decoded, since Task Scheduler writes `&` in a path as `&amp;`.
+    command, arguments = (html.unescape(m.group(1)) if m else None
+                          for m in (re.search(rf"<{tag}>(.*?)</{tag}>", out, re.S) for tag in ("Command", "Arguments")))
     enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", out, re.S | re.I)
-    action = " ".join(m.group(1).strip() for m in (command, arguments) if m)
+    action = " ".join(part.strip() for part in (command, arguments) if part)
     is_enabled = enabled is None or enabled.group(1).lower() == "true"
-    broken = action_problem(world, command.group(1) if command else "", arguments.group(1) if arguments else "")
+    broken = action_problem(world, command or "", arguments or "")
     state = "broken" if broken else "installed" if is_enabled else "disabled"
     return {"state": state, "enabled": is_enabled, "action": action or None, "problem": broken}
 
