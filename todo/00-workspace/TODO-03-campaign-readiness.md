@@ -326,6 +326,8 @@ A hidden session can't answer a prompt, so any prompt stalls the run. The owner 
 
 ## 9. Named core tests and CMake resolution
 
+> **Started:** 2026-11-08T00:19:56Z
+
 Five test checkpoints pass a name to a test program that ignores it, so they can't fail for the reason they state, and the build command is not on PATH.
 
 **Corrected 2026-11-08:** `scripts/campaign-preflight.ps1` doesn't exist yet; `§10` owns the preflight. This section creates the script with the CMake check as its first check, and `§10` adds its own. The names are reserved for `D01 T01` (`records`, `status_json`, `report_json`, `config`) and `D05 T02` (`pressure`), whose checkpoints already call them.
