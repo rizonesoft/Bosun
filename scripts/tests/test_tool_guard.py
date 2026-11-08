@@ -91,6 +91,17 @@ class Pushes(Base):
                 self.refused(form)
         self.refused(f"env --chd {self.outside} rm -rf sub")
         self.refused(f"env --chdir {self.outside} rm -rf sub")
+        for prefix in ("stdbuf --output L", "stdbuf --out L", "stdbuf --input=0", "sudo --user me", "sudo --us me",
+                       "timeout --signal KILL 60", "nice --adjustment 5"):
+            with self.subTest(prefix):
+                self.refused(f"{prefix} git push --force origin main")
+
+    def test_every_valued_long_option_is_listed_as_a_long_option(self):
+        for head, valued in tg.PREFIX_VALUES.items():
+            for option in valued:
+                if option.startswith("--"):
+                    with self.subTest(head=head, option=option):
+                        self.assertIn(option, tg.LONG_OPTIONS[head])
         for form in ("env -S 'git\\_push\\_--force'", "env -S 'git push ${FORCE}'"):
             with self.subTest(form):
                 self.assertIn("can't read", self.refused(form))

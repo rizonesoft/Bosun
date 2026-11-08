@@ -155,8 +155,10 @@ PREFIXES = {"env", "command", "builtin", "exec", "nohup", "setsid", "time", "tim
 
 # A prefix's options that take the next word as their value, and prefixes whose first plain word is theirs too.
 PREFIX_VALUES = {"env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}, "nice": {"-n", "--adjustment"},
-                 "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "-p", "-r", "-t"},
-                 "stdbuf": {"-i", "-o", "-e"}, "timeout": {"-s", "--signal", "-k", "--kill-after"}}
+                 "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "--close-from", "-p", "--prompt",
+                          "-r", "--role", "-t", "--type", "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout"},
+                 "stdbuf": {"-i", "--input", "-o", "--output", "-e", "--error"},
+                 "timeout": {"-s", "--signal", "-k", "--kill-after"}}
 PREFIX_POSITIONALS = {"timeout": 1}  # `timeout DURATION command`
 # Each prefix's long options, so a shortening GNU accepts (`--split-str`, `--chd`) is read as the option it names.
 LONG_OPTIONS = {
@@ -165,8 +167,9 @@ LONG_OPTIONS = {
     "nice": ("--adjustment", "--help", "--version"),
     "timeout": ("--signal", "--kill-after", "--foreground", "--preserve-status", "--verbose", "--help", "--version"),
     "stdbuf": ("--input", "--output", "--error", "--help", "--version"),
-    "sudo": ("--user", "--group", "--host", "--prompt", "--role", "--type", "--login", "--shell", "--preserve-env",
-             "--set-home", "--non-interactive", "--background", "--help", "--version"),
+    "sudo": ("--user", "--group", "--host", "--prompt", "--role", "--type", "--close-from", "--chdir", "--chroot",
+             "--command-timeout", "--login", "--shell", "--preserve-env", "--set-home", "--non-interactive",
+             "--background", "--help", "--version"),
 }
 
 
