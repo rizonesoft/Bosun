@@ -30,7 +30,7 @@ Sections: 30 | Checklist items: 245
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 3     |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none           | 14    |
 | [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none           | 6     |
-| [ ]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
+| [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                             | none           | 4     |
 | [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                         | none           | 4     |
@@ -200,6 +200,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 15/131 verified sections, 4 ready to run now.
+Progress: 16/131 verified sections, 7 ready to run now.
 
-Checklist: 191/759 items completed (includes Commit items).
+Checklist: 192/759 items completed (includes Commit items).

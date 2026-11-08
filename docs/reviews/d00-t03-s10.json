@@ -1,0 +1,97 @@
+{
+  "ref": "D00 T03 \u00a710",
+  "title": "Preflight and machine hold",
+  "implementation_sha": "8ecc761e847d15aecc71c64110373c3eb475cdba",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s10.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s10.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s10.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh scripts/campaign-preflight.ps1 -> exit 0, preflight passed",
+    "pwsh tests/preflight_test.ps1 -> exit 0",
+    "pwsh tests/campaign_hold_test.ps1 -> exit 0",
+    "pwsh tests/campaign_admin_test.ps1 -> exit 0",
+    "python scripts/ci_status.py --gate --sha HEAD -> action: proceed (build.yml and plan.yml green)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s10.md",
+    "verdict": "filed",
+    "candidate": "84e20b7f1295cb4e912750e82f670cceb4172545",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D00 T03 \u00a718",
+      "D07 T01 \u00a77"
+    ]
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 raised only P3, the pin stop; both P3s were fixed in 84e20b7 and hold on run 3 evidence",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s10.md",
+    "candidate": "cabad067e6444c55ac258a318c96a53a4b1a1b6e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "cabad067e6444c55ac258a318c96a53a4b1a1b6e",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
