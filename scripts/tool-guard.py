@@ -132,7 +132,7 @@ def split_chain(command: str) -> list[str]:
 
 
 # Commands that run the rest of their line as a command of its own.
-PREFIXES = {"env", "command", "builtin", "exec", "nohup", "time", "sudo", "nice", "stdbuf", "chronic"}
+PREFIXES = {"env", "command", "builtin", "exec", "nohup", "setsid", "time", "sudo", "nice", "stdbuf", "chronic"}
 
 
 def inner_command(words: list[str]) -> tuple | None:

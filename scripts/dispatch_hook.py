@@ -17,7 +17,9 @@ change on the way to every commit.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -44,6 +46,52 @@ DETACH = {"Bash": BASH_DETACH, "PowerShell": POWERSHELL_DETACH}
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$|@(['\"])\r?\n.*?^\3@", re.S | re.M)
 
 
+def _parser():
+    """The deny list's own command parser (scripts/tool-guard.py), so both hooks read a command line the same way:
+    chains split outside quotes, wrappers opened, and quoted text never taken for a command."""
+    spec = importlib.util.spec_from_file_location("tool_guard", Path(__file__).with_name("tool-guard.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+PARSER = _parser()
+INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
+
+
+def runs(command: str, powershell: bool) -> tuple:
+    """(runs a review, runs a stamp): what the command really runs, segment by segment."""
+    reviewing = stamping = False
+    for segment, _ in PARSER.segments(command, powershell):
+        words = PARSER.tokens_of(segment)
+        if not words:
+            continue
+        if INTERPRETER.fullmatch(os.path.basename(words[0]).lower()):
+            words = [w for w in words[1:] if not w.startswith("-")][:1] + words[1:]
+        script = os.path.basename(words[0]).lower() if words else ""
+        reviewing |= script == "review-dispatch.py" and "--prompt" in words
+        stamping |= script == "todo-graph.py" and "stamp" in words
+    return reviewing, stamping
+
+
+def powershell_background(command: str) -> bool:
+    """A PowerShell `&` that backgrounds what comes before it: outside quotes, not `&&`, not a redirect, and not the
+    call operator, which starts a statement."""
+    quote, last = None, ""
+    for i, char in enumerate(command):
+        if quote:
+            quote = None if char == quote else quote
+            continue
+        if char in "'\"":
+            quote = char
+        elif char == "&" and command[i + 1:i + 2] != "&" and command[i - 1:i] not in ("&", ">"):
+            if last and last not in ";|({\n":
+                return True
+        if not char.isspace():
+            last = char
+    return False
+
+
 def pin_dirty(repo: Path = ROOT) -> bool:
     """True when the reviewer pin has changes not committed, staged or not."""
     try:
@@ -63,14 +111,16 @@ def verdict(payload: dict, repo: Path = ROOT) -> str | None:
     if detach is None or not isinstance(command, str):
         return None
     command = HEREDOC.sub("", command)  # a heredoc's body is text, never a command, wherever its lines fall
-    launched =tool == "PowerShell" and "review-dispatch.py" in command and POWERSHELL_LAUNCHER.search(command)
-    reviewing = "--prompt" in command and (launched or REVIEW.search(command))
-    if (reviewing or STAMP.search(command)) and pin_dirty(repo):
+    powershell = tool == "PowerShell"
+    launched = powershell and "review-dispatch.py" in command and "--prompt" in command and POWERSHELL_LAUNCHER.search(command)
+    reviewing, stamping = runs(command, powershell)
+    reviewing = reviewing or bool(launched)
+    if (reviewing or stamping) and pin_dirty(repo):
         return (f"{PIN} has uncommitted changes, and the reviewer pin is the owner's: restore it to HEAD (or commit the "
                 f"owner's change) before running review-dispatch.py or todo-graph.py stamp")
     if not reviewing:
         return None
-    if launched or detach.search(command):
+    if launched or detach.search(command) or (powershell and powershell_background(command)):
         return ("review-dispatch: run the review with the shell tool's run_in_background option, not detached "
                 "(&, nohup, disown, setsid, Start-Job, Start-Process): only the tool's option tells the session when "
                 "it finishes")

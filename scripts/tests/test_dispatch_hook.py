@@ -53,6 +53,20 @@ class Clean(unittest.TestCase):
             with self.subTest(command):
                 self.assertIsNone(hook.verdict(payload(command)))
 
+    def test_powershell_s_background_ampersand_anywhere_is_refused(self):
+        for command in (REVIEW + " & Write-Output launched", REVIEW + " &", REVIEW + "& ; Get-Date"):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, "PowerShell", background=True)))
+        self.assertIsNone(hook.verdict(payload("& python scripts/review-dispatch.py --prompt p.md", "PowerShell", background=True)))
+        self.assertIsNone(hook.verdict(payload(REVIEW + " 2>&1 | Select-Object -Last 5", "PowerShell", background=True)))
+
+    def test_quoted_text_is_never_taken_for_a_review(self):
+        for command in ('rg -n "python scripts/review-dispatch.py --prompt" docs',
+                        "grep 'review-dispatch.py --prompt' -r scripts", 'echo "python scripts/todo-graph.py stamp x"'):
+            with self.subTest(command):
+                self.assertIsNone(hook.verdict(payload(command)))
+        self.assertIn("run_in_background", hook.verdict(payload('bash -c "python scripts/review-dispatch.py --prompt p.md"')))
+
     def test_other_tools_pass(self):
         self.assertIsNone(hook.verdict({"tool_name": "Read", "tool_input": {"file_path": "x"}}))
 
