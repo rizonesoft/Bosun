@@ -1,22 +1,83 @@
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 40 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 40
+          }
+        ]
+      }
     ],
     "StopFailure": [
-      { "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 10 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 10 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 10 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "matcher": "CronCreate", "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 10 } ] }
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook", "timeout": 90 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
+            "timeout": 90
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/tool-guard.py\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

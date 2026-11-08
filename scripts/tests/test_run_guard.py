@@ -539,6 +539,66 @@ class Signature(unittest.TestCase):
         self.assertEqual((state["idle"], state["restarts"]), (3, 2), "an attempt record reset idle or restarts")
 
 
+class Modes(unittest.TestCase):
+    """A run's permission mode is one Claude Code accepts, checked the same way however the run starts."""
+
+    def test_the_mode_check(self):
+        env = World().env()
+        with self.assertRaisesRegex(ValueError, "'sudo-mode'"):
+            guard.check_mode("sudo-mode", env)
+        self.assertEqual(guard.check_mode("bypassPermissions", env), ("bypassPermissions", None))
+        for mode in (None, "", "default", "acceptEdits"):
+            with self.subTest(mode):
+                kept, note = guard.check_mode(mode, env)
+                self.assertEqual(kept, mode or "default")
+                self.assertIn("bypassPermissions", note)
+
+    def test_both_entry_points_refuse_an_unknown_mode_before_changing_anything(self):
+        env = World().env()
+        state = {}
+        message = guard.on_prompt(state, {"prompt": "process plan", "session_id": "me", "permission_mode": "sudo-mode"}, env)
+        self.assertIn("did not start", message)
+        self.assertEqual(state, {})
+        with self.assertRaisesRegex(ValueError, "sudo-mode"):
+            guard.start(state, "me", "sudo-mode", env)
+        self.assertEqual(state, {})
+
+    def test_both_entry_points_keep_a_known_mode_and_say_when_it_isnt_the_campaign_s(self):
+        env = World().env()
+        state = {}
+        note = guard.on_prompt(state, {"prompt": "process plan", "session_id": "me", "permission_mode": "acceptEdits"}, env)
+        self.assertEqual(state["permission_mode"], "acceptEdits")
+        self.assertIn("start it with `claude --permission-mode bypassPermissions`", note)
+        state = {}
+        self.assertIsNone(guard.start(state, "me", "bypassPermissions", env))
+        self.assertEqual(state["permission_mode"], "bypassPermissions")
+        state = {}
+        guard.start(state, "me", None, env)
+        self.assertEqual(state["permission_mode"], "default")
+        self.assertNotIn("--permission-mode", guard.resume_command(state, "claude"))
+
+    def test_a_fresh_process_reads_the_saved_mode_back_into_the_resume(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            env = {**os.environ, "RUN_GUARD_STATE": str(path)}
+            script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+            done = subprocess.run([*script, "start", "--session", "sess-9", "--permission-mode", "bypassPermissions"],
+                                  env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            refused = subprocess.run([*script, "start", "--session", "sess-9", "--permission-mode", "sudo-mode"],
+                                     env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("sudo-mode", refused.stdout)
+            state = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(guard.resume_command(state, "claude"),
+                             ["claude", "-p", "process plan", "--resume", "sess-9", "--permission-mode", "bypassPermissions"])
+
+    def test_the_modes_come_from_claude_s_own_help(self):
+        modes = guard.real_modes()
+        self.assertIn("bypassPermissions", modes)
+        self.assertGreaterEqual(len(modes), 3)
+
+
 class UsageLimits(unittest.TestCase):
     """A limit, a sign-in problem or an overloaded API waits without spending the stall budget, on the subscription only."""
 

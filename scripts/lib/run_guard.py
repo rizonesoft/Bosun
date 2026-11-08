@@ -64,6 +64,9 @@ ACCOUNT_ERRORS = {"oauth_org_not_allowed", "account_on_hold", "billing_error"}
 SCRUBBED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY",
             "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
 
+KNOWN_MODES = ("acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan")  # claude --help, 2026-11-08
+CAMPAIGN_MODE = "bypassPermissions"  # the owner's choice: a hidden session can't answer a prompt
+
 DRAINED = "no runnable rows left; that is not the plan being done, `todo-graph.py query stats` shows what is blocked or unstamped"
 GROUNDS = ("data-loss", "credentials", "shared-infrastructure", "wrong-calculation", "operator")
 
@@ -87,6 +90,8 @@ class Env:
     child_alive: Callable[[dict], bool]
     spawn: Callable[[dict], dict]
     task_installed: Callable[[], bool] = lambda: True
+    # The modes `claude --permission-mode` accepts, as its --help lists them.
+    modes: Callable[[], set] = lambda: set(KNOWN_MODES)
     # (ok, reason, detail): whether a launch now would run on the subscription.
     subscription: Callable[[], tuple] = lambda: (True, "", "")
 
@@ -250,6 +255,19 @@ def snapshot(env: Env, subscription: bool = False) -> Env:
     return env
 
 
+def check_mode(mode: object, env: Env) -> tuple:
+    """(the mode to keep, a note for the operator or None). A missing mode is `default`, which the resume leaves off its
+    command line. Raises ValueError for a mode Claude Code wouldn't accept, so no run starts that couldn't resume."""
+    mode = str(mode) if mode else "default"
+    if mode != "default" and mode not in env.modes():
+        raise ValueError(f"permission mode {mode!r} isn't one claude accepts ({', '.join(sorted(env.modes()))}), so this run "
+                         "couldn't be resumed: start it again in bypassPermissions")
+    note = None if mode == CAMPAIGN_MODE else (
+        f"This run started in {mode} mode, so a resumed session would meet prompts no one is there to answer and stop at "
+        "each one. For an unattended run, start it with `claude --permission-mode bypassPermissions`.")
+    return mode, note
+
+
 def on_prompt(state: dict, data: dict, env: Env) -> str | None:
     prompt = str(data.get("prompt") or "")
     session = data.get("session_id")
@@ -269,13 +287,18 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
         return None
     if state.get("active") and state.get("session_id") not in (None, session) and env.alive(state["session_id"]):
         return f"Another session ({state['session_id']}) owns the active run. Never run two writers on one tree: stop and say so."
+    try:
+        mode, mode_note = check_mode(data.get("permission_mode"), env)
+    except ValueError as error:
+        return f"The unattended run guard did not start this run: {error}."
     if not state.get("active"):
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
-    state.update(session_id=session, permission_mode=data.get("permission_mode"))
+    state.update(session_id=session, permission_mode=mode)
+    note = heartbeat_note() + (" " + mode_note if mode_note else "")
     if not env.task_installed():
-        return heartbeat_note() + " The watchdog task is not installed, so a crash would end this run: run `bosun-heartbeat add .` where Bosun is installed, or `python scripts/run-guard.py install` first."
-    return heartbeat_note()
+        return note + " The watchdog task is not installed, so a crash would end this run: run `bosun-heartbeat add .` where Bosun is installed, or `python scripts/run-guard.py install` first."
+    return note
 
 
 def heartbeat_current(state: dict, now: float | None = None) -> bool:
@@ -383,14 +406,17 @@ def on_stop_failure(state: dict, data: dict, now: float | None = None) -> None:
         set_wait(state, "overloaded", now + OVERLOADED_WAIT, f"Anthropic's API reported {error}; the run looks again in 5 minutes")
 
 
-def start(state: dict, session: str, mode: str | None, env: Env) -> None:
+def start(state: dict, session: str, mode: str | None, env: Env) -> str | None:
+    """Start or take over a run; returns a note for the operator, or None."""
     owner = state.get("session_id")
     if state.get("active") and owner not in (None, session) and env.alive(owner):
         raise ValueError(f"session {owner} owns the active run and is alive; never run two writers on one tree")
+    mode, note = check_mode(mode, env)
     if not state.get("active"):
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
     state.update(session_id=session, permission_mode=mode)
+    return note
 
 
 def on_session_end(state: dict, data: dict) -> None:
@@ -563,8 +589,8 @@ def resume_command(state: dict, claude: str) -> list[str]:
     command = [claude, "-p", "process plan"]
     if state.get("session_id"):
         command += ["--resume", state["session_id"]]
-    # The operator's own mode for this run and no wider, or a headless run has no one to answer its prompts.
-    if state.get("permission_mode"):
+    # The operator's own mode for this run and no wider; `default` is Claude Code's own and needs no flag.
+    if state.get("permission_mode") and state["permission_mode"] != "default":
         command += ["--permission-mode", state["permission_mode"]]
     return command
 
@@ -590,6 +616,19 @@ def subscription_verdict(data: object) -> tuple:
         return False, "subscription-unavailable", (f"Claude Code would sign in with {data.get('authMethod')}, which bills an API account: "
                                                    "remove the API key or apiKeyHelper from the environment and settings, then sign in with the subscription")
     return True, "", ""
+
+
+def real_modes() -> set:
+    """The modes `claude --help` lists for --permission-mode, or the known list when it can't be read."""
+    claude = shutil.which("claude")
+    try:
+        done = subprocess.run([claude or "claude", "--help"], capture_output=True, timeout=30, stdin=subprocess.DEVNULL, **hidden())
+        text = done.stdout.decode("utf-8", "replace")
+        found = re.search(r"--permission-mode.*?choices:(.*?)\)", text, re.S)
+        modes = set(re.findall(r'"([A-Za-z]+)"', found.group(1))) if found else set()
+    except (OSError, subprocess.SubprocessError):
+        modes = set()
+    return modes or set(KNOWN_MODES)
 
 
 def real_subscription() -> tuple:
@@ -657,7 +696,8 @@ def real_task_installed() -> bool:
     return run("schtasks", "/Query", "/TN", TASK_NAME).returncode == 0
 
 
-REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed, real_subscription)
+REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed,
+           real_modes, real_subscription)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:
@@ -716,8 +756,8 @@ def hook(raw: str, env: Env = REAL, path: Path = STATE) -> str:
     if event == "Stop" and peek.get("active") and peek.get("session_id") == data.get("session_id"):
         env = snapshot(env)
     elif event == "UserPromptSubmit" and START.match(str(data.get("prompt") or "")):
-        installed = env.task_installed()
-        env = replace(env, task_installed=lambda: installed)
+        installed, modes = env.task_installed(), env.modes()
+        env = replace(env, task_installed=lambda: installed, modes=lambda: modes)
     with locked(path):
         return handle_event(event, data, env, path)
 

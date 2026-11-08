@@ -145,10 +145,12 @@ def main() -> int:
         state = guard.load()
         if args.command == "start":
             try:
-                guard.start(state, args.session, args.permission_mode, guard.REAL)
+                note = guard.start(state, args.session, args.permission_mode, guard.REAL)
             except ValueError as error:
                 say(str(error))
                 return 1
+            if note:
+                say(note)
         else:
             guard.halt(state, args.ground, args.reason)
         guard.save(state)

@@ -55,7 +55,23 @@ function Test-CMake {
   Pass "cmake $version at $($found.Source)"
 }
 
+function Test-DenyList {
+  # The campaign's deny list must be able to run here: under bypass mode nothing else stops what it refuses.
+  $python = Get-Command python, python3 -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+  if (-not $python) {
+    Fail 'no python on PATH, so the deny list hook (scripts/tool-guard.py) can''t run' 'install Python 3 and put it on PATH'
+    return
+  }
+  $out = @(& $python.Source (Join-Path $PSScriptRoot 'tool-guard.py') --self-test 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    Fail "the deny list's self-test failed: $(($out | Where-Object { $_ -match 'FAIL' }) -join '; ')" 'run `python scripts/tool-guard.py --self-test` and fix what it names'
+    return
+  }
+  Pass "deny list self-test ($($out.Count - 1) cases)"
+}
+
 Test-CMake
+Test-DenyList
 if ($failed) {
   "$failed check(s) failed"
   exit 1

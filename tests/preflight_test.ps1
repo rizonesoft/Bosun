@@ -34,8 +34,12 @@ try {
   $vswhereNoCMake = Join-Path $work 'vswhere-nocmake.cmd'
   Set-Content $vswhereNoCMake "@echo $vsNone" -Encoding ascii
 
+  # The deny list's self-test needs Python, so a PATH that should pass carries its folder.
+  $pythonDir = Split-Path (Get-Command python -CommandType Application | Select-Object -First 1).Source
+  $r = Preflight "$good;$pythonDir;$system"
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   cmake 3\.31\.6' -and $r.Text -match 'ok   deny list self-test') 'a CMake of 3.25 or later and a working deny list pass'
   $r = Preflight "$good;$system"
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   cmake 3\.31\.6') 'a CMake of 3.25 or later passes'
+  Check ($r.Code -eq 1 -and $r.Text -match "no python on PATH, so the deny list hook") 'no Python fails, since the deny list could not run'
   $r = Preflight $system
   Check ($r.Code -eq 1 -and $r.Text -match 'cmake is not on PATH' -and $r.Text -match 'fix: ') 'no CMake fails with a fix'
   $r = Preflight $system @('-VsWhere', (Join-Path $work 'no-vswhere.exe'))

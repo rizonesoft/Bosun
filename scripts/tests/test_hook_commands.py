@@ -41,7 +41,13 @@ class HookInterpreter(unittest.TestCase):
                 with self.subTest(command=command, interpreter=interpreter):
                     done = self.run_with_only(interpreter, command)
                     self.assertEqual(done.returncode, 0, done.stderr)
-                    self.assertIn("ran: project/scripts/run-guard.py", done.stdout)
+                    self.assertRegex(done.stdout, r"ran: project/scripts/(run-guard|tool-guard)\.py")
+
+    def test_the_deny_list_hook_sees_every_shell_and_connector_tool(self):
+        settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        (group,) = settings["hooks"]["PreToolUse"]
+        self.assertEqual(group["matcher"], "Bash|PowerShell|mcp__.*")
+        self.assertIn("scripts/tool-guard.py", group["hooks"][0]["command"])
 
 
 if __name__ == "__main__":
