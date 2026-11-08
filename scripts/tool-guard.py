@@ -220,7 +220,8 @@ def strip_prefixes(words: list[str]) -> tuple:
                 words = words[1 + plain:]
                 break
             if words[0].startswith("-"):
-                option, _, value = words[0].partition("=")
+                option, equals, value = words[0].partition("=")
+                attached = bool(equals)  # `--opt=` gives an empty value; only a bare `--opt` takes the next word
                 flags = ""  # a short cluster's flag letters, before any that takes a value
                 if words[0].startswith("--") and len(option) > 2:
                     option = long_option(head, option)
@@ -231,24 +232,25 @@ def strip_prefixes(words: list[str]) -> tuple:
                     for at in range(1, len(words[0])):
                         if "-" + words[0][at] in valued:
                             option, value, flags = "-" + words[0][at], words[0][at + 1:], words[0][1:at]
+                            attached = bool(value)
                             break
                 if option in CHDIR.get(head, set()):
-                    folder = value if value else (words[1] if len(words) > 1 else None)
+                    folder = value if attached else (words[1] if len(words) > 1 else None)
                     chdir = within(chdir, folder)  # each runs the next in its folder
                 if option in HOME_FOLDER.get(head, set()) or any("-" + letter in HOME_FOLDER.get(head, set()) for letter in flags):
                     chdir = SOMEWHERE
                 if head == "env" and option in ("-S", "--split-string"):
                     # env -S splits its string into the command it runs, so that string is the command.
-                    text = value if value else (words[1] if len(words) > 1 else "")
+                    text = value if attached else (words[1] if len(words) > 1 else "")
                     text = text[1:-1] if len(text) > 1 and text[0] == text[-1] and text[0] in "'\"" else text
                     if "\\" in text or "$" in text:
                         # GNU env -S has escapes (\\_ is a space, \\c ends it) and ${VAR} of its own; not modelled, so
                         # unread, which the deny list refuses rather than lets through.
                         raise Refusal("its env -S string uses escapes or variables this hook can't read: run the command "
                                       "directly instead")
-                    words = tokens_of(text) + (words[1:] if value else words[2:])
+                    words = tokens_of(text) + (words[1:] if attached else words[2:])
                     continue
-                words = words[2:] if option in valued and not value else words[1:]
+                words = words[2:] if option in valued and not attached else words[1:]
             elif plain:
                 words, plain = words[1:], plain - 1
             else:

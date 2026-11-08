@@ -103,6 +103,12 @@ class Pushes(Base):
                 self.refused(form)
         self.allowed(f"sudo -D /home rm -rf {self.project / 'build' / 'x'}")
 
+    def test_an_empty_attached_value_is_still_a_value(self):
+        for form in ("/usr/bin/time --format= git push --force origin main", "env --unset= git push -f",
+                     "timeout --signal= 60 git push --mirror"):
+            with self.subTest(form):
+                self.refused(form)
+
     def test_exec_and_time_options_take_their_values(self):
         for form in ("exec -a bosun-git git push --force origin main", "exec -cla name git push -f",
                      "time -f %e git push --force", "time --output=t.txt git push --mirror", "time -o t.txt git push -f"):
