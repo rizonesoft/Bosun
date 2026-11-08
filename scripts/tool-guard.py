@@ -185,7 +185,11 @@ def long_option(head: str, option: str) -> str:
     return matches[0] if len(matches) == 1 else option
 
 
-CHDIR = {"-C", "--chdir"}  # env's way to run its command in another folder
+# Options that run the prefix's command in another folder: env -C DIR, sudo -D DIR; and sudo -i, which runs it in the
+# target user's home, a folder this hook can't name.
+CHDIR = {"env": {"-C", "--chdir"}, "sudo": {"-D", "--chdir"}}
+HOME_FOLDER = {"sudo": {"-i", "--login"}}
+SOMEWHERE = "\0somewhere"  # a folder that can't be named: every relative delete after it is refused
 
 
 def within(outer: str | None, inner: str | None) -> str | None:
@@ -217,19 +221,22 @@ def strip_prefixes(words: list[str]) -> tuple:
                 break
             if words[0].startswith("-"):
                 option, _, value = words[0].partition("=")
+                flags = ""  # a short cluster's flag letters, before any that takes a value
                 if words[0].startswith("--") and len(option) > 2:
                     option = long_option(head, option)
-                if not words[0].startswith("--") and len(words[0]) > 2:
+                elif not words[0].startswith("--"):
                     # A cluster of short options, as getopt reads it: flags until the first that takes a value, which
                     # takes the rest of the cluster or, when nothing is left, the next word. -vS 'cmd', -iCDIR, -n5.
-                    option, value = words[0], ""
+                    option, value, flags = words[0], "", words[0][1:]
                     for at in range(1, len(words[0])):
                         if "-" + words[0][at] in valued:
-                            option, value = "-" + words[0][at], words[0][at + 1:]
+                            option, value, flags = "-" + words[0][at], words[0][at + 1:], words[0][1:at]
                             break
-                if head == "env" and option in CHDIR:
+                if option in CHDIR.get(head, set()):
                     folder = value if value else (words[1] if len(words) > 1 else None)
-                    chdir = within(chdir, folder)  # each env runs the next in its folder
+                    chdir = within(chdir, folder)  # each runs the next in its folder
+                if option in HOME_FOLDER.get(head, set()) or any("-" + letter in HOME_FOLDER.get(head, set()) for letter in flags):
+                    chdir = SOMEWHERE
                 if head == "env" and option in ("-S", "--split-string"):
                     # env -S splits its string into the command it runs, so that string is the command.
                     text = value if value else (words[1] if len(words) > 1 else "")

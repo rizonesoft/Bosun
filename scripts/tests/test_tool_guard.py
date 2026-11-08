@@ -96,6 +96,13 @@ class Pushes(Base):
             with self.subTest(prefix):
                 self.refused(f"{prefix} git push --force origin main")
 
+    def test_sudo_s_folder_options_move_its_command(self):
+        for form in ("sudo -D /home rm -rf someone", "sudo --chdir=/home rm -rf someone", "sudo -D/home rm -rf someone",
+                     "sudo -i rm -rf Documents", "sudo --login rm -rf Documents", "sudo -iu me rm -rf Documents"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed(f"sudo -D /home rm -rf {self.project / 'build' / 'x'}")
+
     def test_exec_and_time_options_take_their_values(self):
         for form in ("exec -a bosun-git git push --force origin main", "exec -cla name git push -f",
                      "time -f %e git push --force", "time --output=t.txt git push --mirror", "time -o t.txt git push -f"):
