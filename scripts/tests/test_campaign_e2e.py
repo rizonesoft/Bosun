@@ -441,6 +441,15 @@ class DisposableCampaign(unittest.TestCase):
         print(f"[{time.strftime('%H:%M:%S')}] watch: {line}", flush=True)
         return line
 
+    def section_text(self, ref):
+        """The body of one section, from its TODO file in the clone."""
+        domain, file, number = re.fullmatch(r"D(\d\d) T(\d\d) §(\d+)", ref).groups()
+        for path in (self.clone / "todo").glob(f"{domain}-*/TODO-{file}-*.md"):
+            found = re.search(rf"^## {number}\. .*?(?=^## |\Z)", path.read_text(encoding="utf-8"), re.M | re.S)
+            if found:
+                return found.group(0)
+        return ""
+
     def commits(self):
         """(unix time, sha, subject, files) for each commit after the fixture, oldest first."""
         out = self.git("log", "--reverse", "--format=@@%ct %H %s", "--name-only", f"{self.base}..HEAD")
@@ -513,7 +522,8 @@ class DisposableCampaign(unittest.TestCase):
         self.assertTrue(any(c["answer"] == "in_progress" for c in one), "CI on §1 never read pending")
         green_one = min(c["at"] for c in one if c["answer"] == "success")
         self.assertGreaterEqual(green_one - min(c["at"] for c in one), 30 * 60, "the gate didn't wait out its 30 minutes on §1")
-        self.assertGreater(started(2)[0], green_one - 60, "§2 started before §1's CI cleared")
+        # Git times are whole seconds, so §2's start may share the second §1 went green, and no earlier.
+        self.assertGreaterEqual(started(2)[0], int(green_one), "§2 started before §1's CI cleared")
         # repair: §2's stamp read red, a commit repaired it, and the recheck read green.
         two = [c for c in gh if c["section"] == 2]
         self.assertTrue(any(c["answer"] == "failure" for c in two), "CI on §2 never read red")
@@ -538,9 +548,11 @@ class DisposableCampaign(unittest.TestCase):
         # The filed faults are open sections the plan still shows, not lost.
         disposition = json.loads(run([sys.executable, "scripts/todo-graph.py", "query", "disposition"], cwd=self.clone).stdout)
         print("open after the run: " + ", ".join(f"{d['ref']} {d['state']}" for d in disposition))
-        self.assertGreaterEqual(len([d for d in disposition if not d["ref"].startswith(f"{REF} §")]
-                                    + [d for d in disposition if re.match(rf"{REF} §([6-9]|\d\d)", d["ref"])]), 2,
-                                "the two CI faults aren't open in the plan")
+        filed_text = [self.section_text(d["ref"]) for d in disposition if not re.fullmatch(rf"{REF} §[1-5]", d["ref"])]
+        self.assertTrue(any(re.search(r"test_three|attempt-3|exhausted", t, re.I) for t in filed_text),
+                        "no open section records §3's exhausted CI fault")
+        self.assertTrue(any(re.search(r"unverified|no run|no answer", t, re.I) for t in filed_text),
+                        "no open section records §4's unverified CI fault")
         # recovery: the guard resumed after the kill, and the resumed session's next commit was §2's next step.
         self.assertIsNotNone(killed_at, "the session was never killed")
         guard_log = (self.state.parent / "run-guard.log").read_text(encoding="utf-8", errors="replace")
