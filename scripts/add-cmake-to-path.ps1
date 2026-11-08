@@ -66,11 +66,24 @@ $before = Entries (Read-Value)
 if ($before | Where-Object { Same $_ $Folder }) { "already on the user ${Variable}: $Folder"; exit 0 }
 if (-not $Apply) { "would add to the end of the user ${Variable}: $Folder (run again with -Apply)"; exit 0 }
 
-$after = @($before) + $Folder
-Write-Value ($after -join ';')
-$check = Entries (Read-Value)
-if (($check -join ';') -ne ($after -join ';')) { throw "the user $Variable didn't read back as written" }
+# The record first, so a PATH change never exists without the entry -Undo needs: a record that can't be read or
+# saved stops the script before anything changes.
 $data = Load-Record
-$data[$Variable] = @(@($data[$Variable]) | Where-Object { $_ }) + $Folder
+$owned = @(@($data[$Variable]) | Where-Object { $_ })
+$data[$Variable] = $owned + $Folder
 Save-Record $data
+$after = @($before) + $Folder
+try {
+  Write-Value ($after -join ';')
+  $check = Entries (Read-Value)
+  if (($check -join ';') -ne ($after -join ';')) { throw "the user $Variable didn't read back as written" }
+}
+catch {
+  if (-not ((Entries (Read-Value)) | Where-Object { Same $_ $Folder })) {
+    # Nothing was added, so the record goes back to what it was.
+    if ($owned) { $data[$Variable] = $owned } else { $data.Remove($Variable) }
+    Save-Record $data
+  }
+  throw
+}
 "added to the user ${Variable}: $Folder (undo with -Undo)"

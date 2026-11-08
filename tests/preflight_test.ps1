@@ -72,6 +72,14 @@ try {
   Check ($again -match 'already' -and ((& $read) -split ';' | Where-Object { $_ -eq $good }).Count -eq 1) 'a repeat adds nothing'
   Check ((Get-Content $record -Raw | ConvertFrom-Json).$variable -contains $good) 'what it added is recorded'
   & $pwsh -NoProfile -File $script -Undo @scriptArgs | Out-Null
+  # A record that can't be saved stops the change before it happens.
+  $blocker = Join-Path $work 'not-a-folder'
+  Set-Content $blocker 'a file where the record folder would go'
+  $before = & $read
+  & $pwsh -NoProfile -File $script -Apply -Folder $good -Variable $variable -Record (Join-Path $blocker 'path-changes.json') 2>&1 | Out-Null
+  Check ($LASTEXITCODE -ne 0 -and (& $read) -eq $before) 'an unsaveable record stops the change before PATH moves'
+  & $pwsh -NoProfile -File $script -Apply @scriptArgs | Out-Null
+  & $pwsh -NoProfile -File $script -Undo @scriptArgs | Out-Null
   Check ((& $read) -eq 'C:\keep\a;%USERPROFILE%\keep b') 'undo removes only its own entry'
   Check (-not ((Get-Content $record -Raw | ConvertFrom-Json).PSObject.Properties.Name -contains $variable)) 'undo clears the record'
 }
