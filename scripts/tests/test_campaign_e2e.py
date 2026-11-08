@@ -54,8 +54,13 @@ WAIT_LIMIT = 2 * 60 * 60
 
 
 def log(**fields):
-    with open(state_dir / "gh-calls.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": time.time(), "args": args, **fields}) + "\n")
+    # One file per call: on Windows two processes appending to one file can write at the same offset.
+    folder = state_dir / "gh-calls"
+    folder.mkdir(exist_ok=True)
+    name = f"{time.time_ns()}-{os.getpid()}"
+    tmp = folder / f"{name}.tmp"
+    tmp.write_text(json.dumps({"at": time.time(), "args": args, **fields}), encoding="utf-8")
+    os.replace(tmp, folder / f"{name}.json")
 
 
 def git(*a):
@@ -184,8 +189,11 @@ if out:
     Path(out).write_text(reply + "\n", encoding="utf-8")
 else:
     print(reply)
-with open(state_dir / "codex-calls.jsonl", "a", encoding="utf-8") as f:
-    f.write(json.dumps({"at": time.time(), "kind": kind, "args": args}) + "\n")
+folder = state_dir / "codex-calls"  # one file per call, as the fake gh writes
+folder.mkdir(exist_ok=True)
+name = f"{time.time_ns()}-{os.getpid()}"
+(folder / f"{name}.tmp").write_text(json.dumps({"at": time.time(), "kind": kind, "args": args}), encoding="utf-8")
+os.replace(folder / f"{name}.tmp", folder / f"{name}.json")
 '''
 
 ADJACENCY = ("**Adjacency:** list=not-applicable (a fixture file); document=not-applicable (a fixture file); "
@@ -316,10 +324,11 @@ def alive(pid):
         return False
 
 
-def read_jsonl(path):
-    if not path.exists():
+def read_calls(folder):
+    """Every call a fake recorded, oldest first. A record that does not read is an error, never skipped."""
+    if not folder.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return sorted((json.loads(p.read_text(encoding="utf-8")) for p in folder.glob("*.json")), key=lambda c: c["at"])
 
 
 class ScriptedCi(unittest.TestCase):
@@ -359,8 +368,19 @@ class ScriptedCi(unittest.TestCase):
         self.assertEqual([self.gate(sha) for sha in red], ["repair", "repair", "repair", "exhausted"])
         self.assertEqual(self.gate(self.commit(receipt(4), "{}")), "unverified")
         self.assertEqual(self.gate(self.commit(receipt(5), "{}")), "proceed")
-        calls = read_jsonl(self.seeded["fakes"] / "gh-calls.jsonl")
+        calls = read_calls(self.seeded["fakes"] / "gh-calls")
         self.assertTrue(any(c.get("moved_wait_back") for c in calls), "§4's wait was never moved back")
+
+    def test_calls_made_at_once_are_all_recorded_whole(self):
+        # Run 3 lost a record to two appends at the same offset; each call now writes its own file.
+        gh = shutil.which("gh", path=self.seeded["env"]["PATH"])
+        folder = self.seeded["fakes"] / "gh-calls"
+        before = len(read_calls(folder))
+        procs = [subprocess.Popen([gh, "auth", "status"], cwd=self.clone, env=self.seeded["env"], stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL) for _ in range(16)]
+        for p in procs:
+            self.assertEqual(p.wait(timeout=120), 0)
+        self.assertEqual(len(read_calls(folder)) - before, 16, "a call made alongside others was lost or torn")
 
     def test_the_clone_keeps_no_wake_for_a_section_it_removed(self):
         wakes = json.loads((self.clone / "todo" / "wakes.json").read_text(encoding="utf-8"))
@@ -466,7 +486,8 @@ class DisposableCampaign(unittest.TestCase):
             if time.time() >= next_watch:
                 next_watch = time.time() + WATCH_EVERY
                 line = self.watch()
-                if self.live_pid() is None and line.startswith(("inactive", "stalled", "expired")):
+                # Settled: nothing left that the run can do, including rows that now wait on a person, as the filed faults do.
+                if self.live_pid() is None and line.startswith(("inactive", "stalled", "expired", "waiting: rows-waiting")):
                     break
         else:
             self.fail(f"the campaign didn't finish within {HOURS} hours; watches: {self.watches[-5:]}")
@@ -474,7 +495,7 @@ class DisposableCampaign(unittest.TestCase):
 
     def check(self, fakes, killed_at):
         commits = self.commits()
-        gh = [c for c in read_jsonl(fakes / "gh-calls.jsonl") if c.get("sha")]
+        gh = [c for c in read_calls(fakes / "gh-calls") if c.get("sha")]
         subjects = [c[2] for c in commits]
         print("commits:\n  " + "\n  ".join(subjects))
 
@@ -529,7 +550,7 @@ class DisposableCampaign(unittest.TestCase):
         self.assertTrue(re.search(rf"{REF} §2\b|e2e: write two", after_kill[2]) or "e2e/two.txt" in after_kill[3],
                         f"the resumed session's first commit wasn't §2's next step: {after_kill[2]}")
         self.assertEqual(self.git("status", "--porcelain").strip(), "", "the run left something uncommitted")
-        print(f"reviews: {len(read_jsonl(fakes / 'codex-calls.jsonl'))}; watches: {len(self.watches)}")
+        print(f"reviews: {len(read_calls(fakes / 'codex-calls'))}; watches: {len(self.watches)}")
 
 
 if __name__ == "__main__":
