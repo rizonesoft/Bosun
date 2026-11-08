@@ -761,7 +761,7 @@ def acceptance_report(kind: str, found: dict) -> str:
     """The acceptance file's text: what the owner's acceptance pass starts from."""
     lines = [f"# Acceptance: implementation {'complete' if kind == 'complete' else 'parked'}", "",
              f"Written by the run guard on {stamp()} when the unattended run ended {kind}.", ""]
-    parked = sorted(ref for ref, s in found.get("roots", {}).items() if s == "parked")
+    parked = sorted(found.get("parked") or [ref for ref, s in found.get("roots", {}).items() if s == "parked"])
     if parked:
         lines += ["## Parked sections", "", *(f"- {ref}" for ref in parked), ""]
         lines += ["## Blocked by them", ""]

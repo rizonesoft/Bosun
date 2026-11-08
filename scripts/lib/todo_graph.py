@@ -1283,7 +1283,9 @@ def finish(root, rows, caps):
             roots[ref] = section_disposition(rows[ref], rows, caps, root)[0]
     files, phases = pending_closeouts(root, rows)
     blocked = {r.ref: root_blockers(r, rows) for r in open_rows}
+    parked = [r.ref for r in open_rows if PARKED.search(r.body)]  # every one, a root or not
     return {"complete": not open_rows and not files and not phases, "open": [r.ref for r in open_rows], "roots": roots,
+            "parked": parked,
             "blocked": blocked, "pending_files": files, "pending_phases": phases,
             "acceptance": [{"ref": r.ref, "title": r.title, "needs": r.needs} for r in ordered(rows)
                            if r.phase == ACCEPTANCE_PHASE and not r.done],

@@ -189,8 +189,7 @@ def main():
         else:
             applied = wake_apply(ROOT, datetime.date.today().isoformat())
             print(json.dumps(applied, indent=2))
-            if applied:
-                projections(ROOT, sync=True)
+            projections(ROOT, sync=True)  # always: a retry after an interrupted apply repairs the plan too
     elif args.command == "build":
         atomic(ROOT / "build/todo-cache.json",
                json.dumps([r.public() for r in ordered(rows)], indent=2, ensure_ascii=False) + "\n")

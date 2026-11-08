@@ -141,7 +141,9 @@ class CloseOutWork(Tree):
             self.assertIsNone(tg.next_work(rows, {}, self.root))
 
 
-class Wakes(Tree):
+class WakeTree(Tree):
+    """A tree holding one section waiting on `third-party`, and its wake."""
+
     def setUp(self):
         super().setUp()
         self.write(todo_file([(1, "A", 0, "third-party", "--")]))
@@ -155,6 +157,8 @@ class Wakes(Tree):
             return subprocess.CompletedProcess(command, code, "", "")
         return run
 
+
+class Wakes(WakeTree):
     def test_a_passing_check_is_listed_and_a_failing_missing_or_slow_one_is_not(self):
         rows = tg.graph(self.root)
         self.assertEqual(tg.wake_check(self.root, rows, self.runner(0)), [{"section": "D00 T01 §1", "need": "third-party"}])
@@ -195,7 +199,7 @@ class Wakes(Tree):
 import run_guard as guard  # noqa: E402
 
 
-class WakeToResume(Wakes):
+class WakeToResume(WakeTree):
     """The tick sees a passing wake and resumes the run; the resumed session applies it first; the row is ready."""
 
     def test_tick_resumes_and_the_session_s_apply_frees_the_row(self):
@@ -222,6 +226,71 @@ class WakeToResume(Wakes):
         # The session's commit failed: the change is still in the tree, and a repeat finds nothing left to do.
         self.assertEqual(tg.wake_apply(self.root, "2026-11-08", run), [])
         self.assertEqual(tg.graph(self.root)["D00 T01 §1"].needs, [])
+
+
+class InterruptedApply(WakeTree):
+    """A wake applied but cut off before the plan synced: the retry finds nothing to clear and still repairs the plan."""
+
+    def cli(self, *args):
+        tool = self.root / "scripts"
+        (tool / "lib").mkdir(parents=True, exist_ok=True)
+        for name in ("todo-graph.py", "review-dispatch.py", "lib/todo_graph.py", "lib/host_caps.py"):
+            (tool / name).write_bytes((ROOT / "scripts" / name).read_bytes())
+        return subprocess.run([sys.executable, str(tool / "todo-graph.py"), *args], cwd=self.root,
+                              capture_output=True, text=True, encoding="utf-8")
+
+    def test_a_retry_repairs_a_stale_plan(self):
+        self.assertEqual(self.cli("plan", "--sync").returncode, 0)
+        # A hard kill after the section's atomic write and before its plan sync, which no rollback survives:
+        # the file holds the cleared Need and the plan still shows it.
+        with mock.patch.object(tg, "projections"):
+            self.assertTrue(tg.clear_need(self.root, "D00 T01 §1", "third-party", "2026-11-08"))
+        self.assertNotEqual(self.cli("plan", "--check").returncode, 0, "the fixture's plan isn't stale")
+        retry = self.cli("wake", "--apply")
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(json.loads(retry.stdout), [])
+        self.assertEqual(self.cli("plan", "--check").returncode, 0, "the retry left the plan stale")
+
+
+class FailedCommit(WakeTree):
+    """The session's commit of a wake fails: the change survives in the tree, and is committed once when it can be."""
+
+    def test_a_refused_commit_keeps_the_wake_and_it_is_committed_once(self):
+        root = self.root
+        git = lambda *a, check=True: subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.com", *a],
+                                                    capture_output=True, text=True, encoding="utf-8", check=check)
+        git("init", "-q")
+        hooks = Path(self.tmp.name + "-hooks")
+        hooks.mkdir()
+        self.addCleanup(lambda: [f.unlink() for f in hooks.iterdir()] and hooks.rmdir())
+        (hooks / "pre-commit").write_text("#!/bin/sh\necho refused; exit 1\n", encoding="utf-8")
+        (hooks / "pre-commit").chmod(0o755)
+        git("add", "-A")
+        git("commit", "-qm", "start")
+        run = self.runner(0)
+        self.assertEqual(len(tg.wake_apply(root, "2026-11-08", run)), 1)
+        git("add", "-A")
+        refused = git("-c", f"core.hooksPath={hooks.as_posix()}", "commit", "-qm", "todo: wake D00 T01 §1", check=False)
+        self.assertNotEqual(refused.returncode, 0, "the fixture's hook didn't refuse")
+        self.assertEqual(tg.graph(root)["D00 T01 §1"].needs, [], "the refused commit lost the wake")
+        self.assertEqual(tg.wake_apply(root, "2026-11-08", run), [], "a retry applied it twice")
+        git("commit", "-qm", "todo: wake D00 T01 §1")
+        log = git("log", "--format=%s").stdout.split("\n")
+        self.assertEqual(log.count("todo: wake D00 T01 §1"), 1)
+        self.assertEqual(git("status", "--porcelain").stdout.strip(), "")
+
+
+class ParkedDependants(unittest.TestCase):
+    def test_every_parked_section_is_listed_a_root_or_not(self):
+        parked = "> **Parked:** 2026-11-08: x\n\n**Needs:** none"
+        rows = {r.ref: r for r in (
+            section("D00 T01 §1", "a.md", done=False, body=parked),
+            section("D00 T01 §2", "a.md", done=False, depends=["D00 T01 §1"], body=parked))}
+        with mock.patch.object(tg, "pending_closeouts", return_value=([], [])):
+            found = tg.finish(Path("."), rows, {})
+        self.assertEqual(found["parked"], ["D00 T01 §1", "D00 T01 §2"])
+        report = guard.acceptance_report("parked", found)
+        self.assertIn("- D00 T01 §2", report.split("## Blocked by them")[0])
 
 
 class CrashAfterTheLastStamp(Evidence):
