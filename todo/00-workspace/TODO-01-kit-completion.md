@@ -80,18 +80,22 @@ Steward's guard has no idea a review is running, so a Stop hook can push the ses
 
 Without settled items, a reviewer reopens decisions the writer already resolved, and rounds burn on old ground. Recto carries them into every prompt.
 
+**Corrected 2026-11-08:** Recto reads settled lines from every panel member's findings file; Bosun routes each writer to one reviewer, so the files are the `--record` file and the section's other cycle files (`D<NN>-T<NN>-s<N>.md` and `-cycle<n>.md`), which a repair keeps. Recto also reads lines inside a recorded review, so a reviewer quoting `- Settled:` would settle its own finding; here only the writer's lines outside recorded reviews count. The section said nothing on where writers learn the line forms, so the review skill now says so. A duration under one second rounds to 0 in Recto; here it rounds up, so a recorded duration is always positive.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Port `SETTLED` and `settled_block` into `scripts/review-dispatch.py`. Done when: `- Filed:`, `- Not taken:` and `- Settled:` lines from the findings file appear in the next prompt.
+1. Port `SETTLED`, `settled_items` and `settled_block` into `scripts/review-dispatch.py`. Done when: `- Filed:`, `- Not taken:` and `- Settled:` lines from the section's findings files appear in the next prompt.
 2. Add `seconds` to the record and stdout JSON. Done when: `--list-rounds --json` reports it.
 
-- [ ] Port `SETTLED` from `D:\GitHub\Recto\scripts\review-dispatch.py:326`. Done when: a findings file with a `- Settled:` line puts that line in the prompt. Cheaper substitute: pasting settled text by hand into prompts.
-- [ ] Record `seconds` in `scripts/review-dispatch.py`. Done when: each record has a positive duration, and records without one still parse.
-- [ ] Add cases to `scripts/tests/test_review_dispatch.py`. Done when: settled lines and durations are asserted, and a failed run records no approval.
+- [ ] Port `SETTLED`, `settled_items` and `settled_block` from `D:\GitHub\Recto\scripts\review-dispatch.py:326` into `scripts/review-dispatch.py`, appending the block to every pass's prompt (plan, round and completion). Done when: a findings file with a `- Settled:` line puts that line in the prompt the fake reviewer receives. Cheaper substitute: pasting settled text by hand into prompts.
+- [ ] Read settled lines from the `--record` file and the section's other cycle files only outside recorded review bodies, in `settled_items` in `scripts/review-dispatch.py`. Done when: a `- Settled:` line inside a recorded review is not carried, and one in an earlier cycle file is. Cheaper substitute: scanning every line, as Recto does.
+- [ ] Record `seconds` (rounded up, so always positive) on every pass in `review` in `scripts/review-dispatch.py`, as a `- Seconds:` line in the findings file and `seconds` in stdout JSON, with `_read_findings` reading it as optional. Done when: each new record has a positive duration, `--list-rounds --json` reports it, and records without one still parse.
+- [ ] Add cases to `scripts/tests/test_review_dispatch.py`. Done when: settled lines and durations are asserted, a failed run records no approval, and the tests fail if the settled block or the `Seconds` line is dropped.
+- [ ] Say in `.claude/skills/review-todo-section/SKILL.md` and its `.agents` and `.codex` mirrors that a `- Settled: <item>` or `- Not taken: <item> (<reason>)` line written under a review in the findings file is carried into every later prompt. Done when: a test reads the rule in all three mirrors.
 - [ ] Commit: `review: carry settled items and durations`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py` exits 0, and fails if the change is reverted.
