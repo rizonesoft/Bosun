@@ -125,7 +125,7 @@ def ansi_c(text: str, at: int) -> tuple:
             continue
         out.append(text[i])
         i += 1
-    return "".join(out), i + 1
+    return "".join(out).split("\0", 1)[0], i + 1  # Bash ends the value at its first NUL
 
 
 def tokens_of(text: str, powershell: bool = False) -> list[str]:

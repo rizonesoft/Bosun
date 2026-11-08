@@ -183,6 +183,10 @@ class Pushes(Base):
             with self.subTest(form):
                 self.refused(form)
         self.allowed("git push origin $'main'")
+        for form in ("git push origin main $'--force\\0ignored'", "git push origin main $'--force\\x00x'",
+                     "git push origin main $'-f\\u0000'"):
+            with self.subTest(form):
+                self.refused(form)
 
     def test_a_continued_line_is_one_command(self):
         self.refused("git push origin main \\\n--force")
