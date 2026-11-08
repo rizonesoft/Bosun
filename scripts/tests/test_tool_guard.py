@@ -183,6 +183,8 @@ class Pushes(Base):
             with self.subTest(form):
                 self.refused(form)
         self.allowed("git push origin $'main'")
+        self.refused("git push origin $'release\\';candidate' --force")
+        self.refused("git push origin $'a|b' -f")
         for form in ("git push origin main $'--force\\0ignored'", "git push origin main $'--force\\x00x'",
                      "git push origin main $'-f\\u0000'"):
             with self.subTest(form):

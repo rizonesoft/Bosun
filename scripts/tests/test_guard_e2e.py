@@ -105,9 +105,11 @@ class ResumedSession(unittest.TestCase):
 
 FAKE_CODEX = """import os, sys
 args = sys.argv[1:]
-if os.environ.get("FAKE_CODEX") == "fail":
+mode = os.environ.get("FAKE_CODEX")
+if mode == "fail":
     sys.exit(3)
-open(args[args.index("-o") + 1], "w").write("The change is fine.\\n\\nOVERALL: approve")
+verdict = "needs-attention" if mode == "needs" else "approve"
+open(args[args.index("-o") + 1], "w").write(f"A review.\\n\\nOVERALL: {verdict}")
 """
 PIN = """schema_version = 1
 
@@ -132,7 +134,7 @@ class BackgroundReview(unittest.TestCase):
         self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         (repo / "scripts").mkdir()
-        for name in ("review-dispatch.py", "dispatch_hook.py"):
+        for name in ("review-dispatch.py", "dispatch_hook.py", "tool-guard.py"):  # the hook imports tool-guard.py
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
         (repo / ".conclave").mkdir()
         (repo / ".conclave" / "reviewers.toml").write_text(PIN, encoding="utf-8")
@@ -153,6 +155,12 @@ class BackgroundReview(unittest.TestCase):
         else:
             (fake_bin / "codex").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{fake_bin / "fake_codex.py"}" "$@"\n', encoding="utf-8")
             (fake_bin / "codex").chmod(0o755)
+        # The installed hook must really work before a session is trusted with it: it refuses a detached review here.
+        probe = json.dumps({"tool_name": "Bash", "tool_input": {"command": "python scripts/review-dispatch.py --prompt p.md &",
+                                                                 "run_in_background": True}})
+        checked = subprocess.run([sys.executable, str(repo / "scripts" / "dispatch_hook.py")], input=probe, cwd=repo,
+                                 capture_output=True, text=True, timeout=60)
+        self.assertEqual(checked.returncode, 2, f"the installed hook didn't refuse: {checked.stderr}")
         env = guard.child_env(os.environ)
         env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
         env["FAKE_CODEX"] = mode
@@ -164,20 +172,21 @@ class BackgroundReview(unittest.TestCase):
                 f"true: PATH=\"{posix_bin}:$PATH\" FAKE_CODEX={mode} python scripts/review-dispatch.py --writer claude --prompt prompt.md\n"
                 "Wait until you are told it has finished; don't poll it with sleep. Then read its output and reply with "
                 "exactly one line and nothing else: EXIT=<its exit code> REVIEWER=<the value of \"reviewer\" in its JSON "
-                "output, or null>")
+                "output, or null> VERDICT=<the last line of its \"review\" field, or null>")
         done = subprocess.run([claude, "-p", task, "--permission-mode", "bypassPermissions"], cwd=repo, env=env,
                               capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
         print(f"\n{mode}: exit {done.returncode}; said: {done.stdout.strip()[-200:]}")
         self.assertEqual(done.returncode, 0, done.stderr[-2000:])
         return done.stdout
 
-    def test_a_review_that_returns_reaches_the_session(self):
-        out = self.session("ok")
-        self.assertRegex(out, r"EXIT=0\s+REVIEWER=sol")
+    def test_an_approving_review_reaches_the_session(self):
+        self.assertRegex(self.session("ok"), r"EXIT=0\s+REVIEWER=sol\s+VERDICT=OVERALL: approve")
+
+    def test_a_review_that_needs_attention_reaches_the_session_as_it_is(self):
+        self.assertRegex(self.session("needs"), r"EXIT=0\s+REVIEWER=sol\s+VERDICT=OVERALL: needs-attention")
 
     def test_a_review_that_fails_reaches_the_session_too(self):
-        out = self.session("fail")
-        self.assertRegex(out, r"EXIT=1\s+REVIEWER=null")
+        self.assertRegex(self.session("fail"), r"EXIT=1\s+REVIEWER=null\s+VERDICT=null")
 
 
 if __name__ == "__main__":

@@ -192,6 +192,16 @@ class Pin(unittest.TestCase):
         self.assertIsNone(self.decide("python scripts/todo-graph.py stamp 'D00 T01 §3'"))
 
 
+class ThreatModel(unittest.TestCase):
+    def test_both_hooks_state_what_they_guard_against(self):
+        for name in ("tool-guard.py", "dispatch_hook.py"):
+            with self.subTest(name):
+                text = " ".join((ROOT / "scripts" / name).read_text(encoding="utf-8").split())
+                self.assertIn("Threat model: these hooks catch the campaign session's own honest mistakes", text)
+                self.assertIn("rates P3", text)
+                self.assertIn("D00 T03 §17", text)
+
+
 class Process(unittest.TestCase):
     def run_hook(self, raw):
         return subprocess.run([sys.executable, str(ROOT / "scripts" / "dispatch_hook.py")], input=raw,
@@ -201,6 +211,15 @@ class Process(unittest.TestCase):
         done = self.run_hook(json.dumps(payload(REVIEW + " &", background=True)))
         self.assertEqual(done.returncode, 2)
         self.assertIn("not detached", done.stderr)
+
+    def test_a_hook_without_its_parser_says_so_and_lets_the_call_through(self):
+        with tempfile.TemporaryDirectory() as folder:
+            lone = Path(folder) / "dispatch_hook.py"
+            lone.write_bytes((ROOT / "scripts" / "dispatch_hook.py").read_bytes())
+            done = subprocess.run([sys.executable, str(lone)], input=json.dumps(payload(REVIEW + " &", background=True)),
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("couldn't load scripts/tool-guard.py", done.stderr)
 
     def test_a_malformed_payload_fails_open_with_a_message(self):
         for raw in ("", "not json", "[1]"):

@@ -5,6 +5,12 @@ or deleting push, deleting or making public a GitHub repository, a recursive del
 temp folders, and sending mail or chat. Each refusal says why, so the session carries on another way. It fails
 closed: input it can't read, or an error while deciding a command that might be protected, is refused with a
 diagnostic, since under bypass mode nothing else would stop it. `--self-test` runs it on known commands.
+
+Threat model: these hooks catch the campaign session's own honest mistakes in the spellings a session writes. A
+session that obscures a command to get past its own guard already controls the tools, which the review round
+prompt's proportionality rule rates P3. The hard guarantees sit elsewhere: D00 T01 §1's in-flight marks keep a
+review correct however it is launched, and the remote's branch protection, once D00 T03 §17 has it on, is what makes
+a force push impossible.
 """
 from __future__ import annotations
 
@@ -100,6 +106,15 @@ ANSI_C = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v":
           "\\": "\\", "'": "'", '"': '"', "?": "?"}
 
 
+def ansi_c_end(text: str, at: int) -> int:
+    """Just past the closing quote of Bash's $'...' that starts at `at`; a backslash there escapes the next character,
+    so `\\'` closes nothing."""
+    i = at + 2
+    while i < len(text) and text[i] != "'":
+        i += 2 if text[i] == "\\" else 1
+    return min(i + 1, len(text))
+
+
 def ansi_c(text: str, at: int) -> tuple:
     """(the word part, where it ends) for Bash's $'...' starting at `at`, with its escapes read: \\n, \\xHH, \\NNN octal,
     \\uHHHH and the rest."""
@@ -177,6 +192,11 @@ def split_chain(command: str, powershell: bool = False) -> list[str]:
     parts, current, quote, i = [], [], None, 0
     while i < len(command):
         char = command[i]
+        if not powershell and quote is None and command.startswith("$'", i):
+            end = ansi_c_end(command, i)
+            current.extend(command[i:end])  # $'...' is one quoted word, whatever its escapes hold
+            i = end
+            continue
         if char == ("`" if powershell else "\\") and quote != "'" and i + 1 < len(command):
             current.extend(command[i:i + 2])  # an escaped character is never a quote, a separator or a bracket
             i += 2

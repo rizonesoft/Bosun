@@ -11,6 +11,12 @@ Calls that run no review (`--check-pin`, `--list-rounds`, `--help`) pass, and so
 message: this hook guards the review's timing and its pin, and `scripts/tool-guard.py` is the deny list that fails
 closed. Exit 2 refuses the call and shows the reason to Claude.
 
+Threat model: these hooks catch the campaign session's own honest mistakes in the spellings a session writes. A
+session that obscures a command to get past its own guard already controls the tools, which the review round
+prompt's proportionality rule rates P3. The hard guarantees sit elsewhere: D00 T01 §1's in-flight marks keep a
+review correct however it is launched, and the remote's branch protection, once D00 T03 §17 has it on, is what makes
+a force push impossible.
+
 Ported from Recto (`D:\\GitHub\\Recto\\scripts\\dispatch_hook.py`), with the pin check from Resolute
 (`D:\\GitHub\\Resolute\\scripts\\dispatch_hook.py`), which checks the pin only; so does this, since findings files
 change on the way to every commit.
@@ -53,7 +59,10 @@ def _parser():
     return module
 
 
-PARSER = _parser()
+try:
+    PARSER = _parser()
+except (OSError, ImportError, SyntaxError) as error:  # a hook that can't start says so, and lets the call through
+    PARSER, PARSER_ERROR = None, f"{type(error).__name__}: {error}"
 
 
 def starts_no_reviewer(words: list[str]) -> bool:
@@ -163,6 +172,11 @@ def parse(text: str, powershell: bool) -> list[tuple]:
 
     while i < len(text):
         char = text[i]
+        if not powershell and quote is None and text.startswith("$'", i):
+            end = PARSER.ansi_c_end(text, i)
+            current.extend(text[i:end])  # $'...' is one quoted word, whatever its escapes hold
+            i, start = end, False
+            continue
         if char == ("`" if powershell else "\\") and quote != "'" and i + 1 < len(text):
             current.extend(text[i:i + 2])  # an escaped character is never a quote, a separator or a bracket
             i += 2
@@ -307,6 +321,10 @@ def main() -> int:
             raise ValueError("not an object")
     except (ValueError, OSError) as error:
         print(f"dispatch hook: couldn't read its input ({error}), so it let the call through", file=sys.stderr)
+        return 0
+    if PARSER is None:
+        print(f"dispatch hook: couldn't load scripts/tool-guard.py ({PARSER_ERROR}), so it let the call through",
+              file=sys.stderr)
         return 0
     why = verdict(payload)
     if why:
