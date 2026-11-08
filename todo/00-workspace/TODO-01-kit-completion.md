@@ -96,7 +96,7 @@ Without settled items, a reviewer reopens decisions the writer already resolved,
 
 ## 3. Dispatch hook for background reviews
 
-> **Started:** 2026-11-08T01:44:56Z
+> **Started:** 2026-11-08T02:58:25Z
 
 A review must run so the session hears when it ends, and a stamp must not sit on an edited pin. Recto's hook enforces the first and Resolute's the second.
 
