@@ -284,8 +284,9 @@ def inner_command(words: list[str]) -> tuple | None:
 
 
 def segments(command: str, powershell: bool = False) -> list[tuple]:
-    """(simple command, whether it is PowerShell, the folder a prefix runs it in or None) for each command in a line,
-    in order, with subshells, `$( )` and each wrapper's inner commands in their place, a wrapper's folder passed on."""
+    """(the command's words, whether it is PowerShell, the folder a prefix runs it in or None) for each command in a
+    line, in order, with subshells, `$( )` and each wrapper's inner commands in their place, a wrapper's folder passed
+    on. Words, never text joined again, so quoting is read once and nothing is lost re-reading it."""
     found = []
     for inner in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", command):  # substitutions run first
         found.extend(segments(inner[0] or inner[1], powershell))
@@ -298,7 +299,7 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
         if inner and inner[0]:
             found.extend((text, shell, within(chdir, folder)) for text, shell, folder in segments(*inner))
         else:
-            found.append((" ".join(shlex.quote(w) if " " in w else w for w in words), powershell, chdir))
+            found.append((words, powershell, chdir))
     return found
 
 
@@ -389,10 +390,9 @@ def decide_command(command: str, cwd: str, project: str, powershell: bool = Fals
     # A line that changes folder anywhere (cd, pushd, Set-Location, env -C, in a wrapper or not) can only delete
     # recursively by full path: where each shell scope stands is more than a hook should simulate, and a full path
     # costs the session nothing.
-    moves = any(chdir or os.path.basename((tokens_of(text) or [""])[0]).lower().removesuffix(".exe") in CHANGE_DIR | {"popd", "pop-location"}
-                for text, _, chdir in parts)
-    for part, in_powershell, chdir in parts:
-        words = tokens_of(part)
+    moves = any(chdir or os.path.basename((words or [""])[0]).lower().removesuffix(".exe") in CHANGE_DIR | {"popd", "pop-location"}
+                for words, _, chdir in parts)
+    for words, in_powershell, chdir in parts:
         if not words:
             continue
         head = os.path.basename(words[0]).lower().removesuffix(".exe")

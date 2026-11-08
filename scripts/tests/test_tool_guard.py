@@ -149,6 +149,12 @@ class Pushes(Base):
         self.allowed("git push origin main 2>&1 | tail -3")
         self.allowed("make build &> build.log")
 
+    def test_quoting_is_read_once_so_an_odd_branch_name_hides_nothing(self):
+        for form in ('git push origin "release\'candidate" --force', "git push origin 'a\"b' -f", 'git push origin "x y" --mirror'):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed('git push origin "release\'candidate"')
+
     def test_ordinary_pushes_pass(self):
         for form in ("git push", "git push -u origin main", "git push origin main:main", "git push -q origin main",
                      "git push --tags", "git status && git push origin feature"):
