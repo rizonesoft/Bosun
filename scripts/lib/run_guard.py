@@ -42,6 +42,23 @@ CHILD_HANG_HOURS = 3  # a resumed session this long without a change is reported
 HEARTBEAT_RENEW_DAYS = 6  # CronCreate jobs expire after 7 days
 LOCK_WAIT = 5  # seconds, well under every hook's timeout: slow reads happen before the lock, see snapshot
 
+# Waits for what only time or the owner can fix. The owner chose subscription only, so a limit costs time, never money.
+USAGE_WAIT = 30 * 60  # a usage limit that gives no reset time is looked at again after this
+SIGN_IN_WAIT = 30 * 60
+OVERLOADED_WAIT = 5 * 60
+# StopFailure's `error` (https://code.claude.com/docs/en/hooks), by what the run does about it.
+FAILURE_CLASSES = {
+    "rate_limit": "usage-limit",
+    "authentication_failed": "auth", "cloud_credential_error": "auth",
+    "oauth_org_not_allowed": "auth", "account_on_hold": "auth", "billing_error": "auth",
+    "overloaded": "overloaded", "server_error": "overloaded",
+}
+ACCOUNT_ERRORS = {"oauth_org_not_allowed", "account_on_hold", "billing_error"}
+# What a resumed session must never see, so it can only run on the subscription. The sign-in check below covers the
+# sources an environment can't, such as an apiKeyHelper or a key in a settings file.
+SCRUBBED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY",
+            "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY")
+
 DRAINED = "no runnable rows left; that is not the plan being done, `todo-graph.py query stats` shows what is blocked or unstamped"
 GROUNDS = ("data-loss", "credentials", "shared-infrastructure", "wrong-calculation", "operator")
 
@@ -65,6 +82,8 @@ class Env:
     child_alive: Callable[[dict], bool]
     spawn: Callable[[dict], dict]
     task_installed: Callable[[], bool] = lambda: True
+    # (ok, reason, detail): whether a launch now would run on the subscription.
+    subscription: Callable[[], tuple] = lambda: (True, "", "")
 
 
 def stamp(now: float | None = None) -> str:
@@ -172,10 +191,14 @@ def heartbeat_note() -> str:
     )
 
 
-def snapshot(env: Env) -> Env:
+def snapshot(env: Env, subscription: bool = False) -> Env:
     """Takes the slow reads now, so the lock is never held across them and a stop can always get in."""
     rows, signature = env.rows(), env.signature()
-    return replace(env, rows=lambda: rows, signature=lambda: signature)
+    env = replace(env, rows=lambda: rows, signature=lambda: signature)
+    if subscription:
+        answer = env.subscription()
+        env = replace(env, subscription=lambda: answer)
+    return env
 
 
 def on_prompt(state: dict, data: dict, env: Env) -> str | None:
@@ -257,10 +280,47 @@ def on_cron_created(state: dict, data: dict) -> None:
         state.update(heartbeat_at=stamp(), heartbeat_epoch=time.time())
 
 
-def on_stop_failure(state: dict, data: dict) -> None:
-    """An API error ends the turn with no Stop to send back, so only the heartbeat wakes the session: `status` shows it."""
-    if state.get("active") and state.get("session_id") == data.get("session_id"):
-        state["last_api_failure"] = f"{stamp()} {data.get('error') or 'unknown'}"
+def failure_class(data: dict) -> str:
+    return FAILURE_CLASSES.get(str(data.get("error") or ""), "other")
+
+
+def reset_time(text: str, now: float) -> float | None:
+    """When a usage limit resets, from the words that report it, or None when they don't say."""
+    found = re.search(r"\|(\d{10})\b", text)
+    if found:
+        return float(found.group(1))
+    found = re.search(r"(?i)\bresets?\b[^.\n]{0,40}?\bin (\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?|m)\b", text)
+    if found:
+        return now + float(found.group(1)) * (3600 if found.group(2).lower().startswith("h") else 60)
+    found = re.search(r"(?i)\bresets?\b[^.\n]{0,40}?\bat (\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", text)
+    if found:
+        hour = int(found.group(1)) % 12 + (12 if found.group(3).lower() == "pm" else 0)
+        day = time.localtime(now)
+        target = time.mktime((day.tm_year, day.tm_mon, day.tm_mday, hour, int(found.group(2) or 0), 0, 0, 0, -1))
+        return target if target > now else target + 86400  # the next time that clock time comes round
+    return None
+
+
+def on_stop_failure(state: dict, data: dict, now: float | None = None) -> None:
+    """An API error ends the turn with no Stop to send back. A usage limit, a sign-in problem or an overloaded API puts
+    the run in a wait that spends no stall budget; anything else is only recorded, and `status` shows it."""
+    if not (state.get("active") and state.get("session_id") == data.get("session_id")):
+        return
+    now = time.time() if now is None else now
+    error = str(data.get("error") or "unknown")
+    state["last_api_failure"] = f"{stamp(now)} {error}"
+    text = f"{data.get('error_details') or ''}\n{data.get('last_assistant_message') or ''}"
+    kind = failure_class(data)
+    if kind == "usage-limit":
+        until = reset_time(text, now) or now + USAGE_WAIT
+        set_wait(state, "usage-limit", until, f"the subscription's usage limit is reached; the run resumes at {stamp(until)}")
+    elif kind == "auth":
+        detail = (f"the account can't be used ({error}): that is the owner's to sort out with Anthropic, and the run resumes once Claude Code can sign in"
+                  if error in ACCOUNT_ERRORS else
+                  f"Claude Code's sign-in has expired or was refused ({error}): sign in again with `claude` and /login, and the run resumes")
+        set_wait(state, "sign-in-needed", now + SIGN_IN_WAIT, detail)
+    elif kind == "overloaded":
+        set_wait(state, "overloaded", now + OVERLOADED_WAIT, f"Anthropic's API reported {error}; the run looks again in 5 minutes")
 
 
 def start(state: dict, session: str, mode: str | None, env: Env) -> None:
@@ -309,6 +369,12 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     if state.get("restarts", 0) >= MAX_RESTARTS:
         end_run(state, "stalled", f"{MAX_RESTARTS} resumes changed nothing")
         return "stalled"
+    # Only ever on the subscription: a launch that would bill an account, or can't sign in, waits instead, spending no
+    # restart, and looks again when the wait passes.
+    ok, reason, detail = env.subscription()
+    if not ok:
+        set_wait(state, reason or "sign-in-needed", now + SIGN_IN_WAIT, detail)
+        return f"waiting: {state['wait_reason']} until {stamp(state['wait_until'])}"
     child = env.spawn(state)  # a launch that fails raises and uses no attempt: nothing ran, so nothing was tried
     state.update(child=child, restarts=state.get("restarts", 0) + 1, launched_at=now, last_restart=stamp())
     return f"resumed, attempt {state['restarts']}"
@@ -443,6 +509,42 @@ def resume_command(state: dict, claude: str) -> list[str]:
     return command
 
 
+def child_env(environ: dict, note: Callable[[str], None] = lambda line: None) -> dict:
+    """The environment a resumed session gets: the run's own, less anything that would let it bill an account."""
+    env = dict(environ)
+    for name in SCRUBBED:
+        if name in env:
+            del env[name]
+            note(f"removed {name} from the resumed session's environment, so it runs on the subscription")
+    return env
+
+
+def subscription_verdict(data: object) -> tuple:
+    """(ok, reason, detail) from `claude auth status --json`: ok only when it signs in with the subscription."""
+    if not isinstance(data, dict) or not data.get("loggedIn"):
+        return False, "sign-in-needed", "Claude Code isn't signed in: run `claude` and sign in with the subscription (/login)"
+    if data.get("apiProvider") != "firstParty":
+        return False, "subscription-unavailable", (f"Claude Code is set to use {data.get('apiProvider')}, which bills a cloud account: "
+                                                   "unset CLAUDE_CODE_USE_* and any provider in its settings so the subscription is used")
+    if data.get("authMethod") != "claude.ai":
+        return False, "subscription-unavailable", (f"Claude Code would sign in with {data.get('authMethod')}, which bills an API account: "
+                                                   "remove the API key or apiKeyHelper from the environment and settings, then sign in with the subscription")
+    return True, "", ""
+
+
+def real_subscription() -> tuple:
+    claude = shutil.which("claude")
+    if not claude:
+        return False, "sign-in-needed", "claude is not on PATH, so its sign-in can't be checked"
+    try:
+        done = subprocess.run([claude, "auth", "status", "--json"], cwd=ROOT, capture_output=True, env=child_env(os.environ),
+                              timeout=30, stdin=subprocess.DEVNULL, **hidden())
+        data = json.loads(done.stdout.decode("utf-8", "replace"))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return False, "sign-in-needed", f"Claude Code's sign-in couldn't be checked ({error}): run `claude auth status` to see why"
+    return subscription_verdict(data)
+
+
 def real_spawn(state: dict) -> dict:
     claude = shutil.which("claude")
     if not claude:
@@ -450,7 +552,8 @@ def real_spawn(state: dict) -> dict:
     output = STATE.with_name("resumed-session.log")
     flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     with output.open("ab") as out:
-        child = subprocess.Popen(resume_command(state, claude), cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=out, creationflags=flags)
+        child = subprocess.Popen(resume_command(state, claude), cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=out,
+                                 creationflags=flags, env=child_env(os.environ, log))
     return {"pid": child.pid, "started": process_started(child.pid)}
 
 
@@ -494,7 +597,7 @@ def real_task_installed() -> bool:
     return run("schtasks", "/Query", "/TN", TASK_NAME).returncode == 0
 
 
-REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed)
+REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed, real_subscription)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:
@@ -525,7 +628,7 @@ def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) ->
     """One scheduled tick, with its result kept: slow reads first, then the lock, then the state as it now stands."""
     if not load(path).get("active"):
         return "inactive"
-    env = snapshot(env)
+    env = snapshot(env, subscription=True)
     with locked(path):
         state = load(path)
         try:
@@ -581,4 +684,6 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
     if json.dumps(state, sort_keys=True) != before:
         save(state, path)
         log(f"{event}: {state.get('status')} {state.get('why', '')}".rstrip(), path)
+        if state.get("wait_reason") and state.get("wait_set") != json.loads(before).get("wait_set"):
+            log(f"waiting: {state['wait_reason']} until {stamp(state['wait_until'])}: {state.get('wait_detail') or ''}".rstrip(": "), path)
     return output

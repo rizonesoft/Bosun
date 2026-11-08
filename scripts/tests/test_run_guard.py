@@ -539,6 +539,158 @@ class Signature(unittest.TestCase):
         self.assertEqual((state["idle"], state["restarts"]), (3, 2), "an attempt record reset idle or restarts")
 
 
+class UsageLimits(unittest.TestCase):
+    """A limit, a sign-in problem or an overloaded API waits without spending the stall budget, on the subscription only."""
+
+    def failure(self, error, text="", session="me"):
+        return {"hook_event_name": "StopFailure", "session_id": session, "error": error, "error_details": text,
+                "last_assistant_message": f"API Error: {text}"}
+
+    def test_each_error_value_has_its_class(self):
+        expected = {"rate_limit": "usage-limit", "authentication_failed": "auth", "cloud_credential_error": "auth",
+                    "oauth_org_not_allowed": "auth", "account_on_hold": "auth", "billing_error": "auth",
+                    "overloaded": "overloaded", "server_error": "overloaded", "invalid_request": "other",
+                    "model_not_found": "other", "max_output_tokens": "other", "unknown": "other", None: "other"}
+        for error, kind in expected.items():
+            with self.subTest(error):
+                self.assertEqual(guard.failure_class({"error": error}), kind)
+
+    def test_each_reset_form(self):
+        now = 1_000_000.0
+        self.assertEqual(guard.reset_time("Claude AI usage limit reached|1000900", now), None)  # not ten digits
+        self.assertEqual(guard.reset_time("Claude AI usage limit reached|1762600000", now), 1762600000.0)
+        self.assertEqual(guard.reset_time("Your limit resets in 3 hours.", now), now + 3 * 3600)
+        self.assertEqual(guard.reset_time("Limit will reset in 45 minutes", now), now + 45 * 60)
+        at = guard.reset_time("Your limit will reset at 5pm (Africa/Johannesburg).", now)
+        clock = time.localtime(at)
+        self.assertEqual((clock.tm_hour, clock.tm_min), (17, 0))
+        self.assertTrue(now < at <= now + 86400)
+        self.assertIsNone(guard.reset_time("429 Too Many Requests", now))
+
+    def test_a_usage_limit_without_a_reset_waits_30_minutes(self):
+        state = active()
+        guard.on_stop_failure(state, self.failure("rate_limit", "429 Too Many Requests"), now=1000)
+        self.assertEqual((state["wait_reason"], state["wait_until"]), ("usage-limit", 1000 + 1800))
+
+    def test_a_5_hour_limit_ends_in_a_resume_not_stalled(self):
+        world, state = World(), active(restarts=2, changed_at=0)
+        start = 1_000_000.0
+        guard.on_stop_failure(state, self.failure("rate_limit", "limit reached, resets in 5 hours"), now=start)
+        now = start
+        while now < start + 5 * 3600:
+            now += 300
+            self.assertTrue(guard.watch(state, world.env(), now=now).startswith(("waiting", "resumed")))
+            if now < start + 5 * 3600:
+                self.assertEqual((world.spawned, state["restarts"]), ([], 2))
+        self.assertEqual(len(world.spawned), 1)
+        self.assertTrue(state["active"])
+        self.assertEqual(state["restarts"], 1)  # the resume, on a fresh budget
+
+    def test_overloaded_waits_5_minutes_and_other_only_records(self):
+        state = active()
+        guard.on_stop_failure(state, self.failure("overloaded"), now=1000)
+        self.assertEqual((state["wait_reason"], state["wait_until"]), ("overloaded", 1300))
+        state = active()
+        guard.on_stop_failure(state, self.failure("max_output_tokens"), now=1000)
+        self.assertNotIn("wait_until", state)
+        self.assertIn("max_output_tokens", state["last_api_failure"])
+
+    def test_sign_in_tells_an_expired_login_from_an_account_problem(self):
+        expired, account = active(), active()
+        guard.on_stop_failure(expired, self.failure("authentication_failed"), now=1000)
+        guard.on_stop_failure(account, self.failure("billing_error"), now=1000)
+        self.assertEqual((expired["wait_reason"], account["wait_reason"]), ("sign-in-needed", "sign-in-needed"))
+        self.assertIn("/login", expired["wait_detail"])
+        self.assertIn("owner's to sort out", account["wait_detail"])
+
+    def test_the_launch_environment_has_no_paid_keys_and_says_which_went(self):
+        environ = {name: "a-secret-value-1234" for name in guard.SCRUBBED}
+        environ["PATH"] = "keep"
+        lines = []
+        env = guard.child_env(environ, lines.append)
+        self.assertEqual(env, {"PATH": "keep"})
+        self.assertEqual(len(lines), len(guard.SCRUBBED))
+        for name, line in zip(guard.SCRUBBED, lines):
+            self.assertIn(name, line)
+            self.assertNotIn("a-secret-value", line)
+
+    def test_only_a_subscription_sign_in_may_launch(self):
+        cases = [({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}, (True, "")),
+                 ({"loggedIn": False}, (False, "sign-in-needed")),
+                 ("not json", (False, "sign-in-needed")),
+                 ({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "bedrock"}, (False, "subscription-unavailable")),
+                 ({"loggedIn": True, "authMethod": "api_key", "apiProvider": "firstParty"}, (False, "subscription-unavailable"))]
+        for data, expected in cases:
+            with self.subTest(data):
+                ok, reason, detail = guard.subscription_verdict(data)
+                self.assertEqual((ok, reason), expected)
+                self.assertTrue(ok or detail, "a refusal says what to do")
+
+    def test_a_launch_that_would_bill_an_account_waits_instead(self):
+        world, state = World(), active(restarts=1, restart_signature="one")
+        env = guard.replace(world.env(), subscription=lambda: (False, "subscription-unavailable", "would sign in with api_key"))
+        self.assertTrue(guard.watch(state, env, now=1000).startswith("waiting: subscription-unavailable"))
+        self.assertEqual((world.spawned, state["restarts"]), ([], 1))
+        self.assertIn("api_key", state["wait_detail"])
+
+    def test_sign_in_failing_again_and_again_spends_nothing_and_resumes_when_it_returns(self):
+        world, state = World(), active(restarts=0, changed_at=0)
+        guard.on_stop_failure(state, self.failure("authentication_failed"), now=0)
+        signed_in = [False]
+        env = guard.replace(world.env(), subscription=lambda: (True, "", "") if signed_in[0] else (False, "sign-in-needed", "not signed in"))
+        now = 0.0
+        for _ in range(guard.MAX_QUIET_HOURS * 2):  # far past every stall and quiet limit, still signed out
+            now += 1800 + 1
+            self.assertTrue(guard.watch(state, env, now=now).startswith("waiting: sign-in-needed"))
+        self.assertEqual((world.spawned, state["restarts"]), ([], 0))
+        self.assertTrue(state["active"])
+        signed_in[0] = True
+        now += 1800 + 1
+        self.assertIn("attempt 1", guard.watch(state, env, now=now))
+
+    def test_the_hook_saves_the_wait_and_the_watchdog_honours_it_from_a_fresh_read(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            guard.save(active(), path)
+            world = World()
+            reset = int(time.time()) + 900
+            raw = json.dumps(self.failure("rate_limit", f"usage limit reached|{reset}"))
+            guard.hook(raw, world.env(), path)
+            fresh = guard.load(path)
+            self.assertEqual((fresh["wait_reason"], fresh["wait_until"]), ("usage-limit", float(reset)))
+            self.assertIn("waiting: usage-limit", (Path(folder) / "run-guard.log").read_text(encoding="utf-8"))
+            self.assertTrue(guard.watch_tick(world.env(), path, now=reset - 60).startswith("waiting"))
+            self.assertEqual(world.spawned, [])
+            self.assertIn("attempt 1", guard.watch_tick(world.env(), path, now=reset + 60))
+            # Another session's failure sets nothing.
+            guard.save(active(), path)
+            guard.hook(json.dumps(self.failure("rate_limit", "x", session="someone-else")), world.env(), path)
+            self.assertNotIn("wait_until", guard.load(path))
+            # An operator halt during a wait is never resumed.
+            guard.hook(raw, world.env(), path)
+            with guard.locked(path):
+                state = guard.load(path)
+                guard.halt(state, "operator", "stop for now")
+                guard.save(state, path)
+            spawned = len(world.spawned)
+            self.assertEqual(guard.watch_tick(world.env(), path, now=reset + 3600), "inactive")
+            self.assertEqual(len(world.spawned), spawned)
+
+    def test_status_shows_a_sign_in_wait_and_what_to_do(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = active()
+            guard.on_stop_failure(state, self.failure("authentication_failed"))
+            (Path(folder) / "state.json").write_text(json.dumps(state), encoding="utf-8")
+            env = {**os.environ, "RUN_GUARD_STATE": str(Path(folder) / "state.json")}
+            script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+            text = subprocess.run([*script, "status"], env=env, capture_output=True, text=True).stdout
+            self.assertEqual(text.splitlines()[0], "waiting")
+            self.assertIn("/login", text)
+            data = json.loads(subprocess.run([*script, "status", "--json"], env=env, capture_output=True, text=True).stdout)
+            self.assertEqual(data["wait_reason"], "sign-in-needed")
+            self.assertIn("/login", data["wait_detail"])
+
+
 class Waits(unittest.TestCase):
     """A run that waits for an unavailable reviewer neither spins nor stalls, and resumes when the wait passes."""
 
