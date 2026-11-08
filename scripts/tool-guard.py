@@ -206,7 +206,7 @@ def strip_prefixes(words: list[str]) -> tuple:
     line, each with its options and their values. The folder matters: `env -C DIR rm -r x` deletes DIR/x."""
     seen, chdir = [], None
     while words:
-        head = os.path.basename(words[0]).lower()
+        head = os.path.basename(words[0]).lower().removesuffix(".exe")  # env.exe is env
         if words[0] in ("&", ".", "{", "(") or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
             words = words[1:]
             continue

@@ -103,6 +103,12 @@ class Pushes(Base):
                 self.refused(form)
         self.allowed(f"sudo -D /home rm -rf {self.project / 'build' / 'x'}")
 
+    def test_a_prefix_named_with_exe_is_still_the_prefix(self):
+        for form in ("env.exe git push --force origin main", "C:/msys64/usr/bin/env.exe -u X git push -f",
+                     "nohup.exe git push --mirror", "timeout.exe 60 git push -f"):
+            with self.subTest(form):
+                self.refused(form)
+
     def test_an_empty_attached_value_is_still_a_value(self):
         for form in ("/usr/bin/time --format= git push --force origin main", "env --unset= git push -f",
                      "timeout --signal= 60 git push --mirror"):
