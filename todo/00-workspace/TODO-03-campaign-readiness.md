@@ -39,7 +39,7 @@ title: "TODO-03 -- Campaign readiness"
 | 1 | §1 | CI status that proves the commit | -- | [x] |
 | 2 | §2 | One section disposition across graph, guard and skills | -- | [x] |
 | 3 | §3 | Review repair cycles and parking | -- | [x] |
-| 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [ ] |
+| 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [x] |
 | 5 | §5 | Usage limits wait and resume | §2 | [ ] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
 | 7 | §7 | Owned session recovery | §5 | [ ] |
@@ -227,9 +227,12 @@ Failed attempts don't count as reviews, and each one changes the tree, so a brok
 - [x] Save `build/review-attempts.json` atomically and reserve each attempt before its CLI starts, refusing with exit 2 when the file can't be read or saved, and exiting 3 only once the guard's wait is saved, saying so when there is no run to wait. Done when: tests cover a kill after the reservation, an unreadable file and a failed save, each read back in a fresh process.
 - [x] Show the wait in `python scripts/run-guard.py status`: its reason, its deadline, the failure class, the diagnostic file in `build/review-failures/` and what to do (for `auth`, sign the reviewer CLI in; for `model`, fix the pin). Done when: a test reads each from `status` and `status --json`.
 - [x] Teach `process-todo-section/SKILL.md`, `review-todo-section/SKILL.md` and `process-phase/SKILL.md`, in all three mirrors, that a failed attempt writes nothing to the findings file, and that exit 3 from any plan, round or completion pass means the run waits: end the turn without building, retrying or stamping. Done when: a test reads it in each mirror, and no skill still says a failed round is recorded in the findings file.
-- [ ] Commit: `review: attempt limits and failure classes`
+- [x] Commit: `review: attempt limits and failure classes`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py scripts/tests/test_run_guard.py` exits 0, and fails if a sixth attempt runs.
+
+> **Verified:** 2026-11-08 | §4 | a9d215fe1e70f3cf63da32aa4454200dfafeef4e
+> **Review:** `docs/reviews/d00-t03-s4.json`
 
 ## 5. Usage limits wait and resume
 
