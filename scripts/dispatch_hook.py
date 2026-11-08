@@ -91,12 +91,15 @@ COMPOUND = {"if": "fi", "while": "done", "until": "done", "for": "done", "select
 WORD = re.compile(r"[A-Za-z_]+")
 
 
-def compound_end(text: str, at: int) -> int:
+def compound_end(text: str, at: int, powershell: bool = False) -> int:
     """Where the compound command opened at `at` (`if`, `while`, `until`, `for`, `select`, `case`) ends: just past its
     `fi`, `done` or `esac`, nested ones matched, quotes respected; the end of the text when it never closes."""
     stack, quote, i = [], None, at
     while i < len(text):
         char = text[i]
+        if char == ("`" if powershell else "\\") and quote != "'":
+            i += 2  # an escaped character is never a quote or a keyword's edge
+            continue
         if quote:
             quote = None if char == quote else quote
         elif char in "'\"":
@@ -116,11 +119,15 @@ def compound_end(text: str, at: int) -> int:
     return len(text)
 
 
-def group_end(text: str, at: int) -> int:
+def group_end(text: str, at: int, powershell: bool = False) -> int:
     """Where the group opened at `at` closes, quotes respected; the end of the text when it never does."""
-    opener, closer, depth, quote = text[at], CLOSE[text[at]], 0, None
-    for i in range(at, len(text)):
+    opener, closer, depth, quote, i = text[at], CLOSE[text[at]], 0, None, at - 1
+    while i + 1 < len(text):
+        i += 1
         char = text[i]
+        if char == ("`" if powershell else "\\") and quote != "'":
+            i += 1  # an escaped character is never a quote or a bracket
+            continue
         if quote:
             quote = None if char == quote else quote
         elif char in "'\"":
@@ -156,6 +163,10 @@ def parse(text: str, powershell: bool) -> list[tuple]:
 
     while i < len(text):
         char = text[i]
+        if char == ("`" if powershell else "\\") and quote != "'" and i + 1 < len(text):
+            current.extend(text[i:i + 2])  # an escaped character is never a quote, a separator or a bracket
+            i += 2
+            continue
         if quote:
             current.append(char)
             quote = None if char == quote else quote
@@ -170,7 +181,7 @@ def parse(text: str, powershell: bool) -> list[tuple]:
                 and (opener.end() == len(text) or text[opener.end()] in " \t\n;&|()"):
             # A compound command is one command of its list: an `&` after its `fi`, `done` or `esac` backgrounds all
             # of it. Its body is parsed by the same rules, keywords and all.
-            end = compound_end(text, i)
+            end = compound_end(text, i, powershell)
             closer = COMPOUND[opener.group(0)]
             body_end = end - len(closer) if text[:end].endswith(closer) else end
             finish_command()
@@ -182,7 +193,7 @@ def parse(text: str, powershell: bool) -> list[tuple]:
             i, start = end, False
             continue
         elif char in CLOSE and not "".join(current).strip():
-            close = group_end(text, i)
+            close = group_end(text, i, powershell)
             finish_command()
             listed.extend(parse(text[i + 1:close], powershell))
             i, start = close, False

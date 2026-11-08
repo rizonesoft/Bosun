@@ -131,12 +131,16 @@ def tokens_of(text: str, powershell: bool = False) -> list[str]:
     return words
 
 
-def split_chain(command: str) -> list[str]:
+def split_chain(command: str, powershell: bool = False) -> list[str]:
     """A command line split on `;`, `&&`, `||`, `|`, a single background `&` and newlines, but never inside quotes, so
     a wrapper's quoted command stays whole; `2>&1`, `&>` and `>&` are redirects, not separators."""
     parts, current, quote, i = [], [], None, 0
     while i < len(command):
         char = command[i]
+        if char == ("`" if powershell else "\\") and quote != "'" and i + 1 < len(command):
+            current.extend(command[i:i + 2])  # an escaped character is never a quote, a separator or a bracket
+            i += 2
+            continue
         if quote:
             current.append(char)
             if char == quote:
@@ -302,7 +306,7 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
     found = []
     for inner in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", command):  # substitutions run first
         found.extend(segments(inner[0] or inner[1], powershell))
-    for part in split_chain(command):
+    for part in split_chain(command, powershell):
         part = part.strip()
         while part.startswith("(") and part.endswith(")"):
             part = part[1:-1].strip()
