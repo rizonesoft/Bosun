@@ -30,3 +30,25 @@ OVERALL: needs-attention
 - Planned: the real-session test asserts the verdict, approve, needs-attention and a failure (P1) in the D00 T01 §3 contract, this commit.
 - Planned: the checkpoint runs the deny list's suite too (P2) in the D00 T01 §3 contract, this commit.
 - Filed: D00 T03 §17 (branch protection on main, the hard guarantee against a force push, turned on and read back once the owner agrees) (P2)
+
+## Round 1: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-08T03:04:52Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 8a629aaec3c6d3ded74b438212908f0be3e9be71
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Lines: 6
+- Digest: 119cf991caf03b6d
+
+### adversarial: approve
+
+No actionable findings in the candidate range. Six read-only parser probes passed. Live-session tests were not run because they create files and launch Claude.
+
+HIGHEST: none
+OVERALL: approve
