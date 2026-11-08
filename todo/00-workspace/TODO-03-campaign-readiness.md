@@ -270,6 +270,8 @@ The owner chose subscription only, so hitting a limit costs time and never money
 
 "No runnable rows" is not one state. A run waiting for the .NET release is not finished, and a finished build must not end before its closeouts are written. The owner's finish line is implementation complete, then an acceptance pass.
 
+**Corrected 2026-11-08:** the records this reads already exist. A file's Verification has run when `process-todo-file` has moved it under Completed in `todo/TODO-00-INDEX.md` (its step 5), and a phase is closed out when a `docs/phase-runs/*-phase-<N>.md` holds a `## Closeout` heading (`process-phase` step 4). A file that also holds phase 99 sections can't close before acceptance, so it is listed in the acceptance file rather than required for `complete`. The guard reads all of it from one new `python scripts/todo-graph.py query finish`, so the graph stays the one place that knows what is left, and `D00 T03 §4`'s waiting state carries a run that only waits.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
