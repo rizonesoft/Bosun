@@ -314,6 +314,8 @@ A hung resumed session is only reported today, and any Claude session in the che
 
 ## 8. Campaign permissions
 
+> **Started:** 2026-11-08T01:04:39Z
+
 A hidden session can't answer a prompt, so any prompt stalls the run. The owner chose bypass mode with a deny list, and told us on 2026-11-07 not to let caution block the run. So the list covers only what can't be undone, and a refusal returns its reason so the session carries on another way.
 
 **Corrected 2026-11-08:** the deny list is a `PreToolUse` hook of its own, `scripts/tool-guard.py`, because it runs on every tool call and must not take the run guard's lock; `scripts/tests/test_hook_commands.py` today expects every hook to be `run-guard.py`, so it learns to accept any project script. `claude --help` lists the modes `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` and `plan`. The resume keeps the operator's own mode, which the owner chose to be `bypassPermissions`, so a run started in another mode is told that its resumed sessions would be refused at every prompt. The end-to-end test starts a real Claude session, which spends subscription usage, so it runs when `BOSUN_E2E=1` is set and once here as evidence.
