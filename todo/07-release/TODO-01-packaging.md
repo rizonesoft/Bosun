@@ -55,6 +55,7 @@ title: "TODO-01 -- Packaging and budgets"
 | 4 | §4 | Keyboard and accessibility audit | §1 | [ ] |
 | 5 | §5 | Performance budget | §1 | [ ] |
 | 6 | §6 | Documentation | §4, §5 | [ ] |
+| 7 | §7 | Clean-system installer (Inno Setup) | §1, §3 | [ ] |
 
 ## 1. Publish and install
 
@@ -182,6 +183,28 @@ README, troubleshooting and a clear note on what the panel will and won't do.
 - [ ] Commit: `docs: panel readme and troubleshooting`
 
 **Test checkpoint:** `python scripts/check-doc-commands.py` exits 0, verifying each documented command exists.
+
+## 7. Clean-system installer (Inno Setup)
+
+The owner asked on 2026-11-08 that everything set up by hand during development can be reproduced on a clean Windows machine, by script or one installer built with the latest stable Inno Setup. Today that state is spread over `scripts/install.ps1`, `scripts/add-cmake-to-path.ps1`, `scripts/heartbeat.py` registration, `scripts/campaign-hold.ps1`, `scripts/campaign-admin-setup.ps1` (both from `D00 T03 §10`) and the WSL side, plus tools installed by hand.
+
+**Phase:** 7
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `installer/bosun.iss`. Done when: `iscc` builds one setup that installs what `scripts/install.ps1` does.
+2. Prove it on a clean machine. Done when: Windows Sandbox goes from nothing to a passing `pwsh scripts/campaign-preflight.ps1 -Only bosun,cmake,denylist,dotnet,gh,codex,wsl`.
+
+- [ ] List every piece of machine state the repo depends on in `docs/install-inventory.md` (tools, PATH entries, tasks, registry values, WSL packages, sign-ins), each with the script that sets it. Done when: `scripts/check-install-inventory.py` fails on a fixture naming a script that doesn't exist or a task no script registers. Cheaper substitute: a README list nobody checks.
+- [ ] Add `scripts/bootstrap.ps1`, installing the prerequisites the inventory names through `winget` (Git, Python, PowerShell 7, GitHub CLI, the .NET SDK, Visual Studio Build Tools with CMake, Node for Codex), each skipped when present, then running `scripts/install.ps1`. Done when: a run on a machine that has everything changes nothing and says so. Cheaper substitute: telling the user what to install.
+- [ ] Create `installer/bosun.iss` for the latest stable Inno Setup 6, per user with no administrator rights, installing the tools, panel and logger to `%LOCALAPPDATA%\Bosun`, the Start menu shortcut and PATH entry, and the heartbeat task, with an optional elevated component that runs `scripts/campaign-admin-setup.ps1 -Apply`. Done when: `scripts/build-installer.ps1` finds `iscc` (or names the `winget install JRSoftware.InnoSetup` fix) and writes `bin/installer/Bosun-Setup-<version>.exe`. Cheaper substitute: a zip of `bin/`.
+- [ ] Make the installer's uninstaller call `scripts/uninstall.ps1` and, when the elevated component was installed, `scripts/campaign-admin-setup.ps1 -Restore`. Done when: an install and uninstall round trip leaves no file, task, PATH entry or Run value behind, checked by the inventory.
+- [ ] Prove a clean install in Windows Sandbox with `tests/clean_install_test.ps1`: bootstrap or the setup, then the preflight's tool checks. Done when: it passes from a clean sandbox and fails when a prerequisite is left out.
+- [ ] Commit: `release: clean-system installer`
+
+**Test checkpoint:** `pwsh tests/clean_install_test.ps1` exits 0 in Windows Sandbox, and `python scripts/check-install-inventory.py` exits 0.
 
 ## Verification
 

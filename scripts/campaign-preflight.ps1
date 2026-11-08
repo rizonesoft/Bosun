@@ -1,15 +1,58 @@
-# One command that proves the unattended campaign can run before anyone walks away. D00 T03 §9 adds the CMake check;
-# D00 T03 §10 adds the rest. Exits 1 when any check fails, each failure naming its fix.
+# One command that proves the unattended campaign can run before anyone walks away (D00 T03 §9 and §10). Every check
+# prints ok or FAIL, and each FAIL names the command that fixes it. Exits 1 when any check fails, 2 on a bad argument.
+#
+#   pwsh scripts/campaign-preflight.ps1                  every check
+#   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below)
+#
+# Tools are found on the PATH the watchdog's task launches with (the machine and user PATH in the registry), not this
+# shell's, which may predate an installer's change. Each probe runs under -ProbeSeconds and is stopped with its whole
+# process tree when it overruns.
 param(
+  [string[]]$Only = @(),
+  [string]$Repo = (Split-Path $PSScriptRoot),
+  [string]$SearchPath = '',
+  [int]$ProbeSeconds = 120,
+  [string]$ReviewerModel = 'gpt-6-astra',
+  [string]$Distro = 'Ubuntu',
+  [double]$MinFreeGB = 50,
+  [string[]]$FreeDrives = @('D:\', 'R:\'),
+  [string]$HoldRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
+  [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
+  [string]$LockKey = 'HKCU:\Control Panel\Desktop',
+  [string]$PolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU',
+  [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
+  [string]$DotnetDir = '',
+  [string]$Vhdx = 'R:\Conclave.vhdx',
+  [string]$TaskStore = '',
+  [string]$TaskPrefix = 'Bosun',
+  [string]$InactivityKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System',
+  [string]$Acceptance = '',
   [string]$VsWhere = (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
 )
+. (Join-Path $PSScriptRoot 'lib\campaign.ps1')
+if (-not $SearchPath) { $SearchPath = Get-RegistryPath }
+if (-not $Acceptance) { $Acceptance = Join-Path $Repo 'docs\acceptance\preflight.md' }
 $failed = 0
-function Pass([string]$what) { "ok   $what" }
+# Written to the host, not returned: a check that fails inside a helper whose result is assigned (as Probe's is) would
+# otherwise hand its own report back as that result.
+function Pass([string]$what) { Write-Host "ok   $what" }
 function Fail([string]$what, [string]$fix) {
-  "FAIL $what"
-  "     fix: $fix"
+  Write-Host "FAIL $what"
+  Write-Host "     fix: $fix"
   $script:failed++
 }
+function Tail([string]$text) { (($text -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' / ').Trim() }
+
+# A tool on the watchdog's PATH, run under the probe limit. $null (after failing the check) when it isn't there.
+function Probe([string]$tool, [string[]]$arguments, [string]$fix, [string]$dir = '', [hashtable]$environment = @{}) {
+  $exe = Find-Tool $tool $SearchPath
+  if (-not $exe) { Fail "$tool is not on the PATH the watchdog launches with" $fix; return $null }
+  $r = Invoke-Probe $exe $arguments $ProbeSeconds $SearchPath $dir $environment
+  if ($r.TimedOut) { Fail "$tool $($arguments -join ' ') gave no answer within $ProbeSeconds seconds and was stopped" $fix; return $null }
+  $r
+}
+
+# --- Tools -------------------------------------------------------------------------------------------------------
 
 # The CMake Visual Studio ships, and how to get it onto PATH, or why it can't be found.
 function Find-VsCMake {
@@ -33,45 +76,239 @@ function Find-VsCMake {
 function Test-CMake {
   $minimum = [version]'3.25'  # cmake_minimum_required in CMakeLists.txt
   $vs = Find-VsCMake
-  # The cmake a new shell would run: the first on PATH, as the build and every section's checkpoint use it.
-  $found = Get-Command cmake -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+  # The cmake the watchdog would run: the first on its PATH, as the build and every section's checkpoint use it.
+  $found = Find-Tool 'cmake' $SearchPath
   if (-not $found) {
     Fail 'cmake is not on PATH' $vs.Fix
     return
   }
-  # All of the output first: stopping the pipeline at its first line would leave the exit code unset.
-  $lines = @(& $found.Source --version 2>&1)
-  $code = $LASTEXITCODE
-  $text = ($lines | Select-Object -First 1) -as [string]
-  if ($code -ne 0 -or $text -notmatch 'cmake version (\d+\.\d+(?:\.\d+)?)') {
-    Fail "cmake at $($found.Source) doesn't run (exit $code, said `"$text`")" "remove or repair it, or put a working one first on PATH: $($vs.Fix)"
+  $r = Invoke-Probe $found @('--version') $ProbeSeconds $SearchPath
+  $text = ($r.Out -split "`n" | Select-Object -First 1) -as [string]
+  if ($r.TimedOut -or $r.Code -ne 0 -or $text -notmatch 'cmake version (\d+\.\d+(?:\.\d+)?)') {
+    Fail "cmake at $found doesn't run (exit $($r.Code), said `"$text`")" "remove or repair it, or put a working one first on PATH: $($vs.Fix)"
     return
   }
   $version = [version]$Matches[1]
   if ($version -lt $minimum) {
-    Fail "cmake at $($found.Source) is $version, older than the $minimum CMakeLists.txt needs" "put a newer one first on PATH: $($vs.Fix)"
+    Fail "cmake at $found is $version, older than the $minimum CMakeLists.txt needs" "put a newer one first on PATH: $($vs.Fix)"
     return
   }
-  Pass "cmake $version at $($found.Source)"
+  Pass "cmake $version at $found"
 }
 
 function Test-DenyList {
   # The campaign's deny list must be able to run here: under bypass mode nothing else stops what it refuses.
-  $python = Get-Command python, python3 -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+  $python = Find-Tool 'python' $SearchPath
+  if (-not $python) { $python = Find-Tool 'python3' $SearchPath }
   if (-not $python) {
     Fail 'no python on PATH, so the deny list hook (scripts/tool-guard.py) can''t run' 'install Python 3 and put it on PATH'
     return
   }
-  $out = @(& $python.Source (Join-Path $PSScriptRoot 'tool-guard.py') --self-test 2>&1)
-  if ($LASTEXITCODE -ne 0) {
-    Fail "the deny list's self-test failed: $(($out | Where-Object { $_ -match 'FAIL' }) -join '; ')" 'run `python scripts/tool-guard.py --self-test` and fix what it names'
+  $r = Invoke-Probe $python @((Join-Path $PSScriptRoot 'tool-guard.py'), '--self-test') $ProbeSeconds $SearchPath
+  if ($r.TimedOut -or $r.Code -ne 0) {
+    Fail "the deny list's self-test failed: $(($r.Out -split "`n" | Where-Object { $_ -match 'FAIL' }) -join '; ')" 'run `python scripts/tool-guard.py --self-test` and fix what it names'
     return
   }
-  Pass "deny list self-test ($($out.Count - 1) cases)"
+  Pass "deny list self-test ($(@($r.Out -split "`n").Count - 1) cases)"
 }
 
-Test-CMake
-Test-DenyList
+function Test-Bosun {
+  $fix = 'install it with `pwsh scripts/install.ps1`, which puts %LOCALAPPDATA%\Bosun\bin on the user PATH'
+  $r = Probe 'bosun' @('status') $fix
+  if (-not $r) { return }
+  if ($r.Code -ne 0) { Fail "bosun status failed (exit $($r.Code)): $(Tail $r.Out)" $fix; return }
+  Pass "bosun ($(Tail $r.Out))"
+}
+
+function Test-Dotnet {
+  $fix = 'install the .NET 11 SDK: `winget install Microsoft.DotNet.SDK.Preview` (admin setup''s task replaces it with the final when it ships)'
+  $r = Probe 'dotnet' @('--list-sdks') $fix
+  if (-not $r) { return }
+  $sdks = @($r.Out -split "`n" | Where-Object { $_ -match '^\s*11\.0\.1\d\d(-\S+)?\s+\[' } | ForEach-Object { ($_ -split '\s+')[0] })
+  if ($r.Code -ne 0 -or -not $sdks) {
+    $have = @($r.Out -split "`n" | Where-Object { $_ -match '^\s*\d' } | ForEach-Object { ($_ -split '\s+')[0] })
+    Fail "no .NET 11 SDK (11.0.1xx) in dotnet --list-sdks (has: $(if ($have) { $have -join ', ' } else { 'none' }))" $fix
+    return
+  }
+  $final = Test-FinalSdk $r.Out
+  Pass ".NET 11 SDK $($sdks -join ', ')$(if (-not $final) { ' (a release candidate; the final installs when it ships)' })"
+}
+
+function Test-Gh {
+  $r = Probe 'gh' @('auth', 'status') '`gh auth login`, then run the preflight again'
+  if (-not $r) { return }
+  if ($r.Code -ne 0) { Fail "gh is not signed in (gh auth status: $(Tail $r.Out))" '`gh auth login`, then run the preflight again'; return }
+  Pass 'gh signed in'
+}
+
+function Test-Codex {
+  $fix = '`codex login`, then run the preflight again'
+  $r = Probe 'codex' @('login', 'status') $fix
+  if (-not $r) { return }
+  if ($r.Code -ne 0 -or $r.Out -notmatch 'Logged in') { Fail "codex is not signed in ($(Tail $r.Out))" $fix; return }
+  # A real reply from the pinned reviewer, through the same read-only exec the review dispatcher uses.
+  $r = Probe 'codex' @('exec', '-m', $ReviewerModel, '-c', 'model_reasoning_effort=low', '--sandbox', 'read-only', '--ephemeral', '--skip-git-repo-check', 'Reply with the single word READY and nothing else.') "check ``codex exec -m $ReviewerModel`` answers in a shell: sign in again with ``codex login`` or wait out a usage limit"
+  if (-not $r) { return }
+  if ($r.Code -ne 0 -or $r.Out -notmatch 'READY') { Fail "$ReviewerModel didn't reply READY (exit $($r.Code)): $(Tail $r.Out)" "check ``codex exec -m $ReviewerModel`` answers in a shell: sign in again with ``codex login`` or wait out a usage limit"; return }
+  Pass "codex signed in, and $ReviewerModel replied"
+}
+
+function Test-Wsl {
+  $utf8 = @{ WSL_UTF8 = '1' }
+  $r = Probe 'wsl' @('-d', $Distro, '-e', 'true') "``wsl --install -d $Distro``" '' $utf8
+  if (-not $r) { return }
+  if ($r.Code -ne 0) { Fail "WSL $Distro doesn't start (exit $($r.Code)): $(Tail $r.Out)" "``wsl --install -d $Distro``, or ``wsl --shutdown`` and try again"; return }
+  $full = (Resolve-Path $Repo).Path
+  $mnt = '/mnt/' + $full.Substring(0, 1).ToLower() + ($full.Substring(2) -replace '\\', '/')
+  $r = Probe 'wsl' @('-d', $Distro, '-e', 'test', '-d', "$mnt/.git") '`wsl --shutdown`, then try again' '' $utf8
+  if (-not $r) { return }
+  if ($r.Code -ne 0) { Fail "$Distro can't see this repo at $mnt" "``wsl --shutdown`` then try again; if it persists, check /etc/wsl.conf in $Distro doesn't disable automount"; return }
+  Pass "WSL $Distro sees $mnt"
+}
+
+# --- The repository ----------------------------------------------------------------------------------------------
+
+function Git([string[]]$arguments) { Probe 'git' (@('-C', $Repo) + $arguments) 'install Git for Windows and put it on PATH' }
+
+function Test-Tree {
+  $r = Git @('status', '--porcelain')
+  if (-not $r) { return }
+  if ($r.Code -ne 0) { Fail "git status failed in ${Repo}: $(Tail $r.Out)" "check $Repo is a git checkout"; return }
+  if ($r.Out) { Fail "the tree at $Repo has uncommitted changes ($(@($r.Out -split "`n").Count) paths)" 'commit or stash them (`git status` lists them), then run the preflight again'; return }
+  Pass 'clean tree'
+}
+
+function Test-Pushed {
+  $head = Git @('rev-parse', 'HEAD')
+  if (-not $head) { return }
+  $remote = Git @('ls-remote', 'origin', 'refs/heads/main')
+  if (-not $remote) { return }
+  if ($remote.Code -ne 0 -or $remote.Out -notmatch '^([0-9a-f]{40})\s') {
+    Fail "the remote's main can't be read now (git ls-remote origin: $(Tail $remote.Out))" '`gh auth status`, or check `git remote -v` points at the repository, then run the preflight again'
+    return
+  }
+  $theirs = $Matches[1]
+  $ours = $head.Out.Trim()
+  if ($theirs -eq $ours) { Pass "HEAD $($ours.Substring(0, 12)) is main on the remote"; return }
+  $ancestor = Git @('merge-base', '--is-ancestor', $theirs, $ours)
+  if ($ancestor -and $ancestor.Code -eq 0) {
+    Fail "HEAD $($ours.Substring(0, 12)) has commits the remote's main ($($theirs.Substring(0, 12))) doesn't" '`git push origin HEAD:main`, then run the preflight again'
+  } else {
+    Fail "the remote's main moved on to $($theirs.Substring(0, 12)), which this clone doesn't hold" '`git pull --ff-only`, then run the preflight again'
+  }
+}
+
+function Test-Ci {
+  $r = Probe 'python' @((Join-Path $Repo 'scripts\ci_status.py'), '--sha', 'HEAD', '--use-proven') 'install Python 3 and put it on PATH' $Repo
+  if (-not $r) { return }
+  $why = Tail $r.Out
+  switch ($r.Code) {
+    0 { Pass "CI green on HEAD ($why)" }
+    1 { Fail "CI is red on HEAD: $why" 'fix the failing run (`python scripts/ci_status.py --sha HEAD` names it), push, then run the preflight again' }
+    3 { Fail "CI can't be read: $why" '`gh auth status`, then run the preflight again' }
+    4 { Fail "CI is still running on HEAD: $why" 'wait for it (`gh run watch`), then run the preflight again' }
+    5 {
+      $start = @($r.Out -split "`n" | Where-Object { $_ -match 'gh workflow run' } | ForEach-Object { $_.Trim() })
+      $how = if ($start) { "start a run: $($start -join '; ')" } else { 'push HEAD so CI runs on it' }
+      Fail "CI has no run for HEAD: $why" "$how, then run the preflight again"
+    }
+    default { Fail "ci_status.py failed (exit $($r.Code)): $why" 'run `python scripts/ci_status.py --sha HEAD --use-proven` and fix what it says' }
+  }
+}
+
+function Test-Guard {
+  $r = Probe 'python' @((Join-Path $Repo 'scripts\run-guard.py'), 'status', '--verify') 'install Python 3 and put it on PATH' $Repo
+  if (-not $r) { return }
+  if ($r.Code -ne 0) {
+    Fail "the watchdog isn't healthy: $(Tail $r.Out)" 'run `python scripts/run-guard.py status --verify` and fix each reason it gives; `pwsh scripts/install.ps1` puts the heartbeat back'
+    return
+  }
+  Pass 'watchdog healthy (run-guard.py status --verify)'
+}
+
+# --- The machine -------------------------------------------------------------------------------------------------
+
+function Test-Space {
+  foreach ($d in $FreeDrives) {
+    try { $free = (New-Object IO.DriveInfo $d).AvailableFreeSpace / 1GB }
+    catch { Fail "drive $d can't be read ($($_.Exception.Message))" "check $d is attached; D: comes back with the ``$TaskPrefix attach D`` task"; continue }
+    if ($free -lt $MinFreeGB) {
+      Fail ("drive $d has {0:N0} GB free, under the {1:N0} GB the campaign needs" -f $free, $MinFreeGB) "free space on $d (D: grows inside $Vhdx on R:, so R: needs it too)"
+    } else {
+      Pass ("drive $d has {0:N0} GB free" -f $free)
+    }
+  }
+}
+
+function Test-Hold {
+  $fix = '`pwsh scripts/campaign-hold.ps1 -Apply`'
+  try { $saved = Read-Json $HoldRecord } catch { Fail $_.Exception.Message $fix; return }
+  if (-not $saved) { Fail "the hold isn't applied (no record at $HoldRecord)" $fix; return }
+  try { $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme } catch { Fail "the held values can't be read: $($_.Exception.Message)" $fix; return }
+  $drift = @()
+  foreach ($p in $now.Power) { foreach ($line in 'AC', 'DC') { if ($p.$line -ne 0) { $drift += "$($p.Setting) $line is $($p.$line)" } } }
+  if ($now.Lock -ne '0') { $drift += "ScreenSaverIsSecure is $($now.Lock)" }
+  if ($drift) { Fail "the hold drifted: $($drift -join '; ')" $fix; return }
+  Pass 'hold applied: no sleep, hibernate or display timeout, no screen saver lock'
+}
+
+function Test-Setup {
+  $fix = "in an elevated shell: ``pwsh $(Join-Path $PSScriptRoot 'campaign-admin-setup.ps1') -Apply``"
+  $dir = $DotnetDir
+  if (-not $dir) { $dir = Resolve-WatchdogDotnet $SearchPath }
+  if (-not $dir) { Fail 'no dotnet.exe on the watchdog''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup'; return }
+  $wrong = @()
+  try { $now = Get-UpdateState $PolicyKey } catch { Fail "the update policy can't be read: $($_.Exception.Message)" $fix; return }
+  foreach ($name in $UpdateValues.Keys) {
+    if ($now[$name].Value -ne $UpdateValues[$name]) { $wrong += "$name is $(if ($now[$name].Present) { $now[$name].Value } else { 'absent' }), not $($UpdateValues[$name])" }
+  }
+  $defs = Get-CampaignTaskDefs $BinDir $dir $Vhdx $TaskPrefix
+  foreach ($d in $defs) {
+    try { $live = Get-CampaignTask $d.Name $TaskStore } catch { $wrong += "task '$($d.Name)' can't be read: $($_.Exception.Message)"; continue }
+    if (-not $live -and $d.Name -eq $defs[0].Name) {
+      # The SDK task removes itself once the final SDK is in its folder; gone with no final SDK is a fault.
+      $dotnet = Find-Tool 'dotnet' $dir
+      $list = if ($dotnet) { (Invoke-Probe $dotnet @('--list-sdks') $ProbeSeconds $SearchPath).Out } else { '' }
+      if (Test-FinalSdk $list) { continue }
+      $wrong += "task '$($d.Name)' not registered, and $dir has no final 11.0.1xx SDK that would explain it"
+      continue
+    }
+    foreach ($x in (Compare-CampaignTask $d $live)) { $wrong += "task '$($d.Name)' $x" }
+  }
+  if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix; return }
+  Pass "admin setup in place: update restarts held, tasks '$($defs[0].Name)' and '$($defs[1].Name)' as defined"
+}
+
+function Test-Lock {
+  try { $secs = Get-RegValue $InactivityKey 'InactivityTimeoutSecs' } catch { Fail "the inactivity policy can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
+  if ($secs -and [int]$secs -gt 0) {
+    Fail "a machine policy locks this PC after $secs seconds idle (InactivityTimeoutSecs)" "ask whoever manages this PC (Intune) to lift it, or set $InactivityKey InactivityTimeoutSecs to 0 in an elevated shell"
+    return
+  }
+  Pass 'no machine inactivity lock'
+}
+
+function Test-Owner {
+  $fix = "the owner confirms it, and it is recorded in $Acceptance"
+  if (-not (Test-Path -LiteralPath $Acceptance)) { Fail "no owner record at $Acceptance (extra usage off, reboot check)" $fix; return }
+  $text = [IO.File]::ReadAllText($Acceptance)
+  $missing = @()
+  if ($text -notmatch '(?m)^- Extra usage: off\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'extra usage off, with a date, in the Claude account''s settings' }
+  if ($text -notmatch '(?m)^- Reboot check: passed\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'the reboot check passed, with a date' }
+  if ($missing) { Fail "the owner's record doesn't show $($missing -join ', or ')" $fix; return }
+  Pass 'owner record: extra usage off, reboot check passed'
+}
+
+$Checks = [ordered]@{
+  bosun = { Test-Bosun }; cmake = { Test-CMake }; denylist = { Test-DenyList }; dotnet = { Test-Dotnet }; gh = { Test-Gh }
+  codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; ci = { Test-Ci }; guard = { Test-Guard }
+  space = { Test-Space }; hold = { Test-Hold }; setup = { Test-Setup }; lock = { Test-Lock }; owner = { Test-Owner }
+}
+$names = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$unknown = @($names | Where-Object { -not $Checks.Contains($_) })
+if ($unknown) { "unknown check(s): $($unknown -join ', '); the checks are $($Checks.Keys -join ', ')"; exit 2 }
+if (-not $names) { $names = @($Checks.Keys) }
+foreach ($n in $names) { & $Checks[$n] }
 if ($failed) {
   "$failed check(s) failed"
   exit 1

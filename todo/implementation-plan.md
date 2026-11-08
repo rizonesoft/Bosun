@@ -175,16 +175,17 @@ Sections: 23 | Checklist items: 116
 
 ### Phase 7: Release
 
-Sections: 6 | Checklist items: 27
+Sections: 7 | Checklist items: 33
 
-| Status | Reference  | Deliverable                      | Needs | Items |
-| ------ | ---------- | -------------------------------- | ----- | ----- |
-| [ ]    | D07 T01 §1 | Publish and install              | none  | 8     |
-| [ ]    | D07 T01 §2 | Signing status                   | none  | 3     |
-| [ ]    | D07 T01 §3 | Uninstall                        | none  | 4     |
-| [ ]    | D07 T01 §4 | Keyboard and accessibility audit | none  | 3     |
-| [ ]    | D07 T01 §5 | Performance budget               | none  | 4     |
-| [ ]    | D07 T01 §6 | Documentation                    | none  | 5     |
+| Status | Reference  | Deliverable                         | Needs | Items |
+| ------ | ---------- | ----------------------------------- | ----- | ----- |
+| [ ]    | D07 T01 §1 | Publish and install                 | none  | 8     |
+| [ ]    | D07 T01 §2 | Signing status                      | none  | 3     |
+| [ ]    | D07 T01 §3 | Uninstall                           | none  | 4     |
+| [ ]    | D07 T01 §4 | Keyboard and accessibility audit    | none  | 3     |
+| [ ]    | D07 T01 §5 | Performance budget                  | none  | 4     |
+| [ ]    | D07 T01 §6 | Documentation                       | none  | 5     |
+| [ ]    | D07 T01 §7 | Clean-system installer (Inno Setup) | none  | 6     |
 
 ### Phase 99: Manual, operator only
 
@@ -198,6 +199,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 15/129 verified sections, 4 ready to run now.
+Progress: 15/130 verified sections, 4 ready to run now.
 
-Checklist: 174/744 items completed (includes Commit items).
+Checklist: 183/750 items completed (includes Commit items).
