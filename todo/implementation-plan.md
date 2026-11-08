@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 27 | Checklist items: 207
+Sections: 28 | Checklist items: 210
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -39,6 +39,7 @@ Sections: 27 | Checklist items: 207
 | [ ]    | D00 T02 §1  | Solution, props and empty projects                     | none        | 5     |
 | [ ]    | D00 T02 §2  | Add .NET to the gates                                  | none        | 3     |
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                | third-party | 4     |
+| [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier | third-party | 3     |
 
 ### Phase 1: Core data contract
 
@@ -196,6 +197,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 7/127 verified sections, 6 ready to run now.
+Progress: 7/128 verified sections, 6 ready to run now.
 
-Checklist: 117/715 items completed (includes Commit items).
+Checklist: 117/718 items completed (includes Commit items).

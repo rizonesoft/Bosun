@@ -51,6 +51,7 @@ title: "TODO-03 -- Campaign readiness"
 | 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
+| 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -519,6 +520,24 @@ On 2026-11-08 the owner chose the review shape Steward and Recto use, because re
 
 > **Verified:** 2026-11-08 | §15 | d739c38da88f0fb9848fbb49db8e94dcef756afc
 > **Review:** `docs/reviews/d00-t03-s15.json`
+
+## 16. Captured rate-limit output for the reviewer classifier
+
+Filed from `D00 T03 §4`'s completion review. Its classifier is tested on Codex's real output for a CLI that isn't signed in and for a model the account lacks, but a rate limit can't be caused on purpose to capture, so that case uses representative wording. The first real limit lands, redacted, in `build/review-failures/`, and this section turns it into the fixture.
+
+**Phase:** 0
+**Needs:** third-party
+**Surface:** no
+
+**Build order:**
+
+1. Copy the first real rate-limit failure into `scripts/tests/fixtures/review-failures/`. Done when: the fixture holds the CLI's own words, with no credential.
+
+- [ ] Copy the first `rate-limit` file from `build/review-failures/` to `scripts/tests/fixtures/review-failures/codex-rate-limit.txt`, after checking it holds no credential. Done when: the file is the CLI's own output.
+- [ ] Classify it in `test_each_class_from_cli_output` in `scripts/tests/test_review_dispatch.py`, with its retry-after if it gives one, adjusting `classify` in `scripts/review-dispatch.py` only if the real wording needs it. Done when: the test passes on the captured file and fails if `classify` calls it `other`.
+- [ ] Commit: `review: classify a captured rate limit`
+
+**Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py` exits 0, and fails if the captured rate limit isn't `rate-limit`.
 
 ## Verification
 
