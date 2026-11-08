@@ -96,12 +96,27 @@ def check_delete_targets(targets: list[str], cwd: str | None, project: str) -> N
 
 
 def tokens_of(text: str) -> list[str]:
-    """Words as a shell reads them, but with backslashes kept: a Windows path's separators are never escapes."""
-    try:
-        words = shlex.split(text, posix=False)
-    except ValueError:
-        words = text.split()
-    return [w[1:-1] if len(w) > 1 and w[0] == w[-1] and w[0] in "'\"" else w for w in words]
+    """Words as a shell reads them: split on whitespace outside quotes, with each quote removed wherever it sits in a
+    word (`--opt='a b'` is one word, `--opt=a b`). Backslashes are kept, since a Windows path's separators are never
+    escapes. An unclosed quote runs to the end, as the shell would wait for it."""
+    words, current, quote, quoted = [], [], None, False
+    for char in text:
+        if quote:
+            if char == quote:
+                quote = None
+            else:
+                current.append(char)
+        elif char in "'\"":
+            quote, quoted = char, True
+        elif char.isspace():
+            if current or quoted:
+                words.append("".join(current))
+            current, quoted = [], False
+        else:
+            current.append(char)
+    if current or quoted:
+        words.append("".join(current))
+    return words
 
 
 def split_chain(command: str) -> list[str]:
@@ -181,6 +196,12 @@ def strip_prefixes(words: list[str]) -> tuple:
                 if head == "env" and option in CHDIR:
                     folder = value if value else (words[1] if len(words) > 1 else None)
                     chdir = within(chdir, folder)  # each env runs the next in its folder
+                if head == "env" and option in ("-S", "--split-string"):
+                    # env -S splits its string into the command it runs, so that string is the command.
+                    text = value if value else (words[1] if len(words) > 1 else "")
+                    text = text[1:-1] if len(text) > 1 and text[0] == text[-1] and text[0] in "'\"" else text
+                    words = tokens_of(text) + (words[1:] if value else words[2:])
+                    continue
                 words = words[2:] if option in valued and not value else words[1:]
             elif plain:
                 words, plain = words[1:], plain - 1

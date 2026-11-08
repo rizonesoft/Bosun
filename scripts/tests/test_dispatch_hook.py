@@ -110,6 +110,7 @@ class Clean(unittest.TestCase):
             with self.subTest(prefix):
                 self.assertIn("not detached", hook.verdict(payload(f"{prefix} {REVIEW} &", background=True)))
         self.assertIn("not detached", hook.verdict(payload(f"nohup env -u X {REVIEW}", background=True)))
+        self.assertIn("not detached", hook.verdict(payload(f"env -S '{REVIEW}' &", background=True)))
 
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):

@@ -74,6 +74,13 @@ class Pushes(Base):
                 with self.subTest(wrapped):
                     self.assertIn("can't be undone", self.refused(wrapped, tool=tool))
 
+    def test_env_s_split_string_is_the_command(self):
+        for form in ("env -S 'git push --force'", 'env -S "git push -f" origin', "env --split-string='git push --mirror'",
+                     "env -S'git push --force'", f"env -S 'rm -rf {self.outside}'"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed("env -S 'git push origin main'")
+
     def test_a_push_past_a_prefix_s_options_is_seen(self):
         for prefix in ("env -u X", "env -i", "nice -n 5", "timeout 60", "sudo -u me", "env -C /tmp"):
             with self.subTest(prefix):
