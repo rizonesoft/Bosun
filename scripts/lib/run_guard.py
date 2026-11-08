@@ -473,6 +473,11 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     live = env.live_here()
     if live:
         return f"session live here: {live[0]}"
+    reviewing = env.reviewing()
+    if reviewing:
+        # A writer resumed now would change the tree under the reviewer, as a crashed writer's surviving dispatcher
+        # would see; the review's end, or the next tick, resumes the run. Neither a restart nor idleness.
+        return f"waiting: a review is in flight ({reviewing})"
     if quiet >= MAX_QUIET_HOURS:
         end_run(state, "expired", f"nothing changed for {MAX_QUIET_HOURS} hours, so it was not resumed; `process plan` starts it again")
         return "expired"

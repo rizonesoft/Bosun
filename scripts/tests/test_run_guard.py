@@ -570,6 +570,17 @@ class ReviewInFlight(unittest.TestCase):
         self.assertIn("live", guard.review_in_flight(self.root))
         self.assertIsNone(guard.on_stop(active(), {"session_id": "me"}, self.env()))
 
+    def test_the_watchdog_resumes_no_writer_while_a_review_runs(self):
+        world = World()
+        state = active(restarts=1, restart_signature=world.sig)
+        self.mark(os.getpid(), time.time() + 600)
+        env = guard.replace(world.env(), reviewing=lambda: guard.review_in_flight(self.root))
+        self.assertTrue(guard.watch(state, env).startswith("waiting: a review is in flight"))
+        self.assertEqual((world.spawned, state["restarts"]), ([], 1))
+        for path in self.marks.iterdir():
+            path.unlink()
+        self.assertIn("attempt 2", guard.watch(state, env))
+
     def test_repeated_stops_during_a_review_keep_the_idle_budget(self):
         world = World()
         state = active(signature=world.sig, idle=1, yields=1)
