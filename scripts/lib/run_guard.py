@@ -592,7 +592,7 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         stopped = stop_hung(state, child, env)
         if stopped is not None:
             return stopped
-    elif child and not child.get("fresh") and TRANSCRIPT_GONE.search(env.child_output(child) or ""):
+    elif child and TRANSCRIPT_GONE.search(env.child_output(child) or ""):  # a fresh child saying so too ends it
         # `--resume` found no transcript: the session can't come back, so the run starts a fresh `process plan`.
         if state.get("fresh_starts", 0) >= MAX_FRESH_STARTS:
             end_run(state, "stalled", f"session {state.get('session_id')}'s transcript is gone, and the run already started "
@@ -630,10 +630,26 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     if not ok:
         set_wait(state, reason or "sign-in-needed", now + SIGN_IN_WAIT, detail)
         return f"waiting: {state['wait_reason']} until {stamp(state['wait_until'])}"
-    child = env.spawn(state)  # a launch that fails raises and uses no attempt: nothing ran, so nothing was tried
+    fresh, spent = bool(state.get("fresh_next")), state.get("fresh_starts", 0)
+    if fresh and spent >= MAX_FRESH_STARTS:
+        # The budget is already spent, so the last fresh launch happened and its record was never saved. If that
+        # session is running, its own `process plan` prompt takes the run back; nothing else is launched beside it.
+        state.pop("fresh_next", None)
+        end_run(state, "stalled", "a fresh session was launched but its record wasn't saved; if it is running, its own "
+                                  "`process plan` takes the run back, and otherwise `process plan` starts it again")
+        return "stalled"
+    if fresh:
+        # Spent before the launch, in the state the watchdog saves just before launching, so a save that fails after
+        # it can never let a second fresh start through.
+        state["fresh_starts"] = spent + 1
+    try:
+        child = env.spawn(state)  # a launch that fails raises and uses no attempt: nothing ran, so nothing was tried
+    except BaseException:
+        if fresh:
+            state["fresh_starts"] = spent
+        raise
     if state.pop("fresh_next", False):
         child = {**child, "fresh": True}
-        state["fresh_starts"] = state.get("fresh_starts", 0) + 1
         note(state, f"started a fresh `process plan` session (pid {child.get('pid')}), as {state.get('permission_mode') or 'default'}")
     state.update(child=child, restarts=state.get("restarts", 0) + 1, launched_at=now, last_restart=stamp())
     return f"resumed, attempt {state['restarts']}"
@@ -1337,6 +1353,12 @@ def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) ->
     if not peek.get("active"):
         return "inactive"
     env = snapshot(env, subscription=True, state=peek, now=now, stop_hung_child=True)
+    launch = env.spawn
+
+    def spawn(state: dict) -> dict:
+        save_retrying(state, path)  # what this launch spends is saved before it can run; unsaved, nothing launches
+        return launch(state)
+    env = replace(env, spawn=spawn)
     with locked(path):
         state = load(path)
         merge_pending_wait(state, path, time.time() if now is None else now)

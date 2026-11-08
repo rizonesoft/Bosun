@@ -1342,6 +1342,38 @@ class LostTranscript(unittest.TestCase):
         self.assertEqual(guard.watch_tick(env, self.path, now=3000), "stalled")
         self.assertEqual(len(self.commands), 2)
 
+    def test_a_fresh_child_reporting_the_same_loss_ends_the_run(self):
+        env = self.env(lambda c: "No conversation found with session ID: me")
+        self.save(active(fresh_starts=1, child={"pid": 100, "started": 1, "log_offset": 0, "fresh": True}))
+        self.assertEqual(guard.watch_tick(env, self.path, now=1000), "stalled")
+        self.assertEqual(self.commands, [])
+
+    def test_a_save_that_fails_after_the_launch_never_allows_a_second_fresh_start(self):
+        env = self.env(lambda c: "No conversation found with session ID: me" if c.get("pid") == 100 else "")
+        self.save(active(child={"pid": 100, "started": 1, "log_offset": 0}))
+        real = guard.save
+
+        def save(state, path=guard.STATE):
+            if self.commands and state.get("child", {}).get("pid") != 100:
+                raise OSError("disk full")  # the save after the launch
+            return real(state, path)
+        with mock.patch.object(guard, "save", side_effect=save):
+            with self.assertRaises(OSError):
+                guard.watch_tick(env, self.path, now=1000)
+        self.assertEqual(len(self.commands), 1)
+        self.assertEqual(guard.load(self.path)["fresh_starts"], 1, "the launch's spend wasn't saved before it")
+        self.assertEqual(guard.watch_tick(env, self.path, now=2000), "stalled")
+        self.assertEqual(len(self.commands), 1, "a second fresh start went through")
+
+    def test_a_launch_that_fails_spends_nothing(self):
+        def spawn(state):
+            raise OSError("claude is not on PATH")
+        env = guard.replace(self.env(lambda c: "No conversation found with session ID: me"), spawn=spawn)
+        self.save(active(child={"pid": 100, "started": 1, "log_offset": 0}))
+        with self.assertRaises(OSError):
+            guard.watch_tick(env, self.path, now=1000)
+        self.assertEqual(guard.load(self.path).get("fresh_starts", 0), 0)
+
     def test_a_real_fake_cli_s_error_is_read_from_its_own_output(self):
         fake = Path(self.folder.name) / ("claude.cmd" if os.name == "nt" else "claude")
         fake.write_text("@echo No conversation found with session ID: me 1>&2\r\n@exit /b 1\r\n" if os.name == "nt"
