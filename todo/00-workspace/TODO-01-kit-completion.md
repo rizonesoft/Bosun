@@ -113,10 +113,11 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 - [ ] Add the refusal while `.conclave/reviewers.toml` is modified or staged, from `D:\GitHub\Resolute\scripts\dispatch_hook.py`. Done when: `review-dispatch.py` and `todo-graph.py stamp` exit 2 on a dirty pin, and pass with a modified findings file. Cheaper substitute: a warning that lets the stamp through.
 - [ ] Add `scripts/tests/test_dispatch_hook.py`. Done when: each refusal and each allowed form is asserted, and a malformed payload fails open with a message.
 - [ ] Register the hook in `.claude/settings.json` on `Bash|PowerShell`. Done when: the settings parse, `scripts/tests/test_hook_commands.py` finds it and runs its command, and a payload through that command refuses a detached review.
-- [ ] Tell `review-todo-section/SKILL.md` and `process-todo-section/SKILL.md`, in all three mirrors, to run `review-dispatch.py` with the shell tool's `run_in_background` option. Done when: a test reads it in each mirror.
+- [ ] Tell `review-todo-section/SKILL.md` and `process-todo-section/SKILL.md` how each agent runs a review and waits for it, since only Claude has this hook and `run_in_background`: Claude's mirror runs `review-dispatch.py` with `run_in_background` and acts on the completion notice; Codex's runs it in its shell, keeps the returned session and reads it with `write_stdin` until it exits; Antigravity's runs it in the foreground with a long enough timeout; each collects the final output and exit status before going on. Done when: a test reads each agent's own instruction in its mirror.
+- [ ] Prove the registered command lets a background review through, and a real session hears it end, in `scripts/tests/test_guard_e2e.py` under `BOSUN_E2E=1`: a session in a disposable repo starts a review against a fake reviewer with `run_in_background`, and reports its exit status and verdict, once for a review that returns and once for one that fails. Done when: the test passes on this machine, and the hook-registration tests are in the checkpoint.
 - [ ] Commit: `hooks: refuse detached reviews and dirty pins`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_dispatch_hook.py` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `python -m unittest scripts/tests/test_dispatch_hook.py scripts/tests/test_hook_commands.py` exits 0, and fails if the change is reverted; `BOSUN_E2E=1 python -m unittest scripts/tests/test_guard_e2e.py` proves a background review reaches the session.
 
 ## 4. Pre-commit hook and clone setup
 
