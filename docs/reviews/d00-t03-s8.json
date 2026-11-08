@@ -1,0 +1,91 @@
+{
+  "ref": "D00 T03 \u00a78",
+  "title": "Campaign permissions",
+  "implementation_sha": "336d4b11be1ee0e87350cb46d5c9b73630d7a8be",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s8.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python -m unittest test_tool_guard test_hook_commands test_run_guard test_heartbeat -> OK",
+    "BOSUN_E2E=1 python -m unittest scripts/tests/test_guard_e2e.py -> Ran 1 test, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s8.md",
+    "verdict": "completed",
+    "candidate": "a7a5f0346b344627f42bcbc4a271a8bca91c0bad",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3's one P3 (the mode-discovery test passing on the fallback) was fixed in its own commit before the completion review",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s8.md",
+    "candidate": "d2d9618f60d08d1c7742f4739856207f7c865116",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "d2d9618f60d08d1c7742f4739856207f7c865116",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

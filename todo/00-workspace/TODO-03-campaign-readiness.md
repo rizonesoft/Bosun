@@ -43,7 +43,7 @@ title: "TODO-03 -- Campaign readiness"
 | 5 | §5 | Usage limits wait and resume | §2 | [x] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
 | 7 | §7 | Owned session recovery | §5 | [ ] |
-| 8 | §8 | Campaign permissions | -- | [ ] |
+| 8 | §8 | Campaign permissions | -- | [x] |
 | 9 | §9 | Named core tests and CMake resolution | -- | [x] |
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [x] |
@@ -336,9 +336,12 @@ A hidden session can't answer a prompt, so any prompt stalls the run. The owner 
 - [x] Refuse mail and chat sends in the same hook: the send tools of Gmail, Outlook and Teams connectors. Done when: a test sees those tool names refused, and web lookups and documentation tools pass.
 - [x] Validate a run's `permission_mode` against the modes `claude --help` lists, plus `default`, in one function in `scripts/lib/run_guard.py` that both `on_prompt` and `start` call before they change the state, refusing to start a run with an unknown one and naming it; a missing mode is `default`, which the resume leaves off its command line; and any mode but `bypassPermissions` is told its resumed sessions would meet prompts no one can answer. Done when: tests through both entry points cover an unknown mode, a missing one, `bypassPermissions` and another known mode, and a fresh process reads the saved mode back into the resume command. Cheaper substitute: forwarding any saved string.
 - [x] Prove a write, a queued build and a commit in a disposable repo through the exact `resume_command`, in `scripts/tests/test_guard_e2e.py`, run when `BOSUN_E2E=1` is set since it spends subscription usage: seed a real session with the task, resume it with `resume_command` in `bypassPermissions` within 10 minutes, then assert the file's exact contents, the build's output written through `bosun run`, and a commit whose tree holds both, failing on any refusal or skipped step. Done when: the test passes on this machine with no prompt, and its output is quoted in the findings file.
-- [ ] Commit: `guard: campaign permissions`
+- [x] Commit: `guard: campaign permissions`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_tool_guard.py scripts/tests/test_hook_commands.py` exits 0, and fails if force-push is allowed; `BOSUN_E2E=1 python -m unittest scripts/tests/test_guard_e2e.py` proves the refusals in a real session. **Corrected 2026-11-08:** it named only `test_hook_commands.py`, which checks the hook is wired, not what it decides.
+
+> **Verified:** 2026-11-08 | §8 | 336d4b11be1ee0e87350cb46d5c9b73630d7a8be
+> **Review:** `docs/reviews/d00-t03-s8.json`
 
 ## 9. Named core tests and CMake resolution
 
