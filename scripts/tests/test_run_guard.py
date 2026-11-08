@@ -1043,6 +1043,43 @@ class EndStates(unittest.TestCase):
         self.assertEqual(guard.watch(state, self.env(world, {"state": "drained"}), now=1000), "drained")
 
 
+class SlowReads(unittest.TestCase):
+    def test_the_wake_check_gets_a_minute_a_wake(self):
+        seen = {}
+
+        def run(*args, cwd=None, timeout=20):
+            seen["timeout"] = timeout
+            return subprocess.CompletedProcess(args, 0, b"[]", b"")
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / "todo").mkdir()
+            (Path(folder) / "todo" / "wakes.json").write_text(json.dumps([{}, {}]), encoding="utf-8")
+            with mock.patch.object(guard, "run", side_effect=run):
+                guard.real_wakes(Path(folder))
+        self.assertEqual(seen["timeout"], 2 * guard.WAKE_SECONDS + 30)
+
+    def test_the_finish_line_and_wakes_are_read_before_the_lock_and_only_with_nothing_to_run(self):
+        calls = []
+        world = World(rows=())
+        env = guard.replace(world.env(), finish=lambda: calls.append("finish") or {"state": "waiting"},
+                            wakes=lambda: calls.append("wakes") or [])
+        snap = guard.snapshot(env)
+        self.assertEqual(calls, ["finish", "wakes"])
+        snap.finish()
+        snap.wakes()
+        self.assertEqual(calls, ["finish", "wakes"], "the lock-time reads repeated the slow ones")
+        calls.clear()
+        guard.snapshot(guard.replace(env, rows=lambda: ["D00 T01 §1"]))
+        self.assertEqual(calls, [], "with work to do, the finish line isn't asked")
+
+    def test_a_slow_fetch_or_ci_is_unavailable_not_an_end(self):
+        def run(*args, cwd=None, timeout=20):
+            if "query" in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps({"complete": True, "roots": {}}).encode(), b"")
+            raise subprocess.TimeoutExpired(args, timeout)
+        with mock.patch.object(guard, "run", side_effect=run):
+            self.assertEqual(guard.real_finish()["state"], "ci-unavailable")
+
+
 class Acceptance(unittest.TestCase):
     def test_the_file_is_written_atomically_read_back_and_never_overwritten(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -1074,7 +1111,7 @@ class RealFinish(unittest.TestCase):
     """real_finish maps the graph, git and CI to the next step."""
 
     def run_with(self, finish, head="a" * 40, remote="a" * 40, ci=0, fetch=0):
-        def run(*args, cwd=None):
+        def run(*args, cwd=None, timeout=20):
             if "query" in args:
                 return subprocess.CompletedProcess(args, 0, json.dumps(finish).encode(), b"")
             if args[:2] == ("git", "fetch"):

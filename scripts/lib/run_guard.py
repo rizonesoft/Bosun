@@ -255,9 +255,17 @@ def heartbeat_note() -> str:
 
 
 def snapshot(env: Env, subscription: bool = False) -> Env:
-    """Takes the slow reads now, so the lock is never held across them and a stop can always get in."""
+    """Takes the slow reads now, so the lock is never held across them and a stop can always get in. With nothing to
+    run, that includes the finish line and the wakes, which ask git, CI and each wake's check."""
     rows, signature = env.rows(), env.signature()
     env = replace(env, rows=lambda: rows, signature=lambda: signature)
+    if rows == []:
+        try:
+            found = env.finish()
+        except Exception as error:
+            found = {"state": "unknown", "detail": repr(error)}
+        woken = env.wakes()
+        env = replace(env, finish=lambda: found, wakes=lambda: woken)
     if subscription:
         answer = env.subscription()
         env = replace(env, subscription=lambda: answer)
@@ -539,9 +547,9 @@ def hidden() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
-def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess:
+def run(*args: str, cwd: Path = ROOT, timeout: float = 20) -> subprocess.CompletedProcess:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL, **hidden())
+    return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=timeout, stdin=subprocess.DEVNULL, **hidden())
 
 
 WORK_STATES = ("ready", "needs-repair", "needs-filing", "needs-verification", "needs-closeout")
@@ -767,7 +775,7 @@ def acceptance_report(kind: str, found: dict) -> str:
 def real_finish(root: Path = ROOT) -> dict:
     """What a run with nothing to run does next, from `query finish`, git and CI."""
     try:
-        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "query", "finish", cwd=root)
+        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "query", "finish", cwd=root, timeout=120)
         found = json.loads(out.stdout.decode("utf-8", "replace")) if out.returncode == 0 else None
     except (OSError, ValueError, subprocess.SubprocessError):
         found = None
@@ -782,23 +790,37 @@ def real_finish(root: Path = ROOT) -> dict:
             return {"state": "waiting", "detail": f"waiting on {', '.join(waits) or 'its rows'}"}
     else:
         kind = "complete"
-    fetched = run("git", "fetch", "-q", "origin", "main", cwd=root)
+    try:
+        fetched = run("git", "fetch", "-q", "origin", "main", cwd=root, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return {"state": "ci-unavailable", "detail": "origin/main couldn't be fetched in time"}
     head = run("git", "rev-parse", "HEAD", cwd=root).stdout.decode().strip()
     remote = run("git", "rev-parse", "origin/main", cwd=root).stdout.decode().strip()
     if fetched.returncode != 0 or not remote:
         return {"state": "ci-unavailable", "detail": "origin/main couldn't be fetched"}
     if head != remote:
         return {"state": "needs-push", "detail": f"local {head[:7]} isn't origin/main {remote[:7]}"}
-    ci = run(sys.executable, str(root / "scripts" / "ci_status.py"), "--sha", head, "--use-proven", cwd=root)
+    try:
+        ci = run(sys.executable, str(root / "scripts" / "ci_status.py"), "--sha", head, "--use-proven", cwd=root, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return {"state": "ci-unavailable", "detail": "CI couldn't be asked in time"}
     answer = CI_ANSWERS.get(ci.returncode, "ci-unavailable")
     if answer:
         return {"state": answer, "detail": f"CI on {head[:7]}: {ci.stdout.decode('utf-8', 'replace').strip()[-300:]}"}
     return {"state": kind, "detail": f"CI proven on {head[:7]}", "report": acceptance_report(kind, found)}
 
 
+WAKE_SECONDS = 60  # each check's own budget, as todo_graph.WAKE_SECONDS gives it
+
+
 def real_wakes(root: Path = ROOT) -> list:
     try:
-        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "wake", "--check", cwd=root)
+        count = len(json.loads((root / "todo" / "wakes.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        count = 1
+    try:
+        out = run(sys.executable, str(root / "scripts" / "todo-graph.py"), "wake", "--check", cwd=root,
+                  timeout=WAKE_SECONDS * max(count, 1) + 30)
         return json.loads(out.stdout.decode("utf-8", "replace")) if out.returncode == 0 else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
