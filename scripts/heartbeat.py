@@ -278,10 +278,16 @@ def remove_own_task(world, repo):
     return None if code == 0 else f"could not remove {own_task(repo)}: {out.strip()[:MAX_NOTE]}"
 
 
+def gone(world, repo):
+    """A Windows repo whose folder no longer exists, as after it moved: there is nothing left to watch, so taking it
+    off the heartbeat needs no watchdog put back."""
+    return not repo.get("distro") and not world.is_dir(repo["path"])
+
+
 def restore_own_task(world, repo):
     """None when the repo has its own task again, or why it doesn't. The guard's installer replaces any task of the
     same name, so one belonging to another clone is left alone and named."""
-    if repo.get("distro"):
+    if repo.get("distro") or gone(world, repo):
         return None
     owner = own_task_owner(world, repo)
     if owner == "ours":

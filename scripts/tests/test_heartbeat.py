@@ -202,6 +202,14 @@ class Handoff(Base):
         self.assertIn(self.task(self.a), world.tasks)
         self.assertEqual(self.repos(), [])
 
+    def test_a_repo_whose_folder_moved_is_removed_without_restoring_a_task(self):
+        world = self.world()
+        self.assertEqual(self.go(["add", self.a], world)[0], 0)
+        world.repos = [r for r in world.repos if r != self.a]  # the repo moved to another drive
+        self.assertEqual(self.go(["remove", self.a], world)[0], 0, self.err)
+        self.assertEqual(self.repos(), [])
+        self.assertEqual(world.called("install"), [])
+
     def test_a_repo_with_no_own_task_adds_cleanly(self):
         world = self.world()
         self.assertEqual(self.go(["add", self.a], world)[0], 0)
