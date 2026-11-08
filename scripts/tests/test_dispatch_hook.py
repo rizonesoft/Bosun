@@ -95,6 +95,15 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload("# " + REVIEW + " &\necho nothing ran")))
         self.assertIsNone(hook.verdict(payload(REVIEW + ' --prompt "a # b.md"', background=True)))
 
+    def test_a_backgrounded_compound_command_and_a_heredoc_s_opening_line(self):
+        for command in ("if true; then " + REVIEW + "; fi &", "while true; do " + REVIEW + "; break; done &",
+                        "case x in x) " + REVIEW + ";; esac &", "if a; then if b; then " + REVIEW + "; fi; fi &",
+                        REVIEW + " <<EOF &\nbody\nEOF"):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, background=True)))
+        self.assertIsNone(hook.verdict(payload("if true; then " + REVIEW + "; fi", background=True)))
+        self.assertIsNone(hook.verdict(payload("cat <<EOF\n" + REVIEW + " &\nEOF", background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"

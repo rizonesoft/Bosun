@@ -29,7 +29,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN = ".conclave/reviewers.toml"
 
 # A heredoc's body, from `<<EOF` (or `<<-'EOF'`) to its closing line, and PowerShell's @' '@ and @" "@ strings.
-HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$|@(['\"])\r?\n.*?^\3@", re.S | re.M)
+HEREDOC = re.compile(r"(<<-?\s*(['\"]?)(\w+)\2[^\n]*)\n.*?^\s*\3\s*$|@(['\"])\r?\n.*?^\4@", re.S | re.M)
+
+
+def without_heredocs(command: str) -> str:
+    """A heredoc's body is text, never a command: it goes, and its opening line stays, with whatever operators follow
+    `<<EOF` there. A PowerShell here-string is a value, so it becomes an empty one."""
+    return HEREDOC.sub(lambda m: m.group(1) if m.group(1) else "''", command)
 DETACHING_PREFIXES = {"nohup", "setsid"}
 # Shell words that start or join a compound command, so the command proper follows them.
 KEYWORDS = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "case", "esac", "in"}
@@ -81,6 +87,33 @@ def script_at(words: list[str]) -> int | None:
 
 
 CLOSE = {"(": ")", "{": "}"}
+COMPOUND = {"if": "fi", "while": "done", "until": "done", "for": "done", "select": "done", "case": "esac"}
+WORD = re.compile(r"[A-Za-z_]+")
+
+
+def compound_end(text: str, at: int) -> int:
+    """Where the compound command opened at `at` (`if`, `while`, `until`, `for`, `select`, `case`) ends: just past its
+    `fi`, `done` or `esac`, nested ones matched, quotes respected; the end of the text when it never closes."""
+    stack, quote, i = [], None, at
+    while i < len(text):
+        char = text[i]
+        if quote:
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif (i == 0 or text[i - 1] in " \t\n;&|()") and (found := WORD.match(text, i)):
+            word = found.group(0)
+            boundary = found.end() == len(text) or text[found.end()] in " \t\n;&|()"
+            if boundary and word in COMPOUND:
+                stack.append(COMPOUND[word])
+            elif boundary and stack and word == stack[-1]:
+                stack.pop()
+                if not stack:
+                    return found.end()
+            i = found.end()
+            continue
+        i += 1
+    return len(text)
 
 
 def group_end(text: str, at: int) -> int:
@@ -132,6 +165,21 @@ def parse(text: str, powershell: bool) -> list[tuple]:
         elif char == "#" and (i == 0 or text[i - 1].isspace()):
             while i < len(text) and text[i] != "\n":  # a comment: the shell runs none of it
                 i += 1
+            continue
+        elif not "".join(current).strip() and (opener := WORD.match(text, i)) and opener.group(0) in COMPOUND \
+                and (opener.end() == len(text) or text[opener.end()] in " \t\n;&|()"):
+            # A compound command is one command of its list: an `&` after its `fi`, `done` or `esac` backgrounds all
+            # of it. Its body is parsed by the same rules, keywords and all.
+            end = compound_end(text, i)
+            closer = COMPOUND[opener.group(0)]
+            body_end = end - len(closer) if text[:end].endswith(closer) else end
+            finish_command()
+            body = text[opener.end():body_end]
+            if opener.group(0) == "case":
+                # `case WORD in PATTERN) commands ;; ...`: the head and each pattern are words, not commands.
+                body = re.sub(r"(^|;;)\s*\(?[^;()]*\)", r"\1", body.split(" in ", 1)[-1]).replace(";;", ";")
+            listed.extend(parse(body, powershell))
+            i, start = end, False
             continue
         elif char in CLOSE and not "".join(current).strip():
             close = group_end(text, i)
@@ -222,7 +270,7 @@ def verdict(payload: dict, repo: Path = ROOT) -> str | None:
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
     if tool not in ("Bash", "PowerShell") or not isinstance(command, str):
         return None
-    found = runs(HEREDOC.sub("", command), tool == "PowerShell")  # a heredoc's body is text, never a command
+    found = runs(without_heredocs(command), tool == "PowerShell")
     if found and pin_dirty(repo):
         return (f"{PIN} has uncommitted changes, and the reviewer pin is the owner's: restore it to HEAD (or commit the "
                 f"owner's change) before running review-dispatch.py or todo-graph.py stamp")
