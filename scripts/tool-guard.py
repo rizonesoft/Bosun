@@ -95,12 +95,24 @@ def check_delete_targets(targets: list[str], cwd: str | None, project: str) -> N
                               f"be undone: delete inside one of those, or leave it")
 
 
-def tokens_of(text: str) -> list[str]:
-    """Words as a shell reads them: split on whitespace outside quotes, with each quote removed wherever it sits in a
-    word (`--opt='a b'` is one word, `--opt=a b`). Backslashes are kept, since a Windows path's separators are never
-    escapes. An unclosed quote runs to the end, as the shell would wait for it."""
-    words, current, quote, quoted = [], [], None, False
-    for char in text:
+ESCAPED = {False: set("\"'\\ $`\t\n"), True: set("\"'` $\t\n")}  # what each shell's escape character escapes
+
+
+def tokens_of(text: str, powershell: bool = False) -> list[str]:
+    """Words as the shell reads them: split on whitespace outside quotes, each quote removed wherever it sits in a
+    word (`--opt='a b'` is one word, `--opt=a b`), and each escape read as that shell has it: Bash's backslash before a
+    quote, a backslash, `$`, a backtick or whitespace (outside single quotes), PowerShell's backtick. Any other
+    backslash is kept, so a Windows path reads as the path it names, the cautious reading. An unclosed quote runs to
+    the end, as the shell would wait for it."""
+    escape = "`" if powershell else "\\"
+    words, current, quote, quoted, i = [], [], None, False, 0
+    while i < len(text):
+        char = text[i]
+        if char == escape and quote != "'" and i + 1 < len(text) and text[i + 1] in ESCAPED[powershell]:
+            current.append(text[i + 1])  # an escaped character is itself, never a quote or a space
+            i += 2
+            continue
+        i += 1
         if quote:
             if char == quote:
                 quote = None
@@ -294,7 +306,7 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
         part = part.strip()
         while part.startswith("(") and part.endswith(")"):
             part = part[1:-1].strip()
-        words, _, chdir = strip_prefixes(tokens_of(part.lstrip("(")))
+        words, _, chdir = strip_prefixes(tokens_of(part.lstrip("("), powershell))
         inner = inner_command(words)
         if inner and inner[0]:
             found.extend((text, shell, within(chdir, folder)) for text, shell, folder in segments(*inner))

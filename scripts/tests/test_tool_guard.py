@@ -154,6 +154,10 @@ class Pushes(Base):
             with self.subTest(form):
                 self.refused(form)
         self.allowed('git push origin "release\'candidate"')
+        for form in ('git push origin "release\\"candidate" --force', "git push origin release\\'s -f", 'git push origin a\\ b --force'):
+            with self.subTest(form):
+                self.refused(form)
+        self.refused('git push origin "release`"candidate" --force', tool="PowerShell")
 
     def test_ordinary_pushes_pass(self):
         for form in ("git push", "git push -u origin main", "git push origin main:main", "git push -q origin main",

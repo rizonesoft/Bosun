@@ -223,7 +223,7 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
     detachment."""
     found = []
     for command, background in commands(line, powershell):
-        words = PARSER.tokens_of(command)
+        words = PARSER.tokens_of(command, powershell)
         here = detached or background
         while words:
             words, seen, _ = PARSER.strip_prefixes(words)
