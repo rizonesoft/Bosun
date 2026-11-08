@@ -86,6 +86,15 @@ class Clean(unittest.TestCase):
         with mock.patch.object(hook, "pin_dirty", return_value=True):
             self.assertIn("reviewer pin", hook.verdict(payload("(python scripts/todo-graph.py stamp 'D00 T01 §3')")))
 
+    def test_compound_commands_and_comments_hide_nothing(self):
+        for command in ("if test -f p.md; then " + REVIEW + " & fi", "for x in 1; do " + REVIEW + " & done",
+                        "while false; do :; done; ! " + REVIEW + " &", "if " + REVIEW + "; then echo ok; fi &"):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, background=True)))
+        self.assertIn("run_in_background", hook.verdict(payload(REVIEW + " # --help describes the options")))
+        self.assertIsNone(hook.verdict(payload("# " + REVIEW + " &\necho nothing ran")))
+        self.assertIsNone(hook.verdict(payload(REVIEW + ' --prompt "a # b.md"', background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"

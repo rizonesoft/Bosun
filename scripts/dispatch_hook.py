@@ -31,6 +31,8 @@ PIN = ".conclave/reviewers.toml"
 # A heredoc's body, from `<<EOF` (or `<<-'EOF'`) to its closing line, and PowerShell's @' '@ and @" "@ strings.
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$|@(['\"])\r?\n.*?^\3@", re.S | re.M)
 DETACHING_PREFIXES = {"nohup", "setsid"}
+# Shell words that start or join a compound command, so the command proper follows them.
+KEYWORDS = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "case", "esac", "in"}
 LAUNCHERS = {"start-job", "start-threadjob", "start-process"}  # PowerShell's, which detach whatever they start
 NO_REVIEW = ("--check-pin", "--list-rounds", "--help")  # the dispatcher's only runs that start no reviewer
 INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
@@ -127,6 +129,10 @@ def parse(text: str, powershell: bool) -> list[tuple]:
         elif char in "'\"":
             quote, start = char, False
             current.append(char)
+        elif char == "#" and (i == 0 or text[i - 1].isspace()):
+            while i < len(text) and text[i] != "\n":  # a comment: the shell runs none of it
+                i += 1
+            continue
         elif char in CLOSE and not "".join(current).strip():
             close = group_end(text, i)
             finish_command()
@@ -172,7 +178,7 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
         words = PARSER.tokens_of(command)
         here = detached or background
         while words and (words[0] in ("&", ".", "{", "(") or os.path.basename(words[0]).lower() in PARSER.PREFIXES
-                         or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+                         or words[0] in KEYWORDS or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             here = here or os.path.basename(words[0]).lower() in DETACHING_PREFIXES
             words = words[1:]
         if not words:
