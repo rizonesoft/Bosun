@@ -105,7 +105,7 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload("cat <<EOF\n" + REVIEW + " &\nEOF", background=True)))
 
     def test_prefix_options_and_their_values_are_read_past(self):
-        for prefix in ("env -u CLAUDECODE", "env -i PATH=/usr/bin", "env --unset=X", "nice -n 5", "timeout 3600",
+        for prefix in ("env -u CLAUDECODE", "env -uCLAUDECODE", "nice -n5", "env -i PATH=/usr/bin", "env --unset=X", "nice -n 5", "timeout 3600",
                        "timeout -s KILL 60", "sudo -u me", "stdbuf -o L", "nohup env -u X"):
             with self.subTest(prefix):
                 self.assertIn("not detached", hook.verdict(payload(f"{prefix} {REVIEW} &", background=True)))

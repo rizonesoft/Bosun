@@ -168,6 +168,8 @@ def strip_prefixes(words: list[str]) -> tuple:
                 break
             if words[0].startswith("-"):
                 option, _, value = words[0].partition("=")
+                if not words[0].startswith("--") and len(words[0]) > 2 and words[0][:2] in valued:
+                    option, value = words[0][:2], words[0][2:]  # a short option's value, attached: -CDIR, -n5
                 if head == "env" and option in CHDIR:
                     chdir = value if value else (words[1] if len(words) > 1 else None)
                 words = words[2:] if option in valued and not value else words[1:]
