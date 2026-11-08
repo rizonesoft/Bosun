@@ -420,7 +420,28 @@ One command proves the run can finish before anyone walks away. It holds the own
 - [x] Apply the hold and run admin setup elevated on this machine. Done when: `powercfg`, the policy key and `Get-ScheduledTask` read the held values and both tasks back, and a manual run of `Bosun dotnet final` logs "prerelease, nothing changed".
 - [x] Have the owner confirm that extra usage (paid overflow past the subscription's included usage) is off in the Claude account's settings, and record the answer and date in `docs/acceptance/preflight.md`, since the CLI can't report it and the owner chose subscription only. Filed from `D00 T03 §5`'s completion review. Done when: the record shows it off, or the preflight refuses to clear.
 - [x] Have the owner reboot once, then check that D: is attached with its letter, the heartbeat ticks Bosun within 10 minutes of sign-in, and this session resumes, recording the result and date in `docs/acceptance/preflight.md`. Done when: the record shows it passed.
-- [ ] Run the preflight on this machine after the reboot. Done when: it exits 0 and its output is quoted here.
+- [x] Run the preflight on this machine after the reboot. Done when: it exits 0 and its output is quoted here. Ran 2026-11-08 at `fa9b3fd`, exit 0. Its first run failed CI with the fix "push HEAD" on a commit already pushed, because no proven commit was recorded and `ci_status.py` named the real-run recovery only under `--gate`; `1799735` names it on a read-only check too.
+
+  ```text
+  ok   bosun (available: 4758 of 32601 MB / logger: running)
+  ok   cmake 4.3.1 at C:\Program Files\Microsoft Visual Studio\18\Professional\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.EXE
+  ok   deny list self-test (9 cases)
+  ok   .NET 11 SDK 11.0.100-rc.2.26504.105 (a release candidate; the final installs when it ships)
+  ok   gh signed in
+  ok   codex signed in, and gpt-6-astra replied
+  ok   WSL Ubuntu sees /mnt/d/GitHub/Bosun
+  ok   clean tree
+  ok   HEAD fa9b3fde68ce is main on the remote
+  ok   CI green on HEAD (build.yml: green at fa9b3fde68ce (https://github.com/rizonetech/Bosun/actions/runs/42469206331) / plan.yml: green at fa9b3fde68ce (https://github.com/rizonetech/Bosun/actions/runs/42469206338))
+  ok   watchdog healthy (run-guard.py status --verify)
+  ok   drive D:\ has 981 GB free
+  ok   drive R:\ has 333 GB free
+  ok   hold applied: no sleep, hibernate or display timeout, no screen saver lock
+  ok   admin setup in place: update restarts held, tasks 'Bosun dotnet final' and 'Bosun attach D' as defined
+  ok   no machine inactivity lock
+  ok   owner record: extra usage off, reboot check passed
+  preflight passed
+  ```
 - [ ] Run a disposable campaign, `scripts/tests/test_campaign_e2e.py` behind `BOSUN_E2E=1`: it clones this repo into scratch with its run state in the clone (`RUN_GUARD_STATE`), keeps three trivial sections open, and puts a faked `gh` that answers each commit from a script and a faked `codex` that returns clean reviews first on a PATH that every process it starts inherits; it launches `claude -p "process plan" --permission-mode bypassPermissions` in the clone, whose own prompt hook makes it the run's owner, and drives recovery by calling `run-guard.py watch` itself, so the real heartbeat is never touched; it stops every process tree it started and removes the clone at the end, pass or fail. Done when: its log, commits and `query disposition` show `wait` starting no next row, `repair` committing a repair and rechecking, and `exhausted` and `unverified` filing the fault as a section and carrying on to the next row, each still true after the session restarts.
 - [ ] Prove recovery once: kill the session on the disposable repo mid-row and let `run-guard.py watch` resume it. Done when: the guard log shows the resume and the resumed session commits the next step of that same row.
 - [ ] Commit: `campaign: preflight and machine hold`
