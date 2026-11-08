@@ -117,6 +117,8 @@ class Env:
     stop_tree: Callable[[dict, list], list] = lambda child, procs: []
     # What the child wrote since it was launched.
     child_output: Callable[[dict], str] = lambda child: ""
+    # A hung child's stop, already tried before the lock was taken (see `stop_attempt`), or None.
+    stopped: Callable[[dict], dict | None] = lambda child: None
 
 
 def stamp(now: float | None = None) -> str:
@@ -250,18 +252,36 @@ def in_build_queue(proc: dict) -> bool:
     return name in ("bosun.exe", "bosun") or bool(re.search(r"\bbosun(\.exe)?\s+run\b", str(proc.get("command") or "")))
 
 
-def stop_hung(state: dict, child: dict, env: Env) -> str | None:
-    """Stop a hung child, or say why not. None when it is gone and the run can resume; otherwise the tick's result."""
-    pid = child.get("pid")
+def hung(state: dict, signature: str, now: float) -> bool:
+    """A child that has changed nothing for CHILD_HANG_HOURS since the later of its launch and the last change."""
+    if signature != state.get("restart_signature"):
+        return False
+    return (now - max(state.get("changed_at", now), state.get("launched_at", 0))) / 3600 >= CHILD_HANG_HOURS
+
+
+def stop_attempt(child: dict, env: Env) -> dict:
+    """Try to stop a hung child's tree: {"queued": a bosun pid, or "gone": True, or "survivors" and "count"}. Slow
+    (a stop can take a minute), so the watchdog does it before taking the lock, where a `stop` prompt can't wait."""
     procs = env.tree(child)
     queued = [p for p in procs if in_build_queue(p)]
     if queued:
-        return f"resumed session {pid} is in the build queue (bosun {queued[0].get('pid')}); left running"
+        return {"child": child, "queued": queued[0].get("pid")}
     if not env.child_alive(child):  # it ended, or its pid now belongs to a stranger, who is never stopped
+        return {"child": child, "gone": True}
+    return {"child": child, "survivors": env.stop_tree(child, procs), "count": len(procs)}
+
+
+def stop_hung(state: dict, child: dict, env: Env) -> str | None:
+    """Stop a hung child, or say why not. None when it is gone and the run can resume; otherwise the tick's result."""
+    pid = child.get("pid")
+    outcome = env.stopped(child) or stop_attempt(child, env)
+    if outcome.get("queued") is not None:
+        return f"resumed session {pid} is in the build queue (bosun {outcome['queued']}); left running"
+    if outcome.get("gone"):
         state.pop("child", None)
         note(state, f"resumed session {pid} was gone when it came to be stopped")
         return None
-    survivors = env.stop_tree(child, procs)
+    survivors, procs = outcome.get("survivors") or [], range(outcome.get("count", 0))
     if survivors:
         end_run(state, "stalled", f"resumed session {pid} changed nothing for {CHILD_HANG_HOURS} hours and couldn't be "
                                   f"stopped; still running: {', '.join(str(s) for s in survivors)}")
@@ -314,12 +334,19 @@ def heartbeat_note() -> str:
     )
 
 
-def snapshot(env: Env, subscription: bool = False, state: dict | None = None, now: float | None = None) -> Env:
+def snapshot(env: Env, subscription: bool = False, state: dict | None = None, now: float | None = None,
+             stop_hung_child: bool = False) -> Env:
     """Takes the slow reads now, so the lock is never held across them and a stop can always get in. With nothing to
     run, that includes the finish line and the wakes, which ask git, CI and each wake's check; but not while the run
-    waits (`state`), whose wait is the backoff: only a run waiting on its rows checks its wakes then."""
+    waits (`state`), whose wait is the backoff: only a run waiting on its rows checks its wakes then. For the
+    watchdog, a hung child is stopped here too, and the tick under the lock reads what happened."""
     rows, signature = env.rows(), env.signature()
     env = replace(env, rows=lambda: rows, signature=lambda: signature)
+    child = (state or {}).get("child")
+    if stop_hung_child and child and not waiting(state, now) and hung(state, signature, time.time() if now is None else now) \
+            and env.child_alive(child):
+        outcome = stop_attempt(child, env)
+        env = replace(env, stopped=lambda c: outcome if c == child else None)
     if rows == []:
         held = bool(state) and waiting(state, now)
         found = {"state": "unknown", "detail": "not asked while the run waits"}
@@ -558,8 +585,8 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         state.update(restart_signature=signature, restarts=0, changed_at=now)
     quiet = (now - state.get("changed_at", now)) / 3600
     child = state.get("child")
-    if child and env.child_alive(child):
-        if (now - max(state.get("changed_at", now), state.get("launched_at", 0))) / 3600 < CHILD_HANG_HOURS:
+    if child and (env.stopped(child) or env.child_alive(child)):  # one stopped before the lock is alive no longer
+        if not hung(state, signature, now):
             return "resumed session still running"
         stopped = stop_hung(state, child, env)
         if stopped is not None:
@@ -702,10 +729,23 @@ def real_signature(root: Path = ROOT) -> str:
     return f"{head.decode().strip()}:{hashlib.sha256(tree).hexdigest()}"
 
 
+def linux_started(pid: int, proc: Path = Path("/proc")) -> int | None:
+    """A Linux process's start, in clock ticks after boot (field 22 of /proc/<pid>/stat), so a reused pid reads
+    differently; None when it is gone or a zombie."""
+    try:
+        stat = (proc / str(pid) / "stat").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    fields = stat[stat.rindex(")") + 2:].split()  # after the name, which can hold spaces and brackets: field 3 onwards
+    return None if fields[0] == "Z" else int(fields[19])
+
+
 def process_started(pid: int) -> int | None:
     """When a process started, as a FILETIME, so a reused process id is not taken for the session. None when it is gone."""
     if os.name != "nt":
-        try:
+        if Path("/proc/self/stat").is_file():
+            return linux_started(pid)
+        try:  # no /proc (macOS): alive or not is all there is
             os.kill(pid, 0)
             return 0
         except OSError:
@@ -1026,6 +1066,21 @@ def survivors(procs: list[dict], started: Callable[[int], object] = None) -> lis
     return left
 
 
+def kill_each(procs: list[dict], started: Callable[[int], object], kill: Callable[[int], None]) -> list[int]:
+    """Kill each listed process, deepest first so nothing is orphaned past the sweep, and only one still the process
+    that was listed: a pid reused since the listing is a stranger's. Returns the pids killed."""
+    killed = []
+    for proc in reversed(procs):
+        try:
+            if proc.get("started") is None or started(proc["pid"]) != proc["started"]:
+                continue
+            kill(proc["pid"])
+            killed.append(proc["pid"])
+        except OSError:
+            pass  # gone already, or refused: `survivors` says which
+    return killed
+
+
 def real_stop_tree(child: dict, procs: list[dict]) -> list[int]:
     if os.name == "nt":
         try:
@@ -1034,11 +1089,7 @@ def real_stop_tree(child: dict, procs: list[dict]) -> list[int]:
             pass  # what survived is what counts, read below
     else:
         import signal
-        for proc in reversed(procs):  # deepest first, so nothing is orphaned past the sweep
-            try:
-                os.kill(proc["pid"], signal.SIGKILL)
-            except OSError:
-                pass
+        kill_each(procs, process_started, lambda pid: os.kill(pid, signal.SIGKILL))
     deadline = time.time() + 10
     left = survivors(procs)
     while left and time.time() < deadline:
@@ -1282,7 +1333,7 @@ def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) ->
     peek = load(path)
     if not peek.get("active"):
         return "inactive"
-    env = snapshot(env, subscription=True, state=peek, now=now)
+    env = snapshot(env, subscription=True, state=peek, now=now, stop_hung_child=True)
     with locked(path):
         state = load(path)
         merge_pending_wait(state, path, time.time() if now is None else now)

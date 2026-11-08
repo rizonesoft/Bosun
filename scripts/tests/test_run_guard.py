@@ -1235,6 +1235,37 @@ class HungChild(unittest.TestCase):
         self.assertTrue(guard.in_build_queue({"name": "python3", "command": "/usr/bin/bosun run -- make"}))
         self.assertFalse(guard.in_build_queue({"name": "python3", "command": "python3 bosun_notes.py"}))
 
+    def test_the_stop_runs_before_the_lock_so_a_stop_prompt_gets_in(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            guard.save(active(child={"pid": 7, "started": 2}, restart_signature="one", changed_at=0.0), path)
+            world, during = World(child=True), []
+
+            def stop_tree(child, procs):
+                with guard.locked(path, wait=0.5):  # a `stop` prompt's hook, arriving while the tree is being stopped
+                    during.append(guard.load(path)["active"])
+                return []
+            env = guard.replace(world.env(), tree=lambda c: [{"pid": 7, "started": 2, "name": "claude.exe"}], stop_tree=stop_tree)
+            self.assertEqual(guard.watch_tick(env, path, now=guard.CHILD_HANG_HOURS * 3600), "resumed, attempt 1")
+            self.assertEqual(during, [True])
+            self.assertIn("stopped resumed session 7", path.with_name("run-guard.log").read_text(encoding="utf-8"))
+
+    def test_linux_start_times_tell_a_reused_pid_and_a_kill_skips_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            proc = Path(folder)
+            (proc / "42").mkdir()
+            rest = " ".join(["S"] + [str(n) for n in range(4, 22)] + ["777"] + ["0"] * 30)
+            (proc / "42" / "stat").write_text(f"42 (odd ) name) {rest}", encoding="utf-8")
+            self.assertEqual(guard.linux_started(42, proc), 777)
+            self.assertIsNone(guard.linux_started(43, proc))
+            (proc / "42" / "stat").write_text(f"42 (z) Z {rest[2:]}", encoding="utf-8")
+            self.assertIsNone(guard.linux_started(42, proc))
+        killed = []
+        starts = {1: 10, 2: 20, 3: 99}  # 3 was listed with 30: its pid now belongs to a stranger
+        procs = [{"pid": 1, "started": 10}, {"pid": 2, "started": 20}, {"pid": 3, "started": 30}]
+        self.assertEqual(guard.kill_each(procs, starts.get, killed.append), [2, 1])
+        self.assertEqual(killed, [2, 1])
+
     def test_a_real_tree_is_stopped_whole(self):
         script = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); time.sleep(120)"
         parent = subprocess.Popen([sys.executable, "-c", script])
