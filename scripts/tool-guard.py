@@ -95,23 +95,25 @@ def check_delete_targets(targets: list[str], cwd: str | None, project: str) -> N
                               f"be undone: delete inside one of those, or leave it")
 
 
-ESCAPED = {False: set("\"'\\ $`\t\n"), True: set("\"'` $\t\n")}  # what each shell's escape character escapes
+DOUBLE_QUOTED_ESCAPES = set('$`"\\\n')  # all a backslash escapes inside Bash's double quotes
 
 
 def tokens_of(text: str, powershell: bool = False) -> list[str]:
-    """Words as the shell reads them: split on whitespace outside quotes, each quote removed wherever it sits in a
-    word (`--opt='a b'` is one word, `--opt=a b`), and each escape read as that shell has it: Bash's backslash before a
-    quote, a backslash, `$`, a backtick or whitespace (outside single quotes), PowerShell's backtick. Any other
-    backslash is kept, so a Windows path reads as the path it names, the cautious reading. An unclosed quote runs to
-    the end, as the shell would wait for it."""
+    r"""Words exactly as the shell reads them: split on whitespace outside quotes, each quote removed wherever it sits
+    in a word (`--opt='a b'` is one word, `--opt=a b`), and escapes as that shell has them. Bash: a backslash outside
+    quotes escapes any character (`git p\ush` is `git push`), inside double quotes only `$`, a backtick, `"`, `\` and a
+    newline, inside single quotes nothing. PowerShell: the backtick escapes, outside single quotes, and backslashes are
+    plain characters. An unclosed quote runs to the end, as the shell would wait for it."""
     escape = "`" if powershell else "\\"
     words, current, quote, quoted, i = [], [], None, False, 0
     while i < len(text):
         char = text[i]
-        if char == escape and quote != "'" and i + 1 < len(text) and text[i + 1] in ESCAPED[powershell]:
-            current.append(text[i + 1])  # an escaped character is itself, never a quote or a space
-            i += 2
-            continue
+        if char == escape and quote != "'" and i + 1 < len(text):
+            following = text[i + 1]
+            if powershell or quote is None or following in DOUBLE_QUOTED_ESCAPES:
+                current.append(following)  # an escaped character is itself, never a quote or a space
+                i += 2
+                continue
         i += 1
         if quote:
             if char == quote:

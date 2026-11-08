@@ -16,11 +16,19 @@ tg = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tg)
 
 
+class Slashed(type(Path())):
+    """A path that prints with forward slashes, as a real Bash command names a Windows path: in Bash a backslash is
+    an escape, so the fixtures write paths the way a session does."""
+
+    def __str__(self):
+        return super().__str__().replace("\\", "/")
+
+
 def link(target, at):
     """A directory link: a junction on Windows (no privilege needed), a symlink elsewhere."""
     if os.name == "nt":
         import _winapi
-        _winapi.CreateJunction(str(target), str(at))
+        _winapi.CreateJunction(os.path.normpath(target.as_posix()), os.path.normpath(at.as_posix()))
     else:
         os.symlink(target, at, target_is_directory=True)
 
@@ -35,7 +43,7 @@ class Base(unittest.TestCase):
     a wrong answer."""
 
     def setUp(self):
-        self.base = Path(tempfile.mkdtemp(dir=str(SCRATCH), prefix="bosun-tg-")).resolve()
+        self.base = Slashed(Path(tempfile.mkdtemp(dir=str(SCRATCH), prefix="bosun-tg-")).resolve())
         self.addCleanup(lambda: shutil.rmtree(self.base, ignore_errors=True))
         self.project = self.base / "project"
         self.scratch = self.base / "scratch"
@@ -163,6 +171,12 @@ class Pushes(Base):
                 self.refused(form)
         self.refused('git push origin "release`";candidate" --force', tool="PowerShell")
 
+    def test_unquoted_escapes_read_as_bash_reads_them(self):
+        for form in ("git p\\ush --force origin main", "g\\it push -f", "git push --forc\\e", "git push origin \\+main"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed('git push origin "ma\\in"')  # inside double quotes a backslash before i is itself
+
     def test_a_continued_line_is_one_command(self):
         self.refused("git push origin main \\\n--force")
         self.refused("git push \\\n  -f origin main")
@@ -276,7 +290,7 @@ class Deletes(Base):
                 self.allowed(form, tool="PowerShell" if form.startswith(("Remove", "rd")) else "Bash")
 
     def test_outside_the_allowed_folders_is_refused(self):
-        sibling = Path(str(self.project) + "-old")  # shares the project's name as a prefix
+        sibling = Slashed(str(self.project) + "-old")  # shares the project's name as a prefix
         sibling.mkdir()
         self.addCleanup(lambda: sibling.rmdir() if sibling.exists() else None)
         outside = self.outside
