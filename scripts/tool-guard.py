@@ -96,6 +96,36 @@ def check_delete_targets(targets: list[str], cwd: str | None, project: str) -> N
 
 
 DOUBLE_QUOTED_ESCAPES = set('$`"\\\n')  # all a backslash escapes inside Bash's double quotes
+ANSI_C = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v", "e": "\x1b", "E": "\x1b",
+          "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def ansi_c(text: str, at: int) -> tuple:
+    """(the word part, where it ends) for Bash's $'...' starting at `at`, with its escapes read: \\n, \\xHH, \\NNN octal,
+    \\uHHHH and the rest."""
+    out, i = [], at + 2
+    while i < len(text) and text[i] != "'":
+        if text[i] == "\\" and i + 1 < len(text):
+            following = text[i + 1]
+            for prefix, size, base in (("x", 2, 16), ("u", 4, 16), ("U", 8, 16)):
+                if following == prefix:
+                    digits = re.match(r"[0-9a-fA-F]{1,%d}" % size, text[i + 2:])
+                    if digits:
+                        out.append(chr(int(digits.group(0), base)))
+                        i += 2 + len(digits.group(0))
+                        break
+            else:
+                octal = re.match(r"[0-7]{1,3}", text[i + 1:])
+                if octal:
+                    out.append(chr(int(octal.group(0), 8)))
+                    i += 1 + len(octal.group(0))
+                else:
+                    out.append(ANSI_C.get(following, "\\" + following))
+                    i += 2
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out), i + 1
 
 
 def tokens_of(text: str, powershell: bool = False) -> list[str]:
@@ -114,6 +144,14 @@ def tokens_of(text: str, powershell: bool = False) -> list[str]:
                 current.append(following)  # an escaped character is itself, never a quote or a space
                 i += 2
                 continue
+        if not powershell and quote is None and char == "$" and text[i + 1:i + 2] in ("'", '"'):
+            if text[i + 1] == "'":
+                part, i = ansi_c(text, i)  # $'...', ANSI-C quoting: its escapes, read
+                current.append(part)
+            else:
+                quote, i = '"', i + 2  # $"...", a locale string, reads as a double-quoted one
+            quoted = True
+            continue
         i += 1
         if quote:
             if char == quote:

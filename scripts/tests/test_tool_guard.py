@@ -177,6 +177,13 @@ class Pushes(Base):
                 self.refused(form)
         self.allowed('git push origin "ma\\in"')  # inside double quotes a backslash before i is itself
 
+    def test_ansi_c_and_locale_quoting_read_as_bash_reads_them(self):
+        for form in ("git push origin main $'--force'", "git push origin main $'--\\x66orce'", "git push $'-\\146' origin",
+                     "git $'p\\u0075sh' --mirror", 'git push origin main $"--force"', "$'git' push -f"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed("git push origin $'main'")
+
     def test_a_continued_line_is_one_command(self):
         self.refused("git push origin main \\\n--force")
         self.refused("git push \\\n  -f origin main")
