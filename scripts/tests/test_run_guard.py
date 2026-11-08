@@ -1239,16 +1239,23 @@ class HungChild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "state.json"
             guard.save(active(child={"pid": 7, "started": 2}, restart_signature="one", changed_at=0.0), path)
-            world, during = World(child=True), []
+            world, heard = World(child=True), []
 
             def stop_tree(child, procs):
-                with guard.locked(path, wait=0.5):  # a `stop` prompt's hook, arriving while the tree is being stopped
-                    during.append(guard.load(path)["active"])
+                # The operator's `stop`, through the real hook, arriving while the tree is being stopped: it must get
+                # the lock at once, and the tick must then honour it.
+                started = time.monotonic()
+                heard.append(guard.hook(json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "me", "prompt": "stop"}),
+                                        world.env(), path))
+                heard.append(time.monotonic() - started)
                 return []
             env = guard.replace(world.env(), tree=lambda c: [{"pid": 7, "started": 2, "name": "claude.exe"}], stop_tree=stop_tree)
-            self.assertEqual(guard.watch_tick(env, path, now=guard.CHILD_HANG_HOURS * 3600), "resumed, attempt 1")
-            self.assertEqual(during, [True])
-            self.assertIn("stopped resumed session 7", path.with_name("run-guard.log").read_text(encoding="utf-8"))
+            self.assertEqual(guard.watch_tick(env, path, now=guard.CHILD_HANG_HOURS * 3600), "inactive")
+            self.assertIn("stopped holding this run", heard[0])
+            self.assertLess(heard[1], guard.LOCK_WAIT)
+            saved = guard.load(path)
+            self.assertEqual((saved["active"], saved["status"]), (False, "stopped"))
+            self.assertEqual(world.spawned, [], "the stopped run launched a replacement")
 
     def test_linux_start_times_tell_a_reused_pid_and_a_kill_skips_it(self):
         with tempfile.TemporaryDirectory() as folder:
