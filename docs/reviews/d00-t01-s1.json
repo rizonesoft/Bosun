@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T01 \u00a71",
+  "title": "Review-in-flight marks for the guard",
+  "implementation_sha": "fa91ebb4b747f44d274bf05a1d74355ef412dba8",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest test_run_guard test_review_dispatch -> OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+    "verdict": "complete",
+    "candidate": "fa91ebb4b747f44d274bf05a1d74355ef412dba8",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+    "candidate": "7a55cd6d619e8dac95862269d1f3dff7413273ad",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7a55cd6d619e8dac95862269d1f3dff7413273ad",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -35,7 +35,7 @@ title: "TODO-01 -- Finish the agent kit"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Review-in-flight marks for the guard | -- | [ ] |
+| 1 | §1 | Review-in-flight marks for the guard | -- | [x] |
 | 2 | §2 | Settled items in review prompts | §1 | [ ] |
 | 3 | §3 | Dispatch hook for background reviews | §1 | [ ] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [ ] |
@@ -67,9 +67,12 @@ Steward's guard has no idea a review is running, so a Stop hook can push the ses
 - [x] Add cases to `scripts/tests/test_run_guard.py`. Done when: live, dead and expired marks each produce the expected Stop decision, and repeated Stops while a live mark stands leave `idle`, `yields` and the run active, with the turn sent back as usual once it is gone.
 - [x] Refuse to launch a reviewer whose mark can't be written, in `scripts/review-dispatch.py` (where Recto only skips it), so a review never runs unprotected: exit 2 naming the folder. Done when: a test with an unwritable mark folder runs no CLI.
 - [x] Prove the dispatcher's own marks in `scripts/tests/test_review_dispatch.py`: a fake reviewer sees its mark while it runs, the guard's `review_in_flight` reads it as live, and it is gone after success, failure and timeout. Done when: the tests fail if the dispatcher stops writing marks.
-- [ ] Commit: `guard: wait for a review in flight`
+- [x] Commit: `guard: wait for a review in flight`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_run_guard.py scripts/tests/test_review_dispatch.py` exits 0, and fails if either half is reverted.
+
+> **Verified:** 2026-11-08 | §1 | fa91ebb4b747f44d274bf05a1d74355ef412dba8
+> **Review:** `docs/reviews/d00-t01-s1.json`
 
 ## 2. Settled items in review prompts
 
