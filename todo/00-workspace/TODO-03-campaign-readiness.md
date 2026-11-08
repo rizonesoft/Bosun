@@ -53,6 +53,7 @@ title: "TODO-03 -- Campaign readiness"
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
 | 17 | §17 | Branch protection on main, read back | §8 | [ ] |
+| 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -642,6 +643,29 @@ Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook cat
 - [ ] Commit: `preflight: branch protection on main`
 
 **Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and fails if protection reads off.
+
+## 18. Campaign setup hardening from the preflight's completion review
+
+Filed from `D00 T03 §10`'s completion review (`docs/reviews/00-workspace/D00-T03-s10.md`, 2026-11-08). The preflight, hold and admin setup work and are proven, so the campaign runs on them; these make their undo and their checks stricter in cases no run has met yet, and nothing waits on this section.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Make admin setup's undo use exactly what apply changed, and check its record before trusting it. Done when: the admin harness covers a custom target round trip and an incomplete record.
+2. Make the preflight check what keeps admin setup runnable and the update hold honest. Done when: the preflight harness covers each new failure.
+3. Bound the remaining external calls. Done when: a hung `powercfg` or `vswhere` fails at its limit.
+
+- [ ] Record every target admin setup changes (`PolicyKey`, task names, `BinDir`) in `%LOCALAPPDATA%\Bosun\admin-setup.json` and have `-Restore` in `scripts/campaign-admin-setup.ps1` use the recorded ones, refusing arguments that disagree. Done when: `tests/campaign_admin_test.ps1` applies with custom targets, restores with none and reads every original back.
+- [ ] Validate the hold and admin records' fields and types in `scripts/lib/campaign.ps1` before any change, refusing an incomplete one with its path. Done when: both harnesses prove a parseable but incomplete record is refused and changes nothing.
+- [ ] Check in `Test-Setup` in `scripts/campaign-preflight.ps1` that the task bodies in `C:\ProgramData\Bosun\bin` match this checkout and that the admin record exists, naming `-Apply` as the fix. Done when: `tests/preflight_test.ps1` covers a missing body, a changed body and a missing record.
+- [ ] Detect a restart Windows Update has already scheduled (one that overrides `NoAutoRebootWithLoggedOnUsers`) in `scripts/campaign-preflight.ps1`, failing with how to clear it, and word the pass line as what was checked. Done when: the harness covers a scheduled restart, read from a test source.
+- [ ] Run `powercfg` and `vswhere` through `Invoke-Probe` in `scripts/lib/campaign.ps1` and `scripts/campaign-preflight.ps1`, so every external call has a limit and stops its tree. Done when: the harness proves a hung fake `powercfg` fails at `-ProbeSeconds` and leaves no process.
+- [ ] Commit: `campaign: hardening from the preflight's completion review`
+
+**Test checkpoint:** `pwsh tests/preflight_test.ps1`, `pwsh tests/campaign_hold_test.ps1` and `pwsh tests/campaign_admin_test.ps1` exit 0.
 
 ## Verification
 

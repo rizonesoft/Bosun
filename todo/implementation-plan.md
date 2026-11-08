@@ -8,39 +8,40 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 29 | Checklist items: 239
+Sections: 30 | Checklist items: 245
 
-| Status | Reference   | Deliverable                                            | Needs          | Items |
-| ------ | ----------- | ------------------------------------------------------ | -------------- | ----- |
-| [x]    | D00 T01 §1  | Review-in-flight marks for the guard                   | none           | 6     |
-| [ ]    | D00 T01 §2  | Settled items in review prompts                        | none           | 4     |
-| [x]    | D00 T01 §3  | Dispatch hook for background reviews                   | none           | 11    |
-| [ ]    | D00 T01 §8  | Run guard state in linked worktrees                    | none           | 4     |
-| [x]    | D00 T03 §1  | CI status that proves the commit                       | none           | 27    |
-| [x]    | D00 T03 §2  | One section disposition across graph, guard and skills | none           | 13    |
-| [x]    | D00 T03 §3  | Review repair cycles and parking                       | none           | 18    |
-| [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none           | 13    |
-| [x]    | D00 T03 §5  | Usage limits wait and resume                           | none           | 8     |
-| [x]    | D00 T03 §6  | Run end states and wake checks                         | none           | 9     |
-| [x]    | D00 T03 §7  | Owned session recovery                                 | none           | 7     |
-| [x]    | D00 T03 §8  | Campaign permissions                                   | none           | 8     |
-| [x]    | D00 T03 §9  | Named core tests and CMake resolution                  | none           | 7     |
-| [x]    | D00 T03 §11 | One global heartbeat                                   | none           | 16    |
-| [x]    | D00 T03 §12 | Review caps of 33                                      | none           | 10    |
-| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none           | 3     |
-| [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none           | 14    |
-| [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run          | none           | 6     |
-| [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended       | 18    |
-| [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none           | 4     |
-| [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none           | 4     |
-| [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                | none           | 4     |
-| [ ]    | D00 T01 §7  | Private GitHub repo and CI                             | none           | 4     |
-| [ ]    | D00 T01 §9  | Register scheduled tasks on this machine               | none           | 3     |
-| [ ]    | D00 T02 §1  | Solution, props and empty projects                     | none           | 5     |
-| [ ]    | D00 T02 §2  | Add .NET to the gates                                  | none           | 3     |
-| [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                | third-party    | 4     |
-| [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier | third-party    | 3     |
-| [ ]    | D00 T03 §17 | Branch protection on main, read back                   | owner-decision | 3     |
+| Status | Reference   | Deliverable                                                     | Needs          | Items |
+| ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
+| [x]    | D00 T01 §1  | Review-in-flight marks for the guard                            | none           | 6     |
+| [ ]    | D00 T01 §2  | Settled items in review prompts                                 | none           | 4     |
+| [x]    | D00 T01 §3  | Dispatch hook for background reviews                            | none           | 11    |
+| [ ]    | D00 T01 §8  | Run guard state in linked worktrees                             | none           | 4     |
+| [x]    | D00 T03 §1  | CI status that proves the commit                                | none           | 27    |
+| [x]    | D00 T03 §2  | One section disposition across graph, guard and skills          | none           | 13    |
+| [x]    | D00 T03 §3  | Review repair cycles and parking                                | none           | 18    |
+| [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                         | none           | 13    |
+| [x]    | D00 T03 §5  | Usage limits wait and resume                                    | none           | 8     |
+| [x]    | D00 T03 §6  | Run end states and wake checks                                  | none           | 9     |
+| [x]    | D00 T03 §7  | Owned session recovery                                          | none           | 7     |
+| [x]    | D00 T03 §8  | Campaign permissions                                            | none           | 8     |
+| [x]    | D00 T03 §9  | Named core tests and CMake resolution                           | none           | 7     |
+| [x]    | D00 T03 §11 | One global heartbeat                                            | none           | 16    |
+| [x]    | D00 T03 §12 | Review caps of 33                                               | none           | 10    |
+| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 3     |
+| [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none           | 14    |
+| [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none           | 6     |
+| [ ]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
+| [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 4     |
+| [ ]    | D00 T01 §5  | Scheduled automations for this repo                             | none           | 4     |
+| [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                         | none           | 4     |
+| [ ]    | D00 T01 §7  | Private GitHub repo and CI                                      | none           | 4     |
+| [ ]    | D00 T01 §9  | Register scheduled tasks on this machine                        | none           | 3     |
+| [ ]    | D00 T02 §1  | Solution, props and empty projects                              | none           | 5     |
+| [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none           | 3     |
+| [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | third-party    | 4     |
+| [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party    | 3     |
+| [ ]    | D00 T03 §17 | Branch protection on main, read back                            | owner-decision | 3     |
+| [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none           | 6     |
 
 ### Phase 1: Core data contract
 
@@ -199,6 +200,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 15/130 verified sections, 4 ready to run now.
+Progress: 15/131 verified sections, 4 ready to run now.
 
-Checklist: 191/753 items completed (includes Commit items).
+Checklist: 191/759 items completed (includes Commit items).

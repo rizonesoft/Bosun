@@ -31,13 +31,18 @@ function Save-Issued([string]$day) {
 }
 
 if ($Remove) {
+  # The token first: its issue day is kept while the token stays, so the preflight still checks a token it can't remove.
   if (Test-Path -LiteralPath $Key) { Remove-ItemProperty -LiteralPath $Key -Name $Name -ErrorAction Ignore }
-  Remove-Item -LiteralPath $Record -ErrorAction Ignore
   if ((Get-Item -LiteralPath $Key -ErrorAction Ignore) -and $null -ne (Get-Item -LiteralPath $Key).GetValue($Name, $null)) {
-    "could not remove $Name from $Key"
+    "could not remove $Name from $Key; its issue day is kept at $Record"
     exit 1
   }
-  "removed $Name and its issue date; open a new shell for it to take effect there"
+  Remove-Item -LiteralPath $Record -ErrorAction Ignore
+  if (Test-Path -LiteralPath $Record) {
+    "removed $Name, but its issue day is still at $Record (delete it by hand); open a new shell for the removal to take effect there"
+    exit 1
+  }
+  "removed $Name and its issue day; open a new shell for it to take effect there"
   exit 0
 }
 

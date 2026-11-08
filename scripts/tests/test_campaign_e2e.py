@@ -530,6 +530,8 @@ class DisposableCampaign(unittest.TestCase):
         repair = next((c for c in commits if "e2e/repaired-2.txt" in c[3]), None)
         self.assertIsNotNone(repair, "no commit repaired §2's red CI")
         self.assertTrue(any(c["sha"] == repair[1] and c["answer"] == "success" for c in two), "the repair was never rechecked")
+        green_two = min(c["at"] for c in two if c["sha"] == repair[1] and c["answer"] == "success")
+        self.assertGreaterEqual(started(3)[0], int(green_two), "§3 started before the repair of §2's CI read green")
         # exhausted: §3 stayed red through three repairs, the fault was filed as a section, and §4 started after it.
         three = {c["sha"] for c in gh if c["section"] == 3 and c["answer"] == "failure"}
         self.assertGreaterEqual(len(three), 4, f"§3 met {len(three)} red commits, not the first and three repairs")
@@ -542,9 +544,10 @@ class DisposableCampaign(unittest.TestCase):
         four = [c for c in gh if c["section"] == 4]
         self.assertTrue(four and all(c["answer"] == "none" for c in four), "CI on §4 wasn't the no-run case")
         last_four = max(c["at"] for c in four)
-        self.assertTrue([c for c in commits if c[0] >= last_four - 60 and any(f.startswith("todo/") for f in c[3])
-                         and not re.search(rf"{REF} §[1-5]\b", c[2])], "the unverified fault on §4 was never filed")
-        self.assertGreater(first_commit(rf"stamp {REF} §5\b")[0], last_four - 60, "§5 didn't carry on after §4")
+        filed_four = [c for c in commits if c[0] >= int(last_four) and any(f.startswith("todo/") for f in c[3])
+                      and not re.search(rf"{REF} §[1-5]\b", c[2])]
+        self.assertTrue(filed_four, "the unverified fault on §4 was never filed")
+        self.assertGreaterEqual(started(5)[0], filed_four[0][0], "§5 started before §4's unverified fault was filed")
         # The filed faults are open sections the plan still shows, not lost.
         disposition = json.loads(run([sys.executable, "scripts/todo-graph.py", "query", "disposition"], cwd=self.clone).stdout)
         print("open after the run: " + ", ".join(f"{d['ref']} {d['state']}" for d in disposition))

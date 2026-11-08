@@ -2,7 +2,12 @@
 # prints ok or FAIL, and each FAIL names the command that fixes it. Exits 1 when any check fails, 2 on a bad argument.
 #
 #   pwsh scripts/campaign-preflight.ps1                  every check
-#   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below)
+#   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below); it says it is one
+#
+# Options for the owner: -Repo (this checkout), -ProbeSeconds (120, at least 1, each external call's limit),
+# -MinFreeGB (50, at least 1, on each of -FreeDrives, D:\ and R:\), -MinLoginDays (30, at least 1, left on Claude's
+# sign-in or token), -ReviewerModel (gpt-6-astra) and -Distro (Ubuntu). The other parameters point the checks at test
+# doubles (paths, registry keys, a task store) and are for tests/preflight_test.ps1.
 #
 # Tools are found on the PATH the watchdog's task launches with (the machine and user PATH in the registry), not this
 # shell's, which may predate an installer's change. Each probe runs under -ProbeSeconds and is stopped with its whole
@@ -33,6 +38,8 @@ param(
   [string]$VsWhere = (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
 )
 . (Join-Path $PSScriptRoot 'lib\campaign.ps1')
+# A threshold below its floor would let a check pass what it must refuse, so it is a bad argument, not a setting.
+foreach ($bad in @(@('ProbeSeconds', $ProbeSeconds, 1), @('MinFreeGB', $MinFreeGB, 1), @('MinLoginDays', $MinLoginDays, 1)) | Where-Object { $_[1] -lt $_[2] }) { "-$($bad[0]) must be at least $($bad[2]), not $($bad[1])"; exit 2 }
 if (-not $SearchPath) { $SearchPath = Get-RegistryPath }
 if (-not $Acceptance) { $Acceptance = Join-Path $Repo 'docs\acceptance\preflight.md' }
 $failed = 0
@@ -362,4 +369,6 @@ if ($failed) {
   "$failed check(s) failed"
   exit 1
 }
+# A subset passing proves only those checks, so it says so rather than clearing the campaign.
+if ($Only) { "checks passed: $($names -join ', ') (a subset; run without -Only for the full preflight)"; exit 0 }
 'preflight passed'

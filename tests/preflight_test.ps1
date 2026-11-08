@@ -72,6 +72,14 @@ try {
   }
 
   # --- The tools, each failing with its fix and passing when good ---
+  # A subset that passes says it is one, and a threshold below its floor is a bad argument.
+  $d = Tool 'bosun-subset' 'bosun' 'echo available: 100 of 200 MB'
+  $r = Preflight "$d;$system" @('-Only', 'bosun')
+  Check ($r.Code -eq 0 -and $r.Text -match 'checks passed: bosun \(a subset; run without -Only' -and $r.Text -notmatch 'preflight passed') 'a passing subset is labelled a subset, never "preflight passed"'
+  foreach ($bad in @(@('-ProbeSeconds', '0'), @('-MinFreeGB', '-1'), @('-MinLoginDays', '-30'))) {
+    $r = Preflight $system (@('-Only', 'bosun') + $bad)
+    Check ($r.Code -eq 2 -and $r.Text -match "$($bad[0]) must be at least 1") "$($bad[0]) $($bad[1]) is refused with exit 2"
+  }
   $r = Preflight $system @('-Only', 'nope')
   Check ($r.Code -eq 2 -and $r.Text -match 'the checks are bosun, cmake') 'an unknown check name exits 2 and lists the checks'
   $r = Preflight $system @('-Only', 'bosun')
@@ -176,6 +184,11 @@ try {
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -RecordOnly -IssuedOn ([datetime]::UtcNow.ToString('yyyy-MM-dd')) | Out-Null
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 0) '-RecordOnly records the day for a token already stored'
+  # Removal reports a part it couldn't do: the token goes, and a locked issue record is named, not claimed removed.
+  $held = [IO.File]::Open($tokenRecord, 'Open', 'Read', 'None')
+  try { $out = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -Remove; $code = $LASTEXITCODE } finally { $held.Dispose() }
+  Check ($code -eq 1 -and ($out -join ' ') -match 'issue day is still at' -and $null -eq (Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN', $null)) 'a removal that leaves the issue record says so'
+  'tok-ok-123' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord | Out-Null
   $env:CLAUDE_CODE_OAUTH_TOKEN = 'from-this-shell'
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -Remove | Out-Null
   $r = Preflight "$d;$system" $claude
@@ -258,7 +271,7 @@ try {
   $drive = [IO.Path]::GetPathRoot($work)
   $r = Preflight $system @('-Only', 'space', '-FreeDrives', $drive, '-MinFreeGB', '1000000000')
   Check ($r.Code -eq 1 -and $r.Text -match 'GB free, under the' -and $r.Text -match 'fix: free space on') 'a free space shortfall fails with its fix'
-  $r = Preflight $system @('-Only', 'space', '-FreeDrives', $drive, '-MinFreeGB', '0')
+  $r = Preflight $system @('-Only', 'space', '-FreeDrives', $drive, '-MinFreeGB', '1')
   Check ($r.Code -eq 0) 'enough free space passes'
 
   $powerState = Join-Path $work 'power.json'
