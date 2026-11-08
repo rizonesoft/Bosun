@@ -1018,7 +1018,12 @@ class QueryDisposition(unittest.TestCase):
         for row in rows:
             self.assertTrue({"ref", "title", "phase", "needs", "state", "reason"} <= set(row))
             self.assertNotEqual(row["state"], "verified")
-        self.assertIn(rows[0]["state"], {"ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "parked"})
+        # Every open state `section_disposition` gives: the live tree's first row may be any of them, including a
+        # section between its completion review and its stamp (`needs-filing`, D00 T03 §14).
+        open_states = {"ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "needs-filing",
+                       "parked"}
+        for row in rows:
+            self.assertIn(row["state"], open_states)
 
 
 class SkillsDefer(unittest.TestCase):
