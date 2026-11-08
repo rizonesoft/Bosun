@@ -300,6 +300,8 @@ The owner chose subscription only, so hitting a limit costs time and never money
 
 ## 7. Owned session recovery
 
+> **Started:** 2026-11-08T03:59:12Z
+
 A hung resumed session is only reported today, and any Claude session in the checkout blocks recovery. Over days, sessions will end, hang and lose their transcripts.
 
 **Phase:** 0
