@@ -316,6 +316,8 @@ A hung resumed session is only reported today, and any Claude session in the che
 
 A hidden session can't answer a prompt, so any prompt stalls the run. The owner chose bypass mode with a deny list, and told us on 2026-11-07 not to let caution block the run. So the list covers only what can't be undone, and a refusal returns its reason so the session carries on another way.
 
+**Corrected 2026-11-08:** the deny list is a `PreToolUse` hook of its own, `scripts/tool-guard.py`, because it runs on every tool call and must not take the run guard's lock; `scripts/tests/test_hook_commands.py` today expects every hook to be `run-guard.py`, so it learns to accept any project script. `claude --help` lists the modes `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk` and `plan`. The resume keeps the operator's own mode, which the owner chose to be `bypassPermissions`, so a run started in another mode is told that its resumed sessions would be refused at every prompt. The end-to-end test starts a real Claude session, which spends subscription usage, so it runs when `BOSUN_E2E=1` is set and once here as evidence.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -327,8 +329,8 @@ A hidden session can't answer a prompt, so any prompt stalls the run. The owner 
 
 - [ ] Add deny rules in `.claude/settings.json` for force-push, `git push --delete`, `gh repo delete` and changing the repo's visibility, and for recursive deletes outside the repo, scratch, temp, and `build/`, through a `PreToolUse` hook. Done when: `scripts/tests/test_hook_commands.py` proves each is refused with a reason, while commits, pushes, branch work and cleaning scratch all pass. Cheaper substitute: an instruction asking the session not to.
 - [ ] Refuse mail and chat sends in the same hook: the send tools of Gmail, Outlook and Teams connectors. Done when: a test sees those tool names refused, and web lookups and documentation tools pass.
-- [ ] Set `permission_mode` to `bypassPermissions` for a run in `scripts/lib/run_guard.py`, validating it against `claude --help`. Done when: a test with an unknown mode refuses to start and names it. Cheaper substitute: forwarding any saved string.
-- [ ] Prove a write, a queued build and a commit in a disposable repo through the exact `resume_command`, in `scripts/tests/test_guard_e2e.py`. Done when: the test passes on this machine with no prompt.
+- [ ] Validate a run's `permission_mode` against the modes `claude --help` lists, in `scripts/lib/run_guard.py`, refusing to start a run with an unknown one and naming it, and telling a run started in any mode but `bypassPermissions` that its resumed sessions would meet prompts no one can answer. Done when: tests cover an unknown mode, `bypassPermissions`, and another known mode. Cheaper substitute: forwarding any saved string.
+- [ ] Prove a write, a queued build and a commit in a disposable repo through the exact `resume_command`, in `scripts/tests/test_guard_e2e.py`, run when `BOSUN_E2E=1` is set since it spends subscription usage. Done when: the test passes on this machine with no prompt, and its output is quoted in the findings file.
 - [ ] Commit: `guard: campaign permissions`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_hook_commands.py` exits 0, and fails if force-push is allowed.
