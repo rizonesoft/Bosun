@@ -44,7 +44,7 @@ title: "TODO-03 -- Campaign readiness"
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
-| 9 | §9 | Named core tests and CMake resolution | -- | [ ] |
+| 9 | §9 | Named core tests and CMake resolution | -- | [x] |
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [ ] |
 | 11 | §11 | One global heartbeat | -- | [x] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
@@ -347,9 +347,12 @@ Five test checkpoints pass a name to a test program that ignores it, so they can
 - [x] Create `scripts/campaign-preflight.ps1` with a CMake check on the executable PATH resolves, requiring version 3.25 or later as `CMakeLists.txt` does, and finding Visual Studio's CMake through `vswhere` to name the folder to add. Done when: `tests/preflight_test.ps1` proves each case fails with its fix named (no CMake, `vswhere` missing, Visual Studio without CMake, an older or broken `cmake` earlier on PATH) and a good one passes. Cheaper substitute: a hardcoded Visual Studio path in a section.
 - [x] Add `scripts/add-cmake-to-path.ps1`, which previews the exact folder it would add to the user PATH, applies it with `-Apply` keeping every existing entry and reading the result back, records what it added in `%LOCALAPPDATA%\Bosun\path-changes.json`, adds nothing twice, and with `-Undo` removes only the entry it added. Done when: `tests/preflight_test.ps1` runs preview, apply, a repeat and undo against a test variable and checks each read-back.
 - [x] Add the Visual Studio CMake folder to the user PATH on this machine with that script. Done when: a new shell and the watchdog's environment both run `cmake --version`.
-- [ ] Commit: `tests: named core tests; preflight finds CMake`
+- [x] Commit: `tests: named core tests; preflight finds CMake`
 
 **Test checkpoint:** `build\Release\test_core.exe no-such-test` and `build\Release\test_core.exe records` exit nonzero, `build\Release\test_core.exe` exits 0, and `pwsh tests/core_names_test.ps1` and `pwsh tests/preflight_test.ps1` exit 0.
+
+> **Verified:** 2026-11-08 | §9 | 97c5582f955e09da70f492623890e546f15f594c
+> **Review:** `docs/reviews/d00-t03-s9.json`
 
 ## 10. Preflight and machine hold
 

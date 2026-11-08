@@ -24,7 +24,7 @@ Sections: 28 | Checklist items: 212
 | [ ]    | D00 T03 §6  | Run end states and wake checks                         | none        | 9     |
 | [ ]    | D00 T03 §7  | Owned session recovery                                 | none        | 6     |
 | [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
-| [ ]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 7     |
+| [x]    | D00 T03 §9  | Named core tests and CMake resolution                  | none        | 7     |
 | [x]    | D00 T03 §11 | One global heartbeat                                   | none        | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                      | none        | 10    |
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
@@ -197,6 +197,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 8/128 verified sections, 5 ready to run now.
+Progress: 9/128 verified sections, 4 ready to run now.
 
-Checklist: 124/720 items completed (includes Commit items).
+Checklist: 125/720 items completed (includes Commit items).
