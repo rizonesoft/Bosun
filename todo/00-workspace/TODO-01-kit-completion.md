@@ -38,7 +38,7 @@ title: "TODO-01 -- Finish the agent kit"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Review-in-flight marks for the guard | -- | [x] |
-| 2 | §2 | Settled items in review prompts | §1 | [ ] |
+| 2 | §2 | Settled items in review prompts | §1 | [x] |
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [ ] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
@@ -102,9 +102,12 @@ Without settled items, a reviewer reopens decisions the writer already resolved,
 - [x] Keep a failed attempt's duration as `last_seconds` and the pass's running `seconds_spent` in `after_attempt` in `scripts/review-dispatch.py`, so a failure that waits (exit 3, no stdout) still keeps its time. Done when: a test reads both from `build/review-attempts.json` after a plain failure and after an auth wait. (Completion review gap 1.)
 - [x] Hand a returned review back on stdout, exit 2, when the findings write itself fails with `OSError`, in `main` in `scripts/review-dispatch.py`, as an `Unrecorded` one already is. Done when: a test with a full disk on the findings write gets the review and its `seconds` on stdout, names the error, and finds the earlier file intact. (Completion review gap 2.)
 - [x] Say in `.claude/skills/review-todo-section/SKILL.md` and its `.agents` and `.codex` mirrors that a `- Settled: <item>` or `- Not taken: <item> (<reason>)` line written under a review in the findings file is carried into every later prompt. Done when: a test reads the rule in all three mirrors.
-- [ ] Commit: `review: carry settled items and durations`
+- [x] Commit: `review: carry settled items and durations`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py` exits 0, and fails if the change is reverted.
+
+> **Verified:** 2026-11-08 | §2 | db2f1bd816f86e1e079d6448089e2e6f5e992e63
+> **Review:** `docs/reviews/d00-t01-s2.json`
 
 ## 3. Dispatch hook for background reviews
 

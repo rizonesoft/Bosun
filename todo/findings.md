@@ -7,3 +7,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `scripts/campaign-hold.ps1`: one status command showing the hold's age, its settings and the exact restore command, later on the panel's machine page (D00 T03 §10 completion review, 2026-11-08).
 - `scripts/campaign-preflight.ps1`: show local failures within five seconds and each slow probe's elapsed time, measured before optimizing (D00 T03 §10 completion review, 2026-11-08).
 - `scripts/campaign-preflight.ps1`: end a failing run with one ordered list of fixes, elevated steps and owner confirmations apart, then the command that rechecks them (D00 T03 §10 completion review, 2026-11-08).
+- `scripts/review-dispatch.py:1308`: show each pass's `seconds` in plain `--list-rounds` output, marking older records as unmeasured, so tuning the schedule needs no JSON (D00 T01 §2 completion review, 2026-11-08).
+- `scripts/review-dispatch.py:456`: name the source file and line of each carried settled item in the prompt block, so a stale decision is one navigation away (D00 T01 §2 completion review, 2026-11-08).
