@@ -191,8 +191,14 @@ def strip_prefixes(words: list[str]) -> tuple:
                 break
             if words[0].startswith("-"):
                 option, _, value = words[0].partition("=")
-                if not words[0].startswith("--") and len(words[0]) > 2 and words[0][:2] in valued:
-                    option, value = words[0][:2], words[0][2:]  # a short option's value, attached: -CDIR, -n5
+                if not words[0].startswith("--") and len(words[0]) > 2:
+                    # A cluster of short options, as getopt reads it: flags until the first that takes a value, which
+                    # takes the rest of the cluster or, when nothing is left, the next word. -vS 'cmd', -iCDIR, -n5.
+                    option, value = words[0], ""
+                    for at in range(1, len(words[0])):
+                        if "-" + words[0][at] in valued:
+                            option, value = "-" + words[0][at], words[0][at + 1:]
+                            break
                 if head == "env" and option in CHDIR:
                     folder = value if value else (words[1] if len(words) > 1 else None)
                     chdir = within(chdir, folder)  # each env runs the next in its folder
