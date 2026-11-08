@@ -16,15 +16,18 @@ function Find-VsCMake {
   if (-not (Test-Path $VsWhere)) {
     return @{ Fix = "vswhere isn't at $VsWhere, so Visual Studio can't be found: install Visual Studio 2022 or later with the 'C++ CMake tools for Windows' component" }
   }
-  $vs = & $VsWhere -latest -products '*' -property installationPath 2>$null | Select-Object -First 1
-  if (-not $vs) {
+  # Every installed instance, newest first: the newest may lack CMake while an older one has it.
+  $all = @(& $VsWhere -products '*' -sort -property installationPath 2>$null | Where-Object { $_ })
+  if (-not $all) {
     return @{ Fix = "vswhere found no Visual Studio: install it with the 'C++ CMake tools for Windows' component" }
   }
-  $folder = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
-  if (-not (Test-Path (Join-Path $folder 'cmake.exe'))) {
-    return @{ Fix = "Visual Studio at $vs has no CMake: add the 'C++ CMake tools for Windows' component in the Visual Studio Installer" }
+  foreach ($vs in $all) {
+    $folder = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+    if (Test-Path (Join-Path $folder 'cmake.exe')) {
+      return @{ Folder = $folder; Fix = "add $folder to your user PATH with ``pwsh scripts/add-cmake-to-path.ps1 -Apply``, then open a new shell" }
+    }
   }
-  @{ Folder = $folder; Fix = "add $folder to your user PATH with ``pwsh scripts/add-cmake-to-path.ps1 -Apply``, then open a new shell" }
+  @{ Fix = "no Visual Studio here has CMake ($($all -join ', ')): add the 'C++ CMake tools for Windows' component in the Visual Studio Installer" }
 }
 
 function Test-CMake {

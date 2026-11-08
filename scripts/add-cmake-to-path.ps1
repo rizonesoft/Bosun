@@ -56,10 +56,17 @@ if ($Undo) {
 
 if (-not $Folder) {
   if (-not (Test-Path $VsWhere)) { throw "vswhere isn't at ${VsWhere}: give -Folder, or install Visual Studio with the C++ CMake tools" }
-  $vs = & $VsWhere -latest -products '*' -property installationPath | Select-Object -First 1
-  if (-not $vs) { throw 'vswhere found no Visual Studio: give -Folder' }
-  $Folder = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+  # Every installed instance, newest first: the newest may lack CMake while an older one has it.
+  $all = @(& $VsWhere -products '*' -sort -property installationPath | Where-Object { $_ })
+  if (-not $all) { throw 'vswhere found no Visual Studio: give -Folder' }
+  $Folder = $all | ForEach-Object { Join-Path $_ 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin' } |
+    Where-Object { Test-Path (Join-Path $_ 'cmake.exe') } | Select-Object -First 1
+  if (-not $Folder) { throw "no Visual Studio here has CMake ($($all -join ', ')): add the C++ CMake tools for Windows component" }
 }
+# A PATH entry has to be a whole, absolute folder: a relative one stops resolving when the working folder changes,
+# and a ';' would split it into entries -Undo couldn't match.
+if ($Folder.Contains(';')) { throw "a folder with ';' in its name can't be one PATH entry: $Folder" }
+$Folder = [IO.Path]::GetFullPath($Folder, (Get-Location).ProviderPath).TrimEnd('\')
 if (-not (Test-Path (Join-Path $Folder 'cmake.exe'))) { throw "there's no cmake.exe in $Folder" }
 
 $before = Entries (Read-Value)

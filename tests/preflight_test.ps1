@@ -41,12 +41,21 @@ try {
   $r = Preflight $system @('-VsWhere', (Join-Path $work 'no-vswhere.exe'))
   Check ($r.Code -eq 1 -and $r.Text -match "vswhere isn't at") 'a missing vswhere is named'
   $r = Preflight $system @('-VsWhere', $vswhereNoCMake)
-  Check ($r.Code -eq 1 -and $r.Text -match 'has no CMake') 'Visual Studio without CMake is named'
+  Check ($r.Code -eq 1 -and $r.Text -match 'no Visual Studio here has CMake') 'Visual Studio without CMake is named'
   $r = Preflight "$old;$good;$system"
   Check ($r.Code -eq 1 -and $r.Text -match 'older than the 3\.25') 'an older CMake first on PATH fails'
   $r = Preflight "$broken;$good;$system"
   Check ($r.Code -eq 1 -and $r.Text -match "doesn't run") 'a broken CMake first on PATH fails'
-  $vs =& (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe') -latest -products '*' -property installationPath 2>$null
+  # Two installations, the newer without CMake: the older one's folder is the fix.
+  $vsOld = Join-Path $work 'vs-older'
+  $vsOldCMake = Join-Path $vsOld 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin'
+  New-Item -ItemType Directory -Force $vsOldCMake | Out-Null
+  Set-Content (Join-Path $vsOldCMake 'cmake.exe') ''
+  $vswhereTwo = Join-Path $work 'vswhere-two.cmd'
+  Set-Content $vswhereTwo "@echo off`r`necho $vsNone`r`necho $vsOld" -Encoding ascii
+  $r = Preflight $system @('-VsWhere', $vswhereTwo)
+  Check ($r.Code -eq 1 -and $r.Text.Contains($vsOldCMake)) 'with a newer install lacking CMake, the older one that has it is named'
+  $vs = & (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe') -latest -products '*' -property installationPath 2>$null
   if ($vs) {
     $r = Preflight $system
     Check ($r.Text -match 'add-cmake-to-path\.ps1 -Apply') 'with Visual Studio CMake installed, the fix is the PATH script'
@@ -72,6 +81,19 @@ try {
   Check ($again -match 'already' -and ((& $read) -split ';' | Where-Object { $_ -eq $good }).Count -eq 1) 'a repeat adds nothing'
   Check ((Get-Content $record -Raw | ConvertFrom-Json).$variable -contains $good) 'what it added is recorded'
   & $pwsh -NoProfile -File $script -Undo @scriptArgs | Out-Null
+  # A relative folder is saved as its full path, and one with ';' is refused before anything changes.
+  $before = & $read
+  Push-Location $work
+  try { & $pwsh -NoProfile -File $script -Apply -Folder 'vs-cmake' -Variable $variable -Record $record | Out-Null }
+  finally { Pop-Location }
+  Check ((& $read) -eq "$before;$cmakeHome") 'a relative folder is added as its full path'
+  & $pwsh -NoProfile -File $script -Undo @scriptArgs | Out-Null
+  Check ((& $read) -eq $before) 'and undo removes it'
+  $semi = Join-Path $work 'a;b'
+  New-Item -ItemType Directory -Force $semi | Out-Null
+  Set-Content (Join-Path $semi 'cmake.exe') ''
+  & $pwsh -NoProfile -File $script -Apply -Folder $semi -Variable $variable -Record $record 2>&1 | Out-Null
+  Check ($LASTEXITCODE -ne 0 -and (& $read) -eq $before) "a folder with ';' is refused and PATH is unchanged"
   # A record that can't be saved stops the change before it happens.
   $blocker = Join-Path $work 'not-a-folder'
   Set-Content $blocker 'a file where the record folder would go'
