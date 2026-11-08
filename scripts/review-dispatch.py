@@ -875,6 +875,13 @@ def after_attempt(key, entry, result):
     cls, retry_after = classify(reason, result.get("detail") or "")
     entry.update(last_class=cls, last_reason=reason[:300], last_at=iso(CLOCK()),
                  last_failure=keep_failure(key, entry, cls, reason, result.get("detail") or ""))
+    # The failed attempt's duration, kept with the pass, since a failure is never in the findings file and a wait
+    # (raised below) never reaches stdout. A CLI that never started has none.
+    if result.get("seconds") is not None:
+        entry["last_seconds"] = result["seconds"]
+        entry["seconds_spent"] = entry.get("seconds_spent", 0) + result["seconds"]
+    else:
+        entry.pop("last_seconds", None)
     now = CLOCK()
     if cls in ("auth", "model") or entry["count"] >= MAX_ATTEMPTS:  # waiting can't fix auth or model, so no retry
         raise Waiting(start_wait(passes, key, entry, now + max(WAIT_SECONDS, retry_after or 0)))
@@ -885,7 +892,7 @@ def after_attempt(key, entry, result):
     passes[key] = entry
     save_attempts(passes)
     return {"key": key, "attempt": entry["count"], "of": MAX_ATTEMPTS, "class": cls, "next": iso(entry["not_before"]),
-            "failure": entry["last_failure"]}
+            "failure": entry["last_failure"], **({"seconds": entry["last_seconds"]} if "last_seconds" in entry else {})}
 
 
 IN_FLIGHT = ROOT / "build" / "review-in-flight"
@@ -1413,11 +1420,14 @@ def main(argv=None):
                 result["recorded"] = True
             else:
                 result["round"] = record(Path(args.record), result, when)
-        except Unrecorded as exc:
-            # The review still reaches stdout; only the findings file is left as it was.
+        except (Unrecorded, OSError) as exc:
+            # The review still reaches stdout; only the findings file is left as it was. OSError: the write itself
+            # failed (a full disk, a locked or denied file), and atomic_write left the earlier file intact.
             unrecorded = {"recorded": False} if one_pass else {"round": None}
             print(json.dumps({**result, **unrecorded, "run": when}, indent=2))
-            print("review-dispatch refused: " + str(exc), file=sys.stderr)
+            why = str(exc) if isinstance(exc, Unrecorded) else \
+                f"{args.record} could not be written ({exc}), so the review above was not recorded"
+            print("review-dispatch refused: " + why, file=sys.stderr)
             return 2
     print(json.dumps({**result, "run": when}, indent=2))
     return 0 if result["reviewer"] else 1

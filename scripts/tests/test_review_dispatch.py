@@ -1,5 +1,6 @@
 """scripts/review-dispatch.py: the one route, read-only invocation, refusals and records, with fake reviewer CLIs."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -1804,6 +1805,56 @@ class Settled(Harness):
         self.assertIsNone(summary["reviewer"])
         self.assertGreaterEqual(summary["seconds"], 1)
         self.assertEqual(record.read_text(encoding="utf-8"), before)
+
+    def test_a_failed_pass_keeps_its_duration_with_the_pass_even_when_it_waits(self):
+        # Completion review gap 1: a failure is never in the findings file and a wait never reaches stdout, so the
+        # attempt history in build/review-attempts.json holds the duration.
+        record = self.folder / "D00-T01-s2.md"
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                        codex="fail")
+        self.assertEqual(result.returncode, 1)
+        (entry,) = self.attempts().values()
+        self.assertGreaterEqual(entry["last_seconds"], 1)
+        self.assertEqual(entry["seconds_spent"], entry["last_seconds"])
+        self.assertEqual(summary["attempt"]["seconds"], entry["last_seconds"])
+        first = entry["seconds_spent"]
+        self.elapse()
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                  codex="stderr", stderr=(FIXTURES / "codex-not-signed-in.txt").read_text(encoding="utf-8"))
+        self.assertEqual(result.returncode, 3, "auth waits, so no JSON reaches stdout")
+        (entry,) = self.attempts().values()
+        self.assertIn("wait_until", entry)
+        self.assertGreaterEqual(entry["last_seconds"], 1)
+        self.assertEqual(entry["seconds_spent"], first + entry["last_seconds"])
+
+    def test_a_findings_write_that_fails_still_hands_back_the_review(self):
+        # Completion review gap 2: a full disk or a locked findings file raised OSError past the fallback, so the
+        # returned review and its duration were lost with an empty stdout.
+        module = self.module()
+        record = self.folder / "D00-T01-s2.md"
+        self.seed(record)
+        before = record.read_bytes()
+        module.find_cli = lambda name: str(self.codex)
+
+        def fake_run(argv, stdin_text, timeout, watched, stderr_path=None):
+            watched[1].write_text("1. P3 x.\n\nHIGHEST: P3\nOVERALL: approve", encoding="utf-8")
+            return 0, None
+
+        def full_disk(path, existing, lines):
+            raise OSError(28, "No space left on device")
+
+        module.run, module.append_findings = fake_run, full_disk
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
+            code = module.main(["--writer", "claude", "--prompt", str(self.prompt), "--record", str(record)])
+        self.assertEqual(code, 2)
+        summary = json.loads(out.getvalue())
+        self.assertIn("OVERALL: approve", summary["review"])
+        self.assertIsNone(summary["round"])
+        self.assertGreaterEqual(summary["seconds"], 1)
+        self.assertIn("could not be written", err.getvalue())
+        self.assertIn("No space left on device", err.getvalue())
+        self.assertEqual(record.read_bytes(), before, "the earlier findings file is intact")
 
     def test_a_returned_pass_records_a_positive_duration_read_back_everywhere(self):
         record = self.folder / "D00-T01-s2.md"
