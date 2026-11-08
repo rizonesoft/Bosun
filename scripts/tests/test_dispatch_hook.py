@@ -117,6 +117,12 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(REVIEW + ' --x "a\\";b &"', background=True)))
         self.assertIsNone(hook.verdict(payload(REVIEW + " a\\&b", background=True)))
 
+    def test_an_ansi_c_quoted_prompt_is_one_word(self):
+        base = "python scripts/review-dispatch.py --writer claude --prompt $'review\\';notes.md'"
+        self.assertIn("not detached", hook.verdict(payload(base + " &", background=True)))
+        self.assertIsNone(hook.verdict(payload(base, background=True)))
+        self.assertIsNone(hook.verdict(payload(base + " 2>&1 | tail -3", background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
