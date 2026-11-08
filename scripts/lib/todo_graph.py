@@ -1670,9 +1670,14 @@ def unstamp(root, ref, reason, date):
     receipt_bytes = receipt_path.read_bytes()
     plan_path = root / PLAN
     original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
+    index_path = root / INDEX_FILE
+    original_index_bytes = index_path.read_bytes() if index_path.is_file() else None
+    reopened_index = reopen_in_index(root, row.path)
     try:
         atomic(revoked_path, receipt_bytes)
         atomic(path, text)
+        if reopened_index is not None:
+            atomic(index_path, reopened_index)  # its file is open again, so it's no longer Completed
         receipt_path.unlink()
         graph(root)
         if original_plan_bytes is not None:
@@ -1684,12 +1689,43 @@ def unstamp(root, ref, reason, date):
             revoked_path.unlink(missing_ok=True)
             if not path.is_file() or path.read_bytes() != original_bytes:
                 atomic(path, original_bytes)
+            if original_index_bytes is not None and index_path.read_bytes() != original_index_bytes:
+                atomic(index_path, original_index_bytes)
         finally:
             if original_plan_bytes is not None and (not plan_path.is_file()
                                                     or plan_path.read_bytes() != original_plan_bytes):
                 atomic(plan_path, original_plan_bytes)
         raise
     return revoked
+
+
+def reopen_in_index(root, path):
+    """Move a reopened file's line in todo/TODO-00-INDEX.md from Completed back to Active, so the claim that its
+    Verification ran goes with the stamp it rested on, and closing it again writes fresh evidence. Returns the new
+    text, or None when there is nothing to move."""
+    index = Path(root) / INDEX_FILE
+    if not index.is_file():
+        return None
+    lines = read_text(index).split("\n")
+    name = Path(path).name
+    heads = [i for i, line in enumerate(lines) if line.startswith("## ")]
+    def block(title):
+        start = next((i for i in heads if title in lines[i]), None)
+        end = next((i for i in heads if start is not None and i > start), len(lines))
+        return start, end
+    done_start, done_end = block("Completed")
+    active_start, active_end = block("Active")
+    if done_start is None or active_start is None:
+        return None
+    at = next((i for i in range(done_start + 1, done_end) if name in lines[i]), None)
+    if at is None:
+        return None
+    moved = lines.pop(at)
+    if at < active_start:
+        active_start, active_end = active_start - 1, active_end - 1
+    rows = [i for i in range(active_start + 1, active_end) if lines[i].startswith("|")]
+    lines.insert(rows[-1] + 1 if rows else active_start + 2, moved)
+    return "\n".join(lines)
 
 
 def suspects(root, ref):

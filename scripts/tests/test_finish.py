@@ -85,6 +85,16 @@ class Evidence(unittest.TestCase):
         self.commit("close out again")
         self.assertEqual(tg.pending_closeouts(self.root, self.rows), ([], []))
 
+    def test_reopening_a_file_takes_back_its_completed_line(self):
+        self.close()
+        text = tg.reopen_in_index(self.root, self.path)
+        self.assertIsNotNone(text)
+        active, completed = text.split("## Completed TODOs")
+        self.assertIn("TODO-01-a.md", active)
+        self.assertNotIn("TODO-01-a.md", completed)
+        (self.root / tg.INDEX_FILE).write_text(text, encoding="utf-8")
+        self.assertIsNone(tg.reopen_in_index(self.root, self.path), "a second reopen moved it again")
+
     def test_an_uncommitted_closeout_does_not_count(self):
         self.write("docs/phase-runs/2026-11-08-phase-0.md", "# Phase 0\n\n## Closeout\n\nDone.\n")
         self.assertIn(0, tg.pending_closeouts(self.root, self.rows)[1])

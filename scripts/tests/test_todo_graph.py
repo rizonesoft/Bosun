@@ -1833,6 +1833,18 @@ class Stamp(Tree):
         self.assertEqual(self.snapshot(), before)
         self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
 
+    def test_unstamp_takes_back_its_file_s_completed_line(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        index = self.root / tg.INDEX_FILE
+        index.write_text("# Index\n\n## Active TODOs\n\n| Domain | File | Scope |\n| --- | --- | --- |\n\n"
+                         "## Completed TODOs\n\n| 00 | 00-workspace/TODO-01-a.md | A |\n", encoding="utf-8")
+        tg.unstamp(self.root, "D00 T01 §1", "checkpoint fails at abc1234; repair -> XREF: §2", "2026-10-21")
+        active, completed = index.read_text(encoding="utf-8").split("## Completed TODOs")
+        self.assertIn("TODO-01-a.md", active)
+        self.assertNotIn("TODO-01-a.md", completed)
+
     def test_unstamp_reopens_a_regressed_section_and_allows_a_restamp(self):
         self.tick_work()
         tg.projections(self.root, sync=True)
