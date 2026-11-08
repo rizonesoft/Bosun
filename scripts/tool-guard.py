@@ -400,7 +400,14 @@ def follow_cd(words: list[str], cwd: str | None) -> str | None:
     return folder if os.path.isdir(folder) else UNKNOWN  # a failed cd leaves the shell where it was
 
 
+def joined(command: str, powershell: bool) -> str:
+    """The line with its continuations joined, as the shell joins them: Bash's backslash and PowerShell's backtick
+    before a newline."""
+    return re.sub(r"`\r?\n" if powershell else r"\\\r?\n", "", command)
+
+
 def decide_command(command: str, cwd: str, project: str, powershell: bool = False) -> None:
+    command = joined(command, powershell)
     here: str | None = cwd
     parts = segments(command, powershell)
     # A line that changes folder anywhere (cd, pushd, Set-Location, env -C, in a wrapper or not) can only delete

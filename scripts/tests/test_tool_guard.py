@@ -163,6 +163,12 @@ class Pushes(Base):
                 self.refused(form)
         self.refused('git push origin "release`";candidate" --force', tool="PowerShell")
 
+    def test_a_continued_line_is_one_command(self):
+        self.refused("git push origin main \\\n--force")
+        self.refused("git push \\\n  -f origin main")
+        self.refused("git push origin main `\n--force", tool="PowerShell")
+        self.allowed("git push origin \\\nmain")
+
     def test_ordinary_pushes_pass(self):
         for form in ("git push", "git push -u origin main", "git push origin main:main", "git push -q origin main",
                      "git push --tags", "git status && git push origin feature"):
