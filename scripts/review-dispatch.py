@@ -11,6 +11,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -64,6 +65,7 @@ RECOVERY = {
     "other": "the reviewer failed; the diagnostic file says how",
 }
 CLOCK = time.time
+MONOTONIC = time.monotonic  # a pass's duration, recorded as `seconds`
 SLEEP = time.sleep
 CLEANUP_SECONDS = 10
 
@@ -387,6 +389,81 @@ def lens_block(plan):
     return "\n".join(lines) + "\n"
 
 
+# The writer's decisions a review must not reopen without new evidence, ported from Recto's dispatcher
+# (D:\GitHub\Recto\scripts\review-dispatch.py:326): a gap filed to a named section, one not taken with its reason, and
+# any other item the writer settles. Bosun routes each writer to one reviewer, so they are read from the section's own
+# findings files, every cycle of it, and only from the writer's lines: a line inside a recorded review is the
+# reviewer's, and a reviewer must not settle its own finding by quoting the form.
+SETTLED = re.compile(r"^- (?:Filed|Not taken|Settled): \S")
+MAX_SETTLED = 200
+SECTION_STEM = re.compile(r"(D\d+-T\d+-s\d+)(?:-cycle(\d+))?")
+
+
+def section_findings(record):
+    """The findings files of the section `record` belongs to, first cycle first: `D<NN>-T<NN>-s<N>.md` and each
+    `-cycle<n>.md` beside it, with `record` itself always included. A record not named after a section is its own."""
+    path = Path(record)
+    match = SECTION_STEM.fullmatch(path.stem)
+    if not match:
+        return [path]
+    files = {path, path.with_name(match[1] + path.suffix)}
+    try:
+        siblings = list(path.parent.glob(f"{match[1]}-cycle*{path.suffix}"))
+    except OSError as exc:
+        raise Refused(f"{path.parent} cannot be listed ({exc}), so the section's settled items cannot be carried; "
+                      f"no reviewer ran") from None
+    files.update(p for p in siblings if (m := SECTION_STEM.fullmatch(p.stem)) and m[1] == match[1] and m[2])
+    return sorted(files, key=lambda p: int(SECTION_STEM.fullmatch(p.stem)[2] or 1))
+
+
+def settled_items(record):
+    """The settled lines the writer wrote in the section's findings files, each once, in the order first written.
+    Another cycle's file that exists but cannot be read, or whose recorded reviews cannot be told apart from the
+    writer's lines, is refused (`Refused`) rather than skipped, as Recto does, since skipping it would drop its settled
+    items unseen. `record` itself is left to the paths that write it: a returned review is then refused a place in it
+    (`Unrecorded`, exit 2) and reaches stdout only, so no recorded pass ever ran without its settled items."""
+    items = []
+    own = Path(record)
+    for path in section_findings(record):
+        try:
+            if not path.exists():
+                continue
+            text = path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            if path == own:
+                continue
+            raise Refused(f"{path} cannot be read ({exc}), so its settled items cannot be carried; no reviewer ran") \
+                from None
+        found, _ = _read_findings(text)
+        if found is None:
+            if path == own:
+                continue
+            raise Refused(f"{path} cannot be read back{unreadable_heading(text)}, so its settled items cannot be "
+                          f"carried; no reviewer ran")
+        inside = {n for start, end in found["bodies"] for n in range(start, end)}
+        for n, line in enumerate(raw_lines(text)):
+            line = canonical(line).strip()
+            if n not in inside and SETTLED.match(line) and line not in items:
+                items.append(line)
+    return items[:MAX_SETTLED]
+
+
+def settled_block(items):
+    """The prompt section listing the settled items, appended after the lenses; empty when there are none."""
+    if not items:
+        return ""
+    return ("\n\n## Settled items (from the section's findings files, appended by scripts/review-dispatch.py)\n\n"
+            "The writer has already filed each item below to a named section, or decided not to take it, with the "
+            "reason given. Do not raise one again unless you bring new evidence that its reason is wrong; a finding "
+            "that repeats one counts toward neither this pass's verdict nor its HIGHEST line.\n\n"
+            + "\n".join(items) + "\n")
+
+
+def elapsed_seconds(start, end):
+    """A pass's measured duration in whole seconds, rounded up so a recorded one is always positive."""
+    return max(1, math.ceil(end - start))
+
+
 EXTENSION = re.compile(r"\.[A-Za-z0-9]+")
 
 
@@ -516,10 +593,11 @@ def run(argv, stdin_text, timeout, watched, stderr_path=None):
     return process.returncode, None
 
 
-def review(pin, writer, prompt_path, timeout, plan=None):
+def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
     """Run the writer's one reviewer. Returns the summary dict: `reviewer` is None when no review came back, and
     `failover` then names the reviewer and why (there is no fallback). `plan` is the scheduled step (see `scheduled`):
-    its effort replaces the reviewer's, and its lenses are appended to the prompt and recorded."""
+    its effort replaces the reviewer's, and its lenses are appended to the prompt and recorded. `settled` are the
+    section's settled lines (see `settled_items`), appended after the lenses. `seconds` is the reviewer's measured run."""
     if writer not in pin["routes"]:
         raise Refused(f"the reviewer pin has no route for writer {writer!r}")
     prompt = Path(prompt_path).read_text(encoding="utf-8")
@@ -544,6 +622,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
     lenses = plan["lenses"] if plan else []
     if lenses:
         prompt = prompt.rstrip("\n") + lens_block(plan)
+    if settled:
+        prompt = prompt.rstrip("\n") + settled_block(settled)
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
     def none(reason):
@@ -552,10 +632,11 @@ def review(pin, writer, prompt_path, timeout, plan=None):
                 "attempt_reviewer": name, "attempt_model": reviewer["model"], "attempt_cli": reviewer["cli"],
                 "execution": ("timeout" if "timed out" in reason else "missing" if "not installed" in reason
                               else "empty" if "returned no review" in reason else "failed"),
-                **scheduled_fields}
+                **scheduled_fields, **({"seconds": seconds} if seconds is not None else {})}
 
     # The resolved path, not the bare name: on Windows a CLI is often a .cmd shim that Popen cannot find by name.
     detail = ""
+    seconds = None
     executable = find_cli(reviewer["cli"])
     if executable is None:
         return none(f"{reviewer['cli']} is not installed")
@@ -564,15 +645,17 @@ def review(pin, writer, prompt_path, timeout, plan=None):
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
         prompt_file = Path(prompt_path).resolve()
-        if lenses:
-            # The pointer an Antigravity shim gets must name the prompt with its scheduled lenses.
+        if lenses or settled:
+            # The pointer an Antigravity shim gets must name the prompt with its scheduled lenses and settled items.
             prompt_file = tmp / "prompt.md"
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
         stderr_path = tmp / "stderr.txt"
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
         # stderr is watched too: a reviewer looping on errors must not fill the disk either.
+        started = MONOTONIC()
         with in_flight(name, timeout):
             _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path], stderr_path)
+        seconds = elapsed_seconds(started, MONOTONIC())
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
@@ -590,7 +673,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "execution": "returned", "attempt_reviewer": name, "attempt_model": reviewer["model"],
             "attempt_cli": reviewer["cli"],
-            "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}
+            "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {}),
+            "seconds": seconds}
 
 
 def tail(path, size=65536):
@@ -863,12 +947,12 @@ def atomic_write(path, text):
 # past Python's digit limit raises). A review is at most MAX_OUTPUT_BYTES, so it has at most MAX_OUTPUT_BYTES + 1 lines,
 # and the count's width follows from that: whatever `record` writes, the reader reads.
 ROUND_HEADING = re.compile(r"^## Round ([0-9]{1,6}): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
-ROUND_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt reviewer|Attempt model|Attempt cli|Run|Effort|Lenses|Lines|Digest|Skipped): (\S.*)$")
+ROUND_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt reviewer|Attempt model|Attempt cli|Run|Effort|Lenses|Seconds|Lines|Digest|Skipped): (\S.*)$")
 # The one-pass completion review, recorded beside the rounds and never counted as one. It always carries Lines, Digest
 # and the Candidate commit it reviewed; the writer's notes after it (its `- Filed:` lines) run to the next `## ` line.
 COMPLETION_HEADING = re.compile(r"^## Completion review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 PLAN_HEADING = re.compile(r"^## Plan review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
-COMPLETION_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt reviewer|Attempt model|Attempt cli|Run|Candidate|Effort|Lenses|Lines|Digest|Skipped): (\S.*)$")
+COMPLETION_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt reviewer|Attempt model|Attempt cli|Run|Candidate|Effort|Lenses|Seconds|Lines|Digest|Skipped): (\S.*)$")
 # The one-pass reviews, by --kind: the heading each is recorded under and the key read_findings lists them under.
 PASSES = {"completion": ("## Completion review", COMPLETION_HEADING, "completions"),
           "plan": ("## Plan review", PLAN_HEADING, "plans")}
@@ -907,8 +991,10 @@ def _read_findings(text):
     next reserved heading. A completion review, and a plan review (`## Plan review`), is read the same way, with
     Writer, Run, Candidate, Lines and Digest required; the lines after it up to the next `## ` line are its `notes`,
     the writer's own record of what was done with each gap. Lenses, when present, is the comma-separated list the
-    schedule gave the pass. Anything else makes the file unreadable rather than losing a field."""
-    found = {"rounds": [], "completions": [], "plans": []}
+    schedule gave the pass, and Seconds, when present, its measured duration (records before it have none). `bodies`
+    lists each recorded review's line range, so `settled_items` reads only the writer's own lines. Anything else makes
+    the file unreadable rather than losing a field."""
+    found = {"rounds": [], "completions": [], "plans": [], "bodies": []}
     raw = raw_lines(text)
     lines = [canonical(line) for line in raw]
     i = 0
@@ -950,6 +1036,10 @@ def _read_findings(text):
                 if sealed is not None or not DIGEST.fullmatch(value):
                     return None, head
                 sealed = value
+            elif key == "seconds":
+                if "seconds" in entry or not COUNT.fullmatch(value):
+                    return None, head
+                entry["seconds"] = int(value)
             elif entry.get(key) is not None or (key in ("candidate", "policy") and not CANDIDATE.fullmatch(value)):
                 return None, head
             elif key in ("writer_model", "attempt_model", "attempt_reviewer", "attempt_cli", "execution", "policy"):
@@ -978,9 +1068,11 @@ def _read_findings(text):
             if sealed is not None and digest(raw[start:i]) != sealed:
                 return None, head
             entry["review"] = "\n".join(lines[start:i])
+            found["bodies"].append((start, i))
         else:
             end = next((j for j in range(i, len(lines)) if lines[j].startswith(RESERVED)), len(lines))
             entry["review"] = "\n".join(lines[i:end])
+            found["bodies"].append((i, end))
             i = end
         if completion:
             end = next((j for j in range(i, len(lines)) if lines[j].startswith("## ")), len(lines))
@@ -1091,6 +1183,8 @@ def metadata(result):
             lines.append(f"- {key.replace('_', ' ').capitalize()}: {result[key]}")
     if result.get("lenses"):
         lines.append(f"- Lenses: {', '.join(result['lenses'])}")
+    if result.get("seconds"):
+        lines.append(f"- Seconds: {result['seconds']}")
     return lines + [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
 
 
@@ -1262,6 +1356,8 @@ def main(argv=None):
         if args.writer_model:
             if not MODEL.fullmatch(args.writer_model):
                 raise Refused("invalid exact writer model")
+        # Read before any attempt is counted, so a findings file that hides its settled items refuses without a run.
+        settled = settled_items(args.record) if args.record else []
         key = entry = None
         if args.record:
             position = args.kind
@@ -1270,7 +1366,7 @@ def main(argv=None):
                 position = f"round {len(known) + 1}"  # the number record gives the next round
             key = attempt_key(args.record, args.kind, position)
             entry = before_attempt(key)
-        result = review(pin, args.writer, args.prompt, args.timeout, plan)
+        result = review(pin, args.writer, args.prompt, args.timeout, plan, settled)
         if args.writer_model:
             result["writer_model"] = args.writer_model
         if policy_sha:

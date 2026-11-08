@@ -95,12 +95,13 @@ FAKE_CLI = textwrap.dedent('''\
     mode = os.environ.get("FAKE_" + name.upper(), "ok")
     if mode == "noread":
         time.sleep(30)
-    stdin = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+    # UTF-8, as the dispatcher writes both: the locale's code page would garble a settled line's "§".
+    stdin = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.buffer.read().decode("utf-8")
     pointer = "-p=Follow the review instructions in the file "
     from_file = None
     if args and args[-1].startswith(pointer):
         path = args[-1][len(pointer):].split(" exactly.")[0]
-        from_file = open(path).read() if os.path.isfile(path) else None
+        from_file = open(path, encoding="utf-8").read() if os.path.isfile(path) else None
     marks = os.path.join(os.getcwd(), "build", "review-in-flight")
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file,
@@ -1665,6 +1666,153 @@ class RepairCycles(unittest.TestCase):
         found = module.read_findings(second.read_text(encoding="utf-8"))
         module.check_sequence(schedule, "round", found, "claude", "claude-opus-5-5")
         self.assertEqual(module.older_cycle(first), second.name)
+
+
+class Settled(Harness):
+    """D00 T01 §2: the writer's settled lines reach every pass's reviewer, and each pass records its duration."""
+
+    PIN = MultiCli.PIN  # claude -> astra via codex (prompt on stdin), codex -> gemini via agy (prompt by file or -p)
+    SETTLED_LINE = "- Settled: the 33-round cap stays, owner decision 2026-11-08"
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / ".conclave/reviewers.toml").write_text(self.PIN, encoding="utf-8")
+        self.folder = self.repo / "docs/reviews/00-workspace"
+        self.folder.mkdir(parents=True)
+
+    def received(self, call):
+        """The prompt a fake reviewer was given, whichever route carried it."""
+        if call["cli"] == "codex":
+            return call["stdin"]
+        return call["from_file"] if call["from_file"] is not None else call["argv"][-1][len("-p="):]
+
+    def seed(self, path, *notes):
+        """A findings file holding one recorded round whose review quotes a settled line, then the writer's notes."""
+        module = self.module()
+        result = {"writer": "claude", "reviewer": "astra", "cli": "codex", "model": "gpt-6-astra", "effort": "medium",
+                  "failover": [], "review": "1. P2 x.\n- Settled: the reviewer's own words\n\nOVERALL: needs-attention"}
+        module.record(path, result, "2026-11-08T00:00:00Z")
+        path.write_text(path.read_text(encoding="utf-8") + "\n" + "\n".join(notes) + "\n", encoding="utf-8")
+
+    def test_every_pass_on_both_routes_carries_the_writers_settled_lines(self):
+        for writer in ("claude", "codex"):
+            for kind in ("plan", "round", "completion"):
+                with self.subTest(writer=writer, kind=kind):
+                    self.log.unlink(missing_ok=True)
+                    for old in self.folder.glob("*.md"):
+                        old.unlink()
+                    first = self.folder / "D00-T01-s2.md"
+                    self.seed(first, self.SETTLED_LINE, "- Filed: D00 T01 §8 (worktrees)",
+                              "- Not taken: a panel of two (one reviewer per route)")
+                    record = self.folder / "D00-T01-s2-cycle2.md"
+                    record.write_text("# Cycle 2\n\n- Settled: carried from this cycle too\n", encoding="utf-8")
+                    extra = () if kind == "round" else ("--candidate", "c" * 40)
+                    result, summary = self.dispatch("--writer", writer, "--prompt", str(self.prompt), "--kind", kind,
+                                                    *extra, "--record", str(record))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    (call,) = self.calls()
+                    self.assertEqual(call["cli"], "codex" if writer == "claude" else "agy")
+                    prompt = self.received(call)
+                    self.assertIn("## Settled items (from the section's findings files", prompt)
+                    for line in (self.SETTLED_LINE, "- Filed: D00 T01 §8 (worktrees)",
+                                 "- Not taken: a panel of two (one reviewer per route)",
+                                 "- Settled: carried from this cycle too"):
+                        self.assertIn(line, prompt)
+                    self.assertNotIn("the reviewer's own words", prompt, "a line inside a recorded review is not settled")
+                    self.assertLess(prompt.index(self.SETTLED_LINE), prompt.index("carried from this cycle too"),
+                                    "the first cycle's items come first")
+
+    def test_no_settled_lines_leave_the_prompt_as_written(self):
+        record = self.folder / "D00-T01-s2.md"
+        self.seed(record)
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (call,) = self.calls()
+        self.assertEqual(call["stdin"], self.prompt.read_text())
+
+    def test_an_unreadable_cycle_file_is_refused_before_any_reviewer_runs(self):
+        record = self.folder / "D00-T01-s2-cycle2.md"
+        broken = self.folder / "D00-T01-s2.md"
+        for name, content in (("unparseable", "## Round one\n\nnot a record\n".encode()),
+                              ("not utf-8", b"- Settled: \xff\xfe\n")):
+            with self.subTest(name):
+                broken.write_bytes(content)
+                result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(str(broken), result.stderr)
+                self.assertIn("settled items cannot be carried; no reviewer ran", result.stderr)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.attempts(), {}, "a refusal spends no attempt")
+        broken.unlink()
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, "a first pass on a new record runs: an absent file is not an error")
+
+    def test_a_failed_pass_records_no_approval_and_keeps_its_duration(self):
+        record = self.folder / "D00-T01-s2.md"
+        self.seed(record, self.SETTLED_LINE)
+        before = record.read_text(encoding="utf-8")
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                        codex="fail")
+        self.assertEqual(result.returncode, 1)
+        self.assertIsNone(summary["reviewer"])
+        self.assertGreaterEqual(summary["seconds"], 1)
+        self.assertEqual(record.read_text(encoding="utf-8"), before)
+
+    def test_a_returned_pass_records_a_positive_duration_read_back_everywhere(self):
+        record = self.folder / "D00-T01-s2.md"
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreaterEqual(summary["seconds"], 1)
+        text = record.read_text(encoding="utf-8")
+        self.assertIn(f"- Seconds: {summary['seconds']}\n", text)
+        (entry,) = self.module().read_rounds(text)
+        self.assertEqual(entry["seconds"], summary["seconds"])
+        _, listing = self.dispatch("--list-rounds", "--json", "--records", str(self.repo / "docs/reviews"))
+        (listed,) = listing["records"]
+        self.assertEqual(listed["rounds"][0]["seconds"], summary["seconds"])
+
+    def test_duration_is_measured_and_rounded_up(self):
+        module = self.module()
+        for start, end, want in ((0.0, 0.2, 1), (10.0, 12.4, 3), (5.0, 5.0, 1), (0.0, 7.0, 7)):
+            with self.subTest(start=start, end=end):
+                self.assertEqual(module.elapsed_seconds(start, end), want)
+        # Through review itself: the clock around the reviewer's run is what is recorded, in stdout's dict, the
+        # findings file and its read-back.
+        pin = module.load_pin(str(self.repo / ".conclave/reviewers.toml"))
+        module.find_cli = lambda name: str(self.codex)
+
+        def fake_run(argv, stdin_text, timeout, watched, stderr_path=None):
+            watched[1].write_text("1. P3 x.\n\nOVERALL: approve", encoding="utf-8")
+            return 0, None
+
+        module.run = fake_run
+        for ticks, want in (((100.0, 100.2), 1), ((100.0, 102.4), 3)):
+            with self.subTest(ticks=ticks):
+                module.MONOTONIC = iter(ticks).__next__
+                result = module.review(pin, "claude", str(self.prompt), 60)
+                self.assertEqual(result["seconds"], want)
+                record = self.folder / f"timed-{want}.md"
+                module.record(record, result, "2026-11-08T00:00:00Z")
+                self.assertIn(f"- Seconds: {want}\n", record.read_text(encoding="utf-8"))
+                self.assertEqual(module.read_rounds(record.read_text(encoding="utf-8"))[0]["seconds"], want)
+
+    def test_records_without_seconds_still_parse_and_a_bad_one_does_not(self):
+        module = self.module()
+        old = ("## Round 1: astra (`gpt-6-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-11-07T00:00:00Z\n"
+               "- Lines: 1\n- Digest: {d}\n\nOVERALL: approve\n").format(d=module.digest(["OVERALL: approve"]))
+        (entry,) = module.read_rounds(old)
+        self.assertNotIn("seconds", entry)
+        for bad in ("- Seconds: 1.5\n", "- Seconds: -1\n", "- Seconds: 2\n- Seconds: 3\n"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(module.read_rounds(old.replace("- Lines:", bad + "- Lines:")))
+
+    def test_the_review_skill_teaches_the_settled_line_forms_in_every_mirror(self):
+        for root in (".claude", ".agents", ".codex"):
+            with self.subTest(root=root):
+                text = (SCRIPTS.parent / root / "skills/review-todo-section/SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("`- Settled: <item>`", text)
+                self.assertIn("`- Not taken: <item> (<reason>)`", text)
+                self.assertIn("carried into every later prompt", text)
 
 
 if __name__ == "__main__":
