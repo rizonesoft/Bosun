@@ -131,45 +131,61 @@ def split_chain(command: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def inner_command(words: list[str]) -> str | None:
-    """The command a wrapper runs: `bash -c`, `pwsh -Command`, `cmd /c`, `Invoke-Expression`, or None."""
+# Commands that run the rest of their line as a command of its own.
+PREFIXES = {"env", "command", "builtin", "exec", "nohup", "time", "sudo", "nice", "stdbuf", "chronic"}
+
+
+def inner_command(words: list[str]) -> tuple | None:
+    """(the command a wrapper runs, whether it is PowerShell) for `bash -c` (and `-lc`), `pwsh -Command`, `cmd /c` and
+    `Invoke-Expression`, or None."""
+    if not words:
+        return None
     lowered = [w.lower() for w in words]
-    for i, word in enumerate(lowered):
-        name = os.path.basename(word).removesuffix(".exe")
-        rest = lowered[i + 1:]
-        if name in ("bash", "sh", "zsh") and "-c" in rest:
-            at = lowered.index("-c", i + 1) + 1
-            return words[at] if at < len(words) else None
-        if name in ("pwsh", "powershell"):
-            for flag in ("-command", "-c"):
-                if flag in rest:
-                    at = lowered.index(flag, i + 1) + 1
-                    return " ".join(words[at:]) if at < len(words) else None
-        if name == "cmd" and "/c" in rest:
-            at = lowered.index("/c", i + 1) + 1
-            return " ".join(words[at:]) if at < len(words) else None
-        if name in ("invoke-expression", "iex"):
-            return " ".join(w for w in words[i + 1:] if w.lower() != "-command") or None
-        break  # only the command's own head can be a wrapper
+    name = os.path.basename(lowered[0]).removesuffix(".exe")
+    if name in ("bash", "sh", "zsh", "dash"):
+        for at, word in enumerate(lowered[1:], 1):
+            if re.fullmatch(r"-[a-z]*c[a-z]*", word):  # -c, -lc, -ic, -xc
+                return (words[at + 1], False) if at + 1 < len(words) else None
+        return None
+    if name in ("pwsh", "powershell"):
+        for at, word in enumerate(lowered[1:], 1):
+            if word in ("-command", "-c"):
+                return (" ".join(words[at + 1:]), True) if at + 1 < len(words) else None
+        return None
+    if name == "cmd" and "/c" in lowered[1:]:
+        at = lowered.index("/c") + 1
+        return (" ".join(words[at:]), False) if at < len(words) else None
+    if name in ("invoke-expression", "iex"):
+        return (" ".join(w for w in words[1:] if w.lower() != "-command"), True) if len(words) > 1 else None
     return None
 
 
-def segments(command: str) -> list[str]:
-    """The simple commands in a command line, in order, with each wrapper's inner commands in its place."""
+def segments(command: str, powershell: bool = False) -> list[tuple]:
+    """(simple command, whether it is PowerShell) for each command in a line, in order, with subshells, `$( )` and
+    each wrapper's inner commands in their place."""
     found = []
+    for inner in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", command):  # substitutions run first
+        found.extend(segments(inner[0] or inner[1], powershell))
     for part in split_chain(command):
-        words = tokens_of(part)
-        while words and words[0] in ("&", "."):  # PowerShell's call and dot-source operators
-            words = words[1:]
+        part = part.strip()
+        while part.startswith("(") and part.endswith(")"):
+            part = part[1:-1].strip()
+        words = tokens_of(part.lstrip("("))
+        while words and (words[0] in ("&", ".", "{", "(") or os.path.basename(words[0]).lower() in PREFIXES
+                         or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            words = words[1:]  # PowerShell's call and dot-source operators, and prefixes that run the rest
         inner = inner_command(words)
-        found.extend(segments(inner) if inner else [" ".join(shlex.quote(w) if " " in w else w for w in words)])
+        if inner and inner[0]:
+            found.extend(segments(*inner))
+        else:
+            found.append((" ".join(shlex.quote(w) if " " in w else w for w in words), powershell))
     return found
 
 
 def check_git(words: list[str]) -> None:
     rest = words[1:]
-    while rest and rest[0].startswith("-"):  # git -C path, -c key=value
-        rest = rest[2:] if rest[0] in ("-C", "-c") else rest[1:]
+    while rest and rest[0].startswith("-"):  # git -C path, -c key=value, --git-dir dir, --no-pager
+        rest = rest[2:] if rest[0] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix") else rest[1:]
     if not rest or rest[0] != "push":
         return
     for arg in rest[1:]:
@@ -219,6 +235,10 @@ def delete_targets(words: list[str], powershell: bool = False) -> list[str] | No
                     continue
                 if w.lower() in ("-path", "-literalpath"):
                     continue
+                bound = re.fullmatch(r"(?i)-(?:path|literalpath):(.+)", w)
+                if bound:
+                    out.extend(t for t in bound.group(1).split(",") if t)
+                    continue
                 if w.startswith("-"):
                     skip = w.lower().startswith(("-filter", "-include", "-exclude"))
                     continue
@@ -239,15 +259,14 @@ def follow_cd(words: list[str], cwd: str | None) -> str | None:
     if target == "-" or re.search(r"\$|%[A-Za-z_]+%", target) or cwd is UNKNOWN and not os.path.isabs(windows_path(target)):
         return UNKNOWN
     target = windows_path(target)
-    return os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
+    folder = os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
+    return folder if os.path.isdir(folder) else UNKNOWN  # a failed cd leaves the shell where it was
 
 
 def decide_command(command: str, cwd: str, project: str, powershell: bool = False) -> None:
     here: str | None = cwd
-    for part in segments(command):
+    for part, in_powershell in segments(command, powershell):
         words = tokens_of(part)
-        while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):  # VAR=value before a command
-            words = words[1:]
         if not words:
             continue
         head = os.path.basename(words[0]).lower().removesuffix(".exe")
@@ -261,7 +280,7 @@ def decide_command(command: str, cwd: str, project: str, powershell: bool = Fals
             check_git(words)
         elif head == "gh":
             check_gh(words)
-        targets = delete_targets(words, powershell)
+        targets = delete_targets(words, in_powershell)
         if targets is not None:
             check_delete_targets(targets, here, project)
 

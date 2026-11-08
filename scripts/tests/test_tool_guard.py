@@ -116,6 +116,30 @@ class Bypasses(Base):
         self.allowed("rm -rf build/*")
 
 
+class CompletionGaps(Base):
+    """What the completion review found getting past the list."""
+
+    def test_forced_pushes_through_ordinary_syntax(self):
+        for form in ('bash -lc "git push --force origin main"', "(git push --force origin main)",
+                     "git --git-dir .git push --force origin main", "echo $(git push -f)", "env GIT_TRACE=1 git push -f",
+                     "nohup git push --force &", "time git push --mirror", "git --no-pager push --force"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed("(git push origin main)")
+        self.allowed("git --git-dir .git push origin main")
+
+    def test_powershell_colon_bound_targets_and_wrapped_context(self):
+        self.refused("Remove-Item -Recurse -LiteralPath:..", tool="PowerShell")
+        self.refused("Remove-Item -Recurse:$true -Path:..", tool="PowerShell")
+        self.refused('pwsh -Command "rm -r build,../OtherRepo"')
+        self.allowed("Remove-Item -Recurse -LiteralPath:build", tool="PowerShell")
+
+    def test_a_failed_cd_leaves_the_folder_unknown(self):
+        self.refused("cd build; cd missing; rm -rf ../.git")
+        self.refused("cd nowhere && rm -rf x")
+        self.allowed("cd build && rm -rf x")
+
+
 class GitHub(Base):
     def test_deleting_or_publishing_a_repository_is_refused(self):
         for form in ("gh repo delete me/x --yes", "gh repo edit me/x --visibility public",

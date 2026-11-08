@@ -338,7 +338,7 @@ A hidden session can't answer a prompt, so any prompt stalls the run. The owner 
 - [x] Prove a write, a queued build and a commit in a disposable repo through the exact `resume_command`, in `scripts/tests/test_guard_e2e.py`, run when `BOSUN_E2E=1` is set since it spends subscription usage: seed a real session with the task, resume it with `resume_command` in `bypassPermissions` within 10 minutes, then assert the file's exact contents, the build's output written through `bosun run`, and a commit whose tree holds both, failing on any refusal or skipped step. Done when: the test passes on this machine with no prompt, and its output is quoted in the findings file.
 - [ ] Commit: `guard: campaign permissions`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_hook_commands.py` exits 0, and fails if force-push is allowed.
+**Test checkpoint:** `python -m unittest scripts/tests/test_tool_guard.py scripts/tests/test_hook_commands.py` exits 0, and fails if force-push is allowed; `BOSUN_E2E=1 python -m unittest scripts/tests/test_guard_e2e.py` proves the refusals in a real session. **Corrected 2026-11-08:** it named only `test_hook_commands.py`, which checks the hook is wired, not what it decides.
 
 ## 9. Named core tests and CMake resolution
 
