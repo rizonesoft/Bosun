@@ -135,7 +135,10 @@ function Get-LockValue([string]$key) {
 }
 
 function Set-LockValue([string]$key, $value) {
-  if ($null -eq $value) { Remove-ItemProperty -LiteralPath $key -Name ScreenSaverIsSecure -ErrorAction Stop }
+  if ($null -eq $value) {
+    # Already absent is already restored; a removal that does fail still throws.
+    if ($null -ne (Get-RegValue $key 'ScreenSaverIsSecure')) { Remove-ItemProperty -LiteralPath $key -Name ScreenSaverIsSecure -ErrorAction Stop }
+  }
   else { Set-ItemProperty -LiteralPath $key -Name ScreenSaverIsSecure -Value ([string]$value) -Type String -ErrorAction Stop }
   if ($key -eq 'HKCU:\Control Panel\Desktop') {
     # The live desktop reads this through SystemParametersInfo, which rereads the value just written.

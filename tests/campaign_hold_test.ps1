@@ -79,6 +79,14 @@ try {
   $r = Hold @('-Restore')
   Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1') 'and restore returns the values from before the first apply'
 
+  # The same with no lock value to begin with: interrupted before the lock is written, restore leaves it absent.
+  Reset $null
+  $env:BOSUN_TEST_FAIL_AFTER_CHANGES = '1'
+  $r = Hold @('-Apply')
+  Remove-Item Env:BOSUN_TEST_FAIL_AFTER_CHANGES
+  $r = Hold @('-Restore')
+  Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and $null -eq (Lock) -and -not (Test-Path $record)) "restoring a lock value that was absent and still is succeeds ($(($r.Text -split "`n" | Select-Object -Last 1)))"
+
   # A corrupt record is refused, before anything changes, and is left as it was.
   Reset '1'
   [IO.File]::WriteAllText($record, '{ not json')
