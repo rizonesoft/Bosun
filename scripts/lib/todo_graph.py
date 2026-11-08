@@ -202,6 +202,12 @@ def _head_commits(root):
     return set(res.stdout.splitlines())
 
 
+def receipt_for(ref):
+    """The repository path `stamp` writes a section's receipt to: `D00 T01 §1` -> `docs/reviews/d00-t01-s1.json`."""
+    slug = re.sub(r"[^a-z0-9]+", "-", ref.lower().replace("§", "s")).strip("-")
+    return f"docs/reviews/{slug}.json"
+
+
 def receipt_ok(root, receipt, ref, stamp_sha, commits=None, surface=None):
     """Check one receipt against its stamp and return it. `surface`: the section's Surface field is yes."""
     require(re.fullmatch(r"docs/reviews/[a-z0-9][a-z0-9.-]*\.json", receipt or "") is not None,
@@ -1548,8 +1554,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     open_items = re.findall(r"^- \[ \] (?!Commit:)(.+)$", row.body, re.M)
     require(not open_items,
             f"unticked checklist items in {ref}: {open_items[0] if open_items else ''}")
-    slug = re.sub(r"[^a-z0-9]+", "-", ref.lower().replace("§", "s")).strip("-")
-    receipt = f"docs/reviews/{slug}.json"
+    receipt = receipt_for(ref)
     require(completion is not None,
             f"--completion '<findings file>:<{'|'.join(COMPLETION_VERDICTS)}>' is required: run the one-pass completion "
             f"review (scripts/review-dispatch.py --kind completion) in its policy order and name its verdict: {ref}")

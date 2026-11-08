@@ -32,7 +32,9 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-REF = "D00 T01"  # the clone's only TODO file is 00-workspace/TODO-01
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+import todo_graph as tg  # noqa: E402
+REF ="D00 T01"  # the clone's only TODO file is 00-workspace/TODO-01
 SECTIONS = ["one", "two", "three", "four", "five"]
 PENDING_SECONDS = 35 * 60  # longer than the gate's own 30 minute wait, so one call ends in `wait`
 HOURS = float(os.environ.get("BOSUN_E2E_HOURS", "8"))
@@ -73,9 +75,15 @@ def save(state):
     os.replace(tmp, state_dir / "gh-state.json")
 
 
+sys.path.insert(0, str(Path(repo) / "scripts" / "lib"))
+from todo_graph import receipt_for  # the name `stamp` writes, so the two can't drift
+
+
 def section_of(sha):
+    """The newest of the five e2e sections with a receipt in this commit, or None."""
     code, out = git("ls-tree", "-r", "--name-only", sha, "docs/reviews")
-    found = [int(m.group(1)) for m in re.finditer(r"D00-T01-s(\d+)\.json$", out, re.M)] if code == 0 else []
+    present = set(out.splitlines()) if code == 0 else set()
+    found = [n for n in range(1, 6) if receipt_for(f"D00 T01 §{n}") in present]
     return max(found) if found else None
 
 
@@ -327,14 +335,18 @@ class ScriptedCi(unittest.TestCase):
         return json.loads(done.stdout)["action"]
 
     def test_each_section_meets_its_gate_action(self):
+        # Receipts at the path `stamp` writes: a first run used a spelling of its own, so every commit read green.
+        def receipt(n):
+            return tg.receipt_for(f"{REF} §{n}")
+        self.assertEqual(receipt(1), "docs/reviews/d00-t01-s1.json")
         # In order, as the run meets them: the gate's record carries from one to the next.
-        self.assertEqual(self.gate(self.commit("docs/reviews/D00-T01-s1.json", "{}")), "wait")
-        self.assertEqual(self.gate(self.commit("docs/reviews/D00-T01-s2.json", "{}")), "repair")
+        self.assertEqual(self.gate(self.commit(receipt(1), "{}")), "wait")
+        self.assertEqual(self.gate(self.commit(receipt(2), "{}")), "repair")
         self.assertEqual(self.gate(self.commit("e2e/repaired-2.txt", "fixed\n")), "proceed")
-        red = [self.commit("docs/reviews/D00-T01-s3.json", "{}")] + [self.commit("e2e/attempt-3.txt", f"{n}\n") for n in (1, 2, 3)]
+        red = [self.commit(receipt(3), "{}")] + [self.commit("e2e/attempt-3.txt", f"{n}\n") for n in (1, 2, 3)]
         self.assertEqual([self.gate(sha) for sha in red], ["repair", "repair", "repair", "exhausted"])
-        self.assertEqual(self.gate(self.commit("docs/reviews/D00-T01-s4.json", "{}")), "unverified")
-        self.assertEqual(self.gate(self.commit("docs/reviews/D00-T01-s5.json", "{}")), "proceed")
+        self.assertEqual(self.gate(self.commit(receipt(4), "{}")), "unverified")
+        self.assertEqual(self.gate(self.commit(receipt(5), "{}")), "proceed")
         calls = read_jsonl(self.seeded["fakes"] / "gh-calls.jsonl")
         self.assertTrue(any(c.get("moved_wait_back") for c in calls), "§4's wait was never moved back")
 
