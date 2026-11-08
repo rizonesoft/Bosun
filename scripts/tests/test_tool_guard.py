@@ -96,6 +96,12 @@ class Pushes(Base):
             with self.subTest(prefix):
                 self.refused(f"{prefix} git push --force origin main")
 
+    def test_exec_and_time_options_take_their_values(self):
+        for form in ("exec -a bosun-git git push --force origin main", "exec -cla name git push -f",
+                     "time -f %e git push --force", "time --output=t.txt git push --mirror", "time -o t.txt git push -f"):
+            with self.subTest(form):
+                self.refused(form)
+
     def test_a_prefix_s_positionals_come_after_its_double_dash(self):
         for form in ("timeout -- 60 git push --force origin main", "timeout -s KILL -- 60 git push -f", "env -- git push -f",
                      "nice -- git push --mirror"):
