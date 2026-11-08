@@ -135,7 +135,40 @@ def split_chain(command: str) -> list[str]:
 
 
 # Commands that run the rest of their line as a command of its own.
-PREFIXES = {"env", "command", "builtin", "exec", "nohup", "setsid", "time", "sudo", "nice", "stdbuf", "chronic"}
+PREFIXES = {"env", "command", "builtin", "exec", "nohup", "setsid", "time", "timeout", "sudo", "nice", "stdbuf", "chronic"}
+
+
+# A prefix's options that take the next word as their value, and prefixes whose first plain word is theirs too.
+PREFIX_VALUES = {"env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}, "nice": {"-n", "--adjustment"},
+                 "sudo": {"-u", "--user", "-g", "--group", "-h", "--host", "-C", "-p", "-r", "-t"},
+                 "stdbuf": {"-i", "-o", "-e"}, "timeout": {"-s", "--signal", "-k", "--kill-after"}}
+PREFIX_POSITIONALS = {"timeout": 1}  # `timeout DURATION command`
+
+
+def strip_prefixes(words: list[str]) -> tuple:
+    """(the command's own words, the prefixes it was run through): PowerShell's call and dot-source operators, an
+    opening bracket, `VAR=value`, and prefixes that run the rest of the line, each with its options and their values."""
+    seen = []
+    while words:
+        head = os.path.basename(words[0]).lower()
+        if words[0] in ("&", ".", "{", "(") or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+            words = words[1:]
+            continue
+        if head not in PREFIXES:
+            break
+        seen.append(head)
+        words, valued, plain = words[1:], PREFIX_VALUES.get(head, set()), PREFIX_POSITIONALS.get(head, 0)
+        while words and (words[0].startswith("-") or plain or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            if words[0] == "--":
+                words = words[1:]
+                break
+            if words[0].startswith("-"):
+                words = words[2:] if words[0].split("=", 1)[0] in valued and "=" not in words[0] else words[1:]
+            elif plain:
+                words, plain = words[1:], plain - 1
+            else:
+                words = words[1:]
+    return words, seen
 
 
 def inner_command(words: list[str]) -> tuple | None:
@@ -173,10 +206,7 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
         part = part.strip()
         while part.startswith("(") and part.endswith(")"):
             part = part[1:-1].strip()
-        words = tokens_of(part.lstrip("("))
-        while words and (words[0] in ("&", ".", "{", "(") or os.path.basename(words[0]).lower() in PREFIXES
-                         or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
-            words = words[1:]  # PowerShell's call and dot-source operators, and prefixes that run the rest
+        words, _ = strip_prefixes(tokens_of(part.lstrip("(")))
         inner = inner_command(words)
         if inner and inner[0]:
             found.extend(segments(*inner))

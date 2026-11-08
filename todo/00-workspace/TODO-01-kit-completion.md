@@ -102,6 +102,8 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 
 **Corrected 2026-11-08:** both now live at `D:\GitHub\Recto\scripts\dispatch_hook.py` and `D:\GitHub\Resolute\scripts\dispatch_hook.py`. Resolute's hook checks only `.conclave/reviewers.toml`, though its docstring also names `docs/reviews/`; the port checks the pin only, since the dispatcher appends each round to a findings file and the writer adds its notes there before they are committed, so refusing on findings edits would stop the campaign's own steps. A review can outlast the shell tool's 10 minute limit, so `run_in_background` is right, and the review skills say so. Claude Code has no non-interactive hook listing, so registration is proven by `scripts/tests/test_hook_commands.py` and by running the registered command.
 
+**Design note 2026-11-08:** the hook reads shell text, so it is an early warning for the launch forms a session really uses, as its docstring says, not a proof that no spelling gets past it. What keeps the run correct however a review is launched is `D00 T01 §1`: the dispatcher's in-flight mark lets the turn end and holds `watch` while the review runs, and the run resumes when it ends. A detached review the hook misses therefore costs a later resume, not a lost review or a tree changed under the reviewer.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no

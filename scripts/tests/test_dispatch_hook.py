@@ -104,6 +104,13 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload("if true; then " + REVIEW + "; fi", background=True)))
         self.assertIsNone(hook.verdict(payload("cat <<EOF\n" + REVIEW + " &\nEOF", background=True)))
 
+    def test_prefix_options_and_their_values_are_read_past(self):
+        for prefix in ("env -u CLAUDECODE", "env -i PATH=/usr/bin", "env --unset=X", "nice -n 5", "timeout 3600",
+                       "timeout -s KILL 60", "sudo -u me", "stdbuf -o L", "nohup env -u X"):
+            with self.subTest(prefix):
+                self.assertIn("not detached", hook.verdict(payload(f"{prefix} {REVIEW} &", background=True)))
+        self.assertIn("not detached", hook.verdict(payload(f"nohup env -u X {REVIEW}", background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"

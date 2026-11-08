@@ -74,6 +74,12 @@ class Pushes(Base):
                 with self.subTest(wrapped):
                     self.assertIn("can't be undone", self.refused(wrapped, tool=tool))
 
+    def test_a_push_past_a_prefix_s_options_is_seen(self):
+        for prefix in ("env -u X", "env -i", "nice -n 5", "timeout 60", "sudo -u me", "env -C /tmp"):
+            with self.subTest(prefix):
+                self.refused(f"{prefix} git push --force")
+        self.allowed("env -u X git push origin main")
+
     def test_a_push_after_a_background_separator_is_seen(self):
         self.refused("echo starting & git push --force")
         self.allowed("git push origin main 2>&1 | tail -3")

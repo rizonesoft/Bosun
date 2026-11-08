@@ -225,9 +225,11 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
     for command, background in commands(line, powershell):
         words = PARSER.tokens_of(command)
         here = detached or background
-        while words and (words[0] in ("&", ".", "{", "(") or os.path.basename(words[0]).lower() in PARSER.PREFIXES
-                         or words[0] in KEYWORDS or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
-            here = here or os.path.basename(words[0]).lower() in DETACHING_PREFIXES
+        while words:
+            words, seen = PARSER.strip_prefixes(words)
+            here = here or bool(DETACHING_PREFIXES & set(seen))
+            if not words or words[0] not in KEYWORDS:
+                break
             words = words[1:]
         if not words:
             continue
