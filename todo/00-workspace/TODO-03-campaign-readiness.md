@@ -328,6 +328,8 @@ A hidden session can't answer a prompt, so any prompt stalls the run. The owner 
 
 Five test checkpoints pass a name to a test program that ignores it, so they can't fail for the reason they state, and the build command is not on PATH.
 
+**Corrected 2026-11-08:** `scripts/campaign-preflight.ps1` doesn't exist yet; `§10` owns the preflight. This section creates the script with the CMake check as its first check, and `§10` adds its own. The names are reserved for `D01 T01` (`records`, `status_json`, `report_json`, `config`) and `D05 T02` (`pressure`), whose checkpoints already call them.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -339,11 +341,11 @@ Five test checkpoints pass a name to a test program that ignores it, so they can
 
 - [ ] Group the cases in `tests/test_core.cpp` by name and accept one name as an argument. Done when: an unknown name exits nonzero, and with no argument every implemented group runs. Cheaper substitute: ignoring the argument.
 - [ ] Reserve the names `records`, `status_json`, `report_json`, `config` and `pressure` in `tests/test_core.cpp`, failing when selected and left out of the default run until implemented. Done when: selecting each exits nonzero, so a section can't pass without its tests, and an implemented group joins the default run.
-- [ ] Add a CMake check to `scripts/campaign-preflight.ps1`, finding it through `vswhere` and requiring it on PATH. Done when: a PATH without CMake fails with the fix named. Cheaper substitute: a hardcoded Visual Studio path in a section.
+- [ ] Create `scripts/campaign-preflight.ps1` with a CMake check, finding Visual Studio's CMake through `vswhere` and requiring it on PATH. Done when: `tests/preflight_test.ps1` proves a PATH without CMake fails with the folder to add named, and one with it passes. Cheaper substitute: a hardcoded Visual Studio path in a section.
 - [ ] Add the Visual Studio CMake folder to the user PATH on this machine. Done when: a new shell and the watchdog's environment both run `cmake --version`.
 - [ ] Commit: `tests: named core tests; preflight finds CMake`
 
-**Test checkpoint:** `build\Release\test_core.exe no-such-test` and `build\Release\test_core.exe records` exit nonzero, and `build\Release\test_core.exe` exits 0.
+**Test checkpoint:** `build\Release\test_core.exe no-such-test` and `build\Release\test_core.exe records` exit nonzero, `build\Release\test_core.exe` exits 0, and `pwsh tests/preflight_test.ps1` exits 0.
 
 ## 10. Preflight and machine hold
 
