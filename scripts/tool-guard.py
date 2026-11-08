@@ -8,6 +8,7 @@ diagnostic, since under bypass mode nothing else would stop it. `--self-test` ru
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -58,29 +59,40 @@ def windows_path(token: str) -> str:
     return f"{found.group(1).upper()}:{found.group(2) or '/'}" if found else token
 
 
-def resolve_target(token: str, cwd: str) -> str:
+UNKNOWN = None  # a working folder this hook couldn't follow, such as after `cd $X` or `popd`
+
+
+def resolve_targets(token: str, cwd: str | None) -> list[str]:
+    """Every real path a delete target can reach: a glob's matches, and the glob itself with each wildcard part taken
+    as a name, so `build/*/../../.git` is read as `.git` whether or not anything matches yet."""
     raw = os.path.expandvars(os.path.expanduser(token.strip("'\"")))
     if re.search(r"\$|%[A-Za-z_]+%|\$\{|\$env:", raw):
         raise Refusal(f"it deletes {token}, which names a variable this hook can't resolve: name the folder itself")
+    if cwd is UNKNOWN and not os.path.isabs(windows_path(raw)):
+        raise Refusal(f"it deletes {token} after changing to a folder this hook can't follow: delete by full path")
     raw = windows_path(raw)
-    raw = re.split(r"[*?\[]", raw, maxsplit=1)[0] or "."  # a glob's fixed part is the folder it reaches into
-    return canonical(raw if os.path.isabs(raw) else os.path.join(cwd, raw))
+    full = raw if os.path.isabs(raw) else os.path.join(cwd, raw)
+    if not re.search(r"[*?\[]", full):
+        return [canonical(full)]
+    parts = re.split(r"[\\/]", full)
+    named = os.sep.join("x" if re.search(r"[*?\[]", part) else part for part in parts)
+    return [canonical(named)] + [canonical(match) for match in glob.glob(full)]
 
 
-def check_delete_targets(targets: list[str], cwd: str, project: str) -> None:
+def check_delete_targets(targets: list[str], cwd: str | None, project: str) -> None:
     if not targets:
         return
     project_root = canonical(project)
     git_dir = os.path.join(project_root, os.path.normcase(".git"))
     allowed = [project_root] + [canonical(r) for r in scratch_roots()]
     for token in targets:
-        target = resolve_target(token, cwd)
-        if target == git_dir or inside(target, git_dir):
-            raise Refusal(f"it deletes the repository's own history ({token}), which can't be undone")
-        if not any(inside(target, root) for root in allowed):
-            where = "the project folder itself" if target == project_root else target
-            raise Refusal(f"it deletes {where} recursively, outside the project, scratch and temp folders, which can't be "
-                          f"undone: delete inside one of those, or leave it")
+        for target in resolve_targets(token, cwd):
+            if target == git_dir or inside(target, git_dir):
+                raise Refusal(f"it deletes the repository's own history ({token}), which can't be undone")
+            if not any(inside(target, root) for root in allowed):
+                where = "the project folder itself" if target == project_root else target
+                raise Refusal(f"it deletes {where} recursively, outside the project, scratch and temp folders, which can't "
+                              f"be undone: delete inside one of those, or leave it")
 
 
 def tokens_of(text: str) -> list[str]:
@@ -92,31 +104,65 @@ def tokens_of(text: str) -> list[str]:
     return [w[1:-1] if len(w) > 1 and w[0] == w[-1] and w[0] in "'\"" else w for w in words]
 
 
+def split_chain(command: str) -> list[str]:
+    """A command line split on `;`, `&&`, `||`, `|` and newlines, but never inside quotes, so a wrapper's quoted
+    command stays whole."""
+    parts, current, quote, i = [], [], None, 0
+    while i < len(command):
+        char = command[i]
+        if quote:
+            current.append(char)
+            if char == quote:
+                quote = None
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+        elif command.startswith(("&&", "||"), i):
+            parts.append("".join(current))
+            current = []
+            i += 1
+        elif char in ";|\n":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def inner_command(words: list[str]) -> str | None:
+    """The command a wrapper runs: `bash -c`, `pwsh -Command`, `cmd /c`, `Invoke-Expression`, or None."""
+    lowered = [w.lower() for w in words]
+    for i, word in enumerate(lowered):
+        name = os.path.basename(word).removesuffix(".exe")
+        rest = lowered[i + 1:]
+        if name in ("bash", "sh", "zsh") and "-c" in rest:
+            at = lowered.index("-c", i + 1) + 1
+            return words[at] if at < len(words) else None
+        if name in ("pwsh", "powershell"):
+            for flag in ("-command", "-c"):
+                if flag in rest:
+                    at = lowered.index(flag, i + 1) + 1
+                    return " ".join(words[at:]) if at < len(words) else None
+        if name == "cmd" and "/c" in rest:
+            at = lowered.index("/c", i + 1) + 1
+            return " ".join(words[at:]) if at < len(words) else None
+        if name in ("invoke-expression", "iex"):
+            return " ".join(w for w in words[i + 1:] if w.lower() != "-command") or None
+        break  # only the command's own head can be a wrapper
+    return None
+
+
 def segments(command: str) -> list[str]:
-    """The simple commands in a command line, chains split, and wrappers' inner commands included."""
-    parts = [p.strip() for p in re.split(r"\|\||&&|[;|\n]", command) if p.strip()]
+    """The simple commands in a command line, in order, with each wrapper's inner commands in its place."""
     found = []
-    for part in parts:
-        found.append(part)
+    for part in split_chain(command):
         words = tokens_of(part)
-        lowered = [w.lower() for w in words]
-        for i, word in enumerate(lowered):
-            name = os.path.basename(word).removesuffix(".exe")
-            inner = None
-            if name in ("bash", "sh", "zsh") and "-c" in lowered[i + 1:]:
-                inner = words[lowered.index("-c", i + 1) + 1] if lowered.index("-c", i + 1) + 1 < len(words) else None
-            elif name in ("pwsh", "powershell"):
-                for flag in ("-command", "-c"):
-                    if flag in lowered[i + 1:]:
-                        at = lowered.index(flag, i + 1) + 1
-                        inner = " ".join(words[at:]) if at < len(words) else None
-                        break
-            elif name == "cmd" and "/c" in lowered[i + 1:]:
-                at = lowered.index("/c", i + 1) + 1
-                inner = " ".join(words[at:]) if at < len(words) else None
-            if inner:
-                found.extend(segments(inner))
-                break
+        while words and words[0] in ("&", "."):  # PowerShell's call and dot-source operators
+            words = words[1:]
+        inner = inner_command(words)
+        found.extend(segments(inner) if inner else [" ".join(shlex.quote(w) if " " in w else w for w in words)])
     return found
 
 
@@ -149,8 +195,8 @@ def check_gh(words: list[str]) -> None:
             raise Refusal("deleting a repository through the API can't be undone")
 
 
-def delete_targets(words: list[str]) -> list[str] | None:
-    """The targets of a recursive delete, or None when the command isn't one."""
+def delete_targets(words: list[str], powershell: bool = False) -> list[str] | None:
+    """The targets of a recursive delete, or None when the command isn't one. PowerShell's `a,b` is two targets."""
     name = os.path.basename(words[0]).lower().removesuffix(".exe")
     rest = words[1:]
     lowered = [w.lower() for w in rest]
@@ -160,7 +206,8 @@ def delete_targets(words: list[str]) -> list[str] | None:
                         for w in flags) or any(w.startswith("-rec") for w in lowered)
         if not recursive:
             return None
-        return [w for w in rest if not w.startswith("-")]
+        targets = [w for w in rest if not w.startswith("-")]
+        return [t for w in targets for t in w.split(",") if t] if powershell or any(w.startswith("-rec") for w in lowered) else targets
     if name in DELETE_ALIASES:
         if name in ("rd", "rmdir", "del", "erase") and "/s" in lowered:
             return [w for w in rest if not w.startswith("/")]
@@ -175,12 +222,28 @@ def delete_targets(words: list[str]) -> list[str] | None:
                 if w.startswith("-"):
                     skip = w.lower().startswith(("-filter", "-include", "-exclude"))
                     continue
-                out.append(w.rstrip(","))
+                out.extend(t for t in w.split(",") if t)
             return out
     return None
 
 
-def decide_command(command: str, cwd: str, project: str) -> None:
+CHANGE_DIR = {"cd", "chdir", "pushd", "set-location", "sl", "push-location"}
+
+
+def follow_cd(words: list[str], cwd: str | None) -> str | None:
+    """The working folder after a `cd`, `Set-Location` or `pushd`, or UNKNOWN when it can't be told."""
+    targets = [w for w in words[1:] if not w.startswith("-") or w == "-"]
+    if not targets:
+        return os.path.expanduser("~")
+    target = os.path.expandvars(os.path.expanduser(targets[0].strip("'\"")))
+    if target == "-" or re.search(r"\$|%[A-Za-z_]+%", target) or cwd is UNKNOWN and not os.path.isabs(windows_path(target)):
+        return UNKNOWN
+    target = windows_path(target)
+    return os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
+
+
+def decide_command(command: str, cwd: str, project: str, powershell: bool = False) -> None:
+    here: str | None = cwd
     for part in segments(command):
         words = tokens_of(part)
         while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):  # VAR=value before a command
@@ -188,13 +251,19 @@ def decide_command(command: str, cwd: str, project: str) -> None:
         if not words:
             continue
         head = os.path.basename(words[0]).lower().removesuffix(".exe")
+        if head in CHANGE_DIR:
+            here = follow_cd(words, here)
+            continue
+        if head in ("popd", "pop-location"):
+            here = UNKNOWN
+            continue
         if head == "git":
             check_git(words)
         elif head == "gh":
             check_gh(words)
-        targets = delete_targets(words)
+        targets = delete_targets(words, powershell)
         if targets is not None:
-            check_delete_targets(targets, cwd, project)
+            check_delete_targets(targets, here, project)
 
 
 def decide_tool(name: str) -> None:
@@ -213,7 +282,8 @@ def decide(data: dict) -> str | None:
     try:
         if tool in SHELL_TOOLS:
             command = str(tool_input.get("command") or "")
-            decide_command(command, str(data.get("cwd") or os.getcwd()), os.environ.get("CLAUDE_PROJECT_DIR") or str(ROOT))
+            decide_command(command, str(data.get("cwd") or os.getcwd()), os.environ.get("CLAUDE_PROJECT_DIR") or str(ROOT),
+                           powershell=tool == "PowerShell")
         else:
             decide_tool(tool)
     except Refusal as refusal:

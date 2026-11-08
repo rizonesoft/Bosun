@@ -69,6 +69,41 @@ class Pushes(Base):
                 self.allowed(form)
 
 
+class Bypasses(Base):
+    """What the first review round found getting past the list."""
+
+    def test_a_cd_earlier_in_the_chain_is_followed(self):
+        name = self.project.name
+        self.refused(f"cd .. && rm -rf {name}")
+        self.refused(f"Set-Location ..; Remove-Item -Recurse {name}", tool="PowerShell")
+        self.refused("cd $SOMEWHERE && rm -rf build")
+        self.refused("popd; rm -rf build")
+        self.allowed("cd build && rm -rf x")
+
+    def test_a_quoted_chain_inside_a_wrapper_stays_whole(self):
+        self.refused('bash -c "git push --force origin main; echo done"')
+        self.refused("sh -c 'echo a && git push -f'")
+        self.allowed('bash -c "git status; echo done"')
+
+    def test_powershell_s_call_operator_and_invoke_expression_are_seen_through(self):
+        for form in ("& git push --force origin main", ". git push -f", 'Invoke-Expression "git push --force"',
+                     "iex 'git push --mirror'"):
+            with self.subTest(form):
+                self.refused(form, tool="PowerShell")
+        self.allowed("& git push origin main", tool="PowerShell")
+
+    def test_each_comma_separated_target_is_checked(self):
+        self.refused("Remove-Item -Recurse build,../OtherRepo", tool="PowerShell")
+        self.refused("rm -Recurse build,..", tool="PowerShell")
+        self.allowed("Remove-Item -Recurse build/a,build/b", tool="PowerShell")
+
+    def test_a_glob_followed_by_dot_dot_is_read_as_where_it_reaches(self):
+        (self.project / "build" / "sub").mkdir()
+        self.refused("rm -rf build/*/../../.git")
+        self.refused("rm -rf build/nomatch*/../../..")
+        self.allowed("rm -rf build/*")
+
+
 class GitHub(Base):
     def test_deleting_or_publishing_a_repository_is_refused(self):
         for form in ("gh repo delete me/x --yes", "gh repo edit me/x --visibility public",
