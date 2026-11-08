@@ -279,9 +279,9 @@ def remove_own_task(world, repo):
 
 
 def gone(world, repo):
-    """A Windows repo whose folder no longer exists, as after it moved: there is nothing left to watch, so taking it
-    off the heartbeat needs no watchdog put back."""
-    return not repo.get("distro") and not world.is_dir(repo["path"])
+    """A Windows repo with no run guard left, as after it moved (its folder gone, or only build output left behind):
+    there is nothing to watch, so taking it off the heartbeat needs no watchdog put back."""
+    return not repo.get("distro") and not world.is_file(Path(repo["path"]) / "scripts" / "run-guard.py")
 
 
 def restore_own_task(world, repo):

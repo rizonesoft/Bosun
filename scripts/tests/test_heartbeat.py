@@ -203,12 +203,22 @@ class Handoff(Base):
         self.assertEqual(self.repos(), [])
 
     def test_a_repo_whose_folder_moved_is_removed_without_restoring_a_task(self):
+        for left_behind in (False, True):  # the folder gone, or still there holding only build output
+            with self.subTest(left_behind=left_behind):
+                world = self.world()
+                self.assertEqual(self.go(["add", self.a], world)[0], 0)
+                world.repos = [r for r in world.repos if r != self.a]  # its run guard moved to another drive
+                if left_behind:
+                    world.is_dir = lambda path, real=world.is_dir: str(Path(path)) == str(Path(self.a)) or real(path)
+                self.assertEqual(self.go(["remove", self.a], world)[0], 0, self.err)
+                self.assertEqual(self.repos(), [])
+                self.assertEqual(world.called("install"), [])
+
+    def test_a_repo_that_still_has_its_guard_gets_its_task_back(self):
         world = self.world()
         self.assertEqual(self.go(["add", self.a], world)[0], 0)
-        world.repos = [r for r in world.repos if r != self.a]  # the repo moved to another drive
         self.assertEqual(self.go(["remove", self.a], world)[0], 0, self.err)
-        self.assertEqual(self.repos(), [])
-        self.assertEqual(world.called("install"), [])
+        self.assertEqual(len(world.called("install")), 1)
 
     def test_a_repo_with_no_own_task_adds_cleanly(self):
         world = self.world()
