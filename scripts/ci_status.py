@@ -558,11 +558,12 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         if remaining() <= 0:  # no tool may start now, so the last real answer stands
             break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
+    missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
+    if missing:
+        # With no run and no proof, as after a fresh clone, a real run of this commit is the way to find out. A read-only
+        # check names it too, since the preflight passes it on as the fix.
+        result["recovery"] = "; ".join(f"gh workflow run {name} --ref {args.branch}" for name in missing)
     if args.gate:
-        missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
-        if missing:
-            # With no run and no proof, as after a fresh clone, a real run of this commit is the way to find out.
-            result["recovery"] = "; ".join(f"gh workflow run {name} --ref {args.branch}" for name in missing)
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
         if action == "unverified":
@@ -574,9 +575,9 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     else:
         for entry in result["workflows"]:
             print("\n".join(describe(entry)))
+        if result.get("recovery"):
+            print(f"to get a real run: {result['recovery']}")
         if args.gate:
-            if result.get("recovery"):
-                print(f"to get a real run: {result['recovery']}")
             if result.get("reason"):
                 print(f"reason: {result['reason']}")
             detail = f" (attempt {attempt} of {MAX_REPAIRS})" if result["action"] == "repair" else ""

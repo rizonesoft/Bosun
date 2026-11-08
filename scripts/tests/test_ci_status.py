@@ -971,6 +971,18 @@ class Gate(Base):
         _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
         self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
 
+    def test_a_read_only_check_names_the_recovery_too(self):
+        # The preflight reads `--use-proven` and passes this line on as its fix, so a pushed commit with no run is never
+        # told to push again.
+        gh = FakeGh({"plan.yml": [run()]})
+        code, text = self.go(["--sha", "HEAD", "--use-proven"], gh, FakeGit(["README.md"]))
+        self.assertEqual(code, ci_status.EXIT_NONE)
+        self.assertEqual(text.strip().splitlines()[-1], "to get a real run: gh workflow run build.yml --ref main")
+        _, raw = self.go(["--sha", "HEAD", "--use-proven", "--json"], gh, FakeGit(["README.md"]))
+        self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
+        _, raw = self.go(["--sha", "HEAD", "--use-proven", "--json"], self.green())
+        self.assertNotIn("recovery", json.loads(raw))
+
     def test_the_recovery_survives_the_whole_wait(self):
         clock = _Clock()
         gh = FakeGh({"plan.yml": [run()]})

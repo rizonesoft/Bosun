@@ -208,7 +208,7 @@ function Test-Ci {
     3 { Fail "CI can't be read: $why" '`gh auth status`, then run the preflight again' }
     4 { Fail "CI is still running on HEAD: $why" 'wait for it (`gh run watch`), then run the preflight again' }
     5 {
-      $start = @($r.Out -split "`n" | Where-Object { $_ -match 'gh workflow run' } | ForEach-Object { $_.Trim() })
+      $start = @($r.Out -split "`n" | Where-Object { $_ -match '^to get a real run: ' } | ForEach-Object { ($_ -replace '^to get a real run: ', '').Trim() })
       $how = if ($start) { "start a run: $($start -join '; ')" } else { 'push HEAD so CI runs on it' }
       Fail "CI has no run for HEAD: $why" "$how, then run the preflight again"
     }
