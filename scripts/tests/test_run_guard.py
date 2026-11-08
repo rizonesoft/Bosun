@@ -999,9 +999,11 @@ class EndStates(unittest.TestCase):
         world, state = World(rows=()), active()
         guard.watch(state, self.env(world, {"state": "waiting"}), now=1000)
         self.assertEqual(state["wait_reason"], "rows-waiting")
-        world.rows = ("D00 T02 §3",)
+        # The Need is still on the section, so nothing is runnable yet: the wake itself is the reason to resume.
         env = self.env(world, {"state": "waiting"}, wakes=[{"section": "D00 T02 §3", "need": "third-party"}])
         self.assertIn("attempt 1", guard.watch(state, env, now=1060))
+        self.assertEqual(len(world.spawned), 1)
+        self.assertNotIn("woken", state)
 
     def test_each_ci_answer_has_its_next_step(self):
         for kind, expect in (("ci-pending", 600), ("ci-unavailable", 1800)):
@@ -1024,9 +1026,21 @@ class EndStates(unittest.TestCase):
         self.assertTrue(guard.watch(state, env, now=1000).startswith("waiting: ci-pending"))
         self.assertEqual(guard.watch(state, env, now=1000 + 601), "complete")
 
-    def test_an_unreadable_finish_line_drains_as_before(self):
+    def test_a_finish_check_that_fails_once_waits_and_looks_again(self):
+        def boom():
+            raise subprocess.TimeoutExpired("git fetch", 20)
+        for finish in ({"state": "unknown"}, boom):
+            with self.subTest(finish=finish):
+                world, state = World(rows=()), active()
+                self.assertTrue(guard.watch(state, self.env(world, finish), now=1000).startswith("waiting: finish-unreadable"))
+                self.assertTrue(state["active"])
         world, state = World(rows=()), active()
-        self.assertEqual(guard.watch(state, self.env(world, {"state": "unknown"}), now=1000), "drained")
+        self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, self.env(world, boom)))
+        self.assertTrue(state["active"])
+
+    def test_an_explicit_drained_still_ends_as_before(self):
+        world, state = World(rows=()), active()
+        self.assertEqual(guard.watch(state, self.env(world, {"state": "drained"}), now=1000), "drained")
 
 
 class Acceptance(unittest.TestCase):

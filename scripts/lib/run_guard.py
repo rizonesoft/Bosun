@@ -94,7 +94,7 @@ class Env:
     modes: Callable[[], set] = lambda: set(KNOWN_MODES)
     # What a run with no runnable row does next: {"state": complete | parked | waiting | ci-pending | ci-unavailable
     # | needs-push | needs-ci-repair | unknown, "detail": str, "report": the acceptance text}.
-    finish: Callable[[], dict] = lambda: {"state": "unknown"}
+    finish: Callable[[], dict] = lambda: {"state": "drained"}
     # The wakes in todo/wakes.json whose check passes now (read only).
     wakes: Callable[[], list] = lambda: []
     # Write the acceptance file for a run that ends complete or parked, returning its path; OSError when it can't.
@@ -477,10 +477,11 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     signature = env.signature()
     if state.get("wait_until") is not None:
         # A run waiting on its rows wakes early when a wake's check passes: the resumed session clears the Need.
-        woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and env.wakes()
+        woken = bool(waiting(state, now) and state.get("wait_reason") == "rows-waiting" and env.wakes())
         if waiting(state, now) and not woken:
             return f"waiting: {state.get('wait_reason')} until {stamp(state['wait_until'])}"
         end_wait(state, now, signature)
+        state["woken"] = woken  # its Need is still on the section until the resumed session applies the wake
     if signature != state.get("restart_signature"):
         state.update(restart_signature=signature, restarts=0, changed_at=now)
     quiet = (now - state.get("changed_at", now)) / 3600
@@ -501,7 +502,9 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         end_run(state, "expired", f"nothing changed for {MAX_QUIET_HOURS} hours, so it was not resumed; `process plan` starts it again")
         return "expired"
     left = env.rows()
-    if left == []:
+    if left == [] and state.pop("woken", False):
+        pass  # a passing wake is the work: the resumed session runs `wake --apply` first
+    elif left == []:
         settled = settle(state, env, now)
         if settled == "waiting":
             return f"waiting: {state.get('wait_reason')} until {stamp(state['wait_until'])}"
@@ -543,7 +546,8 @@ def run(*args: str, cwd: Path = ROOT) -> subprocess.CompletedProcess:
 
 WORK_STATES = ("ready", "needs-repair", "needs-filing", "needs-verification", "needs-closeout")
 # How long a run with nothing to run waits before it looks again, by why it waits.
-LOOK_AGAIN = {"rows-waiting": 30 * 60, "ci-pending": 10 * 60, "ci-unavailable": 30 * 60, "acceptance-unwritable": 10 * 60}
+LOOK_AGAIN = {"rows-waiting": 30 * 60, "ci-pending": 10 * 60, "ci-unavailable": 30 * 60, "acceptance-unwritable": 10 * 60,
+              "finish-unreadable": 10 * 60}
 FINISH_WORK = ("needs-push", "needs-ci-repair")  # what the finish line asks of the session itself
 
 
@@ -556,6 +560,11 @@ def settle(state: dict, env: Env, now: float) -> str:
     except Exception as error:  # an unreadable finish line never ends a run; the next look tries again
         found = {"state": "unknown", "detail": repr(error)}
     kind, detail = found.get("state"), found.get("detail") or ""
+    if kind not in FINISH_WORK + ("waiting", "ci-pending", "ci-unavailable", "complete", "parked", "drained"):
+        # A check that failed this once (a slow fetch, CI that timed out) is no answer, and never an end.
+        set_wait(state, "finish-unreadable", now + LOOK_AGAIN["finish-unreadable"],
+                 f"what is left couldn't be read ({detail or kind}); the run looks again")
+        return "waiting"
     if kind in FINISH_WORK:
         return f"work: {kind}"
     if kind in ("waiting", "ci-pending", "ci-unavailable"):
