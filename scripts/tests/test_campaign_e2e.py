@@ -260,10 +260,13 @@ def seed(work: Path) -> dict:
         "# TODO-00 -- Root Index\n\nGenerated plan: [implementation-plan.md](./implementation-plan.md).\n\n## Active TODOs\n\n"
         "| Domain | File | Scope |\n| ------ | ---- | ----- |\n| 00 | 00-workspace/TODO-01-e2e.md | Five trivial sections |\n\n"
         "## Completed TODOs\n", encoding="utf-8", newline="\n")
+    # The real sections are gone, so a wake naming one of them would point at nothing (found by a run's own audit).
+    (todo / "wakes.json").write_text("[]\n", encoding="utf-8", newline="\n")
     run([sys.executable, "scripts/todo-graph.py", "plan", "--sync"], cwd=clone)
     run([sys.executable, "scripts/todo-graph.py", "validate"], cwd=clone)
     run(["git", "add", "-A"], cwd=clone)
-    run(["git", "commit", "-q", "-m", "e2e: the disposable campaign's fixture"], cwd=clone)
+    # Empty when ROOT is itself a seeded clone, as when a campaign's sessions run this suite, and it must still land.
+    run(["git", "commit", "-q", "--allow-empty", "-m", "e2e: the disposable campaign's fixture"], cwd=clone)
     run(["git", "clone", "-q", "--bare", str(clone), str(origin)], cwd=work)
     run(["git", "remote", "set-url", "origin", str(origin)], cwd=clone)
     run(["git", "fetch", "-q", "origin"], cwd=clone)
@@ -358,6 +361,27 @@ class ScriptedCi(unittest.TestCase):
         self.assertEqual(self.gate(self.commit(receipt(5), "{}")), "proceed")
         calls = read_jsonl(self.seeded["fakes"] / "gh-calls.jsonl")
         self.assertTrue(any(c.get("moved_wait_back") for c in calls), "§4's wait was never moved back")
+
+    def test_the_clone_keeps_no_wake_for_a_section_it_removed(self):
+        wakes = json.loads((self.clone / "todo" / "wakes.json").read_text(encoding="utf-8"))
+        self.assertEqual(wakes, [], "a wake names a section the fixture deleted")
+
+    def test_seeding_a_seeded_clone_still_works(self):
+        # The campaign's own sessions run this suite inside the clone, where ROOT is already the fixture.
+        work = Path(tempfile.mkdtemp(prefix="bosun-campaign-fixture-", dir=str(SCRATCH) if SCRATCH.is_dir() else None))
+        self.addCleanup(remove_tree, work)
+        # A copy at the fixture commit itself, so re-seeding it changes nothing and the commit is empty.
+        source = work / "seeded"
+        run(["git", "clone", "-q", "--no-hardlinks", str(self.clone), str(source)], cwd=work)
+        fixture = run(["git", "log", "--format=%H", "-1", "--grep", "disposable campaign's fixture"], cwd=source).stdout.strip()
+        run(["git", "reset", "-q", "--hard", fixture], cwd=source)
+        global ROOT
+        saved, ROOT = ROOT, source
+        try:
+            inner = seed(work)
+        finally:
+            ROOT = saved
+        self.assertIn("disposable campaign's fixture", run(["git", "log", "-1", "--format=%s"], cwd=inner["clone"]).stdout)
 
     def test_the_clone_cannot_start_a_campaign_of_its_own(self):
         self.assertFalse([k for k in self.seeded["env"] if k.startswith("BOSUN_E2E")],
