@@ -271,7 +271,8 @@ def seed(work: Path) -> dict:
     write_launcher(fakes, "gh", FAKE_GH)
     write_launcher(fakes, "codex", FAKE_CODEX)
     state = clone / ".git" / "run-guard" / "state.json"
-    env = {k: v for k, v in os.environ.items() if k not in ("BOSUN_SLOT",)}
+    # Without BOSUN_E2E*, so the clone's own test suite, which the sessions run, can't start a campaign inside this one.
+    env = {k: v for k, v in os.environ.items() if k != "BOSUN_SLOT" and not k.startswith("BOSUN_E2E")}
     env.update(PATH=f"{fakes}{os.pathsep}{os.environ['PATH']}", RUN_GUARD_STATE=str(state), E2E_FAKE_STATE=str(fakes),
                E2E_REPO=str(clone), E2E_PENDING_SECONDS=str(PENDING_SECONDS))
     return {"clone": clone, "origin": origin, "fakes": fakes, "state": state, "env": env}
@@ -314,12 +315,10 @@ class ScriptedCi(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.work = Path(tempfile.mkdtemp(prefix="bosun-campaign-fixture-", dir=str(SCRATCH) if SCRATCH.is_dir() else None))
+        # Registered before seeding: a failed setUpClass skips tearDownClass, which left a folder behind each time.
+        cls.addClassCleanup(shutil.rmtree, cls.work, ignore_errors=True)
         cls.seeded = seed(cls.work)
         cls.clone = cls.seeded["clone"]
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.work, ignore_errors=True)
 
     def commit(self, path, text):
         target = self.clone / path
@@ -349,6 +348,10 @@ class ScriptedCi(unittest.TestCase):
         self.assertEqual(self.gate(self.commit(receipt(5), "{}")), "proceed")
         calls = read_jsonl(self.seeded["fakes"] / "gh-calls.jsonl")
         self.assertTrue(any(c.get("moved_wait_back") for c in calls), "§4's wait was never moved back")
+
+    def test_the_clone_cannot_start_a_campaign_of_its_own(self):
+        self.assertFalse([k for k in self.seeded["env"] if k.startswith("BOSUN_E2E")],
+                         "the sessions would inherit BOSUN_E2E, and their test suite would start a nested campaign")
 
     def test_the_fakes_come_first_and_an_unscripted_gh_call_fails(self):
         for name in ("gh", "codex"):
