@@ -52,6 +52,7 @@ title: "TODO-03 -- Campaign readiness"
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
+| 17 | §17 | Branch protection on main, read back | §8 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -570,6 +571,24 @@ Filed from `D00 T03 §4`'s completion review. Its classifier is tested on Codex'
 - [ ] Commit: `review: classify a captured rate limit`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_review_dispatch.py` exits 0, and fails if the captured rate limit isn't `rate-limit`.
+
+## 17. Branch protection on main, read back
+
+Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook catch the campaign session's own mistakes in the spellings a session writes, but text can always be spelled another way; what makes a force push or a deletion of `main` impossible is the remote's branch protection, which this section turns on once the owner agrees, since it changes the repository's settings on GitHub.
+
+**Phase:** 0
+**Needs:** owner-decision
+**Surface:** no
+
+**Build order:**
+
+1. Turn on branch protection for `main` on `rizonetech/Bosun`, blocking force pushes and deletion. Done when: a read-back shows both refused.
+
+- [ ] Turn on protection for `main` with `gh api`, refusing force pushes and deletion, with no bypass for the account the campaign pushes as. Done when: `gh api repos/rizonetech/Bosun/branches/main/protection` reads back `allow_force_pushes` and `allow_deletions` both false.
+- [ ] Add that read-back to `scripts/campaign-preflight.ps1`, failing with the fix named when protection is off. Done when: `tests/preflight_test.ps1` covers on, off and an unreadable answer.
+- [ ] Commit: `preflight: branch protection on main`
+
+**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and fails if protection reads off.
 
 ## Verification
 
