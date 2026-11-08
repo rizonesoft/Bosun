@@ -17,7 +17,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "lib"))
 import run_guard as guard  # noqa: E402
 
-BOSUN = Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "bin" / "bosun.exe"
+def find_bosun():
+    """BOSUN_EXE when set, then bosun on PATH, then the installed copy."""
+    if os.environ.get("BOSUN_EXE"):
+        return Path(os.environ["BOSUN_EXE"])
+    found = shutil.which("bosun")
+    return Path(found) if found else Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "bin" / "bosun.exe"
+
+
+BOSUN = find_bosun()
 
 
 @unittest.skipUnless(os.environ.get("BOSUN_E2E") == "1", "starts real Claude sessions, which spend subscription usage: set BOSUN_E2E=1")
@@ -28,7 +36,7 @@ class ResumedSession(unittest.TestCase):
     def test_a_resumed_session_writes_builds_through_bosun_and_commits_with_no_prompt(self):
         claude = shutil.which("claude")
         self.assertIsNotNone(claude, "claude is not on PATH")
-        self.assertTrue(BOSUN.is_file(), f"no bosun at {BOSUN}")
+        self.assertTrue(BOSUN.is_file(), f"no bosun at {BOSUN}: set BOSUN_EXE, or put bosun on PATH")
         self.repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-"))
         self.addCleanup(lambda: shutil.rmtree(self.repo, ignore_errors=True))
         self.git("init", "-q")

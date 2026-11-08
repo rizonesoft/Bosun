@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,18 +25,29 @@ def link(target, at):
         os.symlink(target, at, target_is_directory=True)
 
 
+REAL_ROOTS = tg.scratch_roots  # before any test replaces it
+SCRATCH = Path(r"R:\scratch") if Path(r"R:\scratch").is_dir() else Path(tempfile.gettempdir())
+
+
 class Base(unittest.TestCase):
+    """A project, an allowed scratch folder and an outside folder, side by side in the repository's scratch area. The
+    allowed roots are only this test's own scratch folder, so the real temp folder, which holds them all, can't hide
+    a wrong answer."""
+
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=str(ROOT / "build") if (ROOT / "build").is_dir() else None)
-        self.addCleanup(self.temp.cleanup)
-        # A project folder outside temp, so temp's own allowance doesn't hide a wrong answer.
-        self.project = Path(tempfile.mkdtemp(dir=str(Path.home()), prefix="bosun-tg-")).resolve()
-        self.addCleanup(lambda: __import__("shutil").rmtree(self.project, ignore_errors=True))
-        (self.project / ".git").mkdir()
-        (self.project / "build").mkdir()
+        self.base = Path(tempfile.mkdtemp(dir=str(SCRATCH), prefix="bosun-tg-")).resolve()
+        self.addCleanup(lambda: shutil.rmtree(self.base, ignore_errors=True))
+        self.project = self.base / "project"
+        self.scratch = self.base / "scratch"
+        self.outside = self.base / "outside"
+        for folder in (self.project / ".git", self.project / "build", self.scratch, self.outside):
+            folder.mkdir(parents=True)
         env = mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.project)})
         env.start()
         self.addCleanup(env.stop)
+        roots = mock.patch.object(tg, "scratch_roots", lambda: [str(self.scratch)])
+        roots.start()
+        self.addCleanup(roots.stop)
 
     def decide(self, command, tool="Bash", cwd=None):
         return tg.decide({"tool_name": tool, "tool_input": {"command": command}, "cwd": str(cwd or self.project)})
@@ -121,9 +133,8 @@ class GitHub(Base):
 
 class Deletes(Base):
     def test_inside_the_project_scratch_and_temp_passes(self):
-        temp = Path(tempfile.gettempdir()) / "bosun-tg-allowed"
         for form in ("rm -rf build", "rm -r build/x", f"rm -rf {self.project}/build", "Remove-Item -Recurse -Force build",
-                     "rd /s /q build", f"rm -rf {temp}", "rm -rf ./build/*", "rm -f notes.txt"):
+                     "rd /s /q build", f"rm -rf {self.scratch / 'run-1'}", "rm -rf ./build/*", "rm -f notes.txt"):
             with self.subTest(form):
                 self.allowed(form, tool="PowerShell" if form.startswith(("Remove", "rd")) else "Bash")
 
@@ -131,7 +142,7 @@ class Deletes(Base):
         sibling = Path(str(self.project) + "-old")  # shares the project's name as a prefix
         sibling.mkdir()
         self.addCleanup(lambda: sibling.rmdir() if sibling.exists() else None)
-        outside = Path.home() / "Documents"
+        outside = self.outside
         for form in (f"rm -rf ..", f"rm -rf ../{self.project.name}-old", f"rm -rf {sibling}", f"rm -rf build {outside}",
                      f"Remove-Item -Recurse {outside}", f"rd /s /q {outside}", "rm -rf /", "rm -rf ~"):
             with self.subTest(form):
@@ -143,9 +154,7 @@ class Deletes(Base):
                 self.refused(form)
 
     def test_a_link_inside_pointing_outside_is_followed_and_refused(self):
-        outside = Path(tempfile.mkdtemp(dir=str(Path.home()), prefix="bosun-tg-out-"))
-        self.addCleanup(lambda: __import__("shutil").rmtree(outside, ignore_errors=True))
-        link(outside, self.project / "build" / "away")
+        link(self.outside, self.project / "build" / "away")
         self.refused("rm -rf build/away")
 
     def test_a_target_it_cant_resolve_is_refused(self):
@@ -195,6 +204,12 @@ class FailsClosed(Base):
                                  input=json.dumps({**data, "tool_input": {"command": "git status"}}),
                                  capture_output=True, text=True, timeout=60)
         self.assertEqual((allowed.returncode, allowed.stdout.strip()), (0, ""))
+
+    def test_the_real_roots_include_scratch_and_temp(self):
+        roots = [tg.canonical(r) for r in REAL_ROOTS()]
+        self.assertIn(tg.canonical(tempfile.gettempdir()), roots)
+        if os.name == "nt":
+            self.assertIn(tg.canonical(r"R:\scratch"), roots)
 
     def test_the_self_test_passes_and_fails_as_it_should(self):
         done = subprocess.run([sys.executable, str(ROOT / "scripts" / "tool-guard.py"), "--self-test"],
