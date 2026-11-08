@@ -74,7 +74,8 @@ class Clean(unittest.TestCase):
 
     def test_a_backgrounded_list_and_a_group_are_seen(self):
         for command in (REVIEW + " && echo finished &", REVIEW + " || echo failed &", f"({REVIEW}) &",
-                        f"( {REVIEW}; echo done ) &", f"{{ {REVIEW}; }} &", f"(cd . && {REVIEW}) &", f"({REVIEW} &)"):
+                        f"( {REVIEW}; echo done ) &", f"{{ {REVIEW}; }} &", f"(cd . && {REVIEW}) &", f"({REVIEW} &)",
+                        f"({REVIEW} && echo finished &)", f"(({REVIEW} | tee x) &)", f"echo a; ( b; ({REVIEW} || c) & )"):
             with self.subTest(command):
                 self.assertIn("not detached", hook.verdict(payload(command, background=True)))
         for command in (REVIEW + " && echo finished", f"({REVIEW})", f"cd scripts; ({REVIEW}) ; echo done"):

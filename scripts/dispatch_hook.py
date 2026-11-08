@@ -78,71 +78,89 @@ def script_at(words: list[str]) -> int | None:
     return None
 
 
-SEP = "\0"  # where one command of a list ends and the next begins
+CLOSE = {"(": ")", "{": "}"}
 
 
-def commands(line: str, powershell: bool) -> list[tuple]:
-    """(command, its list was backgrounded) for each command in a line, read as the shell does. Continuations join
-    first (a backslash, or PowerShell's backtick, before the newline). A list ends at `;`, a newline or a background
-    `&` at the outer level, and that `&` backgrounds the whole list, `&&`, `||` and pipelines included; inside a list,
-    `&&`, `||` and `|` separate its commands. Groups in `( )` and `{ }` keep their contents in one list, and their
-    brackets are stripped from each command. A redirect (`2>&1`, `&>`, `>&`) separates nothing, nor does PowerShell's
-    call operator, an `&` where a command starts. All of it outside quotes."""
-    line = re.sub(r"`\r?\n" if powershell else r"\\\r?\n", " ", line)
-    lists, current, quote, start, depth, i = [], [], None, True, 0, 0
-    while i < len(line):
-        char = line[i]
+def group_end(text: str, at: int) -> int:
+    """Where the group opened at `at` closes, quotes respected; the end of the text when it never does."""
+    opener, closer, depth, quote = text[at], CLOSE[text[at]], 0, None
+    for i in range(at, len(text)):
+        char = text[i]
+        if quote:
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(text)
+
+
+def parse(text: str, powershell: bool) -> list[tuple]:
+    """(command, backgrounded) for each command in `text`, read as the shell reads it. A list ends at `;`, a newline
+    or a background `&`, and that `&` backgrounds every command of the list, `&&`, `||` and pipelines included;
+    within a list, `&&`, `||` and `|` separate commands. A group, `( )` or `{ }` where a command starts, is parsed by
+    the same rules and its commands join the list around it, so an `&` at any depth marks all it backgrounds. A
+    redirect (`2>&1`, `&>`, `>&`) separates nothing, nor does PowerShell's call operator, an `&` where a command
+    starts. Quotes are respected throughout."""
+    result, listed, current, quote, start, i = [], [], [], None, True, 0
+
+    def finish_command():
+        command = "".join(current).strip()
+        if command:
+            listed.append((command, False))
+        current.clear()
+
+    def finish_list(background):
+        finish_command()
+        result.extend((command, marked or background) for command, marked in listed)
+        listed.clear()
+
+    while i < len(text):
+        char = text[i]
         if quote:
             current.append(char)
             quote = None if char == quote else quote
         elif char in "'\"":
             quote, start = char, False
             current.append(char)
-        elif char in "({":
-            depth += 1
-            current.append(char)
-        elif char in ")}":
-            depth = max(0, depth - 1)
-            current.append(char)
-        elif line.startswith(("&&", "||"), i):
-            current.append(SEP)
+        elif char in CLOSE and not "".join(current).strip():
+            close = group_end(text, i)
+            finish_command()
+            listed.extend(parse(text[i + 1:close], powershell))
+            i, start = close, False
+        elif text.startswith(("&&", "||"), i):
+            finish_command()
             start = True
             i += 1
         elif char == "|":
-            current.append(SEP)
+            finish_command()
             start = True
         elif char in ";\n":
-            if depth:
-                current.append(SEP)
-            else:
-                lists.append(("".join(current), False))
-                current = []
+            finish_list(False)
             start = True
-        elif char == "&" and line[i - 1:i] != ">" and line[i + 1:i + 2] != ">":
+        elif char == "&" and text[i - 1:i] != ">" and text[i + 1:i + 2] != ">":
             if powershell and start:
                 current.append(char)  # the call operator: it runs what follows, here and now
-            elif depth:
-                current.append(SEP + "&")  # backgrounds a command inside a group: marked on that command below
-                start = True
             else:
-                lists.append(("".join(current), True))
-                current, start = [], True
+                finish_list(True)
+                start = True
         else:
             if not char.isspace():
                 start = False
             current.append(char)
         i += 1
-    lists.append(("".join(current), False))
-    found = []
-    for text, background in lists:
-        parts = text.split(SEP)
-        for at, part in enumerate(parts):
-            inside_background = at + 1 < len(parts) and parts[at + 1].startswith("&")
-            part = part.lstrip("&") if at and parts[at - 1:at] and part.startswith("&") else part
-            part = part.strip().lstrip("({").rstrip(")}").strip()
-            if part:
-                found.append((part, background or inside_background))
-    return found
+    finish_list(False)
+    return result
+
+
+def commands(line: str, powershell: bool) -> list[tuple]:
+    """(command, backgrounded) for each command in a line, continuations joined first (a backslash, or PowerShell's
+    backtick, before the newline)."""
+    return parse(re.sub(r"`\r?\n" if powershell else r"\\\r?\n", " ", line), powershell)
 
 
 def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
