@@ -28,27 +28,17 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PIN = ".conclave/reviewers.toml"
 
-# The dispatcher run as a command: after `python`, `python3`, `python.exe` or the `py` launcher, quoted or not, with any
-# interpreter options, or in command position (the start, after `;`, `&`, `|`, `(`, a newline, `nohup`, `setsid` or
-# `exec`). Text that only mentions it (a heredoc, a commit message) is not a run.
-REVIEW = re.compile(r"(?:\bpy(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?['\"]?(?:\s+(?:-[XW]\s*\S+|-[\w.]+))*\s+['\"]?"
-                    r"|(?:^|[\n;&|(]|\bnohup\b|\bsetsid\b|\bexec\b)\s*)"
-                    r"(?:[\w.~/\\:-]*[/\\])?review-dispatch\.py\b")
-STAMP = re.compile(r"\btodo-graph\.py\b[^\n;|&]*\bstamp\b")
-# Bash: a single `&` that backgrounds a command, not `&&`, `&>`, `>&` or `2>&1`.
-BASH_DETACH = re.compile(r"(?<![&>])&(?![&>])|\bnohup\b|\bdisown\b|\bsetsid\b")
-# PowerShell's launchers detach whatever they start, naming the script as an argument of their own.
-POWERSHELL_LAUNCHER = re.compile(r"\bStart-(?:Job|ThreadJob|Process)\b", re.IGNORECASE)
-# PowerShell: `&` is the call operator before a command, so only one that ends a statement backgrounds it.
-POWERSHELL_DETACH = re.compile(r"(?<![&>])&\s*(?:$|[;\n])|" + POWERSHELL_LAUNCHER.pattern, re.IGNORECASE | re.MULTILINE)
-DETACH = {"Bash": BASH_DETACH, "PowerShell": POWERSHELL_DETACH}
 # A heredoc's body, from `<<EOF` (or `<<-'EOF'`) to its closing line, and PowerShell's @' '@ and @" "@ strings.
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$|@(['\"])\r?\n.*?^\3@", re.S | re.M)
+DETACHING_PREFIXES = {"nohup", "setsid"}
+LAUNCHERS = {"start-job", "start-threadjob", "start-process"}  # PowerShell's, which detach whatever they start
+NO_REVIEW = ("--check-pin", "--list-rounds", "--help")  # the dispatcher's only runs that start no reviewer
+INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
+VALUED = {"-X", "-W", "--check-hash-based-pycs"}  # Python options that take the next word as their value
 
 
 def _parser():
-    """The deny list's own command parser (scripts/tool-guard.py), so both hooks read a command line the same way:
-    chains split outside quotes, wrappers opened, and quoted text never taken for a command."""
+    """The deny list's own tokenizer and wrapper reader (scripts/tool-guard.py), so both hooks read words alike."""
     spec = importlib.util.spec_from_file_location("tool_guard", Path(__file__).with_name("tool-guard.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -56,7 +46,6 @@ def _parser():
 
 
 PARSER = _parser()
-NO_REVIEW = ("--check-pin", "--list-rounds", "--help")  # the dispatcher's only runs that start no reviewer
 
 
 def starts_no_reviewer(words: list[str]) -> bool:
@@ -69,12 +58,6 @@ def starts_no_reviewer(words: list[str]) -> bool:
     return False
 
 
-INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
-
-
-VALUED = {"-X", "-W", "--check-hash-based-pycs"}  # Python options that take the next word as their value
-
-
 def script_at(words: list[str]) -> int | None:
     """Where the script is in a command's words: the first word when the script runs itself, or the first argument
     after the interpreter's options (each option's value skipped); None for `python -c` and `python -m`."""
@@ -83,7 +66,7 @@ def script_at(words: list[str]) -> int | None:
     at = 1
     while at < len(words):
         word = words[at]
-        if word in ("-c", "-m") or word.startswith(("-c", "-m")) and len(word) > 2 and word[1] in "cm":
+        if word in ("-c", "-m") or (len(word) > 2 and word[0] == "-" and word[1] in "cm" and word[1:2] != "-"):
             return None
         if word in VALUED:
             at += 2
@@ -95,38 +78,75 @@ def script_at(words: list[str]) -> int | None:
     return None
 
 
-def runs(command: str, powershell: bool) -> tuple:
-    """(runs a review, runs a stamp): what the command really runs, segment by segment."""
-    reviewing = stamping = False
-    for segment, _ in PARSER.segments(command, powershell):
-        words = PARSER.tokens_of(segment)
+def commands(line: str, powershell: bool) -> list[tuple]:
+    """(command, ended by a background `&`) for each command in a line, split outside quotes on `;`, `&&`, `||`, `|`,
+    newlines and a background `&`. A redirect (`2>&1`, `&>`, `>&`) isn't one, nor is PowerShell's call operator,
+    which is an `&` that starts a statement."""
+    out, current, quote, start, i = [], [], None, True, 0
+    while i < len(line):
+        char = line[i]
+        if quote:
+            current.append(char)
+            quote = None if char == quote else quote
+        elif char in "'\"":
+            quote, start = char, False
+            current.append(char)
+        elif line.startswith(("&&", "||"), i):
+            out.append(("".join(current), False))
+            current, start = [], True
+            i += 1
+        elif char in ";|\n":
+            out.append(("".join(current), False))
+            current, start = [], True
+        elif char == "&" and line[i - 1:i] != ">" and line[i + 1:i + 2] != ">":
+            if powershell and start:
+                current.append(char)  # the call operator: it runs what follows, here and now
+            else:
+                out.append(("".join(current), True))
+                current, start = [], True
+        else:
+            if not char.isspace():
+                start = False
+            current.append(char)
+        i += 1
+    out.append(("".join(current), False))
+    return [(c.strip(), background) for c, background in out if c.strip()]
+
+
+def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
+    """(what, detached) for every review and stamp the line really runs, `what` being "review" or "stamp": quoted text
+    is never a command, and a wrapper's inner command is read with its own shell's rules and keeps the wrapper's
+    detachment."""
+    found = []
+    for command, background in commands(line, powershell):
+        words = PARSER.tokens_of(command)
+        here = detached or background
+        while words and (words[0] in ("&", ".", "{", "(") or os.path.basename(words[0]).lower() in PARSER.PREFIXES
+                         or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
+            here = here or os.path.basename(words[0]).lower() in DETACHING_PREFIXES
+            words = words[1:]
         if not words:
+            continue
+        if "disown" in (w.lower() for w in words):
+            here = True
+        inner = PARSER.inner_command(words)
+        if inner and inner[0]:
+            found.extend(runs(*inner, here))
+            continue
+        if powershell and words[0].lower() in LAUNCHERS:
+            if any(os.path.basename(w.strip("{}()'\"")).lower() == "review-dispatch.py" or "review-dispatch.py" in w for w in words) \
+                    and not starts_no_reviewer(words):
+                found.append(("review", True))
             continue
         at = script_at(words)
         if at is None:
             continue
         script, args = os.path.basename(words[at]).lower(), words[at + 1:]
-        reviewing |= script == "review-dispatch.py" and not starts_no_reviewer(args)
-        stamping |= script == "todo-graph.py" and "stamp" in args
-    return reviewing, stamping
-
-
-def powershell_background(command: str) -> bool:
-    """A PowerShell `&` that backgrounds what comes before it: outside quotes, not `&&`, not a redirect, and not the
-    call operator, which starts a statement."""
-    quote, last = None, ""
-    for i, char in enumerate(command):
-        if quote:
-            quote = None if char == quote else quote
-            continue
-        if char in "'\"":
-            quote = char
-        elif char == "&" and command[i + 1:i + 2] != "&" and command[i - 1:i] not in ("&", ">"):
-            if last and last not in ";|({\n":
-                return True
-        if not char.isspace():
-            last = char
-    return False
+        if script == "review-dispatch.py" and not starts_no_reviewer(args):
+            found.append(("review", here))
+        elif script == "todo-graph.py" and "stamp" in args:
+            found.append(("stamp", here))
+    return found
 
 
 def pin_dirty(repo: Path = ROOT) -> bool:
@@ -142,23 +162,18 @@ def verdict(payload: dict, repo: Path = ROOT) -> str | None:
     """Why this tool call is refused, or None to let it run. It reads shell text, so it is an early warning for the
     launch forms a session really uses, not a proof that no spelling gets past it."""
     tool = payload.get("tool_name")
-    detach = DETACH.get(tool)
     tool_input = payload.get("tool_input") or {}
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if detach is None or not isinstance(command, str):
+    if tool not in ("Bash", "PowerShell") or not isinstance(command, str):
         return None
-    command = HEREDOC.sub("", command)  # a heredoc's body is text, never a command, wherever its lines fall
-    powershell = tool == "PowerShell"
-    launched = powershell and "review-dispatch.py" in command and POWERSHELL_LAUNCHER.search(command) \
-        and not starts_no_reviewer(PARSER.tokens_of(command))
-    reviewing, stamping = runs(command, powershell)
-    reviewing = reviewing or bool(launched)
-    if (reviewing or stamping) and pin_dirty(repo):
+    found = runs(HEREDOC.sub("", command), tool == "PowerShell")  # a heredoc's body is text, never a command
+    if found and pin_dirty(repo):
         return (f"{PIN} has uncommitted changes, and the reviewer pin is the owner's: restore it to HEAD (or commit the "
                 f"owner's change) before running review-dispatch.py or todo-graph.py stamp")
-    if not reviewing:
+    reviews = [detached for what, detached in found if what == "review"]
+    if not reviews:
         return None
-    if launched or detach.search(command) or (powershell and powershell_background(command)):
+    if any(reviews):
         return ("review-dispatch: run the review with the shell tool's run_in_background option, not detached "
                 "(&, nohup, disown, setsid, Start-Job, Start-Process): only the tool's option tells the session when "
                 "it finishes")

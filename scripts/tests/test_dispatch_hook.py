@@ -56,6 +56,15 @@ class Clean(unittest.TestCase):
             with self.subTest(command):
                 self.assertIsNone(hook.verdict(payload(command)))
 
+    def test_each_command_is_read_in_its_own_shell(self):
+        wrapped = "bash -c 'python scripts/review-dispatch.py --writer claude --prompt R:/scratch/review.md &'"
+        self.assertIn("not detached", hook.verdict(payload(wrapped, "PowerShell", background=True)))
+        quoted = 'python scripts/review-dispatch.py --writer claude --prompt "R:/scratch/research & review.md"'
+        self.assertIsNone(hook.verdict(payload(quoted, background=True)))
+        two_lines = "Write-Output starting\n& python scripts/review-dispatch.py --prompt R:/scratch/review.md"
+        self.assertIsNone(hook.verdict(payload(two_lines, "PowerShell", background=True)))
+        self.assertIn("not detached", hook.verdict(payload("Write-Output a; " + REVIEW + " &", "PowerShell", background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
