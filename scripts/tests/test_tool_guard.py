@@ -96,6 +96,13 @@ class Pushes(Base):
             with self.subTest(prefix):
                 self.refused(f"{prefix} git push --force origin main")
 
+    def test_a_prefix_s_positionals_come_after_its_double_dash(self):
+        for form in ("timeout -- 60 git push --force origin main", "timeout -s KILL -- 60 git push -f", "env -- git push -f",
+                     "nice -- git push --mirror"):
+            with self.subTest(form):
+                self.refused(form)
+        self.allowed("timeout -- 60 git push origin main")
+
     def test_every_valued_long_option_is_listed_as_a_long_option(self):
         for head, valued in tg.PREFIX_VALUES.items():
             for option in valued:

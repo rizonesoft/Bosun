@@ -209,7 +209,8 @@ def strip_prefixes(words: list[str]) -> tuple:
         words, valued, plain = words[1:], PREFIX_VALUES.get(head, set()), PREFIX_POSITIONALS.get(head, 0)
         while words and (words[0].startswith("-") or plain or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0])):
             if words[0] == "--":
-                words = words[1:]
+                # Options end here, but the prefix's own positionals still come first: `timeout -- 60 command`.
+                words = words[1 + plain:]
                 break
             if words[0].startswith("-"):
                 option, _, value = words[0].partition("=")
