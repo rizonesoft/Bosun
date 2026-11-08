@@ -75,6 +75,16 @@ class Evidence(unittest.TestCase):
         self.receipts(2)  # a section reopened and stamped again after its file and phase closed
         self.assertEqual(tg.pending_closeouts(self.root, self.rows), ([self.path], [0]))
 
+    def test_a_second_closeout_after_a_repair_the_same_day_counts(self):
+        self.close()
+        self.receipts(2)
+        run = self.root / "docs/phase-runs/2026-11-08-phase-0.md"
+        run.write_text(run.read_text(encoding="utf-8") + "\n## Closeout\n\nRepaired and closed again.\n", encoding="utf-8")
+        index = self.root / tg.INDEX_FILE
+        index.write_text(index.read_text(encoding="utf-8") + f"- [TODO-01-a.md]({self.path}) closed again\n", encoding="utf-8")
+        self.commit("close out again")
+        self.assertEqual(tg.pending_closeouts(self.root, self.rows), ([], []))
+
     def test_an_uncommitted_closeout_does_not_count(self):
         self.write("docs/phase-runs/2026-11-08-phase-0.md", "# Phase 0\n\n## Closeout\n\nDone.\n")
         self.assertIn(0, tg.pending_closeouts(self.root, self.rows)[1])

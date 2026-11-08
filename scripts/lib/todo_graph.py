@@ -1182,19 +1182,22 @@ def git_out(root, *args):
     return done.stdout.strip() if done.returncode == 0 else None
 
 
-def line_commit(root, path, predicate):
-    """The commit that last wrote the first line of `path` matching `predicate`, from git blame, or None."""
+def line_commits(root, path, predicate):
+    """The commits that last wrote each line of `path` matching `predicate`, from git blame; a line not committed
+    yet has none."""
     full = Path(root) / path
     try:
         lines = read_text(full).splitlines()
     except OSError:
-        return None
+        return []
+    found = []
     for number, line in enumerate(lines, 1):
         if predicate(line, lines[:number]):
             blame = git_out(root, "blame", "-L", f"{number},{number}", "--porcelain", "--", path)
             commit = blame.split()[0] if blame else None
-            return None if not commit or set(commit) == {"0"} else commit  # all zeros: not committed yet
-    return None
+            if commit and set(commit) != {"0"}:  # all zeros: not committed yet
+                found.append(commit)
+    return found
 
 
 def stamp_commit(root, row):
@@ -1223,8 +1226,8 @@ def completed_line(name):
 def file_closed(root, path, rows):
     """A file's Verification ran: it sits under Completed in the index, written there after its newest stamp."""
     name = Path(path).name
-    evidence = line_commit(root, INDEX_FILE, completed_line(name))
-    return written_after(root, [stamp_commit(root, r) for r in rows.values() if r.path == path], evidence)
+    stamps = [stamp_commit(root, r) for r in rows.values() if r.path == path]
+    return any(written_after(root, stamps, evidence) for evidence in line_commits(root, INDEX_FILE, completed_line(name)))
 
 
 def phase_closed(root, phase, rows):
@@ -1232,9 +1235,10 @@ def phase_closed(root, phase, rows):
     stamps = [stamp_commit(root, r) for r in rows.values() if r.phase == phase]
     folder = Path(root) / PHASE_RUNS
     for run in sorted(folder.glob(f"*-phase-{phase}.md")) if folder.is_dir() else []:
-        evidence = line_commit(root, run.relative_to(root).as_posix(), lambda line, before: line.strip() == "## Closeout")
-        if written_after(root, stamps, evidence):
-            return True
+        # Every closeout counts, so one written after a repair the same day, under a heading of its own, is seen.
+        for evidence in line_commits(root, run.relative_to(root).as_posix(), lambda line, before: line.strip() == "## Closeout"):
+            if written_after(root, stamps, evidence):
+                return True
     return False
 
 

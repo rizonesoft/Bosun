@@ -63,7 +63,7 @@ After each stamped section, push, then run `python scripts/ci_status.py --gate -
 
 ## Step 4: closeout
 
-When the phase table is all `[x]`: `process-todo-file` on any file the phase exhausted, re-run the full test suite once, confirm `query stats` and the regenerated plan show the phase complete, write the closeout under a `## Closeout` heading in the run file (what shipped, what was repaired, what was learned), commit, and report. A phase is complete when its table says so and the closeout is written: not before.
+When the phase table is all `[x]`: `process-todo-file` on any file the phase exhausted, re-run the full test suite once, confirm `query stats` and the regenerated plan show the phase complete, write the closeout under a `## Closeout` heading of its own in the run file (a new one each time: one written before a later stamp no longer counts) (what shipped, what was repaired, what was learned), commit, and report. A phase is complete when its table says so and the closeout is written: not before.
 
 ## Guardrails
 
