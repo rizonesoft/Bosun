@@ -78,29 +78,18 @@ def script_at(words: list[str]) -> int | None:
     return None
 
 
-def split_outside_quotes(text: str, separator: str) -> list[str]:
-    parts, current, quote = [], [], None
-    for char in text:
-        if quote:
-            quote = None if char == quote else quote
-        elif char in "'\"":
-            quote = char
-        elif char == separator:
-            parts.append("".join(current))
-            current = []
-            continue
-        current.append(char)
-    parts.append("".join(current))
-    return parts
+SEP = "\0"  # where one command of a list ends and the next begins
 
 
 def commands(line: str, powershell: bool) -> list[tuple]:
-    """(command, its job was backgrounded) for each command in a line. Continuations are joined first (a backslash,
-    or PowerShell's backtick, before the newline). Jobs split outside quotes on `;`, `&&`, `||`, newlines and a
-    background `&`, which backgrounds its whole job, pipeline and all; each job splits on `|` into its commands. A
-    redirect (`2>&1`, `&>`, `>&`) isn't a separator, nor is PowerShell's call operator, an `&` that starts a statement."""
+    """(command, its list was backgrounded) for each command in a line, read as the shell does. Continuations join
+    first (a backslash, or PowerShell's backtick, before the newline). A list ends at `;`, a newline or a background
+    `&` at the outer level, and that `&` backgrounds the whole list, `&&`, `||` and pipelines included; inside a list,
+    `&&`, `||` and `|` separate its commands. Groups in `( )` and `{ }` keep their contents in one list, and their
+    brackets are stripped from each command. A redirect (`2>&1`, `&>`, `>&`) separates nothing, nor does PowerShell's
+    call operator, an `&` where a command starts. All of it outside quotes."""
     line = re.sub(r"`\r?\n" if powershell else r"\\\r?\n", " ", line)
-    jobs, current, quote, start, i = [], [], None, True, 0
+    lists, current, quote, start, depth, i = [], [], None, True, 0, 0
     while i < len(line):
         char = line[i]
         if quote:
@@ -109,28 +98,51 @@ def commands(line: str, powershell: bool) -> list[tuple]:
         elif char in "'\"":
             quote, start = char, False
             current.append(char)
+        elif char in "({":
+            depth += 1
+            current.append(char)
+        elif char in ")}":
+            depth = max(0, depth - 1)
+            current.append(char)
         elif line.startswith(("&&", "||"), i):
-            jobs.append(("".join(current), False))
-            current, start = [], True
+            current.append(SEP)
+            start = True
             i += 1
+        elif char == "|":
+            current.append(SEP)
+            start = True
         elif char in ";\n":
-            jobs.append(("".join(current), False))
-            current, start = [], True
+            if depth:
+                current.append(SEP)
+            else:
+                lists.append(("".join(current), False))
+                current = []
+            start = True
         elif char == "&" and line[i - 1:i] != ">" and line[i + 1:i + 2] != ">":
             if powershell and start:
                 current.append(char)  # the call operator: it runs what follows, here and now
+            elif depth:
+                current.append(SEP + "&")  # backgrounds a command inside a group: marked on that command below
+                start = True
             else:
-                jobs.append(("".join(current), True))
+                lists.append(("".join(current), True))
                 current, start = [], True
         else:
-            if char == "|":
-                start = True  # each command of a pipeline starts afresh, so a call operator may follow
-            elif not char.isspace():
+            if not char.isspace():
                 start = False
             current.append(char)
         i += 1
-    jobs.append(("".join(current), False))
-    return [(c.strip(), background) for job, background in jobs for c in split_outside_quotes(job, "|") if c.strip()]
+    lists.append(("".join(current), False))
+    found = []
+    for text, background in lists:
+        parts = text.split(SEP)
+        for at, part in enumerate(parts):
+            inside_background = at + 1 < len(parts) and parts[at + 1].startswith("&")
+            part = part.lstrip("&") if at and parts[at - 1:at] and part.startswith("&") else part
+            part = part.strip().lstrip("({").rstrip(")}").strip()
+            if part:
+                found.append((part, background or inside_background))
+    return found
 
 
 def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:

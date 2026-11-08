@@ -72,6 +72,19 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(REVIEW + " | tee R:/scratch/review.log", background=True)))
         self.assertIsNone(hook.verdict(payload(REVIEW + " 2>&1 | & tee x.log", "PowerShell", background=True)))
 
+    def test_a_backgrounded_list_and_a_group_are_seen(self):
+        for command in (REVIEW + " && echo finished &", REVIEW + " || echo failed &", f"({REVIEW}) &",
+                        f"( {REVIEW}; echo done ) &", f"{{ {REVIEW}; }} &", f"(cd . && {REVIEW}) &", f"({REVIEW} &)"):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, background=True)))
+        for command in (REVIEW + " && echo finished", f"({REVIEW})", f"cd scripts; ({REVIEW}) ; echo done"):
+            with self.subTest(command):
+                self.assertIsNone(hook.verdict(payload(command, background=True)))
+
+    def test_a_group_can_t_hide_a_stamp_from_the_pin_check(self):
+        with mock.patch.object(hook, "pin_dirty", return_value=True):
+            self.assertIn("reviewer pin", hook.verdict(payload("(python scripts/todo-graph.py stamp 'D00 T01 §3')")))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
