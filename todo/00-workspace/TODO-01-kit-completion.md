@@ -47,6 +47,8 @@ title: "TODO-01 -- Finish the agent kit"
 
 ## 1. Review-in-flight marks for the guard
 
+> **Started:** 2026-11-08T01:27:36Z
+
 Steward's guard has no idea a review is running, so a Stop hook can push the session during the wait. Recto solved this with marks written by the dispatcher; this section ports them onto Steward's guard without changing its other rules.
 
 **Corrected 2026-11-08:** Recto moved to `D:\GitHub\Recto`; its marks are the `in_flight` class in `scripts/review-dispatch.py:542` and the check is `review_in_flight` in `scripts/campaign_guard.py:780`. Bosun's `on_stop` already lets a turn end during a wait (`D00 T03 §4`); a live mark joins that, and neither counts the turn as idle.
