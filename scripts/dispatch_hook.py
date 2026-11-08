@@ -226,7 +226,7 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
         words = PARSER.tokens_of(command)
         here = detached or background
         while words:
-            words, seen = PARSER.strip_prefixes(words)
+            words, seen, _ = PARSER.strip_prefixes(words)
             here = here or bool(DETACHING_PREFIXES & set(seen))
             if not words or words[0] not in KEYWORDS:
                 break

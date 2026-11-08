@@ -145,10 +145,14 @@ PREFIX_VALUES = {"env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string
 PREFIX_POSITIONALS = {"timeout": 1}  # `timeout DURATION command`
 
 
+CHDIR = {"-C", "--chdir"}  # env's way to run its command in another folder
+
+
 def strip_prefixes(words: list[str]) -> tuple:
-    """(the command's own words, the prefixes it was run through): PowerShell's call and dot-source operators, an
-    opening bracket, `VAR=value`, and prefixes that run the rest of the line, each with its options and their values."""
-    seen = []
+    """(the command's own words, the prefixes it was run through, the folder a prefix runs it in or None):
+    PowerShell's call and dot-source operators, an opening bracket, `VAR=value`, and prefixes that run the rest of the
+    line, each with its options and their values. The folder matters: `env -C DIR rm -r x` deletes DIR/x."""
+    seen, chdir = [], None
     while words:
         head = os.path.basename(words[0]).lower()
         if words[0] in ("&", ".", "{", "(") or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
@@ -163,12 +167,15 @@ def strip_prefixes(words: list[str]) -> tuple:
                 words = words[1:]
                 break
             if words[0].startswith("-"):
-                words = words[2:] if words[0].split("=", 1)[0] in valued and "=" not in words[0] else words[1:]
+                option, _, value = words[0].partition("=")
+                if head == "env" and option in CHDIR:
+                    chdir = value if value else (words[1] if len(words) > 1 else None)
+                words = words[2:] if option in valued and not value else words[1:]
             elif plain:
                 words, plain = words[1:], plain - 1
             else:
                 words = words[1:]
-    return words, seen
+    return words, seen, chdir
 
 
 def inner_command(words: list[str]) -> tuple | None:
@@ -197,8 +204,8 @@ def inner_command(words: list[str]) -> tuple | None:
 
 
 def segments(command: str, powershell: bool = False) -> list[tuple]:
-    """(simple command, whether it is PowerShell) for each command in a line, in order, with subshells, `$( )` and
-    each wrapper's inner commands in their place."""
+    """(simple command, whether it is PowerShell, the folder a prefix runs it in or None) for each command in a line,
+    in order, with subshells, `$( )` and each wrapper's inner commands in their place, a wrapper's folder passed on."""
     found = []
     for inner in re.findall(r"\$\(([^()]*)\)|`([^`]*)`", command):  # substitutions run first
         found.extend(segments(inner[0] or inner[1], powershell))
@@ -206,12 +213,12 @@ def segments(command: str, powershell: bool = False) -> list[tuple]:
         part = part.strip()
         while part.startswith("(") and part.endswith(")"):
             part = part[1:-1].strip()
-        words, _ = strip_prefixes(tokens_of(part.lstrip("(")))
+        words, _, chdir = strip_prefixes(tokens_of(part.lstrip("(")))
         inner = inner_command(words)
         if inner and inner[0]:
-            found.extend(segments(*inner))
+            found.extend((text, shell, folder or chdir) for text, shell, folder in segments(*inner))
         else:
-            found.append((" ".join(shlex.quote(w) if " " in w else w for w in words), powershell))
+            found.append((" ".join(shlex.quote(w) if " " in w else w for w in words), powershell, chdir))
     return found
 
 
@@ -298,7 +305,7 @@ def follow_cd(words: list[str], cwd: str | None) -> str | None:
 
 def decide_command(command: str, cwd: str, project: str, powershell: bool = False) -> None:
     here: str | None = cwd
-    for part, in_powershell in segments(command, powershell):
+    for part, in_powershell, chdir in segments(command, powershell):
         words = tokens_of(part)
         if not words:
             continue
@@ -315,7 +322,8 @@ def decide_command(command: str, cwd: str, project: str, powershell: bool = Fals
             check_gh(words)
         targets = delete_targets(words, in_powershell)
         if targets is not None:
-            check_delete_targets(targets, here, project)
+            # `env -C DIR` runs this one command in DIR, so its targets are read from there.
+            check_delete_targets(targets, follow_cd(["cd", chdir], here) if chdir else here, project)
 
 
 def decide_tool(name: str) -> None:

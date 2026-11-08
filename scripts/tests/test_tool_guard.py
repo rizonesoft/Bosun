@@ -145,6 +145,13 @@ class CompletionGaps(Base):
         self.refused('pwsh -Command "rm -r build,../OtherRepo"')
         self.allowed("Remove-Item -Recurse -LiteralPath:build", tool="PowerShell")
 
+    def test_env_s_folder_is_where_its_command_deletes(self):
+        self.refused(f"env -C {self.outside} rm -rf sub")
+        self.refused(f"env --chdir={self.outside} rm -rf sub")
+        self.refused(f'env -C {self.outside} bash -c "rm -rf sub"')
+        self.allowed("env -C build rm -rf x")
+        self.allowed(f"env -C {self.outside} ls && rm -rf build/x")  # its folder is that one command's only
+
     def test_a_failed_cd_leaves_the_folder_unknown(self):
         self.refused("cd build; cd missing; rm -rf ../.git")
         self.refused("cd nowhere && rm -rf x")
