@@ -18,12 +18,16 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
 
 
-def kill_tree(pid):
-    """Stops pid and every descendant. On Linux they are found by parent, not by process group: the dispatcher starts
-    each reviewer in a session of its own, which killing the dispatcher's group would miss."""
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
-        return
+if sys.platform.startswith("linux"):
+    # A subreaper: a process orphaned under this one, such as a reviewer whose dispatcher has just exited, is re-parented
+    # here instead of to init, so it stays in this process's tree and can still be found and stopped.
+    import ctypes
+    ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
+
+
+def descendants(pid):
+    """pid's descendants on Linux, found by parent: the dispatcher starts each reviewer in a session of its own, which
+    killing the dispatcher's process group would miss."""
     children = {}
     for entry in os.listdir("/proc"):
         if entry.isdigit():
@@ -37,7 +41,17 @@ def kill_tree(pid):
     while stack:
         tree.append(stack.pop())
         stack.extend(children.get(tree[-1], []))
-    for member in tree:
+    return set(tree[1:])
+
+
+def kill_tree(pid, existing=frozenset()):
+    """Stops pid and every descendant. On Linux that includes any orphan re-parented to this process since `existing`
+    was taken, which a walk from pid alone would miss once pid's own process has exited."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+        return
+    targets = {pid} | descendants(pid) | (descendants(os.getpid()) - set(existing))
+    for member in targets:
         try:
             os.kill(member, 9)
         except OSError:
@@ -47,13 +61,15 @@ def kill_tree(pid):
 def run_tree(argv, timeout, **kwargs):
     """subprocess.run with captured text output, except that a timeout stops the whole tree. run's own timeout kills
     only the direct child, so a fake reviewer the dispatcher had started kept running after its test: on 2026-11-08
-    one flooding stderr wrote 287 GB and filled the disk."""
+    one flooding stderr wrote 287 GB and filled the disk. On Windows the dispatcher is still running when the timeout
+    fires, so its tree is intact for taskkill /T."""
+    existing = descendants(os.getpid()) if sys.platform.startswith("linux") else frozenset()
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **group, **kwargs) as process:
         try:
             out, err = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            kill_tree(process.pid)
+            kill_tree(process.pid, existing)
             process.communicate()
             raise
     return subprocess.CompletedProcess(argv, process.returncode, out, err)
@@ -217,6 +233,27 @@ class Harness(unittest.TestCase):
         return module
 
 
+def still_running(pid, wait=5):
+    """Whether pid is still running after up to `wait` seconds. On Linux an orphan re-parented to this subreaper stays
+    a zombie until it is reaped here, and a zombie still answers a signal check, so it is reaped first."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if os.name == "nt":
+            if str(pid) not in subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout:
+                return False
+        else:
+            try:
+                if os.waitpid(pid, os.WNOHANG) != (0, 0):
+                    return False  # it was ours, and it has ended
+            except ChildProcessError:
+                try:
+                    os.kill(pid, 0)
+                except OSError:
+                    return False
+        time.sleep(0.1)
+    return True
+
+
 class HarnessTimeout(unittest.TestCase):
     def test_a_timeout_stops_the_grandchild_too(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,19 +269,25 @@ class HarnessTimeout(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 run_tree([sys.executable, "-c", script], timeout=3)
             grandchild = int(pid_file.read_text())
-            time.sleep(0.5)
-            if os.name == "nt":
-                alive = str(grandchild) in subprocess.run(["tasklist", "/FI", f"PID eq {grandchild}", "/NH"],
-                                                          capture_output=True, text=True).stdout
-            else:
-                try:
-                    os.kill(grandchild, 0)
-                    alive = True
-                except OSError:
-                    alive = False
+            alive = still_running(grandchild)
             if alive:
                 kill_tree(grandchild)
             self.assertFalse(alive, "the grandchild outlived the timeout")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux re-parents orphans; Windows keeps no tree to re-parent")
+    def test_a_reviewer_orphaned_by_its_dispatcher_is_still_stopped(self):
+        existing = descendants(os.getpid())
+        script = ("import subprocess, sys\n"
+                  "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True,\n"
+                  "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                  "print(child.pid)\n")
+        dispatcher = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        orphan = int(dispatcher.communicate(timeout=30)[0])  # the dispatcher has exited: a walk from it finds nothing
+        kill_tree(dispatcher.pid, existing)
+        alive = still_running(orphan)
+        if alive:
+            os.kill(orphan, 9)
+        self.assertFalse(alive, "the orphaned reviewer outlived kill_tree")
 
 
 class Dispatch(Harness):

@@ -61,6 +61,12 @@ warn_once() {
 contained() {
   local unit="bosun-job-$$-$RANDOM" scope="" state watch_pid="" code
   local -a launch=()
+  # A run inside another job's scope stays in it, so the outer job keeps counting and stopping all of its work: a
+  # sibling scope of its own would escape both.
+  if grep -q '/bosun-job-[^/]*\.scope$' /proc/self/cgroup 2>/dev/null; then
+    "$@" 3>&- 4<&-
+    return $?
+  fi
   # --expand-environment=no keeps the command byte-exact: systemd-run would otherwise expand $VAR and $$ in it.
   if command -v systemd-run >/dev/null && systemctl --user show-environment >/dev/null 2>&1 &&
     systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then

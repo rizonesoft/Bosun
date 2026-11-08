@@ -108,6 +108,12 @@ for f in nested noslot; do
   check "$r" "a $f run stops what its command left behind"
 done
 
+# A nested run stays inside the outer job's scope, so the outer job still counts and stops all of it.
+got="$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- "$SHIM" run --ns "$NS" -- cat /proc/self/cgroup)"
+case "$got" in */bosun-job-*.scope) r=0 ;; *) r=1 ;; esac
+outer=$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- bash -c 'cat /proc/self/cgroup; "$1" run --ns "$2" -- cat /proc/self/cgroup' _ "$SHIM" "$NS" | sort -u | wc -l)
+[ "$r" = 0 ] && [ "$outer" = 1 ]; check $? "a nested run stays in the outer job's scope"
+
 # A budget with a leading zero is read as decimal.
 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 08 -- true
 [ $? = 0 ]; check $? "--max-write-gb 08 is accepted as eight"
