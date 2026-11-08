@@ -53,7 +53,7 @@ In the generated plan's table order, for each open row: `process-todo-section` (
 
 ### Red-first CI
 
-After each stamped section, push, then run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30`, and act on the one action it prints. It remembers the last proven commit, so a restart after a push loses nothing:
+After each stamped section, push, then run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30`, and act on the one action it prints. It can poll for 30 minutes, longer than one tool call, so run it with `run_in_background` and end the turn until it reports: while it polls the run guard holds the next row (`ci_in_flight` in `scripts/lib/run_guard.py`), and the gate's result, or the next heartbeat tick once it has ended, resumes the run. It remembers the last proven commit, so a restart after a push loses nothing:
 
 - `proceed`: start the next row.
 - `wait`: CI hasn't answered, or `gh` is unavailable. If it prints a `gh workflow run` command, as after a fresh clone, run that first, because a real run is the way to find out. Run the same command again, and don't start the next row. This costs time, not repair attempts, and it ends in `unverified` after two hours on one commit.

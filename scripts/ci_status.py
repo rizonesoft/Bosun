@@ -357,9 +357,13 @@ def begin_wait(path, sha, now):
     time, or now when it can't be saved."""
     state = read_gate(path)
     waiting = state.get("waiting")
+    # The pid says which gate is polling now: scripts/lib/run_guard.py holds the run's next row only while it lives.
     if isinstance(waiting, dict) and waiting.get("sha") == sha and isinstance(waiting.get("since"), (int, float)):
+        if waiting.get("pid") != os.getpid():
+            waiting["pid"] = os.getpid()
+            write_gate(path, state)
         return waiting["since"]
-    state["waiting"] = {"sha": sha, "since": now}
+    state["waiting"] = {"sha": sha, "since": now, "pid": os.getpid()}
     write_gate(path, state)
     return now
 

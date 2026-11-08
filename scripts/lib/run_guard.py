@@ -121,6 +121,8 @@ class Env:
     child_output: Callable[[dict], str] = lambda child: ""
     # A hung child's stop, already tried before the lock was taken (see `stop_attempt`), or None.
     stopped: Callable[[dict], dict | None] = lambda child: None
+    # Which commit a CI gate is polling now, or None (`ci_in_flight`).
+    ci_waiting: Callable[[], object] = lambda: None
 
 
 def stamp(now: float | None = None) -> str:
@@ -458,12 +460,30 @@ def review_in_flight(root: Path = ROOT) -> str | None:
     return None
 
 
+CI_WAIT_LIMIT = 2 * 60 * 60  # scripts/ci_status.py WAIT_LIMIT_SECONDS: past it the gate answers `unverified`
+
+
+def ci_in_flight(root: Path = ROOT) -> str | None:
+    """The commit a CI gate (`scripts/ci_status.py --gate`) is polling now, from its wait in build/ci-gate.json, or None.
+    process-phase holds the next row on a `wait`, so this does too. It counts only while the gate that wrote it lives
+    and within the gate's own limit, so a killed gate's record never holds a run."""
+    try:
+        waiting = json.loads((Path(root) / "build" / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
+        sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None  # no wait, or one from a gate too old to name its pid: nothing is polling
+    if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
+        return f"{sha[:12]}, gate pid {pid}"
+    return None
+
+
 def on_stop(state: dict, data: dict, env: Env) -> str | None:
     if not state.get("active") or state.get("session_id") != data.get("session_id"):
         return None
-    if waiting(state) or env.reviewing():
-        # The turn may end, and it isn't idleness: nothing can be done until a wait passes, and a review in flight
-        # must not have the tree change under it. Its notification, or the heartbeat, resumes the row.
+    if waiting(state) or env.reviewing() or env.ci_waiting():
+        # The turn may end, and it isn't idleness: nothing can be done until a wait passes, a review in flight must not
+        # have the tree change under it, and a CI `wait` starts no next row. Its notification, or the heartbeat,
+        # resumes the row.
         return None
     left = env.rows()
     if left == []:
@@ -610,6 +630,11 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         # A writer resumed now would change the tree under the reviewer, as a crashed writer's surviving dispatcher
         # would see; the review's end, or the next tick, resumes the run. Neither a restart nor idleness.
         return f"waiting: a review is in flight ({reviewing})"
+    checking = env.ci_waiting()
+    if checking:
+        # The gate's own result reaches the session if it is still running, and otherwise the next tick after it ends
+        # resumes the run, which runs the gate again. Neither a restart nor idleness.
+        return f"waiting: CI is being checked ({checking})"
     if quiet >= MAX_QUIET_HOURS:
         end_run(state, "expired", f"nothing changed for {MAX_QUIET_HOURS} hours, so it was not resumed; `process plan` starts it again")
         return "expired"
@@ -1159,7 +1184,7 @@ def real_task_installed() -> bool:
 
 REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed,
            real_modes, real_finish, real_wakes, write_acceptance, review_in_flight, real_subscription, real_tree,
-           real_stop_tree, real_child_output)
+           real_stop_tree, real_child_output, ci_waiting=ci_in_flight)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:

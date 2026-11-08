@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -533,6 +534,17 @@ class Gate(Base):
         code, out = self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
         self.assertIn("action: unverified", out)
 
+    def test_a_wait_names_the_gate_polling_it(self):
+        # The run guard holds the next row only while this process lives (scripts/lib/run_guard.py ci_in_flight).
+        self.gate(FakeGh())
+        self.assertEqual(json.loads(self.state().read_text())["waiting"]["pid"], os.getpid())
+        record = json.loads(self.state().read_text())
+        record["waiting"]["pid"] = 1  # an earlier gate's, now gone
+        self.state().write_text(json.dumps(record))
+        self.gate(FakeGh())
+        after = json.loads(self.state().read_text())["waiting"]
+        self.assertEqual((after["pid"], after["since"]), (os.getpid(), record["waiting"]["since"]))
+
     def test_a_verdict_leaves_no_wait_behind(self):
         self.gate(FakeGh())
         self.assertIn("waiting", json.loads(self.state().read_text()))
@@ -694,7 +706,7 @@ class Gate(Base):
         self.waiting(0)
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
         code, out = self.go(["--gate", "--sha", "c" * 40], FakeGh(), _Named("c" * 40), wall=wall)
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": "c" * 40, "since": wall()})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": "c" * 40, "since": wall(), "pid": os.getpid()})
         self.assertIn("action: wait", out)
 
     def fresh(self, argv, runs=None, changed=("README.md",), wall=1_000_000.0):
@@ -945,7 +957,7 @@ class Gate(Base):
         data = json.loads(out.getvalue())
         self.assertEqual(data["action"], "unverified")
         self.assertIn("ran out", data["error"])
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0, "pid": os.getpid()})
 
     def test_a_new_full_sha_gets_its_own_wait_after_an_older_one_expired(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
@@ -1033,7 +1045,7 @@ class Gate(Base):
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
             ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=expired)
         self.assertIn("action: wait", out.getvalue())
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": git("rev-parse", "HEAD"), "since": expired()})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": git("rev-parse", "HEAD"), "since": expired(), "pid": os.getpid()})
 
     def test_a_slow_git_with_one_second_left_costs_only_that_second(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)

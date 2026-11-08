@@ -601,6 +601,55 @@ class ReviewInFlight(unittest.TestCase):
         self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, env))
 
 
+class CiInFlight(unittest.TestCase):
+    """A CI gate that is polling holds the next row, as process-phase says a `wait` does, and only while the gate lives
+    and its two hours hold. Found by the disposable campaign on 2026-11-08: a gate polling in the background and the
+    Stop hook's "continue" let §2 start before §1's CI cleared."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "build").mkdir()
+
+    def record(self, pid, since):
+        (self.root / "build" / "ci-gate.json").write_text(json.dumps({"waiting": {"sha": "a" * 40, "since": since, "pid": pid}}),
+                                                          encoding="utf-8")
+
+    def env(self, world=None):
+        return guard.replace((world or World()).env(), ci_waiting=lambda: guard.ci_in_flight(self.root))
+
+    def test_only_a_live_gate_inside_its_limit_holds(self):
+        self.assertIsNone(guard.ci_in_flight(self.root))
+        dead = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True).stdout)
+        self.record(dead, time.time())
+        self.assertIsNone(guard.ci_in_flight(self.root), "a dead gate's record held the run")
+        self.record(os.getpid(), time.time() - guard.CI_WAIT_LIMIT - 1)
+        self.assertIsNone(guard.ci_in_flight(self.root), "a wait past its limit held the run")
+        (self.root / "build" / "ci-gate.json").write_text("{bad", encoding="utf-8")
+        self.assertIsNone(guard.ci_in_flight(self.root))
+        self.record(os.getpid(), time.time())
+        self.assertIn("a" * 12, guard.ci_in_flight(self.root))
+
+    def test_the_turn_may_end_and_no_writer_is_resumed_while_the_gate_polls(self):
+        world = World()
+        state = active(restarts=1, restart_signature=world.sig, signature=world.sig, idle=1, yields=1)
+        self.record(os.getpid(), time.time())
+        env = self.env(world)
+        for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
+            self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, env), "the Stop hook sent the turn to the next row")
+        self.assertTrue(guard.watch(state, env).startswith("waiting: CI is being checked"))
+        self.assertEqual((world.spawned, state["restarts"], state["idle"], state["active"]), ([], 1, 1, True))
+        (self.root / "build" / "ci-gate.json").write_text(json.dumps({"proven": "a" * 40}), encoding="utf-8")
+        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, env))
+        self.assertIn("attempt 2", guard.watch(state, env))
+
+    def test_the_limit_is_the_gates_own(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import ci_status
+        self.assertEqual(guard.CI_WAIT_LIMIT, ci_status.WAIT_LIMIT_SECONDS)
+
+
 class Modes(unittest.TestCase):
     """A run's permission mode is one Claude Code accepts, checked the same way however the run starts."""
 
