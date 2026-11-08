@@ -46,6 +46,16 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(REVIEW, background=True)))
         self.assertIsNone(hook.verdict(payload("python3 scripts/review-dispatch.py --prompt p.md 2>&1 | tail -5", background=True)))
 
+    def test_python_s_own_options_and_a_background_separator_hide_nothing(self):
+        for command in ("python -X utf8 scripts/review-dispatch.py --prompt p.md &", "python -W ignore -u scripts/review-dispatch.py --prompt p.md &",
+                        "echo starting & python scripts/review-dispatch.py --prompt p.md &", "py -3.14 -B scripts/review-dispatch.py --prompt p.md &"):
+            with self.subTest(command):
+                self.assertIn("not detached", hook.verdict(payload(command, background=True)))
+        for command in ("python -c \"print('scripts/review-dispatch.py')\"", "python -m pytest scripts/review-dispatch.py",
+                        "cat scripts/review-dispatch.py", "python scripts/review-dispatch.py --check-pin 2>&1 | head"):
+            with self.subTest(command):
+                self.assertIsNone(hook.verdict(payload(command)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
@@ -99,6 +109,10 @@ class Pin(unittest.TestCase):
 
     def decide(self, command, background=True):
         return hook.verdict(payload(command, background=background), self.repo)
+
+    def test_a_dirty_pin_is_seen_past_python_s_options(self):
+        (self.repo / ".conclave" / "reviewers.toml").write_text("schema_version = 2\n", encoding="utf-8")
+        self.assertIn("reviewer pin", self.decide("python -X utf8 scripts/todo-graph.py stamp 'D00 T01 §3'"))
 
     def test_a_dirty_pin_refuses_a_review_and_a_stamp_staged_or_not(self):
         stamp = "python scripts/todo-graph.py stamp 'D00 T01 §3' --sha abc"

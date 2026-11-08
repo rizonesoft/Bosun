@@ -74,6 +74,11 @@ class Pushes(Base):
                 with self.subTest(wrapped):
                     self.assertIn("can't be undone", self.refused(wrapped, tool=tool))
 
+    def test_a_push_after_a_background_separator_is_seen(self):
+        self.refused("echo starting & git push --force")
+        self.allowed("git push origin main 2>&1 | tail -3")
+        self.allowed("make build &> build.log")
+
     def test_ordinary_pushes_pass(self):
         for form in ("git push", "git push -u origin main", "git push origin main:main", "git push -q origin main",
                      "git push --tags", "git status && git push origin feature"):

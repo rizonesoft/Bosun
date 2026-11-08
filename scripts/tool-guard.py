@@ -105,8 +105,8 @@ def tokens_of(text: str) -> list[str]:
 
 
 def split_chain(command: str) -> list[str]:
-    """A command line split on `;`, `&&`, `||`, `|` and newlines, but never inside quotes, so a wrapper's quoted
-    command stays whole."""
+    """A command line split on `;`, `&&`, `||`, `|`, a single background `&` and newlines, but never inside quotes, so
+    a wrapper's quoted command stays whole; `2>&1`, `&>` and `>&` are redirects, not separators."""
     parts, current, quote, i = [], [], None, 0
     while i < len(command):
         char = command[i]
@@ -121,6 +121,9 @@ def split_chain(command: str) -> list[str]:
             parts.append("".join(current))
             current = []
             i += 1
+        elif char == "&" and command[i - 1:i] != ">" and command[i + 1:i + 2] != ">":
+            parts.append("".join(current))  # a background `&`, or PowerShell's call operator: either way a new command
+            current = []
         elif char in ";|\n":
             parts.append("".join(current))
             current = []

@@ -72,6 +72,29 @@ def starts_no_reviewer(words: list[str]) -> bool:
 INTERPRETER = re.compile(r"py(?:thon)?(?:3(?:\.\d+)?)?(?:\.exe)?")
 
 
+VALUED = {"-X", "-W", "--check-hash-based-pycs"}  # Python options that take the next word as their value
+
+
+def script_at(words: list[str]) -> int | None:
+    """Where the script is in a command's words: the first word when the script runs itself, or the first argument
+    after the interpreter's options (each option's value skipped); None for `python -c` and `python -m`."""
+    if not INTERPRETER.fullmatch(os.path.basename(words[0]).lower()):
+        return 0
+    at = 1
+    while at < len(words):
+        word = words[at]
+        if word in ("-c", "-m") or word.startswith(("-c", "-m")) and len(word) > 2 and word[1] in "cm":
+            return None
+        if word in VALUED:
+            at += 2
+            continue
+        if word.startswith("-"):
+            at += 1
+            continue
+        return at
+    return None
+
+
 def runs(command: str, powershell: bool) -> tuple:
     """(runs a review, runs a stamp): what the command really runs, segment by segment."""
     reviewing = stamping = False
@@ -79,11 +102,12 @@ def runs(command: str, powershell: bool) -> tuple:
         words = PARSER.tokens_of(segment)
         if not words:
             continue
-        if INTERPRETER.fullmatch(os.path.basename(words[0]).lower()):
-            words = [w for w in words[1:] if not w.startswith("-")][:1] + words[1:]
-        script = os.path.basename(words[0]).lower() if words else ""
-        reviewing |= script == "review-dispatch.py" and not starts_no_reviewer(words[1:])
-        stamping |= script == "todo-graph.py" and "stamp" in words
+        at = script_at(words)
+        if at is None:
+            continue
+        script, args = os.path.basename(words[at]).lower(), words[at + 1:]
+        reviewing |= script == "review-dispatch.py" and not starts_no_reviewer(args)
+        stamping |= script == "todo-graph.py" and "stamp" in args
     return reviewing, stamping
 
 
