@@ -36,6 +36,10 @@ jobs:
         run: cmake --build build --config Release -- /p:TreatWarningsAsErrors=true
       - name: Core tests
         run: build\Release\test_core.exe
+      - name: Core test names
+        run: pwsh tests\core_names_test.ps1
+      - name: Preflight test
+        run: pwsh tests\preflight_test.ps1
       - name: Queue tests
         run: pwsh tests\queue_test.ps1 -SkipWsl
       - name: Build output test

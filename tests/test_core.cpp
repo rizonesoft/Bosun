@@ -1,8 +1,13 @@
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <set>
 
 #include "../src/core.hpp"
 
+// Named groups, so a section's checkpoint can run exactly the tests it owns: `test_core <name>`. With no name every
+// implemented group runs. A reserved name belongs to a section not built yet: selecting it fails, so that section
+// can't pass on tests that don't exist, and it joins the default run once its function is filled in.
 static int failures = 0;
 #define CHECK(cond)                                                \
     do {                                                           \
@@ -19,19 +24,23 @@ static dm::Row repo(const char* ts, const char* side, const char* name, int64_t 
     return {ts, side, "repo", name, 1, v, 0};
 }
 
-int main() {
+static void slots() {
     // The memory gate never blocks slot 0, so a lone job always runs.
     CHECK(dm::slot_admits(0, 0, 6144));
     CHECK(!dm::slot_admits(1, 6143, 6144));
     CHECK(dm::slot_admits(1, 6144, 6144));
+}
 
+static void quoting() {
     // Quoting follows the CommandLineToArgvW rules.
     CHECK(dm::quote_arg(L"plain") == L"plain");
     CHECK(dm::quote_arg(L"") == L"\"\"");
     CHECK(dm::quote_arg(L"a b") == L"\"a b\"");
     CHECK(dm::quote_arg(L"a\"b") == L"\"a\\\"b\"");
     CHECK(dm::quote_arg(L"C:\\a b\\") == L"\"C:\\a b\\\\\"");
+}
 
+static void batch() {
     // Batch words are quoted, so metacharacters stay text, and % cannot form a variable reference.
     CHECK(dm::batch_quote(L"a&calc") == L"\"a&calc\"");
     CHECK(dm::batch_quote(L"a\"b") == L"\"a\"\"b\"");
@@ -41,7 +50,9 @@ int main() {
     CHECK(line == L"cmd.exe /e:ON /v:OFF /d /s /c \"\"C:\\Program Files\\npm.cmd\" \"test\"\"");
     CHECK(!dm::build_command_line(L"npm.cmd", {L"a\nb"}, true).has_value());
     CHECK(dm::build_command_line(L"x.exe", {L"a&b"}, false) == L"x.exe a&b");
+}
 
+static void repos() {
     // Repo attribution walks up to the nearest .git and keeps same-named repos apart.
     std::set<std::string> gits{"D:/GitHub/Bosun", "/home/u/a/app", "/home/u/b/app"};
     auto has = [&](const std::string& d) { return gits.count(d) > 0; };
@@ -49,7 +60,9 @@ int main() {
     CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\", has) == "D:/GitHub/Bosun");
     CHECK(dm::repo_from_path("/home/u/a/app/src", has) != dm::repo_from_path("/home/u/b/app/src", has));
     CHECK(!dm::repo_from_path("C:\\Windows\\System32", has).has_value());
+}
 
+static void rows() {
     // Rows: the header and truncated lines from a killed sampler are skipped.
     CHECK(!dm::parse_row("ts,side,kind,name,count,private_mb,rss_mb"));
     CHECK(!dm::parse_row("2026-11-07T10:00:00,win,sys,avail"));
@@ -58,9 +71,11 @@ int main() {
     CHECK(ok && ok->name == "Bosun" && ok->count == 3 && ok->private_mb == 120 && ok->rss_mb == 90);
     CHECK(dm::csv_name("a,b\"c%") == "a%2Cb%22c%25");
     CHECK(dm::csv_name("a,b") != dm::csv_name("a_b"));
+}
 
+static void aggregate() {
     // Aggregation joins both sides on the minute and finds the worst moment.
-    std::vector<dm::Row> rows{
+    std::vector<dm::Row> samples{
         sys("2026-11-07T10:00:05", "win", "available_mb", 9000),
         sys("2026-11-07T10:00:35", "win", "available_mb", 8000),
         repo("2026-11-07T10:00:05", "win", "A", 1000),
@@ -73,7 +88,7 @@ int main() {
         sys("2026-11-07T10:01:05", "win", "commit_mb", 30000),
         sys("2026-11-07T10:01:05", "win", "commit_limit_mb", 80000),
     };
-    dm::Report r = dm::aggregate(rows);
+    dm::Report r = dm::aggregate(samples);
     CHECK(r.win_samples == 3);
     CHECK(r.low_samples == 1);
     CHECK(r.min_avail_mb == 1500);
@@ -88,7 +103,76 @@ int main() {
     CHECK(r.max_commit_mb == 30000);
     CHECK(dm::render(r).find("lowest available: 1500 MB") != std::string::npos);
     CHECK(dm::render(dm::Report{}).find("No samples") != std::string::npos);
+}
 
+struct Group {
+    const char* name;
+    void (*run)();      // null while the group is reserved
+    const char* owner;  // the section that fills a reserved group in
+};
+
+static const Group groups[] = {
+    {"slots", slots, nullptr},
+    {"quoting", quoting, nullptr},
+    {"batch", batch, nullptr},
+    {"repos", repos, nullptr},
+    {"rows", rows, nullptr},
+    {"aggregate", aggregate, nullptr},
+    {"records", nullptr, "D01 T01"},
+    {"status_json", nullptr, "D01 T01"},
+    {"report_json", nullptr, "D01 T01"},
+    {"config", nullptr, "D01 T01"},
+    {"pressure", nullptr, "D05 T02"},
+};
+
+static std::string env(const char* name) {
+#ifdef _MSC_VER
+    char* value = nullptr;
+    size_t size = 0;
+    std::string out;
+    if (_dupenv_s(&value, &size, name) == 0 && value) out = value;
+    std::free(value);
+    return out;
+#else
+    const char* value = std::getenv(name);
+    return value ? value : "";
+#endif
+}
+
+static void run_group(const Group& g) {
+    std::printf("group %s\n", g.name);
+    g.run();
+    // A test of the runner itself: a forced failure proves a group's failure reaches the exit code.
+    CHECK(env("TEST_CORE_FORCE_FAIL") != g.name);
+}
+
+int main(int argc, char** argv) {
+    if (argc > 2) {
+        std::printf("usage: test_core [--list | <group>]\n");
+        return 2;
+    }
+    if (argc == 2 && std::strcmp(argv[1], "--list") == 0) {
+        for (const Group& g : groups) std::printf("%s %s\n", g.name, g.run ? "implemented" : "reserved");
+        return 0;
+    }
+    if (argc == 2) {
+        for (const Group& g : groups) {
+            if (std::strcmp(argv[1], g.name) != 0) continue;
+            if (!g.run) {
+                std::printf("FAIL %s is reserved for %s and has no tests yet\n", g.name, g.owner);
+                return 1;
+            }
+            run_group(g);
+            if (failures) return 1;
+            std::printf("ok\n");
+            return 0;
+        }
+        std::printf("FAIL no test group named %s (test_core --list shows them)\n", argv[1]);
+        return 2;
+    }
+    for (const Group& g : groups) {
+        if (g.run) run_group(g);
+    }
     if (failures) return 1;
     std::printf("ok\n");
     return 0;
