@@ -236,6 +236,8 @@ Failed attempts don't count as reviews, and each one changes the tree, so a brok
 
 ## 5. Usage limits wait and resume
 
+> **Started:** 2026-11-08T00:37:48Z
+
 The owner chose subscription only, so hitting a limit costs time and never money. Today three restarts with nothing changed call the run stalled, which can happen long before a limit resets.
 
 **Corrected 2026-11-08:** Claude Code's `StopFailure` hook input (https://code.claude.com/docs/en/hooks) carries `error`, one of `rate_limit`, `overloaded`, `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `billing_error`, `invalid_request`, `model_not_found`, `server_error`, `max_output_tokens`, `cloud_credential_error` or `unknown`, with `error_details` and `last_assistant_message` as text. A usage limit arrives as `rate_limit`, and no reset-time field is documented, so the reset is read from that text when it gives one. `D00 T03 §4` already built the waiting state (`set_wait`, `waiting`, `end_wait`), during which `watch` counts no restart and a fresh budget follows; this section uses it.
