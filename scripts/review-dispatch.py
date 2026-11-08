@@ -395,7 +395,6 @@ def lens_block(plan):
 # findings files, every cycle of it, and only from the writer's lines: a line inside a recorded review is the
 # reviewer's, and a reviewer must not settle its own finding by quoting the form.
 SETTLED = re.compile(r"^- (?:Filed|Not taken|Settled): \S")
-MAX_SETTLED = 200
 SECTION_STEM = re.compile(r"(D\d+-T\d+-s\d+)(?:-cycle(\d+))?")
 
 
@@ -407,11 +406,17 @@ def section_findings(record):
     if not match:
         return [path]
     files = {path, path.with_name(match[1] + path.suffix)}
+    # os.scandir, not Path.glob: glob swallows a folder it cannot list (Python 3.13 and later), which would drop a
+    # cycle's settled items unseen. A folder that does not exist yet holds no other cycle.
     try:
-        siblings = list(path.parent.glob(f"{match[1]}-cycle*{path.suffix}"))
+        with os.scandir(path.parent if str(path.parent) else ".") as entries:
+            names = [entry.name for entry in entries]
+    except FileNotFoundError:
+        names = []
     except OSError as exc:
         raise Refused(f"{path.parent} cannot be listed ({exc}), so the section's settled items cannot be carried; "
                       f"no reviewer ran") from None
+    siblings = [path.with_name(name) for name in names if name.endswith(path.suffix)]
     files.update(p for p in siblings if (m := SECTION_STEM.fullmatch(p.stem)) and m[1] == match[1] and m[2])
     return sorted(files, key=lambda p: int(SECTION_STEM.fullmatch(p.stem)[2] or 1))
 
@@ -422,13 +427,15 @@ def settled_items(record):
     writer's lines, is refused (`Refused`) rather than skipped, as Recto does, since skipping it would drop its settled
     items unseen. `record` itself is left to the paths that write it: a returned review is then refused a place in it
     (`Unrecorded`, exit 2) and reaches stdout only, so no recorded pass ever ran without its settled items."""
-    items = []
+    items, seen = [], set()  # every decision is carried: Recto's cap of 200 dropped later ones unseen
     own = Path(record)
     for path in section_findings(record):
+        # Read directly, not after Path.exists(): exists() answers False for a file it may not inspect, which would
+        # pass an inaccessible cycle off as an absent one.
         try:
-            if not path.exists():
-                continue
             text = path.read_bytes().decode("utf-8")
+        except FileNotFoundError:
+            continue
         except (OSError, UnicodeDecodeError) as exc:
             if path == own:
                 continue
@@ -443,9 +450,10 @@ def settled_items(record):
         inside = {n for start, end in found["bodies"] for n in range(start, end)}
         for n, line in enumerate(raw_lines(text)):
             line = canonical(line).strip()
-            if n not in inside and SETTLED.match(line) and line not in items:
+            if n not in inside and SETTLED.match(line) and line not in seen:
+                seen.add(line)
                 items.append(line)
-    return items[:MAX_SETTLED]
+    return items
 
 
 def settled_block(items):

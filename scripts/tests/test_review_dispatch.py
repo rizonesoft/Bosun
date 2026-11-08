@@ -1747,6 +1747,53 @@ class Settled(Harness):
         result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.assertEqual(result.returncode, 0, "a first pass on a new record runs: an absent file is not an error")
 
+    def test_an_access_error_is_refused_not_taken_for_an_absent_file(self):
+        # Round 1: Path.glob swallowed a folder it could not list and Path.exists answered False for a file it could
+        # not inspect, so an inaccessible cycle passed for an absent one and its settled items vanished.
+        module = self.module()
+        base = self.folder / "D00-T01-s2.md"
+        self.seed(base, self.SETTLED_LINE)
+        record = self.folder / "D00-T01-s2-cycle3.md"
+        (self.folder / "D00-T01-s2-cycle2.md").write_text("- Settled: from cycle two\n", encoding="utf-8")
+        self.assertEqual(module.settled_items(record), [self.SETTLED_LINE, "- Settled: from cycle two"])
+
+        def unlistable(*args, **kwargs):
+            raise PermissionError(13, "Access is denied")
+
+        with unittest.mock.patch.object(module.os, "scandir", unlistable):
+            with self.assertRaisesRegex(module.Refused, "cannot be listed .*no reviewer ran"):
+                module.settled_items(record)
+        real_read, real_stat, real_exists = Path.read_bytes, Path.stat, os.path.exists
+
+        def exists(path):
+            # os.path.exists answers False when stat is denied; Python 3.14's Path.exists() calls it.
+            return False if Path(path).name == "D00-T01-s2-cycle2.md" else real_exists(path)
+
+        def guarded(real):
+            def call(path, *args, **kwargs):
+                if path.name == "D00-T01-s2-cycle2.md":
+                    raise PermissionError(13, "Access is denied", str(path))
+                return real(path, *args, **kwargs)
+            return call
+
+        # Both metadata and content are denied, as for a real file this account may not open: Path.exists() then
+        # answers False, which must not pass for absence.
+        with unittest.mock.patch.object(Path, "read_bytes", guarded(real_read)), \
+                unittest.mock.patch.object(Path, "stat", guarded(real_stat)), \
+                unittest.mock.patch("os.path.exists", exists):
+            self.assertFalse((self.folder / "D00-T01-s2-cycle2.md").exists(), "the injected denial reaches exists()")
+            with self.assertRaisesRegex(module.Refused, "D00-T01-s2-cycle2.md cannot be read .*no reviewer ran"):
+                module.settled_items(record)
+        # A section folder that does not exist yet is a first pass, not an error.
+        self.assertEqual(module.settled_items(self.repo / "docs/reviews/09-new/D09-T01-s1.md"), [])
+
+    def test_every_decision_is_carried_past_two_hundred(self):
+        record = self.folder / "D00-T01-s2.md"
+        self.seed(record, *[f"- Settled: decision {n}" for n in range(1, 251)])
+        items = self.module().settled_items(record)
+        self.assertEqual(len(items), 250)
+        self.assertEqual(items[-1], "- Settled: decision 250")
+
     def test_a_failed_pass_records_no_approval_and_keeps_its_duration(self):
         record = self.folder / "D00-T01-s2.md"
         self.seed(record, self.SETTLED_LINE)
