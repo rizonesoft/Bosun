@@ -68,7 +68,9 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("hook", "watch", "install", "uninstall"):
         commands.add_parser(name)
-    commands.add_parser("status").add_argument("--json", action="store_true", help="print only the JSON")
+    status = commands.add_parser("status")
+    status.add_argument("--json", action="store_true", help="print only the JSON")
+    status.add_argument("--verify", action="store_true", help="check the watchdog's task and its last tick; exit 1 when unhealthy")
     wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
     wait.add_argument("--reason", required=True)
     wait.add_argument("--until", help="when the wait ends, as 2026-11-08T12:00:00Z")
@@ -87,8 +89,10 @@ def main() -> int:
             output = guard.hook(sys.stdin.buffer.read().decode("utf-8", "replace"))
         except Exception as error:  # fail open, and say so: a broken guard must never wedge a session or pass unseen
             guard.log(f"hook failed open: {error!r}")
+            guard.record_hook_failure(repr(error))  # where `status` shows it; never raises
             say(json.dumps({"systemMessage": f"Run guard failed and is not holding this run: {error}"}))
             return 0
+        guard.clear_hook_failures()
         if output:
             say(output)
         return 0
@@ -98,20 +102,37 @@ def main() -> int:
         return uninstall()
 
     if args.command == "status":
-        state = guard.load()
-        word = ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
+        unreadable = None
+        try:
+            state = guard.load()
+        except (OSError, ValueError) as error:  # a corrupt state is shown, never raised: health still has to show
+            state, unreadable = {}, repr(error)
+        word = "unreadable" if unreadable else ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
         detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "restarts", "yields", "last_restart", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
         if guard.waiting(state):
             detail["wait_until"] = guard.stamp(state["wait_until"])
         data = {"state": word, **detail, **guard.health(state)}
+        if unreadable:
+            data["state_error"] = unreadable
+        if args.verify:
+            data["verify"] = guard.verify()
+        code = 1 if args.verify and not data["verify"]["healthy"] else 0
         if args.json:
             say(json.dumps(data))
-            return 0
+            return code
         say(word)
+        if unreadable:
+            say(f"the run state can't be read: {unreadable}")
+        for failure in data.get("hook_failures") or []:
+            say(f"a hook failed open at {failure.get('at')}: {failure.get('error')}")
+        if args.verify:
+            say(f"watchdog {data['verify']['watchdog']}: " + ("healthy" if data["verify"]["healthy"] else "unhealthy"))
+            for problem in data["verify"]["problems"]:
+                say(f"  {problem}")
         if word == "waiting":
             say(f"waiting for {state['wait_reason']} until {detail['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
         say(json.dumps(data))
-        return 0
+        return code
     if args.command == "wait":
         if (args.until is None) == (args.minutes is None):
             say("give --until or --minutes")

@@ -39,7 +39,14 @@ MAX_IDLE_BLOCKS = 5  # sends back in a row with nothing changed, before the turn
 MAX_YIELDS = 3  # those yields in a row with nothing changed, before the run is called stalled
 MAX_RESTARTS = 3  # resumes of a dead session with nothing changed, before the run is called stalled
 MAX_QUIET_HOURS = 72  # a run this long without a change has been walked away from; it never resumes itself
-CHILD_HANG_HOURS = 3  # a resumed session this long without a change is reported, not replaced
+CHILD_HANG_HOURS = 3  # a resumed session this long without a change is stopped and replaced, unless it's in the build queue
+MAX_FRESH_STARTS = 1  # a run whose session lost its transcript starts afresh once; a second loss ends it
+TRANSCRIPT_GONE = re.compile(r"No conversation found with session ID", re.I)
+CHILD_OUTPUT_LIMIT = 64 * 1024
+HEARTBEAT_TASK = "Bosun heartbeat"
+HEARTBEAT_MINUTES = 5  # scripts/install.ps1 schedules it every five minutes
+HOOK_FAILURES = "guard-health.json"
+HOOK_FAILURES_KEPT = 10
 HEARTBEAT_RENEW_DAYS = 6  # CronCreate jobs expire after 7 days
 LOCK_WAIT = 5  # seconds, well under every hook's timeout: slow reads happen before the lock, see snapshot
 
@@ -86,7 +93,8 @@ class Env:
     rows: Callable[[], list[str] | None]
     signature: Callable[[], str]
     alive: Callable[[str], bool]
-    live_here: Callable[[], list[str]]
+    # The sessions in this checkout, each {"id", "status"} from Claude Code's own record (a bare id: status unknown).
+    live_here: Callable[[], list]
     child_alive: Callable[[dict], bool]
     spawn: Callable[[dict], dict]
     task_installed: Callable[[], bool] = lambda: True
@@ -103,6 +111,12 @@ class Env:
     reviewing: Callable[[], object] = lambda: None
     # (ok, reason, detail): whether a launch now would run on the subscription.
     subscription: Callable[[], tuple] = lambda: (True, "", "")
+    # The child's process tree, each {"pid", "started", "name", "command"}, the child first.
+    tree: Callable[[dict], list] = lambda child: []
+    # Stop the child's tree, returning the pids of the listed processes still running afterwards.
+    stop_tree: Callable[[dict, list], list] = lambda child, procs: []
+    # What the child wrote since it was launched.
+    child_output: Callable[[dict], str] = lambda child: ""
 
 
 def stamp(now: float | None = None) -> str:
@@ -209,6 +223,52 @@ def log(line: str, path: Path = STATE) -> None:
             out.write(f"{stamp()} {line}\n")
     except OSError:
         pass
+
+
+def note(state: dict, line: str) -> None:
+    """A line for the guard log, written by the tick that saves this state."""
+    state.setdefault("log_lines", []).append(line)
+
+
+def holding_sessions(live: list, owner: str | None) -> list[str]:
+    """The live sessions that hold this tree: the run's own, whatever it is doing, and any other not `idle` (a status
+    that can't be read counts as busy, since not knowing is not the same as idle)."""
+    found = []
+    for session in live:
+        sid, status = (session.get("id"), session.get("status")) if isinstance(session, dict) else (session, None)
+        if sid == owner:
+            found.append(str(sid))
+        elif status != "idle":
+            found.append(f"{sid} ({status or 'status unknown'})")
+    return found
+
+
+def in_build_queue(proc: dict) -> bool:
+    """A `bosun run` process holds a build slot or waits for one. On Windows the snapshot has no command line, and
+    nothing else in a session's tree runs bosun.exe for hours, so its image name is enough."""
+    name = str(proc.get("name") or "").lower()
+    return name in ("bosun.exe", "bosun") or bool(re.search(r"\bbosun(\.exe)?\s+run\b", str(proc.get("command") or "")))
+
+
+def stop_hung(state: dict, child: dict, env: Env) -> str | None:
+    """Stop a hung child, or say why not. None when it is gone and the run can resume; otherwise the tick's result."""
+    pid = child.get("pid")
+    procs = env.tree(child)
+    queued = [p for p in procs if in_build_queue(p)]
+    if queued:
+        return f"resumed session {pid} is in the build queue (bosun {queued[0].get('pid')}); left running"
+    if not env.child_alive(child):  # it ended, or its pid now belongs to a stranger, who is never stopped
+        state.pop("child", None)
+        note(state, f"resumed session {pid} was gone when it came to be stopped")
+        return None
+    survivors = env.stop_tree(child, procs)
+    if survivors:
+        end_run(state, "stalled", f"resumed session {pid} changed nothing for {CHILD_HANG_HOURS} hours and couldn't be "
+                                  f"stopped; still running: {', '.join(str(s) for s in survivors)}")
+        return "stalled"
+    note(state, f"stopped resumed session {pid} and its {len(procs)} processes: nothing changed for {CHILD_HANG_HOURS} hours")
+    state.pop("child", None)
+    return None
 
 
 def end_run(state: dict, status: str, why: str) -> None:
@@ -497,12 +557,23 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
     if signature != state.get("restart_signature"):
         state.update(restart_signature=signature, restarts=0, changed_at=now)
     quiet = (now - state.get("changed_at", now)) / 3600
-    if state.get("child") and env.child_alive(state["child"]):
-        if (now - max(state.get("changed_at", now), state.get("launched_at", 0))) / 3600 >= CHILD_HANG_HOURS:
-            end_run(state, "stalled", f"resumed session {state['child'].get('pid')} changed nothing for {CHILD_HANG_HOURS} hours; it was left running")
+    child = state.get("child")
+    if child and env.child_alive(child):
+        if (now - max(state.get("changed_at", now), state.get("launched_at", 0))) / 3600 < CHILD_HANG_HOURS:
+            return "resumed session still running"
+        stopped = stop_hung(state, child, env)
+        if stopped is not None:
+            return stopped
+    elif child and not child.get("fresh") and TRANSCRIPT_GONE.search(env.child_output(child) or ""):
+        # `--resume` found no transcript: the session can't come back, so the run starts a fresh `process plan`.
+        if state.get("fresh_starts", 0) >= MAX_FRESH_STARTS:
+            end_run(state, "stalled", f"session {state.get('session_id')}'s transcript is gone, and the run already started "
+                                      f"afresh once; `process plan` starts it again")
             return "stalled"
-        return "resumed session still running"
-    live = env.live_here()
+        state.pop("child", None)
+        state["fresh_next"] = True
+        note(state, f"session {state.get('session_id')}'s transcript is gone; the next launch starts a fresh session")
+    live = holding_sessions(env.live_here(), state.get("session_id"))
     if live:
         return f"session live here: {live[0]}"
     reviewing = env.reviewing()
@@ -532,6 +603,10 @@ def watch(state: dict, env: Env, now: float | None = None) -> str:
         set_wait(state, reason or "sign-in-needed", now + SIGN_IN_WAIT, detail)
         return f"waiting: {state['wait_reason']} until {stamp(state['wait_until'])}"
     child = env.spawn(state)  # a launch that fails raises and uses no attempt: nothing ran, so nothing was tried
+    if state.pop("fresh_next", False):
+        child = {**child, "fresh": True}
+        state["fresh_starts"] = state.get("fresh_starts", 0) + 1
+        note(state, f"started a fresh `process plan` session (pid {child.get('pid')}), as {state.get('permission_mode') or 'default'}")
     state.update(child=child, restarts=state.get("restarts", 0) + 1, launched_at=now, last_restart=stamp())
     return f"resumed, attempt {state['restarts']}"
 
@@ -686,8 +761,8 @@ def real_alive(session: str) -> bool:
     return any(r.get("sessionId") == session for r in session_records())
 
 
-def real_live_here() -> list[str]:
-    return [str(r.get("sessionId")) for r in session_records() if same_folder(r.get("cwd"), ROOT)]
+def real_live_here() -> list[dict]:
+    return [{"id": str(r.get("sessionId")), "status": r.get("status")} for r in session_records() if same_folder(r.get("cwd"), ROOT)]
 
 
 def real_child_alive(child: dict) -> bool:
@@ -697,7 +772,7 @@ def real_child_alive(child: dict) -> bool:
 
 def resume_command(state: dict, claude: str) -> list[str]:
     command = [claude, "-p", "process plan"]
-    if state.get("session_id"):
+    if state.get("session_id") and not state.get("fresh_next"):  # a lost transcript starts afresh
         command += ["--resume", state["session_id"]]
     # The operator's own mode for this run and no wider; `default` is Claude Code's own and needs no flag.
     if state.get("permission_mode") and state["permission_mode"] != "default":
@@ -854,9 +929,122 @@ def real_spawn(state: dict) -> dict:
     output = STATE.with_name("resumed-session.log")
     flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     with output.open("ab") as out:
+        offset = out.tell()  # where this child's own output starts, so an old child's error is never read as its own
         child = subprocess.Popen(resume_command(state, claude), cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=out,
                                  creationflags=flags, env=child_env(os.environ, lambda line: log(line, STATE)))  # beside the state in use
-    return {"pid": child.pid, "started": process_started(child.pid)}
+    return {"pid": child.pid, "started": process_started(child.pid), "log_offset": offset}
+
+
+def real_child_output(child: dict, path: Path | None = None) -> str:
+    path = path or STATE.with_name("resumed-session.log")
+    try:
+        with path.open("rb") as handle:
+            handle.seek(int(child.get("log_offset") or 0))
+            return handle.read(CHILD_OUTPUT_LIMIT).decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return ""
+
+
+def process_table() -> list[dict]:
+    """Every process: {"pid", "ppid", "name", "command"}. On Windows from a toolhelp snapshot, on Linux from /proc."""
+    if os.name != "nt":
+        table = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                stat = (entry / "stat").read_text()
+                ppid = int(stat[stat.rindex(")") + 2:].split()[1])
+                command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+                table.append({"pid": int(entry.name), "ppid": ppid, "name": (entry / "comm").read_text().strip(), "command": command})
+            except (OSError, ValueError, IndexError):
+                continue
+        return table
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", wintypes.WCHAR * 260)]
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel.CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    kernel.Process32FirstW.argtypes = kernel.Process32NextW.argtypes = (wintypes.HANDLE, ctypes.POINTER(Entry))
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    snap = kernel.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    if snap in (None, wintypes.HANDLE(-1).value):
+        raise OSError("the process list can't be read")
+    table = []
+    try:
+        entry = Entry()
+        entry.dwSize = ctypes.sizeof(Entry)
+        more = kernel.Process32FirstW(snap, ctypes.byref(entry))
+        while more:
+            table.append({"pid": entry.th32ProcessID, "ppid": entry.th32ParentProcessID, "name": entry.szExeFile, "command": ""})
+            more = kernel.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        kernel.CloseHandle(snap)
+    return table
+
+
+def descendants(root_pid: int, root_started, table: list[dict], started: Callable[[int], object]) -> list[dict]:
+    """The process tree under root_pid, the root first. A process counts as a child only if it started after its
+    parent: a parent pid outlives its process and can be reused, and a stranger must never be swept in."""
+    tree = [{"pid": root_pid, "started": root_started, "name": next((p["name"] for p in table if p["pid"] == root_pid), ""),
+             "command": next((p["command"] for p in table if p["pid"] == root_pid), "")}]
+    seen = {root_pid}
+    frontier = [(root_pid, root_started)]
+    while frontier:
+        parent, parent_started = frontier.pop()
+        for proc in table:
+            if proc["ppid"] != parent or proc["pid"] in seen:
+                continue
+            when = started(proc["pid"])
+            if when is None or (isinstance(when, int) and isinstance(parent_started, int) and when < parent_started):
+                continue
+            seen.add(proc["pid"])
+            tree.append({**proc, "started": when})
+            frontier.append((proc["pid"], when))
+    return tree
+
+
+def real_tree(child: dict) -> list[dict]:
+    return descendants(int(child.get("pid", 0)), child.get("started"), process_table(), process_started)
+
+
+def survivors(procs: list[dict], started: Callable[[int], object] = None) -> list[int]:
+    started = started or process_started
+    left = []
+    for proc in procs:
+        try:
+            if started(proc["pid"]) == proc["started"] and proc["started"] is not None:
+                left.append(proc["pid"])
+        except OSError:
+            left.append(proc["pid"])  # can't tell: not proved stopped
+    return left
+
+
+def real_stop_tree(child: dict, procs: list[dict]) -> list[int]:
+    if os.name == "nt":
+        try:
+            run("taskkill", "/T", "/F", "/PID", str(child["pid"]), timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass  # what survived is what counts, read below
+    else:
+        import signal
+        for proc in reversed(procs):  # deepest first, so nothing is orphaned past the sweep
+            try:
+                os.kill(proc["pid"], signal.SIGKILL)
+            except OSError:
+                pass
+    deadline = time.time() + 10
+    left = survivors(procs)
+    while left and time.time() < deadline:
+        time.sleep(0.5)
+        left = survivors(procs)
+    return left
 
 
 def heartbeat_task_exists() -> bool:
@@ -900,7 +1088,8 @@ def real_task_installed() -> bool:
 
 
 REAL = Env(real_rows, real_signature, real_alive, real_live_here, real_child_alive, real_spawn, real_task_installed,
-           real_modes, real_finish, real_wakes, write_acceptance, review_in_flight, real_subscription)
+           real_modes, real_finish, real_wakes, write_acceptance, review_in_flight, real_subscription, real_tree,
+           real_stop_tree, real_child_output)
 
 
 def record_tick(result: str, ok: bool, path: Path = STATE) -> None:
@@ -924,7 +1113,168 @@ def health(state: dict, path: Path = STATE, env: Env = REAL, now: float | None =
         "last_tick": tick,
         "last_tick_stale": tick is None or not tick.get("ok") or now - calendar.timegm(time.strptime(tick["at"], "%Y-%m-%dT%H:%M:%SZ")) > (WATCH_MINUTES * 3) * 60,
         "heartbeat_current": heartbeat_current(state, now),
+        "hook_failures": hook_failures(path),
     }
+
+
+def hook_failures(path: Path = STATE) -> list:
+    try:
+        data = json.loads(path.with_name(HOOK_FAILURES).read_text(encoding="utf-8"))
+        return data.get("failures", []) if isinstance(data, dict) else []
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as error:
+        return [{"at": None, "error": f"{HOOK_FAILURES} can't be read: {error!r}"}]
+
+
+def record_hook_failure(error: str, path: Path = STATE) -> None:
+    """Keep a hook that failed open where `status` shows it. Never raises: a full disk mustn't block the session."""
+    try:
+        failures = [f for f in hook_failures(path) if f.get("at")][-(HOOK_FAILURES_KEPT - 1):]
+        failures.append({"at": stamp(), "error": error[:500]})
+        target = path.with_name(HOOK_FAILURES)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"failures": failures}), encoding="utf-8")
+        os.replace(tmp, target)
+    except Exception:  # noqa: BLE001 - the hook is already failing open; this record is best effort by design
+        pass
+
+
+def clear_hook_failures(path: Path = STATE) -> None:
+    """A hook that ran clean: the guard works again, so the old failures no longer describe it."""
+    try:
+        path.with_name(HOOK_FAILURES).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def parse_stamp(text) -> float | None:
+    try:
+        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError):
+        return None
+
+
+def user_ids() -> set:
+    """This user's names as a task's principal may give them: the name, DOMAIN\\name, and the SID."""
+    name = os.environ.get("USERNAME") or os.environ.get("USER") or ""
+    ids = {name.lower(), f"{os.environ.get('USERDOMAIN', '')}\\{name}".lower()}
+    if os.name == "nt":
+        try:
+            done = run("whoami", "/user", "/fo", "csv", "/nh")
+            ids.add(done.stdout.decode("utf-8", "replace").strip().split(",")[-1].strip('" ').lower())
+        except (OSError, subprocess.SubprocessError, IndexError):
+            pass
+    return {i for i in ids if i and i != "\\"}
+
+
+def read_task_xml(name: str) -> tuple:
+    """(code, text) of `schtasks /Query /XML` for one task; code None when schtasks can't be run."""
+    try:
+        done = run("schtasks", "/Query", "/TN", name, "/XML", timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, repr(error)
+    return done.returncode, (done.stdout or done.stderr).decode("utf-8", "replace")
+
+
+def read_json_file(path: Path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        return {"__unreadable__": repr(error)}
+
+
+def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: set, is_file: Callable[[str], bool]) -> list[str]:
+    problems = []
+    command = re.search(r"<Command>(.*?)</Command>", xml, re.S)
+    arguments = re.search(r"<Arguments>(.*?)</Arguments>", xml, re.S)
+    program = command.group(1).strip().strip('"') if command else ""
+    args = arguments.group(1) if arguments else ""
+    if not program:
+        problems.append("its action has no program")
+    elif not is_file(program):
+        problems.append(f"its program is missing: {program}")
+    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', args)
+    script = (script.group(1) or script.group(2)) if script else ""
+    if not script:
+        problems.append("its action runs no script")
+    elif not is_file(script):
+        problems.append(f"its script is missing: {script}")
+    elif not script_ok(script):
+        problems.append(f"its action runs another script: {script}")
+    if word not in re.findall(r"[\w-]+", args.replace(script, " ")):
+        problems.append(f"its action doesn't run `{word}`: {args.strip()}")
+    logon = re.search(r"<LogonType>(.*?)</LogonType>", xml, re.S)
+    user = re.search(r"<UserId>(.*?)</UserId>", xml, re.S)
+    if not logon or logon.group(1).strip() != "InteractiveToken":
+        problems.append(f"it doesn't run in this user's session (logon {logon.group(1).strip() if logon else 'not given'})")
+    if not user or user.group(1).strip().lower() not in ids:
+        problems.append(f"it runs as another user: {user.group(1).strip() if user else 'not given'}")
+    enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", xml, re.S | re.I)
+    if enabled and enabled.group(1).lower() == "false":
+        problems.append("it is disabled")
+    return problems
+
+
+def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task_xml: Callable = read_task_xml,
+           read_json: Callable = read_json_file, is_file: Callable = os.path.isfile, ids: set | None = None) -> dict:
+    """Whether the watchdog will really tick this repo: its task (the repo's own, or the heartbeat's when the heartbeat
+    lists the repo) runs the right thing as this user, is enabled, and has ticked lately. Each problem has a reason."""
+    now = time.time() if now is None else now
+    ids = user_ids() if ids is None else ids
+    beat = Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "heartbeat"
+    repos = read_json(beat / "repos.json")
+    here = os.path.normcase(os.path.normpath(str(root)))
+    listed = isinstance(repos, dict) and isinstance(repos.get("repos"), list) and any(
+        isinstance(r, dict) and not r.get("distro") and os.path.normcase(os.path.normpath(str(r.get("path", "")))) == here
+        for r in repos["repos"])
+    problems = []
+    if listed:
+        name, word, minutes = HEARTBEAT_TASK, "tick", HEARTBEAT_MINUTES
+        script_ok = lambda s: Path(s).name.lower() == "heartbeat.py"
+    else:
+        name, word, minutes = TASK_NAME, "watch", WATCH_MINUTES
+        own = os.path.normcase(os.path.normpath(str(root / "scripts" / "run-guard.py")))
+        script_ok = lambda s: os.path.normcase(os.path.normpath(s)) == own
+    code, xml = task_xml(name)
+    if code is None:
+        problems.append(f"the task {name} can't be read: {xml}")
+    elif code != 0:
+        problems.append(f"the task {name} is missing" if "cannot find" in xml.lower() else f"the task {name} can't be read: {xml.strip()[:200]}")
+    else:
+        problems += [f"{name}: {p}" for p in task_problems(xml, script_ok, word, ids, is_file)]
+    limit = 2 * minutes * 60
+    if listed:
+        status = read_json(beat / "status.json")
+        if not isinstance(status, dict) or "__unreadable__" in status:
+            problems.append("the heartbeat's status.json can't be read")
+        else:
+            last = parse_stamp(status.get("last_pass"))
+            if last is None or now - last > limit:
+                problems.append(f"the heartbeat hasn't run a pass in {2 * minutes} minutes (last {status.get('last_pass')})")
+            elif not status.get("hold"):
+                entry = (status.get("repos") or {}).get(here) if isinstance(status.get("repos"), dict) else None
+                active = sum(1 for r in repos["repos"] if isinstance(r, dict) and r.get("state") == "active")
+                at = parse_stamp(entry.get("at")) if isinstance(entry, dict) else None
+                if at is None:
+                    problems.append("the heartbeat hasn't ticked this repo yet")
+                elif now - at > limit + max(active, 1) * minutes * 60:  # a pass stops after a resume and rotates
+                    problems.append(f"the heartbeat hasn't ticked this repo since {entry.get('at')}")
+                elif entry.get("error"):
+                    problems.append(f"the heartbeat's last tick of this repo failed: {entry['error']}")
+    else:
+        tick = read_json(path.with_name("last-tick.json"))
+        at = parse_stamp(tick.get("at")) if isinstance(tick, dict) else None
+        if at is None:
+            problems.append("the watchdog hasn't ticked yet")
+        elif now - at > limit:
+            problems.append(f"the watchdog hasn't ticked in {2 * minutes} minutes (last {tick.get('at')})")
+        elif not tick.get("ok"):
+            problems.append(f"the watchdog's last tick failed: {tick.get('result')}")
+    return {"healthy": not problems, "watchdog": name, "problems": problems}
 
 
 def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) -> str:
@@ -948,7 +1298,10 @@ def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) ->
             raise
         if result.startswith("resumed,"):
             state.pop("last_error", None)
+        lines = state.pop("log_lines", [])
         save(state, path)
+    for line in lines:
+        log(line, path)
     return result
 
 

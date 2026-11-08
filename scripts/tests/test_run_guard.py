@@ -246,11 +246,15 @@ class Watch(unittest.TestCase):
         world, state = World(signature="two"), active(restart_signature="one", changed_at=1000.0)
         self.assertIn("attempt 1", guard.watch(state, world.env(), now=1000.0 + guard.MAX_QUIET_HOURS * 3600))
 
-    def test_a_hung_resumed_session_is_reported_and_left_alone(self):
+    def test_a_hung_resumed_session_is_stopped_and_replaced(self):
         world, state = World(child=True), active(child={"pid": 7, "started": 2}, restart_signature="one", changed_at=1000.0)
-        self.assertEqual(guard.watch(state, world.env(), now=1000.0 + guard.CHILD_HANG_HOURS * 3600), "stalled")
-        self.assertIn("left running", state["why"])
-        self.assertEqual(world.spawned, [])
+        stopped = []
+        env = guard.replace(world.env(), tree=lambda c: [{"pid": 7, "started": 2, "name": "claude.exe", "command": ""}],
+                            stop_tree=lambda c, procs: stopped.append([p["pid"] for p in procs]) or [])
+        self.assertEqual(guard.watch(state, env, now=1000.0 + guard.CHILD_HANG_HOURS * 3600), "resumed, attempt 1")
+        self.assertEqual(stopped, [[7]])
+        self.assertEqual(len(world.spawned), 1)
+        self.assertIn("stopped resumed session 7", " ".join(state["log_lines"]))
 
     def test_a_quiet_session_that_crashed_does_not_condemn_its_replacement(self):
         world, state = World(), active(restart_signature="one", changed_at=1000.0)
@@ -259,7 +263,10 @@ class Watch(unittest.TestCase):
         world.child = True
         self.assertEqual(guard.watch(state, world.env(), now=launched + 600), "resumed session still running")
         self.assertTrue(state["active"])
-        self.assertEqual(guard.watch(state, world.env(), now=launched + guard.CHILD_HANG_HOURS * 3600), "stalled")
+        # Its hang is measured from its own launch, not from the crash's quiet before it: only now is it stopped.
+        self.assertEqual(guard.watch(state, world.env(), now=launched + guard.CHILD_HANG_HOURS * 3600 - 60),
+                         "resumed session still running")
+        self.assertIn("attempt 2", guard.watch(state, world.env(), now=launched + guard.CHILD_HANG_HOURS * 3600))
 
     def test_not_knowing_who_is_alive_starts_nothing(self):
         world, state = World(), active()
@@ -1150,6 +1157,304 @@ class RealFinish(unittest.TestCase):
         self.assertEqual(self.run_with(parked), "parked")
         mixed = {**done, "complete": False, "roots": {"D01 T01 §2": "parked", "D00 T02 §3": "waiting-person"}}
         self.assertEqual(self.run_with(mixed), "waiting")
+
+
+class OwnedSessions(unittest.TestCase):
+    """Only the run's own session, or one actually working here, holds the tree."""
+
+    def test_an_idle_unrelated_session_does_not_block_watch(self):
+        world, state = World(live=[{"id": "someone", "status": "idle"}]), active()
+        self.assertIn("attempt 1", guard.watch(state, world.env(), now=1000))
+
+    def test_a_busy_or_unknown_session_and_the_run_s_own_still_block(self):
+        for live in ([{"id": "someone", "status": "busy"}], [{"id": "someone", "status": None}], ["someone"],
+                     [{"id": "me", "status": "idle"}]):
+            with self.subTest(live=live):
+                world, state = World(live=live), active()
+                self.assertTrue(guard.watch(state, world.env(), now=1000).startswith("session live here"))
+                self.assertEqual(world.spawned, [])
+
+    def test_a_second_writer_is_still_refused_while_the_owner_lives(self):
+        state = active()
+        with self.assertRaises(ValueError):
+            guard.start(state, "other", None, World(alive=["me"]).env())
+
+    def test_the_real_reader_keeps_each_session_s_status(self):
+        here = str(guard.ROOT)
+        records = [{"sessionId": "a", "cwd": here, "status": "idle"}, {"sessionId": "b", "cwd": here, "status": "busy"},
+                   {"sessionId": "c", "cwd": "C:/elsewhere", "status": "busy"}]
+        with mock.patch.object(guard, "session_records", return_value=records):
+            self.assertEqual(guard.real_live_here(), [{"id": "a", "status": "idle"}, {"id": "b", "status": "busy"}])
+
+
+class HungChild(unittest.TestCase):
+    def env(self, world, procs, survivors=(), alive_again=True):
+        checks = iter([True, alive_again])
+        world_env = world.env()
+        self.stopped = []
+        return guard.replace(world_env, child_alive=lambda c: next(checks, alive_again), tree=lambda c: list(procs),
+                             stop_tree=lambda c, p: self.stopped.append(c["pid"]) or list(survivors))
+
+    def hung(self):
+        return active(child={"pid": 7, "started": 2}, restart_signature="one", changed_at=0.0), guard.CHILD_HANG_HOURS * 3600
+
+    def test_one_in_the_build_queue_is_left_running(self):
+        world = World()
+        state, now = self.hung()
+        procs = [{"pid": 7, "started": 2, "name": "claude.exe"}, {"pid": 9, "started": 3, "name": "bosun.exe"}]
+        self.assertIn("build queue", guard.watch(state, self.env(world, procs), now=now))
+        self.assertEqual((self.stopped, world.spawned), ([], []))
+        self.assertTrue(state["active"])
+
+    def test_a_refused_or_partial_stop_launches_nothing_and_stalls(self):
+        for left in ([7], [11]):
+            with self.subTest(survivors=left):
+                world = World()
+                state, now = self.hung()
+                procs = [{"pid": 7, "started": 2, "name": "claude.exe"}, {"pid": 11, "started": 4, "name": "node.exe"}]
+                self.assertEqual(guard.watch(state, self.env(world, procs, survivors=left), now=now), "stalled")
+                self.assertEqual(world.spawned, [])
+                self.assertIn(str(left[0]), state["why"])
+
+    def test_a_reused_pid_is_never_stopped(self):
+        world = World()
+        state, now = self.hung()
+        result = guard.watch(state, self.env(world, [{"pid": 7, "started": 2, "name": "x"}], alive_again=False), now=now)
+        self.assertEqual(self.stopped, [])
+        self.assertIn("attempt 1", result)
+
+    def test_the_tree_skips_a_stranger_whose_parent_pid_was_reused(self):
+        table = [{"pid": 7, "ppid": 1, "name": "claude.exe", "command": ""},
+                 {"pid": 8, "ppid": 7, "name": "node.exe", "command": ""},
+                 {"pid": 9, "ppid": 7, "name": "stranger.exe", "command": ""},
+                 {"pid": 10, "ppid": 8, "name": "bosun.exe", "command": ""}]
+        starts = {8: 200, 9: 50, 10: 300}  # 9 started before 7 did: its parent was an older process with pid 7
+        tree = guard.descendants(7, 100, table, starts.get)
+        self.assertEqual([p["pid"] for p in tree], [7, 8, 10])
+        self.assertTrue(guard.in_build_queue(tree[-1]))
+        self.assertTrue(guard.in_build_queue({"name": "python3", "command": "/usr/bin/bosun run -- make"}))
+        self.assertFalse(guard.in_build_queue({"name": "python3", "command": "python3 bosun_notes.py"}))
+
+    def test_a_real_tree_is_stopped_whole(self):
+        script = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']); time.sleep(120)"
+        parent = subprocess.Popen([sys.executable, "-c", script])
+        try:
+            child = {"pid": parent.pid, "started": guard.process_started(parent.pid)}
+            deadline = time.time() + 20
+            tree = guard.real_tree(child)
+            while len(tree) < 2 and time.time() < deadline:
+                time.sleep(0.2)
+                tree = guard.real_tree(child)
+            self.assertGreaterEqual(len(tree), 2, "the grandchild never appeared")
+            self.assertEqual(guard.real_stop_tree(child, tree), [])
+            self.assertEqual(guard.survivors(tree), [])
+        finally:
+            for proc in guard.real_tree({"pid": parent.pid, "started": guard.process_started(parent.pid)}) if parent.poll() is None else []:
+                try:
+                    os.kill(proc["pid"], 9)
+                except OSError:
+                    pass
+            parent.kill()
+            parent.wait(10)
+
+
+class LostTranscript(unittest.TestCase):
+    """`--resume` fails because the transcript is gone: one fresh start, owned by the new session's own prompt."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.path = Path(self.folder.name) / "state.json"
+        self.commands = []
+
+    def env(self, output):
+        def spawn(state):
+            self.commands.append(guard.resume_command(state, "claude"))
+            return {"pid": 100 + len(self.commands), "started": 1, "log_offset": 0}
+        return guard.replace(World(rows=("D01 T02 §4",)).env(), spawn=spawn, child_output=lambda c: output(c),
+                             alive=lambda s: False, live_here=lambda: [])
+
+    def save(self, state):
+        guard.save(state, self.path)
+
+    def test_one_fresh_start_the_new_owner_and_a_second_loss_ends_it(self):
+        gone = lambda c: "Error: No conversation found with session ID: me\n" if c.get("pid") in (100, 101, 103) else ""
+        env = self.env(gone)
+        self.save(active(permission_mode="acceptEdits", child={"pid": 100, "started": 1, "log_offset": 0}))
+        self.assertEqual(guard.watch_tick(env, self.path, now=1000), "resumed, attempt 1")
+        self.assertNotIn("--resume", self.commands[-1])
+        self.assertEqual(self.commands[-1][-2:], ["--permission-mode", "acceptEdits"])
+        logged = (self.path.with_name("run-guard.log")).read_text(encoding="utf-8")
+        self.assertIn("transcript is gone", logged)
+        self.assertIn("started a fresh", logged)
+        # The fresh session's own `process plan` makes it the owner, across ticks whose state is saved and read back.
+        guard.hook(json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "fresh", "prompt": "process plan",
+                               "permission_mode": "acceptEdits"}), env, self.path)
+        self.assertEqual(guard.load(self.path)["session_id"], "fresh")
+        state = guard.load(self.path)
+        state["child"]["fresh"] = True
+        state["child"]["pid"] = 102  # the fresh child, which ended in the ordinary way
+        self.save(state)
+        self.assertEqual(guard.watch_tick(env, self.path, now=2000), "resumed, attempt 2")
+        self.assertEqual(self.commands[-1][2:5], ["process plan", "--resume", "fresh"])
+        # Its resume finds no transcript either: the run already started afresh once, so it ends.
+        state = guard.load(self.path)
+        state["child"]["pid"] = 103
+        self.save(state)
+        self.assertEqual(guard.watch_tick(env, self.path, now=3000), "stalled")
+        self.assertEqual(len(self.commands), 2)
+
+    def test_a_real_fake_cli_s_error_is_read_from_its_own_output(self):
+        fake = Path(self.folder.name) / ("claude.cmd" if os.name == "nt" else "claude")
+        fake.write_text("@echo No conversation found with session ID: me 1>&2\r\n@exit /b 1\r\n" if os.name == "nt"
+                        else "#!/bin/sh\necho 'No conversation found with session ID: me' >&2\nexit 1\n", encoding="utf-8")
+        fake.chmod(0o755)
+        log = Path(self.folder.name) / "resumed-session.log"
+        log.write_text("an older child's line: No conversation found with session ID: old\n", encoding="utf-8")
+        with mock.patch.object(guard, "STATE", self.path), mock.patch.object(guard.shutil, "which", return_value=str(fake)):
+            child = guard.real_spawn(active())
+            deadline = time.time() + 30
+            while guard.real_child_alive(child) and time.time() < deadline:
+                time.sleep(0.2)
+            text = guard.real_child_output(child)
+        self.assertIn("session ID: me", text)
+        self.assertNotIn("old", text)
+
+
+class ReviewOutlivesItsSession(unittest.TestCase):
+    def test_a_dead_child_waits_for_its_review_then_resumes_the_same_session(self):
+        world, state = World(), active(child={"pid": 7, "started": 2})
+        reviewing = ["astra round 3"]
+        commands = []
+        env = guard.replace(world.env(), reviewing=lambda: reviewing[0] if reviewing else None,
+                            spawn=lambda s: commands.append(guard.resume_command(s, "claude")) or {"pid": 8, "started": 3})
+        self.assertTrue(guard.watch(state, env, now=1000).startswith("waiting: a review is in flight"))
+        self.assertEqual(commands, [])
+        reviewing.clear()
+        self.assertEqual(guard.watch(state, env, now=1600), "resumed, attempt 1")
+        self.assertEqual(commands, [["claude", "-p", "process plan", "--resume", "me"]])
+
+
+def xml(command="C:/py/pythonw.exe", arguments='"C:/b/heartbeat.py" tick', logon="InteractiveToken", user="me", enabled="true"):
+    return (f"<Task><Principals><Principal><UserId>{user}</UserId><LogonType>{logon}</LogonType></Principal></Principals>"
+            f"<Settings><Enabled>{enabled}</Enabled></Settings><Actions><Exec><Command>{command}</Command>"
+            f"<Arguments>{arguments}</Arguments></Exec></Actions></Task>")
+
+
+class Verify(unittest.TestCase):
+    NOW = 1_800_000_000.0
+
+    def setUp(self):
+        self.root = Path("C:/repos/here")
+        self.own = xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" watch')
+        self.files = {"C:/py/pythonw.exe", "C:/b/heartbeat.py", str(self.root / "scripts" / "run-guard.py")}
+
+    def at(self, ago):
+        return guard.stamp(self.NOW - ago)
+
+    def run_verify(self, task=None, listed=False, tick=None, status=None, code=0, ids=("me",)):
+        beat = Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "heartbeat"
+        here = os.path.normcase(os.path.normpath(str(self.root)))
+        data = {
+            str(beat / "repos.json"): {"repos": [{"path": str(self.root), "state": "active"},
+                                                  {"path": "C:/other", "state": "active"}]} if listed else {"repos": []},
+            str(beat / "status.json"): status if status is not None else {"last_pass": self.at(60), "hold": None,
+                                                                           "repos": {here: {"at": self.at(60), "error": None}}},
+            str(Path("C:/s/last-tick.json")): tick if tick is not None else {"at": self.at(60), "ok": True, "result": "inactive"},
+        }
+        files = {os.path.normcase(os.path.normpath(f)) for f in self.files}
+        task = task if task is not None else (xml() if listed else self.own)
+        return guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW, task_xml=lambda name: (code, task),
+                            read_json=lambda p: data.get(str(p)), is_file=lambda p: os.path.normcase(os.path.normpath(p)) in files,
+                            ids=set(ids))
+
+    def unhealthy(self, words, **kwargs):
+        found = self.run_verify(**kwargs)
+        self.assertFalse(found["healthy"], found)
+        self.assertTrue(any(words in p for p in found["problems"]), found["problems"])
+
+    def test_the_repo_s_own_task_reads_healthy(self):
+        self.assertEqual(self.run_verify(), {"healthy": True, "watchdog": guard.TASK_NAME, "problems": []})
+
+    def test_each_broken_part_reads_unhealthy_with_its_reason(self):
+        self.unhealthy("program is missing", task=xml(command="C:/gone/pythonw.exe", arguments=f'"{self.root / "scripts" / "run-guard.py"}" watch'))
+        self.unhealthy("runs another script", task=xml(arguments='"C:/b/heartbeat.py" watch'))
+        self.unhealthy("doesn't run `watch`", task=xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" status'))
+        self.unhealthy("another user", task=self.own.replace("<UserId>me<", "<UserId>someone<"))
+        self.unhealthy("this user's session", task=self.own.replace("InteractiveToken", "Password"))
+        self.unhealthy("disabled", task=self.own.replace("<Enabled>true<", "<Enabled>false<"))
+        self.unhealthy("hasn't ticked yet", tick={})
+        self.unhealthy("hasn't ticked in 20 minutes", tick={"at": self.at(21 * 60), "ok": True})
+        self.unhealthy("last tick failed", tick={"at": self.at(60), "ok": False, "result": "boom"})
+        self.unhealthy("can't be read", code=1, task="ERROR: Access is denied.")
+        self.unhealthy("is missing", code=1, task="ERROR: The system cannot find the file specified.")
+
+    def test_a_repo_on_the_heartbeat_reads_healthy_with_no_task_of_its_own(self):
+        found = self.run_verify(listed=True)
+        self.assertEqual((found["healthy"], found["watchdog"]), (True, guard.HEARTBEAT_TASK), found)
+
+    def test_the_heartbeat_s_hold_and_rotation_are_healthy_and_a_dead_heartbeat_is_not(self):
+        here = os.path.normcase(os.path.normpath(str(self.root)))
+        held = {"last_pass": self.at(60), "hold": "holding: 900 MB available", "repos": {here: {"at": self.at(3600)}}}
+        self.assertTrue(self.run_verify(listed=True, status=held)["healthy"])
+        rotated = {"last_pass": self.at(60), "hold": None, "repos": {here: {"at": self.at(14 * 60), "error": None}}}
+        self.assertTrue(self.run_verify(listed=True, status=rotated)["healthy"])
+        self.unhealthy("hasn't run a pass", listed=True, status={"last_pass": self.at(11 * 60), "repos": {}})
+        self.unhealthy("hasn't ticked this repo since", listed=True,
+                       status={"last_pass": self.at(60), "hold": None, "repos": {here: {"at": self.at(30 * 60)}}})
+        self.unhealthy("runs another script", listed=True, task=xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" tick'))
+
+
+class StatusCommand(unittest.TestCase):
+    """`run-guard.py status` against a corrupt state and a failing hook, through the real CLI."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.state = Path(self.folder.name) / "state.json"
+        self.env = {**os.environ, "RUN_GUARD_STATE": str(self.state), "PYTHONIOENCODING": "utf-8"}
+
+    def cli(self, *args, stdin=""):
+        return subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), *args], input=stdin,
+                              capture_output=True, text=True, encoding="utf-8", env=self.env, timeout=120)
+
+    def test_a_corrupt_state_shows_in_status_and_never_blocks_the_session(self):
+        self.state.write_text("{not json", encoding="utf-8")
+        event = json.dumps({"hook_event_name": "Stop", "session_id": "me"})
+        hooked = self.cli("hook", stdin=event)
+        self.assertEqual(hooked.returncode, 0)
+        self.assertIn("Run guard failed", hooked.stdout)
+        shown = self.cli("status", "--json")
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        data = json.loads(shown.stdout)
+        self.assertEqual(data["state"], "unreadable")
+        self.assertIn("JSONDecodeError", data["state_error"])
+        self.assertEqual(len(data["hook_failures"]), 1)
+        self.assertIn("a hook failed open", self.cli("status").stdout)
+        self.state.write_text("{}", encoding="utf-8")
+        self.assertEqual(self.cli("hook", stdin=event).returncode, 0)
+        self.assertEqual(json.loads(self.cli("status", "--json").stdout)["hook_failures"], [])
+
+    def test_an_unwritable_health_record_still_lets_the_hook_through(self):
+        self.state.write_text("{not json", encoding="utf-8")
+        (self.state.with_name(guard.HOOK_FAILURES)).mkdir()  # a folder where the record would go: the write fails
+        hooked = self.cli("hook", stdin=json.dumps({"hook_event_name": "Stop", "session_id": "me"}))
+        self.assertEqual(hooked.returncode, 0)
+        self.assertIn("Run guard failed", hooked.stdout)
+
+    def test_verify_s_exit_code_and_reasons_in_text_and_json(self):
+        spec = __import__("importlib.util").util.spec_from_file_location("run_guard_cli", guard.ROOT / "scripts" / "run-guard.py")
+        cli = __import__("importlib.util").util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        bad = {"healthy": False, "watchdog": guard.TASK_NAME, "problems": ["it is disabled"]}
+        for argv, check in ((["status", "--verify"], lambda out: "it is disabled" in out and "unhealthy" in out),
+                            (["status", "--verify", "--json"], lambda out: json.loads(out)["verify"] == bad)):
+            with self.subTest(argv=argv), mock.patch.object(sys, "argv", ["run-guard.py", *argv]), \
+                    mock.patch.object(cli.guard, "verify", return_value=bad), \
+                    mock.patch.object(cli.guard, "load", return_value={}), \
+                    mock.patch("sys.stdout", new_callable=__import__("io").StringIO) as out:
+                self.assertEqual(cli.main(), 1)
+                self.assertTrue(check(out.getvalue()), out.getvalue())
 
 
 class Waits(unittest.TestCase):
