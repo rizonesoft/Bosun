@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 28 | Checklist items: 214
+Sections: 28 | Checklist items: 215
 
 | Status | Reference   | Deliverable                                            | Needs       | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----------- | ----- |
@@ -20,7 +20,7 @@ Sections: 28 | Checklist items: 214
 | [x]    | D00 T03 §2  | One section disposition across graph, guard and skills | none        | 13    |
 | [x]    | D00 T03 §3  | Review repair cycles and parking                       | none        | 18    |
 | [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                | none        | 13    |
-| [ ]    | D00 T03 §5  | Usage limits wait and resume                           | none        | 8     |
+| [x]    | D00 T03 §5  | Usage limits wait and resume                           | none        | 8     |
 | [ ]    | D00 T03 §6  | Run end states and wake checks                         | none        | 9     |
 | [ ]    | D00 T03 §7  | Owned session recovery                                 | none        | 6     |
 | [ ]    | D00 T03 §8  | Campaign permissions                                   | none        | 5     |
@@ -30,7 +30,7 @@ Sections: 28 | Checklist items: 214
 | [ ]    | D00 T03 §13 | CI gate recovery that names its commit                 | none        | 3     |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle             | none        | 14    |
 | [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run          | none        | 6     |
-| [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 8     |
+| [ ]    | D00 T03 §10 | Preflight and machine hold                             | attended    | 9     |
 | [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                        | none        | 4     |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                    | none        | 4     |
 | [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                | none        | 4     |
@@ -197,6 +197,6 @@ Sections: 5 | Checklist items: 28
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real changes and live keys | operator, attended       | 8     |
 
-Progress: 9/128 verified sections, 4 ready to run now.
+Progress: 10/128 verified sections, 5 ready to run now.
 
-Checklist: 132/722 items completed (includes Commit items).
+Checklist: 133/723 items completed (includes Commit items).

@@ -47,6 +47,9 @@ LOCK_WAIT = 5  # seconds, well under every hook's timeout: slow reads happen bef
 USAGE_WAIT = 30 * 60  # a usage limit that gives no reset time is looked at again after this
 SIGN_IN_WAIT = 30 * 60
 OVERLOADED_WAIT = 5 * 60
+AUTH_TIMEOUT = 30  # seconds for `claude auth status`
+SAVE_TRIES = 3
+PENDING = "pending-wait.json"  # a wait the state file couldn't take, kept beside it until the next tick merges it
 LONGEST_RESET = 8 * 86400  # a weekly limit's reset is the furthest a real one goes; anything past it is misread
 # StopFailure's `error` (https://code.claude.com/docs/en/hooks), by what the run does about it.
 FAILURE_CLASSES = {
@@ -139,6 +142,50 @@ def save(state: dict, path: Path = STATE) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def save_retrying(state: dict, path: Path = STATE, pause: float = 0.5) -> None:
+    """A save that a moment's lock (an antivirus scan, a backup) doesn't defeat."""
+    for attempt in range(SAVE_TRIES):
+        try:
+            save(state, path)
+            return
+        except OSError:
+            if attempt == SAVE_TRIES - 1:
+                raise
+            time.sleep(pause * (attempt + 1))
+
+
+def keep_pending_wait(state: dict, path: Path) -> None:
+    """When the state can't be saved, the wait alone goes to a small file of its own, which the next tick merges."""
+    pending = {k: state[k] for k in ("session_id", "wait_until", "wait_reason", "wait_detail", "wait_set") if k in state}
+    target = path.with_name(PENDING)
+    for attempt in range(SAVE_TRIES):
+        try:
+            tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(pending), encoding="utf-8")
+            os.replace(tmp, target)
+            return
+        except OSError:
+            if attempt == SAVE_TRIES - 1:
+                raise
+            time.sleep(0.5 * (attempt + 1))
+
+
+def merge_pending_wait(state: dict, path: Path, now: float) -> None:
+    """Take up a wait the hook couldn't save into the state, if it is this run's and still ahead."""
+    target = path.with_name(PENDING)
+    try:
+        pending = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return
+    except (OSError, ValueError):
+        pending = None
+    if isinstance(pending, dict) and state.get("active") and pending.get("session_id") == state.get("session_id") \
+            and isinstance(pending.get("wait_until"), (int, float)) and pending["wait_until"] > now \
+            and pending["wait_until"] > (state.get("wait_until") or 0):
+        state.update({k: v for k, v in pending.items() if k.startswith("wait_")})
+    target.unlink(missing_ok=True)
 
 
 def log(line: str, path: Path = STATE) -> None:
@@ -551,7 +598,7 @@ def real_subscription() -> tuple:
         return False, "sign-in-needed", "claude is not on PATH, so its sign-in can't be checked"
     try:
         done = subprocess.run([claude, "auth", "status", "--json"], cwd=ROOT, capture_output=True, env=child_env(os.environ),
-                              timeout=30, stdin=subprocess.DEVNULL, **hidden())
+                              timeout=AUTH_TIMEOUT, stdin=subprocess.DEVNULL, **hidden())
         data = json.loads(done.stdout.decode("utf-8", "replace"))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         return False, "sign-in-needed", f"Claude Code's sign-in couldn't be checked ({error}): run `claude auth status` to see why"
@@ -566,7 +613,7 @@ def real_spawn(state: dict) -> dict:
     flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     with output.open("ab") as out:
         child = subprocess.Popen(resume_command(state, claude), cwd=ROOT, stdin=subprocess.DEVNULL, stdout=out, stderr=out,
-                                 creationflags=flags, env=child_env(os.environ, log))
+                                 creationflags=flags, env=child_env(os.environ, lambda line: log(line, STATE)))  # beside the state in use
     return {"pid": child.pid, "started": process_started(child.pid)}
 
 
@@ -644,6 +691,11 @@ def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) ->
     env = snapshot(env, subscription=True)
     with locked(path):
         state = load(path)
+        merge_pending_wait(state, path, time.time() if now is None else now)
+        # Saved before anything can launch: a state that can't be written would forget a resume, or a wait, and the
+        # next tick would launch again, so an unwritable state launches nothing.
+        state["last_tick_at"] = stamp(now)
+        save_retrying(state, path)
         try:
             result = watch(state, env, now)
         except Exception as error:  # kept where `status` shows it; nothing started and the next tick tries again
@@ -695,7 +747,12 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
     elif event == "StopFailure":
         on_stop_failure(state, data)
     if json.dumps(state, sort_keys=True) != before:
-        save(state, path)
+        try:
+            save_retrying(state, path)
+        except OSError:
+            if event == "StopFailure" and state.get("wait_until"):
+                keep_pending_wait(state, path)  # the wait is kept, and the next tick merges it
+            raise
         log(f"{event}: {state.get('status')} {state.get('why', '')}".rstrip(), path)
         if state.get("wait_reason") and state.get("wait_set") != json.loads(before).get("wait_set"):
             log(f"waiting: {state['wait_reason']} until {stamp(state['wait_until'])}: {state.get('wait_detail') or ''}".rstrip(": "), path)

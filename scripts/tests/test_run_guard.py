@@ -704,6 +704,118 @@ class UsageLimits(unittest.TestCase):
             self.assertIn("/login", data["wait_detail"])
 
 
+FAKE_CLAUDE = """import json, os, sys, time
+mode = os.environ.get("FAKE_CLAUDE_MODE", "ok")
+with open(os.environ["FAKE_CLAUDE_OUT"], "a") as out:
+    out.write(json.dumps({"argv": sys.argv[1:], "env": sorted(k for k in os.environ if k in %r)}) + "\\n")
+if sys.argv[1:4] == ["auth", "status", "--json"]:
+    if mode == "sleep":
+        time.sleep(30)
+    print({"ok": json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}),
+           "out": json.dumps({"loggedIn": False}), "garbage": "not json at all"}[mode])
+"""
+
+
+class LaunchBoundary(unittest.TestCase):
+    """The real `claude auth status` and the real launch, through a fake claude on PATH."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        folder = Path(self.temp.name)
+        script = folder / "fake_claude.py"
+        script.write_text(FAKE_CLAUDE % (guard.SCRUBBED,), encoding="utf-8")
+        if os.name == "nt":
+            (folder / "claude.cmd").write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+        else:
+            (folder / "claude").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+            (folder / "claude").chmod(0o755)
+        self.out = folder / "calls.jsonl"
+        secrets = {name: "a-secret-value-1234" for name in guard.SCRUBBED}
+        patch = mock.patch.dict(os.environ, {"PATH": f"{folder}{os.pathsep}{os.environ['PATH']}", "FAKE_CLAUDE_OUT": str(self.out), **secrets})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def calls(self):
+        return [json.loads(line) for line in self.out.read_text().splitlines()] if self.out.exists() else []
+
+    def test_the_sign_in_check_runs_without_paid_keys_and_reads_each_answer(self):
+        for mode, expected in (("ok", True), ("out", False), ("garbage", False)):
+            with self.subTest(mode), mock.patch.dict(os.environ, {"FAKE_CLAUDE_MODE": mode}):
+                ok, reason, detail = guard.real_subscription()
+                self.assertEqual(ok, expected)
+                self.assertTrue(ok or "sign-in-needed" == reason)
+        self.assertTrue(all(call["env"] == [] for call in self.calls()), "a paid key reached claude auth status")
+
+    def test_a_sign_in_check_that_hangs_is_a_wait_not_a_launch(self):
+        with mock.patch.dict(os.environ, {"FAKE_CLAUDE_MODE": "sleep"}), mock.patch.object(guard, "AUTH_TIMEOUT", 1):
+            ok, reason, detail = guard.real_subscription()
+        self.assertEqual((ok, reason), (False, "sign-in-needed"))
+        self.assertIn("couldn't be checked", detail)
+
+    def test_the_launch_runs_the_resume_command_without_paid_keys(self):
+        state_path = Path(self.temp.name) / "state.json"
+        with mock.patch.object(guard, "STATE", state_path):
+            child = guard.real_spawn(active(session_id="sess-1", permission_mode="bypassPermissions"))
+        deadline = time.time() + 30
+        while not self.calls() and time.time() < deadline:
+            time.sleep(0.1)
+        (call,) = self.calls()
+        self.assertEqual(call["argv"], ["-p", "process plan", "--resume", "sess-1", "--permission-mode", "bypassPermissions"])
+        self.assertEqual(call["env"], [], "a paid key reached the resumed session")
+        self.assertTrue(child["pid"])
+        log = (Path(self.temp.name) / "run-guard.log").read_text(encoding="utf-8")
+        self.assertIn("removed ANTHROPIC_API_KEY", log)
+        self.assertNotIn("a-secret-value", log)
+
+
+class SavingAWait(unittest.TestCase):
+    """A wait the disk won't take at once is kept, and an unwritable state never launches anything."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "state.json"
+        guard.save(active(), self.path)
+        self.real_save = guard.save
+        self.payload = json.dumps({"hook_event_name": "StopFailure", "session_id": "me", "error": "rate_limit",
+                                   "error_details": f"usage limit|{int(time.time()) + 900}"})
+
+    def failing(self, times):
+        left = [times]
+
+        def save(state, path=guard.STATE):
+            if Path(path) == self.path and left[0] > 0:
+                left[0] -= 1
+                raise PermissionError("locked by another process")
+            return self.real_save(state, path)
+        return save
+
+    def test_a_moment_s_lock_is_retried_and_the_wait_saved(self):
+        with mock.patch.object(guard, "save", self.failing(2)), mock.patch.object(guard.time, "sleep"):
+            guard.hook(self.payload, World().env(), self.path)
+        self.assertEqual(guard.load(self.path)["wait_reason"], "usage-limit")
+
+    def test_a_wait_the_state_wont_take_is_kept_and_merged_by_the_next_tick(self):
+        with mock.patch.object(guard, "save", self.failing(99)), mock.patch.object(guard.time, "sleep"):
+            with self.assertRaises(OSError):
+                guard.hook(self.payload, World().env(), self.path)
+        self.assertNotIn("wait_until", guard.load(self.path))
+        self.assertTrue((Path(self.temp.name) / guard.PENDING).exists())
+        world = World()
+        self.assertTrue(guard.watch_tick(world.env(), self.path).startswith("waiting: usage-limit"))
+        self.assertEqual(world.spawned, [])
+        self.assertEqual(guard.load(self.path)["wait_reason"], "usage-limit")
+        self.assertFalse((Path(self.temp.name) / guard.PENDING).exists())
+
+    def test_an_unwritable_state_launches_nothing(self):
+        world = World()
+        with mock.patch.object(guard, "save", self.failing(99)), mock.patch.object(guard.time, "sleep"):
+            with self.assertRaises(OSError):
+                guard.watch_tick(world.env(), self.path)
+        self.assertEqual(world.spawned, [])
+
+
 class Waits(unittest.TestCase):
     """A run that waits for an unavailable reviewer neither spins nor stalls, and resumes when the wait passes."""
 

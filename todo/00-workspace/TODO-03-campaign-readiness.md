@@ -40,7 +40,7 @@ title: "TODO-03 -- Campaign readiness"
 | 2 | §2 | One section disposition across graph, guard and skills | -- | [x] |
 | 3 | §3 | Review repair cycles and parking | -- | [x] |
 | 4 | §4 | Reviewer attempt limits and diagnostics | §2 | [x] |
-| 5 | §5 | Usage limits wait and resume | §2 | [ ] |
+| 5 | §5 | Usage limits wait and resume | §2 | [x] |
 | 6 | §6 | Run end states and wake checks | §3, §5 | [ ] |
 | 7 | §7 | Owned session recovery | §5 | [ ] |
 | 8 | §8 | Campaign permissions | -- | [ ] |
@@ -258,9 +258,12 @@ The owner chose subscription only, so hitting a limit costs time and never money
 - [x] Before every launch, read Claude Code's effective sign-in with `claude auth status --json` under that same scrubbed environment (30 second timeout) in `scripts/lib/run_guard.py`, and launch only when it is signed in with `authMethod` `claude.ai` and `apiProvider` `firstParty`, since the CLI's own answer covers every credential source (an `apiKeyHelper`, a key in a settings `env` block, saved Console credentials, a cloud provider). Otherwise wait 30 minutes with a reason saying which (not signed in, an API account, a cloud provider, or the check itself failing) and what to do. Done when: tests prove each case waits without launching, and a subscription sign-in launches.
 - [x] Treat `auth` as `waiting` with reason `sign-in-needed`, and write one line to the guard log, the detail telling an expired sign-in (sign in again) from an account, billing or organisation restriction (the owner's to sort out). When the wait passes, the sign-in check above runs before any launch, and a failing one waits another 30 minutes without counting a restart. Done when: a test proves repeated failures never spin or spend the stall budget, that it resumes once sign-in returns, and `status` and `status --json` show the reason and detail.
 - [x] Prove the path end to end through the registered hook entry in `scripts/tests/test_run_guard.py`: a `StopFailure` payload through `hook` saves the wait, a fresh read finds its reason and deadline, `watch_tick` launches nothing before it and resumes after; another session's failure sets nothing, and an operator halt during the wait is never resumed. Done when: the test passes.
-- [ ] Commit: `guard: wait out usage limits without paid keys`
+- [x] Commit: `guard: wait out usage limits without paid keys`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if `restarts` grows during a wait.
+
+> **Verified:** 2026-11-08 | §5 | 83a2877e6d289b83d493fdde40050d37b521d1f9
+> **Review:** `docs/reviews/d00-t03-s5.json`
 
 ## 6. Run end states and wake checks
 
@@ -380,6 +383,7 @@ One command proves the run can finish before anyone walks away. It holds the own
 - [ ] Run the preflight on this machine. Done when: it exits 0 and its output is quoted here.
 - [ ] Run a disposable campaign in a real session on a disposable repo with a fake CI answer, and read its log. Done when: `wait` starts no next row, `repair` repairs and rechecks, `exhausted` and `unverified` file the fault and carry on, and each holds after the session restarts.
 - [ ] Prove recovery once: kill the session on the disposable repo and see the watchdog resume it. Done when: the guard log shows the restart.
+- [ ] Have the owner confirm that extra usage (paid overflow past the subscription's included usage) is off in the Claude account's settings, and record the answer and date in `docs/acceptance/preflight.md`, since the CLI can't report it and the owner chose subscription only. Filed from `D00 T03 §5`'s completion review. Done when: the record shows it off, or the preflight refuses to clear.
 - [ ] Commit: `campaign: preflight and machine hold`
 
 **Test checkpoint:** `pwsh scripts/campaign-preflight.ps1` exits 0 on this machine, and exits nonzero with `gh` signed out.
