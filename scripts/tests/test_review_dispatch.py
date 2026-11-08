@@ -19,10 +19,29 @@ REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
 
 
 def kill_tree(pid):
+    """Stops pid and every descendant. On Linux they are found by parent, not by process group: the dispatcher starts
+    each reviewer in a session of its own, which killing the dispatcher's group would miss."""
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
-    else:
-        os.killpg(pid, 9)
+        return
+    children = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat") as stat:
+                    parent = int(stat.read().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue  # it exited while being listed
+            children.setdefault(parent, []).append(int(entry))
+    tree, stack = [], [pid]
+    while stack:
+        tree.append(stack.pop())
+        stack.extend(children.get(tree[-1], []))
+    for member in tree:
+        try:
+            os.kill(member, 9)
+        except OSError:
+            pass  # already gone
 
 
 def run_tree(argv, timeout, **kwargs):
@@ -203,10 +222,11 @@ class HarnessTimeout(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             pid_file = Path(tmp) / "grandchild.pid"
             script = ("import subprocess, sys, time\n"
-                      # Its output goes elsewhere, as the dispatcher sends a reviewer's to files, so no pipe of ours
-                      # waits for it.
+                      # Started as the dispatcher starts a reviewer: output to files, so no pipe of ours waits for
+                      # it, and on Linux in a session of its own, outside the harness's process group.
+                      "extra = {} if sys.platform == 'win32' else {'start_new_session': True}\n"
                       "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],\n"
-                      "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                      "                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **extra)\n"
                       f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
                       "time.sleep(60)\n")
             with self.assertRaises(subprocess.TimeoutExpired):

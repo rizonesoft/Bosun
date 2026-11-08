@@ -208,7 +208,8 @@ int run_child(const Options& o) {
     }
     ResumeThread(pi.hThread);
     // The job counts what every process in the tree writes, a child the command left behind included, so a runaway is
-    // stopped wherever in the tree it is, before it fills the drive.
+    // stopped wherever in the tree it is, before it fills the drive. Windows keeps no per-job count of disk writes
+    // alone: this one includes bytes written to pipes, so the budget is generous enough for heavy pipelines too.
     bool over = false;
     while (WaitForSingleObject(pi.hProcess, 1000) == WAIT_TIMEOUT) {
         JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION io{};
@@ -224,7 +225,7 @@ int run_child(const Options& o) {
     GetExitCodeProcess(pi.hProcess, &code);
     if (over) {
         std::cerr << "[bosun] stopped the command and everything it started: together they wrote more than "
-                  << o.max_write_gb << " GB (--max-write-gb). Something in it writes without a limit.\n";
+                  << o.max_write_gb << " GB to files and pipes (--max-write-gb). Something in it writes without a limit.\n";
         code = 74;
     }
     CloseHandle(pi.hThread);

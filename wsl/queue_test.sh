@@ -88,7 +88,7 @@ io_ok=$(systemd-run --user --scope --quiet --collect --unit="$probe" -p IOAccoun
 if [ "$io_ok" = yes ]; then
   SECONDS=0
   "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 1 -- bash -c \
-    '(while :; do dd if=/dev/zero bs=1M count=64 oflag=direct status=none; done > "$1") & sleep 120' _ "$WORK/flood.bin" 2>/dev/null
+    '(dd if=/dev/zero bs=1M count=4096 oflag=direct status=none > "$1"; sleep 120) & sleep 120' _ "$WORK/flood.bin" 2>/dev/null
   r=$?
   size=$(stat -c %s "$WORK/flood.bin")
   [ "$r" = 74 ] && [ "$SECONDS" -lt 60 ]; check $? "a job over its write budget is stopped with 74 (exit $r after $SECONDS s)"
@@ -97,6 +97,20 @@ if [ "$io_ok" = yes ]; then
 else
   echo "skip the WSL write budget: user jobs have no io controller (sudo ~/.local/share/bosun/enable-write-budget.sh turns it on)"
 fi
+
+# A nested run and one without a slot are contained too: a slot is about memory, containment about the work.
+BOSUN_SLOT=0 "$SHIM" run --ns "$NS" -- bash -c 'setsid sleep 300 >/dev/null 2>&1 < /dev/null & echo $! > "$1"' _ "$WORK/nested.pid"
+BOSUN_EXE=/bin/false "$SHIM" run --ns "$NS" -- bash -c 'setsid sleep 300 >/dev/null 2>&1 < /dev/null & echo $! > "$1"' _ "$WORK/noslot.pid" 2>/dev/null
+sleep 1
+for f in nested noslot; do
+  p="$(cat "$WORK/$f.pid")"
+  if kill -0 "$p" 2>/dev/null; then r=1; kill -9 "$p"; else r=0; fi
+  check "$r" "a $f run stops what its command left behind"
+done
+
+# A budget with a leading zero is read as decimal.
+"$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 08 -- true
+[ $? = 0 ]; check $? "--max-write-gb 08 is accepted as eight"
 
 # A broken slot service runs the job with a warning rather than failing it.
 BOSUN_EXE=/bin/false "$SHIM" run --ns "$NS" -- bash -c 'exit 5' 2>/dev/null

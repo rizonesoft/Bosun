@@ -64,8 +64,8 @@ Change the defaults with `--slots`, `--min-avail-mb` and `--max-wait`, or `BOSUN
 
 A job and everything it starts end together, and together they may write at most 100 GB. A job over that budget is stopped, children and all, and `bosun run` exits 74 and says why. A command that writes without end, such as a test whose fake child floods a log, would otherwise fill the drive, and a full system drive takes Windows and the WSL disk image on it down with it. Change the budget with `--max-write-gb` or `BOSUN_MAX_WRITE_GB`, and 0 turns it off.
 
-- **Windows:** the job object that holds the command counts what every process in it writes, and closing it ends anything the command left behind.
-- **WSL:** the command runs in its own systemd scope, and anything it leaves behind is stopped when it ends. systemd gives user jobs the `io` controller only through a root setting, so turn the budget on once with `sudo ~/.local/share/bosun/enable-write-budget.sh`, then `wsl --shutdown`. Until then the budget is off in WSL, and `bosun run` says so once per boot.
+- **Windows:** the job object that holds the command counts what every process in it writes, and closing it ends anything the command left behind. Windows keeps no per-job count of disk writes alone, so bytes written to pipes count too, which is why the default is generous.
+- **WSL:** the command runs in its own systemd scope, a nested run and one without a slot included, and anything it leaves behind is stopped when it ends. systemd gives user jobs the `io` controller only through a root setting, so turn the budget on once with `sudo ~/.local/share/bosun/enable-write-budget.sh`, then `wsl --shutdown`. Until then the budget is off in WSL, and `bosun run` says so once per boot. The budget counts writes to the Linux disk only: writes to a Windows drive through `/mnt/c` travel over the host file share, which Linux does not count.
 
 ## How do unattended runs stay alive?
 

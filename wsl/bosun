@@ -41,9 +41,82 @@ done
 [ "${1:-}" = "--" ] || die "usage: bosun run [options] -- command [args]"
 shift
 [ $# -gt 0 ] || die "usage: bosun run [options] -- command [args]"
+# Read as decimal, so 08 is eight and not an arithmetic error, and kept short enough that the byte count can't overflow.
+case "$MAX_WRITE_GB" in ''|*[!0-9]*) die "--max-write-gb must be a whole number of GB" ;; esac
+[ "${#MAX_WRITE_GB}" -le 9 ] || die "--max-write-gb is too large"
+MAX_WRITE_GB=$((10#$MAX_WRITE_GB))
 
-# Already inside a slot, so a script calling itself cannot deadlock.
-[ -n "${BOSUN_SLOT:-}" ] && exec "$@"
+# Says a thing once per boot, so a missing protection is reported without filling every job's output.
+warn_once() {
+  local mark="${XDG_RUNTIME_DIR:-/tmp}/bosun-warned-$1"
+  [ -e "$mark" ] && return
+  : >"$mark" 2>/dev/null
+  echo "[bosun] $2" >&2
+}
+
+# Runs the command in its own transient scope, so its whole tree is known: whatever it leaves behind is stopped when it
+# ends, as the job object does on Windows, and what the tree writes to the Linux disk is counted against the budget. A
+# command that writes without end would otherwise fill the WSL disk image, and the Windows drive it lives on. Every path
+# runs through here, a nested run and one without a slot included: a slot is about memory, containment about the work.
+contained() {
+  local unit="bosun-job-$$-$RANDOM" scope="" state watch_pid="" code
+  local -a launch=()
+  # --expand-environment=no keeps the command byte-exact: systemd-run would otherwise expand $VAR and $$ in it.
+  if command -v systemd-run >/dev/null && systemctl --user show-environment >/dev/null 2>&1 &&
+    systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
+    scope="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$unit.scope"
+    launch=(systemd-run --user --scope --quiet --collect --expand-environment=no --unit="$unit" -p IOAccounting=yes --)
+  else
+    warn_once noscope "jobs run without containment in WSL: no systemd user session with systemd 254 or later, so a child a job leaves behind keeps running and the write budget is off"
+  fi
+  state="$(mktemp -d)" || die "cannot create a temp folder"
+  if [ -n "$scope" ] && [ "$MAX_WRITE_GB" -gt 0 ]; then
+    (
+      budget=$((MAX_WRITE_GB * 1073741824))
+      # Waits for the scope for as long as the command runs, however slowly systemd starts it.
+      until [ -e "$scope/cgroup.procs" ]; do [ -e "$state/done" ] && exit 0; sleep 0.1; done
+      if [ ! -e "$scope/io.stat" ]; then
+        warn_once noio "the write budget is off in WSL because systemd doesn't give user jobs the io controller. Turn it on once with: sudo $HOME/.local/share/bosun/enable-write-budget.sh"
+        exit 0
+      fi
+      while [ -e "$scope/cgroup.procs" ] && [ ! -e "$state/done" ]; do
+        written=$(awk '{for (i = 2; i <= NF; i++) if ($i ~ /^wbytes=/) { sub(/wbytes=/, "", $i); s += $i }} END {printf "%.0f", s + 0}' "$scope/io.stat" 2>/dev/null)
+        if [ "${written:-0}" -gt "$budget" ]; then
+          : >"$state/over"
+          echo 1 >"$scope/cgroup.kill"
+          exit 0
+        fi
+        sleep 1
+      done
+    ) 3>&- 4<&- &
+    watch_pid=$!
+  fi
+  # The command must not inherit the pipe, or a daemon it starts would hold the slot for good.
+  # pdeathsig ends the command if this script dies, so a freed slot means the work has stopped.
+  if command -v setpriv >/dev/null; then
+    setpriv --pdeathsig TERM -- "${launch[@]}" "$@" 3>&- 4<&-
+  else
+    "${launch[@]}" "$@" 3>&- 4<&-
+  fi
+  code=$?
+  : >"$state/done"
+  # Anything the command started and left running ends with it, so nothing it began can keep writing.
+  [ -n "$scope" ] && [ -e "$scope/cgroup.kill" ] && echo 1 >"$scope/cgroup.kill" 2>/dev/null
+  [ -n "$watch_pid" ] && wait "$watch_pid" 2>/dev/null
+  if [ -e "$state/over" ]; then
+    echo "[bosun] stopped the command and everything it started: together they wrote more than $MAX_WRITE_GB GB (--max-write-gb). Something in it writes without a limit." >&2
+    code=74
+  fi
+  rm -rf "$state"
+  return "$code"
+}
+
+# Already inside a slot, so a script calling itself cannot deadlock. A run started from Windows arrives here too, and
+# the Windows job can't see what Linux processes write, so it is contained on this side.
+if [ -n "${BOSUN_SLOT:-}" ]; then
+  contained "$@"
+  exit $?
+fi
 
 # Named pipes rather than coproc: bash unsets a coproc's variables the moment it
 # exits, which would abort this script under set -u if bosun.exe failed early.
@@ -61,7 +134,8 @@ reply="${reply%$'\r'}"
 if [ "${reply%% *}" != "acquired" ]; then
   echo "[bosun] slot service unavailable, running without a slot" >&2
   exec 3>&- 4<&-
-  BOSUN_SLOT=-1 exec "$@"
+  BOSUN_SLOT=-1 contained "$@"
+  exit $?
 fi
 SLOT="${reply##* }"
 
@@ -84,66 +158,8 @@ fi
 export BOSUN_SLOT="$SLOT"
 export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
 
-case "$MAX_WRITE_GB" in ''|*[!0-9]*) die "--max-write-gb must be a whole number of GB" ;; esac
-
-# The job runs in its own transient scope, so its whole tree is known: whatever it leaves behind is stopped when it
-# ends, as the job object does on Windows, and what the tree writes is counted against the budget. A command that
-# writes without end would otherwise fill the WSL disk image, and the Windows drive it lives on.
-unit="bosun-job-$$-$RANDOM"
-scope=""
-# --expand-environment=no keeps the command byte-exact: systemd-run would otherwise expand $VAR and $$ in its arguments.
-# A systemd too old to have it (before 254) runs the job without a scope, as before.
-if command -v systemd-run >/dev/null && systemctl --user show-environment >/dev/null 2>&1 &&
-  systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
-  scope="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$unit.scope"
-  launch=(systemd-run --user --scope --quiet --collect --expand-environment=no --unit="$unit" -p IOAccounting=yes --)
-else
-  launch=()
-fi
-over="$(mktemp)" || die "cannot create a temp file"
-watch_pid=""
-if [ -n "$scope" ] && [ "$MAX_WRITE_GB" -gt 0 ]; then
-  (
-    budget=$((MAX_WRITE_GB * 1073741824))
-    for _ in $(seq 50); do [ -e "$scope/cgroup.procs" ] && break; sleep 0.1; done
-    if [ ! -e "$scope/io.stat" ]; then
-      # The user manager is only given the io controller by a root setting, so say once per boot how to turn it on.
-      warned="${XDG_RUNTIME_DIR:-/tmp}/bosun-io-warned"
-      if [ -e "$scope/cgroup.procs" ] && [ ! -e "$warned" ]; then
-        : >"$warned"
-        echo "[bosun] the write budget is off in WSL because systemd doesn't give user jobs the io controller. Turn it on once with: sudo $HOME/.local/share/bosun/enable-write-budget.sh" >&2
-      fi
-      exit 0
-    fi
-    while [ -e "$scope/cgroup.procs" ]; do
-      written=$(awk '{for (i = 2; i <= NF; i++) if ($i ~ /^wbytes=/) { sub(/wbytes=/, "", $i); s += $i }} END {printf "%.0f", s + 0}' "$scope/io.stat" 2>/dev/null)
-      if [ "${written:-0}" -gt "$budget" ]; then
-        echo over >"$over"
-        echo 1 >"$scope/cgroup.kill"
-        exit 0
-      fi
-      sleep 1
-    done
-  ) 3>&- 4<&- &
-  watch_pid=$!
-fi
-
-# The command must not inherit the pipe, or a daemon it starts would hold the slot for good.
-# pdeathsig ends the command if this script dies, so a freed slot means the work has stopped.
-if command -v setpriv >/dev/null; then
-  setpriv --pdeathsig TERM -- "${launch[@]}" "$@" 3>&- 4<&-
-else
-  "${launch[@]}" "$@" 3>&- 4<&-
-fi
+contained "$@"
 code=$?
-# Anything the command started and left running ends with it, so nothing it began can keep writing.
-[ -n "$scope" ] && [ -e "$scope/cgroup.kill" ] && echo 1 >"$scope/cgroup.kill" 2>/dev/null
-[ -n "$watch_pid" ] && { kill "$watch_pid" 2>/dev/null; wait "$watch_pid" 2>/dev/null; }
-if [ -s "$over" ]; then
-  echo "[bosun] stopped the command and everything it started: together they wrote more than $MAX_WRITE_GB GB (--max-write-gb). Something in it writes without a limit." >&2
-  code=74
-fi
-rm -f "$over"
 exec 3>&- 4<&-
 wait "$hold_pid" 2>/dev/null
 exit "$code"

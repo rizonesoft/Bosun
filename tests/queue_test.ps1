@@ -130,10 +130,12 @@ $flood = Join-Path $work 'flood.py'
 Set-Content $flood @'
 import subprocess, sys, time
 if sys.argv[1] == "child":
+    # 4 GB at most, so a broken budget fails this test instead of filling the disk.
     with open(sys.argv[2], "wb") as out:
-        while True:
+        for _ in range(4096):
             out.write(b"x" * 1048576)
             out.flush()
+    time.sleep(120)
 subprocess.Popen([sys.executable, __file__, "child", sys.argv[1]])
 time.sleep(120)
 '@
