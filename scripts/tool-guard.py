@@ -316,7 +316,13 @@ def follow_cd(words: list[str], cwd: str | None) -> str | None:
 
 def decide_command(command: str, cwd: str, project: str, powershell: bool = False) -> None:
     here: str | None = cwd
-    for part, in_powershell, chdir in segments(command, powershell):
+    parts = segments(command, powershell)
+    # A line that changes folder anywhere (cd, pushd, Set-Location, env -C, in a wrapper or not) can only delete
+    # recursively by full path: where each shell scope stands is more than a hook should simulate, and a full path
+    # costs the session nothing.
+    moves = any(chdir or os.path.basename((tokens_of(text) or [""])[0]).lower().removesuffix(".exe") in CHANGE_DIR | {"popd", "pop-location"}
+                for text, _, chdir in parts)
+    for part, in_powershell, chdir in parts:
         words = tokens_of(part)
         if not words:
             continue
@@ -332,6 +338,11 @@ def decide_command(command: str, cwd: str, project: str, powershell: bool = Fals
         elif head == "gh":
             check_gh(words)
         targets = delete_targets(words, in_powershell)
+        if targets is not None and moves:
+            for token in targets:
+                if not os.path.isabs(windows_path(os.path.expanduser(token.strip("'\"")))):
+                    raise Refusal(f"this line changes folder, so a recursive delete in it must name its target by full "
+                                  f"path, not {token}")
         if targets is not None:
             # `env -C DIR` runs this one command in DIR, so its targets are read from there.
             check_delete_targets(targets, follow_cd(["cd", chdir], here) if chdir else here, project)

@@ -101,7 +101,8 @@ class Bypasses(Base):
         self.refused(f"Set-Location ..; Remove-Item -Recurse {name}", tool="PowerShell")
         self.refused("cd $SOMEWHERE && rm -rf build")
         self.refused("popd; rm -rf build")
-        self.allowed("cd build && rm -rf x")
+        self.refused("cd build && rm -rf x")  # a line that moves deletes by full path
+        self.allowed(f"cd build && rm -rf {self.project / 'build' / 'x'}")
 
     def test_a_quoted_chain_inside_a_wrapper_stays_whole(self):
         self.refused('bash -c "git push --force origin main; echo done"')
@@ -152,18 +153,20 @@ class CompletionGaps(Base):
         self.refused(f"env -C{self.outside} rm -rf sub")
         self.refused(f"env -C {self.outside} env -C . rm -rf sub")
         self.refused(f"env -C {self.base} env -C outside rm -rf sub")
-        self.allowed(f"env -C {self.project} env -C build rm -rf x")
+        self.allowed(f"env -C {self.project} env -C build rm -rf {self.project / 'build' / 'x'}")
         self.refused(f'env -C {self.outside} bash -c "env -C . rm -rf sub"')
         self.refused(f'env -C {self.base} bash -c "env -C outside rm -rf sub"')
-        self.allowed(f'env -C {self.project} bash -c "env -C build rm -rf x"')
-        self.allowed("env -Cbuild rm -rf x")
-        self.allowed("env -C build rm -rf x")
-        self.allowed(f"env -C {self.outside} ls && rm -rf build/x")  # its folder is that one command's only
+        self.allowed(f'env -C {self.project} bash -c "env -C build rm -rf {self.project / "build" / "x"}"')
+        self.refused("env -Cbuild rm -rf x")  # a line that moves deletes by full path
+        self.refused("env -C build rm -rf x")
+        self.allowed(f"env -C build rm -rf {self.project / 'build' / 'x'}")
+        self.refused(f'env -C {self.project} bash -c "cd {self.outside}; rm -rf sub"')
+        self.refused(f'env -C {self.project} bash -c "cd {self.outside}; rm -rf {self.outside / "sub"}"')
 
     def test_a_failed_cd_leaves_the_folder_unknown(self):
         self.refused("cd build; cd missing; rm -rf ../.git")
         self.refused("cd nowhere && rm -rf x")
-        self.allowed("cd build && rm -rf x")
+        self.allowed(f"cd build && rm -rf {self.project / 'build' / 'x'}")
 
 
 class GitHub(Base):
