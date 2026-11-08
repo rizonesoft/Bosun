@@ -4,6 +4,8 @@ What the owner confirmed for the unattended campaign (`D00 T03 §10`), which `pw
 
 ## What the owner confirmed
 
+- Extra usage: off, confirmed by the owner on 2026-11-08 in the Claude account's settings (it was on, and the owner switched it off during the preflight).
+
 ## What changed on this machine, and how to undo it
 
 Applied on 2026-11-08, each saving what it changed first.
