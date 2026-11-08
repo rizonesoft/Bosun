@@ -15,7 +15,7 @@ One continuous loop. You do not stop between sections or phases:
 
 1. Audit (below), then start `process-phase` on the phase `python scripts/todo-graph.py query next` names, in this same turn.
 2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query next` and start the phase it names.
-3. Stop only when `python scripts/todo-graph.py query next` prints null: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts.
+3. Stop only when `python scripts/todo-graph.py query next` prints null: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts. A wait is not a halt: when `scripts/review-dispatch.py` exits 3, the reviewer is unavailable and the run guard holds the run, so end the turn there, without building, retrying or stamping, and let the guard resume it.
 
 A report to the operator is not a stop. An audit-only reply while a ready phase exists is a process defect: starting the phase is the next action, in the same turn. The self-correcting parts stay in the loop: drifted plan claims are corrected before building (inside `process-todo-section`), every gap and review leftover files through `add-todo`, and red gates are fixed, never bypassed (no `--no-verify`, no amend of a reviewed candidate, no force-push).
 

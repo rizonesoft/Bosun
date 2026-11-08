@@ -1045,7 +1045,7 @@ class SkillsKnowTheWait(unittest.TestCase):
     def test_every_skill_that_calls_the_dispatcher_ends_the_turn_on_exit_3(self):
         repo = SCRIPTS.parent
         for folder in (".claude", ".codex", ".agents"):
-            for skill in ("process-todo-section", "review-todo-section", "process-phase"):
+            for skill in ("process-todo-section", "review-todo-section", "process-phase", "process-plan"):
                 with self.subTest(folder=folder, skill=skill):
                     text = (repo / folder / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                     self.assertRegex(text, r"[Ee]xits? (1 or )?3")
