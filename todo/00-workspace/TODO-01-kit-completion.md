@@ -49,6 +49,8 @@ title: "TODO-01 -- Finish the agent kit"
 
 Steward's guard has no idea a review is running, so a Stop hook can push the session during the wait. Recto solved this with marks written by the dispatcher; this section ports them onto Steward's guard without changing its other rules.
 
+**Corrected 2026-11-08:** Recto moved to `D:\GitHub\Recto`; its marks are the `in_flight` class in `scripts/review-dispatch.py:542` and the check is `review_in_flight` in `scripts/campaign_guard.py:780`. Bosun's `on_stop` already lets a turn end during a wait (`D00 T03 §4`); a live mark joins that, and neither counts the turn as idle.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -59,7 +61,7 @@ Steward's guard has no idea a review is running, so a Stop hook can push the ses
 2. Teach `scripts/lib/run_guard.py` to wait on a live mark. Done when: the Stop hook lets a turn end while a live mark exists and not after it expires.
 
 - [ ] Write the mark `{pid, reviewer, started, deadline}` in `scripts/review-dispatch.py`, citing Recto's `in_flight`. Done when: the file exists during a dispatch and is gone after success, failure and timeout. Cheaper substitute: writing the mark only on the success path.
-- [ ] Add `review_in_flight` to `on_stop` in `scripts/lib/run_guard.py`, citing `R:\GitHub\Recto\scripts\campaign_guard.py:780`. Done when: a stale mark from a dead process or past its deadline is ignored. Cheaper substitute: trusting the file's existence without checking the process.
+- [ ] Add `review_in_flight` to `on_stop` in `scripts/lib/run_guard.py`, citing `D:\GitHub\Recto\scripts\campaign_guard.py:780`. Done when: a stale mark from a dead process or past its deadline is ignored. Cheaper substitute: trusting the file's existence without checking the process.
 - [ ] Add cases to `scripts/tests/test_run_guard.py`. Done when: live, dead and expired marks each produce the expected Stop decision.
 - [ ] Commit: `guard: wait for a review in flight`
 
