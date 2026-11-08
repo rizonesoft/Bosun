@@ -98,6 +98,8 @@ Without settled items, a reviewer reopens decisions the writer already resolved,
 
 A review must run so the session hears when it ends, and a stamp must not sit on an edited pin. Recto's hook enforces the first and Resolute's the second.
 
+**Corrected 2026-11-08:** both now live at `D:\GitHub\Recto\scripts\dispatch_hook.py` and `D:\GitHub\Resolute\scripts\dispatch_hook.py`. Resolute's hook checks only `.conclave/reviewers.toml`, though its docstring also names `docs/reviews/`; the port checks the pin only, since the dispatcher appends each round to a findings file and the writer adds its notes there before they are committed, so refusing on findings edits would stop the campaign's own steps. A review can outlast the shell tool's 10 minute limit, so `run_in_background` is right, and the review skills say so. Claude Code has no non-interactive hook listing, so registration is proven by `scripts/tests/test_hook_commands.py` and by running the registered command.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -107,10 +109,11 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 1. Create `scripts/dispatch_hook.py` from Recto's, adding Resolute's pin guard. Done when: a detached dispatch and an edited pin are each refused.
 2. Wire it as PreToolUse on `Bash|PowerShell` in `.claude/settings.json`. Done when: a live session refuses `review-dispatch.py --prompt x &`.
 
-- [ ] Create `scripts/dispatch_hook.py` from `R:\GitHub\Recto\scripts\dispatch_hook.py`. Done when: `&`, `nohup`, `Start-Job` and a missing `run_in_background` exit 2; `--check-pin` passes. Cheaper substitute: matching only the Bash spelling and missing PowerShell.
-- [ ] Add the refusal while `.conclave/reviewers.toml` or `docs/reviews/` is modified, from `R:\GitHub\Resolute\scripts\dispatch_hook.py`. Done when: `review-dispatch.py` and `todo-graph.py stamp` exit 2 on a dirty pin. Cheaper substitute: a warning that lets the stamp through.
+- [ ] Create `scripts/dispatch_hook.py` from `D:\GitHub\Recto\scripts\dispatch_hook.py`. Done when: `&`, `nohup`, `Start-Job` and a missing `run_in_background` exit 2; `--check-pin` passes. Cheaper substitute: matching only the Bash spelling and missing PowerShell.
+- [ ] Add the refusal while `.conclave/reviewers.toml` is modified or staged, from `D:\GitHub\Resolute\scripts\dispatch_hook.py`. Done when: `review-dispatch.py` and `todo-graph.py stamp` exit 2 on a dirty pin, and pass with a modified findings file. Cheaper substitute: a warning that lets the stamp through.
 - [ ] Add `scripts/tests/test_dispatch_hook.py`. Done when: each refusal and each allowed form is asserted, and a malformed payload fails open with a message.
-- [ ] Register the hook in `.claude/settings.json`. Done when: `python -c` JSON parse passes and the hook appears in `claude` hook listing.
+- [ ] Register the hook in `.claude/settings.json` on `Bash|PowerShell`. Done when: the settings parse, `scripts/tests/test_hook_commands.py` finds it and runs its command, and a payload through that command refuses a detached review.
+- [ ] Tell `review-todo-section/SKILL.md` and `process-todo-section/SKILL.md`, in all three mirrors, to run `review-dispatch.py` with the shell tool's `run_in_background` option. Done when: a test reads it in each mirror.
 - [ ] Commit: `hooks: refuse detached reviews and dirty pins`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_dispatch_hook.py` exits 0, and fails if the change is reverted.
