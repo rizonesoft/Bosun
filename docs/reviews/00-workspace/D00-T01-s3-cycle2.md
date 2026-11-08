@@ -94,3 +94,5 @@ Gap list
 1. **missing-in-scope**: Add dispatch-hook regression tests for allowed and detached ANSI-C quoted prompt paths that fail when `scripts/dispatch_hook.py:175` is reverted.
 
 COMPLETION: gaps
+
+- Fixed in fbd42c6: `test_an_ansi_c_quoted_prompt_is_one_word` refuses a detached review whose prompt is ANSI-C quoted and passes the same review in the background; it fails with the dispatch hook's $'...' handling removed (gap 1).

@@ -37,7 +37,7 @@ title: "TODO-01 -- Finish the agent kit"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Review-in-flight marks for the guard | -- | [x] |
 | 2 | §2 | Settled items in review prompts | §1 | [ ] |
-| 3 | §3 | Dispatch hook for background reviews | §1 | [ ] |
+| 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [ ] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
@@ -125,11 +125,14 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 - [x] Copy `tool-guard.py` into the real-session test's repo, which the hook imports, and first prove the installed hook refuses a detached launch there; and have `scripts/dispatch_hook.py` report a parser it can't load rather than crash. Done when: the test fails if the hook can't start, and a hook without its parser says so and lets the call through.
 - [x] Assert the verdict in the real-session test, with a fake reviewer that returns `approve`, one that returns `needs-attention` and one that fails, each reported as its exit status and its verdict line. Done when: a lost or misreported negative review fails the test.
 - [x] Read Bash's `$'...'` as one quoted word in `split_chain` in `scripts/tool-guard.py` and in `parse` in `scripts/dispatch_hook.py`, where a backslash escapes its closing quote. Done when: a test refuses `git push origin $'a\';b' --force` and the like.
-- [ ] Commit: `hooks: refuse detached reviews and dirty pins`
+- [x] Commit: `hooks: refuse detached reviews and dirty pins`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_dispatch_hook.py scripts/tests/test_tool_guard.py scripts/tests/test_hook_commands.py` exits 0, and fails if the change is reverted; `BOSUN_E2E=1 python -m unittest scripts/tests/test_guard_e2e.py` proves a background review and its verdict reach the session. **Corrected 2026-11-08:** the parser changes reach `scripts/tool-guard.py`, so its suite is in.
 
 > **Repair cycle:** 1: 2026-11-08: its 33 review rounds ran out on ever rarer shell spellings; cycle 2 states the hooks' threat model (after: its 33 review rounds ran out with findings open)
+
+> **Verified:** 2026-11-08 | §3 | fbd42c6418e8acd873f892b292956f7ecc17e0db
+> **Review:** `docs/reviews/d00-t01-s3.json`
 
 ## 4. Pre-commit hook and clone setup
 

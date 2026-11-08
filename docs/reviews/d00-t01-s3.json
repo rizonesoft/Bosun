@@ -1,0 +1,80 @@
+{
+  "ref": "D00 T01 \u00a73",
+  "title": "Dispatch hook for background reviews",
+  "implementation_sha": "fbd42c6418e8acd873f892b292956f7ecc17e0db",
+  "date": "2026-11-08",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s3-cycle2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest test_dispatch_hook test_tool_guard test_hook_commands test_review_dispatch test_run_guard -> Ran 259 tests, OK",
+    "BOSUN_E2E=1 python -m unittest scripts.tests.test_guard_e2e.BackgroundReview -> Ran 3 tests, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s3-cycle2.md",
+    "verdict": "completed",
+    "candidate": "8dd6d22a56525991b22886ab8d5e650fc3aff946",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s3-cycle2.md",
+    "candidate": "8a629aaec3c6d3ded74b438212908f0be3e9be71",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "8a629aaec3c6d3ded74b438212908f0be3e9be71",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
