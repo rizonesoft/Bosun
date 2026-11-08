@@ -65,6 +65,13 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(two_lines, "PowerShell", background=True)))
         self.assertIn("not detached", hook.verdict(payload("Write-Output a; " + REVIEW + " &", "PowerShell", background=True)))
 
+    def test_a_backgrounded_pipeline_and_a_continued_line_are_seen(self):
+        self.assertIn("not detached", hook.verdict(payload(REVIEW + " | tee R:/scratch/review.log &", background=True)))
+        self.assertIn("not detached", hook.verdict(payload(REVIEW + " \\\n&", background=True)))
+        self.assertIn("not detached", hook.verdict(payload(REVIEW + " `\n&", "PowerShell", background=True)))
+        self.assertIsNone(hook.verdict(payload(REVIEW + " | tee R:/scratch/review.log", background=True)))
+        self.assertIsNone(hook.verdict(payload(REVIEW + " 2>&1 | & tee x.log", "PowerShell", background=True)))
+
     def test_every_spelling_argparse_accepts_is_a_review(self):
         for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
