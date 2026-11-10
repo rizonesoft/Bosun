@@ -8,13 +8,15 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 29 | Checklist items: 248
+Sections: 31 | Checklist items: 259
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
 | [x]    | D00 T01 §1  | Review-in-flight marks for the guard                            | none           | 6     |
 | [x]    | D00 T01 §2  | Settled items in review prompts                                 | none           | 10    |
 | [x]    | D00 T01 §3  | Dispatch hook for background reviews                            | none           | 11    |
+| [ ]    | D00 T01 §10 | Kit updates from the three sample repos                         | none           | 7     |
+| [ ]    | D00 T01 §11 | Removal of the samples folder                                   | none           | 4     |
 | [x]    | D00 T03 §1  | CI status that proves the commit                                | none           | 27    |
 | [x]    | D00 T03 §2  | One section disposition across graph, guard and skills          | none           | 13    |
 | [x]    | D00 T03 §3  | Review repair cycles and parking                                | none           | 18    |
@@ -136,6 +138,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 17/81 verified sections, 5 ready to run now.
+Progress: 17/83 verified sections, 6 ready to run now.
 
-Checklist: 202/506 items completed (includes Commit items).
+Checklist: 202/517 items completed (includes Commit items).
