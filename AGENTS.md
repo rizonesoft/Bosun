@@ -43,6 +43,7 @@ The owner set this on 2026-11-10, and it governs every session, attended or not.
 - Resolve a tool by capability before path. Prefer explicit config, then discovery, then a setup-required state. Store discovered paths only in ignored local config and never hardcode user-specific absolute paths.
 - Prefer global or user-level tool installs. Add repo-scoped wrappers only when they encode project-specific behavior or reproducible commands.
 - Real data only. Demo or seed data stays behind an explicit demo mode and is labeled as such.
+- Develop on `main`, always: no feature branches and no long-lived worktrees. A branch or worktree is only for a throwaway (a disposable pull request, an isolated experiment), and whoever makes one removes it when done. When you find a stale one, check `git worktree list` and `git branch -a`, then remove any whose work is merged or abandoned (`git worktree remove`, `git branch -d`, `git push origin --delete`); ask the owner first when it holds unmerged commits or uncommitted files.
 - Run the relevant typecheck, lint, and tests after a change.
 - Fix at the owning layer: a setting in its setting, behaviour in the code that produces it, data in the data. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 100` characters so raw `.md` files never wrap.
