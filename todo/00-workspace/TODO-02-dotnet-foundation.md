@@ -12,11 +12,11 @@ title: "TODO-02 -- The .NET foundation"
 
 > **Current state:** Measured 2026-11-07. No .NET code exists. SDK `11.0.100-rc.2.26504.105` and the matching WPF runtime are installed. C++ sources sit directly in `src/`.
 
-**Corrected 2026-11-08:** Recto and Isotone moved to `D:\GitHub\Recto` and `D:\GitHub\Isotone`; their paths below are updated. Steward stays at `R:\GitHub\Steward`.
+**Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
 
 ## Inputs
 
-- `R:\GitHub\Steward\Directory.Build.props` and `D:\GitHub\Isotone\Directory.Packages.props`.
+- `R:\GitHub\Steward\Directory.Build.props` and `R:\GitHub\Isotone\Directory.Packages.props`.
 - `docs/specs/2026-11-07-control-panel-design.md`, the technology section.
 - -> XREF: D00 T01 §6 -- consumed by this file
 - -> XREF: D02 T01 §1 -- consumes this file
@@ -56,9 +56,10 @@ Everything later hangs off this shape. The pin allows the RC now and is moved on
 2. Create `src/Bosun.Core`, `src/Bosun.Panel`, `tests/Bosun.Core.Tests` and `tests/Bosun.Panel.Tests`. Done when: the solution builds and an empty test passes.
 
 - [ ] Create `global.json` pinning `11.0.100-rc.2.26504.105` with `rollForward: latestFeature` and `allowPrerelease: true`. Done when: `dotnet --version` from the repo prints the RC. Cheaper substitute: no pin at all.
-- [ ] Create `Directory.Build.props` with `TreatWarningsAsErrors`, `Nullable` and `ArtifactsPath` set to `build/dotnet`, so all .NET output sits under `build/` beside the C++ output, plus the `_wpftmp` fix from `D:\GitHub\Isotone\Directory.Build.props`. Done when: a deliberate warning fails the build, and a full build creates no `artifacts/` folder and no `bin/` or `obj/` folder under `src/` or `tests/`.
+- [ ] Create `Directory.Build.props` with `TreatWarningsAsErrors`, `Nullable` and `ArtifactsPath` set to `build/dotnet`, so all .NET output sits under `build/` beside the C++ output, plus the `_wpftmp` fix from `R:\GitHub\Isotone\Directory.Build.props`. Done when: a deliberate warning fails the build, and a full build creates no `artifacts/` folder and no `bin/` or `obj/` folder under `src/` or `tests/`.
 - [ ] Create `src/Bosun.Panel/Bosun.Panel.csproj` targeting `net11.0-windows`, with `UseWPF` and `InvariantGlobalization=false`, citing `R:\GitHub\Steward\src\Steward.Console\Steward.Console.csproj:25`. Done when: a templated binding runs in a test without throwing. Cheaper substitute: inheriting invariant globalization and crashing on the first binding.
 - [ ] Create `src/Bosun.Core` and both test projects with xunit from `Directory.Packages.props`. Done when: `dotnet test` runs two passing tests.
+- [ ] Create `Directory.Build.rsp` with `-nodeReuse:false` and `-maxCpuCount:4`, so a finished build leaves no idle MSBuild node holding memory. Measured 2026-11-10: another repo's build left 11 idle nodes holding 1.4 GB on this 32 GB machine, while this repo's build waited 15 minutes for a slot. Done when: no `MSBuild` or `dotnet` build node started by `dotnet build Bosun.slnx` is alive 5 seconds after it returns, checked in `tests/dotnet_nodes_test.ps1`. Cheaper substitute: an environment variable only this machine sets.
 - [ ] Commit: `dotnet: solution, props and empty projects`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Foundation` exits 0, and fails if the change is reverted.

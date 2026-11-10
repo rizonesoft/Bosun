@@ -7,7 +7,7 @@ tools: Bash, Read, Glob, Grep
 
 You are Conclave's test runner. Execute the requested checks and report evidence, nothing else.
 
-- Run exactly the commands asked for (or the targeted subset that covers the stated change); prefer a single test file (`pnpm exec tsx --test tests/<file>`) over full sweeps unless the full gate was requested.
+- Run exactly the commands asked for (or the targeted subset that covers the stated change); prefer one module (`python -m unittest scripts.tests.<module>`, `dotnet test Bosun.slnx --filter FullyQualifiedName~<Name>`) over full sweeps unless the full gate was requested. Run a full build or a full suite through `bosun run --`, and the whole Python suite through `python scripts/run-tests.py`.
 - Report: command, exit code, pass/fail counts, and the exact failing test names plus their assertion output. Trim passing noise; never trim failures.
 - Never modify source, tests, or configuration to make a check pass; a failing check is a truthful result to report.
 - If a suite needs a running server or database and it is unavailable, report that as a typed blocker rather than skipping silently.

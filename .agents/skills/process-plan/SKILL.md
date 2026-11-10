@@ -49,7 +49,7 @@ python scripts/todo-graph.py query next
 python scripts/todo-graph.py query blocked
 python scripts/todo-graph.py query disposition
 python scripts/todo-graph.py query stats
-python -m unittest discover -s scripts/tests
+python scripts/run-tests.py
 ```
 
 Fix every validator refusal before talking about shipping. If `plan --check` is stale, run `plan --sync` and re-check. The deep phase repair belongs to `process-phase` step 1; this audit is the commands above plus five recorded lines in the first phase's run file (`docs/phase-runs/<date>-phase-<N>.md`), not as the turn's last words:

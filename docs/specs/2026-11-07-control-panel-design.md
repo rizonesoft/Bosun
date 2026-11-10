@@ -2,6 +2,18 @@
 
 Status: brainstorm result, 2026-11-07. Renamed from DevMode to Bosun the same day, and moved from `R:\GitHub` to `D:\GitHub`. Interface contract: [design/SPEC.md](../../design/SPEC.md). Mockup: [design/mockups/control-panel.html](../../design/mockups/control-panel.html). Execution plan: [todo/implementation-plan.md](../../todo/implementation-plan.md).
 
+## What changed on 2026-11-10?
+
+The owner cut the design back to the product, with the lesson of an earlier project that grew too connected: Bosun must not be over-engineered or wired into everything. Where this section and a later one disagree, this one wins.
+
+- **Bosun depends on nothing but its own tools.** The panel shows what `bosun.exe` and the loggers measure, and tunes this machine. It needs no other repo, no agent workflow, no open unattended run and no API key.
+- **No repo depends on Bosun.** The global heartbeat is removed, because it took over each repo's own watchdog and a repo that moved was left with none. Each repo keeps its own watchdog task. Bosun writes nothing into another repository and schedules nothing for one.
+- **Pages removed:** Plan, Reviews, Unattended run, Hooks and automations, Fleet, Agents, Workbench, Usage and Insights, with the repo registry, the repo selector and project folders that served them. Controls that acted on a repo are removed too: Stop on Instances, and Park and Resume.
+- **Pages kept:** Overview, Memory, Instances, Queue, Optimise, Settings and About, with the tray, the theme and the premium components.
+- **No folder is named in code.** The `D:` volume this document mentions is retired; a path comes from the checkout, a variable or a setting.
+
+The sections below are the record of the first design. Their parts about the removed pages, the heartbeat, API keys and Insights no longer apply.
+
 ## What is it for?
 
 Bosun Panel is one window that answers three questions for someone running 5 Windows and 5 WSL repos at once on 32 GB:

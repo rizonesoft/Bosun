@@ -27,6 +27,17 @@ Every review answers these with code and behavior evidence, never assertion:
 2. **Is it logical?** Do the contracts agree: threading rules, error paths, settings consumers, UI states, failure behavior?
 3. **Did it break anything else?** Inspect callers, consumers, tests and adjacent workflows that read what changed.
 
+## Delegation: the fleet in `.claude/agents/`
+
+Judgment never leaves the main loop: whether the plan is sound, what to build, every edit, what a finding means and whether a section is done. A subagent reads and runs, on Sonnet, and returns evidence with `file:line` and exact output. Check what comes back before acting on it: open the cited lines, read the failing assertion itself, and re-run anything a stamp will quote. A claim you could not check is not evidence. Give each one a self-contained brief (the goal, the paths, what is already known), since it sees none of this conversation, and run independent ones in the same message.
+
+- `git-runner`: the candidate range, file by file, and whether each commit is on the branch.
+- `test-runner`: the gates in step 5, for the failures and the output tail.
+- `mutation-tester`: proof that the Test checkpoint fails when the change is reverted, where the section claims it does.
+- `code-explorer`: whether a reviewer's finding is true of the code, with the lines that show it. You decide what the finding means.
+
+A Claude subagent is never the reviewer: the independent review runs only through `scripts/review-dispatch.py`.
+
 ## Workflow
 
 ### 1. Fix the candidate

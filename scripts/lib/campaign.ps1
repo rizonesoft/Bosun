@@ -160,20 +160,17 @@ function Get-HoldState([string]$powercfg, [string]$key, [string]$scheme = '') {
   [ordered]@{ Scheme = $scheme; Power = @($power); Lock = (Get-LockValue $key) }
 }
 
-# --- The two SYSTEM tasks ----------------------------------------------------------------------------------------
+# --- The SYSTEM task ---------------------------------------------------------------------------------------------
 
 $WindowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 
 # The definitions admin setup registers, in the shape Get-CampaignTask reads back.
-function Get-CampaignTaskDefs([string]$binDir, [string]$dotnetDir, [string]$vhdx, [string]$prefix = 'Bosun') {
-  @(
+function Get-CampaignTaskDefs([string]$binDir, [string]$dotnetDir, [string]$prefix = 'Bosun') {
+  # The comma keeps a list of one a list: unrolled, `$defs[0]` would index into the definition itself.
+  , @(
     [ordered]@{
       Name = "$prefix dotnet final"; Enabled = $true; Execute = $WindowsPowerShell; User = 'SYSTEM'; Triggers = @('Boot', 'Daily')
       Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $binDir 'install-dotnet-final.ps1')`" -InstallDir `"$dotnetDir`" -TaskName `"$prefix dotnet final`""
-    },
-    [ordered]@{
-      Name = "$prefix attach D"; Enabled = $true; Execute = $WindowsPowerShell; User = 'SYSTEM'; Triggers = @('Boot')
-      Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$(Join-Path $binDir 'attach-vhdx.ps1')`" -Path `"$vhdx`""
     }
   )
 }

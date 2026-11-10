@@ -17,8 +17,8 @@ prompt's proportionality rule rates P3. The hard guarantees sit elsewhere: D00 T
 review correct however it is launched, and the remote's branch protection, once D00 T03 §17 has it on, is what makes
 a force push impossible.
 
-Ported from Recto (`D:\\GitHub\\Recto\\scripts\\dispatch_hook.py`), with the pin check from Resolute
-(`D:\\GitHub\\Resolute\\scripts\\dispatch_hook.py`), which checks the pin only; so does this, since findings files
+Ported from Recto (its `scripts/dispatch_hook.py`), with the pin check from Resolute (its
+`scripts/dispatch_hook.py`), which checks the pin only; so does this, since findings files
 change on the way to every commit.
 """
 from __future__ import annotations

@@ -17,7 +17,6 @@ title: "TODO-02 -- Optimise"
 - `design/SPEC.md` §12.
 - `docs/specs/2026-11-07-bosun-design.md`, phase 2 and rejected.
 - -> XREF: D02 T02 §3 -- consumed by this file
-- -> XREF: D03 T02 §2 -- consumed by this file
 - -> XREF: D07 T01 §4 -- consumes this file
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
@@ -41,7 +40,6 @@ title: "TODO-02 -- Optimise"
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor and background memory priority | §2 | [ ] |
-| 6 | §6 | Parking idle repos | §3, D03 T02 §2 | [ ] |
 
 ## 1. Diagnostics
 
@@ -147,30 +145,7 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 - [ ] Keep the listed apps in `PanelSettings` empty by default. Done when: a fresh install lowers the priority of nothing.
 - [ ] Commit: `machine: pressure monitor and memory priority`
 
-**Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe pressure` exits 0, and fails if the change is reverted.
-
-## 6. Parking idle repos
-
-One action that stops an idle repo's dev servers and databases, also from the earlier design. The owner chose on 2026-11-07 to build it with an empty list, so nothing can be parked until they add a repo.
-
-**Phase:** 5
-**Needs:** none
-**Surface:** yes
-**Fidelity:** `design/SPEC.md` §4.
-**Job:** free memory held by a repo that isn't being worked on, and bring it back.
-**Treatment:** Park and Resume row actions for repos with listed services. Cheaper substitute that fails: a global stop-everything button.
-**Chrome:** the Instances page and `Btn.Danger`.
-
-**Build order:**
-
-1. Add per-repo park commands, empty by default. Done when: the list is per repo and explicit.
-2. Add the action. Done when: park and resume round-trip.
-
-- [ ] Record per-repo park commands in `panel.json`, with `D03 T02 §1` attribution. Done when: nothing is parked that isn't listed. Cheaper substitute: guessing services by name.
-- [ ] Add Park and Resume to the Instances page, with confirmation. Done when: a fixture repo stops and restarts its listed services. Cheaper substitute: killing processes the list does not name.
-- [ ] Commit: `machine: parking idle repos`
-
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Parking` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe pressure` exits 0, and fails if the change is reverted.
 
 ## Verification
 

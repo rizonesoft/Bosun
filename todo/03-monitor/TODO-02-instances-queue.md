@@ -19,8 +19,6 @@ title: "TODO-02 -- Instances and queue"
 - -> XREF: D03 T01 §5 -- consumes this file
 - -> XREF: D01 T01 §3 -- consumed by this file
 - -> XREF: D02 T02 §3 -- consumed by this file
-- -> XREF: D05 T01 §2 -- consumes this file
-- -> XREF: D05 T02 §6 -- consumes this file
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §6 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
@@ -30,9 +28,9 @@ title: "TODO-02 -- Instances and queue"
 - An open Claude session on either side appears within a refresh.
 - Queue limits set in the panel govern real jobs.
 
-**Adjacency:** list=applicable @ D03 T02 §2; document=not-applicable (nothing carried); settings=applicable @ D03 T02 §3; reporting=applicable @ D03 T02 §3; notifications=not-applicable (none); permissions=applicable @ D03 T02 §2; audit=applicable @ D03 T02 §2; exchange=not-applicable (none); reverse=not-applicable (a stopped process is restarted by the operator)
+**Adjacency:** list=applicable @ D03 T02 §2; document=not-applicable (nothing carried); settings=applicable @ D03 T02 §3; reporting=applicable @ D03 T02 §3; notifications=not-applicable (none); permissions=not-applicable (per-user, read-only); audit=applicable @ D03 T02 §3; exchange=not-applicable (none); reverse=not-applicable (limits are re-editable)
 
-**Adjacency rationale:** Stop is the only destructive action, so it confirms, names its target and writes to Activity.
+**Adjacency rationale:** The Instances page only reads and opens: it never stops a process, because a repo's processes are that repo's to manage (owner decision, 2026-11-10). Saving the queue limits writes to Activity.
 
 ## Implementation Order
 
@@ -70,18 +68,17 @@ The direct answer to monitoring all the dev instances.
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §4.
-**Job:** see everything running, and end the one that's stuck.
+**Job:** see everything running, by repo, and get to it.
 **Treatment:** grouped table with row actions. Cheaper substitute that fails: Task Manager's flat list.
-**Chrome:** the shell's page frame and `Btn.Danger`.
+**Chrome:** the shell's page frame.
 
 **Build order:**
 
 1. Create `Views/InstancesView.xaml`. Done when: rows group by repo.
-2. Add actions. Done when: each works, and Stop confirms.
+2. Add actions. Done when: each works.
 
 - [ ] Build the table per `design/SPEC.md` §4. Done when: WSL down shows Windows rows and a notice.
 - [ ] Add Open folder and Open terminal here. Done when: a WSL row opens the right distro and path. Cheaper substitute: Windows paths passed to a WSL shell.
-- [ ] Add Stop: confirm, ask to close, then offer force. Done when: the prompt names process and repo, Activity records it, and a refusal to close doesn't kill. Cheaper substitute: killing immediately with no prompt.
 - [ ] Show a build job's queue slot on its row in `Views/InstancesView.xaml`, from `bosun status --json`. Done when: a fixture job shows "Slot 1".
 - [ ] Commit: `instances: page`
 

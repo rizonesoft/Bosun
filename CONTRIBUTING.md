@@ -22,14 +22,13 @@ git config core.hooksPath scripts/hooks
 ## Which checks must pass?
 
 ```
-cmake -S . -B build
-cmake --build build --config Release
+pwsh scripts/build.ps1
 build\Release\test_core.exe
 pwsh tests\queue_test.ps1
 pwsh tests\bin_output_test.ps1
 python scripts/todo-graph.py validate
 python scripts/todo-graph.py plan --check
-python -m unittest discover -s scripts/tests
+python scripts/run-tests.py
 node scripts/verify-agent-tiers.mjs
 ```
 

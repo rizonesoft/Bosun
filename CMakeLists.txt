@@ -10,11 +10,14 @@ add_compile_definitions(UNICODE _UNICODE)
 
 set(BOSUN_LIBS pdh advapi32)
 
-add_executable(bosun src/main.cpp src/app.cpp)
+# app.cpp is nearly all of both tools, so it is compiled once and linked into each.
+add_library(bosun_app OBJECT src/app.cpp)
+
+add_executable(bosun src/main.cpp $<TARGET_OBJECTS:bosun_app>)
 target_link_libraries(bosun PRIVATE ${BOSUN_LIBS})
 
 # Same logger with no console window, for starting at login.
-add_executable(bosun-logger WIN32 src/logger_main.cpp src/app.cpp)
+add_executable(bosun-logger WIN32 src/logger_main.cpp $<TARGET_OBJECTS:bosun_app>)
 target_link_libraries(bosun-logger PRIVATE ${BOSUN_LIBS})
 
 # bin/ holds only the shipped tools. Test binaries, PDBs and everything else stay in build/.

@@ -12,6 +12,8 @@ title: "TODO-03 -- Campaign readiness"
 
 > **Current state:** Measured 2026-11-07. An independent review and the code agree on these faults. `scripts/review-dispatch.py:241` refuses after a completion review with gaps, and `scripts/lib/todo_graph.py:1222` only unstamps stamped sections, so such a section can never stamp. `scripts/review-dispatch.py:248` needs operator recovery on exhausted rounds, and `scripts/lib/run_guard.py:325` still offers that row. `scripts/lib/run_guard.py:47` always excludes `display-session`. `scripts/lib/run_guard.py:205` ends a run for good when no row is runnable. `scripts/ci_status.py:120` exits 0 with no successful run. `tests/test_core.cpp:22` ignores its arguments. `cmake` is not on PATH.
 
+**Corrected 2026-11-10:** the owner retired two things `§10` and `§11` shipped, and their sections stay as history. The global heartbeat (`scripts/heartbeat.py`, `bosun-heartbeat`, the `Bosun heartbeat` task) is removed: each repo keeps its own watchdog task from `python scripts/run-guard.py install`, and nothing in a repo depends on Bosun. The `D:` volume and its `Bosun attach D` task are removed with `R:\Conclave.vhdx`: the preflight checks free space on the drive the repo is on.
+
 ## Inputs
 
 - The owner's campaign decisions in `docs/specs/2026-11-07-control-panel-design.md`, "How does the unattended campaign run?".
@@ -30,7 +32,7 @@ title: "TODO-03 -- Campaign readiness"
 
 **Adjacency:** all=not-applicable (internal tooling and contracts with no records of their own)
 
-**Adjacency rationale:** This is the machinery that builds the product. The operator sees its results in the Unattended run page, owned by `D04 T03`.
+**Adjacency rationale:** This is the machinery that builds the product. The operator sees its results through `python scripts/run-guard.py status`; the panel stays out of each repo's workflow (owner decision, 2026-11-10).
 
 ## Implementation Order
 

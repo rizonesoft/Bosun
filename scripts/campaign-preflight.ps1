@@ -5,7 +5,7 @@
 #   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below); it says it is one
 #
 # Options for the owner: -Repo (this checkout), -ProbeSeconds (120, at least 1, each external call's limit),
-# -MinFreeGB (50, at least 1, on each of -FreeDrives, D:\ and R:\), -MinLoginDays (30, at least 1, left on Claude's
+# -MinFreeGB (50, at least 1, on each of -FreeDrives, by default the drive this checkout is on), -MinLoginDays (30, at least 1, left on Claude's
 # sign-in or token), -ReviewerModel (gpt-6-astra) and -Distro (Ubuntu). The other parameters point the checks at test
 # doubles (paths, registry keys, a task store) and are for tests/preflight_test.ps1.
 #
@@ -23,14 +23,13 @@ param(
   [int]$MinLoginDays = 30,
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$TokenRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\claude-token.json'),
-  [string[]]$FreeDrives = @('D:\', 'R:\'),
+  [string[]]$FreeDrives = @(),
   [string]$HoldRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
   [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
   [string]$LockKey = 'HKCU:\Control Panel\Desktop',
   [string]$PolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU',
   [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
   [string]$DotnetDir = '',
-  [string]$Vhdx = 'R:\Conclave.vhdx',
   [string]$TaskStore = '',
   [string]$TaskPrefix = 'Bosun',
   [string]$InactivityKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System',
@@ -42,6 +41,8 @@ param(
 foreach ($bad in @(@('ProbeSeconds', $ProbeSeconds, 1), @('MinFreeGB', $MinFreeGB, 1), @('MinLoginDays', $MinLoginDays, 1)) | Where-Object { $_[1] -lt $_[2] }) { "-$($bad[0]) must be at least $($bad[2]), not $($bad[1])"; exit 2 }
 if (-not $SearchPath) { $SearchPath = Get-RegistryPath }
 if (-not $Acceptance) { $Acceptance = Join-Path $Repo 'docs\acceptance\preflight.md' }
+# The campaign writes where the checkout is, so that drive is the one that must not fill: never a drive named in code.
+if (-not $FreeDrives) { $FreeDrives = @([IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $Repo).Path)) }
 $failed = 0
 # Written to the host, not returned: a check that fails inside a helper whose result is assigned (as Probe's is) would
 # otherwise hand its own report back as that result.
@@ -273,7 +274,7 @@ function Test-Guard {
   $r = Probe 'python' @((Join-Path $Repo 'scripts\run-guard.py'), 'status', '--verify') 'install Python 3 and put it on PATH' $Repo
   if (-not $r) { return }
   if ($r.Code -ne 0) {
-    Fail "the watchdog isn't healthy: $(Tail $r.Out)" 'run `python scripts/run-guard.py status --verify` and fix each reason it gives; `pwsh scripts/install.ps1` puts the heartbeat back'
+    Fail "the watchdog isn't healthy: $(Tail $r.Out)" 'run `python scripts/run-guard.py status --verify` and fix each reason it gives; `python scripts/run-guard.py install` puts the watchdog task back'
     return
   }
   Pass 'watchdog healthy (run-guard.py status --verify)'
@@ -284,9 +285,9 @@ function Test-Guard {
 function Test-Space {
   foreach ($d in $FreeDrives) {
     try { $free = (New-Object IO.DriveInfo $d).AvailableFreeSpace / 1GB }
-    catch { Fail "drive $d can't be read ($($_.Exception.Message))" "check $d is attached; D: comes back with the ``$TaskPrefix attach D`` task"; continue }
+    catch { Fail "drive $d can't be read ($($_.Exception.Message))" "check $d is attached, or name the drives to check with -FreeDrives"; continue }
     if ($free -lt $MinFreeGB) {
-      Fail ("drive $d has {0:N0} GB free, under the {1:N0} GB the campaign needs" -f $free, $MinFreeGB) "free space on $d (D: grows inside $Vhdx on R:, so R: needs it too)"
+      Fail ("drive $d has {0:N0} GB free, under the {1:N0} GB the campaign needs" -f $free, $MinFreeGB) "free space on $d"
     } else {
       Pass ("drive $d has {0:N0} GB free" -f $free)
     }
@@ -318,7 +319,7 @@ function Test-Setup {
   foreach ($name in $UpdateValues.Keys) {
     if ($now[$name].Value -ne $UpdateValues[$name]) { $wrong += "$name is $(if ($now[$name].Present) { $now[$name].Value } else { 'absent' }), not $($UpdateValues[$name])" }
   }
-  $defs = Get-CampaignTaskDefs $BinDir $dir $Vhdx $TaskPrefix
+  $defs = Get-CampaignTaskDefs $BinDir $dir $TaskPrefix
   foreach ($d in $defs) {
     try { $live = Get-CampaignTask $d.Name $TaskStore } catch { $wrong += "task '$($d.Name)' can't be read: $($_.Exception.Message)"; continue }
     if (-not $live -and $d.Name -eq $defs[0].Name) {
@@ -332,7 +333,7 @@ function Test-Setup {
     foreach ($x in (Compare-CampaignTask $d $live)) { $wrong += "task '$($d.Name)' $x" }
   }
   if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix; return }
-  Pass "admin setup in place: update restarts held, tasks '$($defs[0].Name)' and '$($defs[1].Name)' as defined"
+  Pass "admin setup in place: update restarts held, task '$($defs[0].Name)' as defined or finished"
 }
 
 function Test-Lock {

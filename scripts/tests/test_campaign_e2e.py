@@ -14,8 +14,9 @@ faked `gh` answers CI for each commit by the newest e2e section stamped in it, s
     §5  green                             -> the next row each of those carries on to
 
 A faked `codex` returns clean reviews. Both fakes sit first on a PATH every process the test starts inherits, and the
-session's own shells see it (checked on 2026-11-08). The test drives recovery as the heartbeat would, calling the
-clone's `run-guard.py watch` every few minutes, so the real heartbeat, its repos and its tasks are never touched. Right
+session's own shells see it (checked on 2026-11-08). The test drives recovery as the watchdog task would, calling the
+clone's `run-guard.py watch` every few minutes. A session told its watchdog is missing may install one for the clone,
+so the test removes that task at the end (`remove_clone_task`); no other task is touched. Right
 after §2's Started commit it kills the live session's whole tree once, and the watch must resume it and the resumed
 session must commit the next step of §2. Every process tree it started is stopped and the clone removed at the end,
 pass or fail; set BOSUN_E2E_KEEP=1 to keep the clone for a look.
@@ -39,8 +40,8 @@ REF ="D00 T01"  # the clone's only TODO file is 00-workspace/TODO-01
 SECTIONS = ["one", "two", "three", "four", "five"]
 PENDING_SECONDS = 35 * 60  # longer than the gate's own 30 minute wait, so one call ends in `wait`
 HOURS = float(os.environ.get("BOSUN_E2E_HOURS", "8"))
-WATCH_EVERY = 300  # the heartbeat's interval
-SCRATCH = Path(os.environ.get("BOSUN_E2E_SCRATCH", r"R:\scratch" if os.name == "nt" else "/mnt/r/scratch"))
+WATCH_EVERY = 300  # between the test's own watch calls
+SCRATCH = Path(os.environ.get("BOSUN_E2E_SCRATCH") or os.environ.get("BOSUN_SCRATCH") or tempfile.gettempdir())
 
 FAKE_GH = r'''"""The e2e campaign's GitHub CLI: CI answers scripted by the newest e2e section stamped in each commit."""
 import json, os, re, subprocess, sys, time
@@ -299,6 +300,20 @@ def remove_tree(path):
     shutil.rmtree(path, onexc=writable)
 
 
+def remove_clone_task(clone, run=subprocess.run):
+    """Remove the watchdog task a campaign session installed for the clone, returning whether one was removed. The guard
+    tells a session with no watchdog to run `run-guard.py install`, which registers `<folder> run watchdog`: one such
+    task outlived its run and ticked a deleted folder every ten minutes for two days. Only a task whose action names this
+    clone is removed, so another checkout that happens to share the folder name keeps its own."""
+    if os.name != "nt":
+        return False
+    name = f"{Path(clone).name} run watchdog"
+    found = run(["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True, timeout=60)
+    if found.returncode != 0 or os.path.normcase(str(clone)) not in os.path.normcase(found.stdout.decode("utf-8", "replace")):
+        return False
+    return run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, timeout=60).returncode == 0
+
+
 def stop_tree(pid):
     if not pid:
         return
@@ -403,6 +418,23 @@ class ScriptedCi(unittest.TestCase):
             ROOT = saved
         self.assertIn("disposable campaign's fixture", run(["git", "log", "-1", "--format=%s"], cwd=inner["clone"]).stdout)
 
+    @unittest.skipUnless(os.name == "nt", "the watchdog is a Windows scheduled task")
+    def test_a_watchdog_task_installed_for_the_clone_is_removed_and_no_other(self):
+        calls = []
+
+        def scheduler(xml, code=0):
+            def run(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, code if "/Query" in args else 0, xml.encode(), b"")
+            return run
+        ours = f'<Arguments>"{self.clone / "scripts" / "run-guard.py"}" watch</Arguments>'
+        self.assertTrue(remove_clone_task(self.clone, scheduler(ours)))
+        self.assertEqual(calls[-1], ["schtasks", "/Delete", "/F", "/TN", "clone run watchdog"])
+        for xml, code in (('<Arguments>"C:\\elsewhere\\clone\\scripts\\run-guard.py" watch</Arguments>', 0), ("", 1)):
+            calls.clear()
+            self.assertFalse(remove_clone_task(self.clone, scheduler(xml, code)))
+            self.assertFalse([c for c in calls if "/Delete" in c], "a task that isn't this clone's was deleted")
+
     def test_the_clone_cannot_start_a_campaign_of_its_own(self):
         self.assertFalse([k for k in self.seeded["env"] if k.startswith("BOSUN_E2E")],
                          "the sessions would inherit BOSUN_E2E, and their test suite would start a nested campaign")
@@ -469,6 +501,7 @@ class DisposableCampaign(unittest.TestCase):
             self.addCleanup(remove_tree, work)
         seeded = seed(work)
         self.clone, self.env, self.state, fakes = seeded["clone"], seeded["env"], seeded["state"], seeded["fakes"]
+        self.addCleanup(remove_clone_task, self.clone)
         self.base = self.git("rev-parse", "HEAD").strip()
         self.watches, self.first = [], None
         self.addCleanup(lambda: [stop_tree(p) for p in {self.first and self.first.pid, self.guard_child()} if p])

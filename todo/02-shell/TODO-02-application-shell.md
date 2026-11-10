@@ -8,7 +8,7 @@ title: "TODO-02 -- The application shell"
 
 # TODO-02 -- The application shell
 
-> **Goal:** A themed, accessible, single-instance window with rail navigation, settings, a repo registry and a tray, whose every page can be rendered and reviewed unattended.
+> **Goal:** A themed, accessible, single-instance window with rail navigation, settings and a tray, whose every page can be rendered and reviewed unattended.
 
 > **Current state:** Measured 2026-11-07. No application exists. Steward.Console is the proven model, with known gaps: no single instance, no crash handling, arguments split on spaces, administrator required.
 
@@ -21,20 +21,10 @@ title: "TODO-02 -- The application shell"
 - -> XREF: D00 T02 §1 -- consumed by this file
 - -> XREF: D03 T01 §1 -- consumes this file
 - -> XREF: D03 T02 §1 -- consumes this file
-- -> XREF: D04 T01 §1 -- consumes this file
-- -> XREF: D04 T03 §2 -- consumes this file
-- -> XREF: D04 T04 §3 -- consumes this file
-- -> XREF: D05 T01 §1 -- consumes this file
 - -> XREF: D05 T02 §1 -- consumes this file
-- -> XREF: D06 T01 §1 -- consumes this file
 - -> XREF: D07 T01 §1 -- consumes this file
 - -> XREF: D02 T03 §2 -- consumes this file
-- -> XREF: D04 T01 §2 -- consumes this file
-- -> XREF: D04 T02 §1 -- consumes this file
-- -> XREF: D04 T04 §1 -- consumes this file
 - -> XREF: D03 T01 §5 -- consumes this file
-- -> XREF: D04 T03 §6 -- consumes this file
-- -> XREF: D99 T01 §3 -- consumes this file
 
 ## Outcome
 
@@ -54,13 +44,10 @@ title: "TODO-02 -- The application shell"
 | 3 | §3 | Process runner | D00 T02 §1 | [ ] |
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [ ] |
 | 5 | §5 | Settings store and theme switching | §4 | [ ] |
-| 6 | §6 | Repo registry and capability probe | §3, §5 | [ ] |
-| 7 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
-| 8 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
-| 9 | §9 | Off-screen page rendering for review | D02 T01 §1 | [ ] |
-| 10 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
-| 11 | §11 | Workflow repo selector | §6 | [ ] |
-| 12 | §12 | Project folders on both sides | §6 | [ ] |
+| 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
+| 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
+| 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [ ] |
+| 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -142,10 +129,9 @@ This is the frame every page sits in. Snap layouts need real hit testing, which 
 - [ ] Build the title bar, rail and activity pane with the `Section` record from `R:\GitHub\Steward\src\Steward.Console\ViewModels\MainViewModel.cs:112`. Done when: adding a page is one row, and pages bind through implicit `DataTemplate`s. Cheaper substitute: a static screenshot-like layout with no navigation.
 - [ ] Return `HTMAXBUTTON` from a `WM_NCHITTEST` hook. Done when: a test with synthetic coordinates gets the right code. Cheaper substitute: custom caption buttons without snap layouts.
 - [ ] Add placeholder pages for every rail entry, each deferring to its owning section. Done when: each rail row opens a page that names its owner section, and none is a dead control.
-- [ ] Create `src/Bosun.Panel/Shell/PageFrame.xaml` and `PageBase.cs`, holding the header and the content host. Done when: a page renders through them, and a page with `UsesSelectedRepo` gets the repo line. Cheaper substitute: each view drawing its own header.
+- [ ] Create `src/Bosun.Panel/Shell/PageFrame.xaml` and `PageBase.cs`, holding the header and the content host. Done when: a page renders through them. Cheaper substitute: each view drawing its own header.
 - [ ] Create `src/Bosun.Panel/Shell/ActivityLog.cs` over `UiLogSink`, with each line starting INFO, WARN or FAIL. Done when: a test with no prefix given refuses the line.
 - [ ] Log every panel action through `AsyncCommand` to `ActivityLog.cs`. Done when: a test runs a command and finds one line, and a view can't add a command without it. Cheaper substitute: each view logging by hand.
-- [ ] Add the run badge to the title bar in `MainWindow.xaml`, fed by `IRunBadgeSource`. Done when: a fake source shows its word, and the badge is hidden with no run.
 - [ ] Set `MinWidth` 960 and `MinHeight` 600 in `MainWindow.xaml`. Done when: a test reads both.
 - [ ] Add the Activity pane splitter in `MainWindow.xaml`, saved in `PanelSettings`. Done when: a drag resizes it within limits, and the size reads back after a restart. Cheaper substitute: a fixed height.
 - [ ] Commit: `shell: chrome, rail and activity pane`
@@ -177,33 +163,6 @@ Settings live in one atomic file. Theme is the first consumer.
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Settings` exits 0, and fails if the change is reverted.
 
-## 6. Repo registry and capability probe
-
-Every workflow page asks which repos exist and what each kit can do. The probe is what lets the panel show repos of different generations honestly.
-
-**Phase:** 2
-**Needs:** none
-**Surface:** yes
-**Fidelity:** `design/SPEC.md` §15, Repos.
-**Job:** the operator chooses which repos the panel watches.
-**Treatment:** a list with Add, Remove and Scan. Cheaper substitute that fails: a hardcoded folder list.
-**Chrome:** the Settings page frame.
-
-**Build order:**
-
-1. Create `src/Bosun.Core/RepoRegistry.cs` and `KitProbe.cs`. Done when: each registered repo reports its capabilities.
-2. Build the Repos part of Settings. Done when: add, remove and scan work.
-
-- [ ] Store repos in `panel.json`, each with a side, a path and for WSL a distro. Done when: a missing path stays listed and reads Missing. Cheaper substitute: dropping it silently.
-- [ ] Normalise `D:\GitHub\x` and `/mnt/d/GitHub/x` to one identity in `src/Bosun.Core/RepoRegistry.cs`. Done when: `RepoRegistryTests` refuses the second as a duplicate, naming the first. Cheaper substitute: the same repo listed twice with separate history.
-- [ ] Report WSL state from `wsl.exe --list --running` in `src/Bosun.Core/WslState.cs`. Done when: a fixture for a stopped distro reads "WSL not running", and a test proves no probe runs a command inside a stopped distro. Cheaper substitute: running the probe and waking the VM.
-- [ ] Probe `scripts/todo-graph.py`, `review-dispatch.py --check-pin --json`, guard kind and hooks in `KitProbe.cs`, with fixtures from Steward, Recto and Isotone. Done when: Isotone's text `query ready` reads as not supported, and Steward's reads as JSON. Cheaper substitute: assuming every repo is on the newest kit.
-- [ ] Add Scan folder to the Settings page for a Windows folder. Done when: scanning a folder finds repos with `.git` and lists what would be added before adding. Cheaper substitute: a hardcoded `GitHub` folder.
-- [ ] Add Scan folder for a Linux folder in a chosen distro, running through `wsl.exe --cd`, and only when the operator asks. Done when: a fixture lists WSL repos the same way, with a stopped distro offering Start WSL first. Cheaper substitute: reading `\\wsl$` on a timer.
-- [ ] Commit: `core: repo registry and kit probe`
-
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~KitProbe` exits 0, and fails if the change is reverted.
-
 ## 7. Tray icon and notifications
 
 The panel's most common state is closed. The tray is what makes it useful while working elsewhere.
@@ -212,7 +171,7 @@ The panel's most common state is closed. The tray is what makes it useful while 
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §17.
-**Job:** the operator hears about pressure or a stalled run without opening the window.
+**Job:** the operator hears about memory pressure without opening the window.
 **Treatment:** tray icon, menu and toasts. Cheaper substitute that fails: a window that must stay open.
 **Chrome:** standard Windows tray and toast surfaces.
 
@@ -287,63 +246,6 @@ One real launch proves the parts work together: the process starts, every page o
 - [ ] Commit: `tests: end-to-end smoke`
 
 **Test checkpoint:** `bosun run -- dotnet test tests/Bosun.Panel.E2E` exits 0 in a desktop session.
-
-## 11. Workflow repo selector
-
-The owner asked for one clear place to choose the repo, rather than a picker on some pages. It owns which repo the Workflow pages show, and each page only reads it.
-
-**Phase:** 2
-**Needs:** display-session
-**Surface:** yes
-**Fidelity:** `design/SPEC.md` §1, Repo selector and WSL repos.
-**Job:** the operator picks the repo to work on once, on either side, and every Workflow page follows.
-**Treatment:** a grouped selector at the head of the rail's Workflow group, and a side, path and state line under each page title. Cheaper substitute that fails: a separate picker per page that can disagree.
-**Chrome:** the rail from `§4` and the generated `ComboBox` style.
-
-**Build order:**
-
-1. Create `src/Bosun.Panel/Shell/SelectedRepo.cs`. Done when: pages read one selection and a change reaches them.
-2. Add the selector to `src/Bosun.Panel/Shell/MainWindow.xaml`. Done when: it lists both sides, and survives a restart.
-
-- [ ] Create `SelectedRepo` in `src/Bosun.Panel/Shell/SelectedRepo.cs` with one current repo and a change event. Done when: `tests/Bosun.Panel.Tests/SelectedRepoTests.cs` proves two subscribers see the same change. Cheaper substitute: a repo field on each page.
-- [ ] Save the selection to `panel.json` through the settings store. Done when: a test reads it back after a restart, and a removed repo falls back to the first repo with one WARN line in the Activity pane. Cheaper substitute: selection held only in memory.
-- [ ] Add the grouped selector to the rail in `MainWindow.xaml`, with Windows and WSL groups. Done when: an off-screen render shows both groups in both themes. Cheaper substitute: one flat list with no side shown.
-- [ ] Add the side, path and state line under the page title in `src/Bosun.Panel/Shell/PageFrame.xaml`, shown for pages that declare `UsesSelectedRepo`. Done when: a test proves Plan shows it and Fleet does not.
-- [ ] Add the Start WSL button to that line for a stopped distro, running through `ProcessRunner` only on press. Done when: a test proves polling never starts it and a press runs exactly one start command. Cheaper substitute: starting WSL when the repo is selected.
-- [ ] Show "No repos yet" with a link to Settings, Repos, when the registry is empty, in `PageFrame.xaml`. Done when: a test with an empty registry renders it and the link opens that section.
-- [ ] Refuse a repo change while the page has unsaved edits, through `SelectionGuard`. Done when: a test sees the Save or Discard offer from `design/SPEC.md` §1.
-- [ ] Set the automation name of the selector in `MainWindow.xaml`, and announce a change through `LiveRegion`. Done when: a UI Automation test reads the name and changes repo by keyboard only.
-- [ ] Commit: `shell: workflow repo selector`
-
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SelectedRepo` exits 0, and fails if a page keeps its own selection.
-
-## 12. Project folders on both sides
-
-The owner keeps repos in several folders on both sides, so a one-off Scan isn't enough. Folders are the operator's settings and never appear in code, which also keeps this right for a public release.
-
-**Phase:** 2
-**Needs:** none
-**Surface:** yes
-**Fidelity:** `design/SPEC.md` §15, Project folders.
-**Job:** say where projects live once, and hear about new ones.
-**Treatment:** a list of folders with side and last result, and found repos with Add and Add all. Cheaper substitute that fails: a hardcoded `GitHub` folder.
-**Chrome:** the Settings page frame and generated `DataGrid` style.
-
-**Build order:**
-
-1. Add folders to `src/Bosun.Core/RepoRegistry.cs`. Done when: they save and read back with side and distro.
-2. Add the scan. Done when: new repos are found on both sides, and a stopped distro stays stopped.
-
-- [ ] Store project folders in `panel.json` through `RepoRegistry.cs`, each with a side, a path and for WSL a distro, empty by default. Done when: `RepoRegistryTests` reads them back, and a missing folder stays listed and reads Missing. Cheaper substitute: folders named in code.
-- [ ] Add a Linux path check through `wsl.exe -d <distro> --cd` in `RepoRegistry.cs` when adding a WSL folder, expanding `~`. Done when: a fixture accepts `~/www` and shows the full path.
-- [ ] Find repos two levels deep under each folder in `src/Bosun.Core/RepoScanner.cs`, skipping `node_modules` and `vendor`. Done when: a fixture tree finds nested repos and ignores those folders. Cheaper substitute: a whole-drive search.
-- [ ] Scan WSL folders only while `WslState` shows the distro running, on opening Settings and on Scan now. Done when: a test proves a stopped distro is never started, and its row reads "WSL not running". Cheaper substitute: a timer that wakes the VM.
-- [ ] Add the Project folders table with Add, Remove and Scan now in `Views/SettingsView.xaml`. Done when: a test with a fake scanner adds and removes a folder on each side. Cheaper substitute: a text box of paths.
-- [ ] List found repos with Add and Add all in `Views/SettingsView.xaml`, showing a count on the Settings rail row. Done when: a test proves nothing joins the registry until Add, and an added repo doesn't return. Cheaper substitute: adding everything found.
-- [ ] Register `D:\GitHub`, `~/www` and `~/projects` on this machine through the Settings page, as `D99 T01 §3`'s first step. Done when: that section's note records it.
-- [ ] Commit: `shell: project folders on both sides`
-
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~RepoScanner` exits 0, and fails if a stopped distro is started.
 
 ## Verification
 

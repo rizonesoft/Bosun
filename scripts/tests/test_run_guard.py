@@ -325,68 +325,30 @@ class Rows(unittest.TestCase):
             self.assertIsNone(guard.real_rows())
 
 
-class Heartbeat(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        patcher = mock.patch.dict(os.environ, {"LOCALAPPDATA": self.temp.name})
-        patcher.start()
-        self.addCleanup(patcher.stop)
+class OwnWatchdog(unittest.TestCase):
+    """The repo's own task is its only watchdog: nothing outside the repo stands in for it (the global heartbeat was
+    retired on 2026-11-10, after a moved repo was left with no watchdog at all)."""
 
-    def listed(self, *repos):
-        folder = Path(self.temp.name) / "Bosun" / "heartbeat"
-        folder.mkdir(parents=True)
-        (folder / "repos.json").write_text(json.dumps({"repos": list(repos)}), encoding="utf-8")
+    def test_a_leftover_heartbeat_registry_listing_this_repo_is_no_watchdog(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"LOCALAPPDATA": folder}):
+            beat = Path(folder) / "Bosun" / "heartbeat"
+            beat.mkdir(parents=True)
+            (beat / "repos.json").write_text(json.dumps({"repos": [{"path": str(guard.ROOT), "state": "active"}]}), encoding="utf-8")
+            asked = []
 
-    def test_a_listed_repo_counts_as_watched_and_never_asks_for_a_task(self):
-        self.listed({"path": str(guard.ROOT), "state": "active"})
-        with mock.patch.object(guard, "heartbeat_task_exists", return_value=True), \
-                mock.patch.object(guard, "run", side_effect=AssertionError("asked for its own task")):
-            self.assertTrue(guard.real_task_installed())
+            def run(*args, **kwargs):
+                asked.append(args)
+                return subprocess.CompletedProcess(args, 1, b"", b"ERROR: The system cannot find the file specified.")
+            with mock.patch.object(guard, "run", side_effect=run), mock.patch.object(guard.os, "name", "nt"):
+                self.assertFalse(guard.real_task_installed())
+            self.assertEqual(asked, [("schtasks", "/Query", "/TN", guard.TASK_NAME)])
 
-    def test_being_listed_is_not_enough_without_the_heartbeat_task(self):
-        self.listed({"path": str(guard.ROOT), "state": "active"})
-        with mock.patch.object(guard, "heartbeat_task_exists", return_value=False):
-            self.assertFalse(guard.on_heartbeat())
-
-    @unittest.skipUnless(os.name == "nt", "reads Windows Task Scheduler")
-    def test_a_disabled_heartbeat_task_does_not_count(self):
-        xml = ('<Task><Settings><Enabled>{}</Enabled></Settings><Actions><Exec><Command>"' + sys.executable.replace('{', '{{') + '"</Command>'
-               '</Exec></Actions></Task>')
-        for code, text, expected in ((0, xml.format("true"), True), (0, xml.format("false"), False), (1, "", False)):
-            with self.subTest(text), mock.patch.object(guard, "run", return_value=subprocess.CompletedProcess([], code, text.encode(), b"")):
-                self.assertEqual(guard.heartbeat_task_exists(), expected)
-
-    @unittest.skipUnless(os.name == "nt", "reads Windows Task Scheduler")
-    def test_a_heartbeat_task_whose_program_or_script_is_gone_does_not_count(self):
-        here = Path(__file__).resolve()
-        xml = ('<Task><Settings><Enabled>true</Enabled></Settings><Actions><Exec><Command>"{}"</Command>'
-               '<Arguments>"{}" tick</Arguments></Exec></Actions></Task>')
-        for exe, script, expected in ((sys.executable, here, True), (here.with_name("gone.exe"), here, False),
-                                      (sys.executable, here.with_name("gone.py"), False)):
-            done = subprocess.CompletedProcess([], 0, xml.format(exe, script).encode(), b"")
-            with self.subTest(exe=exe, script=script), mock.patch.object(guard, "run", return_value=done):
-                self.assertEqual(guard.heartbeat_task_exists(), expected)
-
-    def test_a_repo_with_neither_still_warns(self):
-        self.listed({"path": str(guard.ROOT / "other"), "state": "active"})
-        self.assertFalse(guard.on_heartbeat())
-
-    def test_a_wsl_entry_does_not_count_for_this_repo(self):
-        self.listed({"path": str(guard.ROOT), "distro": "Ubuntu"})
-        self.assertFalse(guard.on_heartbeat())
-
-    def test_no_or_broken_registry_falls_back_to_the_own_task(self):
-        self.assertFalse(guard.on_heartbeat())
-        folder = Path(self.temp.name) / "Bosun" / "heartbeat"
-        folder.mkdir(parents=True)
-        (folder / "repos.json").write_text("{bad", encoding="utf-8")
-        self.assertFalse(guard.on_heartbeat())
-
-    def test_the_prompt_names_the_heartbeat(self):
+    def test_the_prompt_names_the_repo_s_own_installer_and_nothing_else(self):
         env = World().env()
         env.task_installed = lambda: False
-        self.assertIn("bosun-heartbeat add", guard.on_prompt({}, {"prompt": "process plan", "session_id": "me"}, env))
+        note = guard.on_prompt({}, {"prompt": "process plan", "session_id": "me"}, env)
+        self.assertIn("python scripts/run-guard.py install", note)
+        self.assertNotIn("bosun", note.lower())
 
 
 class Halts(unittest.TestCase):
@@ -709,14 +671,14 @@ class Modes(unittest.TestCase):
                 '                             (choices: "alpha", "betaMode",\n'
                 '                             "gamma")\n  --other  something (choices: "nope")\n')
         done = subprocess.CompletedProcess([], 0, text.encode(), b"")
-        with mock.patch.object(guard.subprocess, "run", return_value=done):
+        with mock.patch.object(guard, "run_tree", return_value=done):
             self.assertEqual(guard.real_modes(), {"alpha", "betaMode", "gamma"})
 
     def test_help_that_cant_be_read_falls_back_to_the_known_modes(self):
         for failure in (FileNotFoundError("no claude"), subprocess.TimeoutExpired("claude", 30)):
-            with self.subTest(type(failure).__name__), mock.patch.object(guard.subprocess, "run", side_effect=failure):
+            with self.subTest(type(failure).__name__), mock.patch.object(guard, "run_tree", side_effect=failure):
                 self.assertEqual(guard.real_modes(), set(guard.KNOWN_MODES))
-        with mock.patch.object(guard.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"no options here", b"")):
+        with mock.patch.object(guard, "run_tree", return_value=subprocess.CompletedProcess([], 0, b"no options here", b"")):
             self.assertEqual(guard.real_modes(), set(guard.KNOWN_MODES))
 
     def test_this_machine_s_claude_lists_bypass_mode(self):
@@ -949,10 +911,14 @@ class LaunchBoundary(unittest.TestCase):
         self.assertTrue(all(call["env"] == [] for call in self.calls()), "a paid key reached claude auth status")
 
     def test_a_sign_in_check_that_hangs_is_a_wait_not_a_launch(self):
+        started = time.time()
         with mock.patch.dict(os.environ, {"FAKE_CLAUDE_MODE": "sleep"}), mock.patch.object(guard, "AUTH_TIMEOUT", 1):
             ok, reason, detail = guard.real_subscription()
         self.assertEqual((ok, reason), (False, "sign-in-needed"))
         self.assertIn("couldn't be checked", detail)
+        # The fake is a shim whose child sleeps 30 seconds holding the pipes: the check must end at its own limit, with
+        # that child stopped, not when the child finishes (it took the full 30 seconds until 2026-11-10).
+        self.assertLess(time.time() - started, 15, "the hung check outlived its timeout")
 
     def test_the_launch_runs_the_resume_command_without_paid_keys(self):
         state_path = Path(self.temp.name) / "state.json"
@@ -1474,7 +1440,7 @@ class ReviewOutlivesItsSession(unittest.TestCase):
         self.assertEqual(commands, [["claude", "-p", "process plan", "--resume", "me"]])
 
 
-def xml(command="C:/py/pythonw.exe", arguments='"C:/b/heartbeat.py" tick', logon="InteractiveToken", user="me", enabled="true"):
+def xml(command="C:/py/pythonw.exe", arguments='"C:/b/other.py" tick', logon="InteractiveToken", user="me", enabled="true"):
     return (f"<Task><Principals><Principal><UserId>{user}</UserId><LogonType>{logon}</LogonType></Principal></Principals>"
             f"<Settings><Enabled>{enabled}</Enabled></Settings><Actions><Exec><Command>{command}</Command>"
             f"<Arguments>{arguments}</Arguments></Exec></Actions></Task>")
@@ -1486,24 +1452,16 @@ class Verify(unittest.TestCase):
     def setUp(self):
         self.root = Path("C:/repos/here")
         self.own = xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" watch')
-        self.files = {"C:/py/pythonw.exe", "C:/b/heartbeat.py", str(self.root / "scripts" / "run-guard.py")}
+        self.files = {"C:/py/pythonw.exe", "C:/b/other.py", str(self.root / "scripts" / "run-guard.py")}
 
     def at(self, ago):
         return guard.stamp(self.NOW - ago)
 
-    def run_verify(self, task=None, listed=False, tick=None, status=None, code=0, ids=("me",)):
-        beat = Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "heartbeat"
-        here = os.path.normcase(os.path.normpath(str(self.root)))
-        data = {
-            str(beat / "repos.json"): {"repos": [{"path": str(self.root), "state": "active"},
-                                                  {"path": "C:/other", "state": "active"}]} if listed else {"repos": []},
-            str(beat / "status.json"): status if status is not None else {"last_pass": self.at(60), "hold": None,
-                                                                           "repos": {here: {"at": self.at(60), "error": None}}},
-            str(Path("C:/s/last-tick.json")): tick if tick is not None else {"at": self.at(60), "ok": True, "result": "inactive"},
-        }
+    def run_verify(self, task=None, tick=None, code=0, ids=("me",)):
+        data = {str(Path("C:/s/last-tick.json")): tick if tick is not None else {"at": self.at(60), "ok": True, "result": "inactive"}}
         files = {os.path.normcase(os.path.normpath(f)) for f in self.files}
-        task = task if task is not None else (xml() if listed else self.own)
-        return guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW, task_xml=lambda name: (code, task),
+        return guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW,
+                            task_xml=lambda name: (code, task if task is not None else self.own),
                             read_json=lambda p: data.get(str(p)), is_file=lambda p: os.path.normcase(os.path.normpath(p)) in files,
                             ids=set(ids))
 
@@ -1517,7 +1475,7 @@ class Verify(unittest.TestCase):
 
     def test_each_broken_part_reads_unhealthy_with_its_reason(self):
         self.unhealthy("program is missing", task=xml(command="C:/gone/pythonw.exe", arguments=f'"{self.root / "scripts" / "run-guard.py"}" watch'))
-        self.unhealthy("runs another script", task=xml(arguments='"C:/b/heartbeat.py" watch'))
+        self.unhealthy("runs another script", task=xml(arguments='"C:/b/other.py" watch'))
         self.unhealthy("doesn't run `watch`", task=xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" status'))
         self.unhealthy("another user", task=self.own.replace("<UserId>me<", "<UserId>someone<"))
         self.unhealthy("this user's session", task=self.own.replace("InteractiveToken", "Password"))
@@ -1533,30 +1491,17 @@ class Verify(unittest.TestCase):
         self.files = {"C:/py/pythonw.exe", str(self.root / "scripts" / "run-guard.py")}
         escaped = str(self.root / "scripts" / "run-guard.py").replace("&", "&amp;")
         self.assertTrue(self.run_verify(task=xml(arguments=f'"{escaped}" watch'))["healthy"])
-        with tempfile.TemporaryDirectory() as folder:
-            program, script = Path(folder) / "a&b.exe", Path(folder) / "a&b.py"
-            program.write_text("", encoding="utf-8")
-            script.write_text("", encoding="utf-8")
-            text = xml(command=str(program).replace("&", "&amp;"), arguments=f'"{str(script).replace("&", "&amp;")}" tick')
-            with mock.patch.object(guard, "os") as fake_os, mock.patch.object(guard, "run",
-                                                                           return_value=subprocess.CompletedProcess([], 0, text.encode(), b"")):
-                fake_os.name = "nt"
-                self.assertTrue(guard.heartbeat_task_exists())
 
-    def test_a_repo_on_the_heartbeat_reads_healthy_with_no_task_of_its_own(self):
-        found = self.run_verify(listed=True)
-        self.assertEqual((found["healthy"], found["watchdog"]), (True, guard.HEARTBEAT_TASK), found)
+    def test_only_the_task_named_for_this_checkout_is_asked_for(self):
+        asked = []
 
-    def test_the_heartbeat_s_hold_and_rotation_are_healthy_and_a_dead_heartbeat_is_not(self):
-        here = os.path.normcase(os.path.normpath(str(self.root)))
-        held = {"last_pass": self.at(60), "hold": "holding: 900 MB available", "repos": {here: {"at": self.at(3600)}}}
-        self.assertTrue(self.run_verify(listed=True, status=held)["healthy"])
-        rotated = {"last_pass": self.at(60), "hold": None, "repos": {here: {"at": self.at(14 * 60), "error": None}}}
-        self.assertTrue(self.run_verify(listed=True, status=rotated)["healthy"])
-        self.unhealthy("hasn't run a pass", listed=True, status={"last_pass": self.at(11 * 60), "repos": {}})
-        self.unhealthy("hasn't ticked this repo since", listed=True,
-                       status={"last_pass": self.at(60), "hold": None, "repos": {here: {"at": self.at(30 * 60)}}})
-        self.unhealthy("runs another script", listed=True, task=xml(arguments=f'"{self.root / "scripts" / "run-guard.py"}" tick'))
+        def task_xml(name):
+            asked.append(name)
+            return 1, "ERROR: The system cannot find the file specified."
+        found = guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW, task_xml=task_xml, read_json=lambda p: None,
+                             is_file=lambda p: True, ids={"me"})
+        self.assertEqual(asked, [guard.TASK_NAME])
+        self.assertIn(f"the task {guard.TASK_NAME} is missing", found["problems"])
 
 
 class StatusCommand(unittest.TestCase):

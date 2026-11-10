@@ -12,16 +12,14 @@ title: "TODO-01 -- Finish the agent kit"
 
 > **Current state:** Measured 2026-11-07. Steward's guard, dispatcher, graph and prompts were copied in on 2026-11-07 and the SDK kit seeded the rest. Recto's review-in-flight marks, settled items and dispatch hook, and Isotone's gates, are not yet ported. The private repo `rizonetech/Bosun` exists, `origin` is set, and `build.yml`, `plan.yml` and Dependabot run on `main`.
 
-**Corrected 2026-11-08:** Recto and Isotone moved to `D:\GitHub\Recto` and `D:\GitHub\Isotone`; their paths below are updated. Steward stays at `R:\GitHub\Steward`.
+**Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
 
 ## Inputs
 
 - `docs/specs/2026-11-07-control-panel-design.md`, the table of sources.
-- `D:\GitHub\Recto\scripts\review-dispatch.py`, `scripts/campaign_guard.py:780`, `scripts/dispatch_hook.py`.
-- `D:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
+- `R:\GitHub\Recto\scripts\review-dispatch.py`, `scripts/campaign_guard.py:780`, `scripts/dispatch_hook.py`.
+- `R:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
 - -> XREF: D00 T02 §2 -- consumes this file
-- -> XREF: D04 T02 §1 -- consumes this file
-- -> XREF: D06 T01 §7 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
 
 ## Outcome
@@ -31,7 +29,7 @@ title: "TODO-01 -- Finish the agent kit"
 
 **Adjacency:** all=not-applicable (internal tooling and contracts with no records of their own)
 
-**Adjacency rationale:** Everything here is tooling for the repo itself. The surfaces that display it belong to `D04`.
+**Adjacency rationale:** Everything here is tooling for the repo itself. Nothing in the product displays it: the panel stays out of each repo's workflow (owner decision, 2026-11-10).
 
 ## Implementation Order
 
@@ -44,8 +42,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
-| 8 | §8 | Run guard state in linked worktrees | §1 | [ ] |
-| 9 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
+| 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -182,7 +179,7 @@ Toolchain drift should arrive as a notice, not a surprise. The kit's runner is c
 1. Fill `.conclave/automations/tasks.json`. Done when: `run.py` validates the tasks with `folder` set to `\Bosun\`.
 2. Port the pin checks and repoint `alert.py`. Done when: a failed task writes `last.json` and the alert path is exercised in a test.
 
-- [ ] Port `check-python-pin.py` and `check-visual-studio.py` from `D:\GitHub\Recto\scripts`, and add `check-dotnet-pin.py` from `D:\GitHub\Isotone\scripts`. Done when: each exits 0 on a current pin and nonzero on a stale fixture.
+- [ ] Port `check-python-pin.py` and `check-visual-studio.py` from `R:\GitHub\Recto\scripts`, and add `check-dotnet-pin.py` from `R:\GitHub\Isotone\scripts`. Done when: each exits 0 on a current pin and nonzero on a stale fixture.
 - [ ] Set `bosun-python-pin`, `bosun-visual-studio` and `bosun-dotnet-pin` in `.conclave/automations/tasks.json`. Done when: the validator in `run.py` accepts it. Cheaper substitute: a task whose name lacks the folder prefix.
 - [ ] Point `.conclave/automations/alert.py` at the operator's address, with the key source unchanged. Done when: `scripts/tests/test_automations.py` covers the failure path with a stub sender, sending no real mail. Cheaper substitute: sending a real test email from a test.
 - [ ] Commit: `automations: pin checks on a schedule`
@@ -224,30 +221,10 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 
 - [x] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
 - [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red on a disposable pull request branch, closed afterwards. Actions stay on major tags, kept current by Dependabot.
-- [ ] Port `scripts/merge_prs.py` from `D:\GitHub\Recto\scripts` and add `bosun-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
+- [ ] Port `scripts/merge_prs.py` from `R:\GitHub\Recto\scripts` and add `bosun-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
 - [ ] Commit: `ci: private repo, workflows and merge task`
 
 **Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, and exits 1 after a deliberately red run.
-
-## 8. Run guard state in linked worktrees
-
-Overflow runs use linked worktrees, where `.git` is a file, so `scripts/lib/run_guard.py:32` can't create its state. The guard owns this, so the fix goes there, and sibling kits can port it later.
-
-**Phase:** 0
-**Needs:** none
-**Surface:** no
-
-**Build order:**
-
-1. Resolve state through `git rev-parse --git-path run-guard`. Done when: a linked worktree gets its own state folder.
-2. Keep the watchdog out of worktrees. Done when: `install` in a linked worktree refuses and says why.
-
-- [ ] Replace the `.git` path in `scripts/lib/run_guard.py:32` with the `--git-path` result, keeping `RUN_GUARD_STATE` first. Done when: state in the main checkout stays at `.git/run-guard`, and a worktree's lives under its own git directory. Cheaper substitute: a special case that skips the guard in worktrees.
-- [ ] Refuse `run-guard.py install` from a linked worktree, since overflow runs are bounded by a budget. Done when: a test in a temporary worktree gets a clear refusal and no scheduled task.
-- [ ] Add linked-worktree cases to `scripts/tests/test_run_guard.py`. Done when: two checkouts of one repo hold separate states, and the Stop hook works in each.
-- [ ] Commit: `guard: state in linked worktrees`
-
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_run_guard.py` exits 0, and fails if the change is reverted.
 
 ## 9. Register scheduled tasks on this machine
 

@@ -4,14 +4,15 @@ This repository follows the Conclave-SDK 3-agent conventions.
 
 ## Project
 
-- Bosun keeps Windows and WSL repos from fighting over the same RAM: `bosun.exe` and the loggers (C++ in `src/`, WSL side in `wsl/`), and Bosun Panel, a .NET 11 WPF control panel over them and over each repo's agent workflow. See [README.md](./README.md), the [panel design](./docs/specs/2026-11-07-control-panel-design.md) and the [core design](./docs/specs/2026-11-07-bosun-design.md).
+- Bosun keeps Windows and WSL repos from fighting over the same RAM: `bosun.exe` and the loggers (C++ in `src/`, WSL side in `wsl/`), and Bosun Panel, a .NET 11 WPF control panel over them: memory, dev instances, the queue and machine tuning. See [README.md](./README.md), the [panel design](./docs/specs/2026-11-07-control-panel-design.md) and the [core design](./docs/specs/2026-11-07-bosun-design.md).
+- Bosun stays small and unconnected (owner decision, 2026-11-10). It needs no unattended run, no other repo and no agent workflow to work, and no other repo needs Bosun: nothing here writes into, reconfigures or schedules anything in another repository. The panel shows what `bosun.exe` and the loggers measure and never reads a repo's plan, reviews or run state. Never name a machine's folders in code: a path comes from the checkout, an environment variable or a setting.
 - `design/SPEC.md` is the interface contract and wins over the mockup. Colours, radii, elevation, motion, spacing and type come only from `design/tokens/colors.json`. The app and tray icons come only from `design/icon/`, and menu and control glyphs only from Lucide through the icon map in `D02 T03 §3`.
-- The panel never re-implements a tool: it runs the owning tool with an argument list and reads JSON, and missing data is added to the tool that owns it. It never writes to `todo/`, receipts or findings, and it never writes run state.
-- Verify with `pwsh scripts/check-all.ps1` once `D00 T01 §6` has landed. Until then: `python scripts/todo-graph.py validate`, `python -m unittest discover -s scripts/tests`, `node scripts/verify-agent-tiers.mjs`, and the commands in `README.md`. Run full builds and test suites through `bosun run --`.
+- The panel never re-implements a tool: it runs the owning tool with an argument list and reads JSON, and missing data is added to the tool that owns it.
+- Verify with `pwsh scripts/check-all.ps1` once `D00 T01 §6` has landed. Until then: `python scripts/todo-graph.py validate`, `python scripts/run-tests.py`, `node scripts/verify-agent-tiers.mjs`, and the commands in `README.md`. Build the native tools with `pwsh scripts/build.ps1` (Ninja, warnings as errors). Run full builds and test suites through `bosun run --`. `pwsh scripts/setup-lsp.ps1` sets up code intelligence (clangd, csharp-ls, pyright) on a new machine.
 - Plans live in `todo/` and are driven by the `todo` kit skills; see [TODO workflow](./docs/todo-workflow.md). Validate with `python scripts/todo-graph.py validate`. Domains: `00-workspace`, `01-core`, `02-shell`, `03-monitor`, `04-workflow`, `05-machine`, `06-claude-api`, `07-release`, `99-manual`. Numbers are stable addresses.
 - Claude Opus 5.5 (`claude-opus-5-5`) is the writer. Independent review runs through `scripts/review-dispatch.py` and `.conclave/reviewers.toml`: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer, and no review runs through the panel's API keys. Each section runs one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (32 here, so 33 rounds in all), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. Never resume an operator-paused section without explicit authorization.
-- An unattended run starts from the prompt `process plan`. `scripts/run-guard.py` holds it open through hooks, a heartbeat and a watchdog task. Trunk-based `main`: commit completed, verified steps directly, and never amend a candidate under review, bypass hooks or force-push. Every clone runs `git config core.hooksPath scripts/hooks`.
-- Never commit key material or live secrets. API keys live only in Windows Credential Manager, entered in Settings, and reach only the child process that needs them. No spend caps set means no API calls to any provider.
+- An unattended run starts from the prompt `process plan`. `scripts/run-guard.py` holds it open through hooks, an in-session heartbeat and this repo's own watchdog task (`python scripts/run-guard.py install`); `pwsh scripts/start-run.ps1` starts one. Trunk-based `main`: commit completed, verified steps directly, and never amend a candidate under review, bypass hooks or force-push. Every clone runs `git config core.hooksPath scripts/hooks`.
+- Never commit key material or live secrets.
 
 ## Review failure modes
 
@@ -19,13 +20,21 @@ The generic review skills check the failure modes this file names for the area a
 
 - A queue record treated as authority over the slot mutexes, or a queue change that lets a crashed job block others.
 - The panel parsing human text, Markdown or CSV that a tool could report as JSON, or re-implementing a tool's rules.
-- A path that sends an API request without passing `SpendGuard`, a key reaching a log, an argument or the panel's own environment, or an unknown model's cost counted as zero.
+- Anything that makes Bosun depend on another repo, an agent workflow or an open unattended run, that writes into or schedules something in another repository, or that names a machine's folder in code.
+- A poll that starts a stopped WSL VM.
 - A machine change with no preview, read-back or undo, or a whole-panel elevation where one command would do.
 - A timer, poller or animation that keeps running for a hidden page, a live blur, motion that ignores the system setting, or anything that pushes the idle budget past 150 MB and 1% CPU.
-- An Insight that sends text not shown in its preview or not redacted, that writes a file or changes the machine, or that reads as a review result.
-- A heartbeat tick that starts a stopped WSL VM, that resumes more than one repo in a pass, or a memory hold with no time limit.
 - A hex colour or font size outside `Theme/Generated`, status shown by colour alone, an icon-only control without an automation name, or a stubbed control with no owner section.
 - A value that can't be read displayed as 0 instead of "Not available" with a reason.
+
+## Autonomy and ambition
+
+The owner set this on 2026-11-10, and it governs every session, attended or not.
+
+- **Decide, then act.** When you know the answer, take it: pick the option an expert in the field would defend, do the work, and record the decision and what reversing it would cost. Do not stop to ask a question you can answer from the code, the documents or good engineering judgment. The only stops are the halting grounds in the run guard (data loss, credentials, shared infrastructure, a calculation that looks wrong) and the operator's own word.
+- **Aim past the competition.** The bar is the best tool in its class, measured against what Microsoft, Apple, Google or Adobe would ship: faster, lighter, clearer, more reliable, and a pleasure to use. "Good enough" and "that can't be done" are claims to test, not reasons to stop. Excellence comes from doing fewer things superbly, so it never licenses scope the product rule above forbids.
+- **Self-heal.** A failing gate, a flaky test, a broken tool or a stale claim in the plan is work, fixed at the layer that owns it, with a test that would have caught it. Never route around it.
+- **Self-improve.** When the repo, its runners, its tools or its methods slow the work down or let a defect through, improve them: measure first, change the owning script or skill, prove the gain, and write the lesson where the next session will read it (the phase run file's Lessons, this file, or the skill). Leave every tool you touch better than you found it.
 
 ## Working rules
 
@@ -38,7 +47,7 @@ The generic review skills check the failure modes this file names for the area a
 - Fix at the owning layer: a setting in its setting, behaviour in the code that produces it, data in the data. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 100` characters so raw `.md` files never wrap.
 - Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
-- Temporary files and full logs go to scratch, never the repository: `R:\scratch` on Windows, `/mnt/r/scratch` on WSL (the same folder), or the session scratchpad when one is given.
+- Temporary files and full logs go to scratch, never the repository: the folder the `BOSUN_SCRATCH` variable names (else the system temp folder), or the session scratchpad when one is given.
 
 ## Safety
 
@@ -56,7 +65,7 @@ The generic review skills check the failure modes this file names for the area a
 
 ## Subagents
 
-- Delegate mechanical subtasks to subagents. Claude subagents pin an explicit `model:`: Sonnet by default, and Opus (with a `model_rationale:`) only where judgment quality needs it.
+- Delegate mechanical subtasks to the fleet in `.claude/agents/`: `code-explorer` (find and map code), `test-runner` (run gates and report failures), `git-runner` (status, diffs, history), `debug-evidence` (gather facts for a failure) and `mutation-tester` (prove a checkpoint can fail). The process skills name where each is used. Claude subagents pin an explicit `model:`: Sonnet by default, and Opus (with a `model_rationale:`) only where judgment quality needs it.
 - Subagents read and run; they never write. Every Claude subagent declares an explicit `tools:` list without Edit, Write, MultiEdit, NotebookEdit or `*`. The main loop makes every change and verifies what subagents return.
 - Haiku is only for near-mechanical work, at least 90% mechanical (read-only lookups, inventories, structural checks), whose output a script or the main loop verifies. Pin `claude-haiku-5-5` or later, declare `mechanical_share:` (90 to 100), point `haiku_replay:` at a record of a known-answer replay that showed no loss against Sonnet, and give it no edit tools. Never use Haiku for review, audit, research, security, debugging, diagnosis, planning or design.
 - Run `node scripts/verify-agent-tiers.mjs` after adding or changing an agent definition; it enforces these rules.

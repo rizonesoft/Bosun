@@ -15,6 +15,10 @@ Attended means interruptible, not stoppable: answer a mid-run message briefly an
 
 Completion never buys completion with a bypass: no `--no-verify`, no amend of a candidate under review, no force-push. A red gate is work, not a skip.
 
+## Delegation
+
+The phase's mechanical reads go to the fleet in `.claude/agents/`, in parallel where they are independent: `test-runner` for the full suite in the audit and the closeout and for each shipped row's checkpoint in Step 1b, `git-runner` for what the tree and the remote hold, `code-explorer` for the staleness sweep in Step 1 and the gap audit's "is this already built" questions. Deciding what is stale, what is a gap and what to file stays here, and so does every edit; `process-todo-section` and `review-todo-section` say how to check what an agent returns.
+
 ## Step 0: open the run
 
 Check that no other writer holds the tree (`git status`; ask about unfamiliar uncommitted work). Writes are serial: this run is the only writer. Open the run file `docs/phase-runs/<YYYY-MM-DD>-phase-<N>.md` (create `docs/phase-runs/` if absent) and append every finding the moment it is made: the file survives session death where chat scrollback does not.

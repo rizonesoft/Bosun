@@ -33,7 +33,6 @@ Several repos and agent sessions can share a machine until their builds overlap.
 | ---- | ----- |
 | `bosun run`, `status`, `report` and the login logger | Working on Windows 11 and WSL 2 |
 | WSL shim and `bosun-log` user service | Working |
-| One heartbeat for unattended runs, on both sides | Working |
 | Bosun Panel, the desktop control panel | Designed and planned, not built yet |
 
 There are no releases yet, so you build from source.
@@ -67,30 +66,16 @@ A job and everything it starts end together, and together they may write at most
 - **Windows:** the job object that holds the command counts what every process in it writes, and closing it ends anything the command left behind. Windows keeps no per-job count of disk writes alone, so bytes written to pipes count too, which is why the default is generous.
 - **WSL:** the command runs in its own systemd scope, a nested run and one without a slot included, and anything it leaves behind is stopped when it ends. systemd gives user jobs the `io` controller only through a root setting, so turn the budget on once with `sudo ~/.local/share/bosun/enable-write-budget.sh`, then `wsl --shutdown`. Until then the budget is off in WSL, and `bosun run` says so once per boot. The budget counts writes to the Linux disk only: writes to a Windows drive through `/mnt/c` travel over the host file share, which Linux does not count.
 
-## How do unattended runs stay alive?
-
-One heartbeat runs them all. A scheduled task ticks each registered repo's run guard every 5 minutes, resuming at most one repo per pass and holding while memory is short, for at most an hour. It never starts a stopped WSL distro.
-
-```
-bosun-heartbeat add D:\GitHub\MyRepo
-bosun-heartbeat add ~/www/site --distro Ubuntu
-bosun-heartbeat status
-bosun-heartbeat remove D:\GitHub\MyRepo
-```
-
-A repo needs the run guard, `scripts/run-guard.py`, to join. Adding it removes that repo's own watchdog task, and removing it brings that back, so a repo still works without Bosun. Set `heartbeat_floor_mb` in `%LOCALAPPDATA%\Bosun\config.json` to change the memory floor from its default of 2048 MB.
-
 ## Where are the logs?
 
 `%LOCALAPPDATA%\Bosun\logs`, one CSV per side per day, sampled every 30 seconds and kept for 14 days. A process is credited to the git repo holding its working directory, otherwise to its parent's repo.
 
 ## How do I build and install it?
 
-Needs Visual Studio with the C++ tools and CMake 3.25 or later. The WSL side expects an `Ubuntu` distro, and `-Distro` picks another. No admin rights are needed.
+Needs Visual Studio (or its Build Tools) with the C++ tools, which bring CMake and Ninja. `scripts/build.ps1` loads the compiler environment itself, so any shell works. The WSL side expects an `Ubuntu` distro, and `-Distro` picks another. No admin rights are needed.
 
 ```
-cmake -S . -B build
-cmake --build build --config Release
+pwsh scripts/build.ps1
 pwsh scripts/install.ps1
 ```
 
@@ -105,24 +90,21 @@ build\Release\test_core.exe
 pwsh tests\queue_test.ps1
 pwsh tests\stage_wsl_test.ps1
 pwsh tests\bin_output_test.ps1
-pwsh tests\heartbeat_test.ps1
 wsl -- python3 -B tests/test_bosun_log.py
-wsl -- bash wsl/queue_test.sh /mnt/d/GitHub/Bosun/build/Release/bosun.exe
+wsl -- bash wsl/queue_test.sh "$(wsl wslpath -a build/Release/bosun.exe)"
 ```
 
 The queue tests use a private slot namespace, so they do not affect real jobs. On a machine without WSL, `tests\queue_test.ps1 -SkipWsl` leaves out the WSL case, as CI does.
 
-The WSL commands read the repo through `/mnt/d`, which WSL mounts when it starts. If it is missing after adding the drive, restart WSL or run `sudo mkdir -p /mnt/d && sudo mount -t drvfs D: /mnt/d`. `pwsh scripts/install.ps1` does not need it.
+The WSL commands read the repo through its drive's mount under `/mnt`, which WSL sets up when it starts. If the mount is missing after adding a drive, restart WSL. `pwsh scripts/install.ps1` does not need it.
 
 The design is in `docs/specs/2026-11-07-bosun-design.md`.
 
 ## What is being built next?
 
-Bosun Panel, a .NET 11 WPF control panel for memory, dev instances, the queue, plans, reviews, unattended runs, agent updates, machine tuning and extra development on your own Anthropic and OpenAI API keys. These images come from the design [mockup](design/mockups/control-panel.html), with sample data and a simulated Mica backdrop. The panel itself is not built yet.
+Bosun Panel, a .NET 11 WPF control panel for memory, dev instances, the queue and machine tuning. It shows what the tools above measure and needs nothing else: no other repo, no agent workflow and no API key. This image comes from the design [mockup](design/mockups/control-panel.html), with sample data and a simulated Mica backdrop. The panel itself is not built yet.
 
 ![Bosun Panel design preview: the Overview page](docs/images/panel-overview.png)
-
-![Bosun Panel design preview: the Plan page with the repo selector](docs/images/panel-plan.png)
 
 See the [design](docs/specs/2026-11-07-control-panel-design.md), the [interface spec](design/SPEC.md) and the [plan](todo/implementation-plan.md).
 

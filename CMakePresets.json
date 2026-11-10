@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Ninja, MSVC, warnings as errors",
+      "description": "Run through scripts/build.ps1, which loads the Visual Studio compiler environment Ninja needs.",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "default", "configuration": "Release" },
+    { "name": "debug", "configurePreset": "default", "configuration": "Debug" }
+  ]
+}

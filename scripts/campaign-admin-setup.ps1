@@ -2,8 +2,8 @@
 #
 #   pwsh scripts/campaign-admin-setup.ps1            preview: every value, file and task it would change
 #   pwsh scripts/campaign-admin-setup.ps1 -Apply     elevated: holds update restarts, installs the task bodies, and
-#                                                    registers `Bosun dotnet final` and `Bosun attach D`
-#   pwsh scripts/campaign-admin-setup.ps1 -Restore   elevated: puts the update values back and removes both tasks
+#                                                    registers `Bosun dotnet final`
+#   pwsh scripts/campaign-admin-setup.ps1 -Restore   elevated: puts the update values back and removes the task
 #
 # Windows Update keeps downloading and installing, but never restarts while the owner is signed in:
 # NoAutoRebootWithLoggedOnUsers=1, with AUOptions=4, which that policy needs to apply. The prior state of both values
@@ -17,7 +17,6 @@ param(
   [string]$Record = (Join-Path $env:LOCALAPPDATA 'Bosun\admin-setup.json'),
   [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
   [string]$DotnetDir = '',
-  [string]$Vhdx = 'R:\Conclave.vhdx',
   [string]$TaskStore = '',
   [string]$TaskPrefix = 'Bosun',
   [string]$SearchPath = ''  # the PATH the watchdog launches with; the registry's when empty
@@ -33,8 +32,12 @@ if (-not $DotnetDir -and -not $Restore) {
   "     fix: install the .NET SDK (winget install Microsoft.DotNet.SDK.10), then run this again"
   exit 1
 }
-$defs = Get-CampaignTaskDefs $BinDir $DotnetDir $Vhdx $TaskPrefix
-$bodies = @('install-dotnet-final.ps1', 'attach-vhdx.ps1', 'lib\campaign.ps1')
+$defs = Get-CampaignTaskDefs $BinDir $DotnetDir $TaskPrefix
+$bodies = @('install-dotnet-final.ps1', 'lib\campaign.ps1')
+# What an earlier version set up and this one no longer does: undo still removes it, so a machine set up before
+# 2026-11-10 isn't left with a startup task mounting a volume that is gone.
+$retiredTasks = @("$TaskPrefix attach D")
+$retiredBodies = @('attach-vhdx.ps1')
 
 # Test-only fault injection: stop after this many changes, as a crash or a closed window would.
 $failAfter = [int]($env:BOSUN_TEST_FAIL_AFTER_CHANGES ?? '0')
@@ -82,8 +85,8 @@ if ($Restore) {
       }
     } catch { $failed += "$name ($($_.Exception.Message))" }
   }
-  foreach ($d in $defs) {
-    try { Unregister-CampaignTask $d.Name $TaskStore } catch { $failed += "task '$($d.Name)' ($($_.Exception.Message))" }
+  foreach ($name in @($defs | ForEach-Object { $_.Name }) + $retiredTasks) {
+    try { Unregister-CampaignTask $name $TaskStore } catch { $failed += "task '$name' ($($_.Exception.Message))" }
   }
   $now = Get-UpdateState $PolicyKey
   foreach ($name in $UpdateValues.Keys) {
@@ -92,11 +95,11 @@ if ($Restore) {
       $failed += "$name reads $(Show $now[$name].Value), not $(if ($s.Present) { $s.Value } else { '(absent)' })"
     }
   }
-  foreach ($d in $defs) {
-    try { if (Get-CampaignTask $d.Name $TaskStore) { $failed += "task '$($d.Name)' is still registered" } }
-    catch { $failed += "task '$($d.Name)' can't be read back ($($_.Exception.Message))" }
+  foreach ($name in @($defs | ForEach-Object { $_.Name }) + $retiredTasks) {
+    try { if (Get-CampaignTask $name $TaskStore) { $failed += "task '$name' is still registered" } }
+    catch { $failed += "task '$name' can't be read back ($($_.Exception.Message))" }
   }
-  foreach ($b in $bodies) {
+  foreach ($b in $bodies + $retiredBodies) {
     $at = Join-Path $BinDir $b
     try { if (Test-Path -LiteralPath $at) { Remove-Item -LiteralPath $at } } catch { $failed += "$at ($($_.Exception.Message))" }
   }
@@ -106,7 +109,7 @@ if ($Restore) {
     exit 1
   }
   Remove-Item -LiteralPath $Record
-  'restored the update values and removed both tasks; record removed'
+  'restored the update values and removed the task; record removed'
   exit 0
 }
 
@@ -144,4 +147,4 @@ foreach ($d in $defs) {
   if (-not (Test-CampaignTaskReader $d.Name $owner $TaskStore)) { $wrong += "task '$($d.Name)' can't be read by $owner, so the preflight can't check it" }
 }
 if ($wrong) { "FAIL setup didn't read back: $($wrong -join '; ')"; exit 1 }
-"set up: update restarts held while signed in, and tasks '$($defs[0].Name)' and '$($defs[1].Name)' registered (SDK folder $DotnetDir)"
+"set up: update restarts held while signed in, and task '$($defs[0].Name)' registered (SDK folder $DotnetDir)"

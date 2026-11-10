@@ -1,14 +1,12 @@
 {
   "title": "Bosun implementation plan",
-  "acceptance": "One command installs the panel and tools; every page in design/SPEC.md works on real data on this machine; an unattended process plan survives a killed session; the panel idles under 150 MB; every section carries a review receipt.",
+  "acceptance": "One command installs the panel and tools; every page in design/SPEC.md works on real data on this machine; the panel idles under 150 MB; every section carries a review receipt.",
   "phases": {
     "0": "Repository and tooling",
     "1": "Core data contract",
     "2": "Shell and brand",
     "3": "Monitoring",
-    "4": "Workflow",
-    "5": "Agents and machine",
-    "6": "Claude API",
+        "5": "Machine",
     "7": "Release",
     "99": "Manual, operator only"
   }

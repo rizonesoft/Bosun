@@ -12,7 +12,6 @@ try {
   $installer = Get-Content (Join-Path $PSScriptRoot '..\scripts\install.ps1') -Raw
   if ($installer -notmatch 'stage-wsl\.ps1') { throw 'install.ps1 does not stage the WSL side' }
   if ($installer -match '\$repoWsl') { throw 'install.ps1 still runs the WSL side from the repo folder' }
-  if ($installer -notmatch 'Bosun heartbeat') { throw 'install.ps1 does not create the heartbeat task' }
   'stage_wsl_test ok'
 } finally {
   if (Test-Path $work) { Remove-Item $work -Recurse -Force }

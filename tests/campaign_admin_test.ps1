@@ -20,7 +20,7 @@ $dotnetDir = Join-Path $work 'dotnet'
 New-Item -ItemType Directory -Force $dotnetDir | Out-Null
 $sdks = Join-Path $dotnetDir 'sdks.txt'
 Set-Content (Join-Path $dotnetDir 'dotnet.cmd') "@type `"$sdks`"" -Encoding ascii
-$common = @('-PolicyKey', $keyPath, '-Record', $record, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-Vhdx', 'R:\test.vhdx')
+$common = @('-PolicyKey', $keyPath, '-Record', $record, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir)
 
 function Reset {
   Remove-Item -LiteralPath $keyPath -Recurse -ErrorAction Ignore
@@ -35,25 +35,33 @@ function Setup([string[]]$extra = @()) {
 }
 function Policy { Get-UpdateState $keyPath | ConvertTo-Json -Compress }
 $before = '{"NoAutoRebootWithLoggedOnUsers":{"Present":false,"Value":null},"AUOptions":{"Present":true,"Value":3}}'
-$defs = Get-CampaignTaskDefs $bin $dotnetDir 'R:\test.vhdx'
+$defs = Get-CampaignTaskDefs $bin $dotnetDir
 function Matches { @(foreach ($d in $defs) { Compare-CampaignTask $d (Get-CampaignTask $d.Name $store) }).Count -eq 0 }
 
 try {
   Reset
   $r = Setup
-  Check ($r.Code -eq 0 -and $r.Text -match 'preview' -and $r.Text -match 'AUOptions: 3 -> 4' -and $r.Text -match "task 'Bosun attach D' as SYSTEM" -and (Policy) -eq $before -and -not (Test-Path $store) -and -not (Test-Path $bin) -and -not (Test-Path $record)) 'the preview names each value, file and task, and changes nothing'
+  Check ($r.Code -eq 0 -and $r.Text -match 'preview' -and $r.Text -match 'AUOptions: 3 -> 4' -and $r.Text -match "task 'Bosun dotnet final' as SYSTEM" -and (Policy) -eq $before -and -not (Test-Path $store) -and -not (Test-Path $bin) -and -not (Test-Path $record)) 'the preview names each value, file and task, and changes nothing'
 
   $r = Setup @('-Apply')
   $now = Get-UpdateState $keyPath
   Check ($r.Code -eq 0 -and $now.NoAutoRebootWithLoggedOnUsers.Value -eq 1 -and $now.AUOptions.Value -eq 4) 'apply sets both update values and reads them back'
-  Check ((Matches) -and (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and (Test-Path (Join-Path $bin 'lib\campaign.ps1')) -and (Test-Path (Join-Path $bin 'attach-vhdx.ps1'))) 'apply registers both tasks as defined and copies their bodies'
+  Check ((Matches) -and (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and (Test-Path (Join-Path $bin 'lib\campaign.ps1'))) 'apply registers the task as defined and copies its body'
   $dotnetTask = Get-CampaignTask 'Bosun dotnet final' $store
   Check ($dotnetTask.User -eq 'SYSTEM' -and $dotnetTask.Arguments.Contains("-InstallDir `"$dotnetDir`"") -and ($dotnetTask.Triggers -join ',') -eq 'Boot,Daily') 'the SDK task runs as SYSTEM daily and at startup, given the watchdog''s dotnet folder'
   $saved = [IO.File]::ReadAllText($record)
   $r = Setup @('-Apply')
   Check ($r.Code -eq 0 -and $r.Text -match 'keeping the update values saved' -and [IO.File]::ReadAllText($record) -eq $saved) 'a repeat apply keeps the first saved state'
   $r = Setup @('-Restore')
-  Check ($r.Code -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store) -and -not (Get-CampaignTask 'Bosun attach D' $store) -and -not (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and -not (Test-Path $record)) 'restore puts each value back as it was (one absent, one 3), removes both tasks and their bodies, then the record'
+  Check ($r.Code -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store) -and -not (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and -not (Test-Path $record)) 'restore puts each value back as it was (one absent, one 3), removes the task and its body, then the record'
+
+  # A machine set up before 2026-11-10 also has the retired VHDX task and its body: undo removes those too.
+  Reset
+  Setup @('-Apply') | Out-Null
+  Register-CampaignTask ([ordered]@{ Name = 'Bosun attach D'; Enabled = $true; Execute = 'powershell.exe'; Arguments = '-File attach-vhdx.ps1'; User = 'SYSTEM'; Triggers = @('Boot') }) $store
+  Set-Content (Join-Path $bin 'attach-vhdx.ps1') '# retired'
+  $r = Setup @('-Restore')
+  Check ($r.Code -eq 0 -and -not (Get-CampaignTask 'Bosun attach D' $store) -and -not (Test-Path (Join-Path $bin 'attach-vhdx.ps1'))) 'restore also removes the retired VHDX task and its body from an older setup'
 
   # Interrupted after the first change: the record keeps the state from before, and a second apply finishes.
   Reset
@@ -73,7 +81,7 @@ try {
   New-Item -ItemType Directory -Force $empty | Out-Null
   $noDotnet = @($common | Where-Object { $_ -ne '-DotnetDir' -and $_ -ne $dotnetDir }) + @('-SearchPath', $empty)
   $out = & $pwsh -NoProfile -File $setup -Restore @noDotnet 2>&1
-  Check ($LASTEXITCODE -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun attach D' $store)) "restore runs with no dotnet on the watchdog's PATH ($(($out | Select-Object -Last 1)))"
+  Check ($LASTEXITCODE -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store)) "restore runs with no dotnet on the watchdog's PATH ($(($out | Select-Object -Last 1)))"
   $out = & $pwsh -NoProfile -File $setup -Apply @noDotnet 2>&1
   Check ($LASTEXITCODE -eq 1 -and ($out -join ' ') -match 'no dotnet.exe') 'while apply still needs it'
 

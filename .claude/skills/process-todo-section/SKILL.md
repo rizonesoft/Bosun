@@ -51,6 +51,20 @@ Before the first edit in a session, read `todo/README.md` (the format every TODO
 - **The layer rules hold.** Respect the module boundaries and thread-safety contract in `AGENTS.md` and the project's governing plan. A fix that violates the module table is wrong even when it works.
 - **Fidelity is the bar on surfaces.** Build against `design/SPEC.md` and its screenshot, using tokens from `design/tokens/` only. No raw hex value on a control.
 
+## Delegation: the fleet in `.claude/agents/`
+
+Judgment never leaves the main loop: whether the plan is sound, what to build, every edit, what a finding means and whether a section is done. A subagent reads and runs, on Sonnet, and returns evidence with `file:line` and exact output. Check what comes back before acting on it: open the cited lines, read the failing assertion itself, and re-run anything a stamp will quote. A claim you could not check is not evidence. Give each one a self-contained brief (the goal, the paths, what is already known), since it sees none of this conversation, and run independent ones in the same message.
+
+| Step | Agent | Hand it |
+| ---- | ----- | ------- |
+| 2, fact-check | `code-explorer` | Each claim to check against the tree: does this path, symbol, flag or call site exist, and where. |
+| 2, history | `git-runner` | What shipped in the sections this one depends on: commits, files, what changed since. |
+| 4 and 6, gates | `test-runner` | The section's Test checkpoint and the wider suites, for the failures and the output tail. |
+| 6, can it fail | `mutation-tester` | The checkpoint command and the mutations that must break it, one per claim the section makes. |
+| A red gate | `debug-evidence` | The symptom, to gather logs, timings and what changed before anyone forms a theory. |
+
+Run the Test checkpoint yourself once before the commit that claims it: the stamp quotes its result, and a quoted result is one you saw. A lookup you can do in one or two calls is not worth a subagent.
+
 ## Workflow
 
 ### 1. Read the whole contract

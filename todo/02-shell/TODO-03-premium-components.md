@@ -21,13 +21,7 @@ title: "TODO-03 -- Premium components"
 - -> XREF: D02 T02 §4 -- consumed by this file
 - -> XREF: D03 T01 §2 -- consumes this file
 - -> XREF: D03 T02 §2 -- consumes this file
-- -> XREF: D04 T01 §2 -- consumes this file
-- -> XREF: D04 T02 §1 -- consumes this file
-- -> XREF: D04 T03 §2 -- consumes this file
-- -> XREF: D04 T04 §1 -- consumes this file
-- -> XREF: D05 T01 §2 -- consumes this file
 - -> XREF: D05 T02 §3 -- consumes this file
-- -> XREF: D06 T01 §6 -- consumes this file
 - -> XREF: D07 T01 §1 -- consumes this file
 
 ## Outcome
@@ -48,7 +42,7 @@ title: "TODO-03 -- Premium components"
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [ ] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
-| 6 | §6 | Queue slot and heartbeat visuals | §5 | [ ] |
+| 6 | §6 | Queue slot visuals | §5 | [ ] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [ ] |
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
@@ -127,7 +121,7 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 - [ ] Fail a `PackIconLucide` used outside the map in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a direct kind in a view fails the test.
 - [ ] Add the rail marker in `MainWindow.xaml`, animated with `Motion.Normal`. Done when: it lands on the selected row after keyboard and mouse navigation, and jumps at once with motion off. Cheaper substitute: a static highlight on the selected row.
 - [ ] Add `CountBadge` to the rail row template in `src/Bosun.Panel/Theme/Controls.xaml`. Done when: a zero count shows nothing and a count of 3 renders.
-- [ ] Set each rail row's automation name to include its count in words. Done when: a UI Automation test reads "Plan, 3 waiting". Cheaper substitute: a badge only sighted users can read.
+- [ ] Set each rail row's automation name to include its count in words. Done when: a UI Automation test reads "Queue, 3 waiting". Cheaper substitute: a badge only sighted users can read.
 - [ ] Commit: `shell: Lucide icon map, rail marker and badges`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Glyph` exits 0, and fails with a rail row left unmapped.
@@ -187,28 +181,26 @@ These are drawn from data and stay cheap: they draw once per data change and hol
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Gauge` exits 0, and fails if a null value draws as 0.
 
-## 6. Queue slot and heartbeat visuals
+## 6. Queue slot visuals
 
-The queue and an unattended run are what the panel exists to show. They get visuals of their own, fed entirely by tool JSON.
+The queue is what the panel exists to show. It gets visuals of its own, fed entirely by tool JSON.
 
 **Phase:** 2
 **Needs:** none
 **Surface:** yes
-**Fidelity:** `design/SPEC.md` §19, Queue slot and Heartbeat.
-**Job:** the operator sees who holds the slots and what is waiting, and whether a run is alive.
-**Treatment:** a tile per slot, an ordered waiting row and a heartbeat dot with its age. Cheaper substitute that fails: a table row alone for a slot.
+**Fidelity:** `design/SPEC.md` §19, Queue slot.
+**Job:** the operator sees who holds the slots and what is waiting.
+**Treatment:** a tile per slot and an ordered waiting row. Cheaper substitute that fails: a table row alone for a slot.
 **Chrome:** the generated theme; `StatusPill` from §4.
 
 **Build order:**
 
 1. Create `src/Bosun.Panel/Controls/QueueSlotTile.cs`. Done when: free, holder and waiting states render from a sample of `bosun status --json`.
-2. Create `src/Bosun.Panel/Controls/Heartbeat.cs`. Done when: the pulse stops when hidden.
+2. Create `src/Bosun.Panel/Controls/WaitingRow.cs`. Done when: waiting jobs render in order with why.
 
 - [ ] Create `QueueSlotTile` in `src/Bosun.Panel/Controls/QueueSlotTile.cs` showing free or holder, command and elapsed time. Done when: `tests/Bosun.Panel.Tests/QueueVisualTests.cs` renders each state in both themes with its word. Cheaper substitute: colour showing busy or free.
 - [ ] Create `WaitingRow` in `src/Bosun.Panel/Controls/WaitingRow.cs` listing waiting jobs in order with why, including the memory floor for slot 2 in words. Done when: a test with a memory-held job shows the floor and the available figure.
-- [ ] Create `Heartbeat` in `src/Bosun.Panel/Controls/Heartbeat.cs` with age in words and a state word. Done when: a test renders Active, Stalled and Inactive with the right words.
-- [ ] Run the `Heartbeat` pulse only while it is visible, the run is active and `Motion.cs` allows it. Done when: a test finds no running clock when hidden, inactive or with motion off. Cheaper substitute: a storyboard left running behind a hidden page.
-- [ ] Commit: `controls: queue slot and heartbeat visuals`
+- [ ] Commit: `controls: queue slot visuals`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueVisual` exits 0, and fails if a slot state loses its word.
 
@@ -237,7 +229,7 @@ Every page has a loading state under `design/SPEC.md` §1. A shared shape stops 
 - [ ] Add a failed state with the tool's message and Retry to `PageFrame.xaml`. Done when: a test with a failing fake shows the message, and Retry calls the page's refresh once. Cheaper substitute: a generic error line.
 - [ ] Add an empty state slot to `PageFrame.xaml`, with each page giving why and what to do. Done when: a test proves a page can't declare empty with no text.
 - [ ] Add a `NotAvailable` value template with its reason to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: a null value shows "Not available" and the reason, never 0.
-- [ ] Show a stopped distro's last data with its age in `PageFrame.xaml`. Done when: a fixture reads the age in words on any `UsesSelectedRepo` page.
+- [ ] Show a stopped distro's last data with its age in `PageFrame.xaml`. Done when: a fixture with WSL stopped reads the age in words on a page showing WSL data.
 - [ ] Commit: `shell: skeleton and page transitions`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Skeleton` exits 0, and fails if the 150 ms delay is removed.
@@ -262,8 +254,8 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 - [ ] Create `CommandIndex` in `src/Bosun.Core/CommandIndex.cs` ranking prefix over word start over substring. Done when: `tests/Bosun.Core.Tests/CommandIndexTests.cs` proves the order.
 - [ ] Let each page register its actions in `src/Bosun.Panel/Shell/PageBase.cs`. Done when: a test proves only the current page's actions appear, with every page always listed.
 - [ ] Create the overlay in `src/Bosun.Panel/Shell/CommandPalette.xaml`, opened by Ctrl+K. Done when: a UI Automation test opens it from three pages, including with focus in a text field.
-- [ ] Route a danger action through that action's own confirmation in `CommandPalette.xaml.cs`. Done when: a test proves the Stop command shows the same confirmation as its button. Cheaper substitute: a palette that runs the command directly.
-- [ ] Show a disabled action with its reason, and refuse to run it. Done when: a test with Start disabled shows the page's reason.
+- [ ] Route a danger action through that action's own confirmation in `CommandPalette.xaml.cs`. Done when: a test proves a danger command shows the same confirmation as its button. Cheaper substitute: a palette that runs the command directly.
+- [ ] Show a disabled action with its reason, and refuse to run it. Done when: a test with a disabled action shows the page's reason.
 - [ ] Restore focus to the prior element on Esc. Done when: a UI Automation test reads the focused element before and after.
 - [ ] Refuse navigation from the palette while the page has unsaved edits, through `SelectionGuard`. Done when: a test sees the Save or Discard offer from `design/SPEC.md` §1.
 - [ ] Commit: `shell: command palette`

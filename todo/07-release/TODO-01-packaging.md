@@ -3,7 +3,7 @@ schema_version: 1
 id: packaging
 domain: 07-release
 status: active
-depends_on: ["core-contract", "brand-and-theme", "application-shell", "premium-components", "memory-page", "instances-queue", "plan-pages", "review-pages", "run-pages", "hooks-fleet", "agents-page", "optimise-page", "api-workbench"]
+depends_on: ["core-contract", "brand-and-theme", "application-shell", "premium-components", "memory-page", "instances-queue", "optimise-page"]
 title: "TODO-01 -- Packaging and budgets"
 ---
 
@@ -19,22 +19,13 @@ title: "TODO-01 -- Packaging and budgets"
 - `R:\GitHub\Steward\publish.sh`, `R:\GitHub\Steward\scripts\signing-status.ps1`.
 - -> XREF: D00 T02 §2 -- consumed by this file
 - -> XREF: D02 T02 §4 -- consumed by this file
-- -> XREF: D04 T04 §3 -- consumed by this file
 - -> XREF: D05 T02 §3 -- consumed by this file
-- -> XREF: D06 T01 §8 -- consumed by this file
 - -> XREF: D99 T01 §3 -- consumes this file
 - -> XREF: D02 T03 §2 -- consumed by this file
 - -> XREF: D02 T03 §8 -- consumed by this file
 - -> XREF: D02 T03 §9 -- consumed by this file
 - -> XREF: D00 T02 §3 -- consumed by this file
 - -> XREF: D03 T01 §5 -- consumed by this file
-- -> XREF: D04 T01 §5 -- consumed by this file
-- -> XREF: D04 T02 §2 -- consumed by this file
-- -> XREF: D04 T03 §4 -- consumed by this file
-- -> XREF: D05 T01 §2 -- consumed by this file
-- -> XREF: D06 T01 §13 -- consumed by this file
-- -> XREF: D06 T01 §12 -- consumed by this file
-- -> XREF: D04 T03 §7 -- consumed by this file
 
 ## Outcome
 
@@ -115,10 +106,10 @@ Whatever install adds must come off, with logs left unless asked.
 **Build order:**
 
 1. Create `scripts/uninstall.ps1`. Done when: panel, shortcut, Run entry and scheduled tasks go.
-2. Offer data removal. Done when: logs and secrets stay unless `-RemoveData` is given.
+2. Offer data removal. Done when: logs and settings stay unless `-RemoveData` is given.
 
 - [ ] Remove binaries, `Bosun Logger` and panel Run entries, and PATH entry. Done when: a test in a temporary profile shows nothing left. Cheaper substitute: leaving a Run entry pointing at nothing.
-- [ ] Remove the API key only with `-RemoveData`, and say so. Done when: the default run leaves `secrets\`, and reports it left it.
+- [ ] Remove the logs and `panel.json` only with `-RemoveData`, and say so. Done when: the default run leaves both, and reports it left them.
 - [ ] Create `tests/uninstall_test.ps1`, installing to and removing from a temporary `LOCALAPPDATA`. Done when: the real install is untouched, and a leftover file fails the test.
 - [ ] Commit: `release: uninstall`
 
@@ -173,12 +164,12 @@ README, troubleshooting and a clear note on what the panel will and won't do.
 
 **Build order:**
 
-1. Extend `README.md`. Done when: install, each page, and the API key are covered.
+1. Extend `README.md`. Done when: install and each page are covered.
 2. Add `docs/troubleshooting.md`. Done when: each failed state has an entry.
 
 - [ ] Add the panel to `README.md`, in question-shaped headings. Done when: every command shown was run. Cheaper substitute: documenting a command from memory.
 - [ ] Create `scripts/check-doc-commands.py`, checking each command in `README.md` against the tools and scripts on disk. Done when: a fixture naming a missing script fails it.
-- [ ] Write `docs/troubleshooting.md` covering the unsupported kit, stale snapshot, stalled run, missing reviewer and no key. Done when: each page's failed state links to its entry.
+- [ ] Write `docs/troubleshooting.md` covering a stale snapshot, WSL not running, a missing tool and an unsupported schema version. Done when: each page's failed state links to its entry.
 - [ ] Update `docs/specs/2026-11-07-control-panel-design.md` with what changed in the build. Done when: the defaults table matches what shipped.
 - [ ] Commit: `docs: panel readme and troubleshooting`
 
@@ -186,7 +177,7 @@ README, troubleshooting and a clear note on what the panel will and won't do.
 
 ## 7. Clean-system installer (Inno Setup)
 
-The owner asked on 2026-11-08 that everything set up by hand during development can be reproduced on a clean Windows machine, by script or one installer built with the latest stable Inno Setup. Today that state is spread over `scripts/install.ps1`, `scripts/add-cmake-to-path.ps1`, `scripts/heartbeat.py` registration, `scripts/campaign-hold.ps1`, `scripts/campaign-admin-setup.ps1` (both from `D00 T03 §10`) and the WSL side, plus tools installed by hand.
+The owner asked on 2026-11-08 that everything set up by hand during development can be reproduced on a clean Windows machine, by script or one installer built with the latest stable Inno Setup. Today that state is spread over `scripts/install.ps1`, `scripts/add-cmake-to-path.ps1`, `scripts/campaign-hold.ps1`, `scripts/campaign-admin-setup.ps1` (both from `D00 T03 §10`) and the WSL side, plus tools installed by hand.
 
 **Phase:** 7
 **Needs:** none
@@ -199,7 +190,7 @@ The owner asked on 2026-11-08 that everything set up by hand during development 
 
 - [ ] List every piece of machine state the repo depends on in `docs/install-inventory.md` (tools, PATH entries, tasks, registry values, WSL packages, sign-ins), each with the script that sets it. Done when: `scripts/check-install-inventory.py` fails on a fixture naming a script that doesn't exist or a task no script registers. Cheaper substitute: a README list nobody checks.
 - [ ] Add `scripts/bootstrap.ps1`, installing the prerequisites the inventory names through `winget` (Git, Python, PowerShell 7, GitHub CLI, the .NET SDK, Visual Studio Build Tools with CMake, Node for Codex), each skipped when present, then running `scripts/install.ps1`. Done when: a run on a machine that has everything changes nothing and says so. Cheaper substitute: telling the user what to install.
-- [ ] Create `installer/bosun.iss` for the latest stable Inno Setup 6, per user with no administrator rights, installing the tools, panel and logger to `%LOCALAPPDATA%\Bosun`, the Start menu shortcut and PATH entry, and the heartbeat task, with an optional elevated component that runs `scripts/campaign-admin-setup.ps1 -Apply`. Done when: `scripts/build-installer.ps1` finds `iscc` (or names the `winget install JRSoftware.InnoSetup` fix) and writes `bin/installer/Bosun-Setup-<version>.exe`. Cheaper substitute: a zip of `bin/`.
+- [ ] Create `installer/bosun.iss` for the latest stable Inno Setup 6, per user with no administrator rights, installing the tools, panel and logger to `%LOCALAPPDATA%\Bosun`, the Start menu shortcut and PATH entry, with an optional elevated component that runs `scripts/campaign-admin-setup.ps1 -Apply`. Done when: `scripts/build-installer.ps1` finds `iscc` (or names the `winget install JRSoftware.InnoSetup` fix) and writes `bin/installer/Bosun-Setup-<version>.exe`. Cheaper substitute: a zip of `bin/`.
 - [ ] Make the installer's uninstaller call `scripts/uninstall.ps1` and, when the elevated component was installed, `scripts/campaign-admin-setup.ps1 -Restore`. Done when: an install and uninstall round trip leaves no file, task, PATH entry or Run value behind, checked by the inventory.
 - [ ] Prove a clean install in Windows Sandbox with `tests/clean_install_test.ps1`: bootstrap or the setup, then the preflight's tool checks. Done when: it passes from a clean sandbox and fails when a prerequisite is left out.
 - [ ] Commit: `release: clean-system installer`

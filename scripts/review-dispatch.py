@@ -390,7 +390,7 @@ def lens_block(plan):
 
 
 # The writer's decisions a review must not reopen without new evidence, ported from Recto's dispatcher
-# (D:\GitHub\Recto\scripts\review-dispatch.py:326): a gap filed to a named section, one not taken with its reason, and
+# (its `scripts/review-dispatch.py`): a gap filed to a named section, one not taken with its reason, and
 # any other item the writer settles. Bosun routes each writer to one reviewer, so they are read from the section's own
 # findings files, every cycle of it, and only from the writer's lines: a line inside a recorded review is the
 # reviewer's, and a reviewer must not settle its own finding by quoting the form.
@@ -902,7 +902,7 @@ class in_flight:
     """While a reviewer runs, a file of its own under build/review-in-flight/ names this dispatcher (its pid and a
     deadline past its timeout), so the run guard's Stop hook lets the session end its turn to wait for the review rather
     than push it on to work that would change the tree under the reviewer. Each review has its own file, so one
-    finishing never hides another. Ported from Recto (D:\\GitHub\\Recto\\scripts\\review-dispatch.py:542), with one
+    finishing never hides another. Ported from Recto (its `scripts/review-dispatch.py`), with one
     change: a mark that can't be written refuses the review, since an unprotected one is what the mark prevents."""
 
     def __init__(self, reviewer, timeout):

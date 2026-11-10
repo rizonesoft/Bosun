@@ -34,7 +34,9 @@ def link(target, at):
 
 
 REAL_ROOTS = tg.scratch_roots  # before any test replaces it
-SCRATCH = Path(r"R:\scratch") if Path(r"R:\scratch").is_dir() else Path(tempfile.gettempdir())
+SCRATCH = Path(os.environ.get("BOSUN_SCRATCH") or tempfile.gettempdir())
+if not SCRATCH.is_dir():
+    SCRATCH = Path(tempfile.gettempdir())
 
 
 class Base(unittest.TestCase):
@@ -372,8 +374,15 @@ class FailsClosed(Base):
     def test_the_real_roots_include_scratch_and_temp(self):
         roots = [tg.canonical(r) for r in REAL_ROOTS()]
         self.assertIn(tg.canonical(tempfile.gettempdir()), roots)
-        if os.name == "nt":
-            self.assertIn(tg.canonical(r"R:\scratch"), roots)
+
+    def test_the_operator_s_scratch_folder_comes_from_its_variable_and_none_is_named_in_code(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"BOSUN_SCRATCH": folder}):
+            self.assertIn(tg.canonical(folder), [tg.canonical(r) for r in REAL_ROOTS()])
+        with mock.patch.dict(os.environ):
+            os.environ.pop("BOSUN_SCRATCH", None)
+            temps = {tg.canonical(r) for r in (tempfile.gettempdir(), os.environ.get("TEMP", ""), os.environ.get("TMP", ""),
+                                               os.environ.get("TMPDIR", "")) if r}
+            self.assertEqual({tg.canonical(r) for r in REAL_ROOTS()}, temps, "a folder is named in code")
 
     def test_the_self_test_passes_and_fails_as_it_should(self):
         done = subprocess.run([sys.executable, str(ROOT / "scripts" / "tool-guard.py"), "--self-test"],

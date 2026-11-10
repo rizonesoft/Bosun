@@ -19,7 +19,6 @@ title: "TODO-01 -- The core data contract"
 - -> XREF: D03 T01 §1 -- consumes this file
 - -> XREF: D03 T02 §1 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
-- -> XREF: D04 T03 §6 -- consumes this file
 
 ## Outcome
 
@@ -59,7 +58,7 @@ A mutex can't name its owner. Holders and waiters publish a small record beside 
 - [ ] Add cases to `tests/test_core.cpp` and `tests/queue_test.ps1`. Done when: killed holder, reused pid and malformed record are all covered.
 - [ ] Commit: `core: publish slot holders and waiters`
 
-**Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe records` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe records` exits 0, and fails if the change is reverted.
 
 ## 2. Job history log
 
@@ -99,7 +98,7 @@ This is the panel's main read, and must be cheap to call every five seconds.
 - [ ] Add cases to `tests/test_core.cpp` for JSON escaping of commands with quotes and paths. Done when: a command holding quotes and backslashes round-trips. Cheaper substitute: string concatenation with no escaping.
 - [ ] Commit: `core: status --json`
 
-**Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe status_json` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe status_json` exits 0, and fails if the change is reverted.
 
 ## 4. report --json and logger snapshots
 
@@ -119,7 +118,7 @@ History is a query over CSV that `report` already joins. Live data should not ne
 - [ ] Write the same format from `wsl/bosun_log.py` to the shared logs folder. Done when: `tests/test_bosun_log.py` asserts the format and atomic rename.
 - [ ] Commit: `core: report --json and live snapshots`
 
-**Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe report_json` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe report_json` exits 0, and fails if the change is reverted.
 
 ## 5. One config file for queue limits
 
@@ -139,7 +138,7 @@ The panel's Limits form needs a place to write. Flags and environment keep winni
 - [ ] Read the same limits in `wsl/bosun` through `bosun.exe config get`. Done when: a WSL job honours a file-set guest floor.
 - [ ] Commit: `core: config file for limits`
 
-**Test checkpoint:** `bosun run -- cmake --build build --config Release` then `build\Release\test_core.exe config` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe config` exits 0, and fails if the change is reverted.
 
 ## Verification
 

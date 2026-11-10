@@ -40,8 +40,10 @@ class Refusal(Exception):
 
 
 def scratch_roots() -> list[str]:
-    roots = [tempfile.gettempdir(), os.environ.get("TEMP", ""), os.environ.get("TMP", ""), os.environ.get("TMPDIR", "")]
-    roots += [r"R:\scratch", "/mnt/r/scratch"] if os.name == "nt" or Path("/mnt/r").exists() else []
+    """Where a session may delete freely: the temp folders, and the operator's own scratch folder when the
+    BOSUN_SCRATCH variable names one. No folder is named here, since it differs on every machine."""
+    roots = [tempfile.gettempdir(), os.environ.get("TEMP", ""), os.environ.get("TMP", ""), os.environ.get("TMPDIR", ""),
+             os.environ.get("BOSUN_SCRATCH", "")]
     return [r for r in roots if r]
 
 

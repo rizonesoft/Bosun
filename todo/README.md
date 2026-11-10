@@ -137,7 +137,7 @@ python scripts/todo-graph.py resolve 'D01 T01 §1'  # 0 ready, 1 no such section
 python scripts/todo-graph.py classify 'D01 T01 §1' 'D02 T01 §1'   # dispositions as JSON
 python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <commit> --plan '<report>' --completion '<report>:complete' --review '1:<report>:clean' --check '<cmd> -> <result>'
 python scripts/todo-graph.py unstamp 'D01 T01 §1' --reason '<what regressed; repair -> XREF: <ref>>'
-python -m unittest discover -s scripts/tests      # the tooling's own tests (todo graph and review dispatch)
+python scripts/run-tests.py                       # the tooling's own tests, several classes at a time
 ```
 
 ## Skills

@@ -22,6 +22,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -44,8 +45,6 @@ CHILD_HANG_HOURS = 3  # a resumed session this long without a change is stopped 
 MAX_FRESH_STARTS = 1  # a run whose session lost its transcript starts afresh once; a second loss ends it
 TRANSCRIPT_GONE = re.compile(r"No conversation found with session ID", re.I)
 CHILD_OUTPUT_LIMIT = 64 * 1024
-HEARTBEAT_TASK = "Bosun heartbeat"
-HEARTBEAT_MINUTES = 5  # scripts/install.ps1 schedules it every five minutes
 HOOK_FAILURES = "guard-health.json"
 HOOK_FAILURES_KEPT = 10
 HEARTBEAT_RENEW_DAYS = 6  # CronCreate jobs expire after 7 days
@@ -409,7 +408,7 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
     state.update(session_id=session, permission_mode=mode)
     note = heartbeat_note() + (" " + mode_note if mode_note else "")
     if not env.task_installed():
-        return note + " The watchdog task is not installed, so a crash would end this run: run `bosun-heartbeat add .` where Bosun is installed, or `python scripts/run-guard.py install` first."
+        return note + " The watchdog task is not installed, so a crash would end this run: run `python scripts/run-guard.py install` first."
     return note
 
 
@@ -443,7 +442,7 @@ def pid_alive(pid: int) -> bool:
 def review_in_flight(root: Path = ROOT) -> str | None:
     """A reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/, or None. A
     mark counts only while its process lives and its deadline hasn't passed, so a crashed dispatcher's leftover never
-    holds a run. Ported from Recto (D:\\GitHub\\Recto\\scripts\\campaign_guard.py:780)."""
+    holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
     folder = Path(root) / "build" / "review-in-flight"
     try:
         names = sorted(os.listdir(folder))
@@ -701,6 +700,32 @@ def run(*args: str, cwd: Path = ROOT, timeout: float = 20) -> subprocess.Complet
     return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=timeout, stdin=subprocess.DEVNULL, **hidden())
 
 
+def run_tree(args: list, timeout: float, cwd: Path | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
+    """Run a command whose children must stop with it. On a timeout the whole tree is stopped and TimeoutExpired is
+    raised. `subprocess.run(timeout=...)` stops only the direct child, and on Windows `claude` is a shim whose own child
+    keeps the pipes open, so a hung sign-in check held the watchdog's tick for as long as that child lived."""
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    proc = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            creationflags=flags, start_new_session=os.name != "nt")
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=60, **hidden())
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+        except (OSError, subprocess.SubprocessError):
+            pass  # the direct child is stopped below whatever happened to the rest
+        proc.kill()
+        try:
+            proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass  # a survivor still holds the pipes: the caller gets its timeout now, not when that process ends
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, out, err)
+
+
 WORK_STATES = ("ready", "needs-repair", "needs-filing", "needs-verification", "needs-closeout")
 # How long a run with nothing to run waits before it looks again, by why it waits.
 LOOK_AGAIN = {"rows-waiting": 30 * 60, "ci-pending": 10 * 60, "ci-unavailable": 30 * 60, "acceptance-unwritable": 10 * 60,
@@ -892,7 +917,7 @@ def real_modes() -> set:
     """The modes `claude --help` lists for --permission-mode, or the known list when it can't be read."""
     claude = shutil.which("claude")
     try:
-        done = subprocess.run([claude or "claude", "--help"], capture_output=True, timeout=30, stdin=subprocess.DEVNULL, **hidden())
+        done = run_tree([claude or "claude", "--help"], timeout=30)
         text = done.stdout.decode("utf-8", "replace")
         found = re.search(r"--permission-mode.*?choices:(.*?)\)", text, re.S)
         modes = set(re.findall(r'"([A-Za-z]+)"', found.group(1))) if found else set()
@@ -906,8 +931,7 @@ def real_subscription() -> tuple:
     if not claude:
         return False, "sign-in-needed", "claude is not on PATH, so its sign-in can't be checked"
     try:
-        done = subprocess.run([claude, "auth", "status", "--json"], cwd=ROOT, capture_output=True, env=child_env(os.environ),
-                              timeout=AUTH_TIMEOUT, stdin=subprocess.DEVNULL, **hidden())
+        done = run_tree([claude, "auth", "status", "--json"], timeout=AUTH_TIMEOUT, cwd=ROOT, env=child_env(os.environ))
         data = json.loads(done.stdout.decode("utf-8", "replace"))
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         return False, "sign-in-needed", f"Claude Code's sign-in couldn't be checked ({error}): run `claude auth status` to see why"
@@ -1143,40 +1167,7 @@ def real_stop_tree(child: dict, procs: list[dict]) -> list[int]:
     return left
 
 
-def heartbeat_task_exists() -> bool:
-    """Whether the heartbeat's task will really fire: it exists and isn't disabled, as `heartbeat.py status` reads it."""
-    if os.name != "nt":
-        return False
-    done = run("schtasks", "/Query", "/TN", "Bosun heartbeat", "/XML")
-    if done.returncode != 0:
-        return False
-    text = done.stdout.decode("utf-8", "replace")
-    enabled = re.search(r"<Settings>.*?<Enabled>(true|false)</Enabled>", text, re.S | re.I)
-    if not (enabled is None or enabled.group(1).lower() == "true"):
-        return False
-    # A task whose program or script is gone fires and does nothing, so it doesn't count as a watchdog.
-    command = xml_field(text, "Command")
-    if not command or not Path(command.strip().strip('"')).is_file():
-        return False
-    script = re.search(r'"([^"]+\.py)"|(\S+\.py)\b', xml_field(text, "Arguments") or "")
-    return script is None or Path(script.group(1) or script.group(2)).is_file()
-
-
-def on_heartbeat(root: Path = ROOT) -> bool:
-    """Whether Bosun's global heartbeat ticks this repo, which stands in for a task of its own. Being listed isn't
-    enough: the heartbeat's own task has to exist, or nothing would tick it."""
-    try:
-        data = json.loads((Path(os.environ["LOCALAPPDATA"]) / "Bosun" / "heartbeat" / "repos.json").read_text(encoding="utf-8"))
-        here = os.path.normcase(str(root.resolve()))
-        listed = any(os.path.normcase(str(Path(r["path"]).resolve())) == here for r in data["repos"] if not r.get("distro"))
-        return listed and heartbeat_task_exists()
-    except (KeyError, OSError, TypeError, ValueError, AttributeError):
-        return False  # no heartbeat, or one it can't read: the repo's own task is then what counts
-
-
 def real_task_installed() -> bool:
-    if on_heartbeat():
-        return True
     if os.name != "nt":
         return True
     return run("schtasks", "/Query", "/TN", TASK_NAME).returncode == 0
@@ -1319,60 +1310,29 @@ def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: se
 
 def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task_xml: Callable = read_task_xml,
            read_json: Callable = read_json_file, is_file: Callable = os.path.isfile, ids: set | None = None) -> dict:
-    """Whether the watchdog will really tick this repo: its task (the repo's own, or the heartbeat's when the heartbeat
-    lists the repo) runs the right thing as this user, is enabled, and has ticked lately. Each problem has a reason."""
+    """Whether the watchdog will really tick this repo: its own task runs this checkout's guard as this user, is
+    enabled, and has ticked lately. Each problem has a reason."""
     now = time.time() if now is None else now
     ids = user_ids() if ids is None else ids
-    beat = Path(os.environ.get("LOCALAPPDATA", "")) / "Bosun" / "heartbeat"
-    repos = read_json(beat / "repos.json")
-    here = os.path.normcase(os.path.normpath(str(root)))
-    listed = isinstance(repos, dict) and isinstance(repos.get("repos"), list) and any(
-        isinstance(r, dict) and not r.get("distro") and os.path.normcase(os.path.normpath(str(r.get("path", "")))) == here
-        for r in repos["repos"])
+    own = os.path.normcase(os.path.normpath(str(root / "scripts" / "run-guard.py")))
     problems = []
-    if listed:
-        name, word, minutes = HEARTBEAT_TASK, "tick", HEARTBEAT_MINUTES
-        script_ok = lambda s: Path(s).name.lower() == "heartbeat.py"
-    else:
-        name, word, minutes = TASK_NAME, "watch", WATCH_MINUTES
-        own = os.path.normcase(os.path.normpath(str(root / "scripts" / "run-guard.py")))
-        script_ok = lambda s: os.path.normcase(os.path.normpath(s)) == own
-    code, xml = task_xml(name)
+    code, xml = task_xml(TASK_NAME)
     if code is None:
-        problems.append(f"the task {name} can't be read: {xml}")
+        problems.append(f"the task {TASK_NAME} can't be read: {xml}")
     elif code != 0:
-        problems.append(f"the task {name} is missing" if "cannot find" in xml.lower() else f"the task {name} can't be read: {xml.strip()[:200]}")
+        problems.append(f"the task {TASK_NAME} is missing" if "cannot find" in xml.lower() else f"the task {TASK_NAME} can't be read: {xml.strip()[:200]}")
     else:
-        problems += [f"{name}: {p}" for p in task_problems(xml, script_ok, word, ids, is_file)]
-    limit = 2 * minutes * 60
-    if listed:
-        status = read_json(beat / "status.json")
-        if not isinstance(status, dict) or "__unreadable__" in status:
-            problems.append("the heartbeat's status.json can't be read")
-        else:
-            last = parse_stamp(status.get("last_pass"))
-            if last is None or now - last > limit:
-                problems.append(f"the heartbeat hasn't run a pass in {2 * minutes} minutes (last {status.get('last_pass')})")
-            elif not status.get("hold"):
-                entry = (status.get("repos") or {}).get(here) if isinstance(status.get("repos"), dict) else None
-                active = sum(1 for r in repos["repos"] if isinstance(r, dict) and r.get("state") == "active")
-                at = parse_stamp(entry.get("at")) if isinstance(entry, dict) else None
-                if at is None:
-                    problems.append("the heartbeat hasn't ticked this repo yet")
-                elif now - at > limit + max(active, 1) * minutes * 60:  # a pass stops after a resume and rotates
-                    problems.append(f"the heartbeat hasn't ticked this repo since {entry.get('at')}")
-                elif entry.get("error"):
-                    problems.append(f"the heartbeat's last tick of this repo failed: {entry['error']}")
-    else:
-        tick = read_json(path.with_name("last-tick.json"))
-        at = parse_stamp(tick.get("at")) if isinstance(tick, dict) else None
-        if at is None:
-            problems.append("the watchdog hasn't ticked yet")
-        elif now - at > limit:
-            problems.append(f"the watchdog hasn't ticked in {2 * minutes} minutes (last {tick.get('at')})")
-        elif not tick.get("ok"):
-            problems.append(f"the watchdog's last tick failed: {tick.get('result')}")
-    return {"healthy": not problems, "watchdog": name, "problems": problems}
+        problems += [f"{TASK_NAME}: {p}" for p in
+                     task_problems(xml, lambda s: os.path.normcase(os.path.normpath(s)) == own, "watch", ids, is_file)]
+    tick = read_json(path.with_name("last-tick.json"))
+    at = parse_stamp(tick.get("at")) if isinstance(tick, dict) else None
+    if at is None:
+        problems.append("the watchdog hasn't ticked yet")
+    elif now - at > 2 * WATCH_MINUTES * 60:
+        problems.append(f"the watchdog hasn't ticked in {2 * WATCH_MINUTES} minutes (last {tick.get('at')})")
+    elif not tick.get("ok"):
+        problems.append(f"the watchdog's last tick failed: {tick.get('result')}")
+    return {"healthy": not problems, "watchdog": TASK_NAME, "problems": problems}
 
 
 def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) -> str:

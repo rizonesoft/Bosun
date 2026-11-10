@@ -206,10 +206,12 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match "WSL Ubuntu doesn't start" -and $r.Text -match 'wsl --install -d Ubuntu') 'a missing WSL distro fails with its fix'
   $d = Tool 'wsl-nomount' 'wsl' "if `"%4`"==`"true`" exit /b 0`r`nexit /b 1"
   $r = Preflight "$d;$system" @('-Only', 'wsl')
-  Check ($r.Code -eq 1 -and $r.Text -match "can't see this repo at /mnt/d/" -and $r.Text -match 'wsl --shutdown') 'a WSL that cannot see /mnt/d fails with its fix'
+  # The mount is the checkout's own drive, whichever that is: this test once named /mnt/d and failed on any other.
+  $mnt = '/mnt/' + (Resolve-Path $repo).Path.Substring(0, 1).ToLower() + '/'
+  Check ($r.Code -eq 1 -and $r.Text -match "can't see this repo at $mnt" -and $r.Text -match 'wsl --shutdown') "a WSL that cannot see $mnt fails with its fix"
   $d = Tool 'wsl-good' 'wsl' 'exit /b 0'
   $r = Preflight "$d;$system" @('-Only', 'wsl')
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   WSL Ubuntu sees /mnt/d/') 'a WSL that sees the repo passes'
+  Check ($r.Code -eq 0 -and $r.Text -match "ok   WSL Ubuntu sees $mnt") 'a WSL that sees the repo passes'
 
   # A probe that hangs is stopped at its limit, with its whole tree.
   $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"
@@ -273,6 +275,11 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match 'GB free, under the' -and $r.Text -match 'fix: free space on') 'a free space shortfall fails with its fix'
   $r = Preflight $system @('-Only', 'space', '-FreeDrives', $drive, '-MinFreeGB', '1')
   Check ($r.Code -eq 0) 'enough free space passes'
+  # No drive is named in code: with none given, the one checked is the checkout's own. The repo once moved off a
+  # drive the check still named, and the preflight failed on a drive nothing used.
+  $r = Preflight $system @('-Only', 'space', '-Repo', $clone, '-MinFreeGB', '1')
+  $own = [regex]::Escape([IO.Path]::GetPathRoot($clone))
+  Check ($r.Code -eq 0 -and @($r.Text -split "`n" | Where-Object { $_ -match '^(ok|FAIL)\s+drive ' }).Count -eq 1 -and $r.Text -match "ok   drive $own has") 'with no drive named, only the checkout''s own drive is checked'
 
   $powerState = Join-Path $work 'power.json'
   Set-Content $powerState '{"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e", "values": {"SUB_SLEEP/STANDBYIDLE": {"AC": 1800, "DC": 600}, "SUB_SLEEP/HIBERNATEIDLE": {"AC": 0, "DC": 0}, "SUB_VIDEO/VIDEOIDLE": {"AC": 7200, "DC": 180}}}'
@@ -308,7 +315,7 @@ try {
   $sdkList = Join-Path $dotnetDir 'sdks.txt'
   Set-Content $sdkList '11.0.100-rc.2.26504.105 [x]'
   Set-Content (Join-Path $dotnetDir 'dotnet.cmd') "@type `"$sdkList`"" -Encoding ascii
-  $place = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-Vhdx', 'R:\test.vhdx')
+  $place = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir)
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match "admin setup isn't in place" -and $r.Text -match 'NoAutoRebootWithLoggedOnUsers is absent' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'no admin setup fails with its fix'
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply -Record (Join-Path $work 'admin.json') @place | Out-Null
@@ -318,15 +325,15 @@ try {
   $drifts = @(
     @{ Name = 'disabled'; Field = 'Enabled'; Value = $false; Says = 'disabled' },
     @{ Name = 'a changed action'; Field = 'Arguments'; Value = '-File C:\elsewhere.ps1'; Says = 'arguments are' },
-    @{ Name = 'another principal'; Field = 'User'; Value = 'DerickPayne'; Says = 'runs as DerickPayne' },
+    @{ Name = 'another principal'; Field = 'User'; Value = 'SomeoneElse'; Says = 'runs as SomeoneElse' },
     @{ Name = 'a changed trigger'; Field = 'Triggers'; Value = @('Daily'); Says = 'triggers are Daily' }
   )
   foreach ($x in $drifts) {
     $all = $good | ConvertFrom-Json
-    $all.'Bosun attach D'.($x.Field) = $x.Value
+    $all.'Bosun dotnet final'.($x.Field) = $x.Value
     Set-Content $store ($all | ConvertTo-Json -Depth 5)
     $r = Preflight $system (@('-Only', 'setup') + $place)
-    Check ($r.Code -eq 1 -and $r.Text -match "task 'Bosun attach D' $([regex]::Escape($x.Says))") "a task with $($x.Name) fails"
+    Check ($r.Code -eq 1 -and $r.Text -match "task 'Bosun dotnet final' $([regex]::Escape($x.Says))") "a task with $($x.Name) fails"
   }
   $all = $good | ConvertFrom-Json
   $all.PSObject.Properties.Remove('Bosun dotnet final')

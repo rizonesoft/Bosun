@@ -19,15 +19,10 @@ title: "TODO-01 -- Memory and overview"
 - -> XREF: D01 T01 §4 -- consumed by this file
 - -> XREF: D02 T02 §3 -- consumed by this file
 - -> XREF: D03 T02 §1 -- consumed by this file
-- -> XREF: D04 T03 §5 -- consumes this file
-- -> XREF: D05 T01 §3 -- consumes this file
 - -> XREF: D02 T03 §5 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
 - -> XREF: D02 T02 §4 -- consumed by this file
-- -> XREF: D04 T01 §5 -- consumes this file
-- -> XREF: D04 T04 §2 -- consumes this file
 - -> XREF: D07 T01 §4 -- consumes this file
-- -> XREF: D06 T02 §5 -- consumes this file
 
 ## Outcome
 
@@ -146,20 +141,19 @@ This is what opens first. It only assembles other pages' state, so it is built a
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §2.
 **Job:** decide in five seconds whether to start more work and what needs attention.
-**Treatment:** four cards, then Needs you, then Runs. Cheaper substitute that fails: a static welcome page.
-**Chrome:** the shell's page frame; Runs rows deferred to the run page's source.
+**Treatment:** four cards, then Needs you. Cheaper substitute that fails: a static welcome page.
+**Chrome:** the shell's page frame.
 
 **Build order:**
 
 1. Create `Views/OverviewView.xaml` with the cards. Done when: they mirror Memory and Queue.
-2. Build Needs you and Runs. Done when: each row opens its owner.
+2. Build Needs you. Done when: each row opens its owner.
 
 - [ ] Build the four metric cards per `design/SPEC.md` §2. Done when: they match their pages in a test using shared fakes.
 - [ ] Define `INeedsYouSource` in `src/Bosun.Core`, implemented by each page's owner. Done when: each later page adds rows without changing Overview. Cheaper substitute: Overview querying tools itself.
 - [ ] Build the empty state. Done when: with nothing pending, it says "Nothing needs you."
 - [ ] Build the Needs you table with state word, what, where and Open in `Views/OverviewView.xaml`. Done when: Open goes to the owning page.
-- [ ] Define `IRunsSource` in `src/Bosun.Core` and build the Runs table with repo, state, ready, verified and heartbeat. Done when: a fake source fills it. `D04 T03 §2` implements the source.
-- [ ] Feed rail count badges from `INeedsYouSource` by page in `src/Bosun.Panel/Shell/MainViewModel.cs`. Done when: a fake row on Plan shows a count of 1 on that rail row.
+- [ ] Feed rail count badges from `INeedsYouSource` by page in `src/Bosun.Panel/Shell/MainViewModel.cs`. Done when: a fake row on Queue shows a count of 1 on that rail row.
 - [ ] Commit: `overview: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
