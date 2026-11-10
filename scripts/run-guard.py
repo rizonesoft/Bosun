@@ -79,6 +79,7 @@ def main() -> int:
     start = commands.add_parser("start")
     start.add_argument("--session", required=True)
     start.add_argument("--permission-mode")
+    start.add_argument("--model", help="the model the session was started with, kept for every resume (an alias such as opus, or an exact id)")
     stop = commands.add_parser("halt")
     stop.add_argument("--ground", required=True, choices=guard.GROUNDS)
     stop.add_argument("--reason", required=True)
@@ -166,7 +167,7 @@ def main() -> int:
         state = guard.load()
         if args.command == "start":
             try:
-                note = guard.start(state, args.session, args.permission_mode, guard.REAL)
+                note = guard.start(state, args.session, args.permission_mode, guard.REAL, args.model)
             except ValueError as error:
                 say(str(error))
                 return 1

@@ -666,6 +666,26 @@ class Modes(unittest.TestCase):
             self.assertEqual(guard.resume_command(state, "claude"),
                              ["claude", "-p", "process plan", "--resume", "sess-9", "--permission-mode", "bypassPermissions"])
 
+    def test_the_model_the_run_started_with_is_kept_for_every_resume(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "state.json"
+            env = {**os.environ, "RUN_GUARD_STATE": str(path)}
+            script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+            done = subprocess.run([*script, "start", "--session", "sess-9", "--permission-mode", "bypassPermissions",
+                                   "--model", "opus"], env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            refused = subprocess.run([*script, "start", "--session", "sess-9", "--model", "opus; rm"],
+                                     env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(refused.returncode, 1)
+            self.assertIn("is not a model name", refused.stdout)
+            state = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(guard.resume_command(state, "claude"),
+                             ["claude", "-p", "process plan", "--resume", "sess-9", "--permission-mode", "bypassPermissions",
+                              "--model", "opus"])
+            # A lost transcript starts afresh, on the same model.
+            self.assertEqual(guard.resume_command({**state, "fresh_next": True}, "claude")[-2:], ["--model", "opus"])
+        self.assertNotIn("--model", guard.resume_command(active(), "claude"))
+
     def test_the_modes_come_from_claude_s_own_help(self):
         text = ('  --permission-mode <mode>   Permission mode to use for the session\n'
                 '                             (choices: "alpha", "betaMode",\n'

@@ -571,16 +571,24 @@ def on_stop_failure(state: dict, data: dict, now: float | None = None) -> None:
         set_wait(state, "overloaded", now + OVERLOADED_WAIT, f"Anthropic's API reported {error}; the run looks again in 5 minutes")
 
 
-def start(state: dict, session: str, mode: str | None, env: Env) -> str | None:
-    """Start or take over a run; returns a note for the operator, or None."""
+def start(state: dict, session: str, mode: str | None, env: Env, model: str | None = None) -> str | None:
+    """Start or take over a run; returns a note for the operator, or None.
+
+    `model` is what the operator started the session with (`claude --model`): an alias such as `opus`, which Claude
+    Code resolves to the newest Opus, or an exact id. It is kept so every resumed or fresh session runs the same one.
+    """
     owner = state.get("session_id")
     if state.get("active") and owner not in (None, session) and env.alive(owner):
         raise ValueError(f"session {owner} owns the active run and is alive; never run two writers on one tree")
     mode, note = check_mode(mode, env)
+    if model is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]*", model):
+        raise ValueError(f"`{model}` is not a model name `claude --model` takes (an alias such as opus, or an exact id)")
     if not state.get("active"):
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
     state.update(session_id=session, permission_mode=mode)
+    if model:
+        state["model"] = model
     return note
 
 
@@ -885,6 +893,9 @@ def resume_command(state: dict, claude: str) -> list[str]:
     # The operator's own mode for this run and no wider; `default` is Claude Code's own and needs no flag.
     if state.get("permission_mode") and state["permission_mode"] != "default":
         command += ["--permission-mode", state["permission_mode"]]
+    # The model the run was started with, so a resume or a fresh start never drops to the account's default.
+    if state.get("model"):
+        command += ["--model", state["model"]]
     return command
 
 

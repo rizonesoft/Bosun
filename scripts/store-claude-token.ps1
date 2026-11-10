@@ -8,14 +8,19 @@
 # for the preflight to check.
 #
 #   pwsh scripts/store-claude-token.ps1                          paste the token made today when asked
+#   pwsh scripts/store-claude-token.ps1 -FromVault               read it from the 1Password Conclave vault instead
 #   pwsh scripts/store-claude-token.ps1 -IssuedOn 2026-11-01     a token made on an earlier day
 #   pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <day>   record the day for a token already stored
 #   pwsh scripts/store-claude-token.ps1 -Remove                  take both out; sessions go back to the claude.ai sign-in
 #
-# Keep a copy in the 1Password Conclave vault too: this variable is not a recovery source.
+# The 1Password Conclave vault holds the recovery copy ("Claude Code OAuth token (1 year, setup-token)"): this variable
+# is not a recovery source. -FromVault is a one-time import through the `op` CLI; nothing reads the vault after that.
 param(
   [switch]$Remove,
   [switch]$RecordOnly,
+  [switch]$FromVault,
+  [string]$VaultItem = 'op://Conclave/pm5vqgypmvjok23xwlaacbwlji/credential',
+  [string]$Op = 'op',
   [string]$IssuedOn = '',
   [string]$Key = 'HKCU:\Environment',
   [string]$Name = 'CLAUDE_CODE_OAUTH_TOKEN',
@@ -67,8 +72,14 @@ if ($RecordOnly) {
   exit 0
 }
 
-# The token arrives on stdin when piped (as the tests and a vault read do), or is asked for without echo.
-$plain = if ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() } else {
+# The token comes from the vault when asked, arrives on stdin when piped (as the tests do), or is asked for without echo.
+$plain = if ($FromVault) {
+  $tool = (Get-Command $Op -ErrorAction Ignore | Select-Object -First 1).Source
+  if (-not $tool) { "the 1Password CLI ($Op) is not on PATH, so the vault can't be read: install it and sign in, or paste the token instead; nothing changed"; exit 1 }
+  $read = & $tool read $VaultItem 2>$null
+  if ($LASTEXITCODE -or -not "$read".Trim()) { "``op read`` could not read the token from the vault (exit $LASTEXITCODE): check ``op whoami`` and that the item is in the Conclave vault; nothing changed"; exit 1 }
+  "$read"
+} elseif ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() } else {
   $secure = Read-Host -AsSecureString "Paste the token claude setup-token printed (it won't show)"
   [Net.NetworkCredential]::new('', $secure).Password
 }

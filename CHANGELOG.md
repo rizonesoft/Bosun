@@ -19,6 +19,7 @@ Notable changes to Bosun are recorded here. The format follows [Keep a Changelog
 - The native tools build with Ninja through `pwsh scripts/build.ps1`, with warnings as errors everywhere and `compile_commands.json` for clangd. `app.cpp` is compiled once for both tools.
 - `python scripts/run-tests.py` runs the tooling's tests several classes at a time.
 - `pwsh scripts/start-run.ps1` starts the unattended run with its goal, and `pwsh scripts/setup-lsp.ps1` sets up code intelligence for Claude Code.
+- The unattended run starts on the newest Opus (`claude --model opus`), and the run guard keeps that model for every session it resumes. The start signs in with the long-lived token from the user's variables, which `pwsh scripts/store-claude-token.ps1 -FromVault` imports once from the 1Password Conclave vault.
 - Renamed the project from DevMode to Bosun.
 - Bosun Panel's scope is the product's own data: memory, dev instances, the queue and machine tuning. The planned workflow pages (plan, reviews, unattended run, hooks, fleet), the agents page, the API workbench and Insights are dropped, with every control that acted on another repository.
 - The campaign preflight checks free space on the drive the checkout is on, and the deny list's scratch folder comes from `BOSUN_SCRATCH`. No folder is named in code.

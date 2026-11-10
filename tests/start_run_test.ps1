@@ -26,8 +26,57 @@ try {
   try { $out = (& $pwsh -NoProfile -File $script -DryRun) -join "`n" } finally { $env:Path = $path }
   Remove-Item Env:RUN_GUARD_STATE
   Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $state)) 'a dry run leaves the run state alone'
-  Check ($out -match 'run-guard\.py start --session ([0-9a-f-]{36}) --permission-mode bypassPermissions' -and $out -match "claude --session-id $($Matches[1]) --dangerously-skip-permissions `"/goal ") 'the guard is told the same session id the session starts with, in bypass mode, with its goal'
+  Check ($out -match 'run-guard\.py start --session ([0-9a-f-]{36}) --permission-mode bypassPermissions --model opus' -and $out -match "claude --session-id $($Matches[1]) --dangerously-skip-permissions --model opus `"/goal ") 'the guard is told the same session id and model the session starts with, in bypass mode, with its goal'
+  Check ($out -notmatch 'claude-opus-\d') 'the model is the alias for the newest Opus, never one pinned version'
   Check ($out -match '100% complete' -and $out -match 'query next') 'the goal names the finish line'
+
+  # A real start against a fake claude, a test registry key and a state file of its own: nothing real is started.
+  $fake = Join-Path $work 'fake'
+  New-Item -ItemType Directory -Force $fake | Out-Null
+  Set-Content (Join-Path $fake 'claude.cmd') "@echo off`r`nif defined CLAUDE_CODE_OAUTH_TOKEN (echo TOKEN=set) else (echo TOKEN=none)`r`necho ARGS=%*" -Encoding ascii
+  $envKey = "HKCU:\Software\BosunStartRunTest-$PID"
+  New-Item -Path $envKey -Force | Out-Null
+  Set-ItemProperty -LiteralPath $envKey -Name 'CLAUDE_CODE_OAUTH_TOKEN' -Value 'tok-start-run-test'
+  $had = $env:CLAUDE_CODE_OAUTH_TOKEN
+  $env:RUN_GUARD_STATE = $state
+  $env:Path = "$fake;$path"
+  try {
+    $env:CLAUDE_CODE_OAUTH_TOKEN = $null
+    $out = (& $pwsh -NoProfile -File $script -UserEnvKey $envKey -Goal 'test goal') -join "`n"
+    $code = $LASTEXITCODE
+    $saved = if (Test-Path $state) { Get-Content $state -Raw | ConvertFrom-Json }
+    Check ($code -eq 0 -and $out -match 'sign-in: the long-lived token from your user variables' -and $out -match 'TOKEN=set') 'a window without the token gets it from the user''s variables'
+    Check ($out -notmatch 'tok-start-run-test') 'and the token is never printed'
+    Check ($out -match 'ARGS=--session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus "/goal test goal"') 'the session starts on the newest Opus with every prompt off and its goal'
+    Check ($saved.model -eq 'opus' -and $saved.permission_mode -eq 'bypassPermissions' -and $saved.active) 'the guard keeps the model for the sessions it resumes'
+    Remove-Item $state -ErrorAction Ignore
+    $env:CLAUDE_CODE_OAUTH_TOKEN = 'tok-in-this-window'
+    $out = (& $pwsh -NoProfile -File $script -UserEnvKey $envKey -Goal 'test goal' -Model sonnet) -join "`n"
+    Check ($out -match 'sign-in: the long-lived token this window already has' -and $out -match 'TOKEN=set' -and $out -notmatch 'tok-in-this-window') 'a window that has the token uses it as it is'
+    Check ($out -match '--model sonnet "/goal') '-Model starts another model'
+  } finally {
+    $env:CLAUDE_CODE_OAUTH_TOKEN = $had
+    $env:Path = $path
+    Remove-Item Env:RUN_GUARD_STATE
+    Remove-Item -LiteralPath $envKey -Recurse -Force
+  }
+
+  # The one-time import from the vault, against a fake `op`: the token lands in the given key and is never printed.
+  $vaultKey = "HKCU:\Software\BosunStartRunVault-$PID"
+  $record = Join-Path $work 'claude-token.json'
+  $store = Join-Path $repo 'scripts\store-claude-token.ps1'
+  Set-Content (Join-Path $fake 'op.cmd') "@echo off`r`nif `"%1 %2`"==`"read op://Vault/item/credential`" (echo tok-from-vault& exit /b 0)`r`necho not signed in 1>&2`r`nexit /b 1" -Encoding ascii
+  try {
+    $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $fake 'op.cmd') -VaultItem 'op://Vault/item/credential' -Key $vaultKey -Record $record -IssuedOn 2026-11-10) -join "`n"
+    Check ($LASTEXITCODE -eq 0 -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-from-vault' -and $out -notmatch 'tok-from-vault') '-FromVault stores the vault''s token without printing it'
+    Check ((Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-11-10') 'and records the day it was made'
+    $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $fake 'op.cmd') -VaultItem 'op://Vault/other/credential' -Key $vaultKey -Record $record) -join "`n"
+    Check ($LASTEXITCODE -eq 1 -and $out -match 'could not read the token from the vault' -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-from-vault') 'a vault that can''t be read changes nothing and says so'
+    $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $work 'no-op.exe') -Key $vaultKey -Record $record) -join "`n"
+    Check ($LASTEXITCODE -eq 1 -and $out -match 'is not on PATH') 'a missing 1Password CLI is named'
+  } finally {
+    Remove-Item -LiteralPath $vaultKey -Recurse -Force -ErrorAction Ignore
+  }
 } finally {
   Remove-Item -LiteralPath $work -Recurse -Force
 }

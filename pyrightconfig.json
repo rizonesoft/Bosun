@@ -1,0 +1,5 @@
+{
+  "include": ["scripts", "tests", "wsl", ".conclave"],
+  "exclude": ["samples", "build", "**/__pycache__"],
+  "extraPaths": ["scripts/lib", "scripts"]
+}
