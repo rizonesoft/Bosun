@@ -1579,9 +1579,12 @@ class RepositoryPin(unittest.TestCase):
         with open(REPO_PIN, "rb") as handle:
             if "schedule" not in tomllib.load(handle):
                 self.skipTest("the repository pin has no [schedule]")
-        found = [path for path in (SCRIPTS / "lib" / "todo_graph.py",
-                                   SCRIPTS.parents[2] / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
-                 if path.is_file()]
+        # A checkout at a drive root (D:\Bosun) has no folder two levels above scripts/, so the sibling kit is only
+        # looked for where that folder exists.
+        candidates = [SCRIPTS / "lib" / "todo_graph.py"]
+        if len(SCRIPTS.parents) > 2:
+            candidates.append(SCRIPTS.parents[2] / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
+        found = [path for path in candidates if path.is_file()]
         if not found:
             self.skipTest("the todo kit is not installed")
         spec = importlib.util.spec_from_file_location("todo_graph_cutoff", found[0])
