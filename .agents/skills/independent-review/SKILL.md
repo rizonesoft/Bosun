@@ -5,7 +5,7 @@ description: Get an independent review of your own work from the reviewer pinned
 
 # Independent review
 
-One writer and one independent reviewer: Codex uses Argon; Claude, Gemini and Meta/Muse use Astra. Claude is never a reviewer. New cycles run one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (default 8), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. The dispatcher records its committed policy and actual execution outcomes. Historical receipts and in-flight cycles retain their initiating policy, reviewer and findings. Never resume an operator-paused section without explicit authorization.
+One writer and one independent reviewer: Codex uses Carbon (Gemini 4 Carbon); Claude and Gemini use Astra. Claude is never a reviewer. New cycles run one medium plan review, one medium adversarial review, up to `schedule.max_low_rounds` low reviews (default 8), stopping on clean, then one medium completion review last. Pass `--writer-model <exact-model-version>` and keep one findings file. The dispatcher records its committed policy and actual execution outcomes. Historical receipts and in-flight cycles retain their initiating policy, reviewer and findings. Never resume an operator-paused section without explicit authorization.
 
 Use `docs/plan-review-prompt.md` before the build, `docs/review-round-prompt.md` for rounds and `docs/completion-review-prompt.md` last. Write prompts to scratch. Name exact candidate commits and read their full diff. Reviewers are read-only and receive no secrets.
 

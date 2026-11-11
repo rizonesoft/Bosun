@@ -1,6 +1,7 @@
 # One writer and one reviewer per section. Historical receipts replay their original pin.
 # Same shape as Steward's pin of 2026-11-06: plan medium, adversarial medium, up to eight low rounds, completion medium
-# last. Codex is reviewed by Argon; other writers by Astra. Claude is never a reviewer.
+# last. Codex is reviewed by Carbon (Gemini 4 Carbon, owner decision 2026-11-12); other writers by Astra.
+# Claude is never a reviewer.
 schema_version = 1
 
 [reviewers.astra]
@@ -8,17 +9,15 @@ cli = "codex"
 model = "gpt-6-astra"
 effort = "medium"
 
-[reviewers.argon]
+[reviewers.carbon]
 cli = "agy"
-model = "gemini-4-argon-medium"
-models_by_effort = { low = "gemini-4-argon-low", medium = "gemini-4-argon-medium" }
+model = "gemini-4-carbon-medium"
+models_by_effort = { low = "gemini-4-carbon-low", medium = "gemini-4-carbon-medium" }
 
 [routes]
 claude = ["astra"]
-codex = ["argon"]
+codex = ["carbon"]
 gemini = ["astra"]
-muse = ["astra"]
-meta = ["astra"]
 
 [schedule]
 completion_order = "last"

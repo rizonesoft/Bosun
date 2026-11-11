@@ -509,7 +509,7 @@ class Dispatch(Harness):
         # Older findings files may hold rounds by other reviewers, a fallback chain and its Skipped lines.
         old = self.repo / "docs/reviews/old.md"
         old.parent.mkdir(parents=True)
-        old.write_text("## Round 1: gemini (`gemini-4-argon-medium` via `agy`)\n\n- Writer: claude\n"
+        old.write_text("## Round 1: gemini (`gemini-4-carbon-medium` via `agy`)\n\n- Writer: claude\n"
                        "- Run: 2026-10-21T00:00:00Z\n- Skipped: astra (exited 3)\n\nReview.\n", encoding="utf-8")
         result, listing = self.dispatch("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1478,7 +1478,7 @@ class MultiCli(Harness):
 
         [reviewers.gemini]
         cli = "agy"
-        model = "gemini-4-argon-high"
+        model = "gemini-4-carbon-high"
 
         [routes]
         claude = ["astra"]
@@ -1493,7 +1493,7 @@ class MultiCli(Harness):
     def test_gemini_runs_in_plan_mode_with_the_prompt_as_the_p_value(self):
         result, summary = self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((summary["reviewer"], summary["model"], summary["effort"]), ("gemini", "gemini-4-argon-high", None))
+        self.assertEqual((summary["reviewer"], summary["model"], summary["effort"]), ("gemini", "gemini-4-carbon-high", None))
         self.assertIn("(agy)", summary["review"])
         (call,) = self.calls()
         self.assertEqual(call["cli"], "agy")
@@ -1521,7 +1521,7 @@ class MultiCli(Harness):
         self.assertEqual(call["from_file"], "x" * 150_000)
 
     def test_a_windows_shim_never_gets_prompt_text_in_its_arguments(self):
-        reviewer = {"cli": "agy", "model": "gemini-4-argon-high"}
+        reviewer = {"cli": "agy", "model": "gemini-4-carbon-high"}
         argv, stdin = self.module().command(reviewer, "C:/tools/agy.cmd", "x & del *", Path("C:/p.md"), Path("o"), 60)
         self.assertEqual(argv[-1], f"-p=Follow the review instructions in the file {Path('C:/p.md')} exactly. "
                                    "Do not modify any file.")
@@ -1531,7 +1531,7 @@ class MultiCli(Harness):
 
     def test_a_scheduled_effort_never_reaches_antigravity(self):
         module = self.module()
-        argv, _ = module.command({"cli": "agy", "model": "gemini-4-argon-high"}, "/usr/bin/agy", "p", Path("/p.md"),
+        argv, _ = module.command({"cli": "agy", "model": "gemini-4-carbon-high"}, "/usr/bin/agy", "p", Path("/p.md"),
                                  Path("o"), 60, "low")
         self.assertNotIn("low", " ".join(argv))
 
@@ -1554,15 +1554,29 @@ class RepositoryPin(unittest.TestCase):
         pin = module.load_pin(REPO_PIN)
         self.assertTrue(pin["routes"], "the repository pin routes no writer")
 
+    def test_a_committed_pin_drops_a_retired_writer_and_the_live_pin_refuses_it(self):
+        spec = importlib.util.spec_from_file_location("dispatch_pin_retired", SCRIPTS / "review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        text = REPO_PIN.read_text(encoding="utf-8").replace('gemini = ["astra"]', 'gemini = ["astra"]\nretired = ["astra"]')
+        pin = module.load_pin(REPO_PIN, data=text.encode("utf-8"))
+        self.assertNotIn("retired", pin["routes"])
+        self.assertEqual(pin["routes"]["codex"], ["carbon"])
+        with tempfile.TemporaryDirectory() as folder:
+            live = Path(folder) / "reviewers.toml"
+            live.write_text(text, encoding="utf-8")
+            with self.assertRaises(module.Refused):
+                module.load_pin(live)
+
     def test_the_repository_pin_is_one_reviewer_per_writer_on_the_schedule(self):
         with open(REPO_PIN, "rb") as handle:
             pin = tomllib.load(handle)
-        self.assertEqual(pin["reviewers"]["argon"], {
-            "cli": "agy", "model": "gemini-4-argon-medium",
-            "models_by_effort": {"low": "gemini-4-argon-low", "medium": "gemini-4-argon-medium"}})
+        self.assertEqual(pin["reviewers"]["carbon"], {
+            "cli": "agy", "model": "gemini-4-carbon-medium",
+            "models_by_effort": {"low": "gemini-4-carbon-low", "medium": "gemini-4-carbon-medium"}})
         self.assertEqual(pin["reviewers"]["astra"], {"cli": "codex", "model": "gpt-6-astra", "effort": "medium"})
-        self.assertEqual(pin["routes"], {"claude": ["astra"], "codex": ["argon"],
-                                       "gemini": ["astra"], "muse": ["astra"], "meta": ["astra"]})
+        self.assertEqual(pin["routes"], {"claude": ["astra"], "codex": ["carbon"],
+                                       "gemini": ["astra"]})
         schedule = pin["schedule"]
         self.assertEqual(schedule["completion_order"], "last")
         self.assertEqual(schedule["max_low_rounds"], 32)

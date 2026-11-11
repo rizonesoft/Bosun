@@ -26,14 +26,14 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = ROOT / ".conclave" / "reviewers.toml"
-WRITERS = ("claude", "codex", "gemini", "muse", "meta")
+WRITERS = ("claude", "codex", "gemini")
 CLIS = ("codex", "agy", "claude")
 # Operator rule 2026-11-06: Claude writes and never reviews. Past pins naming it stay readable so their receipts replay,
 # but the live pin may not name it and no review ever launches it.
 NEVER_REVIEWS = frozenset({"claude"})
 # A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
 FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
-WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google", "muse": "meta", "meta": "meta"}
+WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google"}
 # Antigravity carries effort in its model name; models_by_effort selects the scheduled variant.
 EFFORTS = {"codex": ("low", "medium", "high", "xhigh"), "claude": ("low", "medium", "high", "xhigh", "max")}
 MODEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
@@ -135,6 +135,11 @@ def load_pin(path=PIN, data=None):
             if entry["cli"] in NEVER_REVIEWS:
                 raise Refused(f"reviewer {name!r} uses the {entry['cli']} CLI; Claude is never a reviewer")
     routes = pin["routes"]
+    # A committed pin replayed for a shipped section may route a writer since retired (two were removed on
+    # 2026-11-12): it was checked when it was committed, so its retired routes are dropped, never refused. The live pin
+    # routes only current writers.
+    if not live and isinstance(routes, dict):
+        routes = pin["routes"] = {writer: chain for writer, chain in routes.items() if writer in WRITERS}
     if not isinstance(routes, dict) or set(routes) - set(WRITERS):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
     for writer, chain in routes.items():
@@ -623,7 +628,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
         variants = reviewer.get("models_by_effort")
         if variants and effort:
             if effort not in variants:
-                raise Refused(f"no pinned Argon model for effort {effort}")
+                raise Refused(f"no pinned Antigravity model for effort {effort}")
             reviewer = {**reviewer, "model": variants[effort]}
         else:
             effort = None

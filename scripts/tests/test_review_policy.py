@@ -35,8 +35,8 @@ def entry(kind='round', clean=False):
         review = 'HIGHEST: none\nPLAN: complete\nOVERALL: approve'
     if kind == 'completion':
         review = 'COMPLETION: complete'
-    return dict(writer='codex', writer_model='gpt-6-astra', reviewer='argon',
-                cli='agy', model='gemini-4-argon-medium', review=review,
+    return dict(writer='codex', writer_model='gpt-6-astra', reviewer='carbon',
+                cli='agy', model='gemini-4-carbon-medium', review=review,
                 policy='a'*40, execution='returned', candidate='b'*40)
 
 
@@ -94,15 +94,15 @@ class FiledLeftovers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / name
             plan = entry('plan')
-            plan.update(attempt_reviewer='argon', attempt_model=plan['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['plan'])
+            plan.update(attempt_reviewer='carbon', attempt_model=plan['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['plan'])
             dispatch.record_completion(path, plan, '2026-11-06T00:00:00Z', 'b'*40, 'plan')
             for clean in (clean_last,):  # one adversarial round, at the pin's effort for it
                 e = entry('round', clean=clean)
-                e.update(attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['adversarial'])
+                e.update(attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['adversarial'])
                 dispatch.record(path, e, '2026-11-06T00:00:01Z')
             done = entry('completion')
             done['review'] = 'COMPLETION: gaps' if verdict != 'complete' else 'COMPLETION: complete'
-            done.update(attempt_reviewer='argon', attempt_model=done['model'], attempt_cli='agy', failover=[], effort='medium', lenses=[])
+            done.update(attempt_reviewer='carbon', attempt_model=done['model'], attempt_cli='agy', failover=[], effort='medium', lenses=[])
             dispatch.record_completion(path, done, '2026-11-06T00:00:02Z', 'b'*40)
             data = dict(schedule=pin['schedule'], policy='a'*40, round_cap=dispatch.schedule_cap(pin['schedule']),
                         plan=dict(report=name), completion=dict(report=name, verdict=verdict, candidate='b'*40),
@@ -141,7 +141,7 @@ class CurrentPolicy(unittest.TestCase):
         found = dict(plans=[], rounds=[], completions=[])
         for index, kind in enumerate(('plan', 'round', 'round')):
             e = entry(kind, clean=True)
-            e.update(_line=index, attempt_reviewer='argon', attempt_model=e['model'],
+            e.update(_line=index, attempt_reviewer='carbon', attempt_model=e['model'],
                      attempt_cli='agy', effort='medium',
                      lenses=['plan'] if kind == 'plan' else ['adversarial'])
             if index == 1:
@@ -159,7 +159,7 @@ class CurrentPolicy(unittest.TestCase):
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round'):
                 e = entry(kind, clean=True)
-                e.update(attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
+                e.update(attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
                          failover=[], effort='medium', lenses=['plan'] if kind == 'plan' else ['adversarial'])
                 if kind == 'plan':
                     dispatch.record_completion(path, e, '2026-11-06T00:00:00Z', 'b'*40, kind)
@@ -179,7 +179,7 @@ class CurrentPolicy(unittest.TestCase):
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round', 'completion'):
                 e = entry(kind, clean=True)
-                e.update(attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
+                e.update(attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
                          failover=[], effort='medium', lenses=['plan'] if kind == 'plan' else
                          ['adversarial'] if kind == 'round' else [])
                 if kind == 'round':
@@ -217,7 +217,7 @@ class CurrentPolicy(unittest.TestCase):
             path.write_text('')
             policy_sha = t.head()
             e = entry('plan')
-            e.update(policy=policy_sha, attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
+            e.update(policy=policy_sha, attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
                      failover=[], effort='medium', lenses=['plan'])
             d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
             for todo in (t.root / 'todo').rglob('TODO-01-*.md'):
@@ -234,8 +234,8 @@ class CurrentPolicy(unittest.TestCase):
             fixtures.tg.graph(t.root)
             # A receipt cannot hide a failed terminal execution or a different model.
             text = path.read_text(encoding='utf-8')
-            path.write_text(text.replace('Attempt model: gemini-4-argon-medium',
-                                         'Attempt model: gemini-4-argon-low'), encoding='utf-8')
+            path.write_text(text.replace('Attempt model: gemini-4-carbon-medium',
+                                         'Attempt model: gemini-4-carbon-low'), encoding='utf-8')
             with self.assertRaises(fixtures.tg.Refused):
                 fixtures.tg.graph(t.root)
         finally:
@@ -259,7 +259,7 @@ class CurrentPolicy(unittest.TestCase):
         path = t.root / rel
         path.write_text('', encoding='utf-8')  # this cycle's own records only, under the live pin
         e = entry('plan')
-        e.update(policy=policy_sha, attempt_reviewer='argon', attempt_model=e['model'], attempt_cli='agy',
+        e.update(policy=policy_sha, attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
                  failover=[], effort='medium', lenses=['plan'])
         d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
         todo.write_text((before + '> **Started:** 2026-11-06T00:00:01Z' + after).replace('- [ ] Work.', '- [x] Work.'),
@@ -373,13 +373,13 @@ class CurrentPolicy(unittest.TestCase):
 
     def test_variants_and_recorded_missing_execution(self):
         pin = d.load_pin()
-        self.assertEqual(pin['routes']['codex'], ['argon'])
-        for writer in ('claude', 'gemini', 'muse', 'meta'):
+        self.assertEqual(pin['routes']['codex'], ['carbon'])
+        for writer in ('claude', 'gemini'):
             self.assertEqual(pin['routes'][writer], ['astra'])
         with patch.object(d, 'find_cli', return_value=None):
             result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1,
                               dict(effort='low', lenses=[], position=2, escalated=False))
-        self.assertEqual(result['attempt_model'], 'gemini-4-argon-low')
+        self.assertEqual(result['attempt_model'], 'gemini-4-carbon-low')
         self.assertEqual(result['execution'], 'missing')
         self.assertIsNone(result['reviewer'])
 
@@ -393,8 +393,8 @@ class CurrentPolicy(unittest.TestCase):
         with patch.object(d, 'find_cli', return_value='agy.exe'), patch.object(d, 'run', side_effect=run):
             result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1,
                               dict(effort='low', lenses=[], position=2, escalated=False))
-        self.assertEqual(seen[0][seen[0].index('--model')+1], 'gemini-4-argon-low')
-        self.assertEqual(result['model'], 'gemini-4-argon-low')
+        self.assertEqual(seen[0][seen[0].index('--model')+1], 'gemini-4-carbon-low')
+        self.assertEqual(result['model'], 'gemini-4-carbon-low')
         self.assertEqual(result['execution'], 'returned')
 
 
