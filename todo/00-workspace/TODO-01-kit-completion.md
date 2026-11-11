@@ -23,6 +23,7 @@ title: "TODO-01 -- Finish the agent kit"
 - `R:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
 - -> XREF: D00 T02 §2 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
+- -> XREF: D00 T02 §4 -- consumes this file
 
 ## Outcome
 
@@ -250,7 +251,9 @@ Registering this repo's own per-user tasks changes this machine, outside the rep
 
 ## 12. Build and dev tool stack measured and tuned
 
-Filed 2026-11-12 on the owner's request to optimise the build and dev tools for memory and speed. Measured state: `scripts/build.ps1` uses Ninja Multi-Config with MSVC (`CMakePresets.json`); on 2026-11-10 it was no faster than the Visual Studio generator for this tree (nothing to do 4 s, one changed file 11 s, full build 15 s), dominated by loading the compiler environment and compiling `src/app.cpp`. `sccache` and `lld-link` are installed and unused; the .NET 11 panel (`D00 T02`) will be the heavy build. The rule from `AGENTS.md` applies: measure first, change the owning script, prove the gain, and keep only what wins.
+Filed 2026-11-12 on the owner's request to optimise the build and dev tools for memory and speed. Measured state: `scripts/build.ps1` uses Ninja Multi-Config with MSVC (`CMakePresets.json`); on 2026-11-10 it was no faster than the Visual Studio generator for this tree (nothing to do 4 s, one changed file 11 s, full build 15 s), dominated by loading the compiler environment and compiling `src/app.cpp`. `sccache` (0.19.0) and `lld-link` (LLD 22.1.3, from the Visual Studio LLVM component) are installed and unused. The rule from `AGENTS.md` applies: measure first, change the owning script, prove the gain, and keep only what wins.
+
+**Corrected 2026-11-12:** three claims changed before the build. Peak memory comes from a Windows job object the measuring script puts each command in (`PeakJobMemoryUsed`, the peak committed memory of the command and everything it starts): `bosun report` gives peaks per repo and minute, not per command. The .NET build defaults item moved to `D00 T02 §4`, since it cannot be measured before `D00 T02 §1` creates the solution and this section does not wait on that. A test of the measuring script was added, since the checkpoint as written could not fail on a wrong table.
 
 **Phase:** 0
 **Needs:** none
@@ -261,14 +264,18 @@ Filed 2026-11-12 on the owner's request to optimise the build and dev tools for 
 1. Measure a baseline. Done when: wall time and peak memory of a no-op, one-file and clean build, and of `python scripts/run-tests.py`, are recorded in `docs/build-performance.md` with the machine and date.
 2. Try each candidate and keep the winners. Done when: each is recorded as kept or dropped with its numbers.
 
-- [ ] Write `scripts/measure-build.ps1` timing `scripts/build.ps1` (no-op, one touched file, `-Fresh`) and `scripts/run-tests.py`, with peak working set from `bosun report` or the job's own counters, writing a Markdown table to `docs/build-performance.md`. Done when: one run on this machine writes the baseline table.
-- [ ] Try `sccache` as `CMAKE_CXX_COMPILER_LAUNCHER` with `/Z7` debug info in `CMakePresets.json`. Done when: a cache-warm `-Fresh` build is measured, and it is kept only if faster with the same `test_core.exe` result.
-- [ ] Try caching the Visual Studio developer environment in `scripts/build.ps1` (the 4 s floor) keyed on the `vswhere` installation path and version. Done when: the no-op build is measured with and without it, and the faster one stays.
-- [ ] Try `lld-link` for the Release link through the preset. Done when: link time is measured and it stays only if faster with identical test results.
-- [ ] Set the .NET build defaults for this machine's memory in `Directory.Build.props` once `D00 T02 §1` lands (`UseSharedCompilation`, node reuse, `-maxcpucount`), measured on `dotnet build Bosun.slnx`. Done when: peak memory and wall time are recorded for each setting tried and the kept ones are in the props file.
+- [ ] Write `scripts/lib/job-measure.ps1` with `Measure-Job`: start a command suspended inside a new job object set to end every process in it when the job closes, resume it, and return its exit code, wall seconds and `PeakJobMemoryUsed` in MB, stopping the whole job at `-TimeoutSeconds`. Done when: `tests/measure_build_test.ps1` shows a command that allocates 200 MB reports at least 200 MB, and a command that starts a sleeping child and is timed out leaves no process from the job running. Cheaper substitute: timing with `Measure-Command` and reading the parent's working set, which misses every child process and leaves children running after a timeout.
+- [ ] Write `scripts/measure-build.ps1 -Label <name> -Decision <baseline|kept|dropped> [-Note <text>]`, timing `scripts/build.ps1` (no-op, `src/app.cpp` touched, `-Fresh`) and, with `-Tests`, `python scripts/run-tests.py`, each through `Measure-Job`, and storing the rows under the label in `docs/build-performance.json` (temporary file, then replace) with the machine name, processor, memory and UTC date. Done when: one run on this machine stores the `baseline` label. Cheaper substitute: timing by hand and typing the numbers.
+- [ ] Render `docs/build-performance.md` from `docs/build-performance.json` in `scripts/measure-build.ps1`, one table per label with its decision and note, written as a temporary file then replaced, and never edited by hand. Done when: `tests/measure_build_test.ps1` renders a two-label fixture, finds every row, and fails when a label or a row is left out. Cheaper substitute: appending Markdown rows, which lets the document and the data disagree.
+- [ ] Refuse a measurement whose command failed, in `scripts/measure-build.ps1`: exit 1 naming the step and its exit code, storing nothing. Done when: `tests/measure_build_test.ps1` shows a failing step leaves `docs/build-performance.json` byte-identical. Cheaper substitute: recording the time of a failed build as a result.
+- [ ] Add `tests/measure_build_test.ps1` to the Windows job in `.github/workflows/build.yml`. Done when: the step is listed beside `tests/build_cache_test.ps1`.
+- [ ] Try `sccache` as `CMAKE_CXX_COMPILER_LAUNCHER` with `/Z7` debug info in `CMakePresets.json`. Done when: a cache-warm `-Fresh` build is measured under the label `sccache`, and it is kept only if faster than the baseline with the same `build/Release/test_core.exe` result; a dropped candidate is reverted and recorded as dropped with its numbers.
+- [ ] Try caching the Visual Studio developer environment in `scripts/build.ps1` (the 4 s floor), keyed on the `vswhere` installation path and version, in a file under `build/`. Done when: the no-op build is measured under the label `env-cache` with and without it, the faster one stays, and a cache whose key no longer matches is rebuilt, shown by a case in `tests/build_cache_test.ps1`. Cheaper substitute: caching with no key, which keeps a removed compiler on the path.
+- [ ] Try `lld-link` for the Release link through `CMakePresets.json` (`CMAKE_LINKER`). Done when: it is measured under the label `lld-link` and stays only if faster with identical `build/Release/test_core.exe` results.
 - [ ] Commit: `build: measured tool stack, keeping what wins`
 
-**Test checkpoint:** `pwsh scripts/measure-build.ps1` writes `docs/build-performance.md`, and `pwsh scripts/build.ps1` followed by `build\Release\test_core.exe` passes with every kept setting.
+**Test checkpoint:** `pwsh tests/measure_build_test.ps1` exits 0 and fails if `Measure-Job` stops counting child processes or the renderer drops a row; `pwsh scripts/measure-build.ps1 -Label check -Decision kept` writes `docs/build-performance.md`; and `pwsh scripts/build.ps1` followed by `build/Release/test_core.exe` passes with every kept setting.
+
 ## Verification
 
 - `pwsh scripts/check-all.ps1` passes.

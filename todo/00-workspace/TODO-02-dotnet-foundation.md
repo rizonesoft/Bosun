@@ -24,6 +24,7 @@ title: "TODO-02 -- The .NET foundation"
 - -> XREF: D07 T01 §1 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
 - -> XREF: D00 T03 §6 -- consumed by this file
+- -> XREF: D00 T01 §12 -- consumed by this file
 
 ## Outcome
 
@@ -41,6 +42,7 @@ title: "TODO-02 -- The .NET foundation"
 | 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [ ] |
 | 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [ ] |
 | 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [ ] |
+| 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [ ] |
 
 ## 1. Solution, props and empty projects
 
@@ -102,6 +104,27 @@ A section can only be held to tests that the one-command gate actually runs.
 - [ ] Commit: `dotnet: move to the .NET 11 release`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on the final SDK.
+
+## 4. .NET build defaults measured for memory and speed
+
+Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: the .NET 11 panel will be the heavy build, and its defaults can only be measured once `§1` has created `Bosun.slnx`. The owner asked for the build tools to be tuned for memory and speed on this machine; the rule is the same as there: measure first, keep only what wins.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure the .NET build as it stands. Done when: `docs/build-performance.md` holds a `dotnet-baseline` label.
+2. Try each setting and keep the winners in `Directory.Build.props`. Done when: each is recorded as kept or dropped with its numbers.
+
+- [ ] Add a `-Dotnet` switch to `scripts/measure-build.ps1` that times `dotnet build Bosun.slnx` (no-op, one touched `.cs` file, after `dotnet clean`) through `Measure-Job`. Done when: a run stores the label `dotnet-baseline` with wall seconds and peak MB for the three steps, and `tests/measure_build_test.ps1` covers the switch with a fake `dotnet`.
+- [ ] Try `UseSharedCompilation` off in `Directory.Build.props`. Done when: it is measured under its own label and kept only if peak memory falls without the one-file build slowing by more than 10%.
+- [ ] Try MSBuild node reuse off (`-nodeReuse:false` through `Directory.Build.rsp`). Done when: it is measured under its own label, with the count of `dotnet` and `VBCSCompiler` processes left running 60 seconds after the build recorded in the note, and kept only if it wins on memory left held without slowing the one-file build by more than 10%.
+- [ ] Try a `-maxcpucount` limit in `Directory.Build.rsp`. Done when: the limits tried are each measured under their own label and the kept value, or none, is recorded with its numbers.
+- [ ] Commit: `build: .NET build defaults measured, keeping what wins`
+
+**Test checkpoint:** `pwsh tests/measure_build_test.ps1` exits 0, `pwsh scripts/measure-build.ps1 -Dotnet -Label check -Decision kept` writes the .NET rows to `docs/build-performance.md`, and `dotnet build Bosun.slnx` succeeds with warnings as errors under every kept setting.
 
 ## Verification
 
