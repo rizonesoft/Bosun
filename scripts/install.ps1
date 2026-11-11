@@ -5,10 +5,13 @@ $ErrorActionPreference = 'Stop'
 $bin = Join-Path $env:LOCALAPPDATA 'Bosun\bin'
 New-Item -ItemType Directory -Path $bin -Force | Out-Null
 
-# A running logger locks its exe, so stop it before copying.
-Get-Process bosun-logger -ErrorAction SilentlyContinue | Where-Object Path -EQ (Join-Path $bin 'bosun-logger.exe') | Stop-Process -Force
+# Jobs other repos have running hold bosun.exe, and the logger holds its own exe: each is swapped by rename, so no
+# running job is stopped. The old logger is stopped only once the new one is in place, below.
+. (Join-Path $PSScriptRoot 'lib\swap-file.ps1')
+foreach ($exe in 'bosun.exe', 'bosun-logger.exe') { Install-SwapFile (Join-Path $Build $exe) (Join-Path $bin $exe) }
+Get-Process bosun-logger -ErrorAction SilentlyContinue | Where-Object { $_.Path -like (Join-Path $bin 'bosun-logger.exe*') } | Stop-Process -Force
 Start-Sleep -Milliseconds 300
-Copy-Item (Join-Path $Build 'bosun.exe'), (Join-Path $Build 'bosun-logger.exe') $bin -Force
+Remove-SwappedFile (Join-Path $bin 'bosun-logger.exe')
 
 # A user may have no user-level Path at all.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User') ?? ''

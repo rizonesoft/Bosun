@@ -83,6 +83,8 @@ A Release build copies only `bosun.exe` and `bosun-logger.exe` to `bin/`, and ev
 
 The installer takes the tools from `bin/` and copies them to `%LOCALAPPDATA%\Bosun\bin`, adds that folder to your user PATH, starts the logger at login and sets up the `bosun-log` user service in WSL.
 
+Installing again while other repos have jobs running is safe. Each running exe is renamed aside and the new one takes its name, so a job already running finishes on the old image and the next `bosun run` starts the new one. The logger restarts with a gap of about a second. The slots keep their names, so old and new jobs share the same queue.
+
 ## How do I test it?
 
 ```
@@ -91,6 +93,7 @@ pwsh tests\queue_test.ps1
 pwsh tests\stage_wsl_test.ps1
 pwsh tests\bin_output_test.ps1
 pwsh tests\build_cache_test.ps1
+pwsh tests\swap_file_test.ps1
 wsl -- python3 -B tests/test_bosun_log.py
 wsl -- bash wsl/queue_test.sh "$(wsl wslpath -a build/Release/bosun.exe)"
 ```

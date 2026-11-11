@@ -85,7 +85,7 @@ A section can only be held to tests that the one-command gate actually runs.
 
 ## 3. Move the SDK pin to the .NET 11 release
 
-.NET 11 is due on 2026-11-10. The RC's go-live licence covers development until then, and this section moves everything at once when the final release is out. The owner chose to start on the RC, so `D00 T03 §6` clears the Need when `D00 T03 §10` has installed the final SDK, and Release waits for it.
+.NET 11 is due on 2026-11-10. The RC's go-live licence covers development until then, and this section moves everything at once when the final release is out. The owner chose to start on the RC, so `D00 T03 §6` clears the Need when `D00 T03 §10` has installed the final SDK, and Release waits for it. **Corrected 2026-11-12:** 11.0.100 shipped on 2026-11-11 (`latest-sdk` in the 11.0 `releases.json`). The `Bosun dotnet final` task's installs failed on the in-use `dotnet.exe` until `install-dotnet-final.ps1` passed `-SkipNonVersionedFiles` (`c14114b`); once the elevated re-apply copies that fix into `C:\ProgramData\Bosun\bin` and the task runs, `dotnet --list-sdks` shows 11.0.100 and the Need clears. No project or `global.json` exists yet, so nothing built here runs on the RC.
 
 **Phase:** 0
 **Needs:** third-party

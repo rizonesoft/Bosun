@@ -21,6 +21,7 @@ title: "TODO-01 -- Finish the agent kit"
 - `R:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
 - -> XREF: D00 T02 §2 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
+- -> XREF: D00 T04 §2 -- review-in-flight marks kept through the three-pass merge
 
 ## Outcome
 

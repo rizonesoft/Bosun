@@ -48,6 +48,8 @@ jobs:
         run: pwsh tests\build_cache_test.ps1
       - name: LSP plugin check test
         run: pwsh tests\setup_lsp_test.ps1
+      - name: Swap install test
+        run: pwsh tests\swap_file_test.ps1
 
   linux:
     name: Test the WSL side on Linux
