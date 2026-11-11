@@ -90,6 +90,7 @@ build\Release\test_core.exe
 pwsh tests\queue_test.ps1
 pwsh tests\stage_wsl_test.ps1
 pwsh tests\bin_output_test.ps1
+pwsh tests\build_cache_test.ps1
 wsl -- python3 -B tests/test_bosun_log.py
 wsl -- bash wsl/queue_test.sh "$(wsl wslpath -a build/Release/bosun.exe)"
 ```

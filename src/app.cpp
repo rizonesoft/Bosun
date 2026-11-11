@@ -40,7 +40,8 @@ uint64_t env_num(const wchar_t* name, uint64_t fallback) {
 }
 
 uint64_t available_mb() {
-    MEMORYSTATUSEX m{sizeof(m)};
+    MEMORYSTATUSEX m{};
+    m.dwLength = sizeof(m);
     GlobalMemoryStatusEx(&m);
     return m.ullAvailPhys / (1024 * 1024);
 }
@@ -191,7 +192,9 @@ int run_child(const Options& o) {
         return 70;
     }
 
-    STARTUPINFOW si{sizeof(si)};
+    STARTUPINFOW si{};
+
+    si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     if (!CreateProcessW(image.c_str(), line.data(), nullptr, nullptr, TRUE, CREATE_SUSPENDED, nullptr, nullptr, &si, &pi)) {
         std::cerr << "[bosun] cannot start command, error " << GetLastError() << "\n";
@@ -273,7 +276,8 @@ int cmd_status(const Options& o) {
         else ++busy;
         CloseHandle(h);
     }
-    MEMORYSTATUSEX m{sizeof(m)};
+    MEMORYSTATUSEX m{};
+    m.dwLength = sizeof(m);
     GlobalMemoryStatusEx(&m);
     std::cout << "slots busy: " << busy << " of " << o.slots << "\n";
     std::cout << "available: " << available_mb() << " of " << m.ullTotalPhys / (1024 * 1024) << " MB\n";
@@ -301,7 +305,9 @@ std::string now_iso() {
 std::string date_days_ago(int days) {
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
-    ULARGE_INTEGER u{ft.dwLowDateTime, ft.dwHighDateTime};
+    ULARGE_INTEGER u{};
+    u.LowPart = ft.dwLowDateTime;
+    u.HighPart = ft.dwHighDateTime;
     u.QuadPart -= static_cast<uint64_t>(days) * 864000000000ULL;
     ft.dwLowDateTime = u.LowPart;
     ft.dwHighDateTime = u.HighPart;
@@ -430,7 +436,8 @@ void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::st
         o << ts << ",win," << kind << "," << dm::csv_name(name) << "," << count << "," << priv << "," << rss << "\n";
     };
     constexpr uint64_t MB = 1024 * 1024;
-    MEMORYSTATUSEX m{sizeof(m)};
+    MEMORYSTATUSEX m{};
+    m.dwLength = sizeof(m);
     GlobalMemoryStatusEx(&m);
     row("sys", "available_mb", 0, m.ullAvailPhys / MB, 0);
     row("sys", "commit_mb", 0, (m.ullTotalPageFile - m.ullAvailPageFile) / MB, 0);

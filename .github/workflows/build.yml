@@ -44,6 +44,8 @@ jobs:
         run: pwsh tests\start_run_test.ps1
       - name: Build output test
         run: pwsh tests\bin_output_test.ps1
+      - name: Build cache test
+        run: pwsh tests\build_cache_test.ps1
 
   linux:
     name: Test the WSL side on Linux

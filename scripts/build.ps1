@@ -31,9 +31,9 @@ foreach ($tool in 'cmake', 'ninja') {
 
 Push-Location -LiteralPath $repo
 try {
-  # A build folder another generator configured can't be reused; its other contents (the run's records) are kept.
-  $cache = Join-Path $repo 'build\CMakeCache.txt'
-  $other = (Test-Path -LiteralPath $cache) -and -not (Select-String -LiteralPath $cache -Pattern '^CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config$' -Quiet)
+  # A cache another generator or another checkout folder wrote can't be reused; the rest of build/ is kept.
+  . (Join-Path $PSScriptRoot 'lib\build-cache.ps1')
+  $other = Test-BuildCacheStale -Cache (Join-Path $repo 'build\CMakeCache.txt') -SourceDir $repo
   $configure = @('--preset', 'default') + $(if ($Fresh -or $other) { '--fresh' })
   cmake @configure
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
