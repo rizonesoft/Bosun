@@ -251,6 +251,8 @@ Registering this repo's own per-user tasks changes this machine, outside the rep
 
 ## 12. Build and dev tool stack measured and tuned
 
+> **Started:** 2026-11-11T23:45:36Z
+
 Filed 2026-11-12 on the owner's request to optimise the build and dev tools for memory and speed. Measured state: `scripts/build.ps1` uses Ninja Multi-Config with MSVC (`CMakePresets.json`); on 2026-11-10 it was no faster than the Visual Studio generator for this tree (nothing to do 4 s, one changed file 11 s, full build 15 s), dominated by loading the compiler environment and compiling `src/app.cpp`. `sccache` (0.19.0) and `lld-link` (LLD 22.1.3, from the Visual Studio LLVM component) are installed and unused. The rule from `AGENTS.md` applies: measure first, change the owning script, prove the gain, and keep only what wins.
 
 **Corrected 2026-11-12:** three claims changed before the build. Peak memory comes from a Windows job object the measuring script puts each command in (`PeakJobMemoryUsed`, the peak committed memory of the command and everything it starts): `bosun report` gives peaks per repo and minute, not per command. The .NET build defaults item moved to `D00 T02 §4`, since it cannot be measured before `D00 T02 §1` creates the solution and this section does not wait on that. A test of the measuring script was added, since the checkpoint as written could not fail on a wrong table.
