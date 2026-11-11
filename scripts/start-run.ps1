@@ -38,7 +38,7 @@ if ($InstallShortcut) {
   $shortcut.Arguments = "-NoExit -NoProfile -File `"$PSCommandPath`""
   $shortcut.WorkingDirectory = $repo
   $shortcut.Description = 'Start the unattended Bosun run in Claude Code'
-  # The app icon, once the icon pipeline (D02 T01 §3) has generated it; until then the shortcut shows PowerShell's.
+  # The app icon, generated from design/icon/ by scripts/build-icons.py (D02 T01 §5); without it the shortcut shows PowerShell's.
   $icon = Join-Path $repo 'resources\bosun.ico'
   if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
   $shortcut.Save()
