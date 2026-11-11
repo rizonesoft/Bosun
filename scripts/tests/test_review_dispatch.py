@@ -1588,20 +1588,11 @@ class RepositoryPin(unittest.TestCase):
 
     def test_the_pins_severity_stop_is_the_stamps_cutoff(self):
         # The dispatcher reports severity_stop from the pin and `stamp` re-checks it against SEVERITY_CUTOFF_ROUND: the
-        # two numbers must agree, or the dispatcher would stop a loop the stamp then refuses. todo_graph ships in the
-        # todo kit: installed beside this script in a project, or in the sibling kit inside Conclave-SDK.
+        # two numbers must agree, or the dispatcher would stop a loop the stamp then refuses.
         with open(REPO_PIN, "rb") as handle:
             if "schedule" not in tomllib.load(handle):
                 self.skipTest("the repository pin has no [schedule]")
-        # A checkout at a drive root (D:\Bosun) has no folder two levels above scripts/, so the sibling kit is only
-        # looked for where that folder exists.
-        candidates = [SCRIPTS / "lib" / "todo_graph.py"]
-        if len(SCRIPTS.parents) > 2:
-            candidates.append(SCRIPTS.parents[2] / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
-        found = [path for path in candidates if path.is_file()]
-        if not found:
-            self.skipTest("the todo kit is not installed")
-        spec = importlib.util.spec_from_file_location("todo_graph_cutoff", found[0])
+        spec = importlib.util.spec_from_file_location("todo_graph_cutoff", SCRIPTS / "lib" / "todo_graph.py")
         todo_graph = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = todo_graph
         try:

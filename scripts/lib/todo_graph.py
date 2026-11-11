@@ -235,8 +235,8 @@ def review_dispatch():
     if not _REVIEW_DISPATCH:
         import importlib.util
         if not DISPATCHER.is_file():
-            raise Refused(f"{DISPATCHER} is missing: the todo kit stamps through the reviewer kit's dispatcher, "
-                          "so install the reviewer kit (python forge.py kit <project> reviewer)")
+            raise Refused(f"{DISPATCHER} is missing: stamps run through this repository's review dispatcher, "
+                          "so restore it from git (git checkout -- scripts/review-dispatch.py)")
         spec = importlib.util.spec_from_file_location("review_dispatch", DISPATCHER)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
