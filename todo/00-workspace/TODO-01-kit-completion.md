@@ -14,6 +14,8 @@ title: "TODO-01 -- Finish the agent kit"
 
 **Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
 
+**Corrected 2026-11-12:** `§10` (kit updates from the three sample repos) and `§11` (removal of the samples folder) are withdrawn, unbuilt, on the owner's decision of 2026-11-12: Bosun and the Conclave-SDK kits stay separate, so Bosun imports nothing further from the SDK or its retired sibling repos. The owner removed `samples/` himself and it stays gone. The numbers 10 and 11 are not reused.
+
 ## Inputs
 
 - `docs/specs/2026-11-07-control-panel-design.md`, the table of sources.
@@ -21,7 +23,6 @@ title: "TODO-01 -- Finish the agent kit"
 - `R:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
 - -> XREF: D00 T02 §2 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
-- -> XREF: D00 T04 §2 -- review-in-flight marks kept through the three-pass merge
 
 ## Outcome
 
@@ -44,9 +45,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
-| 9 | §10 | Kit updates from the three sample repos | -- | [ ] |
-| 10 | §11 | Removal of the samples folder | §10 | [ ] |
-| 11 | §12 | Build and dev tool stack measured and tuned | -- | [ ] |
+| 9 | §12 | Build and dev tool stack measured and tuned | -- | [ ] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -248,53 +247,6 @@ Registering this repo's own per-user tasks changes this machine, outside the rep
 - [ ] Commit: `automations: register on this machine`
 
 **Test checkpoint:** `Get-ScheduledTask -TaskPath \Bosun\` lists all tasks, and `build/automations/bosun-python-pin/last.json` exists.
-
-## 10. Kit updates from the three sample repos
-
-The owner put clones of three sibling repos in `samples/` on 2026-11-10 and asked that Bosun take what is useful from them, without overcomplicating it. They are `samples/Claude` (`rizonetech/Claude` at `6d51148`: global rules, hooks and skills), `samples/Codex` (`rizonetech/Codex` at `f00bfb7`: Codex rules and skills) and `samples/Conclave-SDK` (`rizonetech/Conclave-SDK` at `753d8c3`: the kits this repo's tooling was seeded from). The scope is this repo's own agent kit only (owner decision, 2026-11-10): rules, skills, hooks, subagents and tooling scripts. Nothing goes into the product, and nothing makes Bosun depend on another repo.
-
-Conclave still runs in WSL, and Bosun does not replace it (owner, 2026-11-10): Bosun is a separate Windows tool that works with Conclave. So leave anything that would take over or duplicate what Conclave does, and take nothing that assumes Conclave is gone.
-
-Keep it small. Take a file only when it is newer or missing here and this repo would use it. Bosun's own adaptations win: a sample file never overwrites a local change the sample lacks. Out of scope: the `laravel` and `wordpress` kits and `extensions/` in the SDK, `connections/` in Claude, and the service plugin folders in Codex (`atera`, `bunny-net`, `cloud-access`, `conclave`, `domains-co-za`, `outlook-graph`, `pressable`, `website-router`). The working tree of `samples/Claude` is empty (every tracked file shows as deleted), so read it through git, for example `git -C samples/Claude show HEAD:rules/claude-code.md`.
-
-**Phase:** 0
-**Needs:** none
-**Surface:** no
-
-**Build order:**
-
-1. Compare each sample with this repo and write the decisions under this section as a `**Taken and not taken:**` list. Done when: every differing in-scope file has one line saying take or leave, with the reason.
-2. Port the items marked take. Done when: `python scripts/run-tests.py` passes with them in place.
-
-- [ ] Compare `samples/Conclave-SDK/kits/base`, `kits/todo`, `kits/reviewer` and `kits/automations` with `.claude/`, `.agents/`, `.codex/`, `.conclave/`, `scripts/` and `todo/README.md`. Done when: the `**Taken and not taken:**` list under this section has one line per differing file.
-- [ ] Compare `rules/`, `rules/hooks/` and `skills/project/` at `HEAD` of `samples/Claude` with `.claude/rules/`, `.claude/skills/` and the hooks in `.claude/settings.json`. Done when: the list has one line per file worth considering, read through `git show`.
-- [ ] Compare `samples/Codex/rules`, `samples/Codex/skills` and `samples/Codex/AGENTS.md` with `.codex/` and `AGENTS.md`. Done when: the list has one line per file worth considering.
-- [ ] Port each skill marked take into `.claude/skills/<name>/` and its `.agents/skills/` and `.codex/skills/` mirrors. Done when: the three copies match and none names another repo's path or a drive letter. Cheaper substitute: copying into `.claude/` only.
-- [ ] Port each rule, hook, subagent and script marked take into its place under `.claude/`, `.codex/`, `.agents/`, `AGENTS.md` or `scripts/`, keeping every local adaptation. Done when: `git diff` shows no Bosun-specific line lost and no path outside this repo. Cheaper substitute: overwriting the local file with the sample's.
-- [ ] Add or extend a test in `scripts/tests/` for each ported script or hook. Done when: each new test fails with the ported change reverted. Cheaper substitute: porting a script with no test.
-- [ ] Commit: `kit: take updates from the Claude, Codex and Conclave-SDK samples`
-
-**Test checkpoint:** `python scripts/run-tests.py` exits 0 and `python scripts/todo-graph.py validate` exits 0, and the tests added here fail if the ported change is reverted.
-
-## 11. Removal of the samples folder
-
-Once `§10` has taken what it needs, `samples/` is 2.4 GB of untracked clones with no further use. Each clone has its own remote, so the only thing to protect is work that exists nowhere else.
-
-**Phase:** 0
-**Needs:** none
-**Surface:** no
-
-**Build order:**
-
-1. Check each clone for commits or files its remote lacks. Done when: all three are shown to hold nothing unpushed.
-2. Delete `samples/`. Done when: the folder is gone and `git status --short` is clean of it.
-
-- [ ] Run `git -C samples/<name> log --oneline origin/HEAD..HEAD` and `git -C samples/<name> status --short` for `Claude`, `Codex` and `Conclave-SDK`. Done when: no clone has an unpushed commit, or a modified or untracked file that is not ignored (the deleted working tree of `samples/Claude` is expected). If one does, stop and ask the owner before deleting. Cheaper substitute: deleting without looking.
-- [ ] Delete `samples/Claude`, `samples/Codex` and `samples/Conclave-SDK`, then the empty `samples/` folder. Done when: `Test-Path samples` prints `False`. Cheaper substitute: adding `samples/` to `.gitignore` and leaving it on disk.
-- [ ] Search the repo for `samples/` with `git grep -n "samples/" -- . ":!todo" ":!docs/reviews"`. Done when: no file outside the plan and its review records points at the removed folder.
-- [ ] Commit: `samples: remove the three sample clones`
-
-**Test checkpoint:** `Test-Path samples` prints `False` and `git status --short` lists no `samples/` entry.
 
 ## 12. Build and dev tool stack measured and tuned
 

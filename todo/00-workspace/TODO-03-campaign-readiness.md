@@ -24,7 +24,6 @@ title: "TODO-03 -- Campaign readiness"
 - -> XREF: D00 T02 §1 -- consumes this file
 - -> XREF: D00 T02 §3 -- consumes this file
 - -> XREF: D01 T01 §1 -- consumes this file
-- -> XREF: D00 T04 §2 -- attempt limits kept through the three-pass merge
 
 ## Outcome
 

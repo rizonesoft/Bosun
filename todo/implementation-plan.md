@@ -8,15 +8,13 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 38 | Checklist items: 293
+Sections: 31 | Checklist items: 260
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
 | [x]    | D00 T01 §1  | Review-in-flight marks for the guard                            | none           | 6     |
 | [x]    | D00 T01 §2  | Settled items in review prompts                                 | none           | 10    |
 | [x]    | D00 T01 §3  | Dispatch hook for background reviews                            | none           | 11    |
-| [ ]    | D00 T01 §10 | Kit updates from the three sample repos                         | none           | 7     |
-| [ ]    | D00 T01 §11 | Removal of the samples folder                                   | none           | 4     |
 | [ ]    | D00 T01 §12 | Build and dev tool stack measured and tuned                     | none           | 6     |
 | [x]    | D00 T03 §1  | CI status that proves the commit                                | none           | 27    |
 | [x]    | D00 T03 §2  | One section disposition across graph, guard and skills          | none           | 13    |
@@ -45,11 +43,6 @@ Sections: 38 | Checklist items: 293
 | [ ]    | D00 T03 §17 | Branch protection on main, read back                            | owner-decision | 3     |
 | [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none           | 6     |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none           | 6     |
-| [ ]    | D00 T04 §1  | Pin loader module with the three-pass keys                      | none           | 4     |
-| [ ]    | D00 T04 §2  | Three-pass dispatcher keeping Bosun's reviewer features         | none           | 6     |
-| [ ]    | D00 T04 §3  | Three-pass stamp rules                                          | none           | 4     |
-| [ ]    | D00 T04 §4  | Three-pass pin, prompts and skills                              | none           | 5     |
-| [ ]    | D00 T04 §5  | Kit install record with no link to the SDK                      | none           | 3     |
 
 ### Phase 1: Core data contract
 
@@ -146,6 +139,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 17/91 verified sections, 10 ready to run now.
+Progress: 17/84 verified sections, 8 ready to run now.
 
-Checklist: 207/556 items completed (includes Commit items).
+Checklist: 207/523 items completed (includes Commit items).
