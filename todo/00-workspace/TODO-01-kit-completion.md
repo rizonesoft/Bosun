@@ -45,6 +45,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
 | 9 | §10 | Kit updates from the three sample repos | -- | [ ] |
 | 10 | §11 | Removal of the samples folder | §10 | [ ] |
+| 11 | §12 | Build and dev tool stack measured and tuned | -- | [ ] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -294,6 +295,27 @@ Once `§10` has taken what it needs, `samples/` is 2.4 GB of untracked clones wi
 
 **Test checkpoint:** `Test-Path samples` prints `False` and `git status --short` lists no `samples/` entry.
 
+## 12. Build and dev tool stack measured and tuned
+
+Filed 2026-11-12 on the owner's request to optimise the build and dev tools for memory and speed. Measured state: `scripts/build.ps1` uses Ninja Multi-Config with MSVC (`CMakePresets.json`); on 2026-11-10 it was no faster than the Visual Studio generator for this tree (nothing to do 4 s, one changed file 11 s, full build 15 s), dominated by loading the compiler environment and compiling `src/app.cpp`. `sccache` and `lld-link` are installed and unused; the .NET 11 panel (`D00 T02`) will be the heavy build. The rule from `AGENTS.md` applies: measure first, change the owning script, prove the gain, and keep only what wins.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure a baseline. Done when: wall time and peak memory of a no-op, one-file and clean build, and of `python scripts/run-tests.py`, are recorded in `docs/build-performance.md` with the machine and date.
+2. Try each candidate and keep the winners. Done when: each is recorded as kept or dropped with its numbers.
+
+- [ ] Write `scripts/measure-build.ps1` timing `scripts/build.ps1` (no-op, one touched file, `-Fresh`) and `scripts/run-tests.py`, with peak working set from `bosun report` or the job's own counters, writing a Markdown table to `docs/build-performance.md`. Done when: one run on this machine writes the baseline table.
+- [ ] Try `sccache` as `CMAKE_CXX_COMPILER_LAUNCHER` with `/Z7` debug info in `CMakePresets.json`. Done when: a cache-warm `-Fresh` build is measured, and it is kept only if faster with the same `test_core.exe` result.
+- [ ] Try caching the Visual Studio developer environment in `scripts/build.ps1` (the 4 s floor) keyed on the `vswhere` installation path and version. Done when: the no-op build is measured with and without it, and the faster one stays.
+- [ ] Try `lld-link` for the Release link through the preset. Done when: link time is measured and it stays only if faster with identical test results.
+- [ ] Set the .NET build defaults for this machine's memory in `Directory.Build.props` once `D00 T02 §1` lands (`UseSharedCompilation`, node reuse, `-maxcpucount`), measured on `dotnet build Bosun.slnx`. Done when: peak memory and wall time are recorded for each setting tried and the kept ones are in the props file.
+- [ ] Commit: `build: measured tool stack, keeping what wins`
+
+**Test checkpoint:** `pwsh scripts/measure-build.ps1` writes `docs/build-performance.md`, and `pwsh scripts/build.ps1` followed by `build\Release\test_core.exe` passes with every kept setting.
 ## Verification
 
 - `pwsh scripts/check-all.ps1` passes.

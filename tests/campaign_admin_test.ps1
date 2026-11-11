@@ -111,8 +111,8 @@ try {
   $installer = Join-Path $work 'fake-install.ps1'
   $installLog = Join-Path $work 'installer-calls.txt'
   Set-Content $installer @"
-param([string]`$Version, [string]`$InstallDir)
-Add-Content '$installLog' "`$Version `$InstallDir"
+param([string]`$Version, [string]`$InstallDir, [switch]`$SkipNonVersionedFiles)
+Add-Content '$installLog' "`$Version `$InstallDir skip=`$SkipNonVersionedFiles"
 if (`$env:BOSUN_FAKE_INSTALL_FAIL) { 'download failed'; exit 1 }
 Add-Content '$sdks' "`$Version [`$InstallDir\sdk]"
 "@
@@ -130,7 +130,7 @@ Add-Content '$sdks' "`$Version [`$InstallDir\sdk]"
   $r = Body '11.0.100-rc.3.26522.148' $rc
   Check ($r.Code -eq 0 -and $r.Text -match 'prerelease, nothing changed' -and $r.Task -and -not $r.Installed) 'before release the SDK task changes nothing and keeps itself'
   $r = Body '11.0.100' $rc
-  Check ($r.Code -eq 0 -and $r.Installed -eq "11.0.100 $dotnetDir" -and -not $r.Task) 'a final SDK installs into the watchdog''s folder, then the task removes itself'
+  Check ($r.Code -eq 0 -and $r.Installed -eq "11.0.100 $dotnetDir skip=True" -and -not $r.Task) 'a final SDK installs into the watchdog''s folder, leaving the in-use dotnet.exe alone, then the task removes itself'
   $env:BOSUN_FAKE_INSTALL_FAIL = '1'
   $r = Body '11.0.100' $rc
   Remove-Item Env:BOSUN_FAKE_INSTALL_FAIL

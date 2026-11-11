@@ -46,6 +46,8 @@ jobs:
         run: pwsh tests\bin_output_test.ps1
       - name: Build cache test
         run: pwsh tests\build_cache_test.ps1
+      - name: LSP plugin check test
+        run: pwsh tests\setup_lsp_test.ps1
 
   linux:
     name: Test the WSL side on Linux

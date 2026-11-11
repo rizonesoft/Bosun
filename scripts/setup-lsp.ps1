@@ -80,9 +80,10 @@ if (-not $claude) {
 } else {
   Push-Location -LiteralPath $repo
   try {
-    $installed = (& $claude plugin list 2>&1) -join "`n"
+    . (Join-Path $PSScriptRoot 'lib\plugin-install.ps1')
+    $installed = (& $claude plugin list --json 2>$null) -join "`n"
     foreach ($p in $plugins) {
-      if ($installed -match [regex]::Escape("$p@$marketplace")) { Say 'ok' "plugin $p"; continue }
+      if (Test-PluginInstalled -ListJson $installed -Id "$p@$marketplace" -Repo $repo) { Say 'ok' "plugin $p"; continue }
       if ($Check) { Need "plugin $p" 'run this without -Check'; continue }
       if (((& $claude plugin marketplace list 2>&1) -join "`n") -notmatch [regex]::Escape($marketplace)) {
         & $claude plugin marketplace add "anthropics/$marketplace" | Select-Object -Last 1

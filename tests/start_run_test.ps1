@@ -30,6 +30,15 @@ try {
   Check ($out -notmatch 'claude-opus-\d') 'the model is the alias for the newest Opus, never one pinned version'
   Check ($out -match '100% complete' -and $out -match 'query next') 'the goal names the finish line'
 
+  # The Antigravity run: its own shortcut, every permission auto-approved, and the goal as its opening prompt.
+  & $pwsh -NoProfile -File $script -Agent antigravity -InstallShortcut -ShortcutDir $work | Out-Null
+  $agyLink = Join-Path $work 'Bosun unattended run (Antigravity).lnk'
+  Check ((Test-Path $agyLink) -and (New-Object -ComObject WScript.Shell).CreateShortcut($agyLink).Arguments -match ' -Agent antigravity$') 'the Antigravity shortcut starts this script with -Agent antigravity'
+  $env:Path = Join-Path $env:SystemRoot 'System32'
+  try { $out = (& $pwsh -NoProfile -File $script -Agent antigravity -DryRun) -join "`n" } finally { $env:Path = $path }
+  Check ($LASTEXITCODE -eq 0 -and $out -match 'agy --dangerously-skip-permissions --effort medium --prompt-interactive "Finish the Bosun') 'Antigravity starts with every prompt off, at medium effort, with the goal'
+  Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -notmatch 'run guard resumes') 'its goal keeps the finish line and waits in-session, since no guard holds it'
+
   # A real start against a fake claude, a test registry key and a state file of its own: nothing real is started.
   $fake = Join-Path $work 'fake'
   New-Item -ItemType Directory -Force $fake | Out-Null

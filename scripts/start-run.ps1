@@ -5,6 +5,11 @@
 #   pwsh scripts/start-run.ps1 -InstallShortcut   put "Bosun unattended run" on the desktop, which runs the line above
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start on another model
+#   pwsh scripts/start-run.ps1 -Agent antigravity [-InstallShortcut]
+#                                                 the same run in the Antigravity CLI (agy): every permission
+#                                                 auto-approved, medium effort (the owner's choice, 2026-11-12), the
+#                                                 goal as its opening prompt (auto mode is not offered to this account),
+#                                                 on Antigravity's default model unless -AgyModel names one
 #
 # The session gets its id here, so the guard can be told about it before it starts: the guard's hooks then hold the run
 # open, and this repo's own watchdog task resumes it after a crash. Nothing is checked first, so a start is never
@@ -23,6 +28,11 @@ param(
   [switch]$DryRun,
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$Model = 'opus',
+  [ValidateSet('claude', 'antigravity')]
+  [string]$Agent = 'claude',
+  [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
+  [string]$Effort = 'medium',
+  [string]$AgyModel = '',
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and the run guard resumes the run.'
 )
@@ -30,20 +40,45 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
 
+$antigravity = $Agent -eq 'antigravity'
 if ($InstallShortcut) {
   $pwsh = (Get-Process -Id $PID).Path
-  $link = Join-Path $ShortcutDir 'Bosun unattended run.lnk'
+  $link = Join-Path $ShortcutDir $(if ($antigravity) { 'Bosun unattended run (Antigravity).lnk' } else { 'Bosun unattended run.lnk' })
   $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
   $shortcut.TargetPath = $pwsh
-  $shortcut.Arguments = "-NoExit -NoProfile -File `"$PSCommandPath`""
+  $shortcut.Arguments = "-NoExit -NoProfile -File `"$PSCommandPath`"" + $(if ($antigravity) { ' -Agent antigravity' })
   $shortcut.WorkingDirectory = $repo
-  $shortcut.Description = 'Start the unattended Bosun run in Claude Code'
+  $shortcut.Description = "Start the unattended Bosun run in $(if ($antigravity) { 'the Antigravity CLI' } else { 'Claude Code' })"
   # The app icon, generated from design/icon/ by scripts/build-icons.py (D02 T01 §5); without it the shortcut shows PowerShell's.
   $icon = Join-Path $repo 'resources\bosun.ico'
   if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
   $shortcut.Save()
   "shortcut written: $link"
   exit 0
+}
+
+if ($antigravity) {
+  # Antigravity has no /goal and the run guard cannot hold it yet (D00 T03 §19), so the goal is the opening prompt
+  # and the session waits for reviews and CI itself instead of ending the turn.
+  $prompt = ($Goal -replace '\s*While `python scripts/run-guard\.py status` prints waiting.*$', '') +
+    ' Nothing holds this session open between turns, so never end a turn while a ready row exists: when a review or a CI gate is in flight, wait for it in this session, then continue.'
+  $agyArgs = @('--dangerously-skip-permissions', '--effort', $Effort) + $(if ($AgyModel) { '--model', $AgyModel }) + @('--prompt-interactive', $prompt)
+  if ($DryRun) {
+    "in $repo"
+    "agy $($agyArgs[0..($agyArgs.Count - 2)] -join ' ') `"$prompt`""
+    exit 0
+  }
+  $agy = (Get-Command agy -ErrorAction Ignore | Select-Object -First 1).Source
+  if (-not $agy) { 'agy is not on PATH: install the Antigravity CLI, then start again'; exit 1 }
+  $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  Set-Location -LiteralPath $repo
+  # Two writers on one tree is the worse failure: a run the guard holds for Claude Code keeps the tree.
+  if ($python) {
+    $guard = (& $python (Join-Path $PSScriptRoot 'run-guard.py') status 2>$null | Select-Object -First 1)
+    if ($guard -in 'active', 'waiting') { "a Claude Code run is live here (run guard: $guard): stop it first, then start again"; exit 1 }
+  }
+  & $agy @agyArgs
+  exit $LASTEXITCODE
 }
 
 $session = [guid]::NewGuid().ToString()

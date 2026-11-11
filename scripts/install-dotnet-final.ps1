@@ -46,8 +46,11 @@ try {
     $script = Join-Path ([IO.Path]::GetTempPath()) "dotnet-install-$PID.ps1"
     Invoke-WebRequest -UseBasicParsing -Uri $Installer -OutFile $script -TimeoutSec 120
   }
+  # -SkipNonVersionedFiles leaves dotnet.exe alone: the host any running build server, language server or watchdog
+  # holds open, which made every install since 2026-11-11 fail with "Can't unlink ./dotnet.exe: Permission denied".
+  # The SDK itself lives in versioned folders, and the RC host runs the final SDK.
   Say "installing SDK $latest into $InstallDir"
-  $out = & $WindowsPowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Version $latest -InstallDir $InstallDir 2>&1 | Out-String
+  $out = & $WindowsPowerShell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -Version $latest -InstallDir $InstallDir -SkipNonVersionedFiles 2>&1 | Out-String
   $code = $LASTEXITCODE
   if ($code -ne 0) {
     Say "install of $latest failed (exit $code), keeping $TaskName for the next run: $($out.Trim() -replace '\s+', ' ')"

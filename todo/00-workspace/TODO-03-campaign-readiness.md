@@ -56,6 +56,7 @@ title: "TODO-03 -- Campaign readiness"
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
 | 17 | §17 | Branch protection on main, read back | §8 | [ ] |
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
+| 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -672,6 +673,27 @@ Filed from `D00 T03 §10`'s completion review (`docs/reviews/00-workspace/D00-T0
 
 **Test checkpoint:** `pwsh tests/preflight_test.ps1`, `pwsh tests/campaign_hold_test.ps1` and `pwsh tests/campaign_admin_test.ps1` exit 0.
 
+## 19. Run guard holds an Antigravity run
+
+Filed 2026-11-12 on the owner's request for a desktop shortcut that runs the plan unattended in the Antigravity CLI. `pwsh scripts/start-run.ps1 -Agent antigravity` and its shortcut "Bosun unattended run (Antigravity)" exist (commit after `9c11bcf`): `agy --dangerously-skip-permissions --effort medium --prompt-interactive <goal>` (medium on the owner's word, 2026-11-12), refused while the guard holds a Claude Code run. Measured on this machine the same day: `--mode auto` is not offered to this account, and the default model `gemini-4-carbon` offers efforts low, medium and high. Nothing holds an Antigravity session open between turns or resumes it after a crash: `scripts/run-guard.py` hooks only Claude Code's Stop and session events and its watchdog resumes only `claude`. Conclave-SDK plans the same guard for its kit (its `D02 T01`), which this repo can take with `forge.py update` once it ships; this section owns the outcome here either way.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Find what Antigravity offers to hold a turn open. Done when: the hook or settings key that blocks an end of turn is named from `agy --help`, its settings schema or its docs, or its absence is recorded with the source.
+2. Hold and resume the run. Done when: the checkpoint passes.
+
+- [ ] Record in this section what the installed `agy` (its `--version`) offers for an end-of-turn hook, session events and resuming a conversation (`--conversation`, `--continue`), with the command or page each fact came from. Done when: each of the three is named with its source or recorded as absent.
+- [ ] Teach `scripts/run-guard.py start` an `--runner antigravity` value kept in the run state, so `status`, `watch` and the halts know which CLI owns the run. Done when: `scripts/tests/test_run_guard.py` starts, reads back and stops an Antigravity-owned run, and a Claude Code start is refused while it is live.
+- [ ] Wire the guard's end-of-turn check into Antigravity's hook, or, where it has none, have the watchdog continue a stalled session with `agy --continue` and the goal prompt. Done when: a fake `agy` in the guard harness is held or continued until `query next` prints null, and released on closeout, park or the operator's stop.
+- [ ] Have `scripts/start-run.ps1 -Agent antigravity` claim the guard with `--runner antigravity` before starting `agy`, and drop its in-prompt "wait in this session" line. Done when: `tests/start_run_test.ps1` shows the claim and the shorter prompt.
+- [ ] Run the shortcut for one real section and record the outcome in the phase run file. Done when: an Antigravity session shipped or parked one ready row with no operator input, or the blocker is recorded with its fix.
+- [ ] Commit: `run: the guard holds and resumes an Antigravity run`
+
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard` and `pwsh tests/start_run_test.ps1` exit 0; removing the Antigravity hold makes the guard harness fail.
 ## Verification
 
 - `pwsh scripts/campaign-preflight.ps1` exits 0.
