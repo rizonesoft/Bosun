@@ -94,7 +94,7 @@ try {
   Check '-Wsl adds the WSL side and runs the whole queue test' ($wsl -match 'wsl:logger-tests: .*tests/test_bosun_log\.py' -and $wsl -match 'wsl:syntax:bosun' -and $wsl -match 'tests/queue_test\.ps1\r?\n')
   # The syntax step covers the shell scripts that are really there, and so does the Linux job of the workflow.
   $scripts = @('wsl/bosun') + @(Get-ChildItem -LiteralPath (Join-Path $repo 'wsl') -Filter '*.sh' | ForEach-Object { "wsl/$($_.Name)" })
-  $unchecked = @($scripts | Where-Object { $wsl -notmatch ('(?m)^wsl:syntax:' + [regex]::Escape((Split-Path $_ -Leaf)) + ': wsl --cd .+ bash -n ' + [regex]::Escape($_) + '?$') })
+  $unchecked = @($scripts | Where-Object { $wsl -notmatch ('(?m)^wsl:syntax:' + [regex]::Escape((Split-Path $_ -Leaf)) + ': wsl --cd .+ bash -n ' + [regex]::Escape($_) + '\r?$') })
   Check 'with -Wsl every shell script in wsl/ has its own syntax step' ($scripts.Count -ge 4 -and -not $unchecked) "(not checked: $($unchecked -join ', '))"
   Check 'the Linux job checks the same scripts by pattern, not by a list that can fall behind' ((Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw) -match 'for f in wsl/bosun wsl/\*\.sh; do bash -n')
   $names = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: ' } | ForEach-Object { ($_ -split ': ')[0] })
