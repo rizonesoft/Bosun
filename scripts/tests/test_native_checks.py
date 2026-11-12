@@ -91,6 +91,35 @@ class Images(unittest.TestCase):
                     pe.read_image(data)
                 self.assertIn(words, str(refused.exception))
 
+    def test_only_the_headers_are_read_however_large_the_file(self):
+        class Counted(io.BytesIO):
+            """A file that counts what is asked of it, standing in for one far larger than memory."""
+            asked, largest = 0, 0
+
+            def read(self, size=-1):
+                assert size >= 0, "the whole file was asked for"
+                Counted.asked += size
+                Counted.largest = max(Counted.largest, size)
+                return super().read(size)
+
+        padded = image() + bytes(4 * 1024 * 1024)  # an image with megabytes after its headers
+        self.assertEqual(pe.judge(*pe.read_image(Counted(padded))), [])
+        self.assertLess(Counted.asked, 4096)
+        self.assertLessEqual(Counted.largest, 40)
+        Counted.asked = 0
+        with self.assertRaises(pe.NotAnImage):
+            pe.read_image(Counted(bytes(4 * 1024 * 1024)))  # megabytes of nothing: refused at the first two bytes
+        self.assertEqual(Counted.asked, 2)
+
+    def test_a_huge_file_that_is_not_an_image_is_refused_without_being_loaded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp) / "big.exe"
+            with big.open("wb") as out:
+                out.truncate(256 * 1024 ** 2)  # a length only: the file is never written, and must never be read whole
+            code, text = self.run_main(pe, [str(big)])
+            self.assertEqual(code, 2)
+            self.assertIn("does not start with MZ", text)
+
     def run_main(self, module, argv):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):

@@ -58,6 +58,20 @@ exit 0
   Check 'a parent that exits before its child still returns its own result' (-not $r.TimedOut -and $r.ExitCode -eq 0 -and $childId -gt 0) "(exit $($r.ExitCode), child $childId)"
   Check 'a child left behind by its parent is ended with the job' ($childId -gt 0 -and (Wait-Gone $childId))
 
+  # Interrupted (Ctrl+C in a console is a stopped pipeline): the job ends at once, not when the command would have.
+  $pidFile = Join-Path $dir 'child-interrupted.pid'
+  $library = Join-Path $PSScriptRoot '../scripts/lib/job-measure.ps1'
+  $shell = [powershell]::Create()
+  [void]$shell.AddScript({ param($library, $parent, $child, $pidFile) . $library; Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-File', $parent, $child, $pidFile, '-Wait' -TimeoutSeconds 300 }).AddArgument($library).AddArgument($parent).AddArgument($child).AddArgument($pidFile)
+  $running = $shell.BeginInvoke()
+  foreach ($n in 1..150) { if (Test-Path -LiteralPath $pidFile) { break }; Start-Sleep -Milliseconds 100 }
+  $childId = if (Test-Path -LiteralPath $pidFile) { [int](Get-Content -LiteralPath $pidFile) } else { 0 }
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $shell.Stop()
+  $gone = $childId -gt 0 -and (Wait-Gone $childId)
+  Check 'an interrupted command and its child are ended at once, long before its limit' ($gone -and $clock.Elapsed.TotalSeconds -lt 10 -and $running.IsCompleted) "(child $childId, gone $gone, $([int]$clock.Elapsed.TotalSeconds) s)"
+  $shell.Dispose()
+
   $message = try { Measure-Job -FilePath (Join-Path $dir 'missing.exe') | Out-Null; '' } catch { "$_" }
   Check 'a command that cannot start is an error, not a result' ($message -match 'could not start') "(got '$message')"
   $notProgram = Join-Path $dir 'not-a-program.exe'

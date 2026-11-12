@@ -7,12 +7,12 @@
 # The command starts suspended, is put in the job, and only then runs, so every process it ever starts is in the job
 # too. PeakMB is the job's PeakJobMemoryUsed: the most memory the command and everything under it had committed at
 # one moment. Seconds runs from the resume to the exit of the command itself. The job ends every process still in it
-# when Measure-Job returns, on a normal exit, a timeout, an error or Ctrl+C alike (kill on job close), so nothing a
-# measured command starts outlives the measurement.
+# when Measure-Job returns, on a normal exit, a timeout, an error or Ctrl+C alike, so nothing a measured command starts
+# outlives the measurement. An interruption is seen within a fifth of a second, not when the command ends.
 #
 # -OutputPath sends the command's output and errors to that file; without it they go to this console.
 
-if (-not ('Bosun.JobMeasure' -as [type])) {
+if (-not ('Bosun.JobMeasure+Run' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -100,50 +100,73 @@ namespace Bosun {
       return new InvalidOperationException(what + " for: " + commandLine + " (Win32 error " + error + ": " + new Win32Exception(error).Message + ")");
     }
 
-    public static JobResult Run(string commandLine, string workingDirectory, int timeoutSeconds, string outputPath) {
+    // One command in its job. Start it, call Wait in short slices until it returns true (so the caller can be
+    // interrupted between them), then Finish for the result. Dispose ends every process still in the job and is
+    // safe to call at any point, which is what makes an interrupted or failed caller leave nothing running.
+    public sealed class Run : IDisposable {
       IntPtr job = IntPtr.Zero, output = INVALID_HANDLE;
       PROCESS_INFORMATION process = new PROCESS_INFORMATION();
-      try {
-        job = CreateJobObjectW(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) throw Fail("could not create a job object", commandLine);
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-        limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(limits)))
-          throw Fail("could not set the job to end its processes on close", commandLine);
+      readonly string commandLine;
+      Stopwatch watch;
+      bool exited;
 
-        STARTUPINFO startup = new STARTUPINFO();
-        startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
-        if (!String.IsNullOrEmpty(outputPath)) {
-          SECURITY_ATTRIBUTES inherit = new SECURITY_ATTRIBUTES();
-          inherit.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
-          inherit.bInheritHandle = 1;
-          output = CreateFileW(outputPath, GENERIC_WRITE, FILE_SHARE_READ, ref inherit, CREATE_ALWAYS, 0x80, IntPtr.Zero);
-          if (output == INVALID_HANDLE) throw Fail("could not open the output file " + outputPath, commandLine);
-          startup.dwFlags = STARTF_USESTDHANDLES;
-          startup.hStdInput = GetStdHandle(-10);
-          startup.hStdOutput = output;
-          startup.hStdError = output;
+      public Run(string commandLine, string workingDirectory, string outputPath) {
+        this.commandLine = commandLine;
+        try {
+          job = CreateJobObjectW(IntPtr.Zero, null);
+          if (job == IntPtr.Zero) throw Fail("could not create a job object", commandLine);
+          JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+          limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+          if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(limits)))
+            throw Fail("could not set the job to end its processes on close", commandLine);
+
+          STARTUPINFO startup = new STARTUPINFO();
+          startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+          if (!String.IsNullOrEmpty(outputPath)) {
+            SECURITY_ATTRIBUTES inherit = new SECURITY_ATTRIBUTES();
+            inherit.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
+            inherit.bInheritHandle = 1;
+            output = CreateFileW(outputPath, GENERIC_WRITE, FILE_SHARE_READ, ref inherit, CREATE_ALWAYS, 0x80, IntPtr.Zero);
+            if (output == INVALID_HANDLE) throw Fail("could not open the output file " + outputPath, commandLine);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = GetStdHandle(-10);
+            startup.hStdOutput = output;
+            startup.hStdError = output;
+          }
+
+          if (!CreateProcessW(null, new System.Text.StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true,
+                              CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, IntPtr.Zero, workingDirectory, ref startup, out process))
+            throw Fail("could not start the command", commandLine);
+          if (!AssignProcessToJobObject(job, process.hProcess)) {
+            Exception failure = Fail("could not put the command in its job", commandLine);
+            TerminateProcess(process.hProcess, 1);
+            throw failure;
+          }
+          watch = Stopwatch.StartNew();
+          if (ResumeThread(process.hThread) == 0xFFFFFFFF) throw Fail("could not resume the command", commandLine);
+        } catch {
+          Dispose();
+          throw;
         }
+      }
 
-        if (!CreateProcessW(null, new System.Text.StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true,
-                            CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT, IntPtr.Zero, workingDirectory, ref startup, out process))
-          throw Fail("could not start the command", commandLine);
-        if (!AssignProcessToJobObject(job, process.hProcess)) {
-          Exception failure = Fail("could not put the command in its job", commandLine);
-          TerminateProcess(process.hProcess, 1);
-          throw failure;
-        }
-
-        Stopwatch watch = Stopwatch.StartNew();
-        if (ResumeThread(process.hThread) == 0xFFFFFFFF) throw Fail("could not resume the command", commandLine);
-        uint wait = WaitForSingleObject(process.hProcess, timeoutSeconds > 0 ? (uint)timeoutSeconds * 1000u : INFINITE);
-        watch.Stop();
+      // True once the command itself has exited. Returns at that moment, or after the given milliseconds.
+      public bool Wait(int milliseconds) {
+        if (exited) return true;
+        uint wait = WaitForSingleObject(process.hProcess, (uint)Math.Max(milliseconds, 0));
         if (wait == WAIT_FAILED) throw Fail("could not wait for the command", commandLine);
+        if (wait != WAIT_TIMEOUT) { exited = true; watch.Stop(); }
+        return exited;
+      }
 
+      public double ElapsedSeconds { get { return watch.Elapsed.TotalSeconds; } }
+
+      // The result. With timedOut the job is ended first, and the exit code is -1.
+      public JobResult Finish(bool timedOut) {
         JobResult result = new JobResult();
-        result.Seconds = Math.Round(watch.Elapsed.TotalSeconds, 2);
-        result.TimedOut = wait == WAIT_TIMEOUT;
-        if (result.TimedOut) {
+        result.TimedOut = timedOut;
+        if (timedOut) {
+          watch.Stop();
           TerminateJobObject(job, 1);
           WaitForSingleObject(process.hProcess, 10000);
           result.ExitCode = -1;
@@ -152,17 +175,20 @@ namespace Bosun {
           if (!GetExitCodeProcess(process.hProcess, out code)) throw Fail("could not read the command's exit code", commandLine);
           result.ExitCode = unchecked((int)code);
         }
+        result.Seconds = Math.Round(watch.Elapsed.TotalSeconds, 2);
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION used;
         if (!QueryInformationJobObject(job, JobObjectExtendedLimitInformation, out used, Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)), IntPtr.Zero))
           throw Fail("could not read the job's peak memory", commandLine);
         result.PeakMB = Math.Round(used.PeakJobMemoryUsed.ToUInt64() / 1048576.0, 1);
         return result;
-      } finally {
+      }
+
+      public void Dispose() {
         // Ending the job ends every process still in it; closing the handle would too, and this does not wait for that.
-        if (job != IntPtr.Zero) { TerminateJobObject(job, 1); CloseHandle(job); }
-        if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
-        if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
-        if (output != INVALID_HANDLE) CloseHandle(output);
+        if (job != IntPtr.Zero) { TerminateJobObject(job, 1); CloseHandle(job); job = IntPtr.Zero; }
+        if (process.hThread != IntPtr.Zero) { CloseHandle(process.hThread); process.hThread = IntPtr.Zero; }
+        if (process.hProcess != IntPtr.Zero) { CloseHandle(process.hProcess); process.hProcess = IntPtr.Zero; }
+        if (output != INVALID_HANDLE) { CloseHandle(output); output = INVALID_HANDLE; }
       }
     }
   }
@@ -188,5 +214,14 @@ function Measure-Job {
   $command = Get-Command -Name $FilePath -CommandType Application -ErrorAction Ignore | Select-Object -First 1
   if (-not $command) { throw "Measure-Job could not start '$FilePath': no such program on PATH or at that path" }
   $line = (@($command.Source) + $ArgumentList | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '
-  [Bosun.JobMeasure]::Run($line, $WorkingDirectory, $TimeoutSeconds, $OutputPath)
+  $run = [Bosun.JobMeasure+Run]::new($line, $WorkingDirectory, $OutputPath)
+  try {
+    # Waited for in short slices, so Ctrl+C (or a stopped pipeline) is seen within one of them: the finally below
+    # then ends the job at once. One long native wait would hold PowerShell until the command ended by itself.
+    $timedOut = $false
+    while (-not $run.Wait(200)) {
+      if ($TimeoutSeconds -gt 0 -and $run.ElapsedSeconds -ge $TimeoutSeconds) { $timedOut = $true; break }
+    }
+    $run.Finish($timedOut)
+  } finally { $run.Dispose() }
 }

@@ -14,10 +14,14 @@ so it runs in a plain shell and in CI) and requires:
     CET compatible         the extended DLL characteristics debug   linked with /CETCOMPAT (x64 images only: the
                            entry, bit IMAGE_DLLCHARACTERISTICS_EX_CET_COMPAT    flag has no meaning on ARM64)
 
+Only the headers are read, a few hundred bytes at offsets checked against the file's length, so a huge file, or one
+that only claims to be an image, costs nothing: the file is never loaded whole.
+
 Exit 0 when every image holds, 1 naming each image and what it lacks, 2 when a path is missing, is not a PE image
 this can read, or a folder holds no .exe. Stdlib only.
 """
 import argparse
+import io
 from pathlib import Path
 import struct
 import sys
@@ -28,46 +32,55 @@ DEBUG_DIRECTORY = 6
 EX_DLLCHARACTERISTICS = 20  # IMAGE_DEBUG_TYPE_EX_DLLCHARACTERISTICS
 CET_COMPAT = 0x1
 MAX_ENTRIES = 64  # a debug directory longer than this is not one this reads
+MAX_SECTIONS = 96  # the format's own limit
 
 
 class NotAnImage(Exception):
     """The file is not a PE image this can read."""
 
 
-def unpack(fmt, data, offset, what):
+def unpack(fmt, source, offset, what):
+    """The fields at an offset of an open image, read from there alone. NotAnImage when the file ends first."""
     size = struct.calcsize(fmt)
-    if offset < 0 or offset + size > len(data):
+    if offset < 0:
         raise NotAnImage(f"it ends before its {what}")
-    return struct.unpack_from(fmt, data, offset)
+    source.seek(offset)
+    data = source.read(size)
+    if len(data) != size:
+        raise NotAnImage(f"it ends before its {what}")
+    return struct.unpack(fmt, data)
 
 
-def read_image(data):
-    """(machine name, DLL characteristics, extended DLL characteristics or None when the image has no such entry)."""
-    if data[:2] != b"MZ":
+def read_image(source):
+    """(machine name, DLL characteristics, extended DLL characteristics or None when the image has no such entry),
+    from a file opened in binary mode, or from bytes. Reads the headers only."""
+    if isinstance(source, (bytes, bytearray)):
+        source = io.BytesIO(source)
+    if unpack("<2s", source, 0, "MZ signature") != (b"MZ",):
         raise NotAnImage("it does not start with MZ")
-    (pe,) = unpack("<I", data, 0x3C, "PE header offset")
-    if data[pe:pe + 4] != b"PE\0\0":
+    (pe,) = unpack("<I", source, 0x3C, "PE header offset")
+    if unpack("<4s", source, pe, "PE signature") != (b"PE\0\0",):
         raise NotAnImage("it has no PE signature")
-    machine, sections, _, _, _, optional_size, _ = unpack("<HHIIIHH", data, pe + 4, "COFF header")
+    machine, sections, _, _, _, optional_size, _ = unpack("<HHIIIHH", source, pe + 4, "COFF header")
     optional = pe + 24
-    (magic,) = unpack("<H", data, optional, "optional header")
+    (magic,) = unpack("<H", source, optional, "optional header")
     if magic not in (0x10B, 0x20B):
         raise NotAnImage(f"its optional header is of an unknown kind ({magic:#x})")
-    (characteristics,) = unpack("<H", data, optional + 70, "DLL characteristics")
+    (characteristics,) = unpack("<H", source, optional + 70, "DLL characteristics")
     directories = optional + (112 if magic == 0x20B else 96)
-    (count,) = unpack("<I", data, directories - 4, "data directory count")
+    (count,) = unpack("<I", source, directories - 4, "data directory count")
     extended = None
     if count > DEBUG_DIRECTORY:
-        rva, size = unpack("<II", data, directories + 8 * DEBUG_DIRECTORY, "debug directory entry")
+        rva, size = unpack("<II", source, directories + 8 * DEBUG_DIRECTORY, "debug directory entry")
         table = optional + optional_size
-        for index in range(min(sections, 96)):
-            _, _, virtual, raw_size, raw = unpack("<8sIIII", data, table + 40 * index, "section table")
+        for index in range(min(sections, MAX_SECTIONS)):
+            _, _, virtual, raw_size, raw = unpack("<8sIIII", source, table + 40 * index, "section table")
             if rva and virtual <= rva < virtual + max(raw_size, 1):
                 start = raw + (rva - virtual)
                 for entry in range(min(size // 28, MAX_ENTRIES)):
-                    _, _, _, _, kind, length, _, pointer = unpack("<IIHHIIII", data, start + 28 * entry, "debug directory")
+                    _, _, _, _, kind, length, _, pointer = unpack("<IIHHIIII", source, start + 28 * entry, "debug directory")
                     if kind == EX_DLLCHARACTERISTICS and length >= 4:
-                        (extended,) = unpack("<I", data, pointer, "extended DLL characteristics")
+                        (extended,) = unpack("<I", source, pointer, "extended DLL characteristics")
                 break
     return MACHINES.get(machine, f"machine {machine:#x}"), characteristics, extended
 
@@ -118,7 +131,8 @@ def main(argv=None):
     failed = False
     for path in targets:
         try:
-            problems = judge(*read_image(path.read_bytes()))
+            with path.open("rb") as source:
+                problems = judge(*read_image(source))
         except (NotAnImage, OSError) as exc:
             print(f"native-pe-check: {path} could not be read as a PE image: {exc}")
             return 2
