@@ -47,10 +47,16 @@ A workflow that reads `none` for a commit (no run, and no proof of a skip) needs
     it is behind it       the commit isn't on the remote yet, so there is nothing to run: `not_pushed` names the head.
     it can't be read      nothing is started or offered; `recovery_error` says why.
 
+Two gates may look at one commit at once (a restart while the first still polls). Every change to the record is made
+under `build/ci-gate.lock`, so both cannot start the same workflow, and a start is recorded before it is made. Only a
+refusal GitHub itself answered with (an HTTP 4xx) removes that record; a start that failed some other way may have been
+accepted, so it is kept and not tried again for the commit.
+
 None of these changes a verdict, the exit code or the action. A run answers for a commit only through its own `headSha`
 (`gh run list --commit`), so one started just as the branch moved runs the newer commit and never turns this one green.
 """
 import argparse
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -77,6 +83,9 @@ POLL_SECONDS = 60
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
 CLEARED = Path("build") / "ci-gate.cleared"
+LOCK = Path("build") / "ci-gate.lock"
+LOCK_WAIT_SECONDS = 10  # how long one gate waits for another to finish a change to the record
+LOCK_STALE_SECONDS = 120  # a lock older than this was left by a process that died holding it
 EXIT_RED, EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE = 1, 3, 4, 5
 
 
@@ -290,6 +299,46 @@ def report(runner, workflows, branch, sha=None, base=None, git=None, base_proven
     return result, code
 
 
+@contextlib.contextmanager
+def gate_lock(path, wait=LOCK_WAIT_SECONDS):
+    """Hold the record's lock file while changing the record, so two gates can't both read it and then both write.
+    Yields True when held. After `wait` seconds without it, yields False, and the caller decides what is safe unlocked.
+    A lock left by a process that died is taken over once it is older than LOCK_STALE_SECONDS."""
+    lock = path.with_name(LOCK.name)
+    deadline = time.monotonic() + wait
+    held = False
+    while not held:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            held = True
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+                    lock.unlink()
+                    continue
+            except OSError:
+                pass  # it went away or can't be read: try again
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+        except OSError:
+            break  # the folder can't be written, so there is nothing to lock and nothing to save either
+    try:
+        yield held
+    finally:
+        if held:
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+
+
+def confirmed_refusal(code, out, err):
+    """True when GitHub itself answered the start with a refusal (an HTTP 4xx), so it is certain nothing was started."""
+    return code != 0 and re.search(r"\bHTTP 4\d\d\b", f"{err}\n{out}") is not None
+
+
 def remote_head(runner, branch):
     """The commit the branch points at on the remote. Unavailable when gh can't say, or says something that isn't a SHA."""
     try:
@@ -303,6 +352,14 @@ def remote_head(runner, branch):
     if not CANDIDATE.fullmatch(head):
         raise Unavailable("gh api did not return a commit for the branch")
     return head
+
+
+def started_record(state, sha):
+    """The workflows already started for this commit, from the gate's record."""
+    record = state.get("started")
+    if isinstance(record, dict) and record.get("sha") == sha and isinstance(record.get("workflows"), list):
+        return record
+    return {"sha": sha, "workflows": []}
 
 
 def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None):
@@ -339,34 +396,47 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     if not gate:
         result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
         return
-    state = read_gate(path)
-    record = state.get("started")
-    if not isinstance(record, dict) or record.get("sha") != sha or not isinstance(record.get("workflows"), list):
-        record = {"sha": sha, "workflows": []}
     errors = []
     for name in missing:
-        if name in record["workflows"]:
-            continue
         if expired():
             errors.append(f"the wait ran out before {name} could be started")
             break
-        # Recorded first: a start that can't be remembered would be repeated on every look.
-        state["started"] = {"sha": sha, "workflows": [*record["workflows"], name]}
-        if not write_gate(path, state):
-            errors.append(f"{path.name} couldn't be saved, so {name} was not started")
-            break
+        # Reserved under the lock and before the start: two gates can't both find it unstarted, and a start that can't
+        # be remembered would be repeated on every look.
+        with gate_lock(path) as held:
+            if not held:
+                errors.append(f"another gate holds {LOCK.name}, so {name} was not started on this look")
+                break
+            state = read_gate(path)
+            record = started_record(state, sha)
+            if name in record["workflows"]:
+                continue
+            state["started"] = {"sha": sha, "workflows": [*record["workflows"], name]}
+            if not write_gate(path, state):
+                errors.append(f"{path.name} couldn't be saved, so {name} was not started")
+                break
         try:
             code, out, err = runner(["workflow", "run", name, "--ref", branch])
-            if code != 0:
-                reason = (err or out or "").strip().splitlines()
-                raise Unavailable(f"gh workflow run exited {code}: {(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
         except (Unavailable, FileNotFoundError) as exc:
-            state["started"] = record
-            write_gate(path, state)
-            errors.append(f"{name} could not be started: {exc}")
+            code, out, err = None, "", str(exc)
+        if code == 0:
+            print(f"recovery: started {name} on {branch} at {sha}", file=sys.stderr)
             continue
-        record = state["started"]
-        print(f"recovery: started {name} on {branch} at {sha}", file=sys.stderr)
+        reason = (err or out or "").strip().splitlines()
+        why = (reason[0] if reason else "no output")[:MAX_MESSAGE]
+        if code is not None and confirmed_refusal(code, out, err):
+            # GitHub said no, so nothing runs: the reservation goes, and a later look may try again.
+            with gate_lock(path) as held:
+                state = read_gate(path)
+                record = started_record(state, sha)
+                state["started"] = {"sha": sha, "workflows": [w for w in record["workflows"] if w != name]}
+                write_gate(path, state)
+            errors.append(f"{name} could not be started: gh workflow run exited {code}: {why}")
+        else:
+            # No answer either way: GitHub may have accepted it. Starting again could run it twice, so it stays recorded.
+            errors.append(f"the start of {name} got no clear answer ({why}), so it may be running and won't be started "
+                          f"again for this commit; if no run appears: gh workflow run {name} --ref {branch}")
+    record = started_record(read_gate(path), sha)
     if record["workflows"]:
         result["started"] = [name for name in record["workflows"] if name in missing]
     if errors:
@@ -451,6 +521,11 @@ def peek_proven(path):
 def begin_wait(path, sha, now):
     """Record when waiting on this commit began, before any polling, so a killed process loses none of it. Returns that
     time, or now when it can't be saved."""
+    with gate_lock(path):
+        return _begin_wait(path, sha, now)
+
+
+def _begin_wait(path, sha, now):
     state = read_gate(path)
     waiting = state.get("waiting")
     # The pid says which gate is polling now: scripts/lib/run_guard.py holds the run's next row only while it lives.
@@ -467,6 +542,11 @@ def begin_wait(path, sha, now):
 def gate_action(code, sha, path, now):
     """One action for a pushed commit, and any attempt number, or why it is unverified. A repeat check of the same red
     commit uses no attempt."""
+    with gate_lock(path):
+        return _gate_action(code, sha, path, now)
+
+
+def _gate_action(code, sha, path, now):
     state = read_gate(path)
     if code == 0:
         cleared = {"proven": sha, **({"consumed": state["consumed"]} if "consumed" in state else {})}

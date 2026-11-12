@@ -1112,6 +1112,87 @@ class Gate(Base):
         self.go(["--gate", "--sha", "HEAD"], ok, FakeGit(["README.md"]))
         self.assertEqual(len(ok.started), 1)
 
+    def test_a_start_with_no_clear_answer_stays_recorded_and_is_not_repeated(self):
+        # The connection was lost after the request went out: GitHub may have accepted it.
+        for fails in ("error connecting to api.github.com", "HTTP 502: Bad Gateway"):
+            with self.subTest(fails=fails):
+                self.state().unlink(missing_ok=True)
+                gh = FakeGh(dict(self.NO_BUILD), dispatch_fails=fails)
+                code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+                data = json.loads(raw)
+                self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
+                self.assertIn("got no clear answer", data["recovery_error"])
+                self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+                self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+                again = FakeGh(dict(self.NO_BUILD))
+                self.go(["--gate", "--sha", "HEAD"], again, FakeGit(["README.md"]))
+                self.assertEqual(again.started, [])  # a second start could run it twice
+
+    def test_a_start_that_cannot_run_at_all_is_treated_the_same_way(self):
+        def lost(args):
+            if args[:2] == ["workflow", "run"]:
+                raise ci_status.Unavailable("gh could not run: timed out")
+            return FakeGh(dict(self.NO_BUILD))(args)
+
+        code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], lost, FakeGit(["README.md"]))
+        self.assertIn("got no clear answer (gh could not run: timed out)", json.loads(raw)["recovery_error"])
+        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+
+    def test_only_a_refusal_github_answered_counts_as_one(self):
+        self.assertTrue(ci_status.confirmed_refusal(1, "", "HTTP 422: Workflow does not have 'workflow_dispatch' trigger"))
+        self.assertTrue(ci_status.confirmed_refusal(1, "could not create workflow dispatch event: HTTP 403: forbidden", ""))
+        for code, err in ((1, "HTTP 502: Bad Gateway"), (1, "error connecting to api.github.com"), (1, ""), (0, "HTTP 422")):
+            self.assertFalse(ci_status.confirmed_refusal(code, "", err), (code, err))
+
+    def test_many_gates_at_once_start_a_workflow_once(self):
+        import threading
+        gh = FakeGh(dict(self.NO_BUILD))
+        ready = threading.Barrier(8)
+        results = [{"workflows": [{"workflow": "build.yml", "verdict": "none"}]} for _ in range(8)]
+
+        def look(result):
+            ready.wait()
+            ci_status.recover(gh, result, "main", SHA, True, self.state())
+
+        threads = [threading.Thread(target=look, args=(result,)) for result in results]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(60)
+        self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
+        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+        self.assertTrue(all(result.get("started") == ["build.yml"] for result in results), results)
+        self.assertFalse((self.root / ci_status.LOCK).exists())
+
+    def test_a_gate_that_cannot_get_the_lock_starts_nothing_on_that_look(self):
+        lock = self.root / ci_status.LOCK
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")  # another gate is changing the record
+        gh = FakeGh(dict(self.NO_BUILD))
+        result = {"workflows": [{"workflow": "build.yml", "verdict": "none"}]}
+        with mock.patch.object(ci_status, "LOCK_WAIT_SECONDS", 0.2):
+            with ci_status.gate_lock(self.state(), 0.2) as held:
+                self.assertFalse(held)
+            real = ci_status.gate_lock
+            with mock.patch.object(ci_status, "gate_lock", lambda path: real(path, 0.2)):
+                ci_status.recover(gh, result, "main", SHA, True, self.state())
+        self.assertEqual(gh.started, [])
+        self.assertIn("another gate holds ci-gate.lock", result["recovery_error"])
+        self.assertTrue(lock.exists())  # it was not this gate's to remove
+        lock.unlink()
+        ci_status.recover(gh, result, "main", SHA, True, self.state())
+        self.assertEqual(len(gh.started), 1)
+
+    def test_a_lock_left_by_a_dead_gate_is_taken_over(self):
+        lock = self.root / ci_status.LOCK
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")
+        old = lock.stat().st_mtime - ci_status.LOCK_STALE_SECONDS - 5
+        os.utime(lock, (old, old))
+        with ci_status.gate_lock(self.state(), 0.2) as held:
+            self.assertTrue(held)
+        self.assertFalse(lock.exists())
+
     def test_nothing_is_started_when_the_start_cannot_be_recorded(self):
         gh = FakeGh(dict(self.NO_BUILD))
         real = ci_status.write_gate
