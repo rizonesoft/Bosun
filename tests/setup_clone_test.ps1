@@ -124,6 +124,23 @@ try {
   Check 'a config that cannot be written exits 1 with the cause' ($r.Exit -eq 1 -and $r.Text -match 'could not set core\.hooksPath' -and $r.Text -notmatch 'hooks: on') "(exit $($r.Exit): $($r.Text))"
   Check 'and the earlier value is still there' ((Get-Setting $locked) -eq 'old/hooks' -and $r.Text -match "still 'old/hooks'")
 
+  # A write that reports success and changes nothing (a stand-in git first on PATH drops it): the setting does not
+  # read back, so it is not reported as on.
+  $realGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source
+  $fakeBin = Join-Path $work 'fake-git'
+  New-Item -ItemType Directory -Path $fakeBin | Out-Null
+  Set-Content -LiteralPath (Join-Path $fakeBin 'fake-git.ps1') -Value @"
+`$write = (`$args -contains 'config') -and (`$args -contains '--local') -and (`$args -notcontains '--get') -and (`$args[-2] -eq 'core.hooksPath')
+if (`$write) { exit 0 }
+& '$realGit' @args
+exit `$LASTEXITCODE
+"@
+  Set-Content -LiteralPath (Join-Path $fakeBin 'git.cmd') -Value "@`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoProfile -File `"%~dp0fake-git.ps1`" %*"
+  $dropped = New-Clone 'write-dropped'
+  $r = Invoke-Setup @('-Repo', $dropped) -path "$fakeBin;$env:PATH"
+  Check 'a write that does not read back exits 1 and is not reported as on' ($r.Exit -eq 1 -and $r.Text -match 'does not read back' -and $r.Text -notmatch 'hooks: on' -and
+    $null -eq (Get-Setting $dropped)) "(exit $($r.Exit): $($r.Text))"
+
   $pwshDir = $PSHOME
   $system = Join-Path $env:SystemRoot 'System32'
   $r = Invoke-Setup @('-Repo', $clone) -path "$pwshDir;$system"
