@@ -338,6 +338,8 @@ Filed 2026-11-12 on the owner's request to optimise the build and dev tools for 
 
 ## 13. Weakening scan over a diff
 
+> **Started:** 2026-11-12T06:13:14Z
+
 Split out of `§6` on 2026-11-12. A passing suite cannot tell a correct change from one that deleted the test, skipped it or swallowed the error it checked. The scan reads a diff and names every hunk of those shapes, so the writer answers each one and the reviewer sees them. It is written here, for the kinds of test this repo has (Python `unittest`, PowerShell `Check` scripts, `tests/test_core.cpp` and the workflows), not copied from another repo.
 
 **Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T01-s13.md` returned eight gaps, all planned in below. The scan gets a committed-range mode (`--head`), so a candidate is scanned by its own endpoints whatever the working tree holds. Each signal has an identity of its own (the case's name, or the line), so one answer covers one signal. What is committed is enforced and what is not yet committed is only reported, because an answer lives in a commit body and an uncommitted change has none. The report keeps every signal with its answer, answered or not. C++ cases are read as this repository registers them, in the `groups[]` table of `tests/test_core.cpp`. A moved test is matched one to one by its qualified name, and the assertions it carried are counted across the move. The git side is tested in disposable repositories.
