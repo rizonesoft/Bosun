@@ -413,9 +413,12 @@ function Test-Setup {
   # The record is the only way back to the values from before the setup.
   $saved = $null
   try { $saved = Read-Json $AdminRecord; if ($saved) { Assert-Record $saved $AdminRecord 'admin' } }
-  catch { Fail $_.Exception.Message 'check what it holds, move it aside, then run admin setup -Restore by hand' }
+  catch {
+    # A damaged record can't be trusted to undo the setup, so the originals it held are as good as lost.
+    Fail "$($_.Exception.Message); the update values from before the setup are as good as lost" "if you can, mend the record so it holds them; otherwise move it aside (``Move-Item -LiteralPath '$AdminRecord' -Destination '$AdminRecord.damaged'``), then $fix records the originals as unknown, and -Restore later returns Windows' defaults (both values absent)"
+  }
   if (-not (Test-Path -LiteralPath $AdminRecord)) {
-    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix sets the hold up again, but -Restore can then only return Windows' defaults (both values absent)"
+    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix records the originals as unknown and keeps the hold, and -Restore later returns Windows' defaults (both values absent)"
   } elseif ($saved) {
     $other = @(foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
         $given = Get-Variable -Name $name -ValueOnly

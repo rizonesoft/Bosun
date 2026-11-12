@@ -98,7 +98,19 @@ if (-not $admin -and ($PolicyKey -like 'HKLM:*' -or -not $TaskStore)) {
 }
 
 if ($Restore) {
-  if (-not $saved) { "nothing to restore: no record at $Record"; exit 0 }
+  if (-not $saved) {
+    # With no record, what was there before is not known: a setup still in place is not undone in silence.
+    $now = Get-UpdateState $PolicyKey
+    $held = @($UpdateValues.Keys | Where-Object { $now[$_].Present -and $now[$_].Value -eq $UpdateValues[$_] }).Count -eq $UpdateValues.Count
+    $task = Get-CampaignTask $defs[0].Name $TaskStore
+    if ($held -or $task) {
+      "FAIL no record at $Record, though the setup is in place: the update values from before it are not known, and nothing was changed"
+      "     fix: run -Apply, which records the originals as unknown, then -Restore, which then returns Windows' defaults (both values absent)"
+      exit 1
+    }
+    "nothing to restore: no record at $Record, and no setup in place"
+    exit 0
+  }
   $failed = @()
   foreach ($name in $UpdateValues.Keys) {
     $s = $saved.Update.$name

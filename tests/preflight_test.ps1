@@ -65,6 +65,20 @@ try {
   Set-Content $vswhereTwo "@echo off`r`necho $vsNone`r`necho $vsOld" -Encoding ascii
   $r = Preflight $system @('-VsWhere', $vswhereTwo)
   Check ($r.Code -eq 1 -and $r.Text.Contains($vsOldCMake)) 'with a newer install lacking CMake, the older one that has it is named'
+  # A cmake that answers and exits at once while a child it started keeps its output open: the probe still ends at
+  # -ProbeSeconds, and the child with it (the completion review of D00 T03 §18).
+  $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+  $holdPy = Join-Path $work 'hold-output.py'
+  Set-Content $holdPy "import os, sys, time`nopen(sys.argv[1], 'w').write(str(os.getpid()))`ntime.sleep(30)" -Encoding ascii
+  $heldPid = Join-Path $work 'held-output.pid'
+  $leaves = Tool 'leaves-child' 'cmake' "start /b `"`" `"$python`" `"$holdPy`" `"$heldPid`"`r`necho cmake version 3.31.6"
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $r = Preflight "$leaves;$system" @('-Only', 'cmake', '-ProbeSeconds', '3')
+  $took = $clock.Elapsed.TotalSeconds
+  $held = if (Test-Path $heldPid) { [int](Get-Content $heldPid) } else { 0 }
+  Check ($took -lt 20 -and $held -and -not (Get-Process -Id $held -ErrorAction Ignore)) ("a probe whose child holds its output open ends at its limit, and the child with it ({0:N1} s, pid {1})" -f $took, $held)
+  if ($held) { Stop-Process -Id $held -Force -ErrorAction Ignore }
+
   # A vswhere that hangs, with a child of its own: stopped at -ProbeSeconds, and with the preflight when it is killed.
   $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
   $hangPy = Join-Path $work 'hang.py'
@@ -469,13 +483,24 @@ try {
   $recordKept = [IO.File]::ReadAllText($adminRecord)
   Remove-Item -LiteralPath $adminRecord
   $r = Preflight $system (@('-Only', 'setup') + $place)
-  Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "can then only return Windows' defaults") 'a missing record says the originals are lost and what -Apply can and cannot do'
+  Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "records the originals as unknown" -and $r.Text -match "returns Windows' defaults") 'a missing record says the originals are lost and what -Apply and -Restore then do'
   [IO.File]::WriteAllText($adminRecord, '')
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match 'is not a readable record \(it holds nothing\)') 'an empty record fails, never read as no record'
   [IO.File]::WriteAllText($adminRecord, '{"PolicyKey": "x"}')
   $r = Preflight $system (@('-Only', 'setup') + $place)
-  Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete admin record \(Update is missing\)') 'an incomplete record fails with the field that is wrong'
+  Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete admin record \(Update is missing\)' -and $r.Text -match 'Move-Item -LiteralPath') 'an incomplete record fails with the field that is wrong and the steps that recover'
+  # The steps it prints, followed to the end: move the record aside, apply, and the setup passes; restore returns defaults.
+  Move-Item -LiteralPath $adminRecord -Destination "$adminRecord.damaged"
+  $out = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply @setupPlace 2>&1
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 0 -and ($out -join ' ') -match 'the originals are not known' -and (Get-Content -LiteralPath $adminRecord -Raw | ConvertFrom-Json).Originals -eq 'unknown') 'after the printed steps the setup passes, its record saying the originals are unknown'
+  $out = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Restore @setupPlace 2>&1
+  $back = (Get-Item -LiteralPath $policy).GetValueNames()
+  Check ($LASTEXITCODE -eq 0 -and $back -notcontains 'NoAutoRebootWithLoggedOnUsers' -and $back -notcontains 'AUOptions') "and restore then returns Windows' defaults ($(($out | Select-Object -Last 1)))"
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply @setupPlace | Out-Null
+  Remove-Item -LiteralPath "$adminRecord.damaged" -ErrorAction Ignore
+  $recordKept = [IO.File]::ReadAllText($adminRecord)
   $other = $recordKept | ConvertFrom-Json
   $other.BinDir = Join-Path $work 'elsewhere'
   [IO.File]::WriteAllText($adminRecord, ($other | ConvertTo-Json -Depth 5))

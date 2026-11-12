@@ -83,6 +83,8 @@ try {
   Reset
   Setup @('-Apply') | Out-Null
   Remove-Item -LiteralPath $record
+  $r = Setup @('-Restore')
+  Check ($r.Code -eq 1 -and $r.Text -match 'though the setup is in place' -and $r.Text -match 'run -Apply, which records the originals as unknown' -and (Get-UpdateState $keyPath).NoAutoRebootWithLoggedOnUsers.Value -eq 1) 'restore with no record over a setup in place refuses, naming the steps, and changes nothing'
   $r = Setup @('-Apply')
   Check ($r.Code -eq 0 -and $r.Text -match 'the originals are not known' -and (Read-Json $record).Originals -eq 'unknown') 'an apply with no record over held values says the originals are not known'
   $r = Setup @('-Restore')

@@ -106,6 +106,34 @@ namespace Bosun {
     // Put this process in a job of its own that ends every process in it when this process ends, however it ends
     // (its window closed, killed, or a normal exit): the job's only handle is this process's, so Windows closes it
     // then. Everything this process starts from now on is in the job, and no breakaway is allowed. Once only.
+    [DllImport("kernel32", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+
+    // Put an already started process in a job of its own that ends it and everything it starts when the job is closed
+    // (CloseJob), so a probe's children can't outlive it. A process that already exited needs nothing: Zero comes back.
+    public static IntPtr EndTreeWithJob(int processId) {
+      IntPtr process = OpenProcess(0x0101, false, processId);  // PROCESS_TERMINATE | PROCESS_SET_QUOTA
+      if (process == IntPtr.Zero) return IntPtr.Zero;
+      IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+      try {
+        if (job == IntPtr.Zero) throw Fail("could not create a job object", "process " + processId);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+        limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(limits))
+            || !AssignProcessToJobObject(job, process)) {
+          Exception failure = Fail("could not put the process in a job of its own", "process " + processId);
+          CloseHandle(job);
+          job = IntPtr.Zero;
+          throw failure;
+        }
+        return job;
+      } finally {
+        CloseHandle(process);
+      }
+    }
+
+    public static void CloseJob(IntPtr job) { if (job != IntPtr.Zero) CloseHandle(job); }
+
     public static void EndTreeWithThisProcess() {
       if (ownJob != IntPtr.Zero) return;
       IntPtr job = CreateJobObjectW(IntPtr.Zero, null);

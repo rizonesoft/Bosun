@@ -66,26 +66,33 @@ function Invoke-Probe([string]$exe, [string[]]$arguments, [int]$seconds, [string
   }
   try { $p = [Diagnostics.Process]::Start($info) }
   catch { return [pscustomobject]@{ Code = -1; Out = "could not start ${exe}: $($_.Exception.Message)"; TimedOut = $false } }
+  # In a job of its own where the job helper is loaded (the preflight and the hold load it): a child the probe leaves,
+  # holding its output open, ends with the job instead of outliving it.
+  $job = [IntPtr]::Zero
+  if ('Bosun.JobMeasure' -as [type]) { try { $job = [Bosun.JobMeasure]::EndTreeWithJob($p.Id) } catch { $job = [IntPtr]::Zero } }
   $p.StandardInput.Close()
   $out = $p.StandardOutput.ReadToEndAsync()
   $err = $p.StandardError.ReadToEndAsync()
-  # Waited for in short slices, so Ctrl+C stops the caller between them, and the finally stops the probe's tree then.
+  # One deadline for the probe and its output, waited for in short slices, so Ctrl+C stops the caller between them; the
+  # finally then stops the probe's tree, and closing the job ends whatever is left of it.
   $settled = $false
   try {
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    while (-not $p.WaitForExit(200)) {
+    $readers = [Threading.Tasks.Task[]]@($out, $err)
+    while (-not ($p.HasExited -and [Threading.Tasks.Task]::WaitAll($readers, 0))) {
       if ($clock.Elapsed.TotalSeconds -ge $seconds) {
-        Stop-Tree $p.Id
-        $p.WaitForExit(10000) | Out-Null
+        if (-not $p.HasExited) { Stop-Tree $p.Id; $p.WaitForExit(10000) | Out-Null }
         $settled = $true
         return [pscustomobject]@{ Code = -1; Out = ''; TimedOut = $true }
       }
+      if (-not $p.HasExited) { [void]$p.WaitForExit(200) } else { [void][Threading.Tasks.Task]::WaitAll($readers, 200) }
     }
-    $p.WaitForExit()  # lets the output readers finish
+    $p.WaitForExit()
     $settled = $true
     [pscustomobject]@{ Code = $p.ExitCode; Out = (($out.Result + $err.Result) -replace "`r`n", "`n").Trim(); TimedOut = $false }
   } finally {
     if (-not $settled -and -not $p.HasExited) { Stop-Tree $p.Id }
+    if ($job -ne [IntPtr]::Zero) { [Bosun.JobMeasure]::CloseJob($job) }
   }
 }
 
