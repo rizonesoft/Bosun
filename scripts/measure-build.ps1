@@ -19,6 +19,10 @@
 # -RenderOnly renders the document from the stored data without measuring. -DecideOnly records the decision and note
 # on a label already measured, once its numbers have been compared, without measuring it again.
 #
+# Two runs may finish at once (another session, another label). Each reads the stored data, changes it and writes
+# it back while holding docs/build-performance.json.lock, so neither loses the other's result; a run that cannot
+# get the lock within -LockSeconds changes nothing and says so.
+#
 # When bosun is installed the whole measurement runs through `bosun run --`, so it takes its turn with other heavy
 # jobs and the wait for a slot is outside every timed step.
 param(
@@ -31,6 +35,7 @@ param(
   [string[]]$BuildArgs = @(),
   [switch]$RenderOnly,
   [switch]$DecideOnly,
+  [ValidateRange(1, 3600)][int]$LockSeconds = 30,
   [string]$BuildScript = (Join-Path $PSScriptRoot 'build.ps1'),
   [string]$TouchFile = (Join-Path (Split-Path $PSScriptRoot) 'src\app.cpp'),
   [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs')
@@ -124,16 +129,41 @@ function Save-Data($data) {
   Write-Document (Read-Data)
 }
 
+# Runs $Change on the stored data and saves the result, all while holding the lock file, so two runs saving at once
+# cannot overwrite each other. The lock is a file opened for this process alone; Windows removes it when the handle
+# closes, however the script ends.
+function Update-Data([scriptblock]$Change) {
+  $lockPath = "$dataPath.lock"
+  $deadline = [DateTime]::UtcNow.AddSeconds($LockSeconds)
+  $lock = $null
+  while (-not $lock) {
+    try { $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose) } catch [IO.DirectoryNotFoundException] {
+      "could not lock ${dataPath}: $($_.Exception.Message)"; exit 1
+    } catch [IO.IOException], [UnauthorizedAccessException] {
+      # Held by another run, or just released and still being removed: try again until the limit.
+      if ([DateTime]::UtcNow -ge $deadline) { "could not lock $lockPath within $LockSeconds seconds ($($_.Exception.Message)): nothing was changed"; exit 1 }
+      Start-Sleep -Milliseconds 200
+    }
+  }
+  try {
+    try { $current = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
+    Save-Data (& $Change $current)
+  } finally { $lock.Dispose() }
+}
+
 try { $data = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
 if ($RenderOnly) { Write-Document $data; "rendered $docPath from $($data['labels'].Count) label(s)"; exit 0 }
 if (-not $Label -or -not $Decision) { 'measure-build needs -Label <name> and -Decision <baseline|kept|dropped>, or -RenderOnly'; exit 2 }
 if ($Label -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Label '$Label' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
 if ($DecideOnly) {
-  $stored = $data['labels'] | Where-Object { $_['label'] -eq $Label } | Select-Object -First 1
-  if (-not $stored) { "no label '$Label' has been measured: nothing was changed"; exit 1 }
-  $stored['decision'] = $Decision
-  if ($Note) { $stored['note'] = $Note }
-  Save-Data $data
+  Update-Data {
+    param($current)
+    $stored = $current['labels'] | Where-Object { $_['label'] -eq $Label } | Select-Object -First 1
+    if (-not $stored) { "no label '$Label' has been measured: nothing was changed"; exit 1 }
+    $stored['decision'] = $Decision
+    if ($Note) { $stored['note'] = $Note }
+    $current
+  }
   "recorded '$Label' as $Decision"
   exit 0
 }
@@ -264,10 +294,12 @@ $entry = [ordered]@{
     })
 }
 
-# Other sessions may have measured meanwhile: read again, replace this label, write, and read back.
-try { $data = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
-$data['labels'] = @($data['labels'] | Where-Object { $_['label'] -ne $Label }) + , $entry
-Save-Data $data
+# Other sessions may have measured meanwhile: under the lock, read again, replace this label, write and read back.
+Update-Data {
+  param($current)
+  $current['labels'] = @($current['labels'] | Where-Object { $_['label'] -ne $Label }) + , $entry
+  $current
+}
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
 foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s, $(Format-Number $step['median_peak_mb']) MB" }
 exit 0

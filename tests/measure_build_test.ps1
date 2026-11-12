@@ -121,6 +121,37 @@ exit 0
   $run = Invoke-Measure 'ok' @('-Label', 'never-measured', '-Decision', 'kept', '-DecideOnly')
   Check '-DecideOnly on a label never measured is refused' ($run.Exit -eq 1 -and $run.Text -match "no label 'never-measured'")
 
+  # Saves are serialised by a lock file. While another run holds it, a save waits; past its limit it changes nothing.
+  $unlocked = [IO.File]::ReadAllBytes($json)
+  $held = [IO.FileStream]::new("$json.lock", [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
+  try {
+    $run = Invoke-Measure 'ok' @('-Label', 'candidate', '-Decision', 'dropped', '-DecideOnly', '-LockSeconds', '2')
+    Check 'a save that cannot get the lock exits 1 and changes nothing' ($run.Exit -eq 1 -and $run.Text -match 'nothing was changed' -and
+      [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($unlocked)) "(exit $($run.Exit): $($run.Text))"
+    $waiting = Start-Process pwsh -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-File', $measure, '-OutDir', $out, '-Label', 'candidate', '-Decision', 'dropped', '-Note', 'waited-for-the-lock', '-DecideOnly', '-LockSeconds', '60' -RedirectStandardOutput (Join-Path $dir 'waiting.txt')
+    Start-Sleep -Seconds 3
+    $stillWaiting = -not $waiting.HasExited
+  } finally { $held.Dispose() }
+  $finished = $waiting.WaitForExit(60000)
+  if (-not $finished) { $waiting.Kill($true) }
+  $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+  Check 'a save waits for the lock and goes through once it is free' ($stillWaiting -and $finished -and $waiting.ExitCode -eq 0 -and
+    ($data.labels | Where-Object label -eq 'candidate').note -eq 'waited-for-the-lock') "(waiting $stillWaiting, finished $finished, exit $($waiting.ExitCode))"
+
+  # Two runs saving at the same moment, on different labels, both land: neither overwrites the other.
+  $lost = 0
+  foreach ($round in 1..4) {
+    $pair = foreach ($name in 'baseline', 'candidate') {
+      Start-Process pwsh -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-File', $measure, '-OutDir', $out, '-Label', $name, '-Decision', 'kept', '-Note', "round-$round", '-DecideOnly' -RedirectStandardOutput (Join-Path $dir "pair-$name.txt")
+    }
+    foreach ($process in $pair) { if (-not $process.WaitForExit(60000)) { $process.Kill($true) } }
+    $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+    if (@($data.labels | Where-Object { $_.label -in 'baseline', 'candidate' -and $_.note -eq "round-$round" }).Count -ne 2) { $lost++ }
+  }
+  Check 'two saves at once on different labels both land, four rounds running' ($lost -eq 0) "($lost round(s) lost a save)"
+  Check 'the lock file is gone once nothing holds it' (-not (Test-Path -LiteralPath "$json.lock"))
+  $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+
   # The document carries each label's decision, note and exact numbers, with their units.
   $text = Get-Content -LiteralPath $doc -Raw
   $missing = @()
