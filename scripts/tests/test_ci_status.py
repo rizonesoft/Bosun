@@ -256,6 +256,26 @@ class Skips(Base):
         self.assertEqual((code, data["action"]), (0, "proceed"))
         self.assertIn("no file differs", data["workflows"][0]["reason"])
 
+    def test_a_workflow_with_no_filter_is_never_skipped_not_even_for_an_exact_revert(self):
+        # The exact revert above skips a filtered workflow; one with no filter runs on every push, so it waits for its
+        # own run whatever the diff says.
+        self.assertEqual(self.go(["--gate", "--sha", OLD], FakeGh({"build.yml": [run(sha=OLD)], "plan.yml": [run(sha=OLD)]}), FakeGit())[0], 0)
+        git = FakeGit([], workflows={"build.yml": ALWAYS, "plan.yml": ALWAYS})
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json"], FakeGh(), git)
+        data = json.loads(out)
+        self.assertEqual({e["workflow"]: e["verdict"] for e in data["workflows"]}, {"build.yml": "none", "plan.yml": "none"})
+        self.assertEqual(data["action"], "wait")
+
+    def test_the_repository_s_plan_workflow_runs_on_every_change(self):
+        # Its Python suite reads files no path list kept up with (D00 T01 §7), so it has none, on either trigger.
+        text = (ROOT / ".github" / "workflows" / "plan.yml").read_text(encoding="utf-8")
+        self.assertEqual(ci_status.push_filters(text), (None, None))
+        trigger = text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("  push:\n    branches: [main]", trigger)
+        self.assertIn("  pull_request:", trigger)
+        for key in ("paths:", "paths-ignore:"):
+            self.assertNotIn(key, trigger)
+
     def test_use_proven_recognises_an_exact_revert(self):
         gh, git = self.exact_revert()
         self.assertEqual(self.go(["--sha", "HEAD", "--use-proven"], gh, git)[0], 0)

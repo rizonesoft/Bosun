@@ -1,26 +1,12 @@
 name: plan
 
 # The TODO graph is the execution plan: a malformed graph or a stale generated plan fails CI like any other defect.
+# It runs on every change, with no path list: the Python suite here reads the reviewer pin, the skill mirrors, the
+# prompt templates, the sources and the design files, and a list of those fell behind once (D00 T01 §7).
 on:
   push:
     branches: [main]
-    paths:
-      - 'todo/**'
-      - 'docs/reviews/**'
-      - 'scripts/**'
-      - '.claude/**'
-      - '.gitattributes'
-      - '.github/workflows/**'
-      - '.github/dependabot.yml'
   pull_request:
-    paths:
-      - 'todo/**'
-      - 'docs/reviews/**'
-      - 'scripts/**'
-      - '.claude/**'
-      - '.gitattributes'
-      - '.github/workflows/**'
-      - '.github/dependabot.yml'
   workflow_dispatch:
 
 permissions:
