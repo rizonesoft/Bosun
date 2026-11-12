@@ -58,6 +58,7 @@ title: "TODO-03 -- Campaign readiness"
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [ ] |
+| 21 | §21 | Run guard waits on a long local gate | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -746,6 +747,27 @@ Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the s
 - [x] Commit: `run: campaign shortcuts carry their runner's badge, and nothing resumes a run`
 
 **Test checkpoint:** `python scripts/run-tests.py test_build_icons` and `pwsh tests/start_run_test.ps1` exit 0, and fail if the badge is not drawn or both shortcuts name the same icon.
+
+## 21. Run guard waits on a long local gate
+
+Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`review_in_flight`) or the CI gate (`ci_in_flight`) runs, but not while `scripts/check-all.ps1` (about 15 minutes) or `scripts/measure-build.ps1` runs in the background: the Stop hook sends the turn straight back, three times in that section, and the session can only wait in a foreground loop, which holds the tool for up to ten minutes and is cut off past it (`docs/phase-runs/2026-11-12-phase-0.md`, Lessons). The fix follows the review marks: each long gate leaves a mark while it runs, and a live mark is a wait.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Mark a running gate. Done when: `scripts/check-all.ps1` and `scripts/measure-build.ps1` leave a mark under `build/gate-in-flight/` while they run and remove it however they end.
+2. Wait on it. Done when: the checkpoint passes.
+
+- [ ] Add `gate_in_flight(root)` to `scripts/lib/run_guard.py`, reading `build/gate-in-flight/*.json` (`pid`, `deadline`, `what`) as `review_in_flight` reads its marks: a mark counts only while its process lives and before its deadline. Done when: `scripts/tests/test_run_guard.py` shows a live mark counted, and a dead pid, a passed deadline and an unreadable file each not counted.
+- [ ] Add `gating` to `Env` and treat it in `on_stop` as `reviewing` and `ci_waiting` are: the turn may end, and it is not idleness. Done when: a test shows a Stop with a live gate mark is let through and the same Stop without one is sent back.
+- [ ] Write the mark from `scripts/check-all.ps1` and `scripts/measure-build.ps1` (one shared helper in `scripts/lib/`), atomically, with this process's id and a deadline of the gate's own limit, and remove it in a `finally`. Done when: `tests/check_all_test.ps1` (or the gate's existing test) shows the mark present during a run and gone after a pass, a failure and Ctrl+C. Cheaper substitute: a lock file with no pid or deadline, which a crash leaves holding the run.
+- [ ] Name the local gate as a wait in `.claude/skills/process-phase/SKILL.md` and its two mirrors, beside the CI gate, and strike the foreground-loop lesson. Done when: the mirror test passes with the new text.
+- [ ] Commit: `run: the guard waits on a long local gate`
+
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and removing the `gating` check from `on_stop` makes it fail.
 
 ## Verification
 
