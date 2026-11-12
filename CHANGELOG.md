@@ -21,20 +21,21 @@ Notable changes to Bosun are recorded here. The format follows [Keep a Changelog
 - `pwsh scripts/measure-build.ps1` measures the build's wall time and peak memory per step and keeps the results in `docs/build-performance.md`. `sccache` and `lld-link` were measured and not kept.
 - `python scripts/run-tests.py` runs the tooling's tests several classes at a time.
 - `pwsh scripts/start-run.ps1` starts the unattended run with its goal, and `pwsh scripts/setup-lsp.ps1` sets up code intelligence for Claude Code.
-- The unattended run starts on the newest Opus (`claude --model opus`), and the run guard keeps that model for every session it resumes. The start signs in with the long-lived token from the user's variables, which `pwsh scripts/store-claude-token.ps1 -FromVault` imports once from the 1Password Conclave vault.
+- An unattended run starts only when its operator starts it and lives in its own window. Closing the window stops it and everything it started, a crash or a reboot ends it, and nothing restarts or resumes one. The run guard keeps a live session working (the Stop hook, the in-session heartbeat, the waits) and records a run whose session is gone as `ended`.
+- `pwsh scripts/start-run.ps1 -InstallShortcut` writes two desktop shortcuts, "Bosun Claude campaign" and "Bosun Carbon campaign", each carrying the Bosun icon with its runner's badge. The Carbon one starts Antigravity on Gemini 4 Carbon.
+- The unattended run starts on the newest Opus (`claude --model opus`). The start signs in with the long-lived token from the user's variables, which `pwsh scripts/store-claude-token.ps1 -FromVault` imports once from the 1Password Conclave vault.
 - Renamed the project from DevMode to Bosun.
 - Bosun Panel's scope is the product's own data: memory, dev instances, the queue and machine tuning. The planned workflow pages (plan, reviews, unattended run, hooks, fleet), the agents page, the API workbench and Insights are dropped, with every control that acted on another repository.
 - The campaign preflight checks free space on the drive the checkout is on, and the deny list's scratch folder comes from `BOSUN_SCRATCH`. No folder is named in code.
 
 ### Removed
 
-- `bosun-heartbeat` and the `Bosun heartbeat` task. It took over each registered repo's own watchdog, so a repo that moved was left with none. Each repo keeps its own watchdog task, and `scripts/install.ps1` removes what the heartbeat left behind.
+- `bosun-heartbeat` and the `Bosun heartbeat` task. It took over each registered repo's own watchdog, so a repo that moved was left with none. `scripts/install.ps1` removes what the heartbeat left behind.
+- The run watchdog: the scheduled task that resumed a dead session in a hidden window, `run-guard.py watch`, `install` and `status --verify`, the `-Watchdog` option of `scripts/setup-clone.ps1`, and the install step in `scripts/install.ps1`. `python scripts/run-guard.py uninstall` removes a task an older checkout left.
 - The `Bosun attach D` startup task and `scripts/attach-vhdx.ps1`, with the volume they attached.
 
 ### Fixed
 
-- A sign-in check that hangs is stopped with its whole process tree at its own time limit. It used to hold the watchdog's tick until the hung process ended.
-- The disposable campaign test removes the watchdog task its sessions install for the clone. One outlived its run and ticked a deleted folder for two days.
 - The review dispatcher's tests stop the whole process tree on a timeout. Python's own timeout killed only the dispatcher, and a fake reviewer flooding stderr kept running until it filled the disk.
 
 - The WSL side now installs from a folder WSL can read, even when it can't see the drive holding the repository.

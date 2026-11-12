@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -199,28 +200,23 @@ class Wakes(WakeTree):
 import run_guard as guard  # noqa: E402
 
 
-class WakeToResume(WakeTree):
-    """The tick sees a passing wake and resumes the run; the resumed session applies it first; the row is ready."""
+class WakeToGoOn(WakeTree):
+    """The session's turn ends while a wake's check passes: it is sent back to apply the wake, and the row is ready."""
 
-    def test_tick_resumes_and_the_session_s_apply_frees_the_row(self):
+    def test_the_turn_is_sent_back_and_the_session_s_apply_frees_the_row(self):
         run = self.runner(0)
         rows = lambda: guard.runnable([{"ref": r.ref, "state": tg.section_disposition(r, tg.graph(self.root), {}, self.root)[0]}
                                        for r in tg.graph(self.root).values() if not r.done])
-        applied = []
-        spawned = []
-
-        def spawn(state):  # the resumed session: `wake --apply` is its first step, then it commits through its steps
-            applied.extend(tg.wake_apply(self.root, "2026-11-08", run))
-            spawned.append(dict(state))
-            return {"pid": 1, "started": 2}
-        env = guard.Env(rows=rows, signature=lambda: "one", alive=lambda s: False, live_here=lambda: [],
-                        child_alive=lambda c: False, spawn=spawn,
+        env = guard.Env(rows=rows, signature=lambda: "one", alive=lambda s: True,
                         finish=lambda: {"state": "waiting", "detail": "waiting on D00 T01 §1 (waiting-person)"},
                         wakes=lambda: tg.wake_check(self.root, tg.graph(self.root), run))
         state = {"active": True, "status": "active", "session_id": "me"}
         self.assertEqual(rows(), [])  # waiting on its third-party Need
-        state.update(wait_until=5000.0, wait_reason="rows-waiting")
-        self.assertIn("attempt 1", guard.watch(state, env, now=1000))  # a wake passed before the deadline
+        state.update(wait_until=time.time() + 1800, wait_reason="rows-waiting")
+        told = guard.on_stop(state, {"session_id": "me"}, env)  # a wake passed before the deadline
+        self.assertIn("todo-graph.py wake --apply", told)
+        self.assertNotIn("wait_until", state)
+        applied = tg.wake_apply(self.root, "2026-11-08", run)  # the session does as it was told
         self.assertEqual(applied, [{"section": "D00 T01 §1", "need": "third-party"}])
         self.assertEqual(rows(), ["D00 T01 §1"], "the row the wake freed isn't runnable")
         # The session's commit failed: the change is still in the tree, and a repeat finds nothing left to do.
@@ -294,29 +290,25 @@ class ParkedDependants(unittest.TestCase):
 
 
 class CrashAfterTheLastStamp(Evidence):
-    """Every section stamped, then the session died: the watchdog resumes the close-out work, and the run ends complete."""
+    """Every section stamped, and the turn ends before the close-out: the session is sent back to it, and the run then
+    ends complete. (A session that died there is gone for good: its close-out waits for the next run the operator starts.)"""
 
-    def test_the_run_resumes_the_close_out_and_then_reads_complete(self):
+    def test_the_turn_is_sent_back_to_the_close_out_and_the_run_then_reads_complete(self):
         rows = lambda: guard.runnable(tg.work_items(self.root, self.rows))
         finish = lambda: ({"state": "complete", "detail": "CI proven", "report": "# Acceptance"}
                           if tg.finish(self.root, self.rows, {})["complete"] else {"state": "unknown"})
         did = []
-
-        def spawn(state):  # the resumed session takes the close-out work query next gives it
-            item = tg.next_work(self.rows, {}, self.root)
-            did.append(item["state"])
-            self.close()
-            return {"pid": 1, "started": 2}
         written = []
-        env = guard.Env(rows=rows, signature=lambda: str(len(did)), alive=lambda s: False, live_here=lambda: [],
-                        child_alive=lambda c: False, spawn=spawn, finish=finish,
+        env = guard.Env(rows=rows, signature=lambda: str(len(did)), alive=lambda s: True, finish=finish,
                         write_acceptance=lambda kind, text: written.append(kind) or "docs/acceptance/x.md")
         state = {"active": True, "status": "active", "session_id": "me"}
         self.assertEqual(rows(), [f"file {self.path}", "phase 0"])
-        self.assertIn("attempt 1", guard.watch(state, env, now=1000))
+        self.assertIn(f"file {self.path}", guard.on_stop(state, {"session_id": "me"}, env))
+        did.append(tg.next_work(self.rows, {}, self.root)["state"])  # the session takes the close-out work query next gives it
+        self.close()
         self.assertEqual(did, ["needs-verification"])
         self.assertEqual(rows(), [])
-        self.assertEqual(guard.watch(state, env, now=2000), "complete")
+        self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, env))
         self.assertEqual((state["status"], written), ("complete", ["complete"]))
 
 

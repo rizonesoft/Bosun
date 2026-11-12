@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Keeps an unattended `process plan` run going; see scripts/lib/run_guard.py for the rules.
+"""Keeps an unattended `process plan` run working inside its own open window; see scripts/lib/run_guard.py for the rules.
+
+Nothing here restarts or resumes a run: a run starts only when the operator starts it, and ends with its session.
 
   hook                       one Claude Code hook event on stdin (.claude/settings.json)
-  watch                      one scheduled tick: resume a dead run, never beside a live session
-  status                     prints "active" or why not, then the detail
-  start --session <id>       switch the run on for a session already running
+  status                     prints "active" or why not, then the detail; a run whose session is gone is recorded as ended
+  start --session <id>       switch the run on for a session the operator is about to start (scripts/start-run.ps1)
+  wait --reason R            hold the active run until a time, as review-dispatch.py does for a reviewer
   halt --ground G --reason R record a halt (data-loss, credentials, shared-infrastructure, wrong-calculation, operator)
-  install | uninstall        add or remove the Windows scheduled task for `watch`
+  uninstall                  remove the scheduled task an older version installed ("<folder> run watchdog")
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ import argparse
 import calendar
 import time
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,50 +28,26 @@ import run_guard as guard  # noqa: E402
 
 
 def say(text: str) -> None:
-    if sys.stdout is not None:  # pythonw, as the scheduled task runs it, has no stdout
+    if sys.stdout is not None:  # a console-less parent gives no stdout
         print(text)
 
 
-def install() -> int:
-    python = Path(sys.executable)
-    windowless = python.with_name("pythonw.exe")
-    if not windowless.exists():  # a console every few minutes would interrupt the desktop, so nothing is scheduled
-        say(f"pythonw.exe isn't next to {python}, so the watchdog would open a console each time: install Python from "
-            f"python.org, which includes it, then run this again")
-        return 1
-    action = f'"{windowless}" "{Path(__file__).resolve()}" watch'
-    done = subprocess.run(["schtasks", "/Create", "/F", "/TN", guard.TASK_NAME, "/SC", "MINUTE", "/MO", str(guard.WATCH_MINUTES), "/IT", "/TR", action], capture_output=True, text=True)
-    say((done.stdout or done.stderr).strip())
-    return done.returncode
-
-
 def uninstall() -> int:
-    done = subprocess.run(["schtasks", "/Delete", "/F", "/TN", guard.TASK_NAME], capture_output=True, text=True)
+    """The watchdog task was retired on 2026-11-12 (nothing resumes a run), and nothing installs it any more: this
+    removes one an older version left behind."""
+    name = f"{guard.ROOT.name} run watchdog"
+    done = subprocess.run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, text=True, **guard.hidden())
     say((done.stdout or done.stderr).strip())
     return done.returncode
-
-
-def watch() -> int:
-    try:
-        result = guard.watch_tick()
-    except Exception as error:
-        guard.log(f"watch failed: {error!r}")
-        guard.record_tick(repr(error), False)
-        return 1
-    guard.log(f"watch: {result}")
-    guard.record_tick(result, True)
-    say(result)
-    return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("hook", "watch", "install", "uninstall"):
+    for name in ("hook", "uninstall"):
         commands.add_parser(name)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true", help="print only the JSON")
-    status.add_argument("--verify", action="store_true", help="check the watchdog's task and its last tick; exit 1 when unhealthy")
     wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
     wait.add_argument("--reason", required=True)
     wait.add_argument("--until", help="when the wait ends, as 2026-11-08T12:00:00Z")
@@ -78,8 +55,6 @@ def main() -> int:
     wait.add_argument("--detail", help="what is wrong and how to recover, shown by status")
     start = commands.add_parser("start")
     start.add_argument("--session", required=True)
-    start.add_argument("--permission-mode")
-    start.add_argument("--model", help="the model the session was started with, kept for every resume (an alias such as opus, or an exact id)")
     stop = commands.add_parser("halt")
     stop.add_argument("--ground", required=True, choices=guard.GROUNDS)
     stop.add_argument("--reason", required=True)
@@ -97,43 +72,41 @@ def main() -> int:
         if output:
             say(output)
         return 0
-    if args.command == "install":
-        return install()
     if args.command == "uninstall":
         return uninstall()
 
     if args.command == "status":
         unreadable = None
         try:
-            state = guard.load()
-        except (OSError, ValueError) as error:  # a corrupt state is shown, never raised: health still has to show
-            state, unreadable = {}, repr(error)
+            state = guard.settle_gone()  # a run whose session is gone has ended, and is recorded so here
+        except Exception as error:  # a corrupt or locked state is shown, never raised: health still has to show
+            unreadable = repr(error)
+            try:
+                state = guard.load()  # as it stands, when it is the sessions or the lock that couldn't be read
+                unreadable = None
+            except (OSError, ValueError):
+                state = {}
+            if unreadable is None:
+                state["last_error"] = f"{guard.stamp()} whether the session is still running couldn't be told: {error!r}"
         word = "unreadable" if unreadable else ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
-        detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "restarts", "yields", "last_restart", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
+        detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "yields", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
         if guard.waiting(state):
             detail["wait_until"] = guard.stamp(state["wait_until"])
         data = {"state": word, **detail, **guard.health(state)}
         if unreadable:
             data["state_error"] = unreadable
-        if args.verify:
-            data["verify"] = guard.verify()
-        code = 1 if args.verify and not data["verify"]["healthy"] else 0
         if args.json:
             say(json.dumps(data))
-            return code
+            return 0
         say(word)
         if unreadable:
             say(f"the run state can't be read: {unreadable}")
         for failure in data.get("hook_failures") or []:
             say(f"a hook failed open at {failure.get('at')}: {failure.get('error')}")
-        if args.verify:
-            say(f"watchdog {data['verify']['watchdog']}: " + ("healthy" if data["verify"]["healthy"] else "unhealthy"))
-            for problem in data["verify"]["problems"]:
-                say(f"  {problem}")
         if word == "waiting":
             say(f"waiting for {state['wait_reason']} until {detail['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
         say(json.dumps(data))
-        return code
+        return 0
     if args.command == "wait":
         if (args.until is None) == (args.minutes is None):
             say("give --until or --minutes")
@@ -161,25 +134,20 @@ def main() -> int:
         guard.log(f"wait: {args.reason} until {guard.stamp(until)}")
         say(f"waiting until {guard.stamp(until)}")
         return 0
-    if args.command == "watch":
-        return watch()
     with guard.locked():
         state = guard.load()
         if args.command == "start":
             try:
-                note = guard.start(state, args.session, args.permission_mode, guard.REAL, args.model)
+                guard.start(state, args.session, guard.REAL)
             except ValueError as error:
                 say(str(error))
                 return 1
-            if note:
-                say(note)
         else:
             guard.halt(state, args.ground, args.reason)
         guard.save(state)
     say(state.get("status", ""))
-    child = state.get("child")
-    if args.command == "halt" and child and guard.real_child_alive(child):
-        say(f"Resumed session {child['pid']} is still working and will stop at the end of its turn. To end it now: taskkill /PID {child['pid']}")
+    if args.command == "halt":
+        say("The session finishes its turn and is not sent back. To end it now, close its window.")
     return 0
 
 

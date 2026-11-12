@@ -14,12 +14,14 @@ faked `gh` answers CI for each commit by the newest e2e section stamped in it, s
     §5  green                             -> the next row each of those carries on to
 
 A faked `codex` returns clean reviews. Both fakes sit first on a PATH every process the test starts inherits, and the
-session's own shells see it (checked on 2026-11-08). The test drives recovery as the watchdog task would, calling the
-clone's `run-guard.py watch` every few minutes. A session told its watchdog is missing may install one for the clone,
-so the test removes that task at the end (`remove_clone_task`); no other task is touched. Right
-after §2's Started commit it kills the live session's whole tree once, and the watch must resume it and the resumed
-session must commit the next step of §2. Every process tree it started is stopped and the clone removed at the end,
-pass or fail; set BOSUN_E2E_KEEP=1 to keep the clone for a look.
+session's own shells see it (checked on 2026-11-08).
+
+Nothing in the repo restarts or resumes a run (the owner's rule of 2026-11-12), and a `claude -p` session ends when the
+Stop hook lets its turn end, where an interactive one would wait in its window for its own heartbeat. So the test plays
+the operator: when a session has ended and work is left, and no wait is in force, it starts the next one itself. Right
+after §2's Started commit it kills the live session's whole tree once: `run-guard.py status` must then read `ended`,
+nothing may start by itself, and the next session the test starts must commit the next step of §2. Every process tree
+it started is stopped and the clone removed at the end, pass or fail; set BOSUN_E2E_KEEP=1 to keep the clone for a look.
 """
 import json
 import os
@@ -40,7 +42,8 @@ REF ="D00 T01"  # the clone's only TODO file is 00-workspace/TODO-01
 SECTIONS = ["one", "two", "three", "four", "five"]
 PENDING_SECONDS = 35 * 60  # longer than the gate's own 30 minute wait, so one call ends in `wait`
 HOURS = float(os.environ.get("BOSUN_E2E_HOURS", "8"))
-WATCH_EVERY = 300  # between the test's own watch calls
+LOOK_EVERY = 300  # between the test's own looks at a run whose session has ended
+RUN_OVER = ("drained", "complete", "parked", "stalled", "stopped", "halted")  # the guard's own endings: nothing is left to start
 SCRATCH = Path(os.environ.get("BOSUN_E2E_SCRATCH") or os.environ.get("BOSUN_SCRATCH") or tempfile.gettempdir())
 
 FAKE_GH = r'''"""The e2e campaign's GitHub CLI: CI answers scripted by the newest e2e section stamped in each commit."""
@@ -300,20 +303,6 @@ def remove_tree(path):
     shutil.rmtree(path, onexc=writable)
 
 
-def remove_clone_task(clone, run=subprocess.run):
-    """Remove the watchdog task a campaign session installed for the clone, returning whether one was removed. The guard
-    tells a session with no watchdog to run `run-guard.py install`, which registers `<folder> run watchdog`: one such
-    task outlived its run and ticked a deleted folder every ten minutes for two days. Only a task whose action names this
-    clone is removed, so another checkout that happens to share the folder name keeps its own."""
-    if os.name != "nt":
-        return False
-    name = f"{Path(clone).name} run watchdog"
-    found = run(["schtasks", "/Query", "/TN", name, "/XML"], capture_output=True, timeout=60)
-    if found.returncode != 0 or os.path.normcase(str(clone)) not in os.path.normcase(found.stdout.decode("utf-8", "replace")):
-        return False
-    return run(["schtasks", "/Delete", "/F", "/TN", name], capture_output=True, timeout=60).returncode == 0
-
-
 def stop_tree(pid):
     if not pid:
         return
@@ -418,23 +407,6 @@ class ScriptedCi(unittest.TestCase):
             ROOT = saved
         self.assertIn("disposable campaign's fixture", run(["git", "log", "-1", "--format=%s"], cwd=inner["clone"]).stdout)
 
-    @unittest.skipUnless(os.name == "nt", "the watchdog is a Windows scheduled task")
-    def test_a_watchdog_task_installed_for_the_clone_is_removed_and_no_other(self):
-        calls = []
-
-        def scheduler(xml, code=0):
-            def run(args, **kwargs):
-                calls.append(args)
-                return subprocess.CompletedProcess(args, code if "/Query" in args else 0, xml.encode(), b"")
-            return run
-        ours = f'<Arguments>"{self.clone / "scripts" / "run-guard.py"}" watch</Arguments>'
-        self.assertTrue(remove_clone_task(self.clone, scheduler(ours)))
-        self.assertEqual(calls[-1], ["schtasks", "/Delete", "/F", "/TN", "clone run watchdog"])
-        for xml, code in (('<Arguments>"C:\\elsewhere\\clone\\scripts\\run-guard.py" watch</Arguments>', 0), ("", 1)):
-            calls.clear()
-            self.assertFalse(remove_clone_task(self.clone, scheduler(xml, code)))
-            self.assertFalse([c for c in calls if "/Delete" in c], "a task that isn't this clone's was deleted")
-
     def test_the_clone_cannot_start_a_campaign_of_its_own(self):
         self.assertFalse([k for k in self.seeded["env"] if k.startswith("BOSUN_E2E")],
                          "the sessions would inherit BOSUN_E2E, and their test suite would start a nested campaign")
@@ -453,24 +425,33 @@ class DisposableCampaign(unittest.TestCase):
     def git(self, *args):
         return run(["git", *args], cwd=self.clone).stdout
 
-    def guard_child(self):
+    def guard_state(self):
         try:
-            child = json.loads(self.state.read_text(encoding="utf-8")).get("child")
+            return json.loads(self.state.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return None
-        return child.get("pid") if isinstance(child, dict) else None
+            return {}
 
     def live_pid(self):
-        if self.first and self.first.poll() is None:
-            return self.first.pid
-        pid = self.guard_child()
-        return pid if alive(pid) else None
+        """The session the test started last, while it runs. The guard starts none, so there is no other."""
+        return self.sessions[-1].pid if self.sessions and self.sessions[-1].poll() is None else None
 
-    def watch(self):
-        done = run([sys.executable, "scripts/run-guard.py", "watch"], cwd=self.clone, env=self.env, timeout=600, check=False)
-        line = (done.stdout.strip().splitlines() or [""])[-1]
-        self.watches.append((time.time(), line))
-        print(f"[{time.strftime('%H:%M:%S')}] watch: {line}", flush=True)
+    def start_session(self):
+        """The operator's part, which nothing else plays: start a `process plan` session in the clone."""
+        log = open(self.work / f"session-{len(self.sessions) + 1}.log", "w", encoding="utf-8")
+        self.addCleanup(log.close)
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        session = subprocess.Popen([self.claude, "-p", "process plan", "--permission-mode", "bypassPermissions"], cwd=self.clone,
+                                   env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                   creationflags=flags, start_new_session=os.name != "nt")
+        self.sessions.append(session)
+        print(f"[{time.strftime('%H:%M:%S')}] started session {len(self.sessions)} (pid {session.pid})", flush=True)
+        return session
+
+    def status(self):
+        done = run([sys.executable, "scripts/run-guard.py", "status"], cwd=self.clone, env=self.env, timeout=600, check=False)
+        line = (done.stdout.strip().splitlines() or [""])[0]
+        self.looks.append((time.time(), line))
+        print(f"[{time.strftime('%H:%M:%S')}] status: {line}", flush=True)
         return line
 
     def section_text(self, ref):
@@ -492,26 +473,20 @@ class DisposableCampaign(unittest.TestCase):
             found.append((int(stamp), sha, subject, lines[1:]))
         return found
 
-    def test_a_disposable_campaign_meets_every_gate_action_and_survives_a_kill(self):
-        claude = shutil.which("claude")
-        self.assertIsNotNone(claude, "claude is not on PATH")
+    def test_a_disposable_campaign_meets_every_gate_action_and_a_killed_session_stays_dead(self):
+        self.claude = shutil.which("claude")
+        self.assertIsNotNone(self.claude, "claude is not on PATH")
         SCRATCH.mkdir(parents=True, exist_ok=True)
-        work = Path(tempfile.mkdtemp(prefix="bosun-campaign-e2e-", dir=str(SCRATCH)))
+        self.work = Path(tempfile.mkdtemp(prefix="bosun-campaign-e2e-", dir=str(SCRATCH)))
         if os.environ.get("BOSUN_E2E_KEEP") != "1":
-            self.addCleanup(remove_tree, work)
-        seeded = seed(work)
+            self.addCleanup(remove_tree, self.work)
+        seeded = seed(self.work)
         self.clone, self.env, self.state, fakes = seeded["clone"], seeded["env"], seeded["state"], seeded["fakes"]
-        self.addCleanup(remove_clone_task, self.clone)
         self.base = self.git("rev-parse", "HEAD").strip()
-        self.watches, self.first = [], None
-        self.addCleanup(lambda: [stop_tree(p) for p in {self.first and self.first.pid, self.guard_child()} if p])
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-        log = open(work / "first-session.log", "w", encoding="utf-8")
-        self.addCleanup(log.close)
-        self.first = subprocess.Popen([claude, "-p", "process plan", "--permission-mode", "bypassPermissions"], cwd=self.clone,
-                                      env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-                                      creationflags=flags, start_new_session=os.name != "nt")
-        deadline, next_watch, killed_at = time.time() + HOURS * 3600, time.time() + WATCH_EVERY, None
+        self.looks, self.sessions = [], []
+        self.addCleanup(lambda: [stop_tree(s.pid) for s in self.sessions if s.poll() is None])
+        self.start_session()
+        deadline, next_look, killed_at = time.time() + HOURS * 3600, time.time() + LOOK_EVERY, None
         while time.time() < deadline:
             time.sleep(30)
             subjects = [c[2] for c in self.commits()]
@@ -519,20 +494,30 @@ class DisposableCampaign(unittest.TestCase):
                 pid = self.live_pid()
                 self.assertIsNotNone(pid, "no live session to kill after §2 started")
                 stop_tree(pid)
+                self.sessions[-1].wait(timeout=120)
                 killed_at = time.time()
                 print(f"[{time.strftime('%H:%M:%S')}] killed the session tree {pid} after §2 started", flush=True)
-                line = self.watch()
-                self.assertRegex(line, r"^resumed", "the watch didn't resume the killed session")
-                next_watch = time.time() + WATCH_EVERY
+                # The run ended with its session, and nothing brings it back: no session starts by itself.
+                self.assertEqual(self.status(), "ended", "a run whose session was killed isn't recorded as ended")
+                owner = self.guard_state().get("session_id")
+                time.sleep(LOOK_EVERY)
+                self.assertEqual(self.status(), "ended", "the ended run changed by itself")
+                self.assertEqual(self.guard_state().get("session_id"), owner, "a session took the ended run over by itself")
+                self.start_session()  # the operator starts the run again
+                next_look = time.time() + LOOK_EVERY
                 continue
-            if time.time() >= next_watch:
-                next_watch = time.time() + WATCH_EVERY
-                line = self.watch()
-                # Settled: nothing left that the run can do, including rows that now wait on a person, as the filed faults do.
-                if self.live_pid() is None and line.startswith(("inactive", "stalled", "expired", "waiting: rows-waiting")):
+            if time.time() >= next_look and self.live_pid() is None:
+                next_look = time.time() + LOOK_EVERY
+                state = self.guard_state()
+                waits = state.get("active") and isinstance(state.get("wait_until"), (int, float)) and time.time() < state["wait_until"]
+                # Settled: nothing left that a run can do, including rows that now wait on a person, as the filed faults do.
+                if state.get("status") in RUN_OVER or (waits and state.get("wait_reason") == "rows-waiting"):
+                    self.status()
                     break
+                if not waits:  # a wait is honoured as an interactive session's heartbeat would honour it
+                    self.start_session()
         else:
-            self.fail(f"the campaign didn't finish within {HOURS} hours; watches: {self.watches[-5:]}")
+            self.fail(f"the campaign didn't finish within {HOURS} hours; state: {self.guard_state()}; looks: {self.looks[-5:]}")
         self.check(fakes, killed_at)
 
     def check(self, fakes, killed_at):
@@ -589,16 +574,16 @@ class DisposableCampaign(unittest.TestCase):
                         "no open section records §3's exhausted CI fault")
         self.assertTrue(any(re.search(r"unverified|no run|no answer", t, re.I) for t in filed_text),
                         "no open section records §4's unverified CI fault")
-        # recovery: the guard resumed after the kill, and the resumed session's next commit was §2's next step.
+        # the kill: the guard recorded the run as ended, and the session the operator then started took §2's next step.
         self.assertIsNotNone(killed_at, "the session was never killed")
         guard_log = (self.state.parent / "run-guard.log").read_text(encoding="utf-8", errors="replace")
-        self.assertRegex(guard_log, r"resum", "the guard log doesn't show the resume")
+        self.assertRegex(guard_log, r"status: ended session \S+ is gone", "the guard log doesn't show the run ending with its session")
         after_kill = next((c for c in commits if c[0] >= killed_at), None)
         self.assertIsNotNone(after_kill, "nothing was committed after the kill")
         self.assertTrue(re.search(rf"{REF} §2\b|e2e: write two", after_kill[2]) or "e2e/two.txt" in after_kill[3],
-                        f"the resumed session's first commit wasn't §2's next step: {after_kill[2]}")
+                        f"the next session's first commit wasn't §2's next step: {after_kill[2]}")
         self.assertEqual(self.git("status", "--porcelain").strip(), "", "the run left something uncommitted")
-        print(f"reviews: {len(read_calls(fakes / 'codex-calls'))}; watches: {len(self.watches)}")
+        print(f"reviews: {len(read_calls(fakes / 'codex-calls'))}; sessions: {len(self.sessions)}; looks: {len(self.looks)}")
 
 
 if __name__ == "__main__":

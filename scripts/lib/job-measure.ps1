@@ -12,7 +12,7 @@
 #
 # -OutputPath sends the command's output and errors to that file; without it they go to this console.
 
-if (-not ('Bosun.JobMeasure+Run' -as [type])) {
+if (-not ('Bosun.JobMeasure' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -98,6 +98,28 @@ namespace Bosun {
     static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32")]
     static extern IntPtr GetStdHandle(int which);
+    [DllImport("kernel32")]
+    static extern IntPtr GetCurrentProcess();
+
+    static IntPtr ownJob = IntPtr.Zero;
+
+    // Put this process in a job of its own that ends every process in it when this process ends, however it ends
+    // (its window closed, killed, or a normal exit): the job's only handle is this process's, so Windows closes it
+    // then. Everything this process starts from now on is in the job, and no breakaway is allowed. Once only.
+    public static void EndTreeWithThisProcess() {
+      if (ownJob != IntPtr.Zero) return;
+      IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+      if (job == IntPtr.Zero) throw Fail("could not create a job object", "this process");
+      JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+      limits.Basic.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+      if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ref limits, Marshal.SizeOf(limits))
+          || !AssignProcessToJobObject(job, GetCurrentProcess())) {
+        Exception failure = Fail("could not put this process in a job that ends with it", "this process");
+        CloseHandle(job);
+        throw failure;
+      }
+      ownJob = job;
+    }
 
     static Exception Fail(string what, string commandLine) {
       int error = Marshal.GetLastWin32Error();
@@ -218,6 +240,11 @@ namespace Bosun {
 }
 '@
 }
+
+# Stop-TreeWithThisWindow: from here on, everything this PowerShell process starts ends when the process does, so a
+# closed window leaves nothing running (scripts/start-run.ps1). Windows does it, through a job object, so it holds for
+# a window that is closed or a process that is killed, where no script gets to clean up.
+function Stop-TreeWithThisWindow { [Bosun.JobMeasure]::EndTreeWithThisProcess() }
 
 # One argument as CreateProcess and the C runtime read it back: quoted when it has a space, a tab or a quote, with the
 # backslashes before a quote doubled.

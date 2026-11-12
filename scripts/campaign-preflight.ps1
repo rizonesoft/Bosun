@@ -9,7 +9,7 @@
 # sign-in or token), -ReviewerModel (gpt-6-astra) and -Distro (Ubuntu). The other parameters point the checks at test
 # doubles (paths, registry keys, a task store) and are for tests/preflight_test.ps1.
 #
-# Tools are found on the PATH the watchdog's task launches with (the machine and user PATH in the registry), not this
+# Tools are found on the PATH a run's shortcut launches with (the machine and user PATH in the registry), not this
 # shell's, which may predate an installer's change. Each probe runs under -ProbeSeconds and is stopped with its whole
 # process tree when it overruns.
 param(
@@ -54,10 +54,10 @@ function Fail([string]$what, [string]$fix) {
 }
 function Tail([string]$text) { (($text -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' / ').Trim() }
 
-# A tool on the watchdog's PATH, run under the probe limit. $null (after failing the check) when it isn't there.
+# A tool on a run's PATH, run under the probe limit. $null (after failing the check) when it isn't there.
 function Probe([string]$tool, [string[]]$arguments, [string]$fix, [string]$dir = '', [hashtable]$environment = @{}) {
   $exe = Find-Tool $tool $SearchPath
-  if (-not $exe) { Fail "$tool is not on the PATH the watchdog launches with" $fix; return $null }
+  if (-not $exe) { Fail "$tool is not on the PATH a run launches with" $fix; return $null }
   $r = Invoke-Probe $exe $arguments $ProbeSeconds $SearchPath $dir $environment
   if ($r.TimedOut) { Fail "$tool $($arguments -join ' ') gave no answer within $ProbeSeconds seconds and was stopped" $fix; return $null }
   $r
@@ -87,7 +87,7 @@ function Find-VsCMake {
 function Test-CMake {
   $minimum = [version]'3.25'  # cmake_minimum_required in CMakeLists.txt
   $vs = Find-VsCMake
-  # The cmake the watchdog would run: the first on its PATH, as the build and every section's checkpoint use it.
+  # The cmake a run would use: the first on its PATH, as the build and every section's checkpoint use it.
   $found = Find-Tool 'cmake' $SearchPath
   if (-not $found) {
     Fail 'cmake is not on PATH' $vs.Fix
@@ -152,13 +152,13 @@ function Test-Gh {
   Pass 'gh signed in'
 }
 
-# Claude as the watchdog's sessions see it: the user's CLAUDE_CODE_OAUTH_TOKEN from the registry, as Task Scheduler
-# hands it on, and none of the variables the guard strips (run_guard.py SCRUBBED). The token is passed, never printed.
+# Claude as a run's session signs in: the user's CLAUDE_CODE_OAUTH_TOKEN from the registry, as a window opened from
+# the shortcut gets it, and none of the variables that would bill an account. The token is passed, never printed.
 function Test-Claude {
   $login = 'run `claude`, then /login with the subscription account, and run the preflight again'
   $long = 'in your own terminal run `claude setup-token` (a long-lived token for unattended jobs), then `pwsh scripts/store-claude-token.ps1` to keep it as your user variable CLAUDE_CODE_OAUTH_TOKEN, and run the preflight again'
   $token = Get-RegValue $UserEnvKey 'CLAUDE_CODE_OAUTH_TOKEN'
-  $environment = @{ CLAUDE_CODE_OAUTH_TOKEN = $token }  # $null removes one this shell has but the watchdog wouldn't
+  $environment = @{ CLAUDE_CODE_OAUTH_TOKEN = $token }  # $null removes one this shell has but a new window wouldn't
   foreach ($k in 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY') { $environment[$k] = $null }
   $quiet = [IO.Path]::GetTempPath()  # outside any repo, so no project's hooks run
   $r = Probe 'claude' @('auth', 'status', '--json') $login $quiet $environment
@@ -321,13 +321,18 @@ function Test-Ci {
 }
 
 function Test-Guard {
-  $r = Probe 'python' @((Join-Path $Repo 'scripts\run-guard.py'), 'status', '--verify') 'install Python 3 and put it on PATH' $Repo
+  # The guard holds a run only through its hooks, in the session's own window: nothing is scheduled, so what can be
+  # wrong is a state it can't read or a hook that failed open.
+  $fix = 'run `python scripts/run-guard.py status` and fix what it says'
+  $r = Probe 'python' @((Join-Path $Repo 'scripts\run-guard.py'), 'status', '--json') 'install Python 3 and put it on PATH' $Repo
   if (-not $r) { return }
-  if ($r.Code -ne 0) {
-    Fail "the watchdog isn't healthy: $(Tail $r.Out)" 'run `python scripts/run-guard.py status --verify` and fix each reason it gives; `python scripts/run-guard.py install` puts the watchdog task back'
-    return
-  }
-  Pass 'watchdog healthy (run-guard.py status --verify)'
+  $status = $null
+  if ($r.Code -eq 0 -and $r.Out -match '(?s)\{.*\}') { try { $status = $Matches[0] | ConvertFrom-Json } catch { $status = $null } }
+  if (-not $status) { Fail "the run guard gave no status (exit $($r.Code)): $(Tail $r.Out)" $fix; return }
+  if ($status.state -eq 'unreadable') { Fail "the run guard can't read its state: $($status.state_error)" $fix; return }
+  $failures = @($status.hook_failures)
+  if ($failures) { Fail "a run guard hook failed open, so it would not hold a run: $($failures[-1].error)" $fix; return }
+  Pass "run guard healthy (run-guard.py status: $($status.state))"
 }
 
 # --- The machine -------------------------------------------------------------------------------------------------
@@ -362,8 +367,8 @@ function Test-Hold {
 function Test-Setup {
   $fix = "in an elevated shell: ``pwsh $(Join-Path $PSScriptRoot 'campaign-admin-setup.ps1') -Apply``"
   $dir = $DotnetDir
-  if (-not $dir) { $dir = Resolve-WatchdogDotnet $SearchPath }
-  if (-not $dir) { Fail 'no dotnet.exe on the watchdog''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup'; return }
+  if (-not $dir) { $dir = Resolve-RunDotnet $SearchPath }
+  if (-not $dir) { Fail 'no dotnet.exe on a run''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup'; return }
   $wrong = @()
   try { $now = Get-UpdateState $PolicyKey } catch { Fail "the update policy can't be read: $($_.Exception.Message)" $fix; return }
   foreach ($name in $UpdateValues.Keys) {

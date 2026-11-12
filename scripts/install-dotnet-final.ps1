@@ -1,5 +1,5 @@
 # The body of the `Bosun dotnet final` task, which admin setup registers to run as SYSTEM daily and at startup. It
-# installs the final .NET 11 SDK into the folder the watchdog's dotnet.exe lives in, once Microsoft ships it, then
+# installs the final .NET 11 SDK into the folder a run's dotnet.exe lives in, once Microsoft ships it, then
 # removes its own task. Until then it changes nothing: `dotnet-install.ps1 -Channel 11.0 -Quality GA` would install a
 # release candidate today, so the version comes from `latest-sdk` in the 11.0 releases.json, and only one with no
 # prerelease suffix is installed. Runs under Windows PowerShell 5.1.
@@ -46,7 +46,7 @@ try {
     $script = Join-Path ([IO.Path]::GetTempPath()) "dotnet-install-$PID.ps1"
     Invoke-WebRequest -UseBasicParsing -Uri $Installer -OutFile $script -TimeoutSec 120
   }
-  # -SkipNonVersionedFiles leaves dotnet.exe alone: the host any running build server, language server or watchdog
+  # -SkipNonVersionedFiles leaves dotnet.exe alone: the host any running build server, language server or run
   # holds open, which made every install since 2026-11-11 fail with "Can't unlink ./dotnet.exe: Permission denied".
   # The SDK itself lives in versioned folders, and the RC host runs the final SDK.
   Say "installing SDK $latest into $InstallDir"

@@ -17,7 +17,7 @@ function Fake([string]$name, [string]$body) {
   Set-Content (Join-Path $dir 'cmake.cmd') "@echo off`r`n$body" -Encoding ascii
   $dir
 }
-# The preflight with $path as the watchdog's PATH. Without -Only, the CMake and deny list checks these cases cover.
+# The preflight with $path as a run's PATH. Without -Only, the CMake and deny list checks these cases cover.
 function Preflight([string]$path, [string[]]$extra = @()) {
   if ($extra -notcontains '-Only') { $extra += @('-Only', 'cmake,denylist') }
   $out = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-preflight.ps1') -SearchPath $path @extra 2>&1
@@ -83,7 +83,7 @@ try {
   $r = Preflight $system @('-Only', 'nope')
   Check ($r.Code -eq 2 -and $r.Text -match 'the checks are bosun, cmake') 'an unknown check name exits 2 and lists the checks'
   $r = Preflight $system @('-Only', 'bosun')
-  Check ($r.Code -eq 1 -and $r.Text -match 'bosun is not on the PATH the watchdog launches with' -and $r.Text -match 'fix: install it with `pwsh scripts/install.ps1`') 'no bosun fails with its fix'
+  Check ($r.Code -eq 1 -and $r.Text -match 'bosun is not on the PATH a run launches with' -and $r.Text -match 'fix: install it with `pwsh scripts/install.ps1`') 'no bosun fails with its fix'
   $d = Tool 'bosun-bad' 'bosun' "echo cannot reach the logger`r`nexit /b 1"
   $r = Preflight "$d;$system" @('-Only', 'bosun')
   Check ($r.Code -eq 1 -and $r.Text -match 'bosun status failed \(exit 1\)') 'a failing bosun status fails'
@@ -121,7 +121,7 @@ try {
   $r = Preflight "$d;$system" @('-Only', 'codex')
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   codex signed in, and gpt-6-astra replied') 'a signed-in codex whose reviewer replies passes'
 
-  # Claude, as the watchdog's sessions would sign in. The fake reports a token sign-in only when the token reaches it,
+  # Claude, as a run's session would sign in. The fake reports a token sign-in only when the token reaches it,
   # and an API key sign-in only when one does.
   $claudeKey = "HKCU:\Software\BosunTest\preflight-env-$PID"
   New-Item -Path $claudeKey -Force | Out-Null
@@ -193,7 +193,7 @@ try {
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -Remove | Out-Null
   $r = Preflight "$d;$system" $claude
   Remove-Item Env:CLAUDE_CODE_OAUTH_TOKEN
-  Check ($r.Code -eq 1 -and $r.Text -match 'in [23] days') 'a token only this shell has is not what the watchdog sees, so it does not count'
+  Check ($r.Code -eq 1 -and $r.Text -match 'in [23] days') 'a token only this shell has is not what a new window gets, so it does not count'
   'bad' | & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord | Out-Null
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 1 -and $r.Text -match "didn't reply READY" -and $r.Text -match 'the token may be wrong or revoked') 'a token that does not work fails on the real reply'
@@ -303,11 +303,11 @@ try {
   New-Item -ItemType Directory -Force (Join-Path $clone 'scripts') | Out-Null
   # Stand-ins for the repo's own CI and guard scripts, answering with the exit code the test sets.
   Set-Content (Join-Path $clone 'scripts\ci_status.py') "import os, sys`ncode = int(os.environ.get('BOSUN_TEST_CI', '0'))`nprint('build.yml: faked')`nnote = os.environ.get('BOSUN_TEST_CI_NOTE', 'to get a real run: gh workflow run build.yml --ref main')`nif code == 5: print(note)`nsys.exit(code)" -Encoding utf8
-  Set-Content (Join-Path $clone 'scripts\run-guard.py') "import os, sys`nprint('task: faked')`nsys.exit(int(os.environ.get('BOSUN_TEST_GUARD', '0')))" -Encoding utf8
+  Set-Content (Join-Path $clone 'scripts\run-guard.py') "import json, os, sys`nhow = os.environ.get('BOSUN_TEST_GUARD', 'ok')`nif how == 'crash': sys.exit(1)`nprint(json.dumps({'state': 'unreadable' if how == 'unreadable' else 'inactive', 'state_error': 'JSONDecodeError', 'hook_failures': [{'at': 'now', 'error': 'OSError(disk full)'}] if how == 'hook' else []}))" -Encoding utf8
   git -C $clone add -A; git -C $clone -c user.name=t -c user.email=t@t commit -q -m seed; git -C $clone push -q origin main 2>&1 | Out-Null
   $repoArgs = @('-Only', 'tree,pushed,ci,guard', '-Repo', $clone)
   $r = Preflight $tools $repoArgs
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   clean tree' -and $r.Text -match 'is main on the remote' -and $r.Text -match 'ok   CI green' -and $r.Text -match 'ok   watchdog healthy') 'a clean, pushed repo with green CI and a healthy guard passes'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   clean tree' -and $r.Text -match 'is main on the remote' -and $r.Text -match 'ok   CI green' -and $r.Text -match 'ok   run guard healthy') 'a clean, pushed repo with green CI and a healthy guard passes'
   Set-Content (Join-Path $clone 'dirty.txt') 'x'
   $r = Preflight $tools $repoArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'has uncommitted changes' -and $r.Text -match 'fix: commit or stash') 'a dirty tree fails with its fix'
@@ -340,10 +340,12 @@ try {
   $r = Preflight $tools @('-Only', 'ci', '-Repo', $clone)
   Check ($r.Code -eq 1 -and $r.Text -match 'fix: `gh auth status`' -and $r.Text -notmatch 'push HEAD') 'an unreadable remote head is told to check gh, not to push'
   Remove-Item Env:BOSUN_TEST_CI, Env:BOSUN_TEST_CI_NOTE
-  $env:BOSUN_TEST_GUARD = '1'
-  $r = Preflight $tools @('-Only', 'guard', '-Repo', $clone)
+  foreach ($c in @(@{ How = 'crash'; Says = 'gave no status' }, @{ How = 'unreadable'; Says = "can't read its state: JSONDecodeError" }, @{ How = 'hook'; Says = 'hook failed open.*disk full' })) {
+    $env:BOSUN_TEST_GUARD = $c.How
+    $r = Preflight $tools @('-Only', 'guard', '-Repo', $clone)
+    Check ($r.Code -eq 1 -and $r.Text -match $c.Says -and $r.Text -match 'fix: run `python scripts/run-guard.py status`' -and $r.Text -notmatch 'watchdog|install') "a guard that reads '$($c.How)' fails with its fix, and names no watchdog"
+  }
   Remove-Item Env:BOSUN_TEST_GUARD
-  Check ($r.Code -eq 1 -and $r.Text -match "the watchdog isn't healthy" -and $r.Text -match 'run-guard.py status --verify') 'an unhealthy guard fails with its fix'
 
   # --- The machine ---
   $drive = [IO.Path]::GetPathRoot($work)

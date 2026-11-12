@@ -57,7 +57,7 @@ title: "TODO-03 -- Campaign readiness"
 | 17 | §17 | Branch protection on main, read back | §8 | [x] |
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
-| 20 | §20 | Agent badge on each unattended run shortcut | -- | [ ] |
+| 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -722,12 +722,12 @@ Filed 2026-11-12 on the owner's request for a desktop shortcut that runs the pla
 - [ ] Wire the guard's end-of-turn check into Antigravity's hook, or, where it has none, have the watchdog continue a stalled session with `agy --continue` and the goal prompt. Done when: a fake `agy` in the guard harness is held or continued until `query next` prints null, and released on closeout, park or the operator's stop.
 - [ ] Have `scripts/start-run.ps1 -Agent antigravity` claim the guard with `--runner antigravity` before starting `agy`, and drop its in-prompt "wait in this session" line. Done when: `tests/start_run_test.ps1` shows the claim and the shorter prompt.
 - [ ] Run the shortcut for one real section and record the outcome in the phase run file. Done when: an Antigravity session shipped or parked one ready row with no operator input, or the blocker is recorded with its fix.
-- [ ] Commit: `run: the guard holds and resumes an Antigravity run`
+- [ ] Commit: `run: the guard holds an Antigravity run in its window`
 
 **Test checkpoint:** `python scripts/run-tests.py test_run_guard` and `pwsh tests/start_run_test.ps1` exit 0; removing the Antigravity hold makes the guard harness fail.
-## 20. Agent badge on each unattended run shortcut
+## 20. Runner badge and campaign names on the run shortcuts
 
-Filed 2026-11-12 on the owner's request: the two desktop shortcuts, "Bosun unattended run" (Claude Code) and "Bosun unattended run (Antigravity)", carry the same Bosun icon (`resources/bosun.ico`, set by `scripts/start-run.ps1 -InstallShortcut`), so they cannot be told apart at a glance. Each gets the Bosun icon with a small badge of its agent in the bottom-right corner. The badge is taken, when the shortcut is written, from the icon of the agent's own program on this machine (`claude` and `agy`, found on `PATH`), so no other company's logo is committed here; an agent whose program has no icon of its own gets a lettered badge instead. The base stays `resources/bosun.ico`, as `AGENTS.md` requires of every app icon.
+Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the same Bosun icon (`resources/bosun.ico`), so they could not be told apart at a glance. Reshaped the same day on the owner's instruction to match the launchers of the owner's other campaigns (Office, Isotone): the shortcuts are named "Bosun Claude campaign" and "Bosun Carbon campaign", and each carries the Bosun icon with a round badge in the bottom-right corner, in its runner's colour with a white outline (`#D97757` for Claude Code, `#4C8DF6` for Antigravity on Gemini 4 Carbon). A runner's mark is its company's trademark, so none is committed here: when `marks\claude.svg` or `marks\gemini.svg` exists in the icon folder on this PC it is drawn in white inside the badge from 32 px up, and without it the badge carries its colour alone. The frames come from the masters in `design/icon/`, as `AGENTS.md` requires of every app icon. Decision recorded: the earlier design (a badge cut from the agent program's own icon, a lettered fallback, a PowerShell compositor) is withdrawn in favour of the owner's own pattern; reversing it costs one rewrite of `badged` in `scripts/build-icons.py`. The Carbon shortcut now starts Antigravity on `gemini-4-carbon-medium` (the `-AgyModel` default), so its name is true; reversing that is one default.
 
 **Phase:** 0
 **Needs:** none
@@ -735,18 +735,17 @@ Filed 2026-11-12 on the owner's request: the two desktop shortcuts, "Bosun unatt
 
 **Build order:**
 
-1. Build the compositor and its test. Done when: `pwsh tests/shortcut_icon_test.ps1` exits 0.
+1. Render the badge in the icon builder. Done when: `python scripts/run-tests.py test_build_icons` exits 0.
 2. Use it from `scripts/start-run.ps1 -InstallShortcut`. Done when: both shortcuts on this machine show their badge.
 
-- [ ] Write `scripts/lib/shortcut-icon.ps1` with `New-BadgedIcon -Base <ico> -Badge <bitmap> -Out <ico>`: for each of 16, 24, 32, 48 and 256 pixels, draw the base at that size and the badge over its bottom-right corner at half the width, and write one `.ico` holding all five as PNG entries (temporary file, then replace). Done when: `tests/shortcut_icon_test.ps1` reads the file back, finds the five sizes, and finds the top-left quarter equal to the base and the bottom-right quarter changed, at 32 and 256 pixels. Cheaper substitute: one 32 pixel image, which Windows blurs on a large-icon desktop.
-- [ ] Add `Get-AgentBadge -Agent <claude|antigravity>` to `scripts/lib/shortcut-icon.ps1`: resolve the agent's command on `PATH` to its program file and take that file's largest icon; when the command is missing, is a script with no icon, or carries only the stock Windows program icon, return a lettered badge (`C` or `A`, white on the accent colour from `design/tokens/colors.json`) and say which was used. Done when: the test shows a fixture program's icon is used, and that a missing command and a `.cmd` shim each give the lettered badge. Cheaper substitute: committing the agents' logos, which are not this project's to ship.
-- [ ] Write the badged icon to the `Bosun/icons` folder under the user's local application data (`claude.ico`, `antigravity.ico`) from `scripts/start-run.ps1 -InstallShortcut`, and point the shortcut's `IconLocation` at it. Done when: `tests/start_run_test.ps1` shows each agent's shortcut naming its own icon file, with `-IconDir` pointing the test at a temporary folder. Cheaper substitute: writing the icon into the repo, which makes a generated file look like a source.
-- [ ] Fall back to `resources/bosun.ico` in `scripts/start-run.ps1` when the badged icon cannot be made, with a one-line notice, so the shortcut is still written. Done when: the test shows an unwritable icon folder gives a shortcut with the plain Bosun icon and exit 0.
-- [ ] Rewrite both shortcuts on this machine with `pwsh scripts/start-run.ps1 -InstallShortcut` and `-Agent antigravity -InstallShortcut`. Done when: each shortcut's `IconLocation` read back names its badged icon and a rendered copy of each icon is looked at once at 32 and 256 pixels.
-- [ ] Document the badge in the `-InstallShortcut` lines of `README.md`. Done when: the README says each shortcut carries its agent's badge and where the icon comes from.
-- [ ] Commit: `run: each unattended run shortcut carries its agent's badge`
+- [x] Add `--badge-fill <#RRGGBB>` and `--badge-mark <svg>` to `scripts/build-icons.py`: every frame of `FRAMES` gets the badge (radius 24% of the frame, white outline, the mark in white from 32 px up), written atomically to `--out`, which must be outside the repository. Done when: `scripts/tests/test_build_icons.py` shows a badged icon keeps the eight frame sizes, leaves the top-left quarter of the 256 px frame equal to the plain icon and changes the bottom-right quarter, differs with and without a mark at 256 px and not at 16 px, and refuses an `--out` inside the repository. Cheaper substitute: one 32 px image, which Windows blurs on a large-icon desktop.
+- [x] Write both shortcuts from one `pwsh scripts/start-run.ps1 -InstallShortcut` ("Bosun Claude campaign" and "Bosun Carbon campaign"), each pointing its `IconLocation` at its own icon (`bosun-campaign-claude.ico`, `bosun-campaign-carbon.ico`) in the `Bosun` folder under the user's local application data, and remove the shortcuts' earlier names. Done when: `tests/start_run_test.ps1` shows each shortcut naming its own icon file, with `-IconDir` pointing the test at a temporary folder, the two icons differing, and the earlier names gone. Cheaper substitute: writing the icon into the repo, which makes a generated file look like a source.
+- [x] Fall back to `resources/bosun.ico` in `scripts/start-run.ps1` when the badged icon cannot be made, with a one-line notice, so the shortcut is still written. Done when: the test shows an icon folder that cannot be made gives shortcuts with the plain Bosun icon and exit 0.
+- [x] Rewrite both shortcuts on this machine with `pwsh scripts/start-run.ps1 -InstallShortcut`. Done when: each shortcut's `IconLocation` read back names its badged icon and a rendered copy of each icon is looked at once at 32 and 256 pixels.
+- [x] Document the shortcuts in `AGENTS.md` and the header of `scripts/start-run.ps1`. Done when: both say each shortcut carries its runner's badge and where the icon and the marks come from.
+- [x] Commit: `run: campaign shortcuts carry their runner's badge, and nothing resumes a run`
 
-**Test checkpoint:** `pwsh tests/shortcut_icon_test.ps1` and `pwsh tests/start_run_test.ps1` exit 0, and fail if the badge is not drawn or both shortcuts name the same icon.
+**Test checkpoint:** `python scripts/run-tests.py test_build_icons` and `pwsh tests/start_run_test.ps1` exit 0, and fail if the badge is not drawn or both shortcuts name the same icon.
 
 ## Verification
 

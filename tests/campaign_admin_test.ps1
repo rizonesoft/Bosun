@@ -48,7 +48,7 @@ try {
   Check ($r.Code -eq 0 -and $now.NoAutoRebootWithLoggedOnUsers.Value -eq 1 -and $now.AUOptions.Value -eq 4) 'apply sets both update values and reads them back'
   Check ((Matches) -and (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and (Test-Path (Join-Path $bin 'lib\campaign.ps1'))) 'apply registers the task as defined and copies its body'
   $dotnetTask = Get-CampaignTask 'Bosun dotnet final' $store
-  Check ($dotnetTask.User -eq 'SYSTEM' -and $dotnetTask.Arguments.Contains("-InstallDir `"$dotnetDir`"") -and ($dotnetTask.Triggers -join ',') -eq 'Boot,Daily') 'the SDK task runs as SYSTEM daily and at startup, given the watchdog''s dotnet folder'
+  Check ($dotnetTask.User -eq 'SYSTEM' -and $dotnetTask.Arguments.Contains("-InstallDir `"$dotnetDir`"") -and ($dotnetTask.Triggers -join ',') -eq 'Boot,Daily') 'the SDK task runs as SYSTEM daily and at startup, given the dotnet folder a run uses'
   $saved = [IO.File]::ReadAllText($record)
   $r = Setup @('-Apply')
   Check ($r.Code -eq 0 -and $r.Text -match 'keeping the update values saved' -and [IO.File]::ReadAllText($record) -eq $saved) 'a repeat apply keeps the first saved state'
@@ -81,7 +81,7 @@ try {
   New-Item -ItemType Directory -Force $empty | Out-Null
   $noDotnet = @($common | Where-Object { $_ -ne '-DotnetDir' -and $_ -ne $dotnetDir }) + @('-SearchPath', $empty)
   $out = & $pwsh -NoProfile -File $setup -Restore @noDotnet 2>&1
-  Check ($LASTEXITCODE -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store)) "restore runs with no dotnet on the watchdog's PATH ($(($out | Select-Object -Last 1)))"
+  Check ($LASTEXITCODE -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store)) "restore runs with no dotnet on a run's PATH ($(($out | Select-Object -Last 1)))"
   $out = & $pwsh -NoProfile -File $setup -Apply @noDotnet 2>&1
   Check ($LASTEXITCODE -eq 1 -and ($out -join ' ') -match 'no dotnet.exe') 'while apply still needs it'
 
@@ -130,7 +130,7 @@ Add-Content '$sdks' "`$Version [`$InstallDir\sdk]"
   $r = Body '11.0.100-rc.3.26522.148' $rc
   Check ($r.Code -eq 0 -and $r.Text -match 'prerelease, nothing changed' -and $r.Task -and -not $r.Installed) 'before release the SDK task changes nothing and keeps itself'
   $r = Body '11.0.100' $rc
-  Check ($r.Code -eq 0 -and $r.Installed -eq "11.0.100 $dotnetDir skip=True" -and -not $r.Task) 'a final SDK installs into the watchdog''s folder, leaving the in-use dotnet.exe alone, then the task removes itself'
+  Check ($r.Code -eq 0 -and $r.Installed -eq "11.0.100 $dotnetDir skip=True" -and -not $r.Task) 'a final SDK installs into the folder the dotnet a run uses is in, leaving the in-use dotnet.exe alone, then the task removes itself'
   $env:BOSUN_FAKE_INSTALL_FAIL = '1'
   $r = Body '11.0.100' $rc
   Remove-Item Env:BOSUN_FAKE_INSTALL_FAIL

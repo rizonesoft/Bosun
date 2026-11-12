@@ -29,21 +29,9 @@ $logsWsl = (wsl.exe -d $Distro -- wslpath -a ((Join-Path $env:LOCALAPPDATA 'Bosu
 wsl.exe -d $Distro -- bash "$stageWsl/install.sh" $exeWsl $logsWsl
 if ($LASTEXITCODE) { throw "WSL install failed with exit $LASTEXITCODE" }
 
-# The global heartbeat was retired on 2026-11-10: each repo keeps its own watchdog. An install over an older one
-# removes what that heartbeat left, so no task keeps ticking a script that is gone.
-# That heartbeat had removed each registered repo's own watchdog task, so each Windows repo still on it gets its own
-# back first, from its own run guard: otherwise the upgrade would leave its unattended run with nothing to resume it.
-$registry = Join-Path $env:LOCALAPPDATA 'Bosun\heartbeat\repos.json'
-if (Test-Path -LiteralPath $registry) {
-  $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
-  foreach ($r in @((Get-Content -LiteralPath $registry -Raw | ConvertFrom-Json).repos | Where-Object { $_ -and -not $_.distro })) {
-    $guard = Join-Path $r.path 'scripts\run-guard.py'
-    if (-not (Test-Path -LiteralPath $guard)) { "heartbeat: $($r.path) has no run guard now, so it has no watchdog to hand back"; continue }
-    & $python $guard install | Out-Null
-    if ($LASTEXITCODE) { throw "could not give $($r.path) its own watchdog back (python `"$guard`" install, exit $LASTEXITCODE), so the heartbeat is left in place: fix that, then run this again" }
-    "heartbeat: $($r.path) has its own watchdog task again"
-  }
-}
+# The global heartbeat task was retired on 2026-11-10. An install over an older one removes what it left, so no task
+# keeps ticking a script that is gone. Nothing is scheduled in its place, here or in any other repository: a run
+# starts only when its operator starts it, and nothing resumes one (the owner's rule of 2026-11-12).
 if (Get-ScheduledTask -TaskPath '\' -ErrorAction Stop | Where-Object TaskName -EQ 'Bosun heartbeat') {
   Unregister-ScheduledTask -TaskName 'Bosun heartbeat' -Confirm:$false -ErrorAction Stop
 }

@@ -14,7 +14,7 @@ pwsh scripts/setup-clone.ps1
 
 It turns on the repository's git hooks by setting `core.hooksPath` to `scripts/hooks` in the clone's own config, so a commit that would leave the generated plan stale or the TODO graph invalid is refused before it lands. It is safe to run again, and `-Repo <folder>` sets up a clone other than the one the script is in. To undo it: `git config --local --unset core.hooksPath`.
 
-Add `-Watchdog` only on a machine that runs the plan unattended: it installs the scheduled task that resumes a run, and needs Python and Windows Task Scheduler. It installs only when the task is missing, leaves one that already runs this clone alone, and reports one that belongs to another clone or is disabled without replacing it. To undo it: `python scripts/run-guard.py uninstall`. Bosun itself needs neither.
+Nothing is scheduled. An unattended run starts only when you start it (`pwsh scripts/start-run.ps1`, or its desktop shortcuts), lives in its own window and ends with it; nothing restarts or resumes one. The watchdog task that used to resume a run was retired on 2026-11-12, with the `-Watchdog` option that installed it: a clone that still has the task removes it with `python scripts/run-guard.py uninstall`. Bosun itself needs no unattended run.
 
 ## What do I need?
 

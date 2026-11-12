@@ -1,4 +1,4 @@
-# What the campaign's machine scripts share: the PATH the watchdog launches with, bounded probes, the held power and
+# What the campaign's machine scripts share: the PATH a run launches with, bounded probes, the held power and
 # lock values, and the two SYSTEM tasks admin setup registers. Dot-sourced by scripts/campaign-preflight.ps1,
 # scripts/campaign-hold.ps1, scripts/campaign-admin-setup.ps1 and scripts/install-dotnet-final.ps1, which runs as
 # SYSTEM under Windows PowerShell 5.1, so nothing here needs PowerShell 7.
@@ -37,8 +37,8 @@ function Find-Tool([string]$name, [string]$searchPath) {
   $null
 }
 
-# The folder of the dotnet.exe the watchdog's launch environment resolves, or $null.
-function Resolve-WatchdogDotnet([string]$searchPath = (Get-RegistryPath)) {
+# The folder of the dotnet.exe a run's launch environment resolves, or $null.
+function Resolve-RunDotnet([string]$searchPath = (Get-RegistryPath)) {
   $found = Find-Tool 'dotnet.exe' $searchPath
   if ($found) { Split-Path $found } else { $null }
 }

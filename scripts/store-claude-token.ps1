@@ -1,5 +1,5 @@
 # Keeps the long-lived token `claude setup-token` prints as the user variable CLAUDE_CODE_OAUTH_TOKEN (D00 T03 §10).
-# Task Scheduler hands the user's variables to every process it starts, so the watchdog's Claude sessions sign in with
+# Windows hands the user's variables to every window opened after they are set, so a run's Claude session signs in with
 # it and outlast a claude.ai sign-in, which ends on the date `claude auth status --json` gives as loginExpiresAt. The
 # token is read without echo and never printed.
 #
@@ -119,4 +119,4 @@ if ($dayUnknown) {
   exit 0
 }
 Save-Issued $IssuedOn
-"stored $Name ($($back.Length) characters), made on $IssuedOn and lasting until $($day.AddYears(1).ToString('yyyy-MM-dd')); the watchdog's next session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"
+"stored $Name ($($back.Length) characters), made on $IssuedOn and lasting until $($day.AddYears(1).ToString('yyyy-MM-dd')); the next run's session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"
