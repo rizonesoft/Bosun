@@ -46,6 +46,8 @@ title: "TODO-02 -- The .NET foundation"
 
 ## 1. Solution, props and empty projects
 
+> **Started:** 2026-11-12T11:52:30Z
+
 Everything later hangs off this shape: one solution beside the C++ tools, with central package versions, warnings as errors, all output under `build/`, and tests that run through the queue.
 
 **Corrected 2026-11-12:** checked before the build. The final SDK `11.0.100` is installed beside the RC (`dotnet --list-sdks`), so this section pins the release from the start, and `§3` (moving the pin off the RC) has nothing left to move: it is corrected to the checks that remain. The fix for WPF's temporary project, which Isotone carries, is written here for this repo, since the owner ruled on 2026-11-12 that Bosun takes nothing from its siblings. MSBuild node reuse stays off from the start, because it was measured holding memory on this machine; `§4` measures the other settings against it.
