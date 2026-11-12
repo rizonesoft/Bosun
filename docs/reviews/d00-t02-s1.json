@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T02 \u00a71",
+  "title": "Solution, props and empty projects",
+  "implementation_sha": "d8db71bf82a66e27f4ad3a7674e779814bfdb5c8",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T02-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-method \"*Foundation*\" -> total 4, failed 0, succeeded 4",
+    "pwsh tests/dotnet_nodes_test.ps1 -> all checks passed (nodes stay without the rsp, none with it, killed mid-build leaves 0)",
+    "pwsh scripts/check-all.ps1 -> all 24 steps passed in 1254 s (Ran 802 tests, OK)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T02-s1.md",
+    "verdict": "completed",
+    "candidate": "eb90c6ebebee3d57c11e09c0717e8f1f1e8b4f11",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T02-s1.md",
+    "candidate": "05881eff69788b36898feeb192f92f0c8206b4ad",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "05881eff69788b36898feeb192f92f0c8206b4ad",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -35,7 +35,7 @@ Sections: 32 | Checklist items: 319
 | [x]    | D00 T01 §6  | Gates: native build checks and check-all                        | none        | 10    |
 | [x]    | D00 T01 §7  | Private GitHub repo and CI                                      | none        | 8     |
 | [x]    | D00 T01 §13 | Weakening scan over a diff                                      | none        | 8     |
-| [ ]    | D00 T02 §1  | Solution, props and empty projects                              | none        | 11    |
+| [x]    | D00 T02 §1  | Solution, props and empty projects                              | none        | 11    |
 | [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none        | 3     |
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none        | 4     |
 | [ ]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 5     |
@@ -140,6 +140,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 24/85 verified sections, 6 ready to run now.
+Progress: 25/85 verified sections, 8 ready to run now.
 
-Checklist: 290/582 items completed (includes Commit items).
+Checklist: 291/582 items completed (includes Commit items).

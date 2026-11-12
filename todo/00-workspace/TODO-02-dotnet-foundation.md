@@ -39,7 +39,7 @@ title: "TODO-02 -- The .NET foundation"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [ ] |
+| 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [x] |
 | 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [ ] |
 | 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [ ] |
 | 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [ ] |
@@ -75,9 +75,12 @@ Everything later hangs off this shape: one solution beside the C++ tools, with c
 - [x] Create `Directory.Build.rsp` with `-nodeReuse:false` and `-maxCpuCount:4`. Measured 2026-11-10: another repo's build left 11 idle nodes holding 1.4 GB on this 32 GB machine while this repo's build waited 15 minutes for a slot. Done when: `tests/dotnet_nodes_test.ps1` builds a small solution directly (a queued build leaves no node either way, since Bosun ends a job's tree) and finds no MSBuild node it started alive 5 seconds after the build returns; and, with the file left out of a copy of the settings, finds the nodes it started still alive. Cheaper substitute: an environment variable only this machine sets.
 - [x] Bound `tests/dotnet_nodes_test.ps1` and clean up after it: every build runs in a job object of its own (`Bosun.JobMeasure+Run` in `scripts/lib/job-measure.ps1`, which gains `ProcessIds()`) with a time limit, kept open until its nodes have been watched, nodes are the job's own live members, never matched by name or by a recorded id that could be reused, and every process the test started is ended on success, failure and interruption once its survival has been observed. Done when: no MSBuild or `dotnet` node the test started is alive after it exits, in either case, including when the test is killed in the middle of a build, and a second run starts clean.
 - [x] Keep the C++ build unaffected. Done when: `pwsh scripts/check-all.ps1` still passes, and the new projects are not picked up by CMake or by `scripts/native-std-check.py`.
-- [ ] Commit: `dotnet: solution, props and empty projects`
+- [x] Commit: `dotnet: solution, props and empty projects`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-method "*Foundation*"` exits 0 with the foundation tests of both projects passed and fails if the change is reverted; `pwsh tests/dotnet_nodes_test.ps1` exits 0.
+
+> **Verified:** 2026-11-12 | §1 | d8db71bf82a66e27f4ad3a7674e779814bfdb5c8
+> **Review:** `docs/reviews/d00-t02-s1.json`
 
 ## 2. Add .NET to the gates
 
