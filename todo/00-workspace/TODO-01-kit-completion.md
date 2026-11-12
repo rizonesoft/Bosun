@@ -152,7 +152,9 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 
 ## 4. Pre-commit hook and clone setup
 
-The plan must never be committed out of step with its sections. The kit carries the hook, but a clone has to opt in.
+The plan must never be committed out of step with its sections. The hook that refuses such a commit is in the repo, but a clone has to opt in, and nothing tests the hook.
+
+**Corrected 2026-11-12:** measured before the build. `scripts/hooks/pre-commit` is already adapted to this repo: it refuses a commit that stages `todo/` or `docs/reviews/` while the graph is invalid or the plan is stale, and one with unstaged or untracked files in those folders; this clone's `core.hooksPath` is `scripts/hooks`, and it has refused and passed commits throughout the 2026-11-12 run. So the first item is to prove the hook, not to adapt it. The clone setup no longer installs the watchdog by default: `AGENTS.md` says Bosun needs no unattended run, and a scheduled task is not something a contributor's clone should get unasked. `-Watchdog` installs it for a machine that runs the plan unattended, and leaves an installed one alone, so a setup run during a live run does not replace the task that guards it. Decision taken as the default an expert would defend; reversing it is deleting the switch.
 
 **Phase:** 0
 **Needs:** none
@@ -160,15 +162,18 @@ The plan must never be committed out of step with its sections. The kit carries 
 
 **Build order:**
 
-1. Adapt `scripts/hooks/pre-commit` to this repo. Done when: a staged TODO edit with a stale plan is refused.
+1. Prove `scripts/hooks/pre-commit` in a temporary repository. Done when: a staged TODO edit with a stale plan is refused and the synced one lands.
 2. Add `scripts/setup-clone.ps1`. Done when: it sets `core.hooksPath`, and a second run changes nothing.
 
-- [ ] Adapt `scripts/hooks/pre-commit` from the kit. Done when: a commit staging `todo/` while `plan --check` fails exits nonzero. Cheaper substitute: running the check only in CI.
-- [ ] Create `scripts/setup-clone.ps1` to set `core.hooksPath` and install the watchdog through `scripts/run-guard.py install`, which replaces any existing task of that name. This clone's watchdog was installed on 2026-11-07, so running it here changes nothing. Done when: `git config core.hooksPath` prints `scripts/hooks` and `run-guard.py status` reports `watchdog_installed` true. Cheaper substitute: documenting the steps without a script.
-- [ ] Add a temporary-repo test in `scripts/tests/test_pre_commit.py`. Done when: a stale plan commit is refused, and a synced one lands.
+- [ ] Add `scripts/tests/test_pre_commit.py`, which builds a temporary repository with a valid TODO tree, the real `scripts/hooks/pre-commit` and `scripts/todo-graph.py`, and commits through `git` with `core.hooksPath` set. Done when: a commit staging a TODO edit with a stale plan exits nonzero and names `plan --sync`, the same commit lands once the plan is synced and staged, a commit staging nothing under `todo/` or `docs/reviews/` lands though the plan is stale, and one with an unstaged TODO change is refused naming the folder. Cheaper substitute: running the check only in CI, which lets the stale plan reach `main` first.
+- [ ] Refuse an invalid graph in the same test. Done when: a staged TODO file that fails `validate` is refused before the plan is checked, and the test fails if the hook's `validate` call is removed.
+- [ ] Create `scripts/setup-clone.ps1 [-Repo <folder>] [-Watchdog]`: set `core.hooksPath` to `scripts/hooks` in the clone when it is not that already, say what it did or that nothing needed doing, and exit 1 naming the cause when the folder is not a git checkout, has no `scripts/hooks/pre-commit`, or `git` is not on `PATH`. Done when: `tests/setup_clone_test.ps1` shows a fresh clone gets the setting read back as `scripts/hooks`, a second run reports nothing to do and changes nothing, and each refusal exits 1 with its cause. Cheaper substitute: documenting the `git config` line without a script.
+- [ ] With `-Watchdog`, install the run watchdog through `python scripts/run-guard.py install` only when `python scripts/run-guard.py status` does not report `watchdog_installed` true, and say which happened. Done when: `tests/setup_clone_test.ps1`, with a stand-in `run-guard.py` in the temporary clone, shows an installed watchdog is left alone, a missing one is installed once, a failed install exits 1, and no `-Watchdog` never calls it. Cheaper substitute: always installing, which replaces the task guarding a live run.
+- [ ] Run `pwsh scripts/setup-clone.ps1` and `pwsh scripts/setup-clone.ps1 -Watchdog` in this clone. Done when: both report nothing to do, `git config core.hooksPath` prints `scripts/hooks` and `python scripts/run-guard.py status` reports `watchdog_installed` true.
+- [ ] Point `CONTRIBUTING.md` and the hooks line of `AGENTS.md` at `pwsh scripts/setup-clone.ps1`, and add `tests/setup_clone_test.ps1` to the Windows job in `.github/workflows/build.yml`. Done when: both documents name the script and the step is listed.
 - [ ] Commit: `tooling: pre-commit hook and clone setup`
 
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_pre_commit.py` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_pre_commit.py` and `pwsh tests/setup_clone_test.ps1` exit 0, and fail if the hook's plan check is removed or the setup stops setting `core.hooksPath`.
 
 ## 5. Scheduled automations for this repo
 
