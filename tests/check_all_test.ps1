@@ -102,8 +102,15 @@ try {
 
   # CI runs every PowerShell test the gate runs, and the two native checks after its build.
   $workflow = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw
-  $notInCi = @($tests | Where-Object { $workflow -notmatch [regex]::Escape("tests\$_") })
-  Check 'the Windows workflow runs every PowerShell test the gate runs' (-not $notInCi) "(not in build.yml: $($notInCi -join ', '))"
+  $default = @($tests | Where-Object { $real -match ('(?m)^test:[\w]+: .*' + [regex]::Escape("tests/$_")) })
+  $notInCi = @($default | Where-Object { $workflow -notmatch [regex]::Escape("tests\$_") })
+  Check 'the Windows workflow runs every PowerShell test a default run of the gate runs' ($default.Count -ge 15 -and -not $notInCi) "(not in build.yml: $($notInCi -join ', '))"
+  # A test that needs WSL is left out of both, with its reason, and comes back with -Wsl: the hosted runner has no
+  # WSL, and a default run must not start it.
+  $wslOnly = @($tests | Where-Object { $_ -notin $default })
+  $inCiAnyway = @($wslOnly | Where-Object { $workflow -match [regex]::Escape("tests\$_") })
+  $notWithWsl = @($wslOnly | Where-Object { $wsl -notmatch ('(?m)^test:[\w]+: .*' + [regex]::Escape("tests/$_")) })
+  Check 'a test left out of a default run is out of the Windows workflow too, and runs with -Wsl' (($wslOnly -join ',') -eq 'stage_wsl_test.ps1' -and -not $inCiAnyway -and -not $notWithWsl) "(left out: $($wslOnly -join ', '); in CI anyway: $($inCiAnyway -join ', '); missing with -Wsl: $($notWithWsl -join ', '))"
   Check 'the Windows workflow runs the native checks' ($workflow -match 'native-std-check\.py' -and $workflow -match 'native-pe-check\.py build[\\/]Release')
 
   # --- the real plan step against a stale plan, in a temporary copy of the plan tooling ---

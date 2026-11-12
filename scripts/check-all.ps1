@@ -36,7 +36,10 @@ $LeftOut = @(
   @{ What = 'tests/test_bosun_log.py'; Why = 'the logger it tests runs on Linux'; Run = 'pwsh scripts/check-all.ps1 -Wsl' }
   @{ What = 'tests/queue_test.ps1 (its WSL half)'; Why = 'it queues jobs inside WSL'; Run = 'pwsh scripts/check-all.ps1 -Wsl' }
   @{ What = 'wsl/*.sh (shell syntax)'; Why = 'bash is in WSL'; Run = 'pwsh scripts/check-all.ps1 -Wsl' }
+  @{ What = 'tests/stage_wsl_test.ps1'; Why = 'it asks WSL to read the folder it staged'; Run = 'pwsh scripts/check-all.ps1 -Wsl' }
 )
+# The PowerShell tests that need WSL, so they run only with -Wsl. Each is in $LeftOut above with its reason.
+$NeedsWsl = @('stage_wsl_test.ps1')
 
 function New-Step([string]$Name, [string]$File, [string[]]$Arguments = @(), [switch]$Queue) {
   [pscustomobject]@{ Name = $Name; File = $File; Arguments = $Arguments; Queue = [bool]$Queue }
@@ -54,6 +57,7 @@ if ($StepFile) {
     New-Step 'core-tests' (Join-Path $repo 'build/Release/test_core.exe')
   )
   foreach ($test in Get-ChildItem -LiteralPath (Join-Path $repo 'tests') -Filter '*_test.ps1' | Sort-Object Name) {
+    if ($test.Name -in $NeedsWsl -and -not $Wsl) { continue }
     $extra = if ($test.Name -eq 'queue_test.ps1' -and -not $Wsl) { @('-SkipWsl') } else { @() }
     $steps += New-Step ("test:" + ($test.BaseName -replace '_test$', '')) 'pwsh' (@('-NoProfile', '-File', "tests/$($test.Name)") + $extra)
   }
