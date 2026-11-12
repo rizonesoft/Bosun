@@ -50,6 +50,17 @@ function Invoke-Case([string]$key = 'C:\FakeVS|18.0.1', [string]$cachePath = $ca
   $result = ($text | Select-Object -Last 1) | ConvertFrom-Json
   $result | Add-Member -NotePropertyName loads -NotePropertyValue @(Get-Content -LiteralPath $loads -ErrorAction Ignore).Count -PassThru
 }
+# The stored cache with its names looked up without regard to case: Windows calls the same variable PATH in one
+# shell and Path in another (a hosted runner's), and a variable's name is the same either way.
+function Read-Stored([string]$path) {
+  $data = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable
+  foreach ($part in 'variables', 'lists') {
+    $table = [hashtable]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $data[$part].Keys) { $table[$name] = $data[$part][$name] }
+    $data[$part] = $table
+  }
+  $data
+}
 function Test-Loaded($r, [string]$how, [string]$libs = 'C:\FakeVS\lib;C:\ShellOne\lib') {
   $r.report -eq "developer environment: $how" -and $r.include -eq 'C:\FakeVS\include' -and $r.changed -eq 'after' -and $r.libs -eq $libs -and
   $r.first -eq $compilerDir -and $r.last -eq 'C:\FakeVS\tail' -and $r.cl -eq (Join-Path $compilerDir 'cl.exe')
@@ -59,7 +70,7 @@ try {
   $r = Invoke-Case
   Check 'the first build loads the environment and writes the cache' ((Test-Loaded $r 'loaded') -and $r.loads -eq 1 -and (Test-Path -LiteralPath $cache)) "($($r | ConvertTo-Json -Compress))"
 
-  $stored = Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json -AsHashtable
+  $stored = Read-Stored $cache
   Check 'only what the load changed is stored' ($stored['variables'].Contains('VSINSTALLDIR') -and $stored['variables'].Contains('CHANGED_BY_LOAD') -and $stored['lists'].Contains('INCLUDE') -and
     -not $stored['variables'].Contains('UNRELATED_SECRET') -and -not $stored['variables'].Contains('PATH') -and -not $stored['variables'].Contains('LIB') -and
     -not $stored['variables'].Contains('USERNAME')) "($($stored['variables'].Keys -join ','))"
@@ -79,7 +90,7 @@ try {
   # The other way round: the cache is written by a shell with no LIB at all, then replayed into one that has one.
   $bare = Join-Path $dir 'build/bare.json'
   $r = Invoke-Case -cachePath $bare -shellLib ''
-  $stored = Get-Content -LiteralPath $bare -Raw | ConvertFrom-Json -AsHashtable
+  $stored = Read-Stored $bare
   Check 'a search list the writing shell lacked is still stored as additions' ($r.loads -eq 2 -and -not $stored['variables'].Contains('LIB') -and
     (@($stored['lists']['LIB']['prepend']) -join '|') -eq 'C:/FakeVS/lib'.Replace('/', [IO.Path]::DirectorySeparatorChar)) "($($stored['variables'].Keys -join ','))"
   Check 'the values the load saved of the calling shell are not stored' (-not ($stored['variables'].Keys + $stored['lists'].Keys | Where-Object { $_ -like '__VSCMD_PREINIT_*' }))
