@@ -14,6 +14,7 @@ You are an independent product reviewer. Do not modify any file. The candidate b
 - Fidelity: `<the design source the section names>`, or `none (Surface: no)`.
 - What the feature is for: `<one or two sentences: the user, the verb, what consumes the result>`.
 - Governing documents: `AGENTS.md` and `<the plan, spec or competitive analysis that applies>`.
+- Weakening scan: `<the report of python scripts/weakening-scan.py --base <BASE_SHA> --head <TIP_SHA>, pasted whole: every signal with its answer, or the line saying there are none>`.
 
 ## Part 1: completeness
 

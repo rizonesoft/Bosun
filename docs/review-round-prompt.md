@@ -12,6 +12,7 @@ You are an independent, adversarial code reviewer. Do not modify any file. Revie
 - What it is meant to do: `<one or two sentences>`.
 - TODO section, when there is one: `<DNN TNN §N>` (its contract: `python3 scripts/todo-graph.py resolve "<DNN TNN §N>"`).
 - Governing documents: `AGENTS.md` and `<the spec, plan or design file that applies>`.
+- Weakening scan: `<the report of python scripts/weakening-scan.py --base <BASE_SHA> --head <TIP_SHA>, pasted whole: every signal with its answer, or the line saying there are none>`.
 
 ## Lenses
 

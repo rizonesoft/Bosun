@@ -5,14 +5,18 @@
 #   pwsh scripts/check-all.ps1 -Only plan,build   run only the steps named
 #   pwsh scripts/check-all.ps1 -Wsl            also run the WSL side (this starts WSL if it is stopped)
 #
-# Steps, in order: the plan (the TODO graph validated, the generated plan in step), the agent tiers, the native
+# Steps, in order: the plan (the TODO graph validated, the generated plan in step), the weakening scan (every
+# committed hunk that deletes or skips a test, drops an assertion, relaxes a warning or swallows an error has its
+# answer in a commit body), the agent tiers, the native
 # build, the language standard of every compile, the hardening of every built image, the C++ tests, every PowerShell
 # test in tests/, and the Python tooling suite. The first step that fails is named with its command and exit code,
 # and nothing after it runs: a later step's result means little once an earlier one has failed.
 #
 # Each step runs in its own job object (scripts/lib/job-measure.ps1) with a time limit (-StepMinutes, default 30),
 # so a step and everything it started end together when it fails, passes its limit or the gate is interrupted. The
-# build and the Python suite take a turn in the queue (`bosun run --`) when bosun is installed.
+# build and the Python suite take a turn in the queue (`bosun run --`) when bosun is installed, and a queued step
+# may also wait up to -QueueMinutes (default 120) for its turn: on a busy machine the wait for a slot is not the
+# step running, and must not use up the step's own limit.
 #
 # The WSL side is never run by default, because a gate must not start a stopped WSL machine unasked. -Wsl adds it.
 # What a default run leaves out is listed in $LeftOut below, each with its reason and the command that runs it;
@@ -24,6 +28,7 @@ param(
   [switch]$List,
   [switch]$Wsl,
   [ValidateRange(0.01, 720)][double]$StepMinutes = 30,
+  [ValidateRange(0, 1440)][double]$QueueMinutes = 120,
   # For tests/check_all_test.ps1: a JSON file of stand-in steps ([{ "name", "file", "args" }]) run in place of the real ones.
   [string]$StepFile
 )
@@ -46,10 +51,11 @@ function New-Step([string]$Name, [string]$File, [string[]]$Arguments = @(), [swi
 }
 
 if ($StepFile) {
-  $steps = @(Get-Content -LiteralPath $StepFile -Raw | ConvertFrom-Json | ForEach-Object { New-Step $_.name $_.file @($_.args) })
+  $steps = @(Get-Content -LiteralPath $StepFile -Raw | ConvertFrom-Json | ForEach-Object { New-Step $_.name $_.file @($_.args) -Queue:([bool]$_.queue) })
 } else {
   $steps = @(
     New-Step 'plan' 'python' @('scripts/todo-graph.py', 'plan', '--check')
+    New-Step 'weakening' 'python' @('scripts/weakening-scan.py')
     New-Step 'tiers' 'node' @('scripts/verify-agent-tiers.mjs')
     New-Step 'build' 'pwsh' @('-NoProfile', '-File', 'scripts/build.ps1') -Queue
     New-Step 'native-std' 'python' @('scripts/native-std-check.py')
@@ -97,11 +103,12 @@ foreach ($step in $steps) {
     "FAIL $($step.Name): $file is not on PATH or does not exist, so the step could not start ($(Format-Command $step))"
     exit 1
   }
-  if ($step.Queue -and $queue) { $arguments = @('run', '--', $file) + $arguments; $file = 'bosun' }
+  $limit = $StepMinutes
+  if ($step.Queue -and $queue) { $arguments = @('run', '--', $file) + $arguments; $file = 'bosun'; $limit += $QueueMinutes }
   "---- $($step.Name): $(Format-Command $step)"
-  $result = Measure-Job -FilePath $file -ArgumentList $arguments -WorkingDirectory $repo -TimeoutSeconds ([int][Math]::Ceiling($StepMinutes * 60))
+  $result = Measure-Job -FilePath $file -ArgumentList $arguments -WorkingDirectory $repo -TimeoutSeconds ([int][Math]::Ceiling($limit * 60))
   if ($result.TimedOut) {
-    "FAIL $($step.Name): stopped at its $StepMinutes minute limit, with everything it started ($(Format-Command $step))"
+    "FAIL $($step.Name): stopped at its $limit minute limit, with everything it started ($(Format-Command $step))"
     exit 1
   }
   if ($result.ExitCode -ne 0) {

@@ -83,6 +83,25 @@ try {
   $child = [int](Get-Content -LiteralPath (Join-Path $work 'child.pid') -ErrorAction Ignore)
   Check 'a step past its limit is stopped and named, with its child, and the run ends' ($r.Exit -eq 1 -and $r.Text -match 'FAIL one: stopped at its 0\.1 minute limit' -and $child -gt 0 -and (Wait-Gone $child) -and ($r.Ran -join ',') -eq 'one') "(exit $($r.Exit), child ${child}: $($r.Text))"
 
+  # --- a queued step may wait for its turn without using up its own limit ---
+  # A stand-in bosun that waits 9 seconds for its "slot" and then runs the command: longer than the step's 6 second
+  # limit, inside the limit plus the queue allowance.
+  $queueBin = Join-Path $work 'queue-bin'
+  New-Item -ItemType Directory -Path $queueBin | Out-Null
+  Set-Content -LiteralPath (Join-Path $queueBin 'fake-bosun.ps1') -Value 'Start-Sleep 9; $rest = @($args | Select-Object -Skip 3); & $args[2] @rest; exit $LASTEXITCODE'
+  Set-Content -LiteralPath (Join-Path $queueBin 'bosun.cmd') -Value "@`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoProfile -File `"%~dp0fake-bosun.ps1`" %*"
+  $savedPath = $env:PATH
+  try {
+    $env:PATH = "$queueBin;$env:PATH"
+    ConvertTo-Json -InputObject @(@{ name = 'queued'; file = 'pwsh'; args = @('-NoProfile', '-File', $stub, 'queued', 'pass'); queue = $true }) -Depth 4 | Set-Content -LiteralPath $stepFile
+    Remove-Item -LiteralPath $ran -ErrorAction Ignore
+    $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '0.1', '-QueueMinutes', '1')
+    Check 'a queued step that waits longer than its own limit for a slot still runs and passes' ($r.Exit -eq 0 -and ($r.Ran -join ',') -eq 'queued') "(exit $($r.Exit): $($r.Text))"
+    Remove-Item -LiteralPath $ran -ErrorAction Ignore
+    $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '0.05', '-QueueMinutes', '0')
+    Check 'with no queue allowance the same wait is stopped at the step limit' ($r.Exit -eq 1 -and $r.Text -match 'FAIL queued: stopped at its 0\.05 minute limit' -and -not $r.Ran) "(exit $($r.Exit): $($r.Text))"
+  } finally { $env:PATH = $savedPath }
+
   # --- what the real gate covers ---
   $real = (Invoke-Gate @('-List')).Text
   $tests = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*_test.ps1' | ForEach-Object Name)
@@ -98,7 +117,7 @@ try {
   Check 'with -Wsl every shell script in wsl/ has its own syntax step' ($scripts.Count -ge 4 -and -not $unchecked) "(not checked: $($unchecked -join ', '))"
   Check 'the Linux job checks the same scripts by pattern, not by a list that can fall behind' ((Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw) -match 'for f in wsl/bosun wsl/\*\.sh; do bash -n')
   $names = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: ' } | ForEach-Object { ($_ -split ': ')[0] })
-  Check 'the steps come in the order the gate documents' (($names[0..5] -join ',') -eq 'plan,tiers,build,native-std,native-pe,core-tests' -and $names[-1] -eq 'python-tests')
+  Check 'the steps come in the order the gate documents' (($names[0..6] -join ',') -eq 'plan,weakening,tiers,build,native-std,native-pe,core-tests' -and $names[-1] -eq 'python-tests')
 
   # CI runs every PowerShell test the gate runs, and the two native checks after its build.
   $workflow = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw
@@ -132,6 +151,28 @@ try {
   Add-Content -LiteralPath (Join-Path $copy 'todo/implementation-plan.md') -Value 'a line the generator did not write'
   $r = Invoke-Gate @('-Only', 'plan') $copyGate
   Check 'a stale plan fails the gate at the plan step, naming it' ($r.Exit -eq 1 -and $r.Text -match 'FAIL plan: exit \d+ from: python scripts/todo-graph\.py plan --check') "(exit $($r.Exit): $($r.Text))"
+
+  # --- the real weakening step: an unanswered removal in what is committed stops the gate ---
+  $scanRepo = Join-Path $work 'scan'
+  New-Item -ItemType Directory -Path (Join-Path $scanRepo 'scripts/lib'), (Join-Path $scanRepo 'tests') | Out-Null
+  foreach ($name in 'check-all.ps1', 'weakening-scan.py', 'lib/job-measure.ps1') {
+    Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination (Join-Path $scanRepo "scripts/$name")
+  }
+  Set-Content -LiteralPath (Join-Path $scanRepo 'tests/a_test.ps1') -Value "Check 'one thing holds' (1 -eq 1)", "Check 'another thing holds' (2 -eq 2)"
+  $git = @('-C', $scanRepo, '-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'core.autocrlf=false')
+  git -C $scanRepo init -q -b main
+  git @git add -A; git @git commit -q -m start
+  git @git update-ref refs/remotes/origin/main HEAD
+  $scanGate = Join-Path $scanRepo 'scripts/check-all.ps1'
+  $r = Invoke-Gate @('-Only', 'weakening') $scanGate
+  Check 'the weakening step passes when nothing committed weakens a test' ($r.Exit -eq 0 -and $r.Text -match 'ok   weakening') "(exit $($r.Exit): $($r.Text))"
+  Set-Content -LiteralPath (Join-Path $scanRepo 'tests/a_test.ps1') -Value "Check 'one thing holds' (1 -eq 1)"
+  git @git add -A; git @git commit -q -m 'drop a check'
+  $r = Invoke-Gate @('-Only', 'weakening') $scanGate
+  Check 'a committed test removal with no answer stops the gate at the weakening step' ($r.Exit -eq 1 -and $r.Text -match 'unanswered test-removed tests/a_test\.ps1:another thing holds' -and $r.Text -match 'FAIL weakening: exit 1') "(exit $($r.Exit): $($r.Text))"
+  git @git commit -q --allow-empty -m 'explain' -m 'Weakening scan: test-removed tests/a_test.ps1:another thing holds -- the option it covered was removed'
+  $r = Invoke-Gate @('-Only', 'weakening') $scanGate
+  Check 'the same removal answered in a commit body lets the gate pass, and the answer is shown' ($r.Exit -eq 0 -and $r.Text -match 'answered   test-removed tests/a_test\.ps1:another thing holds -- the option it covered was removed') "(exit $($r.Exit): $($r.Text))"
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore }
 if ($failed) { "$failed check(s) failed"; exit 1 }
 'all checks passed'
