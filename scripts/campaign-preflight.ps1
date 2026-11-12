@@ -252,6 +252,41 @@ function Test-Pushed {
   }
 }
 
+# Whether main on the remote refuses a force push and its own deletion, for everyone, admins included: the deny list
+# and the dispatch hook catch a session's own spellings of those, but only the remote's protection makes them
+# impossible (D00 T03 §17). Asked of GitHub through gh, for the repository this checkout's remote names.
+function Test-Protection {
+  $undo = 'to put main back unprotected: gh api --method DELETE repos/{owner}/{repo}/branches/main/protection'
+  $fix = 'turn it on: gh api --method PUT repos/{owner}/{repo}/branches/main/protection with enforce_admins true and allow_force_pushes and allow_deletions false (D00 T03 §17), then run the preflight again'
+  $r = Probe 'gh' @('api', 'repos/{owner}/{repo}/branches/main/protection') $fix $Repo
+  if (-not $r) { return }
+  if ($r.Code -ne 0) {
+    if ($r.Out -match 'Branch not protected') { Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" $fix }
+    else { Fail "main's protection can't be read (gh api: $(Tail $r.Out))" '`gh auth status`, and check that this account may read the repository''s settings, then run the preflight again' }
+    return
+  }
+  try { $got = $r.Out | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $got = $null }
+  if ($got -isnot [Collections.IDictionary]) { Fail "main's protection came back as something other than GitHub's JSON: $(Tail $r.Out)" '`gh api repos/{owner}/{repo}/branches/main/protection` by hand, then run the preflight again'; return }
+  # Each is an object with an `enabled` boolean; anything else (missing, null, a string) is not a yes.
+  function Get-Enabled([string]$name) {
+    $value = $got[$name]
+    if ($value -is [Collections.IDictionary] -and $value['enabled'] -is [bool]) { return $value['enabled'] }
+    return $null
+  }
+  $admins, $force, $delete = (Get-Enabled 'enforce_admins'), (Get-Enabled 'allow_force_pushes'), (Get-Enabled 'allow_deletions')
+  $wrong = @()
+  if ($null -eq $admins -or $null -eq $force -or $null -eq $delete) {
+    $absent = @(@{ enforce_admins = $admins; allow_force_pushes = $force; allow_deletions = $delete }.GetEnumerator() | Where-Object { $null -eq $_.Value } | ForEach-Object Key | Sort-Object)
+    Fail "main's protection does not say $($absent -join ', ') (GitHub's answer lacks them, or not as true or false)" $fix
+    return
+  }
+  if (-not $admins) { $wrong += 'admins are not held to it (enforce_admins is off), so the account the run pushes as could still force-push' }
+  if ($force) { $wrong += 'force pushes are allowed' }
+  if ($delete) { $wrong += 'deleting main is allowed' }
+  if ($wrong) { Fail "main's protection is partial: $($wrong -join '; ')" $fix; return }
+  Pass "main is protected: force pushes and deletion refused, admins included ($undo)"
+}
+
 function Test-Ci {
   $r = Probe 'python' @((Join-Path $Repo 'scripts\ci_status.py'), '--sha', 'HEAD', '--use-proven') 'install Python 3 and put it on PATH' $Repo
   if (-not $r) { return }
@@ -362,7 +397,7 @@ function Test-Owner {
 
 $Checks = [ordered]@{
   bosun = { Test-Bosun }; cmake = { Test-CMake }; denylist = { Test-DenyList }; dotnet = { Test-Dotnet }; gh = { Test-Gh }
-  claude = { Test-Claude }; codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; ci = { Test-Ci }; guard = { Test-Guard }
+  claude = { Test-Claude }; codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; protection = { Test-Protection }; ci = { Test-Ci }; guard = { Test-Guard }
   space = { Test-Space }; hold = { Test-Hold }; setup = { Test-Setup }; lock = { Test-Lock }; owner = { Test-Owner }
 }
 $names = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })

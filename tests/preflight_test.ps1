@@ -213,6 +213,49 @@ try {
   $r = Preflight "$d;$system" @('-Only', 'wsl')
   Check ($r.Code -eq 0 -and $r.Text -match "ok   WSL Ubuntu sees $mnt") 'a WSL that sees the repo passes'
 
+  # Branch protection on main, read from GitHub's own JSON. Each answer is a stand-in gh that prints that answer.
+  function Protection([string]$name, [string]$answer, [int]$code = 0) {
+    $file = Join-Path $work "$name.json"
+    [IO.File]::WriteAllText($file, $answer)
+    Tool $name 'gh' "type `"$file`"`r`nexit /b $code"
+  }
+  function Shape([object]$admins = $true, [object]$force = $false, [object]$delete = $false) {
+    $body = [ordered]@{ url = 'https://api.github.com/repos/o/r/branches/main/protection' }
+    if ($null -ne $admins) { $body.enforce_admins = @{ url = 'x'; enabled = $admins } }
+    if ($null -ne $force) { $body.allow_force_pushes = @{ enabled = $force } }
+    if ($null -ne $delete) { $body.allow_deletions = @{ enabled = $delete } }
+    $body | ConvertTo-Json -Depth 4 -Compress
+  }
+  $r = Preflight "$(Protection 'gh-protected' (Shape));$system" @('-Only', 'protection')
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   main is protected: force pushes and deletion refused, admins included' -and $r.Text -match 'branches/main/protection') 'full protection passes, naming the undo'
+  foreach ($case in @(
+      @{ Name = 'gh-force'; Answer = (Shape $true $true $false); Says = 'force pushes are allowed' },
+      @{ Name = 'gh-delete'; Answer = (Shape $true $false $true); Says = 'deleting main is allowed' },
+      @{ Name = 'gh-admins'; Answer = (Shape $false $false $false); Says = 'admins are not held to it' },
+      @{ Name = 'gh-no-admins'; Answer = (Shape $null $false $false); Says = 'does not say enforce_admins' },
+      @{ Name = 'gh-string'; Answer = '{"enforce_admins":{"enabled":"true"},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}'; Says = 'does not say enforce_admins' },
+      @{ Name = 'gh-flat'; Answer = '{"enforce_admins":true,"allow_force_pushes":false,"allow_deletions":false}'; Says = 'does not say allow_deletions, allow_force_pushes, enforce_admins' },
+      @{ Name = 'gh-garbage'; Answer = 'not json at all'; Says = 'something other than GitHub''s JSON' },
+      @{ Name = 'gh-off'; Answer = "{`"message`":`"Branch not protected`",`"status`":`"404`"}`r`ngh: Branch not protected (HTTP 404)"; Code = 1; Says = 'main on the remote is not protected' },
+      @{ Name = 'gh-denied'; Answer = 'gh: Not Found (HTTP 404)'; Code = 1; Says = 'protection can''t be read' })) {
+    $code = if ($case.Code) { $case.Code } else { 0 }
+    $r = Preflight "$(Protection $case.Name $case.Answer $code);$system" @('-Only', 'protection')
+    Check ($r.Code -eq 1 -and $r.Text -match [regex]::Escape($case.Says) -and $r.Text -match 'fix: ') "protection that reads $($case.Name -replace '^gh-', '') fails with its fix"
+  }
+  # The undo puts main back unprotected, and the check then fails: proved on a stand-in, never on the live repository.
+  $undone = Protection 'gh-undone' '{"message":"Branch not protected","status":"404"}' 1
+  $r = Preflight "$undone;$system" @('-Only', 'protection')
+  Check ($r.Code -eq 1 -and $r.Text -match 'not protected' -and $r.Text -match 'gh api --method PUT') 'after the undo the check fails and names how to turn it back on'
+  $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"
+  $d = Tool 'gh-protection-hang' 'gh' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
+  $r = Preflight "$d;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
+  Start-Sleep -Milliseconds 500
+  $left = @(Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" })
+  $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
+  Check ($r.Code -eq 1 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $left.Count -eq 0) 'a protection read that hangs is stopped at its limit, with its whole tree'
+  $listed = & $pwsh -NoProfile -File (Join-Path $repo 'scripts/campaign-preflight.ps1') -Only nope 2>&1 | Out-String
+  Check ($listed -match 'the checks are [^\r\n]*\bprotection\b') 'protection is one of the default checks a full preflight runs'
+
   # A probe that hangs is stopped at its limit, with its whole tree.
   $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"
   $d = Tool 'gh-hang' 'gh' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
