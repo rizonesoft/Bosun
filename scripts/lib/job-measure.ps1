@@ -74,6 +74,8 @@ namespace Bosun {
     static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int length);
     [DllImport("kernel32", SetLastError = true)]
     static extern bool QueryInformationJobObject(IntPtr job, int infoClass, out JOBOBJECT_EXTENDED_LIMIT_INFORMATION info, int length, IntPtr returned);
+    [DllImport("kernel32", SetLastError = true, EntryPoint = "QueryInformationJobObject")]
+    static extern bool QueryJobProcessIds(IntPtr job, int infoClass, IntPtr list, int length, IntPtr returned);
     [DllImport("kernel32", SetLastError = true)]
     static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
     [DllImport("kernel32", SetLastError = true)]
@@ -162,6 +164,25 @@ namespace Bosun {
       }
 
       public double ElapsedSeconds { get { return watch.Elapsed.TotalSeconds; } }
+
+      // The ids of the processes in the job now. They are live members of this job, so none can be a number reused
+      // by an unrelated process; anything the command started is here, whenever it started.
+      public int[] ProcessIds() {
+        const int JobObjectBasicProcessIdList = 3;
+        for (int room = 64; ; room *= 4) {
+          int size = 8 + room * IntPtr.Size;
+          IntPtr buffer = Marshal.AllocHGlobal(size);
+          try {
+            if (QueryJobProcessIds(job, JobObjectBasicProcessIdList, buffer, size, IntPtr.Zero)) {
+              int count = Marshal.ReadInt32(buffer, 4);  // NumberOfProcessIdsInList
+              int[] ids = new int[count];
+              for (int i = 0; i < count; i++) ids[i] = (int)Marshal.ReadIntPtr(buffer, 8 + i * IntPtr.Size).ToInt64();
+              return ids;
+            }
+            if (Marshal.GetLastWin32Error() != 234 || room > 65536) throw Fail("could not list the processes in the job", commandLine);  // 234: more data
+          } finally { Marshal.FreeHGlobal(buffer); }
+        }
+      }
 
       // The result. With timedOut the job is ended first, and the exit code is -1.
       public JobResult Finish(bool timedOut) {

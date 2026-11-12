@@ -5,15 +5,16 @@
 # without it. The build runs directly, not through `bosun run --`: Bosun ends a job's whole process tree when the
 # job ends, so a queued build leaves no node either way and could not show what the file does. The file is for the
 # builds that are not queued, an IDE's or a plain `dotnet build`, and the fixture is three empty projects, small
-# enough not to need a slot. Nodes are matched to the build that started them through the process tree, never by
-# name, and every process this test started is ended when it is done, on success, failure, a timeout or an
-# interruption.
+# enough not to need a slot. Each build runs in a job object (scripts/lib/job-measure.ps1) that stays open until
+# its nodes have been watched: the nodes are the job's own live members, never matched by name or by a recorded id,
+# and ending the job ends every process the build started, on success, failure, a timeout or an interruption.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $scratch ("bosun-dotnet-nodes-test-" + [guid]::NewGuid())
 $failed = 0
-$started = [Collections.Generic.HashSet[int]]::new()  # every process id this test saw in a build's tree
+$jobs = [Collections.Generic.List[object]]::new()  # every build's job, ended in the finally below
+. (Join-Path $repo 'scripts/lib/job-measure.ps1')
 $limitSeconds = 300
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
@@ -38,37 +39,31 @@ function New-Fixture([string]$name, [switch]$WithoutRsp) {
   $dir
 }
 
-function Get-Tree {
-  @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CommandLine, Name -ErrorAction Ignore)
-}
-
-# The MSBuild worker nodes descended from the processes this test started: their parent is one of them, and they
-# run in node mode. Ids recorded while the build ran keep the chain even after the build itself has exited.
-function Get-OwnNodes {
-  @(Get-Tree | Where-Object { $started.Contains([int]$_.ParentProcessId) -and $_.CommandLine -match '[/-]nodemode:' })
-}
-
-# Builds $dir, recording every process in the build's tree as it appears. Returns the build's exit code, or throws
-# when it passes the limit (its whole tree is ended first).
+# Builds $dir in a job object of its own and returns the open job with the build's exit code. Every process the build
+# starts is in the job from its first instruction, whenever it starts, so none can escape the cleanup; and the job
+# lists only its live members, so a process id reused by an unrelated process is never mistaken for one of them.
+# The job stays open after the build returns, so the nodes can be watched; disposing it ends everything in it. A
+# build past the limit is ended with its whole job and throws.
 function Invoke-Build([string]$dir) {
-  $process = Start-Process -FilePath 'dotnet' -ArgumentList @('build', 'Nodes.slnx', '-nologo', '-v:q') -WorkingDirectory $dir -PassThru -NoNewWindow -RedirectStandardOutput (Join-Path $dir 'build.log')
-  [void]$started.Add($process.Id)
-  $clock = [Diagnostics.Stopwatch]::StartNew()
-  while (-not $process.HasExited) {
-    foreach ($item in Get-Tree) { if ($started.Contains([int]$item.ParentProcessId)) { [void]$started.Add([int]$item.ProcessId) } }
-    if ($clock.Elapsed.TotalSeconds -gt $limitSeconds) {
-      Stop-Started
-      throw "the build in $dir passed its $limitSeconds second limit and was stopped with its whole tree"
+  $dotnet = (Get-Command dotnet -CommandType Application | Select-Object -First 1).Source
+  $line = (@($dotnet, 'build', 'Nodes.slnx', '-nologo', '-v:q') | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '
+  $run = [Bosun.JobMeasure+Run]::new($line, $dir, (Join-Path $dir 'build.log'))
+  $script:jobs.Add($run)
+  # Short slices, so Ctrl+C is seen within one of them and the finally below ends the job at once.
+  while (-not $run.Wait(200)) {
+    if ($run.ElapsedSeconds -gt $limitSeconds) {
+      [void]$run.Finish($true)
+      throw "the build in $dir passed its $limitSeconds second limit and was ended with its whole job"
     }
-    Start-Sleep -Milliseconds 200
   }
-  # Nodes started in the last moments of the build are recorded too.
-  foreach ($item in Get-Tree) { if ($started.Contains([int]$item.ParentProcessId)) { [void]$started.Add([int]$item.ProcessId) } }
-  $process.ExitCode
+  [pscustomobject]@{ Run = $run; ExitCode = $run.Finish($false).ExitCode }
 }
 
-function Stop-Started {
-  foreach ($id in @($started)) { Stop-Process -Id $id -Force -ErrorAction Ignore }
+# The MSBuild worker nodes still alive in the build's job: its live members that run in node mode.
+function Get-OwnNodes($run) {
+  $ids = [Collections.Generic.HashSet[int]]::new([int[]]$run.ProcessIds())
+  @(Get-CimInstance Win32_Process -Property ProcessId, CommandLine -ErrorAction Ignore |
+      Where-Object { $ids.Contains([int]$_.ProcessId) -and $_.CommandLine -match '[/-]nodemode:' })
 }
 
 try {
@@ -76,31 +71,33 @@ try {
 
   # With Directory.Build.rsp, as the repository builds: no node of this build is alive 5 seconds after it returns.
   $with = New-Fixture 'with-rsp'
-  $code = Invoke-Build $with
+  $build = Invoke-Build $with
   Start-Sleep -Seconds 5
-  $left = Get-OwnNodes
-  Check 'a build with the repository''s Directory.Build.rsp succeeds' ($code -eq 0) "(exit ${code}: $((Get-Content -LiteralPath (Join-Path $with 'build.log') -Tail 5) -join ' / '))"
+  $left = Get-OwnNodes $build.Run
+  Check 'a build with the repository''s Directory.Build.rsp succeeds' ($build.ExitCode -eq 0) "(exit $($build.ExitCode): $((Get-Content -LiteralPath (Join-Path $with 'build.log') -Tail 5) -join ' / '))"
   Check 'it leaves no MSBuild node it started alive 5 seconds after it returns' ($left.Count -eq 0) "($($left.Count) left: $(($left | ForEach-Object { $_.ProcessId }) -join ', '))"
-  Stop-Started
-  $started.Clear()
+  $build.Run.Dispose()
 
   # Without it, MSBuild's default keeps its nodes for reuse, which is what the file is there to prevent: a test that
   # cannot see them survive would pass on a file that did nothing.
   $without = New-Fixture 'without-rsp' -WithoutRsp
-  $code = Invoke-Build $without
+  $build = Invoke-Build $without
   Start-Sleep -Seconds 5
-  $left = Get-OwnNodes
-  Check 'the same build without Directory.Build.rsp succeeds' ($code -eq 0)
+  $left = Get-OwnNodes $build.Run
+  Check 'the same build without Directory.Build.rsp succeeds' ($build.ExitCode -eq 0)
   Check 'and leaves the nodes it started alive to be reused, so the check above can fail' ($left.Count -gt 0)
+  # Their process objects, held before the job ends, so the check below asks about these processes and not about
+  # whatever may later reuse their ids.
+  $kept = @($left | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction Ignore })
+  $build.Run.Dispose()
+  foreach ($process in $kept) { [void]$process.WaitForExit(10000) }
+  $alive = @($kept | Where-Object { -not $_.HasExited })
 } finally {
-  # Everything this test started ends here, whatever happened above.
-  Stop-Started
-  Start-Sleep -Milliseconds 500
-  $stray = @(Get-Tree | Where-Object { $started.Contains([int]$_.ProcessId) })
-  if ($stray) { "warning: $($stray.Count) process(es) this test started were still alive after cleanup" }
+  # Ending each job ends every process in it, whatever happened above (a failure, a timeout or Ctrl+C).
+  foreach ($run in $jobs) { $run.Dispose() }
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }
-$after = @(Get-Tree | Where-Object { $started.Contains([int]$_.ProcessId) })
-Check 'no process this test started is alive after it' ($after.Count -eq 0) "($($after.Count) alive)"
+# The nodes the last build kept were members of its job, so ending the job ended them.
+Check 'ending the job ends the nodes the build left' ($kept.Count -gt 0 -and $alive.Count -eq 0) "($($kept.Count) kept, $($alive.Count) alive)"
 if ($failed) { "$failed check(s) failed"; exit 1 }
 'all checks passed'
