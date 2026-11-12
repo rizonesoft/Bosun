@@ -84,6 +84,8 @@ Everything later hangs off this shape: one solution beside the C++ tools, with c
 
 ## 2. Add .NET to the gates
 
+> **Started:** 2026-11-12T12:57:33Z
+
 A section can only be held to tests that the one-command gate actually runs.
 
 **Corrected 2026-11-12:** checked before the build. `.gitignore` already lists `build/`, `bin/`, `obj/`, `.vs/` and `*.user`, so that item is a read-back. `§1` left building and testing the solution in CI to this section, and `§3` reads the SDK from the CI job this section adds, so the Windows CI job is in scope here. The tests run through Microsoft.Testing.Platform (`§1`), so the command is `dotnet test --solution`.
