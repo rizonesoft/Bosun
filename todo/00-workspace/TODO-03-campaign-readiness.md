@@ -661,15 +661,20 @@ Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook cat
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s17.md` returned four gaps, all planned in below. "No bypass" means admins are held to it too (`enforce_admins`), and each setting is read as the object GitHub returns. The check is one of the preflight's default checks, runs through its bounded `Probe`, and fails closed on any answer it cannot read. The undo is recorded, and proved in the test rather than on the live repository, so protection is never switched off to check it.
+
 **Build order:**
 
-1. Turn on branch protection for `main` on `rizonetech/Bosun`, blocking force pushes and deletion. Done when: a read-back shows both refused.
+1. Turn on branch protection for `main` on `rizonetech/Bosun`, refusing force pushes and deletion for everyone, admins included. Done when: a read-back shows all three.
+2. Check it in the preflight. Done when: a default preflight fails, naming the fix, whenever protection is off, partial or unreadable.
 
-- [ ] Turn on protection for `main` with `gh api`, refusing force pushes and deletion, with no bypass for the account the campaign pushes as. Done when: `gh api repos/rizonetech/Bosun/branches/main/protection` reads back `allow_force_pushes` and `allow_deletions` both false.
-- [ ] Add that read-back to `scripts/campaign-preflight.ps1`, failing with the fix named when protection is off. Done when: `tests/preflight_test.ps1` covers on, off and an unreadable answer.
+- [ ] Turn on protection for `main` with `gh api --method PUT repos/rizonetech/Bosun/branches/main/protection`, with `enforce_admins` true, `allow_force_pushes` and `allow_deletions` false, and no required checks, reviews or push restrictions (those are not this section's). Done when: `gh api repos/rizonetech/Bosun/branches/main/protection` reads back `enforce_admins.enabled` true and `allow_force_pushes.enabled` and `allow_deletions.enabled` both false, and a normal push to `main` still lands.
+- [ ] Add a `protection` check to `$Checks` in `scripts/campaign-preflight.ps1`, so a default run includes it, reading that endpoint through `Probe` (bounded by `-ProbeSeconds`). It passes only when the answer is JSON with `enforce_admins.enabled` exactly true and `allow_force_pushes.enabled` and `allow_deletions.enabled` exactly false; a 404 (`Branch not protected`) fails as off, and a failed call, a timeout, an answer that is not JSON and a missing field each fail with what was wrong, each naming the fix. Done when: `tests/preflight_test.ps1`, with a stand-in `gh` returning GitHub-shaped JSON, passes the full answer and fails each of: force pushes allowed, deletion allowed, admins not enforced, not protected, malformed, a field missing, and a call that fails.
+- [ ] Prove the check is bounded: a stand-in `gh` that hangs is stopped at `-ProbeSeconds` with its fix named and leaves no process behind, and a default preflight (no `-Only`) runs the check. Done when: `tests/preflight_test.ps1` asserts both.
+- [ ] Record the undo in the section and in the check's fix text: `gh api --method DELETE repos/rizonetech/Bosun/branches/main/protection` puts `main` back as it was, after which the read-back says `Branch not protected` and the preflight's `protection` check fails. Done when: the stand-in test shows that read-back failing the check; the live repository is not unprotected to prove it.
 - [ ] Commit: `preflight: branch protection on main`
 
-**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and fails if protection reads off.
+**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and fails if protection reads off, partial or unreadable; `gh api repos/rizonetech/Bosun/branches/main/protection` reads back admins enforced, force pushes and deletion refused.
 
 ## 18. Campaign setup hardening from the preflight's completion review
 

@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 32 | Checklist items: 307
+Sections: 32 | Checklist items: 309
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -40,7 +40,7 @@ Sections: 32 | Checklist items: 307
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none        | 4     |
 | [ ]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 5     |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
-| [ ]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 3     |
+| [ ]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
 | [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 6     |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 6     |
 | [ ]    | D00 T03 §20 | Agent badge on each unattended run shortcut                     | none        | 7     |
@@ -142,4 +142,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 22/85 verified sections, 8 ready to run now.
 
-Checklist: 268/570 items completed (includes Commit items).
+Checklist: 268/572 items completed (includes Commit items).
