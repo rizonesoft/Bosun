@@ -40,7 +40,7 @@ title: "TODO-02 -- The .NET foundation"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [x] |
-| 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [ ] |
+| 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [x] |
 | 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [ ] |
 | 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [ ] |
 
@@ -107,6 +107,9 @@ A section can only be held to tests that the one-command gate actually runs.
 - [x] Commit: `gates: run the .NET build and tests`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0, and exits nonzero with a failing test added.
+
+> **Verified:** 2026-11-12 | §2 | 41d4eadbc8d8df7b396050a46793888186c7df29
+> **Review:** `docs/reviews/d00-t02-s2.json`
 
 ## 3. Move the SDK pin to the .NET 11 release
 

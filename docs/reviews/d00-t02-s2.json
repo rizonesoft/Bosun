@@ -1,0 +1,82 @@
+{
+  "ref": "D00 T02 \u00a72",
+  "title": "Add .NET to the gates",
+  "implementation_sha": "41d4eadbc8d8df7b396050a46793888186c7df29",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T02-s2.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh scripts/check-all.ps1 -> all 26 steps passed in 607 s (dotnet-build 3.5 s, dotnet-tests 2.7 s, Ran 802 tests OK); no new untracked file",
+    "a foundation test made to fail -> check-all -Only dotnet-build,dotnet-tests: FAIL dotnet-tests, exit 1",
+    "build.yml run 43227598752 at 7aa0ac1 -> SDK 11.0.100, Build succeeded 0 warnings 0 errors, tests total 4 failed 0"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T02-s2.md",
+    "verdict": "completed",
+    "candidate": "68178374c5b30cd06fec9887f132db100394b1b8",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "fixed in 6817837: the hung-fake cleanup uses the guard's own tree stop",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T02-s2.md",
+    "candidate": "57bd84c4b66c00b84e5a3b109426ef96c0accb90",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "57bd84c4b66c00b84e5a3b109426ef96c0accb90",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
