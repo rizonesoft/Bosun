@@ -532,6 +532,8 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 
 ## 13. CI gate recovery that names its commit
 
+> **Started:** 2026-11-12T02:25:27Z
+
 Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers are filed from a section's third cycle on. The gate names `gh workflow run <file> --ref <branch>` when nothing proves a commit, which runs whatever the branch holds then, and it prints this only after polling.
 
 **Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s13.md` returned three gaps, and they change the design. Printing the command early has no reader: an unattended run ends its turn until the gate finishes, and this session's push of `6fcc122` waited over twenty minutes on `plan.yml`, which its path filter had skipped, before the command was run by hand. Checking the head before printing a branch command also binds nothing, since the branch can move before anyone runs it. So the gate does the recovery itself: at the first look, before any sleep, `--gate` starts each workflow that has no run and no proof, only when the branch's remote head is the commit being gated, once per commit and workflow. A run is still counted for a commit only by its own `headSha` (`gh run list --commit`), so one started after the branch moved can never turn the commit green. A read-only look (no `--gate`) starts nothing and keeps printing the command for `scripts/campaign-preflight.ps1`, which reads the `to get a real run:` line.
