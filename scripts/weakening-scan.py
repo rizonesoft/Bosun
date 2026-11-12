@@ -14,7 +14,9 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
     test-removed         a case is gone: a Python `def test_` (named Class.test_x), a PowerShell `Check '...'` line
                          (named by its text), or a row of the groups[] table in a C++ test (named by its group)
     test-disabled        a groups[] row whose function became nullptr
-    assertion-removed    more assertion lines left a file than came into it (self.assert..., assert, CHECK(...))
+    assertion-removed    more assertion lines left a file than came into it (self.assert..., assert, CHECK(...)),
+                         or a PowerShell check kept by name lost part of its condition (fewer `-and` terms in the
+                         file than before, or a condition that became a bare $true)
     skip-added           skipTest, unittest.skip, continue-on-error, or a -Skip switch on a test in the gate or CI
     ci-step-removed      a `run:` line gone from a workflow
     warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore or warning
@@ -67,6 +69,8 @@ PS_CASE = re.compile(r"^\s*Check\b")
 PS_NAME_FIRST = re.compile(r"""^\s*Check\s+(['"])(.+?)\1""")
 PS_NAME_LAST = re.compile(r"""(['"])((?:(?!\1).)+)\1\s*(?:\)|$)""")
 CPP_ROW = re.compile(r"""^\s*\{\s*"(\w+)"\s*,\s*(\w+)\s*,""")
+PS_TERM = re.compile(r"\s-and\b", re.IGNORECASE)
+PS_TRIVIAL = re.compile(r"\(\s*\$true\s*\)", re.IGNORECASE)
 ASSERTION = re.compile(r"\bself\.assert\w*\s*\(|^\s*assert\s|\bCHECK\s*\(")
 SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-error:\s*true", re.IGNORECASE)
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
@@ -223,6 +227,15 @@ def swallowed(lines, added):
     return found
 
 
+def check_at(lines, number):
+    """The name of the PowerShell check a line belongs to: its own, or the nearest one above it."""
+    for index in range(min(number, len(lines or [])) - 1, -1, -1):
+        name = powershell_case(lines[index])
+        if name:
+            return name
+    return None
+
+
 def powershell_case(text):
     if not PS_CASE.match(text):
         return None
@@ -322,6 +335,23 @@ def scan(changes):
         gained = sum(1 for member in group for _, text in tests[member].added if ASSERTION.search(text))
         for member, number in lost[gained:]:  # those that nothing came in to replace
             signals.append(Signal("assertion-removed", member, f"L{number}"))
+
+    # A PowerShell check kept by name with less in its condition: fewer `-and` terms left the file than came into
+    # it, or the condition became a bare $true. Named by the check it belongs to.
+    for path, change in sorted(tests.items()):
+        if not PS_TEST.search(path) or change.deleted:
+            continue
+        lost = [(number, len(PS_TERM.findall(text))) for number, text in change.removed
+                if PS_TERM.search(text) and number not in flagged[path]]
+        excess = sum(count for _, count in lost) - sum(len(PS_TERM.findall(text)) for _, text in change.added)
+        for number, count in reversed(lost):
+            if excess <= 0:
+                break
+            signals.append(Signal("assertion-removed", path, check_at(change.old, number) or f"L{number}"))
+            excess -= count
+        for number, text in change.added:
+            if PS_CASE.match(text) and PS_TRIVIAL.search(text):
+                signals.append(Signal("assertion-removed", path, powershell_case(text) or f"L{number}"))
 
     for path, change in sorted(files.items()):
         if not CODE.search(path):

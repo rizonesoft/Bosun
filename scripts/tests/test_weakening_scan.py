@@ -151,6 +151,41 @@ class Kinds(Repo):
         self.commit("drop checks")
         self.assertEqual(self.signals(), (1, [f"test-removed {PS}:the second thing holds", f"test-removed {PS}:an older style check"]))
 
+    def test_a_powershell_check_kept_by_name_with_less_in_its_condition(self):
+        self.write(PS, "Check 'the run is clean' ($r.Exit -eq 0 -and $child -gt 0 -and (Wait-Gone $child))\n"
+                       "Check 'a long one holds' ($a -eq 1 -and\n    $b -eq 2 -and $c -eq 3)\n"
+                       "Check 'this one stays' ($d -eq 4)\n")
+        before = self.commit("checks with conditions")
+        self.edit(PS, " -and (Wait-Gone $child)", "")
+        self.edit(PS, "    $b -eq 2 -and $c -eq 3)", "    $b -eq 2)")
+        self.commit("thin two conditions")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertIn(f"assertion-removed {PS}:the run is clean", text)
+        self.assertIn(f"assertion-removed {PS}:a long one holds", text)
+        self.assertNotIn("this one stays", text)
+
+    def test_a_powershell_condition_made_always_true(self):
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)", "Check 'the first thing holds' ($true)")
+        self.commit("always true")
+        self.assertEqual(self.signals(), (1, [f"assertion-removed {PS}:the first thing holds"]))
+
+    def test_a_powershell_condition_reworded_or_strengthened_is_clean(self):
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)", "Check 'the first thing holds' ($a -eq 1 -and $z -eq 9)")
+        self.edit(PS, "Check 'the second thing holds' ($b -eq 2)", "Check 'the second thing holds' ($b -ge 2)")
+        self.commit("stronger")
+        self.assertEqual(self.signals(), (0, []))
+
+    def test_a_removed_powershell_check_with_a_condition_is_one_signal_not_two(self):
+        self.write(PS, "Check 'one' ($a -eq 1 -and $b -eq 2)\nCheck 'two' ($c -eq 3)\n")
+        before = self.commit("checks")
+        self.edit(PS, "Check 'one' ($a -eq 1 -and $b -eq 2)\n", "")
+        self.commit("drop one")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertIn(f"test-removed {PS}:one", text)
+        self.assertIn("1 signal(s), 1 unanswered", text)
+
     def test_a_removed_and_a_disabled_group_and_a_removed_check_in_cpp(self):
         self.edit(CPP, '    {"slots", slots, nullptr},\n', "")
         self.edit(CPP, '{"budget", budget, nullptr}', '{"budget", nullptr, "later"}')
