@@ -41,7 +41,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 1 | §1 | Review-in-flight marks for the guard | -- | [x] |
 | 2 | §2 | Settled items in review prompts | §1 | [x] |
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
-| 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [ ] |
+| 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [x] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
@@ -184,9 +184,12 @@ The plan must never be committed out of step with its sections. The hook that re
 - [x] With `-Watchdog`, ask `python scripts/run-guard.py status --verify --json` what state the task is in and act on `verify.task` alone: `ok` is left alone; `missing` prints the task's name, the checkout and what it will run, installs it through `python scripts/run-guard.py install`, asks again, and reports success only when it now reads `ok`; `mismatched` and `unreadable` exit 1 with the guard's problems, change nothing, and say how to recover (rename this folder when another checkout owns the task, else `python scripts/run-guard.py uninstall` and run again). A status that fails, is not JSON or has no known `verify.task`, and a missing `python`, exit 1 and install nothing. Done when: `tests/setup_clone_test.ps1`, with a stand-in `run-guard.py` in the temporary clone, covers each state, a failed install, an install that exits 0 and registers nothing, and that no `-Watchdog` never runs the guard. Cheaper substitute: always installing, which replaces the task guarding a live run.
 - [x] Run `pwsh scripts/setup-clone.ps1` and `pwsh scripts/setup-clone.ps1 -Watchdog` in this clone. Done when: both report nothing to do, `git config --local core.hooksPath` prints `scripts/hooks` and `python scripts/run-guard.py status --verify --json` reports `verify.task` as `ok`.
 - [x] Document it in `CONTRIBUTING.md` and the hooks line of `AGENTS.md`: what `pwsh scripts/setup-clone.ps1` does, `-Repo`, when to add `-Watchdog` and what it needs (Python, Windows Task Scheduler), and how to undo each (`git config --local --unset core.hooksPath`, `python scripts/run-guard.py uninstall`). Add `tests/setup_clone_test.ps1` to the Windows job in `.github/workflows/build.yml`. Done when: both documents carry those points and the step is listed.
-- [ ] Commit: `tooling: pre-commit hook and clone setup`
+- [x] Commit: `tooling: pre-commit hook and clone setup`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_pre_commit.py`, `python scripts/run-tests.py test_run_guard` and `pwsh tests/setup_clone_test.ps1` exit 0, and fail if the hook's plan check is removed, the setup stops setting `core.hooksPath`, or the setup installs over a task it could not verify.
+
+> **Verified:** 2026-11-12 | §4 | ae4518ac1a120de811caf09411da90b0138aec25
+> **Review:** `docs/reviews/d00-t01-s4.json`
 
 ## 5. Scheduled automations for this repo
 
