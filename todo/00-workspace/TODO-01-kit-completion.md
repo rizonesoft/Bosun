@@ -237,22 +237,27 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 
 **Corrected 2026-11-12 (before the build):** both workflows exist and pass on `main`, so what is left is the proof that a stale plan turns `plan.yml` red. Checked the same day, `plan.yml` runs only when a push touches `todo/`, `docs/reviews/`, `scripts/`, `.claude/`, `.gitattributes` or the workflows, while the Python suite it runs reads more than that: the reviewer pin in `.conclave/`, the skill mirrors in `.agents/` and `.codex/`, the review prompt templates in `docs/`, `README.md`, `src/`, `design/`, `CMakeLists.txt`, `tests/` and `.gitignore`. `build.yml` does not run that suite. So a change to only those files reached `main` with the suite never run in CI. Decided: `plan.yml` runs on every push to `main` and every pull request, with no path list to fall behind; it costs a few minutes of CI on a commit that changes only prose, which is cheaper than a broken gate on `main`. Reversing it is putting the list back.
 
+**Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T01-s7.md` returned four gaps, all planned in below. The stale plan is committed to the throwaway branch through GitHub's contents API, so no local hook is bypassed. The proof is the plan step itself failing for that reason, read from the run's steps and log. Both triggers are checked in the workflow file, and the run for a push outside the old list is read by its own commit. `skip_reason` already never skips a workflow with no filter; the section keeps that and adds the case the tests lacked.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Make `plan.yml` run on every change. Done when: a push that changes only `.conclave/reviewers.toml` gets a run.
-2. Prove it fails on a stale plan. Done when: a throwaway pull request with a stale plan is red, then closed and its branch deleted.
+1. Make `plan.yml` run on every change. Done when: a push outside the old path list gets a `plan` run of its own.
+2. Prove it fails on a stale plan. Done when: a throwaway pull request's run fails at the plan step because the plan is stale, then the pull request is closed and its branch deleted.
 
 - [x] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
-- [ ] Remove the `paths` lists from `push` and `pull_request` in `.github/workflows/plan.yml`, keeping `branches: [main]` on `push`, `workflow_dispatch` and the concurrency group. Done when: a push of this change gets a `plan` run, and `python scripts/ci_status.py --sha HEAD --base <the commit before>` no longer reads `plan.yml` as skipped for a change outside the old list.
-- [ ] Teach `skip_reason` in `scripts/ci_status.py` that a workflow with no `paths` or `paths-ignore` on `push` is never skipped. Done when: `scripts/tests/test_ci_status.py` shows a workflow with neither filter reads `none` until it has a run, never `skipped`, whatever the push changed.
-- [ ] Open a throwaway pull request from a branch whose only commit makes `todo/implementation-plan.md` stale, and read its `plan` run. Done when: `python scripts/ci_status.py --sha <that commit> --workflow plan.yml` exits 1 naming the failed job, after which the pull request is closed unmerged and the branch deleted on the remote and here, and `git branch -a` lists it nowhere. Cheaper substitute: asserting the gate fails from the YAML alone.
+- [ ] Remove the `paths` lists from `push` and `pull_request` in `.github/workflows/plan.yml`, keeping `branches: [main]` on `push`, `workflow_dispatch` and the concurrency group. Done when: a test in `scripts/tests/test_ci_status.py` reads the real `plan.yml` and finds neither `paths` nor `paths-ignore` under `push` or `pull_request`, and fails if either comes back.
+- [ ] Keep `skip_reason` in `scripts/ci_status.py` never skipping a workflow with no filter, and cover the case the tests lack: with no filter, a push whose diff from the proven base is empty still reads `none` until a run answers. Done when: that case passes in `scripts/tests/test_ci_status.py`.
+- [ ] After the workflow change is on `main`, push a commit that changes only `docs/phase-runs/` (outside the old list) and read its run by its own commit. Done when: `python scripts/ci_status.py --sha <that commit> --workflow plan.yml` exits 0 from a run of that commit, not an older one.
+- [ ] Make the throwaway branch and its stale plan through GitHub alone: create `ci-proof-stale-plan` from `main` with `gh api repos/{owner}/{repo}/git/refs`, put one extra line at the end of `todo/implementation-plan.md` on it through the contents API (`PUT repos/{owner}/{repo}/contents/todo/implementation-plan.md` with `branch`), and open a pull request from it with `gh pr create --draft`. Done when: the branch's head commit differs from `main` in that file only, and no local commit was made. Cheaper substitute: committing the stale plan locally with the hook switched off.
+- [ ] Read that pull request's `plan` run by its commit. Done when: `python scripts/ci_status.py --sha <the branch head> --workflow plan.yml` exits 1, `gh run view <id> --json jobs` shows every step before `Check the generated plan is current` succeeded and that step failed, and its log has `stale projection: todo/implementation-plan.md`. Cheaper substitute: accepting any red run of the job.
+- [ ] Close the pull request unmerged and delete the branch on the remote. Done when: `gh pr view <number> --json state` says CLOSED, `git ls-remote origin ci-proof-stale-plan` prints nothing, and `git branch -a` lists it nowhere.
 - [ ] Commit: `ci: the plan workflow runs on every change, and a stale plan is shown to fail it`
 
-**Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, `python -m unittest scripts/tests/test_ci_status.py` exits 0, and the throwaway pull request's commit read `--sha <it> --workflow plan.yml` exits 1.
+**Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0; `python scripts/ci_status.py --sha <the docs/phase-runs commit> --workflow plan.yml` exits 0; and `python scripts/ci_status.py --sha <the throwaway branch head> --workflow plan.yml` exits 1, with the plan step failed for a stale plan.
 
 ## 12. Build and dev tool stack measured and tuned
 
