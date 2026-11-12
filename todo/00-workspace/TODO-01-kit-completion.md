@@ -195,8 +195,10 @@ The plan must never be committed out of step with its sections. The hook that re
 
 Toolchain drift should arrive as a notice, not a surprise. The kit's runner is copied in but names no tasks, and its alert names another project.
 
+**Corrected 2026-11-12 (held for the owner):** checked against the repo before building, and the section is held on a scope question only the owner can settle. What was found: (1) the Python and Visual Studio checks are about this machine, not this repo, and Recto's `recto-python-pin` and `recto-visual-studio` tasks already run them weekly on this machine and email the same address, so Bosun's copies would send the same news twice; (2) `check-dotnet-pin.py` does not exist in Isotone, Bosun has no `global.json` until `D00 T02 §1`, and the .NET pin already has its own section and wake check (`D00 T02 §3`, `scripts/dotnet-final-available.py`); (3) the sibling repos are under `D:\`, not `R:\GitHub`; (4) `.conclave/automations/alert.py` already sends to the operator's address, so only its failure-path test is missing; (5) the alert reads its key through `conclave-op`, which ties this repo's tooling to Conclave, against the 2026-11-10 rule that Bosun stays small and unconnected and the 2026-11-12 decision that its tooling is its own. The question: does Bosun still want its own scheduled checks? Recommended answer: no, withdraw this section and `§9`, and take the `bosun-pr-merge` task out of `§7`, since the only pin that is Bosun's alone is `python-version` in `.github/workflows/plan.yml`, which a reviewer sees on every Python release. The alternative is one Bosun check of that workflow pin, written here, with no email. Reversing a withdrawal costs re-filing three small sections. Nothing was built.
+
 **Phase:** 0
-**Needs:** none
+**Needs:** owner-decision
 **Surface:** no
 
 **Build order:**
