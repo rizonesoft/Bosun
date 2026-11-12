@@ -43,7 +43,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [x] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
-| 6 | §6 | Gates: native build checks and check-all | §4 | [ ] |
+| 6 | §6 | Gates: native build checks and check-all | §4 | [x] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
 | 9 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
@@ -244,9 +244,12 @@ One command should tell a contributor, and a run, whether the tree is fit to com
 - [x] Add `tests/check_all_test.ps1`: with stand-in steps, a run where every step passes runs each registered step once, in the order `-List` prints, and exits 0; `-List` runs none of them; a failing step stops the run, is named with its command and exit code, and nothing after it runs; a step whose program is not on `PATH` is named as that and stops the run the same way; `-Only` runs just what it names and refuses a name that is not a step; and in a temporary copy of the plan tooling with a stale plan, `-Only plan` exits nonzero. Done when: it passes, fails if the gate carries on past a failure, and is in the Windows job of `.github/workflows/build.yml` with `scripts/tests/test_native_checks.py` covered by the Python suite.
 - [x] Run the two native checks in the Windows job of `.github/workflows/build.yml` after the build. Done when: the steps are listed and the job is green.
 - [x] Point `AGENTS.md` and `CONTRIBUTING.md` at `pwsh scripts/check-all.ps1` as the way to verify, replacing the list of separate commands. Done when: both say so, and `AGENTS.md` no longer says "once `D00 T01 §6` has landed".
-- [ ] Commit: `gates: native build checks and check-all`
+- [x] Commit: `gates: native build checks and check-all`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on a clean tree and exits nonzero, naming the plan step, with a deliberately stale plan; `pwsh tests/check_all_test.ps1` and `python -m unittest discover -s scripts/tests -p test_native_checks.py` exit 0, and the second fails if the PE check stops requiring control-flow guard.
+
+> **Verified:** 2026-11-12 | §6 | 43f64347cbf56d04bd4078139b19512bb3852b9b
+> **Review:** `docs/reviews/d00-t01-s6.json`
 
 ## 7. Private GitHub repo and CI
 

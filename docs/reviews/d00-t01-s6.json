@@ -1,0 +1,89 @@
+{
+  "ref": "D00 T01 \u00a76",
+  "title": "Gates: native build checks and check-all",
+  "implementation_sha": "43f64347cbf56d04bd4078139b19512bb3852b9b",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T01-s6.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh scripts/check-all.ps1 -> all 23 steps passed in 921 s (on 1478d56; later commits changed only the WSL steps and the gate's test)",
+    "pwsh tests/check_all_test.ps1 -> all checks passed (20 ok)",
+    "python -m unittest discover -s scripts/tests -p test_native_checks.py -> Ran 17 tests, OK",
+    "pwsh scripts/check-all.ps1 -Wsl -Only the five WSL steps -> all 5 steps passed",
+    "pwsh scripts/check-all.ps1 -Only plan, with a stale plan -> FAIL plan: exit 2 (exit 1)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s6.md",
+    "verdict": "completed",
+    "candidate": "1478d565cdde63dabcc2bf92e60536b7b6aa5ef6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 returned one P3 (the new tests ignored BOSUN_SCRATCH); it was fixed in 1478d56 and the same in older tests is in todo/findings.md.",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s6.md",
+    "candidate": "7274d5674d86cce7ca132b7f8b80153b7673b798",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7274d5674d86cce7ca132b7f8b80153b7673b798",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
