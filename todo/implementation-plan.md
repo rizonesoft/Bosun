@@ -41,7 +41,7 @@ Sections: 33 | Checklist items: 334
 | [x]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 10    |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
 | [x]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
-| [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
+| [x]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 6     |
 | [ ]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 6     |
 | [ ]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 5     |
@@ -141,6 +141,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 28/86 verified sections, 8 ready to run now.
+Progress: 29/86 verified sections, 7 ready to run now.
 
-Checklist: 325/597 items completed (includes Commit items).
+Checklist: 326/597 items completed (includes Commit items).

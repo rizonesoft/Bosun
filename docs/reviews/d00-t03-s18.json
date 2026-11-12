@@ -1,0 +1,93 @@
+{
+  "ref": "D00 T03 \u00a718",
+  "title": "Campaign setup hardening from the preflight's completion review",
+  "implementation_sha": "18948a5577c7b9e05f40c41ec06958b071bf00a9",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s18.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s18.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s18.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/preflight_test.ps1 -> all passed",
+    "pwsh tests/campaign_hold_test.ps1 -> all passed",
+    "pwsh tests/campaign_admin_test.ps1 -> all passed",
+    "pwsh tests/start_run_test.ps1, tests/check_all_test.ps1, tests/measure_build_test.ps1 -> all passed",
+    "full gate, CI on dc2349a -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43327191202, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43327191147"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s18.md",
+    "verdict": "completed",
+    "candidate": "dc2349a5f797c4166a3544bec927ca627d18926c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s18.md",
+    "candidate": "292f214192c37f307d48ce8b34ba0d99aea3f4b0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "292f214192c37f307d48ce8b34ba0d99aea3f4b0",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

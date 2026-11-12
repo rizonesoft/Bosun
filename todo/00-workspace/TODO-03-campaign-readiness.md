@@ -55,7 +55,7 @@ title: "TODO-03 -- Campaign readiness"
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
 | 17 | §17 | Branch protection on main, read back | §8 | [x] |
-| 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
+| 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [x] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [ ] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [ ] |
@@ -712,9 +712,12 @@ Filed from `D00 T03 §10`'s completion review (`docs/reviews/00-workspace/D00-T0
 - [x] Correct the restart-hold wording in the headers of `scripts/campaign-admin-setup.ps1` and `scripts/campaign-preflight.ps1` and in `AGENTS.md` where it says restarts never happen: they are held while the owner is signed in, except at a compliance deadline or a restart the owner schedules, which the preflight refuses to start beside. Done when: no file says the hold is unconditional (`rg -n "never restarts"` finds only the corrected lines).
 - [x] Run `powercfg` (its reads and writes, in `Get-ActiveScheme`, `Get-PowerValue` and `Set-PowerValue`) and `vswhere` through `Invoke-Probe` in `scripts/lib/campaign.ps1` and `scripts/campaign-preflight.ps1`, so every external call has a limit and stops its tree; `scripts/campaign-hold.ps1` passes its `-ProbeSeconds`. Done when: the harnesses prove a hung fake `vswhere`, a hung `powercfg` read (preflight) and a hung `powercfg` write (hold) each fail at `-ProbeSeconds` and leave no process.
 - [x] Run each probe of `Invoke-Probe` in a job object (`scripts/lib/job-measure.ps1`) that ends its whole tree when the job closes, so a preflight or hold that is interrupted or killed leaves nothing running. Done when: `tests/preflight_test.ps1` kills a preflight while a fake probe hangs and finds the probe and its child gone.
-- [ ] Commit: `campaign: hardening from the preflight's completion review`
+- [x] Commit: `campaign: hardening from the preflight's completion review`
 
 **Test checkpoint:** `pwsh tests/preflight_test.ps1`, `pwsh tests/campaign_hold_test.ps1` and `pwsh tests/campaign_admin_test.ps1` exit 0.
+
+> **Verified:** 2026-11-13 | §18 | 18948a5577c7b9e05f40c41ec06958b071bf00a9
+> **Review:** `docs/reviews/d00-t03-s18.json`
 
 ## 19. Run guard holds an Antigravity run
 
