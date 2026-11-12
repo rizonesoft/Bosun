@@ -156,7 +156,7 @@ try {
   $usedNodes = Test-Used @($leftInfo | Where-Object Node) $cpuBefore $cpuAfter ($warmSeen.max_nodes -gt 0)
   $usedCompiler = Test-Used @($leftInfo | Where-Object Compiler) $cpuBefore $cpuAfter $warmSeen.started_compiler
   $results['one file changed, after a build'] = @($warmSeen.result)
-  "  one file changed, after a build: $(Format-Number $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes used: $usedNodes, compiler server used: $usedCompiler"
+  "  one file changed, after a build: $(Format-Number $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes left: $(Format-Used $usedNodes), the compiler server left: $(Format-Used $usedCompiler)"
 } finally {
   foreach ($run in @($warm, $linger)) { if ($run) { $run.Dispose() } }
   foreach ($path in @($log, "$log.linger", "$log.warm")) { Remove-Item -LiteralPath $path -Force -ErrorAction Ignore }

@@ -1238,6 +1238,108 @@
           "median_peak_mb": 306.4
         }
       ]
+    },
+    {
+      "label": "dotnet-final",
+      "kind": "dotnet",
+      "decision": "kept",
+      "note": "What ships: node reuse off from Directory.Build.rsp and two nodes passed by the commands this repository runs. Against dotnet-baseline: nothing to do 2.3 s against 3.1, one file 4.2 against 5.8, fresh 5.2 against 7.6; peak memory 121 MB against 214, 207 against 312 and 221 against 327; the warm one-file build 3.3 s against 4.6 at 134 MB against 226; left held after a build 77.7 MB against 73.7 (the compiler server in both). No setting in the combination loses, so none is reverted.",
+      "date": "2026-11-12T19:18:40Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "maxCpuCount:2"
+        ],
+        "response_file": [
+          "-nodeReuse:false"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 2,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 1,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.3,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 77.7
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.47,
+            2.16,
+            2.31
+          ],
+          "peak_mb": [
+            123.9,
+            120.5,
+            115.5
+          ],
+          "median_seconds": 2.31,
+          "median_peak_mb": 120.5
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            3.96,
+            4.21,
+            4.45
+          ],
+          "peak_mb": [
+            206.2,
+            209.6,
+            206.9
+          ],
+          "median_seconds": 4.21,
+          "median_peak_mb": 206.9
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            4.64,
+            5.37,
+            5.15
+          ],
+          "peak_mb": [
+            215.8,
+            226.7,
+            220.8
+          ],
+          "median_seconds": 5.15,
+          "median_peak_mb": 220.8
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            3.29
+          ],
+          "peak_mb": [
+            133.8
+          ],
+          "median_seconds": 3.29,
+          "median_peak_mb": 133.8
+        }
+      ]
     }
   ]
 }

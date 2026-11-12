@@ -153,6 +153,8 @@ Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: t
 
 **Parked 2026-11-12:** the owner stopped headless runs (relayed by the owner's other session): this run was resumed by the watchdog with no window. What is left here is `dotnet-final` (measured with `-BuildArgs maxCpuCount:2`, the setting the repository's commands pass) and the section's review rounds and completion review. The measurement tooling, the trials and the kept setting are committed.
 
+**Resumed 2026-11-12:** taken up again by an attended run the owner started in its own window. `dotnet-final` is measured and beats `dotnet-baseline` on every step, so nothing is reverted. Found on the way: the console summary of the warm build printed a blank where nothing of a kind was left; it now uses the document's wording, from one `Format-Used` in `scripts/measure-build.ps1`.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -171,7 +173,7 @@ Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: t
 - [x] Try node reuse on (`-BuildArgs nodeReuse:true`). Done when: it is measured under its own label and kept only if the one-file build it speeds up is worth the memory it leaves held, recorded in its note with both numbers; dropped otherwise, leaving `-nodeReuse:false` in `Directory.Build.rsp`. If kept: `tests/dotnet_nodes_test.ps1` and its header are changed in the same commit to assert the shipped policy (the nodes the repository's settings leave are the ones expected, and its job still ends every one), and `pwsh scripts/check-all.ps1` passes under it.
 - [x] Try other CPU limits (`maxCpuCount:2`, `maxCpuCount:8`, and no limit through `maxCpuCount` alone). Done when: each is measured under its own label (with `maxCpuCount:1` added) and the kept value is recorded with its numbers and passed by the commands this repository runs.
 - [x] Try shared compilation off (`-BuildArgs p:UseSharedCompilation=false`). Done when: it is measured under its own label and kept, in `Directory.Build.props`, only if peak memory or memory left held falls without the one-file build slowing by more than 10%.
-- [ ] Measure `dotnet-final` with the saved defaults: `Directory.Build.rsp` as it is and `-BuildArgs maxCpuCount:2`, the limit the repository's commands pass. Done when: its note compares it with `dotnet-baseline` on the three steps, the warm build and the memory left held, and a setting the combination makes lose is reverted and the label measured again.
+- [x] Measure `dotnet-final` with the saved defaults: `Directory.Build.rsp` as it is and `-BuildArgs maxCpuCount:2`, the limit the repository's commands pass. Done when: its note compares it with `dotnet-baseline` on the three steps, the warm build and the memory left held, and a setting the combination makes lose is reverted and the label measured again.
 - [ ] Commit: `build: .NET build defaults measured, keeping what wins`
 
 **Test checkpoint:** `pwsh tests/measure_build_test.ps1` exits 0, `pwsh scripts/measure-build.ps1 -Dotnet -Label check -Decision kept -Samples 1` writes a .NET label to `docs/build-performance.md` (removed again before the commit), `dotnet build Bosun.slnx` succeeds with warnings as errors under the kept settings, and `pwsh scripts/check-all.ps1` exits 0.

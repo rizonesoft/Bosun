@@ -1,6 +1,9 @@
 # Integration test for the build queue. Uses a private slot namespace, so it does not touch real builds.
 param([string]$Build = "$PSScriptRoot\..\build\Release", [switch]$SkipWsl)
 $ErrorActionPreference = 'Stop'
+# A suite run through `bosun run` hands this test the slot marker, and a job that has it passes straight through
+# without queueing, so every check of the queue would see no queue: this test starts outside any slot.
+Remove-Item Env:BOSUN_SLOT -ErrorAction Ignore
 $bosun = Join-Path $Build 'bosun.exe'
 $sleeper = Join-Path $Build 'test_sleeper.exe'
 $ns = "BosunTest$PID"

@@ -100,6 +100,8 @@ function Read-Data {
 }
 
 function Format-Number($value) { ([double]$value).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) }
+# Whether a .NET warm build used what the build before it left running: null when nothing of that kind was left.
+function Format-Used($value) { if ($null -eq $value) { 'none was left' } elseif ($value) { 'used' } else { 'not used' } }
 
 function ConvertTo-Document($data) {
   $out = [Collections.Generic.List[string]]::new()
@@ -134,8 +136,7 @@ function ConvertTo-Document($data) {
       $seen = $entry['observed']
       $left = $seen['left_running']
       $names = @($left['names']) -join ', '
-      $used = { param($value) if ($null -eq $value) { 'none was left' } elseif ($value) { 'used' } else { 'not used' } }
-      $out.Add("Observed in the linger build: at most $($seen['max_worker_nodes']) worker node(s) at once; compiler server $(if ($seen['compiler_server']) { 'ran' } else { 'did not run' }). Left running $(Format-Number $left['after_seconds']) s after it returned: $($left['processes']) process(es)$(if ($names) { " ($names)" }), $(Format-Number $left['mb']) MB private memory. In the one-file build made then, the nodes left: $(& $used $seen['warm_used_nodes']); the compiler server left: $(& $used $seen['warm_used_compiler']).")
+      $out.Add("Observed in the linger build: at most $($seen['max_worker_nodes']) worker node(s) at once; compiler server $(if ($seen['compiler_server']) { 'ran' } else { 'did not run' }). Left running $(Format-Number $left['after_seconds']) s after it returned: $($left['processes']) process(es)$(if ($names) { " ($names)" }), $(Format-Number $left['mb']) MB private memory. In the one-file build made then, the nodes left: $(Format-Used $seen['warm_used_nodes']); the compiler server left: $(Format-Used $seen['warm_used_compiler']).")
       $out.Add('')
     } else {
     $parts = @(
