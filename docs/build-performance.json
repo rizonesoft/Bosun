@@ -1,0 +1,529 @@
+{
+  "schema_version": 1,
+  "labels": [
+    {
+      "label": "baseline",
+      "decision": "baseline",
+      "note": "Ninja Multi-Config with MSVC and the Visual Studio linker, the compiler environment loaded on every build.",
+      "date": "2026-11-12T00:23:13Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [],
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": false
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            4.97,
+            3.9,
+            3.8,
+            5.01,
+            3.34
+          ],
+          "peak_mb": [
+            75.3,
+            74.9,
+            75.2,
+            75.4,
+            75.4
+          ],
+          "median_seconds": 3.9,
+          "median_peak_mb": 75.3
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            9.12,
+            9.26,
+            8.28,
+            9.01,
+            9.19
+          ],
+          "peak_mb": [
+            243.4,
+            243.2,
+            243.2,
+            243.4,
+            244.0
+          ],
+          "median_seconds": 9.12,
+          "median_peak_mb": 243.4
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            14.07,
+            11.69,
+            10.49,
+            11.66,
+            17.85
+          ],
+          "peak_mb": [
+            349.0,
+            344.1,
+            351.2,
+            362.0,
+            337.0
+          ],
+          "median_seconds": 11.69,
+          "median_peak_mb": 349.0
+        },
+        {
+          "step": "python test suite",
+          "seconds": [
+            291.05
+          ],
+          "peak_mb": [
+            396.8
+          ],
+          "median_seconds": 291.05,
+          "median_peak_mb": 396.8
+        }
+      ]
+    },
+    {
+      "label": "env-cache",
+      "decision": "kept",
+      "note": "The compiler environment replayed from build/dev-env.json instead of loaded on every build. Kept: nothing to do fell from 3.9 s to 1.1 s and from 75 MB to 43 MB; the other steps are within the spread between runs. It is now what scripts/build.ps1 does.",
+      "date": "2026-11-12T00:26:49Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [
+          "EnvCache"
+        ],
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": true
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            1.23,
+            1.05,
+            1.03,
+            1.39,
+            1.14
+          ],
+          "peak_mb": [
+            43.1,
+            43.1,
+            42.6,
+            43.2,
+            43.0
+          ],
+          "median_seconds": 1.14,
+          "median_peak_mb": 43.1
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            8.15,
+            7.25,
+            8.39,
+            7.53,
+            9.03
+          ],
+          "peak_mb": [
+            239.8,
+            239.6,
+            238.7,
+            238.6,
+            239.0
+          ],
+          "median_seconds": 8.15,
+          "median_peak_mb": 239.0
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            13.91,
+            12.85,
+            16.36,
+            11.3,
+            9.46
+          ],
+          "peak_mb": [
+            339.5,
+            342.8,
+            345.6,
+            347.8,
+            338.5
+          ],
+          "median_seconds": 12.85,
+          "median_peak_mb": 342.8
+        }
+      ]
+    },
+    {
+      "label": "sccache",
+      "decision": "dropped",
+      "note": "sccache as the compiler launcher with /Z7, a warm cache (5 cache hits, 0 misses on a fresh build) and its own server inside each measured job. Dropped and reverted: the fresh build's 10.2 s against 11.7 s is inside the baseline's own spread (10.5 to 17.9 s), a touched file gained nothing (8.9 s against 9.1 s), a real edit misses the cache, and nothing to do rose to 8.0 s because each job starts a server. Peak memory fell (232 MB against 349 MB), which does not pay for a resident server on a machine short of memory.",
+      "date": "2026-11-12T00:29:29Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": "0.19.0",
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [
+          "Sccache"
+        ],
+        "launcher": "sccache.exe",
+        "linker": "link.exe",
+        "env_cache": false
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            7.91,
+            8.47,
+            8.06,
+            7.81,
+            7.95
+          ],
+          "peak_mb": [
+            75.1,
+            74.6,
+            73.0,
+            75.2,
+            72.1
+          ],
+          "median_seconds": 7.95,
+          "median_peak_mb": 74.6
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            9.57,
+            9.2,
+            8.93,
+            8.85,
+            8.86
+          ],
+          "peak_mb": [
+            147.4,
+            150.5,
+            150.8,
+            150.9,
+            150.5
+          ],
+          "median_seconds": 8.93,
+          "median_peak_mb": 150.5
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            10.34,
+            9.91,
+            10.17,
+            10.27,
+            9.6
+          ],
+          "peak_mb": [
+            232.2,
+            232.8,
+            230.9,
+            240.6,
+            230.2
+          ],
+          "median_seconds": 10.17,
+          "median_peak_mb": 232.2
+        }
+      ]
+    },
+    {
+      "label": "lld-link",
+      "decision": "dropped",
+      "note": "lld-link 22.1.3 as the linker (4 link commands used it). Dropped and reverted: see env-cache-lld, measured directly against the kept configuration.",
+      "date": "2026-11-12T00:31:42Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": "22.1.3"
+      },
+      "configuration": {
+        "build_args": [
+          "Lld"
+        ],
+        "launcher": null,
+        "linker": "lld-link.exe",
+        "env_cache": false
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            3.08,
+            3.12,
+            3.12,
+            3.3,
+            2.95
+          ],
+          "peak_mb": [
+            75.9,
+            75.4,
+            75.2,
+            75.2,
+            75.0
+          ],
+          "median_seconds": 3.12,
+          "median_peak_mb": 75.2
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            7.35,
+            7.98,
+            7.1,
+            8.5,
+            7.89
+          ],
+          "peak_mb": [
+            243.9,
+            244.1,
+            243.7,
+            240.7,
+            241.8
+          ],
+          "median_seconds": 7.89,
+          "median_peak_mb": 243.7
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            10.28,
+            12.25,
+            16.05,
+            9.66,
+            9.95
+          ],
+          "peak_mb": [
+            338.2,
+            349.8,
+            358.5,
+            349.9,
+            346.4
+          ],
+          "median_seconds": 10.28,
+          "median_peak_mb": 349.8
+        }
+      ]
+    },
+    {
+      "label": "env-cache-lld",
+      "decision": "dropped",
+      "note": "lld-link beside the kept environment cache, measured back to back with the first final run. Dropped: one file changed was slower (9.5 s against 7.0 s) and the fresh build faster (8.7 s against 10.4 s), so there is no gain that holds, and the shipped tools would be linked by whichever linker a machine has.",
+      "date": "2026-11-12T00:48:57Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": "22.1.3"
+      },
+      "configuration": {
+        "build_args": [
+          "EnvCache",
+          "Lld"
+        ],
+        "launcher": null,
+        "linker": "lld-link.exe",
+        "env_cache": true
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            1.27,
+            1.21,
+            1.39,
+            1.93,
+            2.32
+          ],
+          "peak_mb": [
+            42.9,
+            43.7,
+            43.2,
+            43.2,
+            42.9
+          ],
+          "median_seconds": 1.39,
+          "median_peak_mb": 43.2
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            9.52,
+            8.78,
+            10.71,
+            10.01,
+            9.41
+          ],
+          "peak_mb": [
+            263.5,
+            274.7,
+            270.2,
+            271.0,
+            269.1
+          ],
+          "median_seconds": 9.52,
+          "median_peak_mb": 270.2
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            12.63,
+            11.01,
+            8.3,
+            7.74,
+            8.73
+          ],
+          "peak_mb": [
+            404.0,
+            387.2,
+            382.3,
+            392.8,
+            397.7
+          ],
+          "median_seconds": 8.73,
+          "median_peak_mb": 392.8
+        }
+      ]
+    },
+    {
+      "label": "final",
+      "decision": "kept",
+      "note": "What scripts/build.ps1 does after this measurement: the environment cache on, the Visual Studio linker, no compiler launcher.",
+      "date": "2026-11-12T01:02:30Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [],
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": true
+      },
+      "samples": 5,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            1.17,
+            1.04,
+            1.05,
+            1.08,
+            0.93
+          ],
+          "peak_mb": [
+            43.3,
+            42.9,
+            43.4,
+            42.5,
+            43.1
+          ],
+          "median_seconds": 1.05,
+          "median_peak_mb": 43.1
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            7.4,
+            9.87,
+            9.48,
+            6.85,
+            6.72
+          ],
+          "peak_mb": [
+            262.4,
+            261.9,
+            263.6,
+            262.7,
+            262.5
+          ],
+          "median_seconds": 7.4,
+          "median_peak_mb": 262.5
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            9.96,
+            9.79,
+            10.0,
+            10.58,
+            11.81
+          ],
+          "peak_mb": [
+            384.7,
+            376.2,
+            374.8,
+            381.4,
+            379.8
+          ],
+          "median_seconds": 10.0,
+          "median_peak_mb": 379.8
+        }
+      ]
+    }
+  ]
+}

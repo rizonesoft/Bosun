@@ -17,6 +17,8 @@ Notable changes to Bosun are recorded here. The format follows [Keep a Changelog
 ### Changed
 
 - The native tools build with Ninja through `pwsh scripts/build.ps1`, with warnings as errors everywhere and `compile_commands.json` for clangd. `app.cpp` is compiled once for both tools.
+- `pwsh scripts/build.ps1` replays the Visual Studio compiler environment from `build/dev-env.json` instead of loading it on every build: a build with nothing to do went from 3.9 s to 1.1 s. It also configures fresh once when the existing CMake cache cannot be configured from.
+- `pwsh scripts/measure-build.ps1` measures the build's wall time and peak memory per step and keeps the results in `docs/build-performance.md`. `sccache` and `lld-link` were measured and not kept.
 - `python scripts/run-tests.py` runs the tooling's tests several classes at a time.
 - `pwsh scripts/start-run.ps1` starts the unattended run with its goal, and `pwsh scripts/setup-lsp.ps1` sets up code intelligence for Claude Code.
 - The unattended run starts on the newest Opus (`claude --model opus`), and the run guard keeps that model for every session it resumes. The start signs in with the long-lived token from the user's variables, which `pwsh scripts/store-claude-token.ps1 -FromVault` imports once from the 1Password Conclave vault.

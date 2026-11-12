@@ -46,6 +46,12 @@ jobs:
         run: pwsh tests\bin_output_test.ps1
       - name: Build cache test
         run: pwsh tests\build_cache_test.ps1
+      - name: Build measurement test
+        run: pwsh tests\measure_build_test.ps1
+      - name: Developer environment cache test
+        run: pwsh tests\dev_env_test.ps1
+      - name: Build script test
+        run: pwsh tests\build_script_test.ps1
       - name: LSP plugin check test
         run: pwsh tests\setup_lsp_test.ps1
       - name: Swap install test

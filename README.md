@@ -72,7 +72,7 @@ A job and everything it starts end together, and together they may write at most
 
 ## How do I build and install it?
 
-Needs Visual Studio (or its Build Tools) with the C++ tools, which bring CMake and Ninja. `scripts/build.ps1` loads the compiler environment itself, so any shell works. The WSL side expects an `Ubuntu` distro, and `-Distro` picks another. No admin rights are needed.
+Needs Visual Studio (or its Build Tools) with the C++ tools, which bring CMake and Ninja. `scripts/build.ps1` loads the compiler environment itself, so any shell works, and replays it from `build/dev-env.json` after the first build, so a build with nothing to do takes about a second. `pwsh scripts/measure-build.ps1` measures the build's time and peak memory; [docs/build-performance.md](./docs/build-performance.md) has the numbers and what was kept. The WSL side expects an `Ubuntu` distro, and `-Distro` picks another. No admin rights are needed.
 
 ```
 pwsh scripts/build.ps1
