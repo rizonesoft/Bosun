@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 33 | Checklist items: 300
+Sections: 33 | Checklist items: 301
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
@@ -31,7 +31,7 @@ Sections: 33 | Checklist items: 300
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none           | 14    |
 | [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none           | 6     |
 | [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
-| [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 12    |
+| [ ]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 13    |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                             | none           | 4     |
 | [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                         | none           | 4     |
 | [ ]    | D00 T01 §7  | Private GitHub repo and CI                                      | none           | 4     |
@@ -143,4 +143,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 19/86 verified sections, 7 ready to run now.
 
-Checklist: 236/563 items completed (includes Commit items).
+Checklist: 248/564 items completed (includes Commit items).

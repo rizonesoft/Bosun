@@ -1491,7 +1491,23 @@ class Verify(unittest.TestCase):
         self.assertTrue(any(words in p for p in found["problems"]), found["problems"])
 
     def test_the_repo_s_own_task_reads_healthy(self):
-        self.assertEqual(self.run_verify(), {"healthy": True, "watchdog": guard.TASK_NAME, "problems": []})
+        self.assertEqual(self.run_verify(), {"healthy": True, "watchdog": guard.TASK_NAME, "task": "ok", "problems": []})
+
+    def test_the_state_of_the_task_itself_is_one_of_four(self):
+        # What a caller acts on, such as scripts/setup-clone.ps1, which installs only over `missing`.
+        own_script = f'"{self.root / "scripts" / "run-guard.py"}" watch'
+        for expected, kwargs in (
+                ("ok", {}),
+                ("ok", {"tick": {}}),  # the task is right; that it has not ticked yet is a separate problem
+                ("missing", {"code": 1, "task": "ERROR: The system cannot find the file specified."}),
+                ("unreadable", {"code": 1, "task": "ERROR: Access is denied."}),
+                ("unreadable", {"code": None, "task": "schtasks could not run"}),
+                ("mismatched", {"task": xml(arguments='"C:/b/other.py" watch')}),  # another checkout's task of this name
+                ("mismatched", {"task": self.own.replace("<UserId>me<", "<UserId>someone<")}),
+                ("mismatched", {"task": self.own.replace("<Enabled>true<", "<Enabled>false<")}),
+                ("mismatched", {"task": xml(command="C:/gone/pythonw.exe", arguments=own_script)})):
+            with self.subTest(expected=expected, kwargs=kwargs):
+                self.assertEqual(self.run_verify(**kwargs)["task"], expected)
 
     def test_each_broken_part_reads_unhealthy_with_its_reason(self):
         self.unhealthy("program is missing", task=xml(command="C:/gone/pythonw.exe", arguments=f'"{self.root / "scripts" / "run-guard.py"}" watch'))

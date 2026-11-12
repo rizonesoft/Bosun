@@ -28,7 +28,10 @@ if [ -z "$python" ]; then
     echo "pre-commit: Python is needed to check the TODO graph" >&2
     exit 1
 fi
-if ! "$python" "$root/scripts/todo-graph.py" validate >/dev/null || ! "$python" "$root/scripts/todo-graph.py" plan --check; then
-    echo "pre-commit: run 'python scripts/todo-graph.py plan --sync', stage todo/implementation-plan.md, and commit again" >&2
+# One call checks both: `plan --check` loads the graph first and refuses an invalid one before it compares the plan.
+# A separate `validate` loaded the graph a second time on every commit (about 8 seconds here on 2026-11-12) and could
+# refuse nothing more; scripts/tests/test_pre_commit.py holds an invalid graph and a stale plan against this line.
+if ! "$python" "$root/scripts/todo-graph.py" plan --check; then
+    echo "pre-commit: if the plan is stale, run 'python scripts/todo-graph.py plan --sync', stage todo/implementation-plan.md, and commit again; if the graph was refused, fix what it names first" >&2
     exit 1
 fi

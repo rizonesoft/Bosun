@@ -1322,19 +1322,24 @@ def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: se
 def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task_xml: Callable = read_task_xml,
            read_json: Callable = read_json_file, is_file: Callable = os.path.isfile, ids: set | None = None) -> dict:
     """Whether the watchdog will really tick this repo: its own task runs this checkout's guard as this user, is
-    enabled, and has ticked lately. Each problem has a reason."""
+    enabled, and has ticked lately. Each problem has a reason. `task` is the state of the task itself, for a caller that
+    must act on it without reading the wording: `ok` (it runs this checkout's guard, as this user, enabled), `missing`,
+    `mismatched` (it exists but is another checkout's, another user's or disabled) or `unreadable`."""
     now = time.time() if now is None else now
     ids = user_ids() if ids is None else ids
     own = os.path.normcase(os.path.normpath(str(root / "scripts" / "run-guard.py")))
     problems = []
     code, xml = task_xml(TASK_NAME)
     if code is None:
+        task = "unreadable"
         problems.append(f"the task {TASK_NAME} can't be read: {xml}")
     elif code != 0:
-        problems.append(f"the task {TASK_NAME} is missing" if "cannot find" in xml.lower() else f"the task {TASK_NAME} can't be read: {xml.strip()[:200]}")
+        task = "missing" if "cannot find" in xml.lower() else "unreadable"
+        problems.append(f"the task {TASK_NAME} is missing" if task == "missing" else f"the task {TASK_NAME} can't be read: {xml.strip()[:200]}")
     else:
-        problems += [f"{TASK_NAME}: {p}" for p in
-                     task_problems(xml, lambda s: os.path.normcase(os.path.normpath(s)) == own, "watch", ids, is_file)]
+        wrong = task_problems(xml, lambda s: os.path.normcase(os.path.normpath(s)) == own, "watch", ids, is_file)
+        task = "mismatched" if wrong else "ok"
+        problems += [f"{TASK_NAME}: {p}" for p in wrong]
     tick = read_json(path.with_name("last-tick.json"))
     at = parse_stamp(tick.get("at")) if isinstance(tick, dict) else None
     if at is None:
@@ -1343,7 +1348,7 @@ def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task
         problems.append(f"the watchdog hasn't ticked in {2 * WATCH_MINUTES} minutes (last {tick.get('at')})")
     elif not tick.get("ok"):
         problems.append(f"the watchdog's last tick failed: {tick.get('result')}")
-    return {"healthy": not problems, "watchdog": TASK_NAME, "problems": problems}
+    return {"healthy": not problems, "watchdog": TASK_NAME, "task": task, "problems": problems}
 
 
 def watch_tick(env: Env = REAL, path: Path = STATE, now: float | None = None) -> str:

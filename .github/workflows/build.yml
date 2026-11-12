@@ -52,6 +52,8 @@ jobs:
         run: pwsh tests\dev_env_test.ps1
       - name: Build script test
         run: pwsh tests\build_script_test.ps1
+      - name: Clone setup test
+        run: pwsh tests\setup_clone_test.ps1
       - name: LSP plugin check test
         run: pwsh tests\setup_lsp_test.ps1
       - name: Swap install test

@@ -6,11 +6,15 @@ Bosun is built section by section from a validated TODO graph in [`todo/`](todo/
 
 1. Read [AGENTS.md](AGENTS.md) for the project rules. [`design/SPEC.md`](design/SPEC.md) is the interface contract.
 2. Run `python scripts/todo-graph.py query ready` to see which work can start now.
-3. Turn on the repository's hooks, once per clone:
+3. Set up the clone, once:
 
 ```
-git config core.hooksPath scripts/hooks
+pwsh scripts/setup-clone.ps1
 ```
+
+It turns on the repository's git hooks by setting `core.hooksPath` to `scripts/hooks` in the clone's own config, so a commit that would leave the generated plan stale or the TODO graph invalid is refused before it lands. It is safe to run again, and `-Repo <folder>` sets up a clone other than the one the script is in. To undo it: `git config --local --unset core.hooksPath`.
+
+Add `-Watchdog` only on a machine that runs the plan unattended: it installs the scheduled task that resumes a run, and needs Python and Windows Task Scheduler. It installs only when the task is missing, leaves one that already runs this clone alone, and reports one that belongs to another clone or is disabled without replacing it. To undo it: `python scripts/run-guard.py uninstall`. Bosun itself needs neither.
 
 ## What do I need?
 
