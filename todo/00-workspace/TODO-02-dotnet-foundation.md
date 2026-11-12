@@ -2,7 +2,7 @@
 schema_version: 1
 id: dotnet-foundation
 domain: 00-workspace
-status: active
+status: done
 title: "TODO-02 -- The .NET foundation"
 ---
 
@@ -42,7 +42,7 @@ title: "TODO-02 -- The .NET foundation"
 | 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [x] |
 | 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [x] |
 | 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [x] |
-| 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [ ] |
+| 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [x] |
 
 ## 1. Solution, props and empty projects
 
@@ -174,9 +174,12 @@ Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: t
 - [x] Try other CPU limits (`maxCpuCount:2`, `maxCpuCount:8`, and no limit through `maxCpuCount` alone). Done when: each is measured under its own label (with `maxCpuCount:1` added) and the kept value is recorded with its numbers and passed by the commands this repository runs.
 - [x] Try shared compilation off (`-BuildArgs p:UseSharedCompilation=false`). Done when: it is measured under its own label and kept, in `Directory.Build.props`, only if peak memory or memory left held falls without the one-file build slowing by more than 10%.
 - [x] Measure `dotnet-final` with the saved defaults: `Directory.Build.rsp` as it is and `-BuildArgs maxCpuCount:2`, the limit the repository's commands pass. Done when: its note compares it with `dotnet-baseline` on the three steps, the warm build and the memory left held, and a setting the combination makes lose is reverted and the label measured again.
-- [ ] Commit: `build: .NET build defaults measured, keeping what wins`
+- [x] Commit: `build: .NET build defaults measured, keeping what wins`
 
 **Test checkpoint:** `pwsh tests/measure_build_test.ps1` exits 0, `pwsh scripts/measure-build.ps1 -Dotnet -Label check -Decision kept -Samples 1` writes a .NET label to `docs/build-performance.md` (removed again before the commit), `dotnet build Bosun.slnx` succeeds with warnings as errors under the kept settings, and `pwsh scripts/check-all.ps1` exits 0.
+
+> **Verified:** 2026-11-12 | §4 | fc2cc2905a5e4defa616e33151d439e9d7c97559
+> **Review:** `docs/reviews/d00-t02-s4.json`
 ## Verification
 
 - `dotnet test --solution Bosun.slnx` passes.

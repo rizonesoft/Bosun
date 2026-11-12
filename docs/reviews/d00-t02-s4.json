@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T02 \u00a74",
+  "title": ".NET build defaults measured for memory and speed",
+  "implementation_sha": "fc2cc2905a5e4defa616e33151d439e9d7c97559",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T02-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T02-s4.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh tests/measure_build_test.ps1 -> all checks passed",
+    "pwsh scripts/measure-build.ps1 -Dotnet -Label check -Decision kept -Samples 1 -BuildArgs maxCpuCount:2 -OutDir <scratch> -> stored 'check' (kept) in the scratch copy, the repository's document untouched",
+    "dotnet build Bosun.slnx -nologo -maxCpuCount:2 -warnaserror -> 0 Warning(s), 0 Error(s)",
+    "pwsh scripts/check-all.ps1 -> all 26 steps passed in 1264 s"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T02-s4.md",
+    "verdict": "completed",
+    "candidate": "bdeb776e1b30d06a2327a8033a514646fc04206a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 returned one P3 (a wrong memory figure in the Directory.Build.rsp comment), fixed in bdeb776; nothing left open",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T02-s4.md",
+    "candidate": "3d0fbd0f0d999d2d2cd57e560e16f9b274125479",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3d0fbd0f0d999d2d2cd57e560e16f9b274125479",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
