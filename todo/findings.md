@@ -34,3 +34,4 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `Directory.Build.rsp`: measure cold, incremental and no-op builds (median time, peak and retained memory over repeated runs) for the four-node default, keeping node reuse off (D00 T02 §1 completion review, 2026-11-12; `§4` owns the measurement).
 - `CONTRIBUTING.md`: one documented queued command that restores, builds and runs both .NET foundation suites, with the required SDK beside it (D00 T02 §1 completion review, 2026-11-12).
 - `tests/dotnet_nodes_test.ps1`: report elapsed progress at least every 30 seconds while a case builds, without dumping its log (D00 T02 §1 completion review, 2026-11-12).
+- `scripts/check-all.ps1:66`: report the effective .NET SDK once before the local .NET build, as CI does, keeping release-only selection (D00 T02 §3 completion review, 2026-11-12).
