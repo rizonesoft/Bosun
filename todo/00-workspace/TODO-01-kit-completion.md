@@ -235,20 +235,24 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 
 **Corrected 2026-11-12:** the item that ported `scripts/merge_prs.py` and scheduled it as `bosun-pr-merge` is withdrawn with `§5` and `§9` (owner, 2026-11-12): Bosun has no scheduled tasks of its own. Dependabot pull requests are merged by hand or by GitHub's own auto-merge. The Build order's second step no longer includes the port, and this section waits on `§4` only.
 
+**Corrected 2026-11-12 (before the build):** both workflows exist and pass on `main`, so what is left is the proof that a stale plan turns `plan.yml` red. Checked the same day, `plan.yml` runs only when a push touches `todo/`, `docs/reviews/`, `scripts/`, `.claude/`, `.gitattributes` or the workflows, while the Python suite it runs reads more than that: the reviewer pin in `.conclave/`, the skill mirrors in `.agents/` and `.codex/`, the review prompt templates in `docs/`, `README.md`, `src/`, `design/`, `CMakeLists.txt`, `tests/` and `.gitignore`. `build.yml` does not run that suite. So a change to only those files reached `main` with the suite never run in CI. Decided: `plan.yml` runs on every push to `main` and every pull request, with no path list to fall behind; it costs a few minutes of CI on a commit that changes only prose, which is cheaper than a broken gate on `main`. Reversing it is putting the list back.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Create the private repo and push `main`. Done when: `git remote -v` shows it.
-2. Add `.github/workflows/build.yml` and `plan.yml`. Done when: `ci_status.py` reports green.
+1. Make `plan.yml` run on every change. Done when: a push that changes only `.conclave/reviewers.toml` gets a run.
+2. Prove it fails on a stale plan. Done when: a throwaway pull request with a stale plan is red, then closed and its branch deleted.
 
 - [x] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
-- [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red on a disposable pull request branch, closed afterwards. Actions stay on major tags, kept current by Dependabot.
-- [ ] Commit: `ci: private repo and workflows`
+- [ ] Remove the `paths` lists from `push` and `pull_request` in `.github/workflows/plan.yml`, keeping `branches: [main]` on `push`, `workflow_dispatch` and the concurrency group. Done when: a push of this change gets a `plan` run, and `python scripts/ci_status.py --sha HEAD --base <the commit before>` no longer reads `plan.yml` as skipped for a change outside the old list.
+- [ ] Teach `skip_reason` in `scripts/ci_status.py` that a workflow with no `paths` or `paths-ignore` on `push` is never skipped. Done when: `scripts/tests/test_ci_status.py` shows a workflow with neither filter reads `none` until it has a run, never `skipped`, whatever the push changed.
+- [ ] Open a throwaway pull request from a branch whose only commit makes `todo/implementation-plan.md` stale, and read its `plan` run. Done when: `python scripts/ci_status.py --sha <that commit> --workflow plan.yml` exits 1 naming the failed job, after which the pull request is closed unmerged and the branch deleted on the remote and here, and `git branch -a` lists it nowhere. Cheaper substitute: asserting the gate fails from the YAML alone.
+- [ ] Commit: `ci: the plan workflow runs on every change, and a stale plan is shown to fail it`
 
-**Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, and exits 1 after a deliberately red run.
+**Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, `python -m unittest scripts/tests/test_ci_status.py` exits 0, and the throwaway pull request's commit read `--sha <it> --workflow plan.yml` exits 1.
 
 ## 12. Build and dev tool stack measured and tuned
 
