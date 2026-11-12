@@ -1,18 +1,24 @@
 # Tests Directory.Build.rsp: a .NET build in this repository leaves no MSBuild worker node alive after it returns,
 # where without the file the nodes stay to be reused and hold memory (measured 2026-11-10: 11 idle nodes, 1.4 GB).
+# The file governs command-line builds (`dotnet build`, `dotnet test`, `msbuild`); Visual Studio does not read
+# response files, so its builds keep its own node settings.
+#
+# -BreakBuild makes the fixture's builds fail, to show the failure path: the test fails and keeps its logs.
 #
 # Each case builds a small solution in a scratch copy of this repository's .NET settings, with the rsp file or
 # without it. The build runs directly, not through `bosun run --`: Bosun ends a job's whole process tree when the
 # job ends, so a queued build leaves no node either way and could not show what the file does. The file is for the
-# builds that are not queued, an IDE's or a plain `dotnet build`, and the fixture is three empty projects, small
+# command-line builds that are not queued, a plain `dotnet build` or `dotnet test`, and the fixture is three empty projects, small
 # enough not to need a slot. Each build runs in a job object (scripts/lib/job-measure.ps1) that stays open until
 # its nodes have been watched: the nodes are the job's own live members, never matched by name or by a recorded id,
 # and ending the job ends every process the build started, on success, failure, a timeout or an interruption.
+param([switch]$BreakBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $scratch ("bosun-dotnet-nodes-test-" + [guid]::NewGuid())
 $failed = 0
+$finished = $false  # set at the end of the cases: a run stopped early keeps its logs
 $jobs = [Collections.Generic.List[object]]::new()  # every build's job, ended in the finally below
 . (Join-Path $repo 'scripts/lib/job-measure.ps1')
 $limitSeconds = 300
@@ -32,7 +38,8 @@ function New-Fixture([string]$name, [switch]$WithoutRsp) {
     $p = Join-Path $dir "P$n"
     New-Item -ItemType Directory -Force $p | Out-Null
     Set-Content -LiteralPath (Join-Path $p "P$n.csproj") -Value "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup></Project>"
-    Set-Content -LiteralPath (Join-Path $p 'C.cs') -Value "namespace P$n; public static class C { public const int V = $n; }"
+    $body = if ($BreakBuild) { 'this does not compile' } else { "namespace P$n; public static class C { public const int V = $n; }" }
+    Set-Content -LiteralPath (Join-Path $p 'C.cs') -Value $body
     "    <Project Path=`"P$n/P$n.csproj`" />"
   }
   Set-Content -LiteralPath (Join-Path $dir 'Nodes.slnx') -Value (@('<Solution>') + $projects + '</Solution>')
@@ -70,6 +77,7 @@ try {
   New-Item -ItemType Directory -Force $work | Out-Null
 
   # With Directory.Build.rsp, as the repository builds: no node of this build is alive 5 seconds after it returns.
+  'case: with Directory.Build.rsp'
   $with = New-Fixture 'with-rsp'
   $build = Invoke-Build $with
   Start-Sleep -Seconds 5
@@ -80,11 +88,12 @@ try {
 
   # Without it, MSBuild's default keeps its nodes for reuse, which is what the file is there to prevent: a test that
   # cannot see them survive would pass on a file that did nothing.
+  'case: without Directory.Build.rsp'
   $without = New-Fixture 'without-rsp' -WithoutRsp
   $build = Invoke-Build $without
   Start-Sleep -Seconds 5
   $left = Get-OwnNodes $build.Run
-  Check 'the same build without Directory.Build.rsp succeeds' ($build.ExitCode -eq 0)
+  Check 'the same build without Directory.Build.rsp succeeds' ($build.ExitCode -eq 0) "(exit $($build.ExitCode): $((Get-Content -LiteralPath (Join-Path $without 'build.log') -Tail 5) -join ' / '))"
   Check 'and leaves the nodes it started alive to be reused, so the check above can fail' ($left.Count -gt 0)
   # Their process objects, held before the job ends, so the check below asks about these processes and not about
   # whatever may later reuse their ids.
@@ -92,12 +101,19 @@ try {
   $build.Run.Dispose()
   foreach ($process in $kept) { [void]$process.WaitForExit(10000) }
   $alive = @($kept | Where-Object { -not $_.HasExited })
+  # The nodes the last build kept were members of its job, so ending the job ended them.
+  Check 'ending the job ends the nodes the build left' ($kept.Count -gt 0 -and $alive.Count -eq 0) "($($kept.Count) kept, $($alive.Count) alive)"
+  $finished = $true
 } finally {
   # Ending each job ends every process in it, whatever happened above (a failure, a timeout or Ctrl+C).
   foreach ($run in $jobs) { $run.Dispose() }
-  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
+  # A run that failed or stopped early keeps its fixtures and their build logs for diagnosis; a passing one leaves
+  # nothing behind.
+  if ($failed -or -not $finished) {
+    "kept for diagnosis: $work (each case's build.log is in its folder)"
+  } else {
+    Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
+  }
 }
-# The nodes the last build kept were members of its job, so ending the job ended them.
-Check 'ending the job ends the nodes the build left' ($kept.Count -gt 0 -and $alive.Count -eq 0) "($($kept.Count) kept, $($alive.Count) alive)"
 if ($failed) { "$failed check(s) failed"; exit 1 }
 'all checks passed'

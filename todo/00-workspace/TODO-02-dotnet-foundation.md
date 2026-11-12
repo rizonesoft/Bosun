@@ -28,7 +28,7 @@ title: "TODO-02 -- The .NET foundation"
 
 ## Outcome
 
-- `dotnet build Bosun.slnx` and `dotnet test Bosun.slnx` succeed with warnings as errors.
+- `dotnet build Bosun.slnx` and `dotnet test --solution Bosun.slnx` succeed with warnings as errors.
 - The SDK pin moves to the final release when it ships, as one reviewed change.
 
 **Adjacency:** all=not-applicable (internal tooling and contracts with no records of their own)
@@ -54,7 +54,7 @@ Everything later hangs off this shape: one solution beside the C++ tools, with c
 
 **Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T02-s1.md` returned five gaps, all planned in below. The Panel compiles a XAML file that names a type of its own, which is what makes WPF build its temporary project, and the fix is shown to be needed by removing it. Globalization is proved on the Panel's own runtime configuration with an exact culture-specific value. The node test owns, bounds and cleans up every process it starts and runs its build through the queue. The solution holds all four projects with their references. The output folder is anchored to the checkout root and checked for every project.
 
-**Corrected 2026-11-12 (build):** four things the build found. The SDK's `dotnet test` on .NET 10 and later runs only Microsoft.Testing.Platform, which xunit v3 uses natively, so `global.json` selects it and the VSTest packages (`Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`) are not used; the foundation tests run as `dotnet test --solution Bosun.slnx --filter-method "*Foundation*"`. WPF's temporary markup project builds under `ArtifactsPath` and central package management on SDK `11.0.100` with no setting at all (`GenerateTemporaryTargetAssembly` ran and wrote its `_wpftmp` project under `build/dotnet/obj`), so there is no setting to remove; the item is kept as the proof that the project builds. Each globalization check fails when its own setting flips: the runtime configuration read-back on the Panel's, the `de-DE` binding on the test host's, which is where a test's culture comes from. And a build through `bosun run --` leaves no MSBuild node with or without `Directory.Build.rsp`, because Bosun ends a job's whole tree, so the node test builds directly, where the file is what makes the difference. The Windows CI job gains `actions/setup-dotnet` for that test; building and testing the solution in CI stays with `§2`.
+**Corrected 2026-11-12 (build):** four things the build found. xunit v3 brings Microsoft.Testing.Platform, and on .NET 10 and later `dotnet test` refuses to run it through the VSTest target, so `global.json` selects Microsoft.Testing.Platform as the runner and the VSTest packages (`Microsoft.NET.Test.Sdk`, `xunit.runner.visualstudio`) are not used; the foundation tests run as `dotnet test --solution Bosun.slnx --filter-method "*Foundation*"`. WPF's temporary markup project builds under `ArtifactsPath` and central package management on SDK `11.0.100` with no setting at all (`GenerateTemporaryTargetAssembly` ran and wrote its `_wpftmp` project under `build/dotnet/obj`), so there is no setting to remove; the item is kept as the proof that the project builds. Each globalization check fails when its own setting flips: the runtime configuration read-back on the Panel's, the `de-DE` binding on the test host's, which is where a test's culture comes from. And a build through `bosun run --` leaves no MSBuild node with or without `Directory.Build.rsp`, because Bosun ends a job's whole tree, so the node test builds directly, where the file is what makes the difference. The Windows CI job gains `actions/setup-dotnet` for that test; building and testing the solution in CI stays with `§2`.
 
 **Phase:** 0
 **Needs:** none
@@ -66,7 +66,7 @@ Everything later hangs off this shape: one solution beside the C++ tools, with c
 2. Prove the shape. Done when: the solution builds with warnings as errors, the foundation tests of both test projects run and pass, and the checks below fail when what they guard is removed.
 
 - [x] Create `global.json` pinning SDK `11.0.100` with `rollForward: latestFeature` and `allowPrerelease: false`. Done when: `dotnet --version` run in the repo prints `11.0.100` or a later 11.0 feature band, and never the RC. Cheaper substitute: no pin at all, so the RC can be chosen.
-- [x] Create `Directory.Packages.props` with `ManagePackageVersionsCentrally` and the test packages (xunit v3, its Visual Studio runner, `Microsoft.NET.Test.Sdk`), each at a released version. Done when: no project names a package version itself.
+- [x] Create `Directory.Packages.props` with `ManagePackageVersionsCentrally` and the test package (`xunit.v3`, which runs on Microsoft.Testing.Platform as `global.json` selects) at a released version. Done when: no project names a package version itself.
 - [x] Create `Directory.Build.props` with `TreatWarningsAsErrors`, `Nullable` enabled, `LangVersion` latest, and `ArtifactsPath` set to `$(MSBuildThisFileDirectory)build/dotnet`, anchored to the checkout root. Done when: `dotnet msbuild <each project> -getProperty:OutputPath -getProperty:IntermediateOutputPath -getProperty:BaseIntermediateOutputPath` prints paths under `build/dotnet` of the checkout root for all four projects, a deliberate warning fails the build, and a full build leaves no `artifacts/` folder and no `bin/` or `obj/` folder anywhere under `src/` or `tests/`.
 - [x] Create `src/Bosun.Core/Bosun.Core.csproj` (`net11.0`) and `src/Bosun.Panel/Bosun.Panel.csproj` (`net11.0-windows`, `UseWPF`, `InvariantGlobalization` false), the Panel referencing Core, with an `App` and one compiled XAML resource dictionary that names a type defined in the Panel itself, which makes WPF build its temporary markup project. Done when: the Panel builds with that XAML compiled, under `ArtifactsPath` and central package management.
 - [x] Prove WPF's temporary markup project builds under `ArtifactsPath` and central package management. Done when: a detailed build of the Panel shows `GenerateTemporaryTargetAssembly` running and its `_wpftmp` project under `build/dotnet/obj`, and `Foundation_panel_xaml_names_a_type_of_its_own` loads the compiled resource dictionary. Cheaper substitute: a Panel with no XAML that names its own types, which never builds the temporary project and so proves nothing.
@@ -144,5 +144,5 @@ Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: t
 
 ## Verification
 
-- `dotnet test Bosun.slnx` passes.
+- `dotnet test --solution Bosun.slnx` passes.
 - `python scripts/todo-graph.py validate` passes.
