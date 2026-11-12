@@ -1,0 +1,83 @@
+{
+  "ref": "D00 T02 \u00a73",
+  "title": "Move the SDK pin to the .NET 11 release",
+  "implementation_sha": "29f11fcd12d434fd4462b1f50d2f9766aee9627e",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T02-s3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet --version (in the repo) -> 11.0.100; global.json allowPrerelease false",
+    "git grep rc. / preview. / -alpha in packages, global.json, workflows, *.csproj, *.props -> nothing",
+    "build.yml run 43227598752 at 7aa0ac1 -> .NET SDK in use 11.0.100",
+    "release-metadata/11.0/releases.json -> latest-sdk 11.0.100, latest-release 11.0.0 of 2026-11-10",
+    "bosun run -- python scripts/run-tests.py -> Ran 802 tests, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T02-s3.md",
+    "verdict": "complete",
+    "candidate": "33e62dc95735988c64db9a7d13022b0be8f3153c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T02-s3.md",
+    "candidate": "2a425d90813b77e4a1f042b7fab0c23fa85fe8f1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "2a425d90813b77e4a1f042b7fab0c23fa85fe8f1",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

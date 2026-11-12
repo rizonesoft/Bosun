@@ -41,7 +41,7 @@ title: "TODO-02 -- The .NET foundation"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Solution, props and empty projects | D00 T03 §10 | [x] |
 | 2 | §2 | Add .NET to the gates | §1, D00 T01 §6 | [x] |
-| 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [ ] |
+| 3 | §3 | Move the SDK pin to the .NET 11 release | §2 | [x] |
 | 4 | §4 | .NET build defaults measured for memory and speed | §1, D00 T01 §12 | [ ] |
 
 ## 1. Solution, props and empty projects
@@ -135,6 +135,9 @@ A section can only be held to tests that the one-command gate actually runs.
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on the release SDK.
 
 > **Woken:** 2026-11-12: its `third-party` check in todo/wakes.json passed
+
+> **Verified:** 2026-11-12 | §3 | 29f11fcd12d434fd4462b1f50d2f9766aee9627e
+> **Review:** `docs/reviews/d00-t02-s3.json`
 
 ## 4. .NET build defaults measured for memory and speed
 
