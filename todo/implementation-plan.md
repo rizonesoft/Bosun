@@ -40,7 +40,7 @@ Sections: 32 | Checklist items: 309
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none        | 4     |
 | [ ]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 5     |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
-| [ ]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
+| [x]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
 | [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 6     |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 6     |
 | [ ]    | D00 T03 §20 | Agent badge on each unattended run shortcut                     | none        | 7     |
@@ -140,6 +140,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 22/85 verified sections, 8 ready to run now.
+Progress: 23/85 verified sections, 7 ready to run now.
 
-Checklist: 272/572 items completed (includes Commit items).
+Checklist: 273/572 items completed (includes Commit items).

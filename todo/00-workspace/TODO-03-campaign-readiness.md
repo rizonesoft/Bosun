@@ -54,7 +54,7 @@ title: "TODO-03 -- Campaign readiness"
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
-| 17 | §17 | Branch protection on main, read back | §8 | [ ] |
+| 17 | §17 | Branch protection on main, read back | §8 | [x] |
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [ ] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
 | 20 | §20 | Agent badge on each unattended run shortcut | -- | [ ] |
@@ -674,9 +674,12 @@ Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook cat
 - [x] Add a `protection` check to `$Checks` in `scripts/campaign-preflight.ps1`, so a default run includes it, reading that endpoint through `Probe` (bounded by `-ProbeSeconds`). It passes only when the answer is JSON with `enforce_admins.enabled` exactly true and `allow_force_pushes.enabled` and `allow_deletions.enabled` exactly false; a 404 (`Branch not protected`) fails as off, and a failed call, a timeout, an answer that is not JSON and a missing field each fail with what was wrong, each naming the fix. Done when: `tests/preflight_test.ps1`, with a stand-in `gh` returning GitHub-shaped JSON, passes the full answer and fails each of: force pushes allowed, deletion allowed, admins not enforced, not protected, malformed, a field missing, and a call that fails.
 - [x] Prove the check is bounded: a stand-in `gh` that hangs is stopped at `-ProbeSeconds` with its fix named and leaves no process behind, and a default preflight (no `-Only`) runs the check. Done when: `tests/preflight_test.ps1` asserts both.
 - [x] Record the undo in the section and in the check's fix text: `gh api --method DELETE repos/rizonetech/Bosun/branches/main/protection` puts `main` back as it was, after which the read-back says `Branch not protected` and the preflight's `protection` check fails. Done when: the stand-in test shows that read-back failing the check; the live repository is not unprotected to prove it.
-- [ ] Commit: `preflight: branch protection on main`
+- [x] Commit: `preflight: branch protection on main`
 
 **Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and fails if protection reads off, partial or unreadable; `gh api repos/rizonetech/Bosun/branches/main/protection` reads back admins enforced, force pushes and deletion refused.
+
+> **Verified:** 2026-11-12 | §17 | fb7205c3e538acf30835ebe86821c305e78558c6
+> **Review:** `docs/reviews/d00-t03-s17.json`
 
 ## 18. Campaign setup hardening from the preflight's completion review
 

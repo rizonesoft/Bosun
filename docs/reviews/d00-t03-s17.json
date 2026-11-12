@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T03 \u00a717",
+  "title": "Branch protection on main, read back",
+  "implementation_sha": "fb7205c3e538acf30835ebe86821c305e78558c6",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s17.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s17.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "gh api repos/rizonetech/Bosun/branches/main/protection -> enforce_admins true, allow_force_pushes false, allow_deletions false, required checks and reviews null",
+    "pwsh scripts/campaign-preflight.ps1 -Only protection -> ok main of rizonetech/Bosun is protected (exit 0)",
+    "pwsh tests/preflight_test.ps1 -> all passed (14 protection cases)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s17.md",
+    "verdict": "complete",
+    "candidate": "f37f9cb3ff7723250208d3eac4645f30f47f6510",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s17.md",
+    "candidate": "731363262e3701dea9292e378936d8890d5ec363",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "731363262e3701dea9292e378936d8890d5ec363",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
