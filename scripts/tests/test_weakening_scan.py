@@ -307,11 +307,32 @@ class Kinds(Repo):
         self.commit("notes")
         self.assertEqual(self.signals(), (0, []))
 
-    def test_the_scan_does_not_flag_itself(self):
+    OWN_TEST = "scripts/tests/test_weakening_scan.py"
+    OWN_TEXT = ("import unittest\n\n\nFIXTURE = \"\"\"\n    self.skipTest('in a fixture')  # noqa\n    except OSError:\n        pass\n\"\"\"\n\n\n"
+                "class Kinds(unittest.TestCase):\n    def test_a_rule(self):\n        self.write('x', 'self.skipTest(1)')\n        self.assertEqual(1, 1)\n\n"
+                "    def test_another_rule(self):\n        self.assertTrue(True)\n")
+
+    def test_the_patterns_the_scan_s_own_files_hold_as_text_are_not_flagged(self):
         self.write("scripts/weakening-scan.py", 'SKIP = "skipTest("  # noqa\n')
-        self.write("scripts/tests/test_weakening_scan.py", 'TEXT = "self.skipTest(1)"\n')
-        self.commit("the scan")
+        self.write(self.OWN_TEST, self.OWN_TEXT)
+        self.commit("the scan and its test")
         self.assertEqual(self.signals(), (0, []))
+
+    def test_real_weakening_of_the_scan_s_own_test_is_flagged(self):
+        self.write(self.OWN_TEST, self.OWN_TEXT)
+        before = self.commit("the scan's test")
+        self.edit(self.OWN_TEST, "    def test_another_rule(self):\n        self.assertTrue(True)\n", "")
+        self.edit(self.OWN_TEST, "        self.assertEqual(1, 1)\n", "")
+        self.edit(self.OWN_TEST, "    def test_a_rule(self):\n", "    def test_a_rule(self):\n        self.skipTest('later')\n")
+        self.commit("thin the scan's own test")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        for expected in (f"test-removed {self.OWN_TEST}:Kinds.test_another_rule", f"assertion-removed {self.OWN_TEST}:L",
+                         f"skip-added {self.OWN_TEST}:L13"):
+            self.assertIn(expected, text)
+        (self.root / self.OWN_TEST).unlink()
+        self.commit("delete the scan's own test")
+        self.assertIn(f"test-file-deleted {self.OWN_TEST}:file", self.run_scan("--base", before, "--head", "HEAD")[1])
 
 
 class Moves(Repo):
@@ -378,6 +399,21 @@ class Answers(Repo):
         self.assertIn("-- replaced by the unit test", text)
         self.assertIn("-- the option it covered is gone", text)
 
+    def test_a_signal_in_a_path_with_a_space_can_be_answered_by_the_text_the_report_prints(self):
+        spaced = "tests/queue copy_test.ps1"
+        self.write(spaced, PS_TEXT)
+        before = self.commit("a test with a space in its name")
+        self.edit(spaced, "Check 'the second thing holds' ($b -eq 2)\n", "")
+        self.commit("drop a check")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        printed = next(line.strip().split(" ", 1)[1] for line in text.splitlines() if line.startswith("  unanswered"))
+        self.assertEqual(printed, f"test-removed {spaced}:the second thing holds")
+        self.git("commit", "-q", "--allow-empty", "-m", "explain", "-m", f"Weakening scan: {printed} -- the option it covered is gone")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 0, text)
+        self.assertIn(f"  answered   {printed} -- the option it covered is gone", text)
+
     def test_an_answer_in_a_later_commit_of_the_range_counts_and_one_outside_it_does_not(self):
         first = self.two_removed()
         self.edit(SOURCE, "return 1", "return 2")
@@ -409,6 +445,24 @@ class Ranges(Repo):
         self.assertIn("3 signal(s)", tail)
         for expected in (f"test-removed {PS}:the first thing holds", f"ci-step-removed {WORKFLOW}:L9", "error-swallowed scripts/extra.py:L3"):
             self.assertIn(expected, tail)
+
+    def test_a_staged_removal_put_back_in_the_working_tree_only_is_still_seen(self):
+        original = (self.root / PS).read_text(encoding="utf-8")
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")
+        self.git("add", PS)  # the next commit removes the check
+        self.write(PS, original)  # the working tree has it back, unstaged
+        self.assertEqual(self.git("diff", "HEAD", "--", PS).stdout, "")  # against HEAD the two cancel out
+        code, text = self.run_scan("--base", self.base)
+        self.assertEqual(code, 0)
+        self.assertIn(f"test-removed {PS}:the first thing holds", text.split("not committed yet:")[1])
+
+    def test_an_unstaged_removal_with_nothing_staged_is_seen_and_listed_once(self):
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")
+        tail = self.run_scan("--base", self.base)[1].split("not committed yet:")[1]
+        self.assertEqual(tail.count(f"test-removed {PS}:the first thing holds"), 1)
+        self.git("add", PS)
+        tail = self.run_scan("--base", self.base)[1].split("not committed yet:")[1]
+        self.assertEqual(tail.count(f"test-removed {PS}:the first thing holds"), 1)
 
     def test_with_head_given_nothing_uncommitted_is_looked_at(self):
         self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")

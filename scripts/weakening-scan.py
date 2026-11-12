@@ -41,12 +41,14 @@ A test that moved is not a removal: a case removed in one place and added once e
 name is matched to it, and the assertions that went with it are weighed against those that came with it. A case
 replaced in the same file by another (a rename, a rewrite) is not one either; one that simply goes is.
 
-The scan skips its own file and its own test, whose patterns would flag themselves.
+In its own file and its own test the scan does not read the line patterns, which both hold as text; a test deleted,
+a case removed, an assertion lost or a real skip (found by parsing the file) is reported there as anywhere.
 
 Exit 0 when every committed signal is answered, 1 when one is not, 2 with the reason when the range or a file in it
 cannot be read: a diff git could not produce is never read as an empty one. Stdlib only.
 """
 import argparse
+import ast
 from collections import Counter, defaultdict
 import re
 import subprocess
@@ -86,7 +88,7 @@ HASH_COMMENT = re.compile(r"#.*$")
 SLASH_COMMENT = re.compile(r"//.*$")
 PASS = re.compile(r"^\s*(pass|\.\.\.)\s*(#.*)?$")
 EMPTY_CATCH = re.compile(r"\bcatch\b\s*(\([^)]*\)|\[[^\]]*\])?\s*\{\s*\}")
-ANSWER = re.compile(r"^Weakening scan: (\S+) (\S+?):(.+?) -- (\S.*?)\s*$")
+ANSWER = re.compile(r"^Weakening scan: (.+?) -- (\S.*?)\s*$")
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
@@ -201,6 +203,30 @@ def enclosing_case(lines, number):
     return None
 
 
+def own_skips(lines, added):
+    """The added lines of a Python file that really skip a test: a call to skipTest, a skip decorator, or a raised
+    SkipTest, found in the parsed code and so never inside a string. A file that does not parse reports none here;
+    its tests cannot run at all, which the suite says louder."""
+    try:
+        tree = ast.parse("\n".join(lines or []))
+    except (SyntaxError, ValueError):
+        return []
+    found = set()
+    for node in ast.walk(tree):
+        names = []
+        if isinstance(node, ast.Call):
+            names.append(node.func)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names += [d.func if isinstance(d, ast.Call) else d for d in node.decorator_list]
+        if isinstance(node, ast.Raise) and node.exc is not None:
+            names.append(node.exc.func if isinstance(node.exc, ast.Call) else node.exc)
+        for name in names:
+            word = name.attr if isinstance(name, ast.Attribute) else name.id if isinstance(name, ast.Name) else ""
+            if word in ("skipTest", "SkipTest") or word.startswith("skip"):
+                found.add(name.lineno)
+    return sorted(found & set(added))
+
+
 def enforces(text, token):
     """Whether a line turns a strictness setting on: it names it, and what follows is not an off value."""
     if token not in text:
@@ -295,7 +321,7 @@ def cases(change, side):
 def scan(changes):
     """Every signal in the changes, in a steady order."""
     signals = []
-    files = {path: change for path, change in changes.items() if path not in SELF}
+    files = dict(changes)
     tests = {path: change for path, change in files.items() if is_test(path)}
 
     # Cases that left and cases that came, matched one to one by name across the whole diff (a move), then, within
@@ -383,6 +409,14 @@ def scan(changes):
     for path, change in sorted(files.items()):
         if not CODE.search(path):
             continue  # prose that mentions a pattern is not code that uses it
+        if path in SELF:
+            # The scan's own files hold every pattern as text, in the rules and in the fixtures of their tests. So
+            # the line patterns are not read there. A skip is found by parsing the file as Python, which tells a
+            # call or a decorator from the same words inside a fixture string. Everything structural above (a file deleted, a case removed, assertions lost)
+            # applies to them as to any test.
+            for number in own_skips(change.new, {number for number, _ in change.added}):
+                signals.append(Signal("skip-added", path, f"L{number}"))
+            continue
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):
                 signals.append(Signal("skip-added", path, f"L{number}"))
@@ -424,33 +458,41 @@ def committed(root, base, head):
     return changes
 
 
+def working_text(root, path):
+    try:
+        return (Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        raise CannotRead(f"{path} can't be read: {exc}") from None
+
+
 def uncommitted(root):
-    changes = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", "HEAD", "--"]))
-    for path, change in changes.items():
+    """What is not committed, as two sets of changes scanned apart: what is staged (HEAD to the index, which is
+    what the next commit holds) and what is not (the index to the working tree, with untracked files). Together they
+    would cancel out when a staged removal is put back in the working tree only, and the next commit would still
+    remove it."""
+    staged = parse_diff(run_git(root, ["diff", "--cached", "--no-color", "--no-renames", "-U0", "HEAD", "--"]))
+    for path, change in staged.items():
         change.old = None if change.created else show(root, "HEAD", path)
-        if not change.deleted:
-            try:
-                change.new = (Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError as exc:
-                raise CannotRead(f"{path} can't be read: {exc}") from None
+        change.new = None if change.deleted else show(root, "", path)  # `:path` is the index's copy
+    unstaged = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", "--"]))
+    for path, change in unstaged.items():
+        change.old = None if change.created else show(root, "", path)
+        change.new = None if change.deleted else working_text(root, path)
     for path in run_git(root, ["ls-files", "--others", "--exclude-standard"]).splitlines():
-        target = Path(root) / path
-        try:
-            lines = target.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError as exc:
-            raise CannotRead(f"{path} is new and can't be read: {exc}") from None
-        change = changes.setdefault(path, Change(path))
-        change.new, change.added = lines, list(enumerate(lines, 1))
-    return changes
+        lines = working_text(root, path)
+        change = unstaged.setdefault(path, Change(path))
+        change.created, change.new, change.added = True, lines, list(enumerate(lines, 1))
+    return staged, unstaged
 
 
 def answers(root, base, head):
-    """{(kind, path, id): reason} from the commit bodies of the range."""
+    """{"<kind> <path>:<id>": reason} from the commit bodies of the range. The signal is named by the very text the
+    report prints for it, so nothing about a path (a space in it, say) can keep an answer from matching."""
     found = {}
     for line in run_git(root, ["log", "--format=%B", f"{base}..{head}"]).splitlines():
         answer = ANSWER.match(line.strip())
         if answer:
-            found[(answer[1], answer[2], answer[3].strip())] = answer[4]
+            found[answer[1].strip()] = answer[2]
     return found
 
 
@@ -487,12 +529,15 @@ def main(argv=None, root=ROOT):
         head = resolve(root, args.head or "HEAD")
         found = scan(committed(root, base, head))
         given = answers(root, base, head)
-        loose = [] if args.head else scan(uncommitted(root))
+        loose = []
+        if not args.head:
+            for changes in uncommitted(root):
+                loose += [signal for signal in scan(changes) if signal.key not in {known.key for known in loose}]
     except CannotRead as exc:
         print(f"weakening-scan: {exc}")
         return 2
     for signal in found:
-        signal.reason = given.get(signal.key)
+        signal.reason = given.get(str(signal))
     open_ones = [signal for signal in found if not signal.reason]
     print(f"committed {base[:7]}..{head[:7]}: {len(found)} signal(s), {len(open_ones)} unanswered")
     for signal in found:
