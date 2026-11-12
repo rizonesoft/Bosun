@@ -470,6 +470,9 @@ try {
   Remove-Item -LiteralPath $adminRecord
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "can then only return Windows' defaults") 'a missing record says the originals are lost and what -Apply can and cannot do'
+  [IO.File]::WriteAllText($adminRecord, '')
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'is not a readable record \(it holds nothing\)') 'an empty record fails, never read as no record'
   [IO.File]::WriteAllText($adminRecord, '{"PolicyKey": "x"}')
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete admin record \(Update is missing\)') 'an incomplete record fails with the field that is wrong'

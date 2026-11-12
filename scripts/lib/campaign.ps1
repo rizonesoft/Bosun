@@ -100,11 +100,18 @@ function Save-Json($object, [string]$path) {
   if ([IO.File]::ReadAllText($path) -ne $text) { throw "$path did not read back as written" }
 }
 
-# The JSON at $path, $null when it doesn't exist, or a throw naming the file when it can't be parsed.
+# The JSON object at $path, $null only when the file doesn't exist, or a throw naming the file when it holds anything
+# but one object: an empty file, `null`, `false` or a list would otherwise read as no record at all.
 function Read-Json([string]$path) {
   if (-not (Test-Path -LiteralPath $path)) { return $null }
-  try { [IO.File]::ReadAllText($path) | ConvertFrom-Json -ErrorAction Stop }
+  # PowerShell 7 unrolls a top-level list unless told not to; Windows PowerShell 5.1, which runs the SDK task, never does.
+  $whole = @{}
+  if ($PSVersionTable.PSVersion.Major -ge 7) { $whole['NoEnumerate'] = $true }
+  try { $value = [IO.File]::ReadAllText($path) | ConvertFrom-Json -ErrorAction Stop @whole }
   catch { throw "$path is not a readable record ($($_.Exception.Message)); move it aside after checking what it holds" }
+  # The full type name: in a type test, [pscustomobject] means [psobject], which a boxed `false` or a list also is.
+  if ($value -isnot [System.Management.Automation.PSCustomObject]) { throw "$path is not a readable record (it holds $(if ($null -eq $value) { 'nothing' } else { 'no object' })); move it aside after checking what it holds" }
+  $value
 }
 
 # Throws, naming $path and the first field that is wrong, unless $saved is a complete record of $kind: 'hold' (what

@@ -104,6 +104,11 @@ try {
   $r = Hold @('-Restore')
   Check ($r.Code -ne 0 -and $r.Text -match 'is not a complete hold record' -and [IO.File]::ReadAllText($record) -eq $partial) 'and restore refuses it too'
 
+  Reset '1'
+  [IO.File]::WriteAllText($record, '[]')
+  $r = Hold @('-Restore')
+  Check ($r.Code -ne 0 -and $r.Text -match 'is not a readable record \(it holds no object\)' -and [IO.File]::ReadAllText($record) -eq '[]') 'a record holding a list is refused, never read as no record'
+
   # A powercfg write that hangs is stopped at -ProbeSeconds, with its tree.
   Reset '1'
   $hangPid = "$state.hang.pid"

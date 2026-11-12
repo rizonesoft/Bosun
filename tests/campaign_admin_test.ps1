@@ -94,6 +94,15 @@ try {
     Check ($r.Code -ne 0 -and $r.Text -match 'is not a complete admin record \(Update is missing\)' -and (Policy) -eq $before -and -not (Test-Path $store)) "$verb refuses an incomplete record with the field that is wrong, and nothing changes"
   }
 
+  # A record that exists but holds no object (round 1 of the review): refused, never read as no record.
+  foreach ($empty in '', 'null', 'false', '[]') {
+    Reset
+    Setup @('-Apply') | Out-Null
+    [IO.File]::WriteAllText($record, $empty)
+    $r = Setup @('-Restore')
+    Check ($r.Code -eq 1 -and $r.Text -match 'is not a readable record' -and (Get-UpdateState $keyPath).NoAutoRebootWithLoggedOnUsers.Value -eq 1 -and [IO.File]::ReadAllText($record) -eq $empty) "restore refuses a record holding '$empty' and changes nothing"
+  }
+
   # A machine set up before 2026-11-10 also has the retired VHDX task and its body: undo removes those too.
   Reset
   Setup @('-Apply') | Out-Null
