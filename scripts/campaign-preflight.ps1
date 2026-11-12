@@ -254,11 +254,22 @@ function Test-Pushed {
 
 # Whether main on the remote refuses a force push and its own deletion, for everyone, admins included: the deny list
 # and the dispatch hook catch a session's own spellings of those, but only the remote's protection makes them
-# impossible (D00 T03 §17). Asked of GitHub through gh, for the repository this checkout's remote names.
+# impossible (D00 T03 §17). Asked of GitHub through gh, for the repository and host this checkout's origin names,
+# spelled out in the request: gh would otherwise take GH_REPO or GH_HOST from the environment, and could read the
+# protection of another repository and pass.
 function Test-Protection {
-  $undo = 'to put main back unprotected: gh api --method DELETE repos/{owner}/{repo}/branches/main/protection'
-  $fix = 'turn it on: gh api --method PUT repos/{owner}/{repo}/branches/main/protection with enforce_admins true and allow_force_pushes and allow_deletions false (D00 T03 §17), then run the preflight again'
-  $r = Probe 'gh' @('api', 'repos/{owner}/{repo}/branches/main/protection') $fix $Repo
+  $origin = Git @('remote', 'get-url', 'origin')
+  if (-not $origin) { return }
+  $url = $origin.Out.Trim()
+  if ($origin.Code -ne 0 -or $url -notmatch '^(?:https://(?:[^@/]+@)?|ssh://git@|git@)([^/:]+)[/:]([^/]+)/([^/]+?)(?:\.git)?/?$') {
+    Fail "this checkout's origin ($url) is not a GitHub repository, so main's protection can't be checked" 'point origin at the GitHub repository (`git remote set-url origin <url>`), then run the preflight again'
+    return
+  }
+  $hostName, $owner, $name = $Matches[1], $Matches[2], $Matches[3]
+  $endpoint = "repos/$owner/$name/branches/main/protection"
+  $undo = "to put main back unprotected: gh api --hostname $hostName --method DELETE $endpoint"
+  $fix = "turn it on: gh api --hostname $hostName --method PUT $endpoint with enforce_admins true and allow_force_pushes and allow_deletions false (D00 T03 §17), then run the preflight again"
+  $r = Probe 'gh' @('api', '--hostname', $hostName, $endpoint) $fix $Repo @{ GH_REPO = $null; GH_HOST = $null; GH_ENTERPRISE_TOKEN = $null }
   if (-not $r) { return }
   if ($r.Code -ne 0) {
     if ($r.Out -match 'Branch not protected') { Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" $fix }
@@ -284,7 +295,7 @@ function Test-Protection {
   if ($force) { $wrong += 'force pushes are allowed' }
   if ($delete) { $wrong += 'deleting main is allowed' }
   if ($wrong) { Fail "main's protection is partial: $($wrong -join '; ')" $fix; return }
-  Pass "main is protected: force pushes and deletion refused, admins included ($undo)"
+  Pass "main of $owner/$name is protected: force pushes and deletion refused, admins included ($undo)"
 }
 
 function Test-Ci {

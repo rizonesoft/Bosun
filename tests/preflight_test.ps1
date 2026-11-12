@@ -214,10 +214,16 @@ try {
   Check ($r.Code -eq 0 -and $r.Text -match "ok   WSL Ubuntu sees $mnt") 'a WSL that sees the repo passes'
 
   # Branch protection on main, read from GitHub's own JSON. Each answer is a stand-in gh that prints that answer.
+  # The stand-in also records what it was asked, and the GH_REPO and GH_HOST it saw, so the request is checked too.
+  # The check reads the checkout's origin with git, so git's own folder rides with each stand-in on the short PATH.
+  $gitsHere = @(Get-Command git -CommandType Application -All | ForEach-Object Source)
+  $gitHere = Split-Path (@($gitsHere | Where-Object { (Split-Path (Split-Path $_) -Leaf) -eq 'cmd' }) + $gitsHere | Select-Object -First 1)
   function Protection([string]$name, [string]$answer, [int]$code = 0) {
     $file = Join-Path $work "$name.json"
     [IO.File]::WriteAllText($file, $answer)
-    Tool $name 'gh' "type `"$file`"`r`nexit /b $code"
+    $body = "echo %*^|GH_REPO=%GH_REPO%^|GH_HOST=%GH_HOST%> `"$work\$name.asked`"`r`ntype `"$file`"`r`nexit /b $code"
+    $dir = Tool $name 'gh' $body
+    "$dir;$gitHere"
   }
   function Shape([object]$admins = $true, [object]$force = $false, [object]$delete = $false) {
     $body = [ordered]@{ url = 'https://api.github.com/repos/o/r/branches/main/protection' }
@@ -227,7 +233,7 @@ try {
     $body | ConvertTo-Json -Depth 4 -Compress
   }
   $r = Preflight "$(Protection 'gh-protected' (Shape));$system" @('-Only', 'protection')
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   main is protected: force pushes and deletion refused, admins included' -and $r.Text -match 'branches/main/protection') 'full protection passes, naming the undo'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   main of [\w.-]+/[\w.-]+ is protected: force pushes and deletion refused, admins included' -and $r.Text -match 'method DELETE repos/') 'full protection passes, naming the repository and the undo'
   foreach ($case in @(
       @{ Name = 'gh-force'; Answer = (Shape $true $true $false); Says = 'force pushes are allowed' },
       @{ Name = 'gh-delete'; Answer = (Shape $true $false $true); Says = 'deleting main is allowed' },
@@ -245,10 +251,27 @@ try {
   # The undo puts main back unprotected, and the check then fails: proved on a stand-in, never on the live repository.
   $undone = Protection 'gh-undone' '{"message":"Branch not protected","status":"404"}' 1
   $r = Preflight "$undone;$system" @('-Only', 'protection')
-  Check ($r.Code -eq 1 -and $r.Text -match 'not protected' -and $r.Text -match 'gh api --method PUT') 'after the undo the check fails and names how to turn it back on'
+  Check ($r.Code -eq 1 -and $r.Text -match 'not protected' -and $r.Text -match 'gh api --hostname [\w.-]+ --method PUT repos/') 'after the undo the check fails and names how to turn it back on'
+  # The repository read is the one this checkout's origin names, on its host, whatever GH_REPO and GH_HOST say.
+  $origin = (git -C $repo remote get-url origin).Trim()
+  if ($origin -match '([^/:]+)[/:]([^/]+)/([^/]+?)(?:\.git)?/?$') { $wantHost, $wantPath = $Matches[1], "repos/$($Matches[2])/$($Matches[3])/branches/main/protection" }
+  $env:GH_REPO = 'someone-else/protected-repo'
+  $env:GH_HOST = 'elsewhere.example.com'
+  try {
+    $d = Protection 'gh-bound' (Shape)
+    $r = Preflight "$d;$system" @('-Only', 'protection')
+  } finally { Remove-Item Env:GH_REPO, Env:GH_HOST -ErrorAction Ignore }
+  $asked = (Get-Content -LiteralPath (Join-Path $work 'gh-bound.asked') -Raw).Trim()
+  Check ($r.Code -eq 0 -and $asked -match ('^api --hostname ' + [regex]::Escape($wantHost) + ' ' + [regex]::Escape($wantPath) + '\s*\|') -and $asked -match '\|GH_REPO=\|' -and $asked -match '\|GH_HOST=$') "the protection read names this checkout's origin and host, and GH_REPO and GH_HOST do not reach gh ($asked)"
+  $local = Join-Path $work 'local-origin'
+  git init -q -b main $local
+  git -C $local remote add origin (Join-Path $work 'somewhere.git')
+  $r = Preflight "$(Protection 'gh-local' (Shape));$system" @('-Only', 'protection', '-Repo', $local)
+  Check ($r.Code -eq 1 -and $r.Text -match 'is not a GitHub repository' -and -not (Test-Path -LiteralPath (Join-Path $work 'gh-local.asked'))) 'a checkout whose origin is not on GitHub fails with its fix and asks gh nothing'
+
   $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"
   $d = Tool 'gh-protection-hang' 'gh' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
-  $r = Preflight "$d;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
+  $r = Preflight "$d;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
   Start-Sleep -Milliseconds 500
   $left = @(Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" })
   $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
