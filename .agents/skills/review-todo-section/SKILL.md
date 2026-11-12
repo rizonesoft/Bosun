@@ -74,7 +74,7 @@ Architecture check: on sections touching an architectural boundary the governing
 
 ### 5. Re-run the gates
 
-After the last fix, re-run the section's Test checkpoint and its owed gates (affected test suites, build warnings clean, `validate`, the Freeze check in frozen files, any sanitizer build the section names). Quote the outputs in the findings file. A fix verified by reasoning is not verified. A red gate reopens the candidate: fix, re-run to green, and re-run the affected lens, because earlier verdicts rested on the broken candidate.
+After the last fix, re-run the section's Test checkpoint and its owed gates (affected test suites, build warnings clean, `validate`, the Freeze check in frozen files, any sanitizer build the section names), at the cadence in `process-todo-section`: the full gate once, here, before the completion review, and after a later fix only the tests of what it touched. Quote the outputs in the findings file. A fix verified by reasoning is not verified. A red gate reopens the candidate: fix, re-run to green, and re-run the affected lens, because earlier verdicts rested on the broken candidate.
 
 ### 6. Surface, feature, and frozen checks
 
@@ -106,4 +106,4 @@ On an already-`[x]` section: run the self-review, independent rounds and gates a
 - Do not stamp an unaccounted control on a surface section, or a moved frozen behavior.
 - Do not hand-write `Verified:` lines, hand-flip rows, or edit a receipt. `stamp` owns the record.
 - Do not review the working tree when the candidate is a commit or range. Name the hashes.
-- Do not transfer evidence across changed candidates: a new tip re-runs its gates.
+- Do not transfer evidence across changed candidates: a new tip re-runs the gates its change affects, and the full gate's result names the commit it ran on.
