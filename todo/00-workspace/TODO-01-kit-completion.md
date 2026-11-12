@@ -152,6 +152,8 @@ A review must run so the session hears when it ends, and a stamp must not sit on
 
 ## 4. Pre-commit hook and clone setup
 
+> **Started:** 2026-11-12T03:54:08Z
+
 The plan must never be committed out of step with its sections. The hook that refuses such a commit is in the repo, but a clone has to opt in, and nothing tests the hook.
 
 **Corrected 2026-11-12:** measured before the build. `scripts/hooks/pre-commit` is already adapted to this repo: it refuses a commit that stages `todo/` or `docs/reviews/` while the graph is invalid or the plan is stale, and one with unstaged or untracked files in those folders; this clone's `core.hooksPath` is `scripts/hooks`, and it has refused and passed commits throughout the 2026-11-12 run. So the first item is to prove the hook, not to adapt it. The clone setup no longer installs the watchdog by default: `AGENTS.md` says Bosun needs no unattended run, and a scheduled task is not something a contributor's clone should get unasked. `-Watchdog` installs it for a machine that runs the plan unattended, and leaves an installed one alone, so a setup run during a live run does not replace the task that guards it. Decision taken as the default an expert would defend; reversing it is deleting the switch.
