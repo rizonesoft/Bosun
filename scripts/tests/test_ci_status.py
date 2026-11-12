@@ -991,7 +991,11 @@ class Gate(Base):
     NO_BUILD = {"plan.yml": [run()]}  # build.yml has no run, and with no record nothing proves a skip
 
     def started_record(self):
-        return json.loads(self.state().read_text(encoding="utf-8")).get("started")
+        """What the record holds as started, without the `unanswered` part while that is empty."""
+        record = json.loads(self.state().read_text(encoding="utf-8")).get("started")
+        if isinstance(record, dict) and not record.get("unanswered"):
+            record.pop("unanswered", None)
+        return record
 
     def test_the_gate_starts_a_missing_run_for_its_own_commit(self):
         gh = FakeGh(dict(self.NO_BUILD))
@@ -1123,10 +1127,76 @@ class Gate(Base):
                 self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
                 self.assertIn("got no clear answer", data["recovery_error"])
                 self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
-                self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+                self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"], "unanswered": {"build.yml": fails}})
+                # A restart, then a whole wait of polling: nothing is started again, and each look still says the
+                # start was never confirmed and how to make it by hand.
                 again = FakeGh(dict(self.NO_BUILD))
-                self.go(["--gate", "--sha", "HEAD"], again, FakeGit(["README.md"]))
+                _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], again, FakeGit(["README.md"]))
                 self.assertEqual(again.started, [])  # a second start could run it twice
+                self.assertIn("got no clear answer", json.loads(raw)["recovery_error"])
+                clock = _Clock()
+                polled = FakeGh(dict(self.NO_BUILD))
+                _, raw = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], polled, FakeGit(["README.md"]),
+                                 clock=clock.now, sleep=clock.sleep, wall=lambda: self.wall_now() + clock.t)
+                data = json.loads(raw)
+                self.assertEqual((polled.started, clock.t), ([], 1800))
+                self.assertIn(f"got no clear answer ({fails})", data["recovery_error"])
+                self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+                _, text = self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
+                self.assertIn("no run was started: the start of build.yml got no clear answer", text)
+                # Once the run appears there is nothing left to warn about.
+                _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], self.green(), FakeGit(["README.md"]))
+                self.assertNotIn("recovery_error", json.loads(raw))
+
+    def wall_now(self):
+        import time
+        return time.time()
+
+    def test_a_record_that_cannot_be_read_holds_starts_back_until_a_green(self):
+        # A workflow was started, then the record became unreadable: whether it was started is no longer known.
+        self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
+        self.assertEqual(self.started_record()["workflows"], ["build.yml"])
+        self.state().write_text("{ not json", encoding="utf-8")
+        gh = FakeGh(dict(self.NO_BUILD))
+        code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        data = json.loads(raw)
+        self.assertEqual(gh.started, [])  # not started a second time
+        self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
+        self.assertIn("could not be read since the last green", data["recovery_error"])
+        self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+        # The record is readable again by now (the gate has saved over it), and the start is still held back.
+        self.assertTrue(json.loads(self.state().read_text(encoding="utf-8"))[ci_status.HISTORY_LOST])
+        later = FakeGh(dict(self.NO_BUILD))
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], later, FakeGit(["README.md"]))
+        self.assertEqual(later.started, [])
+        self.assertIn("could not be read since the last green", json.loads(raw)["recovery_error"])
+        # A green replaces the record, and the next commit with no run is started as usual.
+        self.assertEqual(self.gate(self.green())[1], "action: proceed")
+        self.assertNotIn(ci_status.HISTORY_LOST, json.loads(self.state().read_text(encoding="utf-8")))
+        fresh = FakeGh({"plan.yml": [run(sha=OLD)]}, head=OLD)
+        self.go(["--gate", "--sha", OLD], fresh, FakeGit(["src/a.cpp"]))  # a code change, so nothing proves a skip
+        self.assertEqual(fresh.started, [["build.yml", "--ref", "main"]])
+
+    def test_a_read_that_fails_once_holds_starts_back_too(self):
+        self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
+        real = Path.read_text
+        failed = []
+
+        def flaky(path, *args, **kwargs):
+            # The second read is the one a change is made from (the first only looks): it fails, and the save that
+            # follows it would otherwise put back a record with no start in it.
+            if path.name == ci_status.REPAIRS.name:
+                failed.append(1)
+                if len(failed) == 2:
+                    raise PermissionError("the file is in use by another process")
+            return real(path, *args, **kwargs)
+
+        gh = FakeGh(dict(self.NO_BUILD))
+        with mock.patch.object(Path, "read_text", flaky):
+            _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        self.assertGreaterEqual(len(failed), 3)  # it was read again afterwards, and read fine
+        self.assertEqual(gh.started, [])
+        self.assertIn("could not be read since the last green", json.loads(raw)["recovery_error"])
 
     def test_a_start_that_cannot_run_at_all_is_treated_the_same_way(self):
         def lost(args):
@@ -1136,7 +1206,7 @@ class Gate(Base):
 
         code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], lost, FakeGit(["README.md"]))
         self.assertIn("got no clear answer (gh could not run: timed out)", json.loads(raw)["recovery_error"])
-        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+        self.assertEqual(self.started_record()["workflows"], ["build.yml"])
 
     def test_only_a_refusal_github_answered_counts_as_one(self):
         self.assertTrue(ci_status.confirmed_refusal(1, "", "HTTP 422: Workflow does not have 'workflow_dispatch' trigger"))

@@ -52,7 +52,9 @@ under `build/ci-gate.lock`, and the one function that saves it refuses without t
 workflow, and a start is recorded before it is made. A gate that can't get the lock in ten seconds saves nothing on
 that look, which reads as a record that couldn't be saved: nothing is started, and a red or silent CI is `unverified`. Only a
 refusal GitHub itself answered with (an HTTP 4xx) removes that record; a start that failed some other way may have been
-accepted, so it is kept and not tried again for the commit.
+accepted, so it is kept and not tried again for the commit, and what was said is kept with it: every later look, and a
+restart, still report that the start was never confirmed, until the run appears. A record that can't be read may have
+held a start, so from then until the next green nothing is started, and the command to run by hand is named.
 
 None of these changes a verdict, the exit code or the action. A run answers for a commit only through its own `headSha`
 (`gh run list --commit`), so one started just as the branch moved runs the newer commit and never turns this one green.
@@ -87,6 +89,7 @@ WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
 CLEARED = Path("build") / "ci-gate.cleared"
 LOCK = Path("build") / "ci-gate.lock"
+HISTORY_LOST = "history_lost"  # in the record: it could not be read at some point, so what it held is not known
 LOCK_WAIT_SECONDS = 10  # how long one gate waits for another to finish a change to the record
 LOCK_STALE_SECONDS = 120  # a lock older than this was left by a process that died holding it
 EXIT_RED, EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE = 1, 3, 4, 5
@@ -374,11 +377,19 @@ def remote_head(runner, branch):
 
 
 def started_record(state, sha):
-    """The workflows already started for this commit, from the gate's record."""
+    """The workflows already started for this commit, from the gate's record, and under `unanswered` the ones whose
+    start got no clear answer, each with what was said."""
     record = state.get("started")
     if isinstance(record, dict) and record.get("sha") == sha and isinstance(record.get("workflows"), list):
-        return record
-    return {"sha": sha, "workflows": []}
+        unanswered = record.get("unanswered")
+        return {"sha": sha, "workflows": list(record["workflows"]),
+                "unanswered": dict(unanswered) if isinstance(unanswered, dict) else {}}
+    return {"sha": sha, "workflows": [], "unanswered": {}}
+
+
+def unanswered_text(name, why, branch):
+    return (f"the start of {name} got no clear answer ({why}), so it may be running and won't be started again for "
+            f"this commit; if no run appears: gh workflow run {name} --ref {branch}")
 
 
 def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None):
@@ -427,10 +438,17 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
                 errors.append(f"another gate holds {LOCK.name}, so {name} was not started on this look")
                 break
             state = read_gate(path)
+            if state.get(HISTORY_LOST):
+                # The record could not be read at some point, so whether this was already started is not known.
+                errors.append(f"{path.name} could not be read since the last green, so what was already started for "
+                              f"this commit is unknown and {name} was not started; if no run appears: "
+                              f"gh workflow run {name} --ref {branch}")
+                continue
             record = started_record(state, sha)
             if name in record["workflows"]:
                 continue
-            state["started"] = {"sha": sha, "workflows": [*record["workflows"], name]}
+            record["workflows"].append(name)
+            state["started"] = record
             if not write_gate(path, state):
                 errors.append(f"{path.name} couldn't be saved, so {name} was not started")
                 break
@@ -448,14 +466,26 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
             with gate_lock(path) as held:
                 state = read_gate(path)
                 record = started_record(state, sha)
-                state["started"] = {"sha": sha, "workflows": [w for w in record["workflows"] if w != name]}
+                record["workflows"] = [w for w in record["workflows"] if w != name]
+                state["started"] = record
                 write_gate(path, state)
             errors.append(f"{name} could not be started: gh workflow run exited {code}: {why}")
         else:
-            # No answer either way: GitHub may have accepted it. Starting again could run it twice, so it stays recorded.
-            errors.append(f"the start of {name} got no clear answer ({why}), so it may be running and won't be started "
-                          f"again for this commit; if no run appears: gh workflow run {name} --ref {branch}")
+            # No answer either way: GitHub may have accepted it. Starting again could run it twice, so it stays recorded,
+            # with what was said, so every later look and a restart still report that it was never confirmed.
+            unsaved = True
+            with gate_lock(path) as held:
+                state = read_gate(path)
+                record = started_record(state, sha)
+                record["unanswered"][name] = why
+                state["started"] = record
+                unsaved = not write_gate(path, state)
+            if unsaved:
+                errors.append(unanswered_text(name, why, branch))
     record = started_record(read_gate(path), sha)
+    # Reported for as long as the workflow still has no run, on this look and every later one.
+    errors.extend(unanswered_text(name, why, branch) for name, why in record["unanswered"].items()
+                  if name in missing and unanswered_text(name, why, branch) not in errors)
     if record["workflows"]:
         result["started"] = [name for name in record["workflows"] if name in missing]
     if errors:
@@ -474,7 +504,9 @@ def read_gate(path):
         state = {}
     except (OSError, ValueError) as exc:
         print(f"warning: {path} is unreadable ({exc}); counting no repairs used", file=sys.stderr)
-        state = {}
+        # Nothing known is the right reading for repairs, but not for starts: a workflow may already have been started
+        # for this commit. The flag travels with every save until a green replaces the record, and holds starts back.
+        state = {HISTORY_LOST: True}
     marker = path.with_name(CLEARED.name)
     try:
         record = json.loads(marker.read_text(encoding="utf-8"))
