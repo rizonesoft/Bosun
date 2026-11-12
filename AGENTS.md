@@ -56,7 +56,8 @@ The owner set this on 2026-11-10 and restated it on 2026-11-12, and it governs e
 ## Safety
 
 - Local reversible work in the repository needs no confirmation.
-- Ask the operator once before anything that sends, deletes, or changes something outside the repository: mail, production systems, cloud changes, SQL writes, dropping data, credentials.
+- A reversible change to this project's own settings outside the repository needs none either: this repository's GitHub settings (branch protection, workflows, labels), its own scheduled task, this checkout's git config. Make it, read it back, and record how to undo it (the owner's ruling of 2026-11-12: do not make asking a habit).
+- Ask the operator once only before something that could destroy, expose or spend: sending mail or messages, deleting data or history, changing visibility to public, production systems, SQL writes, credentials, money, or a change to another repository or to the machine that other projects share.
 - When a command needs sudo, give the operator the exact command to run with `! sudo ...`. Never store the sudo password.
 - Never print, log, or commit a secret value.
 
