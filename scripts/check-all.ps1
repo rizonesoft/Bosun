@@ -61,6 +61,10 @@ if ($StepFile) {
     New-Step 'native-std' 'python' @('scripts/native-std-check.py')
     New-Step 'native-pe' 'python' @('scripts/native-pe-check.py', 'build/Release')
     New-Step 'core-tests' (Join-Path $repo 'build/Release/test_core.exe')
+    # The .NET solution: built once, then every test project run on what was built (Microsoft.Testing.Platform, as
+    # global.json selects).
+    New-Step 'dotnet-build' 'dotnet' @('build', 'Bosun.slnx', '-nologo') -Queue
+    New-Step 'dotnet-tests' 'dotnet' @('test', '--solution', 'Bosun.slnx', '--no-build') -Queue
   )
   foreach ($test in Get-ChildItem -LiteralPath (Join-Path $repo 'tests') -Filter '*_test.ps1' | Sort-Object Name) {
     if ($test.Name -in $NeedsWsl -and -not $Wsl) { continue }
@@ -81,7 +85,8 @@ if ($StepFile) {
 function Format-Command($step) { (@($step.File) + $step.Arguments) -join ' ' }
 
 if ($List) {
-  foreach ($step in $steps) { "$($step.Name): $(Format-Command $step)" }
+  # A queued step is marked, so what waits its turn through `bosun run --` can be seen without running it.
+  foreach ($step in $steps) { "$($step.Name): $(if ($step.Queue) { '[queued] ' })$(Format-Command $step)" }
   if (-not $StepFile -and -not $Wsl) {
     ''
     'left out of a default run:'

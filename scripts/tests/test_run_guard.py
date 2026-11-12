@@ -1441,7 +1441,13 @@ class LostTranscript(unittest.TestCase):
             deadline = time.time() + 30
             while guard.real_child_alive(child) and time.time() < deadline:
                 time.sleep(0.2)
+            # A fake still running at the deadline is ended with its tree, never left to outlive the test or hold its
+            # log open while the folder is removed; and the test fails, since the fake should have ended at once.
+            hung = guard.real_child_alive(child)
+            if hung:
+                LaunchBoundary.stop_tree(child["pid"])
             text = guard.real_child_output(child)
+        self.assertFalse(hung, "the fake CLI was still running 30 seconds after it started")
         self.assertIn("session ID: me", text)
         self.assertNotIn("old", text)
 

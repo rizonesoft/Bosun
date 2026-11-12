@@ -30,13 +30,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      # The .NET SDK global.json pins (11.0.100, no prerelease), for tests/dotnet_nodes_test.ps1 here; building and
-      # testing the solution in CI is D00 T02 §2.
+      # The .NET SDK global.json pins (11.0.100, no prerelease), for the solution and tests/dotnet_nodes_test.ps1.
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
       - name: Build
         run: pwsh scripts\build.ps1
+      - name: .NET SDK in use
+        run: dotnet --version
+      - name: Build the .NET solution
+        run: dotnet build Bosun.slnx -nologo
+      - name: .NET tests
+        run: dotnet test --solution Bosun.slnx --no-build
       - name: Language standard of every compile
         run: python scripts\native-std-check.py
       - name: Hardening of every built image

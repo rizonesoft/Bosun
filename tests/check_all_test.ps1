@@ -155,7 +155,12 @@ try {
   Check 'with -Wsl every shell script in wsl/ has its own syntax step' ($scripts.Count -ge 4 -and -not $unchecked) "(not checked: $($unchecked -join ', '))"
   Check 'the Linux job checks the same scripts by pattern, not by a list that can fall behind' ((Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw) -match 'for f in wsl/bosun wsl/\*\.sh; do bash -n')
   $names = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: ' } | ForEach-Object { ($_ -split ': ')[0] })
-  Check 'the steps come in the order the gate documents' (($names[0..6] -join ',') -eq 'plan,weakening,tiers,build,native-std,native-pe,core-tests' -and $names[-1] -eq 'python-tests')
+  Check 'the steps come in the order the gate documents' (($names[0..8] -join ',') -eq 'plan,weakening,tiers,build,native-std,native-pe,core-tests,dotnet-build,dotnet-tests' -and $names[-1] -eq 'python-tests')
+  # The heavy steps wait their turn through `bosun run --`, and -List says which: a step that lost its -Queue would
+  # build or test beside another repository's job.
+  $queued = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: \[queued\] ' } | ForEach-Object { ($_ -split ': ')[0] })
+  Check 'the build, the .NET build and tests and the Python tests are queued, and nothing else' (($queued -join ',') -eq 'build,dotnet-build,dotnet-tests,python-tests') "(queued: $($queued -join ', '))"
+  Check 'the .NET steps build the solution once and test what was built' ($real -match '(?m)^dotnet-build: \[queued\] dotnet build Bosun\.slnx' -and $real -match '(?m)^dotnet-tests: \[queued\] dotnet test --solution Bosun\.slnx --no-build')
 
   # CI runs every PowerShell test the gate runs, and the two native checks after its build.
   $workflow = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw
