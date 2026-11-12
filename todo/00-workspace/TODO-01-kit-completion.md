@@ -231,6 +231,8 @@ One command should tell a contributor, and a run, whether the tree is fit to com
 
 ## 7. Private GitHub repo and CI
 
+> **Started:** 2026-11-12T10:24:35Z
+
 The kit's CI gate and merge script need a remote. The owner asked for a private repo in the Rizonetech organization on 2026-11-07, with the finish of a public repo in case it is published later.
 
 **Corrected 2026-11-12:** the item that ported `scripts/merge_prs.py` and scheduled it as `bosun-pr-merge` is withdrawn with `§5` and `§9` (owner, 2026-11-12): Bosun has no scheduled tasks of its own. Dependabot pull requests are merged by hand or by GitHub's own auto-merge. The Build order's second step no longer includes the port, and this section waits on `§4` only.
