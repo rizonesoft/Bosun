@@ -216,6 +216,8 @@ Toolchain drift should arrive as a notice, not a surprise. The kit's runner is c
 
 ## 6. Gates: native build checks and check-all
 
+> **Started:** 2026-11-12T04:47:02Z
+
 One command should tell a contributor, and a run, whether the tree is fit to commit, and the native build should prove the flags it claims, not only compile.
 
 **Corrected 2026-11-12:** rewritten before the build, for four reasons. The section bundled three things; the weakening scan is its own job with its own reader (the reviewer) and moved to `§13`, which adds it to the gate. The scripts are written here for this repo, not copied from Isotone: the owner decided on 2026-11-12 that Bosun's tooling is its own, and Isotone's checks pin another standard and another build. Measured the same day: every C++ compile in `build/compile_commands.json` carries `-std:c++20` (from `CMAKE_CXX_STANDARD 20`), and `CMakeLists.txt` sets no control-flow guard, so "the built `bosun.exe` passes" needs the build hardened first. And the executable's flags are read from the file itself, where Isotone reads `dumpbin` text, so the check runs in a plain shell and in CI. Also found: `tests/` holds 15 PowerShell tests and `.github/workflows/build.yml` runs 12, with nothing saying which are left out on purpose.
