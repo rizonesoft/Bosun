@@ -2,7 +2,7 @@
 schema_version: 1
 id: kit-completion
 domain: 00-workspace
-status: active
+status: done
 title: "TODO-01 -- Finish the agent kit"
 ---
 
@@ -45,7 +45,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [x] |
 | 5 | §6 | Gates: native build checks and check-all | §4 | [x] |
-| 6 | §7 | Private GitHub repo and CI | §4 | [ ] |
+| 6 | §7 | Private GitHub repo and CI | §4 | [x] |
 | 7 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
 | 8 | §13 | Weakening scan over a diff | §6 | [x] |
 
@@ -257,9 +257,12 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 - [x] Make the throwaway branch and its stale plan through GitHub alone: create `ci-proof-stale-plan` from `main` with `gh api repos/{owner}/{repo}/git/refs`, put one extra line at the end of `todo/implementation-plan.md` on it through the contents API (`PUT repos/{owner}/{repo}/contents/todo/implementation-plan.md` with `branch`), and open a pull request from it with `gh pr create --draft`. Done when: the branch's head commit differs from `main` in that file only, and no local commit was made. Cheaper substitute: committing the stale plan locally with the hook switched off.
 - [x] Read that pull request's `plan` run by its commit. Done when: `python scripts/ci_status.py --sha <the branch head> --workflow plan.yml` exits 1, `gh run view <id> --json jobs` shows every step before `Check the generated plan is current` succeeded and that step failed, and its log has `stale projection: todo/implementation-plan.md`. Cheaper substitute: accepting any red run of the job.
 - [x] Close the pull request unmerged and delete the branch on the remote. Done when: `gh pr view <number> --json state` says CLOSED, `git ls-remote origin ci-proof-stale-plan` prints nothing, and `git branch -a` lists it nowhere.
-- [ ] Commit: `ci: the plan workflow runs on every change, and a stale plan is shown to fail it`
+- [x] Commit: `ci: the plan workflow runs on every change, and a stale plan is shown to fail it`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0; `python scripts/ci_status.py --sha <the docs/phase-runs commit> --workflow plan.yml` exits 0; and `python scripts/ci_status.py --sha <the throwaway branch head> --workflow plan.yml` exits 1, with the plan step failed for a stale plan.
+
+> **Verified:** 2026-11-12 | §7 | bc113540be08a4961e1eb9a17426b9ee255c0f15
+> **Review:** `docs/reviews/d00-t01-s7.json`
 
 ## 12. Build and dev tool stack measured and tuned
 

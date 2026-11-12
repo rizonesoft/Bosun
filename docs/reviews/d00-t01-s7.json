@@ -1,0 +1,81 @@
+{
+  "ref": "D00 T01 \u00a77",
+  "title": "Private GitHub repo and CI",
+  "implementation_sha": "bc113540be08a4961e1eb9a17426b9ee255c0f15",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s7.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/ci_status.py --sha db88b80 --workflow plan.yml -> exit 0 (a docs-only push got its own plan run)",
+    "python scripts/ci_status.py --sha 24c0428 --workflow plan.yml -> exit 1 (Check the generated plan is current failed: stale projection)",
+    "python -m unittest scripts/tests/test_ci_status.py -> Ran 133 tests, OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s7.md",
+    "verdict": "complete",
+    "candidate": "03c5449f43e1ba150fddadd973c2b27eca2865d3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s7.md",
+    "candidate": "e31b90f893481053336d5fa9b0333cf5ba2d2c1d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "e31b90f893481053336d5fa9b0333cf5ba2d2c1d",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
