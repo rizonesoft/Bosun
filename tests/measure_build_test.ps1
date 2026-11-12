@@ -211,6 +211,7 @@ exit 0
   New-Item -ItemType Directory -Path $bin | Out-Null
   Set-Content -LiteralPath (Join-Path $bin 'fake-bosun.ps1') -Value @'
 Add-Content -LiteralPath (Join-Path $PSScriptRoot 'bosun-calls.txt') -Value ($args[0..1] -join ' ')
+Set-Content -LiteralPath (Join-Path $PSScriptRoot 'bosun-arguments.txt') -Value $args
 $rest = @($args | Select-Object -Skip 3)
 & $args[2] @rest
 exit $LASTEXITCODE
@@ -220,13 +221,20 @@ exit $LASTEXITCODE
   try {
     $env:PATH = "$bin;$env:PATH"
     Remove-Item Env:BOSUN_MEASURE_QUEUED
-    $run = Invoke-Measure 'ok' @('-Label', 'queued', '-Decision', 'kept', '-Samples', '1', '-Note', 'a note with spaces')
+    $run = Invoke-Measure 'ok' @('-Label', 'queued', '-Decision', 'kept', '-Samples', '1', '-Note', 'a note with spaces', '-LockSeconds', '7', '-TimeoutSeconds', '99', '-BuildArgs', 'Sccache')
   } finally { $env:PATH = $savedPath; $env:BOSUN_MEASURE_QUEUED = '1' }
   $calls = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-calls.txt') -ErrorAction Ignore)
   $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
   $queued = $data.labels | Where-Object label -eq 'queued'
   Check 'the measurement runs through bosun run, once' ($run.Exit -eq 0 -and $calls.Count -eq 1 -and $calls[0] -eq 'run --') "(exit $($run.Exit), calls: $($calls -join ';'): $($run.Text))"
   Check 'its arguments survive the queue' ($queued.decision -eq 'kept' -and $queued.note -eq 'a note with spaces' -and $queued.samples -eq 1)
+  # Every parameter given is passed on by name with its value, the ones a default would otherwise replace included.
+  $passed = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-arguments.txt') -ErrorAction Ignore)
+  $pairs = @{}
+  foreach ($n in 0..($passed.Count - 1)) { if ($passed[$n] -like '-*' -and $n -gt 2) { $pairs[$passed[$n]] = $passed[$n + 1] } }
+  Check 'every parameter given reaches the queued run' ($pairs['-LockSeconds'] -eq '7' -and $pairs['-TimeoutSeconds'] -eq '99' -and $pairs['-BuildArgs'] -eq 'Sccache' -and
+    $pairs.ContainsKey('-BuildScript') -and $pairs.ContainsKey('-OutDir') -and @($queued.configuration.build_args) -contains 'Sccache') "($($passed -join ' '))"
+
 } finally {
   Remove-Item Env:BOSUN_MEASURE_QUEUED -ErrorAction Ignore
   Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Ignore

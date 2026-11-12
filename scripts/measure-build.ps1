@@ -172,11 +172,12 @@ if ($DecideOnly) {
 if (-not $env:BOSUN_MEASURE_QUEUED) {
   $env:BOSUN_MEASURE_QUEUED = '1'
   if (Get-Command bosun -CommandType Application -ErrorAction Ignore) {
-    $forward = @('-Label', $Label, '-Decision', $Decision, '-Samples', $Samples, '-TimeoutSeconds', $TimeoutSeconds,
-      '-BuildScript', $BuildScript, '-TouchFile', $TouchFile, '-OutDir', $OutDir)
-    if ($Note) { $forward += '-Note', $Note }
-    if ($Tests) { $forward += '-Tests' }
-    if ($BuildArgs.Count) { $forward += '-BuildArgs', ($BuildArgs -join ',') }
+    # Every parameter this run was given goes to the queued one, so none is silently reset to its default there.
+    $forward = foreach ($parameter in $PSBoundParameters.GetEnumerator()) {
+      if ($parameter.Value -is [switch]) { if ($parameter.Value) { "-$($parameter.Key)" } }
+      elseif ($parameter.Value -is [array]) { "-$($parameter.Key)"; $parameter.Value -join ',' }
+      else { "-$($parameter.Key)"; [string]$parameter.Value }
+    }
     & bosun run -- pwsh -NoProfile -File $PSCommandPath @forward
     exit $LASTEXITCODE
   }
