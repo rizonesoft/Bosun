@@ -169,6 +169,8 @@ try {
   $workflow = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw
   $default = @($tests | Where-Object { $real -match ('(?m)^test:[\w]+: .*' + [regex]::Escape("tests/$_")) })
   $notInCi = @($default | Where-Object { $workflow -notmatch [regex]::Escape("tests\$_") })
+  # The start script test renders the shortcut badges, so the Windows job installs the icon packages before it runs.
+  Check 'the Windows workflow installs the icon packages before the start script test' ($workflow -match '(?s)pip install [^\r\n]*-r scripts/requirements-icons\.txt.*tests\\start_run_test\.ps1')
   Check 'the Windows workflow runs every PowerShell test a default run of the gate runs' ($default.Count -ge 15 -and -not $notInCi) "(not in build.yml: $($notInCi -join ', '))"
   # A test that needs WSL is left out of both, with its reason, and comes back with -Wsl: the hosted runner has no
   # WSL, and a default run must not start it.
