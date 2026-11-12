@@ -21,8 +21,9 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
     ci-step-removed      a `run:` line gone from a workflow
     warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore or warning
                          pragma put in
-    error-swallowed      an `except` whose body is only `pass`, or an empty `catch`, whether the handler is new or
-                         an existing one whose body was emptied
+    error-swallowed      an `except` whose body is only `pass` or `...`, a `catch` whose braces hold nothing or
+                         only a comment, or a `contextlib.suppress` put in; whether the handler is new or an
+                         existing one whose body was emptied, by a replacement or by deleting it
 
 The id is the case's name where the signal is about a case, and `L<line>` otherwise (the old line for something
 removed, the new line for something added), so two signals in one file are two things to answer.
@@ -79,8 +80,11 @@ STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
 RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
 OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
-EXCEPT_INLINE = re.compile(r"^\s*except\b.*:\s*pass\s*(#.*)?$")
-PASS = re.compile(r"^\s*pass\s*(#.*)?$")
+EXCEPT_INLINE = re.compile(r"^\s*except\b.*:\s*(pass|\.\.\.)\s*(#.*)?$")
+SUPPRESS = re.compile(r"\bcontextlib\.suppress\s*\(|\bwith\s+suppress\s*\(")
+HASH_COMMENT = re.compile(r"#.*$")
+SLASH_COMMENT = re.compile(r"//.*$")
+PASS = re.compile(r"^\s*(pass|\.\.\.)\s*(#.*)?$")
 EMPTY_CATCH = re.compile(r"\bcatch\b\s*(\([^)]*\)|\[[^\]]*\])?\s*\{\s*\}")
 ANSWER = re.compile(r"^Weakening scan: (\S+) (\S+?):(.+?) -- (\S.*?)\s*$")
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -109,6 +113,7 @@ class Change:
     def __init__(self, path):
         self.path = path
         self.removed, self.added = [], []  # [(line number, text)]
+        self.gaps = set()  # new line numbers after which lines were deleted with nothing put in their place
         self.old, self.new = None, None  # the whole file, as lists of lines; None when it did not exist
         self.deleted = False
 
@@ -143,6 +148,8 @@ def parse_diff(text):
             if not found or current is None:
                 raise CannotRead(f"the diff has a hunk this cannot read: {line[:80]}")
             old_line, new_line = int(found[1]), int(found[3])
+            if found[4] == "0":  # a hunk that only deletes: the new file's line `new_line` is the one before the gap
+                current.gaps.add(new_line)
         elif current is not None and line.startswith("-"):
             current.removed.append((old_line, line[1:]))
             old_line += 1
@@ -191,12 +198,18 @@ def enforces(text, token):
     return not OFF.search(text.split(token, 1)[1])
 
 
-def swallowed(lines, added):
+def swallowed(lines, added, gaps=(), path=""):
     """The lines of the handlers in a file's new text that swallow an error and that this change touched: an `except`
-    whose whole body is `pass`, and a `catch` whose braces hold nothing, on one line or over several."""
+    whose whole body is `pass`, and a `catch` whose braces hold nothing, on one line or over several. A change
+    touches a handler when it added one of its lines, or deleted lines from inside it (`gaps`: the new line numbers
+    after which a deletion left nothing), which is how a body is emptied without a line being added."""
     found = set()
     if not lines:
         return found
+
+    def touched(first, last):
+        span = set(range(first, last + 1))
+        return bool(span & set(added)) or any(gap in span and gap + 1 in span for gap in gaps)
     for index, text in enumerate(lines):
         number = index + 1
         if EXCEPT_INLINE.match(text):
@@ -213,16 +226,20 @@ def swallowed(lines, added):
                 if len(line) - len(line.lstrip()) <= indent:
                     break
                 body.append(below + 1)
-            if len(body) == 1 and PASS.match(lines[body[0] - 1]) and ({number, body[0]} & added):
+            if len(body) == 1 and PASS.match(lines[body[0] - 1]) and touched(number, body[0]):
                 found.add(number)
-    text = "\n".join(lines)
+    # A catch whose braces hold only a comment is as empty as one that holds nothing: the comments go first, each
+    # replaced by spaces so every position still falls on its own line.
+    comment = HASH_COMMENT if path.lower().endswith((".ps1", ".psm1")) else SLASH_COMMENT
+    bare = [comment.sub(lambda found: " " * len(found[0]), line) for line in lines]
+    text = "\n".join(bare)
     starts = [0]
     for line in lines:
         starts.append(starts[-1] + len(line) + 1)
     for match in EMPTY_CATCH.finditer(text):
         first = next(i for i in range(len(lines)) if starts[i + 1] > match.start()) + 1
         last = next(i for i in range(len(lines)) if starts[i + 1] >= match.end()) + 1
-        if set(range(first, last + 1)) & added:
+        if touched(first, last):
             found.add(first)
     return found
 
@@ -362,8 +379,11 @@ def scan(changes):
             if RELAX.search(text):
                 signals.append(Signal("warning-relaxed", path, f"L{number}"))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
-        for number in sorted(swallowed(change.new, {number for number, _ in change.added})):
+        for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):
             signals.append(Signal("error-swallowed", path, f"L{number}"))
+        for number, text in change.added:
+            if SUPPRESS.search(text):
+                signals.append(Signal("error-swallowed", path, f"L{number}"))
         kept = [text.strip() for _, text in change.added]
         for number, text in change.removed:
             if WORKFLOW.search(path) and RUN_STEP.match(text) and text.strip() not in kept:

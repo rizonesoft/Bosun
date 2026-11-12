@@ -232,6 +232,46 @@ class Kinds(Repo):
         self.assertIn(f"error-swallowed {SOURCE}:L4", text)
         self.assertIn("error-swallowed scripts/tool.ps1:L1", text)
 
+    def test_a_handler_body_deleted_outright_is_seen_though_no_line_was_added(self):
+        self.write("scripts/tool.ps1", "try {\n  Get-Item x\n} catch {\n  Remove-Item y\n  throw\n}\n'after'\n")
+        self.write("src/tool.cpp", "void f() {\n  try { g(); } catch (...) {\n    cleanup();\n    throw;\n  }\n}\n")
+        self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        log()\n        pass")
+        before = self.commit("handlers that do something")
+        self.edit("scripts/tool.ps1", "  Remove-Item y\n  throw\n", "")
+        self.edit("src/tool.cpp", "    cleanup();\n    throw;\n", "")
+        self.edit(SOURCE, "        log()\n", "")
+        self.commit("delete the bodies")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        for expected in ("error-swallowed scripts/tool.ps1:L3", "error-swallowed src/tool.cpp:L2", f"error-swallowed {SOURCE}:L4"):
+            self.assertIn(expected, text)
+
+    def test_a_deletion_next_to_an_old_swallowing_handler_is_not_a_change_to_it(self):
+        self.write("scripts/tool.ps1", "'before'\n'remove me'\ntry { Get-Item x } catch {\n}\n'remove me too'\n'after'\n")
+        before = self.commit("an old empty handler")
+        self.edit("scripts/tool.ps1", "'remove me'\n", "")
+        self.edit("scripts/tool.ps1", "'remove me too'\n", "")
+        self.commit("delete the lines around it")
+        self.assertEqual(self.run_scan("--base", before, "--head", "HEAD")[0], 0)
+
+    def test_other_ways_of_swallowing_are_seen_too(self):
+        self.write("scripts/a.ps1", "try { Get-Item x } catch {\n  # nothing to do\n}\n")
+        self.write("src/a.cpp", "void f() {\n  try { g(); } catch (...) { // ignored\n  }\n}\n")
+        self.write("scripts/a.py", "import contextlib\n\n\ndef f():\n    try:\n        g()\n    except OSError:\n        ...\n"
+                                   "    with contextlib.suppress(ValueError):\n        h()\n")
+        self.commit("quiet handlers")
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        for expected in ("error-swallowed scripts/a.ps1:L1", "error-swallowed src/a.cpp:L2", "error-swallowed scripts/a.py:L7",
+                         "error-swallowed scripts/a.py:L9"):
+            self.assertIn(expected, text)
+
+    def test_a_handler_that_says_why_and_acts_is_not_swallowed(self):
+        self.write("scripts/a.ps1", "try { Get-Item x } catch {\n  # the file may be gone already\n  'gone'\n}\n")
+        self.write("src/a.cpp", "void f() {\n  try { g(); } catch (...) { // report it\n    report();\n  }\n}\n")
+        self.commit("handlers that act")
+        self.assertEqual(self.signals(), (0, []))
+
     def test_a_swallowing_handler_the_change_did_not_touch_is_not_reported(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass")
         before = self.commit("an old swallow")
