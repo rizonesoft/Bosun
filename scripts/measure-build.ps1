@@ -130,7 +130,8 @@ function Save-Data($data) {
 }
 
 # Runs $Change on the stored data and saves the result, all while holding the lock file, so two runs saving at once
-# cannot overwrite each other. The lock is a file opened for this process alone; Windows removes it when the handle
+# cannot overwrite each other. With no change it only renders the document, under the same lock, so a render can
+# never put an older document over the one a save has just written. The lock is a file opened for this process alone; Windows removes it when the handle
 # closes, however the script ends.
 function Update-Data([scriptblock]$Change) {
   $lockPath = "$dataPath.lock"
@@ -147,12 +148,13 @@ function Update-Data([scriptblock]$Change) {
   }
   try {
     try { $current = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
-    Save-Data (& $Change $current)
+    if ($Change) { Save-Data (& $Change $current) } else { Write-Document $current }
+    $script:labelCount = $current['labels'].Count
   } finally { $lock.Dispose() }
 }
 
 try { $data = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
-if ($RenderOnly) { Write-Document $data; "rendered $docPath from $($data['labels'].Count) label(s)"; exit 0 }
+if ($RenderOnly) { Update-Data $null; "rendered $docPath from $labelCount label(s)"; exit 0 }
 if (-not $Label -or -not $Decision) { 'measure-build needs -Label <name> and -Decision <baseline|kept|dropped>, or -RenderOnly'; exit 2 }
 if ($Label -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Label '$Label' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
 if ($DecideOnly) {

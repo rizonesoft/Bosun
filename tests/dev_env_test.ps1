@@ -28,6 +28,7 @@ $report = Import-DevEnv -Cache $cache -Key $key -Load {
   $env:VSINSTALLDIR = 'C:\FakeVS\'
   $env:INCLUDE = 'C:\FakeVS\include'
   $env:CHANGED_BY_LOAD = 'after'
+  $env:__VSCMD_PREINIT_PATH = $env:PATH
   $env:LIB = (@('C:\FakeVS\lib') + @($env:LIB -split ';' | Where-Object { $_ })) -join ';'
   $env:PATH = "$compilerDir;$env:PATH;C:\FakeVS\tail"
 }
@@ -59,7 +60,7 @@ try {
   Check 'the first build loads the environment and writes the cache' ((Test-Loaded $r 'loaded') -and $r.loads -eq 1 -and (Test-Path -LiteralPath $cache)) "($($r | ConvertTo-Json -Compress))"
 
   $stored = Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json -AsHashtable
-  Check 'only what the load changed is stored' ($stored['variables'].Contains('INCLUDE') -and $stored['variables'].Contains('CHANGED_BY_LOAD') -and
+  Check 'only what the load changed is stored' ($stored['variables'].Contains('VSINSTALLDIR') -and $stored['variables'].Contains('CHANGED_BY_LOAD') -and $stored['lists'].Contains('INCLUDE') -and
     -not $stored['variables'].Contains('UNRELATED_SECRET') -and -not $stored['variables'].Contains('PATH') -and -not $stored['variables'].Contains('LIB') -and
     -not $stored['variables'].Contains('USERNAME')) "($($stored['variables'].Keys -join ','))"
   Check 'PATH is stored as the entries the load added' ((@($stored['lists']['PATH']['prepend']) -join '|') -eq $compilerDir -and (@($stored['lists']['PATH']['append']) -join '|') -eq 'C:\FakeVS\tail')
@@ -75,31 +76,42 @@ try {
   $r = Invoke-Case -shellLib ''
   Check 'a shell with no LIB gets only what the load added' ((Test-Loaded $r 'from cache' 'C:\FakeVS\lib') -and $r.loads -eq 1) "(LIB: $($r.libs))"
 
+  # The other way round: the cache is written by a shell with no LIB at all, then replayed into one that has one.
+  $bare = Join-Path $dir 'build/bare.json'
+  $r = Invoke-Case -cachePath $bare -shellLib ''
+  $stored = Get-Content -LiteralPath $bare -Raw | ConvertFrom-Json -AsHashtable
+  Check 'a search list the writing shell lacked is still stored as additions' ($r.loads -eq 2 -and -not $stored['variables'].Contains('LIB') -and
+    (@($stored['lists']['LIB']['prepend']) -join '|') -eq 'C:/FakeVS/lib'.Replace('/', [IO.Path]::DirectorySeparatorChar)) "($($stored['variables'].Keys -join ','))"
+  Check 'the values the load saved of the calling shell are not stored' (-not ($stored['variables'].Keys + $stored['lists'].Keys | Where-Object { $_ -like '__VSCMD_PREINIT_*' }))
+  $r = Invoke-Case -cachePath $bare -shellLib 'C:/ShellTwo/lib'
+  Check 'a shell with a LIB keeps it when the cache was written without one' ($r.report -eq 'developer environment: from cache' -and
+    $r.libs -eq 'C:/FakeVS/lib;C:/ShellTwo/lib'.Replace('/FakeVS/', [IO.Path]::DirectorySeparatorChar + 'FakeVS' + [IO.Path]::DirectorySeparatorChar) -and $r.loads -eq 2) "(LIB: $($r.libs))"
+
   $r = Invoke-Case -key 'C:\FakeVS|18.0.2'
-  Check 'a changed key loads again and rewrites the cache' ((Test-Loaded $r 'loaded') -and $r.loads -eq 2 -and (Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json).key -eq 'C:\FakeVS|18.0.2')
+  Check 'a changed key loads again and rewrites the cache' ((Test-Loaded $r 'loaded') -and $r.loads -eq 3 -and (Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json).key -eq 'C:\FakeVS|18.0.2')
   $r = Invoke-Case -key 'C:\FakeVS|18.0.2'
-  Check 'the rewritten cache is replayed' ((Test-Loaded $r 'from cache') -and $r.loads -eq 2)
+  Check 'the rewritten cache is replayed' ((Test-Loaded $r 'from cache') -and $r.loads -eq 3)
 
   Set-Content -LiteralPath $cache -Value '{ not json'
   $r = Invoke-Case -key 'C:\FakeVS|18.0.2'
-  Check 'a malformed cache loads again and is rewritten' ((Test-Loaded $r 'loaded') -and $r.loads -eq 3 -and (Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json).schema_version -eq 2)
+  Check 'a malformed cache loads again and is rewritten' ((Test-Loaded $r 'loaded') -and $r.loads -eq 4 -and (Get-Content -LiteralPath $cache -Raw | ConvertFrom-Json).schema_version -eq 3)
 
-  # A cache in an earlier shape (schema_version 1 kept whole values) is not trusted.
+  # A cache in an earlier shape (earlier versions kept whole values) is not trusted.
   $text = Get-Content -LiteralPath $cache -Raw
-  Set-Content -LiteralPath $cache -Value ($text -replace '"schema_version": 2', '"schema_version": 1')
+  Set-Content -LiteralPath $cache -Value ($text -replace '"schema_version": 3', '"schema_version": 2')
   $r = Invoke-Case -key 'C:\FakeVS|18.0.2'
-  Check 'a cache in an earlier shape loads again' ((Test-Loaded $r 'loaded') -and $r.loads -eq 4)
+  Check 'a cache in an earlier shape loads again' ((Test-Loaded $r 'loaded') -and $r.loads -eq 5)
 
   $text = Get-Content -LiteralPath $cache -Raw
   Set-Content -LiteralPath $cache -Value ($text -replace [regex]::Escape(($compilerDir -replace '\\', '\\')), (($compilerDir + '-removed') -replace '\\', '\\'))
   $r = Invoke-Case -key 'C:\FakeVS|18.0.2'
-  Check 'a cache whose compiler folder is gone loads again' ((Test-Loaded $r 'loaded') -and $r.loads -eq 5)
+  Check 'a cache whose compiler folder is gone loads again' ((Test-Loaded $r 'loaded') -and $r.loads -eq 6)
 
   # A cache that cannot be written (its folder is a file) costs a notice, and the environment is still loaded.
   $blocker = Join-Path $dir 'blocked'
   Set-Content -LiteralPath $blocker -Value 'a file where the cache folder would go'
   $r = Invoke-Case -cachePath (Join-Path $blocker 'dev-env.json')
-  Check 'an unwritable cache still loads the environment and says so' ($r.report -match '^developer environment: loaded\|developer environment: could not be cached' -and $r.include -eq 'C:\FakeVS\include' -and $r.loads -eq 6) "($($r.report))"
+  Check 'an unwritable cache still loads the environment and says so' ($r.report -match '^developer environment: loaded\|developer environment: could not be cached' -and $r.include -eq 'C:\FakeVS\include' -and $r.loads -eq 7) "($($r.report))"
 
   # A folder where the cache file should be is not written into: the same notice, and the environment is loaded.
   $folder = Join-Path $dir 'cache-is-a-folder.json'

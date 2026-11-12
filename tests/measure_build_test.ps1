@@ -140,6 +140,12 @@ exit 0
     $run = Invoke-Measure 'ok' @('-Label', 'candidate', '-Decision', 'dropped', '-DecideOnly', '-LockSeconds', '2')
     Check 'a save that cannot get the lock exits 1 and changes nothing' ($run.Exit -eq 1 -and $run.Text -match 'nothing was changed' -and
       [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($unlocked)) "(exit $($run.Exit): $($run.Text))"
+    # A render takes the same lock: while a save holds it, the render waits its turn and cannot put an older
+    # document over the one that save writes.
+    $docBefore = Get-Content -LiteralPath $doc -Raw
+    $run = Invoke-Measure 'ok' @('-RenderOnly', '-LockSeconds', '2')
+    Check 'a render that cannot get the lock exits 1 and leaves the document' ($run.Exit -eq 1 -and $run.Text -match 'nothing was changed' -and
+      (Get-Content -LiteralPath $doc -Raw) -ceq $docBefore) "(exit $($run.Exit): $($run.Text))"
     $waiting = Start-Process pwsh -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-File', $measure, '-OutDir', $out, '-Label', 'candidate', '-Decision', 'dropped', '-Note', 'waited-for-the-lock', '-DecideOnly', '-LockSeconds', '60' -RedirectStandardOutput (Join-Path $dir 'waiting.txt')
     Start-Sleep -Seconds 3
     $stillWaiting = -not $waiting.HasExited
