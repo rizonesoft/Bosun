@@ -43,10 +43,11 @@ title: "TODO-01 -- Finish the agent kit"
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [x] |
 | 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
-| 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
+| 6 | §6 | Gates: native build checks and check-all | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
 | 9 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
+| 10 | §13 | Weakening scan over a diff | §6 | [ ] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -213,9 +214,11 @@ Toolchain drift should arrive as a notice, not a surprise. The kit's runner is c
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_automations.py` exits 0, and fails if the change is reverted.
 
-## 6. Gates: weakening scan and native checks
+## 6. Gates: native build checks and check-all
 
-A test deleted or a tolerance widened to get to green must be visible to the reviewer. Isotone's scan does this generically, and its native checks catch compiler flag drift.
+One command should tell a contributor, and a run, whether the tree is fit to commit, and the native build should prove the flags it claims, not only compile.
+
+**Corrected 2026-11-12:** rewritten before the build, for four reasons. The section bundled three things; the weakening scan is its own job with its own reader (the reviewer) and moved to `§13`, which adds it to the gate. The scripts are written here for this repo, not copied from Isotone: the owner decided on 2026-11-12 that Bosun's tooling is its own, and Isotone's checks pin another standard and another build. Measured the same day: every C++ compile in `build/compile_commands.json` carries `-std:c++20` (from `CMAKE_CXX_STANDARD 20`), and `CMakeLists.txt` sets no control-flow guard, so "the built `bosun.exe` passes" needs the build hardened first. And the executable's flags are read from the file itself, where Isotone reads `dumpbin` text, so the check runs in a plain shell and in CI. Also found: `tests/` holds 15 PowerShell tests and `.github/workflows/build.yml` runs 12, with nothing saying which are left out on purpose.
 
 **Phase:** 0
 **Needs:** none
@@ -223,15 +226,20 @@ A test deleted or a tolerance widened to get to green must be visible to the rev
 
 **Build order:**
 
-1. Copy the three scripts from Isotone and adapt their paths. Done when: each runs on this repo.
-2. Add `scripts/check-all.ps1` as the one-command gate. Done when: it runs every gate and reports the first failure.
+1. Harden the native build and check it. Done when: `bosun.exe`, `bosun-logger.exe` and the test executables carry control-flow guard, and a check proves it from the files.
+2. Add `scripts/check-all.ps1` as the one-command gate. Done when: it runs every gate in order, stops at the first failure and names it.
 
-- [ ] Port `scripts/weakening-scan.py`. Done when: a fixture diff deleting a test is flagged, and a plain feature diff is not.
-- [ ] Port `scripts/native-std-check.py` and `scripts/native-pe-check.py` against `CMakeLists.txt`. Done when: the built `bosun.exe` passes, and a fixture without CFG fails. Cheaper substitute: skipping PE checks when the build is absent without saying so.
-- [ ] Create `scripts/check-all.ps1` covering `validate`, `plan --check`, tier check, C++ tests, tooling tests and, once present, `dotnet test`. Done when: it exits nonzero when any step fails, and heavy steps go through `bosun run`.
-- [ ] Commit: `gates: weakening scan, native checks, check-all`
+- [ ] Add `/guard:cf` to the compile and link options and `/CETCOMPAT` to the link options in `CMakeLists.txt`, for every target. Done when: `pwsh scripts/build.ps1 -Fresh` builds with warnings as errors, `build/Release/test_core.exe` passes, and `bin/bosun.exe status` still runs. Cheaper substitute: the compile option alone, which emits the checks and leaves the image flag unset.
+- [ ] Write `scripts/native-pe-check.py <exe or folder>...`, reading each image's PE headers itself (no `dumpbin`): it requires control-flow guard, ASLR with high entropy and NX in the DLL characteristics, and the CET-compatible bit in the extended DLL characteristics debug entry of an x64 image. Exit 0 when every image holds, 1 naming each image and what it lacks, 2 when a path is missing, is not a PE image, or a folder holds no `.exe`. Done when: `scripts/tests/test_native_checks.py` builds minimal PE images in memory with and without each flag and gets the right verdict for each, and a truncated or non-PE file exits 2 without a traceback. Cheaper substitute: skipping an absent build without saying so.
+- [ ] Write `scripts/native-std-check.py [<build folder>]`, reading `compile_commands.json`: every C++ compile carries exactly one standard switch, in either spelling (`/std:` or `-std:`), and it is the one `CMAKE_CXX_STANDARD` in `CMakeLists.txt` gives (`c++20`), never `c++latest`. Exit 0, 1 naming the source file and its switches, or 2 when the file is missing or unreadable. Done when: the test covers a good database, a doubled switch, a wrong one, a missing one and `c++latest`, and reads the pinned standard from a fixture `CMakeLists.txt`.
+- [ ] Create `scripts/check-all.ps1`, running in this order and stopping at the first failure with the step's name, its command and its exit code: the plan (`python scripts/todo-graph.py plan --check`, which validates the graph first), the agent tiers (`node scripts/verify-agent-tiers.mjs`), the native build (`pwsh scripts/build.ps1`), the standard check, the PE check on `build/Release`, the C++ tests (`build/Release/test_core.exe`), each PowerShell test in `tests/` that needs no special host, and the Python suite (`python scripts/run-tests.py`). The build and the Python suite go through `bosun run --` when `bosun` is on `PATH`. `-List` prints the steps without running them, and `-Only <name>...` runs the named ones. Done when: it exits 0 on this tree and prints one line per step with its seconds. Cheaper substitute: running every step and burying the first failure under the rest.
+- [ ] Name in `scripts/check-all.ps1` the PowerShell tests it leaves out and why (they need WSL, an elevated shell or a signed-in agent), in one table the script reads. Done when: `tests/check_all_test.ps1` fails when a file matching `tests/*_test.ps1` is neither run nor listed there with a reason, and when `.github/workflows/build.yml` runs fewer of them than the gate does without the same reason.
+- [ ] Add `tests/check_all_test.ps1`: with stand-in steps, a failing step stops the run, is named with its exit code, and nothing after it runs; `-Only` runs just what it names and refuses a name that is not a step; and in a temporary copy of the plan tooling with a stale plan, `-Only plan` exits nonzero. Done when: it passes, fails if the gate carries on past a failure, and is in the Windows job of `.github/workflows/build.yml` with `scripts/tests/test_native_checks.py` covered by the Python suite.
+- [ ] Run the two native checks in the Windows job of `.github/workflows/build.yml` after the build. Done when: the steps are listed and the job is green.
+- [ ] Point `AGENTS.md` and `CONTRIBUTING.md` at `pwsh scripts/check-all.ps1` as the way to verify, replacing the list of separate commands. Done when: both say so, and `AGENTS.md` no longer says "once `D00 T01 §6` has landed".
+- [ ] Commit: `gates: native build checks and check-all`
 
-**Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on a clean tree, and exits nonzero with a deliberately stale plan.
+**Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on a clean tree and exits nonzero, naming the plan step, with a deliberately stale plan; `pwsh tests/check_all_test.ps1` and `python -m unittest discover -s scripts/tests -p test_native_checks.py` exit 0, and the second fails if the PE check stops requiring control-flow guard.
 
 ## 7. Private GitHub repo and CI
 
@@ -317,6 +325,28 @@ Filed 2026-11-12 on the owner's request to optimise the build and dev tools for 
 
 > **Verified:** 2026-11-12 | §12 | 15dead954809d32f8f25caff791712b5077ef011
 > **Review:** `docs/reviews/d00-t01-s12.json`
+
+## 13. Weakening scan over a diff
+
+Split out of `§6` on 2026-11-12. A passing suite cannot tell a correct change from one that deleted the test, skipped it or swallowed the error it checked. The scan reads a diff and names every hunk of those shapes, so the writer answers each one and the reviewer sees them. It is written here, for the kinds of test this repo has (Python `unittest`, PowerShell `Check` scripts, `tests/test_core.cpp` and the workflows), not copied from another repo.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the scan and its test. Done when: a fixture diff that deletes a test is flagged and a plain feature diff is not.
+2. Put it where it is read. Done when: `scripts/check-all.ps1` runs it and the review prompt carries its output.
+
+- [ ] Write `scripts/weakening-scan.py [--base <rev>]`, reading the diff from the base (default the merge base with `origin/main`, else `HEAD`) to the working tree, untracked files included, and reporting each signal as `<kind> <path>:<line>`: a test file deleted, a test case removed (`def test_`, a `Check '...'` line, a function called from `main` in `tests/test_core.cpp`), an assertion removed with none added in its place, a skip added (`skipTest`, `unittest.skip`, a `-Skip` switch, `continue-on-error`), a workflow `run:` step removed, a warning relaxed (`CMAKE_COMPILE_WARNING_AS_ERROR`, `/W4`, `TreatWarningsAsErrors`, a `noqa` or `type: ignore` added), and an error swallowed (`except` with only `pass`, an empty `catch`). Done when: `scripts/tests/test_weakening_scan.py` has a fixture diff for each kind that is flagged, and a plain feature diff with new tests that is not.
+- [ ] Treat a test that moved as not removed: a test name removed in one place and added in another in the same diff is not a signal. Done when: a fixture renaming a test file, and one moving a case between files, are clean.
+- [ ] Accept an answer for each signal in the commit bodies of the range, as `Weakening scan: <kind> <path> -- <why>`, and exit 0 when none is left unanswered, 1 listing those that are, and 2 when the diff cannot be read. Done when: the test covers an answered signal, an unanswered one beside it, and an answer with no reason, which does not count. Cheaper substitute: a flag that silences the scan.
+- [ ] Add the scan to `scripts/check-all.ps1` after the plan step, and add a line to `docs/review-round-prompt.md` telling the writer to paste its output for the candidate range. Done when: `pwsh scripts/check-all.ps1 -List` names it and the prompt template carries the line.
+- [ ] Run it over this repository's history from `858a85d` to `HEAD`. Done when: every signal it reports is either a real removal answered in a line under this section, or a false signal fixed in the scan with a fixture.
+- [ ] Commit: `gates: weakening scan`
+
+**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_weakening_scan.py` exits 0, and fails if the rule for a removed test is taken out.
 
 ## Verification
 

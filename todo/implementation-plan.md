@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 33 | Checklist items: 301
+Sections: 34 | Checklist items: 312
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
@@ -33,9 +33,10 @@ Sections: 33 | Checklist items: 301
 | [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
 | [x]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 13    |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                             | owner-decision | 4     |
-| [ ]    | D00 T01 §6  | Gates: weakening scan and native checks                         | none           | 4     |
+| [ ]    | D00 T01 §6  | Gates: native build checks and check-all                        | none           | 9     |
 | [ ]    | D00 T01 §7  | Private GitHub repo and CI                                      | none           | 4     |
 | [ ]    | D00 T01 §9  | Register scheduled tasks on this machine                        | none           | 3     |
+| [ ]    | D00 T01 §13 | Weakening scan over a diff                                      | none           | 6     |
 | [ ]    | D00 T02 §1  | Solution, props and empty projects                              | none           | 6     |
 | [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none           | 3     |
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none           | 4     |
@@ -141,6 +142,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 20/86 verified sections, 7 ready to run now.
+Progress: 20/87 verified sections, 7 ready to run now.
 
-Checklist: 249/564 items completed (includes Commit items).
+Checklist: 249/575 items completed (includes Commit items).
