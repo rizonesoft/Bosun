@@ -26,3 +26,6 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `scripts/weakening-scan.py:499`: show each signal's before and after lines in the report, so a plain removal needs no further command to understand (D00 T01 §13 completion review, 2026-11-12).
 - `scripts/weakening-scan.py:419`: read the blobs of a range in one batch (`git cat-file --batch`) and measure a 1,000 file range against plain `git diff`; it now starts one `git show` per side of every changed file (D00 T01 §13 completion review, 2026-11-12).
 - `scripts/check-all.ps1`: print one line when a queued step starts waiting and one when its turn comes, with how long it waited (D00 T01 §13 completion review, 2026-11-12).
+- `scripts/campaign-preflight.ps1:271`: give the protection fix as one copyable command with its full JSON body, then the read-back command, so nobody has to look up the API (D00 T03 §17 completion review, 2026-11-12).
+- `scripts/campaign-preflight.ps1:272`: say which repository is being asked and by when before the protection request, so a stalled call is not two silent minutes (D00 T03 §17 completion review, 2026-11-12).
+- `scripts/campaign-preflight.ps1:298`: keep the protection success line to one short line, and put the undo command in the docs or a verbose output (D00 T03 §17 completion review, 2026-11-12).
