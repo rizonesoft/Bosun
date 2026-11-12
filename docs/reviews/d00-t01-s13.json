@@ -1,0 +1,107 @@
+{
+  "ref": "D00 T01 \u00a713",
+  "title": "Weakening scan over a diff",
+  "implementation_sha": "d4584d67f95fcc1842628b345a9e7764e966ff36",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/run-tests.py test_weakening_scan -> Ran 52 tests in 4 classes, OK",
+    "pwsh tests/check_all_test.ps1 -> all checks passed (32 ok)",
+    "pwsh scripts/check-all.ps1 -> all 23 steps passed in 528 s (on 7e641a7; the commit after it changed only the scan and its test, which were run again)",
+    "python scripts/weakening-scan.py --base 858a85d --head 7e641a7 -> 3 signals, each listed with its reason in the section"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+    "verdict": "completed",
+    "candidate": "7e641a7b5144267a6bc7a1c4508924db22fa65d5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s13.md",
+    "candidate": "887da4d6a770afb0256cff2d84e639d5c7b43b84",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "887da4d6a770afb0256cff2d84e639d5c7b43b84",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

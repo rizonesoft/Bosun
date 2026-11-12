@@ -47,7 +47,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
 | 9 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
-| 10 | §13 | Weakening scan over a diff | §6 | [ ] |
+| 10 | §13 | Weakening scan over a diff | §6 | [x] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -367,9 +367,12 @@ Split out of `§6` on 2026-11-12. A passing suite cannot tell a correct change f
 - [x] Add the scan to `scripts/check-all.ps1` after the plan step, and update the order `tests/check_all_test.ps1` asserts. Done when: that test, in a disposable repository holding the gate and the scan, shows `-Only weakening` exit 1 on a commit that removes a test with no answer and exit 0 once the commit body answers it. Cheaper substitute: checking only that `-List` names the step.
 - [x] Add a line to `docs/review-round-prompt.md` and `docs/completion-review-prompt.md` telling the writer to paste the scan's report for the candidate range (`python scripts/weakening-scan.py --base <BASE> --head <TIP>`). Done when: both templates carry it.
 - [x] Run it over this repository's history from `858a85d` to `HEAD`. Done when: every signal it reports is either a real removal, listed under this section with why it was right, or a false signal fixed in the scan with a test.
-- [ ] Commit: `gates: weakening scan`
+- [x] Commit: `gates: weakening scan`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_weakening_scan.py` and `pwsh tests/check_all_test.ps1` exit 0, and the first fails if the rule for a removed test is taken out or an answer for one signal is allowed to cover another.
+
+> **Verified:** 2026-11-12 | §13 | d4584d67f95fcc1842628b345a9e7764e966ff36
+> **Review:** `docs/reviews/d00-t01-s13.json`
 
 ## Verification
 
