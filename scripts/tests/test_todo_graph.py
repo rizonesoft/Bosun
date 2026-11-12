@@ -1022,8 +1022,23 @@ class QueryDisposition(unittest.TestCase):
         # section between its completion review and its stamp (`needs-filing`, D00 T03 §14).
         open_states = {"ready", "waiting-host", "waiting-person", "waiting-dependency", "needs-repair", "needs-filing",
                        "parked"}
+        # And the close-out work `work_items` adds once a file or a phase has every section stamped: a file to close
+        # (`needs-verification`) or a phase to close out (`needs-closeout`). The live tree holds one whenever a file's
+        # last section has just stamped, as TODO-01 did on 2026-11-12, and these rows are named `file ...` or `phase ...`.
+        work_states = {"needs-verification", "needs-closeout"}
         for row in rows:
-            self.assertIn(row["state"], open_states)
+            if row["ref"].startswith(("file ", "phase ")):
+                self.assertIn(row["state"], work_states, row)
+            else:
+                self.assertIn(row["state"], open_states, row)
+
+    def test_close_out_work_is_listed_with_the_sections_and_in_their_shape(self):
+        # A tree whose only file has every section stamped holds no open section, only that file's close-out.
+        rows = {"D00 T01 §1": tg.Section("D00 T01 §1", "todo/00-workspace/TODO-01-a.md", 1, "A", 0, [], [], True, "active", "", "", 1)}
+        with mock.patch.object(tg, "pending_closeouts", return_value=(["todo/00-workspace/TODO-01-a.md"], [])):
+            items = tg.work_items(REPO, rows)
+        self.assertEqual([(i["ref"], i["state"]) for i in items], [("file todo/00-workspace/TODO-01-a.md", "needs-verification")])
+        self.assertTrue({"ref", "title", "phase", "state", "reason"} <= set(items[0]))  # `query disposition` adds `needs`
 
 
 class SkillsDefer(unittest.TestCase):
