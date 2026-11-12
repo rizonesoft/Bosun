@@ -38,7 +38,7 @@ Sections: 33 | Checklist items: 284
 | [ ]    | D00 T01 §9  | Register scheduled tasks on this machine                        | none           | 3     |
 | [ ]    | D00 T02 §1  | Solution, props and empty projects                              | none           | 6     |
 | [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none           | 3     |
-| [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | third-party    | 4     |
+| [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none           | 4     |
 | [ ]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none           | 5     |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party    | 3     |
 | [ ]    | D00 T03 §17 | Branch protection on main, read back                            | owner-decision | 3     |
