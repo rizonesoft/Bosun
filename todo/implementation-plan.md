@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 32 | Checklist items: 274
+Sections: 33 | Checklist items: 281
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
@@ -44,6 +44,7 @@ Sections: 32 | Checklist items: 274
 | [ ]    | D00 T03 §17 | Branch protection on main, read back                            | owner-decision | 3     |
 | [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none           | 6     |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none           | 6     |
+| [ ]    | D00 T03 §20 | Agent badge on each unattended run shortcut                     | none           | 7     |
 
 ### Phase 1: Core data contract
 
@@ -140,6 +141,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 17/85 verified sections, 8 ready to run now.
+Progress: 17/86 verified sections, 9 ready to run now.
 
-Checklist: 207/537 items completed (includes Commit items).
+Checklist: 207/544 items completed (includes Commit items).
