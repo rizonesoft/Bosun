@@ -120,6 +120,17 @@ try {
       $clock.Elapsed.TotalSeconds -lt 60 -and -not $r.Ran) "(exit $($r.Exit), $([int]$clock.Elapsed.TotalSeconds) s: $($r.Text))"
   } finally { $env:PATH = $savedPath; Remove-Item Env:BOSUN_FAKE_WAIT -ErrorAction Ignore }
 
+  # The wrapper marks its start before it runs anything: a mark it cannot write means the step is not started, since
+  # it would otherwise run without its own time limit.
+  $wrapper = Join-Path $repo 'scripts/lib/queued-step.ps1'
+  Remove-Item -LiteralPath $ran -ErrorAction Ignore
+  $unwritable = Join-Path $stub 'mark'  # a path under a file, so it can never be created
+  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $unwritable pwsh -NoProfile -File $stub 'wrapped' 'pass' 2>&1 | Out-String
+  Check 'a start mark that cannot be written stops the wrapper before the command runs' ($LASTEXITCODE -eq 3 -and $text -match 'could not write its start mark' -and -not (Test-Path -LiteralPath $ran)) "(exit ${LASTEXITCODE}: $text)"
+  $good = Join-Path $work 'good.started'
+  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $good pwsh -NoProfile -File $stub 'wrapped' 'fail' 2>&1 | Out-String
+  Check 'with its mark written the wrapper runs the command and passes its exit code on' ($LASTEXITCODE -eq 3 -and (Test-Path -LiteralPath $good) -and (@(Get-Content -LiteralPath $ran) -join ',') -eq 'wrapped') "(exit ${LASTEXITCODE}: $text)"
+
   # --- what the real gate covers ---
   $real = (Invoke-Gate @('-List')).Text
   $tests = @(Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*_test.ps1' | ForEach-Object Name)
