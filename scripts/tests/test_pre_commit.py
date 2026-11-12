@@ -28,8 +28,9 @@ class HookRepo(Tree):
         for name in TOOLS:
             target = self.root / "scripts" / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes((ROOT / "scripts" / name).read_bytes())
-        (self.root / "scripts" / "hooks" / "pre-commit").chmod(0o755)
+            # Copied with its permissions, as a checkout would have it: git on Linux and WSL ignores a hook that is
+            # not executable, so making it executable here would hide a hook shipped without that bit.
+            shutil.copy(ROOT / "scripts" / name, target)
         self.write(todo_file(ONE))
         (self.root / "docs" / "reviews").mkdir(parents=True)
         (self.root / "docs" / "reviews" / "note.md").write_text("evidence\n", encoding="utf-8")
@@ -65,6 +66,15 @@ class HookRepo(Tree):
         """A second section in the TODO file, which the generated plan does not list yet."""
         self.write(todo_file(TWO))
         self.assertNotEqual(self.cli("plan", "--check").returncode, 0, "the fixture's plan did not go stale")
+
+
+class Shipped(unittest.TestCase):
+    def test_the_hook_is_committed_as_an_executable(self):
+        # What a fresh clone on Linux or WSL gets is the mode git recorded, whatever this machine's filesystem says.
+        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-s", "--", "scripts/hooks/pre-commit"],
+                                capture_output=True, text=True, encoding="utf-8", check=True).stdout
+        self.assertTrue(listed.startswith("100755 "), f"scripts/hooks/pre-commit is recorded as {listed.split(' ')[0]!r}; "
+                        "run: git update-index --chmod=+x scripts/hooks/pre-commit")
 
 
 class StalePlan(HookRepo):

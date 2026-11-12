@@ -46,11 +46,15 @@ if sys.argv[1] == "install":
             out.write("ok")
     sys.exit(0)
 '@
-function New-Clone([string]$name, [switch]$NoHook) {
+function New-Clone([string]$name, [switch]$NoHook, [switch]$NotExecutable) {
   $clone = Join-Path $work $name
   git init -q -b main $clone
   New-Item -ItemType Directory -Force (Join-Path $clone 'scripts\hooks') | Out-Null
-  if (-not $NoHook) { Set-Content -LiteralPath (Join-Path $clone 'scripts\hooks\pre-commit') -Value "#!/bin/sh`nexit 0" }
+  if (-not $NoHook) {
+    Set-Content -LiteralPath (Join-Path $clone 'scripts/hooks/pre-commit') -Value "#!/bin/sh`nexit 0"
+    git -C $clone add scripts/hooks/pre-commit 2>$null
+    if (-not $NotExecutable) { git -C $clone update-index --chmod=+x scripts/hooks/pre-commit }
+  }
   Set-Content -LiteralPath (Join-Path $clone 'scripts\run-guard.py') -Value $guard -Encoding utf8
   $clone
 }
@@ -107,6 +111,10 @@ try {
   $bare = New-Clone 'no-hook' -NoHook
   $r = Invoke-Setup @('-Repo', $bare)
   Check 'a checkout with no hook file is refused and not changed' ($r.Exit -eq 1 -and $r.Text -match 'no scripts/hooks/pre-commit' -and $null -eq (Get-Setting $bare)) "(exit $($r.Exit): $($r.Text))"
+
+  $plainMode = New-Clone 'not-executable' -NotExecutable
+  $r = Invoke-Setup @('-Repo', $plainMode)
+  Check 'a hook not recorded as executable is refused, with the command that fixes it' ($r.Exit -eq 1 -and $r.Text -match 'update-index --chmod=\+x scripts/hooks/pre-commit' -and $null -eq (Get-Setting $plainMode)) "(exit $($r.Exit): $($r.Text))"
 
   $locked = New-Clone 'locked'
   git -C $locked config --local core.hooksPath 'old/hooks'

@@ -36,6 +36,11 @@ if ($LASTEXITCODE -or -not $top -or [IO.Path]::GetFullPath($top).TrimEnd('\', '/
 if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType Leaf)) {
   Stop-Setup "$Repo has no $hooks/pre-commit, so it is not a checkout of this repository"
 }
+# Git on Linux and WSL ignores a hook that is not executable, and what a clone there gets is the mode git recorded.
+$recorded = "$(git -C $Repo ls-files -s -- "$hooks/pre-commit" 2>$null)"
+if (-not $recorded.StartsWith('100755 ')) {
+  Stop-Setup "$hooks/pre-commit is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git update-index --chmod=+x $hooks/pre-commit' and commit, then run this again"
+}
 
 # --- hooks ---
 function Get-HooksPath {

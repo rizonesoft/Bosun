@@ -17,6 +17,7 @@ from __future__ import annotations
 import calendar
 import hashlib
 import html
+import csv
 import json
 import math
 import os
@@ -1275,6 +1276,21 @@ def read_task_xml(name: str) -> tuple:
     return done.returncode, (done.stdout or done.stderr).decode("utf-8", "replace")
 
 
+def task_listed(name: str):
+    """Whether Task Scheduler lists a task of this name: True, False, or None when the listing can't be read. It is
+    asked without reading any message, because `schtasks` words its errors in the language of the system: the task
+    names in its CSV listing are the same everywhere."""
+    try:
+        done = run("schtasks", "/Query", "/FO", "CSV", "/NH", timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    wanted = ("\\" + name).casefold()
+    rows = csv.reader((done.stdout or b"").decode("utf-8", "replace").splitlines())
+    return any(row and row[0].strip().casefold() == wanted for row in rows)
+
+
 def read_json_file(path: Path):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1320,7 +1336,8 @@ def task_problems(xml: str, script_ok: Callable[[str], bool], word: str, ids: se
 
 
 def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task_xml: Callable = read_task_xml,
-           read_json: Callable = read_json_file, is_file: Callable = os.path.isfile, ids: set | None = None) -> dict:
+           read_json: Callable = read_json_file, is_file: Callable = os.path.isfile, ids: set | None = None,
+           listed: Callable = task_listed) -> dict:
     """Whether the watchdog will really tick this repo: its own task runs this checkout's guard as this user, is
     enabled, and has ticked lately. Each problem has a reason. `task` is the state of the task itself, for a caller that
     must act on it without reading the wording: `ok` (it runs this checkout's guard, as this user, enabled), `missing`,
@@ -1334,7 +1351,8 @@ def verify(root: Path = ROOT, path: Path = STATE, now: float | None = None, task
         task = "unreadable"
         problems.append(f"the task {TASK_NAME} can't be read: {xml}")
     elif code != 0:
-        task = "missing" if "cannot find" in xml.lower() else "unreadable"
+        # The query failed: the task is missing only when the listing, which needs no message read, lacks its name.
+        task = "missing" if listed(TASK_NAME) is False else "unreadable"
         problems.append(f"the task {TASK_NAME} is missing" if task == "missing" else f"the task {TASK_NAME} can't be read: {xml.strip()[:200]}")
     else:
         wrong = task_problems(xml, lambda s: os.path.normcase(os.path.normpath(s)) == own, "watch", ids, is_file)

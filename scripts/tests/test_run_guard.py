@@ -1477,13 +1477,13 @@ class Verify(unittest.TestCase):
     def at(self, ago):
         return guard.stamp(self.NOW - ago)
 
-    def run_verify(self, task=None, tick=None, code=0, ids=("me",)):
+    def run_verify(self, task=None, tick=None, code=0, ids=("me",), listed=True):
         data = {str(Path("C:/s/last-tick.json")): tick if tick is not None else {"at": self.at(60), "ok": True, "result": "inactive"}}
         files = {os.path.normcase(os.path.normpath(f)) for f in self.files}
         return guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW,
                             task_xml=lambda name: (code, task if task is not None else self.own),
                             read_json=lambda p: data.get(str(p)), is_file=lambda p: os.path.normcase(os.path.normpath(p)) in files,
-                            ids=set(ids))
+                            ids=set(ids), listed=lambda name: listed)
 
     def unhealthy(self, words, **kwargs):
         found = self.run_verify(**kwargs)
@@ -1499,8 +1499,12 @@ class Verify(unittest.TestCase):
         for expected, kwargs in (
                 ("ok", {}),
                 ("ok", {"tick": {}}),  # the task is right; that it has not ticked yet is a separate problem
-                ("missing", {"code": 1, "task": "ERROR: The system cannot find the file specified."}),
+                ("missing", {"code": 1, "task": "ERROR: The system cannot find the file specified.", "listed": False}),
+                # Absence is read from the listing, never from the message, which is in the system's language.
+                ("missing", {"code": 1, "task": "FEHLER: Das System kann die angegebene Datei nicht finden.", "listed": False}),
+                ("unreadable", {"code": 1, "task": "ERROR: The system cannot find the file specified.", "listed": True}),
                 ("unreadable", {"code": 1, "task": "ERROR: Access is denied."}),
+                ("unreadable", {"code": 1, "task": "ERROR: Access is denied.", "listed": None}),  # the listing failed too
                 ("unreadable", {"code": None, "task": "schtasks could not run"}),
                 ("mismatched", {"task": xml(arguments='"C:/b/other.py" watch')}),  # another checkout's task of this name
                 ("mismatched", {"task": self.own.replace("<UserId>me<", "<UserId>someone<")}),
@@ -1520,7 +1524,21 @@ class Verify(unittest.TestCase):
         self.unhealthy("hasn't ticked in 20 minutes", tick={"at": self.at(21 * 60), "ok": True})
         self.unhealthy("last tick failed", tick={"at": self.at(60), "ok": False, "result": "boom"})
         self.unhealthy("can't be read", code=1, task="ERROR: Access is denied.")
-        self.unhealthy("is missing", code=1, task="ERROR: The system cannot find the file specified.")
+        self.unhealthy("is missing", code=1, task="ERROR: The system cannot find the file specified.", listed=False)
+
+    def test_the_listing_is_read_by_name_whatever_the_language(self):
+        listing = (rb'"\Microsoft\Windows\Defrag\ScheduledDefrag","N/A","Bereit"' + b"\r\n"
+                   + b'"' + b"\\" + guard.TASK_NAME.encode() + b'","12.11.2026 04:00:00","Bereit"' + b"\r\n")
+        done = lambda out, code=0: subprocess.CompletedProcess([], code, out, b"")
+        with mock.patch.object(guard, "run", return_value=done(listing)) as run:
+            self.assertIs(guard.task_listed(guard.TASK_NAME), True)
+            self.assertIs(guard.task_listed(guard.TASK_NAME.upper()), True)  # Task Scheduler ignores case
+            self.assertIs(guard.task_listed("Some other watchdog"), False)
+            self.assertEqual(run.call_args.args, ("schtasks", "/Query", "/FO", "CSV", "/NH"))
+        with mock.patch.object(guard, "run", return_value=done(b"", 1)):
+            self.assertIsNone(guard.task_listed(guard.TASK_NAME))
+        with mock.patch.object(guard, "run", side_effect=OSError("no schtasks")):
+            self.assertIsNone(guard.task_listed(guard.TASK_NAME))
 
     def test_an_escaped_path_in_the_xml_is_decoded(self):
         self.root = Path("C:/R&D/here")
@@ -1535,8 +1553,8 @@ class Verify(unittest.TestCase):
             asked.append(name)
             return 1, "ERROR: The system cannot find the file specified."
         found = guard.verify(self.root, Path("C:/s/state.json"), now=self.NOW, task_xml=task_xml, read_json=lambda p: None,
-                             is_file=lambda p: True, ids={"me"})
-        self.assertEqual(asked, [guard.TASK_NAME])
+                             is_file=lambda p: True, ids={"me"}, listed=lambda name: asked.append(name) or False)
+        self.assertEqual(asked, [guard.TASK_NAME, guard.TASK_NAME])  # the query, then the listing, both by this name
         self.assertIn(f"the task {guard.TASK_NAME} is missing", found["problems"])
 
 
