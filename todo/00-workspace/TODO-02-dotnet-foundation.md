@@ -88,6 +88,8 @@ A section can only be held to tests that the one-command gate actually runs.
 
 **Corrected 2026-11-12:** checked before the build. `.gitignore` already lists `build/`, `bin/`, `obj/`, `.vs/` and `*.user`, so that item is a read-back. `§1` left building and testing the solution in CI to this section, and `§3` reads the SDK from the CI job this section adds, so the Windows CI job is in scope here. The tests run through Microsoft.Testing.Platform (`§1`), so the command is `dotnet test --solution`.
 
+**Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T02-s2.md` returned three gaps, planned in below: `-List` marks which steps are queued and the gate's test fails when a .NET step loses its queue; the ignore patterns are proved with `git check-ignore`, since a build need not create `.vs/` or `*.user`; and CI keeps its existing trigger policy.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -95,11 +97,11 @@ A section can only be held to tests that the one-command gate actually runs.
 **Build order:**
 
 1. Extend `scripts/check-all.ps1`. Done when: it builds the solution and runs every .NET test through `bosun run`, and a failing test makes it exit nonzero.
-2. Extend the Windows CI job. Done when: CI builds the solution and runs its tests on every push.
+2. Extend the Windows CI job. Done when: CI builds the solution and runs its tests on every run the workflow's existing triggers start (pushes to `main` and pull requests, except changes only to `todo/`, `docs/` or Markdown), which this section leaves as they are.
 
-- [ ] Add a `dotnet-build` step (`dotnet build Bosun.slnx`) and a `dotnet-tests` step (`dotnet test --solution Bosun.slnx --no-build`) to `scripts/check-all.ps1`, both queued, after `core-tests`. Done when: `pwsh scripts/check-all.ps1 -List` shows both queued in that place, `tests/check_all_test.ps1` checks the order, and a deliberately failing .NET test makes `pwsh scripts/check-all.ps1 -Only dotnet-build,dotnet-tests` exit nonzero naming `dotnet-tests`. Cheaper substitute: running them outside the queue.
+- [ ] Add a `dotnet-build` step (`dotnet build Bosun.slnx`) and a `dotnet-tests` step (`dotnet test --solution Bosun.slnx --no-build`) to `scripts/check-all.ps1`, both queued, after `core-tests`. Done when: `pwsh scripts/check-all.ps1 -List` marks every queued step `(queued)` and shows both .NET steps queued in that place, `tests/check_all_test.ps1` checks the order and fails when either step loses `-Queue`, and a deliberately failing .NET test makes `pwsh scripts/check-all.ps1 -Only dotnet-build,dotnet-tests` exit nonzero naming `dotnet-tests`. Cheaper substitute: running them outside the queue.
 - [ ] Add the same build and test to the Windows job of `.github/workflows/build.yml`, after the SDK install `§1` added. Done when: the job's log shows the solution built on SDK `11.0.100` and the foundation tests passed, on the pushed commit.
-- [ ] Confirm `.gitignore` covers `build/`, `bin/`, `obj/`, `.vs/` and `*.user`. Done when: `git status --short` is empty after a full `pwsh scripts/check-all.ps1`.
+- [ ] Confirm `.gitignore` covers `build/`, `bin/`, `obj/`, `.vs/` and `*.user`. Done when: `git check-ignore` matches `build/dotnet/x`, `src/Bosun.Panel/bin/x`, `src/Bosun.Panel/obj/x`, `.vs/x` and `src/Bosun.Panel/Bosun.Panel.csproj.user`, and a full `pwsh scripts/check-all.ps1` adds no untracked file (`git status --short --untracked-files=all` lists the same files before and after it).
 - [ ] Commit: `gates: run the .NET build and tests`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0, and exits nonzero with a failing test added.
