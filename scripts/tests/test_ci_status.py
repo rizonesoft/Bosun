@@ -1183,6 +1183,71 @@ class Gate(Base):
         ci_status.recover(gh, result, "main", SHA, True, self.state())
         self.assertEqual(len(gh.started), 1)
 
+    def held_elsewhere(self):
+        """The lock as another live gate holds it, with this gate's wait for it cut short."""
+        lock = self.root / ci_status.LOCK
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")
+        self.addCleanup(lambda: lock.unlink(missing_ok=True))
+        patch = mock.patch.object(ci_status, "LOCK_WAIT_SECONDS", 0.1)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def record(self):
+        return self.state().read_text(encoding="utf-8") if self.state().exists() else None
+
+    def test_the_record_is_saved_only_under_its_lock(self):
+        self.assertFalse(ci_status.write_gate(self.state(), {"proven": SHA}))
+        self.assertIsNone(self.record())
+        with ci_status.gate_lock(self.state()) as held:
+            self.assertTrue(held and ci_status.lock_held(self.state()))
+            with ci_status.gate_lock(self.state()) as again:  # a locked change may call another
+                self.assertTrue(again)
+            self.assertTrue(ci_status.lock_held(self.state()))  # and the inner one does not release it
+            self.assertTrue(ci_status.write_gate(self.state(), {"proven": SHA}))
+        self.assertFalse(ci_status.lock_held(self.state()))
+        self.assertEqual(json.loads(self.record()), {"proven": SHA})
+        marker = self.root / ci_status.CLEARED  # the marker exists for when the record can't be changed
+        self.assertTrue(ci_status.write_gate(marker, {"proven": SHA, "at": 1.0}))
+
+    def test_a_gate_without_the_lock_changes_nothing_in_the_record(self):
+        with ci_status.gate_lock(self.state()):
+            ci_status.write_gate(self.state(), {"started": {"sha": SHA, "workflows": ["build.yml"]}, "first_red": OLD, "seen": [OLD]})
+        before = self.record()
+        self.held_elsewhere()
+        self.assertEqual(ci_status.begin_wait(self.state(), SHA, 50.0), 50.0)  # it still answers, from what it read
+        self.assertEqual(self.record(), before)
+        action, why = ci_status.gate_action(ci_status.EXIT_PENDING, SHA, self.state(), 60.0)
+        self.assertEqual(action, "unverified")
+        self.assertIn("couldn't be saved", why)
+        action, why = ci_status.gate_action(ci_status.EXIT_RED, SHA, self.state(), 60.0)
+        self.assertEqual(action, "unverified")  # a repair that can't be counted is not handed out
+        self.assertIn("couldn't be saved", why)
+        self.assertEqual(self.record(), before)
+        # A green still proceeds, through the marker kept for a record that can't be changed.
+        self.assertEqual(ci_status.gate_action(0, SHA, self.state(), 70.0), ("proceed", None))
+        self.assertEqual(self.record(), before)
+        self.assertEqual(json.loads((self.root / ci_status.CLEARED).read_text(encoding="utf-8"))["proven"], SHA)
+
+    def test_a_refusal_that_cannot_take_the_lock_leaves_the_reservation(self):
+        gh = FakeGh(dict(self.NO_BUILD), dispatch_fails="HTTP 422: no workflow_dispatch trigger")
+        real = ci_status.gate_lock
+        taken = []
+
+        def once(path, wait=None):
+            taken.append(1)
+            if len(taken) == 1:
+                return real(path, wait)  # the reservation gets the lock
+            (self.root / ci_status.LOCK).write_text("", encoding="utf-8")  # another gate has it for the cleanup
+            return real(path, 0.1)
+
+        result = {"workflows": [{"workflow": "build.yml", "verdict": "none"}]}
+        with mock.patch.object(ci_status, "gate_lock", once):
+            ci_status.recover(gh, result, "main", SHA, True, self.state())
+        (self.root / ci_status.LOCK).unlink()
+        self.assertIn("build.yml could not be started", result["recovery_error"])
+        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})  # kept, never rewritten unlocked
+
     def test_a_lock_left_by_a_dead_gate_is_taken_over(self):
         lock = self.root / ci_status.LOCK
         lock.parent.mkdir(parents=True, exist_ok=True)

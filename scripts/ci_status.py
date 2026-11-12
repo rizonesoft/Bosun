@@ -48,7 +48,9 @@ A workflow that reads `none` for a commit (no run, and no proof of a skip) needs
     it can't be read      nothing is started or offered; `recovery_error` says why.
 
 Two gates may look at one commit at once (a restart while the first still polls). Every change to the record is made
-under `build/ci-gate.lock`, so both cannot start the same workflow, and a start is recorded before it is made. Only a
+under `build/ci-gate.lock`, and the one function that saves it refuses without that lock, so both cannot start the same
+workflow, and a start is recorded before it is made. A gate that can't get the lock in ten seconds saves nothing on
+that look, which reads as a record that couldn't be saved: nothing is started, and a red or silent CI is `unverified`. Only a
 refusal GitHub itself answered with (an HTTP 4xx) removes that record; a start that failed some other way may have been
 accepted, so it is kept and not tried again for the commit.
 
@@ -64,6 +66,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -299,13 +302,26 @@ def report(runner, workflows, branch, sha=None, base=None, git=None, base_proven
     return result, code
 
 
+_HELD = threading.local()
+
+
+def lock_held(path):
+    """Whether this thread holds the record's lock, which `write_gate` requires before it changes the record."""
+    return str(path) in getattr(_HELD, "paths", ())
+
+
 @contextlib.contextmanager
-def gate_lock(path, wait=LOCK_WAIT_SECONDS):
+def gate_lock(path, wait=None):
     """Hold the record's lock file while changing the record, so two gates can't both read it and then both write.
-    Yields True when held. After `wait` seconds without it, yields False, and the caller decides what is safe unlocked.
-    A lock left by a process that died is taken over once it is older than LOCK_STALE_SECONDS."""
+    Yields True when held. After `wait` seconds without it, yields False: nothing can be saved then, because
+    `write_gate` refuses the record without the lock, and every caller already handles a record that can't be saved.
+    A lock left by a process that died is taken over once it is older than LOCK_STALE_SECONDS. Taking it again in the
+    thread that holds it is allowed, so a locked change may call another."""
+    if lock_held(path):
+        yield True
+        return
     lock = path.with_name(LOCK.name)
-    deadline = time.monotonic() + wait
+    deadline = time.monotonic() + (LOCK_WAIT_SECONDS if wait is None else wait)
     held = False
     while not held:
         try:
@@ -324,10 +340,13 @@ def gate_lock(path, wait=LOCK_WAIT_SECONDS):
             time.sleep(0.05)
         except OSError:
             break  # the folder can't be written, so there is nothing to lock and nothing to save either
+    if held:
+        _HELD.paths = {*getattr(_HELD, "paths", ()), str(path)}
     try:
         yield held
     finally:
         if held:
+            _HELD.paths = {p for p in _HELD.paths if p != str(path)}
             try:
                 lock.unlink()
             except OSError:
@@ -469,8 +488,12 @@ def read_gate(path):
         return state
     if state.get("consumed") != content:  # honoured once, even if the marker can't be deleted
         state = {"proven": record["proven"], "consumed": content}
-        if not write_gate(path, state):
+        # Taking the marker up changes the record, so it waits for a reader that holds the lock; until then every
+        # reader sees what the marker says.
+        if not lock_held(path) or not write_gate(path, state):
             return state
+    elif not lock_held(path):
+        return state
     try:
         marker.unlink()
     except OSError as exc:
@@ -479,7 +502,11 @@ def read_gate(path):
 
 
 def write_gate(path, state):
-    """True when saved, by temporary file then replace."""
+    """True when saved, by temporary file then replace. The record itself is saved only by the thread holding its
+    lock: a change made without it could put back a copy that lacks what another gate has just written."""
+    if path.name == REPAIRS.name and not lock_held(path):
+        print(f"warning: {path.name} was not changed, because {LOCK.name} is held by another gate", file=sys.stderr)
+        return False
     temporary = path.with_name(path.name + f".{os.getpid()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
