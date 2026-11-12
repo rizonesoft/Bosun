@@ -17,8 +17,10 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
     assertion-removed    more assertion lines left a file than came into it (self.assert..., assert, CHECK(...))
     skip-added           skipTest, unittest.skip, continue-on-error, or a -Skip switch on a test in the gate or CI
     ci-step-removed      a `run:` line gone from a workflow
-    warning-relaxed      warnings-as-errors or /W4 taken out, or a noqa, type: ignore or warning pragma put in
-    error-swallowed      an `except` whose body is only `pass`, or an empty `catch`
+    warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore or warning
+                         pragma put in
+    error-swallowed      an `except` whose body is only `pass`, or an empty `catch`, whether the handler is new or
+                         an existing one whose body was emptied
 
 The id is the case's name where the signal is about a case, and `L<line>` otherwise (the old line for something
 removed, the new line for something added), so two signals in one file are two things to answer.
@@ -71,6 +73,7 @@ SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
 RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
+OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
 EXCEPT_INLINE = re.compile(r"^\s*except\b.*:\s*pass\s*(#.*)?$")
 PASS = re.compile(r"^\s*pass\s*(#.*)?$")
@@ -175,6 +178,49 @@ def enclosing_case(lines, number):
         if lines[index].strip() and len(lines[index]) - len(lines[index].lstrip()) < indent and not found:
             indent = len(lines[index]) - len(lines[index].lstrip())
     return None
+
+
+def enforces(text, token):
+    """Whether a line turns a strictness setting on: it names it, and what follows is not an off value."""
+    if token not in text:
+        return False
+    return not OFF.search(text.split(token, 1)[1])
+
+
+def swallowed(lines, added):
+    """The lines of the handlers in a file's new text that swallow an error and that this change touched: an `except`
+    whose whole body is `pass`, and a `catch` whose braces hold nothing, on one line or over several."""
+    found = set()
+    if not lines:
+        return found
+    for index, text in enumerate(lines):
+        number = index + 1
+        if EXCEPT_INLINE.match(text):
+            if number in added:
+                found.add(number)
+            continue
+        if EXCEPT.match(text):
+            indent = len(text) - len(text.lstrip())
+            body = []
+            for below in range(index + 1, len(lines)):
+                line = lines[below]
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                if len(line) - len(line.lstrip()) <= indent:
+                    break
+                body.append(below + 1)
+            if len(body) == 1 and PASS.match(lines[body[0] - 1]) and ({number, body[0]} & added):
+                found.add(number)
+    text = "\n".join(lines)
+    starts = [0]
+    for line in lines:
+        starts.append(starts[-1] + len(line) + 1)
+    for match in EMPTY_CATCH.finditer(text):
+        first = next(i for i in range(len(lines)) if starts[i + 1] > match.start()) + 1
+        last = next(i for i in range(len(lines)) if starts[i + 1] >= match.end()) + 1
+        if set(range(first, last + 1)) & added:
+            found.add(first)
+    return found
 
 
 def powershell_case(text):
@@ -285,18 +331,17 @@ def scan(changes):
                 signals.append(Signal("skip-added", path, f"L{number}"))
             if RELAX.search(text):
                 signals.append(Signal("warning-relaxed", path, f"L{number}"))
-            if EXCEPT_INLINE.match(text) or EMPTY_CATCH.search(text):
-                signals.append(Signal("error-swallowed", path, f"L{number}"))
-            elif EXCEPT.match(text) and change.new is not None:
-                following = next((line for line in change.new[number:] if line.strip()), "")
-                if PASS.match(following):
-                    signals.append(Signal("error-swallowed", path, f"L{number}"))
+        # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
+        for number in sorted(swallowed(change.new, {number for number, _ in change.added})):
+            signals.append(Signal("error-swallowed", path, f"L{number}"))
         kept = [text.strip() for _, text in change.added]
         for number, text in change.removed:
             if WORKFLOW.search(path) and RUN_STEP.match(text) and text.strip() not in kept:
                 signals.append(Signal("ci-step-removed", path, f"L{number}"))
             for token in STRICT:
-                if token in text and not any(token in line for line in kept):
+                # The setting counts as kept only where an added line still has it on: renaming the value to OFF
+                # keeps the name and drops the enforcement.
+                if enforces(text, token) and not any(enforces(line, token) for line in kept):
                     signals.append(Signal("warning-relaxed", path, f"L{number}"))
                     break
 

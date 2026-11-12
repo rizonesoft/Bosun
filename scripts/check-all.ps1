@@ -14,9 +14,9 @@
 #
 # Each step runs in its own job object (scripts/lib/job-measure.ps1) with a time limit (-StepMinutes, default 30),
 # so a step and everything it started end together when it fails, passes its limit or the gate is interrupted. The
-# build and the Python suite take a turn in the queue (`bosun run --`) when bosun is installed, and a queued step
-# may also wait up to -QueueMinutes (default 120) for its turn: on a busy machine the wait for a slot is not the
-# step running, and must not use up the step's own limit.
+# build and the Python suite take a turn in the queue (`bosun run --`) when bosun is installed. A queued step may
+# wait up to -QueueMinutes (default 120; 0 waits without limit) for its turn, and its own limit starts only when its turn comes: on a busy
+# machine the wait for a slot is not the step running, and a step that has its slot gets no longer than any other.
 #
 # The WSL side is never run by default, because a gate must not start a stopped WSL machine unasked. -Wsl adds it.
 # What a default run leaves out is listed in $LeftOut below, each with its reason and the command that runs it;
@@ -103,12 +103,25 @@ foreach ($step in $steps) {
     "FAIL $($step.Name): $file is not on PATH or does not exist, so the step could not start ($(Format-Command $step))"
     exit 1
   }
-  $limit = $StepMinutes
-  if ($step.Queue -and $queue) { $arguments = @('run', '--', $file) + $arguments; $file = 'bosun'; $limit += $QueueMinutes }
   "---- $($step.Name): $(Format-Command $step)"
-  $result = Measure-Job -FilePath $file -ArgumentList $arguments -WorkingDirectory $repo -TimeoutSeconds ([int][Math]::Ceiling($limit * 60))
+  $measure = @{ WorkingDirectory = $repo; TimeoutSeconds = [int][Math]::Ceiling($StepMinutes * 60) }
+  if ($step.Queue -and $queue) {
+    # The step runs under the queue through a small wrapper that marks the moment its turn comes. Until that mark
+    # it may wait -QueueMinutes; from it, -StepMinutes counts, exactly as for a step that is not queued.
+    $mark = Join-Path ([IO.Path]::GetTempPath()) ("bosun-check-all-$PID-" + [guid]::NewGuid() + '.started')
+    $arguments = @('run', '--', 'pwsh', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'lib/queued-step.ps1'), $mark, $file) + $arguments
+    $file = 'bosun'
+    $measure.StartedPath = $mark
+    $measure.QueueSeconds = [int][Math]::Ceiling($QueueMinutes * 60)
+  }
+  try { $result = Measure-Job -FilePath $file -ArgumentList $arguments @measure }
+  finally { if ($measure.StartedPath) { Remove-Item -LiteralPath $measure.StartedPath -Force -ErrorAction Ignore } }
+  if ($result.TimedOutInQueue) {
+    "FAIL $($step.Name): waited $QueueMinutes minutes for a queue slot and did not get one ($(Format-Command $step))"
+    exit 1
+  }
   if ($result.TimedOut) {
-    "FAIL $($step.Name): stopped at its $limit minute limit, with everything it started ($(Format-Command $step))"
+    "FAIL $($step.Name): stopped at its $StepMinutes minute limit, with everything it started ($(Format-Command $step))"
     exit 1
   }
   if ($result.ExitCode -ne 0) {

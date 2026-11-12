@@ -185,6 +185,43 @@ class Kinds(Repo):
         self.commit("swallow")
         self.assertEqual(self.signals(), (1, ["error-swallowed scripts/tool.ps1:L1", f"error-swallowed {SOURCE}:L4", f"error-swallowed {SOURCE}:L8"]))
 
+    def test_an_existing_handler_emptied_is_seen_though_its_except_line_did_not_change(self):
+        self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        return 0")
+        self.write("scripts/tool.ps1", "try { Get-Item x } catch {\n  'said'\n}\n")
+        before = self.commit("handle")
+        self.edit(SOURCE, "    except OSError:\n        return 0", "    except OSError:\n        pass")
+        self.edit("scripts/tool.ps1", "catch {\n  'said'\n}", "catch {\n\n}")
+        self.commit("empty the handlers")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertIn(f"error-swallowed {SOURCE}:L4", text)
+        self.assertIn("error-swallowed scripts/tool.ps1:L1", text)
+
+    def test_a_swallowing_handler_the_change_did_not_touch_is_not_reported(self):
+        self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass")
+        before = self.commit("an old swallow")
+        self.edit(SOURCE, "def run():", "def other():\n    return 3\n\n\ndef run():")
+        self.commit("unrelated")
+        self.assertEqual(self.run_scan("--base", before, "--head", "HEAD")[0], 0)
+
+    def test_warnings_as_errors_turned_off_is_seen_though_the_name_stays(self):
+        self.write("CMakePresets.json", '{\n  "cacheVariables": {\n    "CMAKE_COMPILE_WARNING_AS_ERROR": "ON"\n  }\n}\n')
+        self.write("Directory.Build.props", "<Project>\n  <PropertyGroup>\n    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n  </PropertyGroup>\n</Project>\n")
+        before = self.commit("strict")
+        self.edit("CMakePresets.json", '"CMAKE_COMPILE_WARNING_AS_ERROR": "ON"', '"CMAKE_COMPILE_WARNING_AS_ERROR": "OFF"')
+        self.edit("Directory.Build.props", "<TreatWarningsAsErrors>true<", "<TreatWarningsAsErrors>false<")
+        self.edit(CMAKE, "set(CMAKE_COMPILE_WARNING_AS_ERROR ON)", "set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)")
+        self.commit("relax by value")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1)
+        for expected in ("warning-relaxed CMakePresets.json:L3", "warning-relaxed Directory.Build.props:L3", f"warning-relaxed {CMAKE}:L2"):
+            self.assertIn(expected, text)
+
+    def test_a_strict_setting_moved_or_reformatted_is_not_relaxed(self):
+        self.edit(CMAKE, "set(CMAKE_COMPILE_WARNING_AS_ERROR ON)\n", "# every warning fails the build\nset(CMAKE_COMPILE_WARNING_AS_ERROR   ON)\n")
+        self.commit("reformat")
+        self.assertEqual(self.signals(), (0, []))
+
     def test_an_except_that_does_something_is_not_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        return 0")
         self.commit("handle")

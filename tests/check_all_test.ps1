@@ -84,23 +84,41 @@ try {
   Check 'a step past its limit is stopped and named, with its child, and the run ends' ($r.Exit -eq 1 -and $r.Text -match 'FAIL one: stopped at its 0\.1 minute limit' -and $child -gt 0 -and (Wait-Gone $child) -and ($r.Ran -join ',') -eq 'one') "(exit $($r.Exit), child ${child}: $($r.Text))"
 
   # --- a queued step may wait for its turn without using up its own limit ---
-  # A stand-in bosun that waits 9 seconds for its "slot" and then runs the command: longer than the step's 6 second
-  # limit, inside the limit plus the queue allowance.
+  # A stand-in bosun that waits for its "slot" as long as BOSUN_FAKE_WAIT says, then runs the command it was given.
   $queueBin = Join-Path $work 'queue-bin'
   New-Item -ItemType Directory -Path $queueBin | Out-Null
-  Set-Content -LiteralPath (Join-Path $queueBin 'fake-bosun.ps1') -Value 'Start-Sleep 9; $rest = @($args | Select-Object -Skip 3); & $args[2] @rest; exit $LASTEXITCODE'
+  Set-Content -LiteralPath (Join-Path $queueBin 'fake-bosun.ps1') -Value 'Start-Sleep ([int]$env:BOSUN_FAKE_WAIT); $rest = @($args | Select-Object -Skip 3); & $args[2] @rest; exit $LASTEXITCODE'
   Set-Content -LiteralPath (Join-Path $queueBin 'bosun.cmd') -Value "@`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoProfile -File `"%~dp0fake-bosun.ps1`" %*"
   $savedPath = $env:PATH
+  function Set-Queued([string]$mode) {
+    ConvertTo-Json -InputObject @(@{ name = 'queued'; file = 'pwsh'; args = @('-NoProfile', '-File', $stub, 'queued', $mode); queue = $true }, @{ name = 'after'; file = 'pwsh'; args = @('-NoProfile', '-File', $stub, 'after', 'pass') }) -Depth 4 | Set-Content -LiteralPath $stepFile
+    Remove-Item -LiteralPath $ran, (Join-Path $work 'child.pid') -ErrorAction Ignore
+  }
   try {
     $env:PATH = "$queueBin;$env:PATH"
-    ConvertTo-Json -InputObject @(@{ name = 'queued'; file = 'pwsh'; args = @('-NoProfile', '-File', $stub, 'queued', 'pass'); queue = $true }) -Depth 4 | Set-Content -LiteralPath $stepFile
-    Remove-Item -LiteralPath $ran -ErrorAction Ignore
+    # The wait for a slot (9 s) is longer than the step's own limit (6 s): the limit starts when the turn comes.
+    $env:BOSUN_FAKE_WAIT = '9'
+    Set-Queued 'pass'
     $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '0.1', '-QueueMinutes', '1')
-    Check 'a queued step that waits longer than its own limit for a slot still runs and passes' ($r.Exit -eq 0 -and ($r.Ran -join ',') -eq 'queued') "(exit $($r.Exit): $($r.Text))"
-    Remove-Item -LiteralPath $ran -ErrorAction Ignore
-    $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '0.05', '-QueueMinutes', '0')
-    Check 'with no queue allowance the same wait is stopped at the step limit' ($r.Exit -eq 1 -and $r.Text -match 'FAIL queued: stopped at its 0\.05 minute limit' -and -not $r.Ran) "(exit $($r.Exit): $($r.Text))"
-  } finally { $env:PATH = $savedPath }
+    Check 'a queued step that waits longer than its own limit for a slot still runs and passes' ($r.Exit -eq 0 -and ($r.Ran -join ',') -eq 'queued,after') "(exit $($r.Exit): $($r.Text))"
+
+    # The slot comes at once and the step hangs: it gets its own limit and no more, whatever the queue allowance.
+    $env:BOSUN_FAKE_WAIT = '0'
+    Set-Queued 'child-hang'
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '0.1', '-QueueMinutes', '5')
+    $child = [int](Get-Content -LiteralPath (Join-Path $work 'child.pid') -ErrorAction Ignore)
+    Check 'a queued step that has its slot is stopped at its own limit, not its limit plus the queue allowance' ($r.Exit -eq 1 -and $r.Text -match 'FAIL queued: stopped at its 0\.1 minute limit' -and
+      $clock.Elapsed.TotalSeconds -lt 60 -and $child -gt 0 -and (Wait-Gone $child) -and ($r.Ran -join ',') -eq 'queued') "(exit $($r.Exit), $([int]$clock.Elapsed.TotalSeconds) s, child ${child}: $($r.Text))"
+
+    # No slot ever comes: the wait itself is bounded, said as that, and the step never ran.
+    $env:BOSUN_FAKE_WAIT = '300'
+    Set-Queued 'pass'
+    $clock.Restart()
+    $r = Invoke-Gate @('-StepFile', $stepFile, '-StepMinutes', '5', '-QueueMinutes', '0.1')
+    Check 'a queued step that never gets a slot is stopped at the queue allowance and named as waiting' ($r.Exit -eq 1 -and $r.Text -match 'FAIL queued: waited 0\.1 minutes for a queue slot and did not get one' -and
+      $clock.Elapsed.TotalSeconds -lt 60 -and -not $r.Ran) "(exit $($r.Exit), $([int]$clock.Elapsed.TotalSeconds) s: $($r.Text))"
+  } finally { $env:PATH = $savedPath; Remove-Item Env:BOSUN_FAKE_WAIT -ErrorAction Ignore }
 
   # --- what the real gate covers ---
   $real = (Invoke-Gate @('-List')).Text

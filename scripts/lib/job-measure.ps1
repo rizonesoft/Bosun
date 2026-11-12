@@ -25,6 +25,8 @@ namespace Bosun {
     public double Seconds;
     public double PeakMB;
     public bool TimedOut;
+    public double QueuedSeconds;    // how long the command waited to start its work (see -StartedPath); 0 without one
+    public bool TimedOutInQueue;    // it was stopped while still waiting, before its work began
   }
 
   public static class JobMeasure {
@@ -209,7 +211,12 @@ function Measure-Job {
     [string[]]$ArgumentList = @(),
     [string]$WorkingDirectory = (Get-Location).ProviderPath,
     [int]$TimeoutSeconds = 0,
-    [string]$OutputPath
+    [string]$OutputPath,
+    # For a command that waits its turn before it works (one run through `bosun run --`): the command creates the
+    # file at -StartedPath when its work begins. Until then it may wait -QueueSeconds; from then on -TimeoutSeconds
+    # counts. Without these, -TimeoutSeconds covers the whole run.
+    [string]$StartedPath,
+    [int]$QueueSeconds = 0
   )
   $command = Get-Command -Name $FilePath -CommandType Application -ErrorAction Ignore | Select-Object -First 1
   if (-not $command) { throw "Measure-Job could not start '$FilePath': no such program on PATH or at that path" }
@@ -219,9 +226,20 @@ function Measure-Job {
     # Waited for in short slices, so Ctrl+C (or a stopped pipeline) is seen within one of them: the finally below
     # then ends the job at once. One long native wait would hold PowerShell until the command ended by itself.
     $timedOut = $false
+    $waiting = [bool]$StartedPath
+    $began = 0.0
     while (-not $run.Wait(200)) {
-      if ($TimeoutSeconds -gt 0 -and $run.ElapsedSeconds -ge $TimeoutSeconds) { $timedOut = $true; break }
+      $elapsed = $run.ElapsedSeconds
+      if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $elapsed }
+      if ($waiting) { if ($QueueSeconds -gt 0 -and $elapsed -ge $QueueSeconds) { $timedOut = $true; break } }
+      elseif ($TimeoutSeconds -gt 0 -and ($elapsed - $began) -ge $TimeoutSeconds) { $timedOut = $true; break }
     }
-    $run.Finish($timedOut)
+    if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $run.ElapsedSeconds }
+    $result = $run.Finish($timedOut)
+    if ($StartedPath) {
+      $result.QueuedSeconds = [Math]::Round($(if ($waiting) { $result.Seconds } else { $began }), 2)
+      $result.TimedOutInQueue = $timedOut -and $waiting
+    }
+    $result
   } finally { $run.Dispose() }
 }
