@@ -101,12 +101,12 @@ Run gates while iterating, bounded to the touched area: the build for the touche
 
 ### Test cadence
 
-Tests cost time, so each kind runs where it pays (the owner's rule, 2026-11-12): building and fixing, not testing, is most of the work.
+Tests cost time, so each kind runs where it pays (the owner's rule, 2026-11-12): building and fixing, not testing, is most of the work, and CI carries the heavy lifting so this machine stays free for it.
 
 - While building and in every fix loop: only the tests of what changed, and the build of the touched projects.
-- The full local gate (`pwsh scripts/check-all.ps1`) runs once per section, on the candidate that goes to the completion review. A Test checkpoint that names it means that one run.
-- A fix after that run re-runs the tests of the files it touched; a fix to prose or a comment re-runs only `python scripts/todo-graph.py validate`. The stamp quotes the full run with the commit it ran on, and each targeted run since.
-- CI on every push is the full proof of the pushed head, so it starts early: push each commit of the section as it lands, and CI runs while the review rounds do. Before the completion review, `python scripts/ci_status.py --gate --sha <candidate> --wait-minutes 30` must print `proceed`; a red run is fixed in this cycle, before the stamp, and the red-first gate in `process-phase` still runs after it.
+- Before each push: those tests, and `pwsh scripts/check-all.ps1 -Only plan,weakening,tiers` (seconds). Push each commit of the section as it lands.
+- CI is the full gate of record: every push runs every step of `check-all` and the WSL side on Linux, while the review rounds run. Before the completion review, `python scripts/ci_status.py --gate --sha <candidate> --wait-minutes 30` must print `proceed`, and the stamp quotes that run's URL as the full gate. A red run is fixed at once, in this cycle, before anything else, and the red-first gate in `process-phase` still runs after the stamp.
+- The full local gate (`pwsh scripts/check-all.ps1`, with `-Wsl` where it applies) runs only for what CI cannot run (WSL on this machine, a real-machine measurement, a tool only this machine has), to reproduce a red CI run, or when the CI gate answers `unverified`. A Test checkpoint that names `check-all` is met by the green CI run of its candidate.
 - A new test is written for a failure that happened, or one that would lose data, spend money or expose something; never to cover every path a change might take.
 
 ### 5. Surface and feature completeness
@@ -115,7 +115,7 @@ Before the checkpoint, account for 100% of every control, menu item, dialog and 
 
 ### 6. Run the Test checkpoint, for real
 
-Execute the checkpoint command and read the output, at the cadence above: a full gate it names runs once, before the completion review. Quote the result in the commit body. If the checkpoint cannot run (no host, no fixture, no corpus file), the section is not done: record what ran, what did not and why, and stop without a stamp. Then run the section's other owed gates: affected tests green, build warnings clean, `python scripts/todo-graph.py validate` clean, and the `**Freeze check:**` in frozen files.
+Execute the checkpoint command and read the output, at the cadence above: a full gate it names is the candidate's green CI run. Quote the result in the commit body. If the checkpoint cannot run (no host, no fixture, no corpus file), the section is not done: record what ran, what did not and why, and stop without a stamp. Then run the section's other owed gates: affected tests green, build warnings clean, `python scripts/todo-graph.py validate` clean, and the `**Freeze check:**` in frozen files.
 
 ### 7. Commit, then hand to review
 

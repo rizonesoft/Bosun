@@ -85,7 +85,7 @@ Architecture check: on sections touching an architectural boundary the governing
 
 ### 5. Re-run the gates
 
-After the last fix, re-run the section's Test checkpoint and its owed gates (affected test suites, build warnings clean, `validate`, the Freeze check in frozen files, any sanitizer build the section names), at the cadence in `process-todo-section`: the full gate once, here, before the completion review, and after a later fix only the tests of what it touched. Quote the outputs in the findings file. A fix verified by reasoning is not verified. A red gate reopens the candidate: fix, re-run to green, and re-run the affected lens, because earlier verdicts rested on the broken candidate.
+After the last fix, re-run the section's Test checkpoint and its owed gates (affected test suites, build warnings clean, `validate`, the Freeze check in frozen files, any sanitizer build the section names), at the cadence in `process-todo-section`: the tests of what changed here, the full gate as the candidate's green CI run before the completion review, and after a later fix only the tests of what it touched. Quote the outputs in the findings file. A fix verified by reasoning is not verified. A red gate reopens the candidate: fix, re-run to green, and re-run the affected lens, because earlier verdicts rested on the broken candidate.
 
 ### 6. Surface, feature, and frozen checks
 
