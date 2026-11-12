@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 34 | Checklist items: 312
+Sections: 34 | Checklist items: 313
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
@@ -33,7 +33,7 @@ Sections: 34 | Checklist items: 312
 | [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
 | [x]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none           | 13    |
 | [ ]    | D00 T01 §5  | Scheduled automations for this repo                             | owner-decision | 4     |
-| [ ]    | D00 T01 §6  | Gates: native build checks and check-all                        | none           | 9     |
+| [ ]    | D00 T01 §6  | Gates: native build checks and check-all                        | none           | 10    |
 | [ ]    | D00 T01 §7  | Private GitHub repo and CI                                      | none           | 4     |
 | [ ]    | D00 T01 §9  | Register scheduled tasks on this machine                        | none           | 3     |
 | [ ]    | D00 T01 §13 | Weakening scan over a diff                                      | none           | 6     |
@@ -144,4 +144,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 20/87 verified sections, 7 ready to run now.
 
-Checklist: 249/575 items completed (includes Commit items).
+Checklist: 249/576 items completed (includes Commit items).
