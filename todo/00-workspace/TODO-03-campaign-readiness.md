@@ -534,20 +534,28 @@ The owner decided on 2026-11-07 that a low cap makes sections fail to ship and t
 
 Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers are filed from a section's third cycle on. The gate names `gh workflow run <file> --ref <branch>` when nothing proves a commit, which runs whatever the branch holds then, and it prints this only after polling.
 
+**Corrected 2026-11-12 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s13.md` returned three gaps, and they change the design. Printing the command early has no reader: an unattended run ends its turn until the gate finishes, and this session's push of `6fcc122` waited over twenty minutes on `plan.yml`, which its path filter had skipped, before the command was run by hand. Checking the head before printing a branch command also binds nothing, since the branch can move before anyone runs it. So the gate does the recovery itself: at the first look, before any sleep, `--gate` starts each workflow that has no run and no proof, only when the branch's remote head is the commit being gated, once per commit and workflow. A run is still counted for a commit only by its own `headSha` (`gh run list --commit`), so one started after the branch moved can never turn the commit green. A read-only look (no `--gate`) starts nothing and keeps printing the command for `scripts/campaign-preflight.ps1`, which reads the `to get a real run:` line.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Name the commit in the recovery in `scripts/ci_status.py`. Done when: a moved branch is explained, never silently run.
-2. Print the recovery at the first look. Done when: no sleep comes before it.
+1. Read the branch's remote head in `scripts/ci_status.py`. Done when: a moved branch and an unreadable head are each explained, in text and JSON, and neither is offered or given a run.
+2. Start the missing runs from `--gate` at the first look. Done when: no sleep comes before it, and a restart does not start them twice.
+3. Tell the run what changed. Done when: the three `process-phase` skill mirrors describe what the gate now does and what to do when the branch has moved.
 
-- [ ] Compare the branch's remote head with the checked commit through `gh api` in `scripts/ci_status.py`, offering the dispatch command only when they match, and otherwise saying the branch has moved on and its newer head is what to gate. Done when: `scripts/tests/test_ci_status.py` covers a match, a moved branch and an unreadable head.
-- [ ] Print the recovery to stderr at the first look, before any sleep, keeping one JSON object on stdout. Done when: a test with a 30 minute wait reads it before the first sleep.
-- [ ] Commit: `ci: recovery names its commit`
+- [ ] Add `remote_head(ask, branch)` to `scripts/ci_status.py`, reading `gh api repos/{owner}/{repo}/branches/<branch> --jq .commit.sha` through the same bounded caller as every other `gh` call, and raising `Unavailable` when the call fails, times out or returns anything but a 40 character SHA. Done when: `scripts/tests/test_ci_status.py` covers a SHA, a failed call and a malformed reply, and shows no lookup starts once the deadline has passed.
+- [ ] In a read-only look (no `--gate`), print `to get a real run: gh workflow run <file> --ref <branch>` and keep `recovery` in the JSON only when the remote head is the checked commit; when it differs, say the branch has moved on and name its head (`moved_to` in the JSON), and when it can't be read, say why (`recovery_error`), each with no command. Done when: tests cover a match, a moved branch and an unreadable head, and the exit code and every verdict are the same in all three. Cheaper substitute: printing the command with the SHA in a comment, which still runs whatever the branch holds.
+- [ ] With `--gate`, at the first look and before any sleep, start each workflow whose verdict is `none` with `gh workflow run <file> --ref <branch>` when the remote head is the gated commit, print `recovery: started <file> on <branch> at <sha>` to stderr, and put `started` (the workflows) in the JSON, keeping one JSON object on stdout. Done when: a test with a 30 minute wait sees the dispatch before the first sleep, then reads the run as pending and green on later looks. Cheaper substitute: printing the command and waiting for someone to run it.
+- [ ] Record each started workflow under the commit in `build/ci-gate.json` (temporary file, then replace, as the gate's other state), and never start one twice for the same commit. Done when: tests show a second invocation, and a second look in the same one, start nothing more, and that a state file that can't be written means nothing is started and the reason is given. Cheaper substitute: starting on every look, which queues a run a minute.
+- [ ] Prove a run on a newer commit can't answer for the gated one: when the branch advances between the head check and the dispatch, the started run carries the newer `headSha`, the gated commit's verdict stays `none`, and the next look reports the branch moved. Done when: a test with exactly that sequence never reaches `proceed` for the older commit.
+- [ ] With `--gate`, when the remote head differs or can't be read, start nothing, keep the action the verdicts give (`wait`), and report `moved_to` or `recovery_error` in text and JSON; a dispatch that fails is reported the same way and is not recorded as started. Done when: tests assert the action, the exit code and the message for a moved branch, an unreadable head and a refused dispatch.
+- [ ] Update the module docstring of `scripts/ci_status.py` and the Red-first CI part of `process-phase` in `.claude/skills/`, `.agents/skills/` and `.codex/skills/`: the gate starts a missing run itself, a `wait` no longer asks for a command to be run, and when it says the branch has moved on the run gates the commit it names with `--sha <that commit>`. Done when: the three mirrors say the same and `python scripts/run-tests.py test_todo_graph` (which checks the skills) passes.
+- [ ] Commit: `ci: the gate starts a missing run for its own commit`
 
-**Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0, and fails if a moved branch is offered the dispatch command.
+**Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` exits 0, and fails if a moved branch is offered or given a run, if a run on another commit counts, or if a workflow is started twice for one commit.
 
 ## 14. Stamp filed leftovers from the third cycle
 

@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 33 | Checklist items: 284
+Sections: 33 | Checklist items: 289
 
 | Status | Reference   | Deliverable                                                     | Needs          | Items |
 | ------ | ----------- | --------------------------------------------------------------- | -------------- | ----- |
@@ -27,7 +27,7 @@ Sections: 33 | Checklist items: 284
 | [x]    | D00 T03 §9  | Named core tests and CMake resolution                           | none           | 7     |
 | [x]    | D00 T03 §11 | One global heartbeat                                            | none           | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                               | none           | 10    |
-| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 3     |
+| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 8     |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none           | 14    |
 | [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none           | 6     |
 | [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
@@ -143,4 +143,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 18/86 verified sections, 8 ready to run now.
 
-Checklist: 225/547 items completed (includes Commit items).
+Checklist: 225/552 items completed (includes Commit items).
