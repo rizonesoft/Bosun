@@ -1,6 +1,6 @@
 # Every MSBuild run in this checkout: no node stays alive after a build to hold memory (measured 2026-11-10: another
-# repo's idle nodes held 1.4 GB while this repo's build waited for a slot; node reuse on measured 235 MB more held on
-# 2026-11-12, docs/build-performance.md, dotnet-node-reuse).
+# repo's idle nodes held 1.4 GB while this repo's build waited for a slot; node reuse on measured 194 MB more held,
+# 268 MB against 74, on 2026-11-12, docs/build-performance.md, dotnet-node-reuse).
 #
 # No CPU limit here: `dotnet build` puts its own bare -maxcpucount on the command line, which overrides this file,
 # so the limit that measured best (two nodes, dotnet-cpu-2) is passed by the commands this repository runs:
