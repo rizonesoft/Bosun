@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 32 | Checklist items: 319
+Sections: 32 | Checklist items: 320
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -36,7 +36,7 @@ Sections: 32 | Checklist items: 319
 | [x]    | D00 T01 §7  | Private GitHub repo and CI                                      | none        | 8     |
 | [x]    | D00 T01 §13 | Weakening scan over a diff                                      | none        | 8     |
 | [x]    | D00 T02 §1  | Solution, props and empty projects                              | none        | 11    |
-| [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none        | 3     |
+| [ ]    | D00 T02 §2  | Add .NET to the gates                                           | none        | 4     |
 | [ ]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none        | 4     |
 | [ ]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 5     |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
@@ -142,4 +142,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 25/85 verified sections, 8 ready to run now.
 
-Checklist: 291/582 items completed (includes Commit items).
+Checklist: 291/583 items completed (includes Commit items).

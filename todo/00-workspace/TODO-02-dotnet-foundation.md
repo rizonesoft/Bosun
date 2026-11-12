@@ -86,17 +86,20 @@ Everything later hangs off this shape: one solution beside the C++ tools, with c
 
 A section can only be held to tests that the one-command gate actually runs.
 
+**Corrected 2026-11-12:** checked before the build. `.gitignore` already lists `build/`, `bin/`, `obj/`, `.vs/` and `*.user`, so that item is a read-back. `§1` left building and testing the solution in CI to this section, and `§3` reads the SDK from the CI job this section adds, so the Windows CI job is in scope here. The tests run through Microsoft.Testing.Platform (`§1`), so the command is `dotnet test --solution`.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Extend `scripts/check-all.ps1`. Done when: it runs `dotnet test` through `bosun run`.
-2. Extend `.gitignore`. Done when: `git status` is clean after a build.
+1. Extend `scripts/check-all.ps1`. Done when: it builds the solution and runs every .NET test through `bosun run`, and a failing test makes it exit nonzero.
+2. Extend the Windows CI job. Done when: CI builds the solution and runs its tests on every push.
 
-- [ ] Add `dotnet build` and `dotnet test` to `scripts/check-all.ps1`. Done when: a failing test makes it exit nonzero. Cheaper substitute: running them outside the queue.
-- [ ] Confirm `.gitignore` covers `build/`, `bin/`, `obj/`, `.vs/` and `*.user`, adding what is missing. Done when: `git status --short` is empty after a full build.
+- [ ] Add a `dotnet-build` step (`dotnet build Bosun.slnx`) and a `dotnet-tests` step (`dotnet test --solution Bosun.slnx --no-build`) to `scripts/check-all.ps1`, both queued, after `core-tests`. Done when: `pwsh scripts/check-all.ps1 -List` shows both queued in that place, `tests/check_all_test.ps1` checks the order, and a deliberately failing .NET test makes `pwsh scripts/check-all.ps1 -Only dotnet-build,dotnet-tests` exit nonzero naming `dotnet-tests`. Cheaper substitute: running them outside the queue.
+- [ ] Add the same build and test to the Windows job of `.github/workflows/build.yml`, after the SDK install `§1` added. Done when: the job's log shows the solution built on SDK `11.0.100` and the foundation tests passed, on the pushed commit.
+- [ ] Confirm `.gitignore` covers `build/`, `bin/`, `obj/`, `.vs/` and `*.user`. Done when: `git status --short` is empty after a full `pwsh scripts/check-all.ps1`.
 - [ ] Commit: `gates: run the .NET build and tests`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0, and exits nonzero with a failing test added.
