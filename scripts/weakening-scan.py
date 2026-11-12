@@ -115,32 +115,42 @@ class Change:
         self.removed, self.added = [], []  # [(line number, text)]
         self.gaps = set()  # new line numbers after which lines were deleted with nothing put in their place
         self.old, self.new = None, None  # the whole file, as lists of lines; None when it did not exist
-        self.deleted = False
+        self.deleted = False  # the change removes the file: it has no new text
+        self.created = False  # the change adds the file: it has no old text
 
 
-def run_git(root, arguments):
+def git_result(root, arguments):
+    """(exit code, output, what it said on failure) of one git command. CannotRead only when git could not run."""
     try:
         done = subprocess.run(["git", "-C", str(root), "-c", "core.quotepath=false", *arguments], capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=120)
     except (OSError, subprocess.SubprocessError) as exc:
         raise CannotRead(f"git could not run: {exc}") from None
-    if done.returncode != 0:
-        said = (done.stderr or done.stdout).strip().splitlines()
-        raise CannotRead(f"git {' '.join(arguments[:3])} failed: {said[0] if said else 'no output'}")
-    return done.stdout
+    said = (done.stderr or done.stdout).strip().splitlines()
+    return done.returncode, done.stdout, said[0] if said else "no output"
+
+
+def run_git(root, arguments):
+    code, out, said = git_result(root, arguments)
+    if code != 0:
+        raise CannotRead(f"git {' '.join(arguments[:3])} failed: {said}")
+    return out
 
 
 def parse_diff(text):
     """{path: Change} from `git diff -U0 --no-renames` output."""
-    changes, current, old_line, new_line = {}, None, 0, 0
+    changes, current, old_line, new_line, created = {}, None, 0, 0, False
     for line in text.splitlines():
         if line.startswith("diff --git "):
-            current = None
+            current, created = None, False
         elif line.startswith("+++ ") or line.startswith("--- "):
             name = line[4:].strip()
             if name != "/dev/null":
                 path = name[2:] if name[:2] in ("a/", "b/") else name
                 current = changes.setdefault(path, Change(path))
+                current.created = current.created or created
+            elif line.startswith("--- "):
+                created = True  # no old side: the file is new, which the `+++` line that follows will name
             if line.startswith("+++ ") and name == "/dev/null" and current is not None:
                 current.deleted = True
         elif line.startswith("@@"):
@@ -400,26 +410,29 @@ def scan(changes):
 
 
 def show(root, rev, path):
-    """A file's lines at a revision, or None when it does not exist there."""
-    try:
-        return run_git(root, ["show", f"{rev}:{path}"]).splitlines()
-    except CannotRead:
-        return None
+    """A file's lines at a revision. The diff says whether the file exists on a side, so this is only asked for one
+    that does, and a failure here is a failure to read (a timeout, a disk error), never taken for an absent file:
+    the checks that need the text would otherwise pass in silence."""
+    return run_git(root, ["show", f"{rev}:{path}"]).splitlines()
 
 
 def committed(root, base, head):
     changes = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", base, head, "--"]))
     for path, change in changes.items():
-        change.old, change.new = show(root, base, path), show(root, head, path)
+        change.old = None if change.created else show(root, base, path)
+        change.new = None if change.deleted else show(root, head, path)
     return changes
 
 
 def uncommitted(root):
     changes = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", "HEAD", "--"]))
     for path, change in changes.items():
-        change.old = show(root, "HEAD", path)
-        target = Path(root) / path
-        change.new = target.read_text(encoding="utf-8", errors="replace").splitlines() if target.is_file() else None
+        change.old = None if change.created else show(root, "HEAD", path)
+        if not change.deleted:
+            try:
+                change.new = (Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError as exc:
+                raise CannotRead(f"{path} can't be read: {exc}") from None
     for path in run_git(root, ["ls-files", "--others", "--exclude-standard"]).splitlines():
         target = Path(root) / path
         try:
@@ -449,11 +462,19 @@ def resolve(root, rev):
 
 
 def default_base(root):
-    """The merge base of HEAD and origin/main, or HEAD when there is no such branch or no common commit."""
-    try:
-        return run_git(root, ["merge-base", "HEAD", "origin/main"]).strip()
-    except CannotRead:
+    """The merge base of HEAD and origin/main, or HEAD when there is no such branch or no common commit. Those two
+    are answers git gives (exit 1); anything else is a failure to read, never taken for "nothing to scan"."""
+    code, _, said = git_result(root, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main^{commit}"])
+    if code == 1:
         return resolve(root, "HEAD")
+    if code != 0:
+        raise CannotRead(f"origin/main could not be looked up: {said}")
+    code, out, said = git_result(root, ["merge-base", "HEAD", "origin/main"])
+    if code == 1:
+        return resolve(root, "HEAD")
+    if code != 0 or not out.strip():
+        raise CannotRead(f"the merge base with origin/main could not be found: {said}")
+    return out.strip()
 
 
 def main(argv=None, root=ROOT):

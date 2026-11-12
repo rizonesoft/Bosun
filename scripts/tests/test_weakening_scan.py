@@ -453,6 +453,89 @@ class Ranges(Repo):
         self.assertIn("fatal: bad object", text)
         self.assertNotIn("0 signal(s)", text)
 
+    def test_a_file_s_text_that_cannot_be_read_exits_2_and_is_not_taken_for_an_absent_file(self):
+        # The handler's `except` line is unchanged, so the signal needs the file's new text: without it the scan
+        # would find nothing and pass.
+        self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        raise\n        pass")
+        before = self.commit("a handler that raises")
+        self.edit(SOURCE, "        raise\n", "")
+        self.commit("stop raising")
+        self.assertEqual(self.run_scan("--base", before, "--head", "HEAD")[0], 1)  # read normally, it is seen
+        real = scan.run_git
+        for side in ("old", "new"):
+            with self.subTest(side=side):
+                def failing(root, arguments, side=side):
+                    if arguments[0] == "show" and arguments[1].startswith(before if side == "old" else "") and \
+                            (side == "old" or not arguments[1].startswith(before)):
+                        raise scan.CannotRead("git show failed: error: unable to read the object (I/O error)")
+                    return real(root, arguments)
+
+                with mock.patch.object(scan, "run_git", failing):
+                    code, text = self.run_scan("--base", before, "--head", "HEAD")
+                self.assertEqual(code, 2, text)
+                self.assertIn("I/O error", text)
+                self.assertNotIn("0 signal(s)", text)
+
+    def test_a_working_file_that_cannot_be_read_exits_2(self):
+        self.edit(SOURCE, "    return 1", "    return 2")
+        real = Path.read_text
+
+        def unreadable(path, *args, **kwargs):
+            if path.name == "tool.py":
+                raise PermissionError("the file is in use by another process")
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "read_text", unreadable):
+            code, text = self.run_scan("--base", self.base)
+        self.assertEqual(code, 2)
+        self.assertIn("scripts/tool.py can't be read", text)
+
+    def test_a_new_file_and_a_deleted_file_are_known_from_the_diff_and_read_on_one_side_only(self):
+        (self.root / PS).unlink()
+        self.write("scripts/fresh.py", "def f():\n    return 1\n")
+        self.commit("one comes, one goes")
+        asked = []
+        real = scan.run_git
+
+        def recording(root, arguments):
+            if arguments[0] == "show":
+                asked.append(arguments[1].split(":", 1))
+            return real(root, arguments)
+
+        with mock.patch.object(scan, "run_git", recording):
+            code, found = self.signals()
+        self.assertEqual((code, found), (1, [f"test-file-deleted {PS}:file"]))
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(sorted(asked), sorted([[self.base, PS], [head, "scripts/fresh.py"]]))
+
+    def test_a_base_that_cannot_be_worked_out_exits_2_and_is_not_taken_for_nothing_to_scan(self):
+        self.git("update-ref", "refs/remotes/origin/main", self.base)
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")
+        self.commit("drop")
+        self.assertEqual(self.run_scan()[0], 1)  # worked out normally, the removal is seen
+        real = scan.git_result
+        for command in ("rev-parse", "merge-base"):
+            with self.subTest(command=command):
+                def failing(root, arguments, command=command):
+                    if arguments[0] == command and "origin/main" in " ".join(arguments):
+                        return 128, "", "fatal: unable to read tree (I/O error)"
+                    return real(root, arguments)
+
+                with mock.patch.object(scan, "git_result", failing):
+                    code, text = self.run_scan()
+                self.assertEqual(code, 2, text)
+                self.assertIn("I/O error", text)
+
+    def test_histories_with_no_common_commit_fall_back_to_head(self):
+        self.git("checkout", "-q", "--orphan", "other")
+        self.git("commit", "-q", "--allow-empty", "-m", "unrelated")
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("checkout", "-q", "main")
+        code, text = self.run_scan()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(code, 0)
+        self.assertIn(f"committed {head[:7]}..{head[:7]}: 0 signal(s)", text)
+
     def test_outside_a_repository_it_exits_2(self):
         with tempfile.TemporaryDirectory(dir=SCRATCH) as empty:
             out = io.StringIO()
