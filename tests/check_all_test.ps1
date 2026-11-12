@@ -127,6 +127,15 @@ try {
   $unwritable = Join-Path $stub 'mark'  # a path under a file, so it can never be created
   $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $unwritable pwsh -NoProfile -File $stub 'wrapped' 'pass' 2>&1 | Out-String
   Check 'a start mark that cannot be written stops the wrapper before the command runs' ($LASTEXITCODE -eq 3 -and $text -match 'could not write its start mark' -and -not (Test-Path -LiteralPath $ran)) "(exit ${LASTEXITCODE}: $text)"
+  # One argument, none, and several all reach the command whole: a lone argument must not be splatted by letter.
+  $echo = Join-Path $work 'echo.ps1'
+  Set-Content -LiteralPath $echo -Value 'Set-Content -LiteralPath (Join-Path $PSScriptRoot "echo.txt") -Value ("count=" + $args.Count + " " + ($args -join "|"))'
+  foreach ($case in @(@{ Give = @('scripts/run-tests.py'); Want = 'count=1 scripts/run-tests.py' }, @{ Give = @(); Want = 'count=0 ' }, @{ Give = @('a b', 'c'); Want = 'count=2 a b|c' })) {
+    $give = $case.Give
+    & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper (Join-Path $work 'echo.started') pwsh -NoProfile -File $echo @give | Out-Null
+    $got = Get-Content -LiteralPath (Join-Path $work 'echo.txt') -ErrorAction Ignore
+    Check "the wrapper passes $($give.Count) argument(s) on whole" ($got -eq $case.Want) "(got '$got', wanted '$($case.Want)')"
+  }
   $good = Join-Path $work 'good.started'
   $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $good pwsh -NoProfile -File $stub 'wrapped' 'fail' 2>&1 | Out-String
   Check 'with its mark written the wrapper runs the command and passes its exit code on' ($LASTEXITCODE -eq 3 -and (Test-Path -LiteralPath $good) -and (@(Get-Content -LiteralPath $ran) -join ',') -eq 'wrapped') "(exit ${LASTEXITCODE}: $text)"

@@ -9,7 +9,9 @@
 # If the mark cannot be written the program is not started: without the mark the step would run on the queue's
 # time allowance, or on none, in place of its own limit. Exit 3 says so.
 $ErrorActionPreference = 'Stop'
-$mark, $program, $rest = $args
+# The rest stay an array whatever their number: one argument on its own would otherwise be splatted letter by letter.
+$mark, $program = $args[0], $args[1]
+$rest = @($args | Select-Object -Skip 2)
 if (-not $mark -or -not $program) { 'queued-step needs a mark file and a program'; exit 2 }
 try { [IO.File]::WriteAllText($mark, 'started') } catch {
   "queued-step could not write its start mark ${mark}: $($_.Exception.InnerException.Message ?? $_.Exception.Message). The step was not started."
