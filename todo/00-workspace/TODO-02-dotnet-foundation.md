@@ -141,6 +141,8 @@ A section can only be held to tests that the one-command gate actually runs.
 
 ## 4. .NET build defaults measured for memory and speed
 
+> **Started:** 2026-11-12T14:23:36Z
+
 Moved here on 2026-11-12 from `D00 T01 §12`, which measures the native build: the .NET 11 panel will be the heavy build, and its defaults can only be measured once `§1` has created `Bosun.slnx`. The owner asked for the build tools to be tuned for memory and speed on this machine; the rule is the same as there: measure first, keep only what wins.
 
 **Corrected 2026-11-12:** checked before the build. `§1` already put `-nodeReuse:false` and `-maxCpuCount:4` in `Directory.Build.rsp`, because idle nodes were measured holding memory on this machine, so the baseline is the build as it stands with those, and each trial measures the alternative against it: node reuse back on, other CPU limits, and shared compilation off. A trial passes its MSBuild arguments on the command line (`-BuildArgs`, given without their dash, as for the native build), which override the response file, so no file is edited to measure it. Every timed step runs in its own job object, which ends what the step left behind; that keeps samples independent but hides both what idle nodes and the compiler server hold and the speed they buy on the next build, so each .NET label also records what is left running 60 seconds after one build, and times a one-file build made while that is still alive. `scripts/measure-build.ps1` names `src/app.cpp` as the work for its native steps; the .NET steps prove theirs from `Bosun.Core.dll`, which a build that compiled rewrites.
