@@ -1,3 +1,1 @@
-[
-  {"section": "D00 T02 §3", "need": "third-party", "check": ["python", "scripts/dotnet-final-available.py"]}
-]
+[]

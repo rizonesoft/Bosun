@@ -127,10 +127,10 @@ A section can only be held to tests that the one-command gate actually runs.
 
 1. Confirm the release is what every build uses. Done when: no prerelease version remains in the repo, and CI builds on the release.
 
-- [ ] Confirm `global.json` names the release with `allowPrerelease: false`, as `§1` set it. Done when: `dotnet --version` in the repo prints the release, and the CI job that `§2` adds reports the same SDK in its log.
-- [ ] Search the repo for prerelease versions in `Directory.Packages.props`, `global.json` and the workflows. Done when: searching for `rc.`, `preview.` and `-alpha` finds nothing outside dated notes.
-- [ ] Confirm the release on the .NET download page. Done when: the page's latest 11.0 SDK is recorded in the commit body.
-- [ ] Commit: `dotnet: confirm the .NET 11 release everywhere`
+- [x] Confirm `global.json` names the release with `allowPrerelease: false`, as `§1` set it. Done when: `dotnet --version` in the repo prints the release, and the CI job that `§2` adds reports the same SDK in its log.
+- [x] Search the repo for prerelease versions in `Directory.Packages.props`, `global.json` and the workflows. Done when: searching for `rc.`, `preview.` and `-alpha` finds nothing outside dated notes.
+- [x] Confirm the release on the .NET download page. Done when: the page's latest 11.0 SDK is recorded in the commit body.
+- [x] Commit: `dotnet: confirm the .NET 11 release everywhere`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1` exits 0 on the release SDK.
 
