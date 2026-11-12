@@ -26,17 +26,10 @@ Add `-Watchdog` only on a machine that runs the plan unattended: it installs the
 ## Which checks must pass?
 
 ```
-pwsh scripts/build.ps1
-build\Release\test_core.exe
-pwsh tests\queue_test.ps1
-pwsh tests\bin_output_test.ps1
-python scripts/todo-graph.py validate
-python scripts/todo-graph.py plan --check
-python scripts/run-tests.py
-node scripts/verify-agent-tiers.mjs
+pwsh scripts/check-all.ps1
 ```
 
-The README lists the WSL tests. Run full builds and test suites through `bosun run --` so they queue with everything else on your machine.
+That one command runs every gate in order and stops at the first failure, naming the step, its command and its exit code: the plan, the agent tiers, the native build, the language standard of every compile, the hardening of every built image (control-flow guard, ASLR, NX and CET), the C++ tests, every PowerShell test in `tests/`, and the Python suite. `-List` prints the steps and what a default run leaves out, `-Only <name>` runs just the steps named, and `-Wsl` adds the WSL side, which a default run never starts. The build and the Python suite take a turn in the queue through `bosun run --` when `bosun` is installed, so they queue with everything else on your machine.
 
 `todo/implementation-plan.md` is generated. Edit the TODO sections, then run `python scripts/todo-graph.py plan --sync`.
 

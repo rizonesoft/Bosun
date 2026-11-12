@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Static CRT: the tools run from a plain install folder with no redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_compile_options(/W4 /permissive- /utf-8)
+# Control-flow guard needs both halves: the compiler emits the checks and the linker sets the image flag. /CETCOMPAT
+# marks each image as safe under hardware shadow stacks. scripts/native-pe-check.py reads both back from the files.
+add_compile_options(/guard:cf)
+add_link_options(/guard:cf /CETCOMPAT)
 add_compile_definitions(UNICODE _UNICODE)
 
 set(BOSUN_LIBS pdh advapi32)
