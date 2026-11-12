@@ -91,7 +91,12 @@ try {
   Check 'the queue test runs with -SkipWsl by default, not dropped' ($real -match 'tests/queue_test\.ps1 -SkipWsl')
   Check 'what a default run leaves out is listed with a reason and a command' ($real -match 'tests/test_bosun_log\.py: .+ Run: pwsh scripts/check-all\.ps1 -Wsl')
   $wsl = (Invoke-Gate @('-List', '-Wsl')).Text
-  Check '-Wsl adds the WSL side and runs the whole queue test' ($wsl -match 'wsl:logger-tests: .*tests/test_bosun_log\.py' -and $wsl -match 'wsl:shell-syntax' -and $wsl -match 'tests/queue_test\.ps1\r?\n')
+  Check '-Wsl adds the WSL side and runs the whole queue test' ($wsl -match 'wsl:logger-tests: .*tests/test_bosun_log\.py' -and $wsl -match 'wsl:syntax:bosun' -and $wsl -match 'tests/queue_test\.ps1\r?\n')
+  # The syntax step covers the shell scripts that are really there, and so does the Linux job of the workflow.
+  $scripts = @('wsl/bosun') + @(Get-ChildItem -LiteralPath (Join-Path $repo 'wsl') -Filter '*.sh' | ForEach-Object { "wsl/$($_.Name)" })
+  $unchecked = @($scripts | Where-Object { $wsl -notmatch ('(?m)^wsl:syntax:' + [regex]::Escape((Split-Path $_ -Leaf)) + ': wsl --cd .+ bash -n ' + [regex]::Escape($_) + '?$') })
+  Check 'with -Wsl every shell script in wsl/ has its own syntax step' ($scripts.Count -ge 4 -and -not $unchecked) "(not checked: $($unchecked -join ', '))"
+  Check 'the Linux job checks the same scripts by pattern, not by a list that can fall behind' ((Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw) -match 'for f in wsl/bosun wsl/\*\.sh; do bash -n')
   $names = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: ' } | ForEach-Object { ($_ -split ': ')[0] })
   Check 'the steps come in the order the gate documents' (($names[0..5] -join ',') -eq 'plan,tiers,build,native-std,native-pe,core-tests' -and $names[-1] -eq 'python-tests')
 

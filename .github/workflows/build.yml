@@ -81,6 +81,4 @@ jobs:
         run: python3 -B tests/test_bosun_log.py
       - name: Shell scripts parse
         run: |
-          bash -n wsl/bosun
-          bash -n wsl/install.sh
-          bash -n wsl/queue_test.sh
+          for f in wsl/bosun wsl/*.sh; do bash -n "$f" || exit 1; done

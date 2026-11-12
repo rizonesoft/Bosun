@@ -60,7 +60,11 @@ if ($StepFile) {
   $steps += New-Step 'python-tests' 'python' @('scripts/run-tests.py') -Queue
   if ($Wsl) {
     $steps += New-Step 'wsl:logger-tests' 'wsl' @('--cd', $repo, 'python3', '-B', 'tests/test_bosun_log.py')
-    $steps += New-Step 'wsl:shell-syntax' 'wsl' @('--cd', $repo, 'bash', '-c', 'for f in wsl/bosun wsl/install.sh wsl/queue_test.sh; do bash -n "$f" || exit 1; done')
+    # Every shell script the WSL side has, found here so a new one is checked without this list being edited:
+    # wsl/bosun (which has no extension) and each wsl/*.sh.
+    $shell = @('wsl/bosun') + @(Get-ChildItem -LiteralPath (Join-Path $repo 'wsl') -Filter '*.sh' -ErrorAction Ignore | Sort-Object Name | ForEach-Object { "wsl/$($_.Name)" })
+    # One step for each, with nothing quoted: a loop passed through wsl.exe loses its quotes on the way.
+    foreach ($script in $shell) { $steps += New-Step "wsl:syntax:$(Split-Path $script -Leaf)" 'wsl' @('--cd', $repo, 'bash', '-n', $script) }
   }
 }
 
