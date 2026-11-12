@@ -267,6 +267,123 @@ exit $LASTEXITCODE
   Check 'every parameter given reaches the queued run' ($pairs['-LockSeconds'] -eq '7' -and $pairs['-TimeoutSeconds'] -eq '99' -and $pairs['-BuildArgs'] -eq 'Sccache' -and
     $pairs.ContainsKey('-BuildScript') -and $pairs.ContainsKey('-OutDir') -and @($queued.configuration.build_args) -contains 'Sccache') "($($passed -join ' '))"
 
+  # --- measure-build.ps1 -Dotnet, with a fake dotnet ---
+  # The fake writes its four outputs only when it does work (all when one is missing, the first when the touched
+  # file is newer), removes them on clean, and by its mode leaves worker processes in node mode that hold about
+  # 100 MB, answer a later build (it asks, they spend CPU on it) and end by themselves after two minutes.
+  $dn = Join-Path $dir 'dn'
+  New-Item -ItemType Directory -Path $dn | Out-Null
+  $outs = @(1..4 | ForEach-Object { Join-Path $dn "out$_.dll" })
+  Set-Content -LiteralPath (Join-Path $dn 'Foundation.cs') -Value '// fake source'
+  Set-Content -LiteralPath (Join-Path $dn 'worker.ps1') -Value @'
+param($flag, $here, $n)
+$hold = [byte[]]::new(100MB); [Array]::Fill($hold, [byte]1)
+Set-Content -LiteralPath (Join-Path $here "worker$n.pid") -Value $PID
+$until = (Get-Date).AddMinutes(2)
+while ((Get-Date) -lt $until) {
+  $ask = Join-Path $here "ask$n.txt"
+  if (Test-Path -LiteralPath $ask) { $end = (Get-Date).AddMilliseconds(400); while ((Get-Date) -lt $end) { $null = [Math]::Sqrt(7) }; Remove-Item -LiteralPath $ask }
+  Start-Sleep -Milliseconds 100
+}
+'@
+  Set-Content -LiteralPath (Join-Path $dn 'fake-dotnet.ps1') -Value @'
+$here = $PSScriptRoot
+$mode = Get-Content -LiteralPath (Join-Path $here 'mode.txt')
+$outs = @(1..4 | ForEach-Object { Join-Path $here "out$_.dll" })
+switch ($args[0]) {
+  '--version' { '11.0.100'; exit 0 }
+  'build-server' { exit 0 }
+  'msbuild' { if ($args -contains '-p:UseSharedCompilation=false') { 'false' } else { '' }; exit 0 }
+  'clean' { foreach ($o in $outs) { if (-not ($mode -eq 'clean-leaves' -and $o -eq $outs[2])) { Remove-Item -LiteralPath $o -ErrorAction Ignore } }; Set-Content -LiteralPath (Join-Path $here 'cleaned.txt') -Value 'yes'; exit 0 }
+}
+function Alive($n) { $f = Join-Path $here "worker$n.pid"; (Test-Path -LiteralPath $f) -and [bool](Get-Process -Id ([int](Get-Content -LiteralPath $f)) -ErrorAction Ignore) }
+$workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'two-workers' { 2 } default { 0 } }
+if ($workers) {
+  if (Alive 1) {
+    if ($mode -eq 'warm-fails') { 'error: the warm build broke'; exit 4 }
+    $ask = Join-Path $here 'ask1.txt'; Set-Content -LiteralPath $ask -Value 'build'
+    foreach ($i in 1..100) { if (-not (Test-Path -LiteralPath $ask)) { break }; Start-Sleep -Milliseconds 100 }
+  } else {
+    foreach ($n in 1..$workers) {
+      Remove-Item -LiteralPath (Join-Path $here "worker$n.pid") -ErrorAction Ignore
+      Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $here 'worker.ps1'), '/nodemode:1', $here, $n -WindowStyle Hidden
+    }
+    foreach ($n in 1..$workers) { foreach ($i in 1..150) { if (Alive $n) { break }; Start-Sleep -Milliseconds 100 } }
+    Start-Sleep -Milliseconds 600  # long enough for the measuring script to sample them while the build runs
+  }
+}
+$touched = (Get-Item -LiteralPath (Join-Path $here 'Foundation.cs')).LastWriteTimeUtc
+$missing = @($outs | Where-Object { -not (Test-Path -LiteralPath $_) })
+$afterClean = Test-Path -LiteralPath (Join-Path $here 'cleaned.txt')
+if ($missing) { foreach ($o in $outs) { if (-not ($mode -eq 'skip-one' -and $afterClean -and $o -eq $outs[3])) { Set-Content -LiteralPath $o -Value 'built' } } }
+elseif ($touched -gt (Get-Item -LiteralPath $outs[0]).LastWriteTimeUtc) { Set-Content -LiteralPath $outs[$(if ($mode -eq 'miss-first') { 1 } else { 0 })] -Value 'built' }
+elseif ($mode -eq 'noop-work') { Set-Content -LiteralPath $outs[2] -Value 'built' }
+'Build succeeded.'
+exit 0
+'@
+  $fakeDotnet = Join-Path $dn 'dotnet.cmd'
+  Set-Content -LiteralPath $fakeDotnet -Value "@pwsh -NoProfile -File `"%~dp0fake-dotnet.ps1`" %*"
+  $rsp = Join-Path $dn 'Directory.Build.rsp'
+  Set-Content -LiteralPath $rsp -Value @('# the repository''s settings', '-nodeReuse:false', '-maxCpuCount:4')
+  function Get-WorkerIds { @(Get-ChildItem -LiteralPath $dn -Filter 'worker*.pid' -ErrorAction Ignore | ForEach-Object { [int](Get-Content -LiteralPath $_.FullName) }) }
+  $workerIds = [Collections.Generic.List[int]]::new()
+  function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments) {
+    Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value $mode
+    foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $text = & pwsh -NoProfile -File $measure -Dotnet -DotnetCommand $fakeDotnet -Solution (Join-Path $dn 'Fake.slnx') -DotnetProject (Join-Path $dn 'Fake.csproj') `
+      -DotnetOutputs ($outs -join ',') -TouchFile (Join-Path $dn 'Foundation.cs') -ResponseFile $rsp -OutDir $out -LingerSeconds 2 -Samples 1 @arguments 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
+    [pscustomobject]@{ Exit = $code; Text = $text; Seconds = $clock.Elapsed.TotalSeconds }
+  }
+  function Get-Label([string]$name) { (Get-Content -LiteralPath $json -Raw | ConvertFrom-Json).labels | Where-Object label -eq $name }
+
+  $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-plain', '-Decision', 'baseline')
+  $plain = Get-Label 'dotnet-plain'
+  $stepNames = @($plain.steps | ForEach-Object step) -join ','
+  Check '-Dotnet stores a .NET label with the three steps and the warm build' ($run.Exit -eq 0 -and $plain.kind -eq 'dotnet' -and $stepNames -eq 'nothing to do,one file changed,fresh build,one file changed, after a build') "(exit $($run.Exit), steps $stepNames): $($run.Text)"
+  Check 'it stores the SDK and the settings in force, defaults included' ($plain.tools.dotnet -eq '11.0.100' -and $plain.configuration.node_reuse -eq $false -and $plain.configuration.max_cpu_count -eq [Environment]::ProcessorCount -and $plain.configuration.use_shared_compilation -eq $true -and (@($plain.configuration.response_file) -join ' ') -eq '-nodeReuse:false -maxCpuCount:4')
+  Check 'a build that leaves nothing running stores an observed zero' ($plain.observed.left_running.observed -eq $true -and $plain.observed.left_running.processes -eq 0 -and $null -eq $plain.observed.warm_used_nodes -and $null -eq $plain.observed.warm_used_compiler -and $plain.observed.left_running.after_seconds -ge 2)
+  $rendered = Get-Content -LiteralPath $doc -Raw
+  Check 'the document renders the .NET configuration and what was left running' ($rendered -match '## dotnet-plain \(baseline\)' -and $rendered -match "in force: node reuse off, at most $([Environment]::ProcessorCount) nodes, shared compilation on" -and $rendered -match 'Left running [\d.]+ s after it returned: 0 process\(es\), 0\.0 MB private memory\. In the one-file build made then, the nodes left: none was left; the compiler server left: none was left\.')
+
+  $run = Invoke-DotnetMeasure 'worker' @('-Label', 'dotnet-reuse', '-Decision', 'dropped', '-BuildArgs', 'nodeReuse:true', '-Note', 'reuse on')
+  $reuse = Get-Label 'dotnet-reuse'
+  $left = $reuse.observed.left_running
+  Check 'a worker left running is stored with its name, count and memory' ($run.Exit -eq 0 -and $left.nodes -eq 1 -and $left.processes -ge 1 -and @($left.names) -contains 'MSBuild node' -and $left.mb -ge 100 -and $reuse.observed.max_worker_nodes -eq 1) "(exit $($run.Exit), $($left | ConvertTo-Json -Compress)): $($run.Text)"
+  Check 'it is observed no sooner than -LingerSeconds after the build returned' ($left.after_seconds -ge 2)
+  $warmStep = $reuse.steps | Where-Object step -eq 'one file changed, after a build'
+  Check 'the warm build is timed and found to have used the worker' ($reuse.observed.warm_used_nodes -eq $true -and $null -eq $reuse.observed.warm_used_compiler -and $warmStep.median_seconds -gt 0 -and @($warmStep.seconds).Count -eq 1)
+  Check 'the arguments asked for are stored with what they put in force' ((@($reuse.configuration.build_args) -join ',') -eq 'nodeReuse:true' -and $reuse.configuration.node_reuse -eq $true)
+
+  # A step whose evidence disagrees with its name, a clean that leaves an output, and a contradicted setting.
+  $before = [IO.File]::ReadAllBytes($json)
+  function Test-DataUnchanged { [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($before) }
+  $run = Invoke-DotnetMeasure 'noop-work' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'unexpected work in a build with nothing to do is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'nothing to do' rewrote out3\.dll" -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'miss-first' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a one-file build that does not rebuild the touched project is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed' did not rewrite out1\.dll" -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'clean-leaves' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a clean that leaves an output is refused' ($run.Exit -eq 1 -and $run.Text -match 'the clean before a fresh build left out3\.dll' -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'skip-one' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a fresh build that skips an output is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'fresh build' did not write out4\.dll" -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'two-workers' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true,maxCpuCount:1')
+  Check 'a label whose build contradicts its arguments is refused' ($run.Exit -eq 1 -and $run.Text -match 'contradicts the settings in force \(at most 1 node\(s\) were asked for and 2 worker node\(s\) ran at once' -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'worker' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'nodes left by a build whose settings turn reuse off are refused' ($run.Exit -eq 1 -and $run.Text -match 'node reuse is off and 1 worker node\(s\) stayed' -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'warm-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true')
+  Check 'a failed warm build stores nothing' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed, after a build' failed with exit code 4" -and (Test-DataUnchanged)) "($($run.Text))"
+
+  # The stored settings and observations survive a render and a decision.
+  $run = Invoke-Measure 'ok' @('-RenderOnly')
+  $run = Invoke-Measure 'ok' @('-Label', 'dotnet-reuse', '-Decision', 'kept', '-Note', 'kept after all', '-DecideOnly')
+  $after = Get-Label 'dotnet-reuse'
+  Check 'the stored .NET settings survive -RenderOnly and -DecideOnly' ($after.decision -eq 'kept' -and ($after.configuration | ConvertTo-Json -Compress) -eq ($reuse.configuration | ConvertTo-Json -Compress) -and ($after.observed | ConvertTo-Json -Compress -Depth 5) -eq ($reuse.observed | ConvertTo-Json -Compress -Depth 5))
+
+  $alive = @($workerIds | Select-Object -Unique | Where-Object { Get-Process -Id $_ -ErrorAction Ignore })
+  Check 'no worker the fake dotnet started is left running' ($workerIds.Count -gt 0 -and -not $alive) "($($workerIds.Count) started, alive: $($alive -join ', '))"
+
 } finally {
   Remove-Item Env:BOSUN_MEASURE_QUEUED -ErrorAction Ignore
   Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Ignore

@@ -524,6 +524,720 @@
           "median_peak_mb": 379.8
         }
       ]
+    },
+    {
+      "label": "dotnet-cpu-2",
+      "kind": "dotnet",
+      "decision": "kept",
+      "note": "Kept: against dotnet-baseline (every CPU) nothing to do 2.1 s against 3.1, one file 3.9 against 5.8, fresh 4.9 against 7.6, with peak memory 208 MB against 312 on one file; the warm one-file build 3.9 s against 4.6. Passed as -maxCpuCount:2 by scripts/check-all.ps1 and the CI build, since dotnet build overrides a limit in Directory.Build.rsp.",
+      "date": "2026-11-12T15:18:45Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "maxCpuCount:2"
+        ],
+        "response_file": [
+          "-nodeReuse:false",
+          "-maxCpuCount:4"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 2,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 1,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.5,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 76.5
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.08,
+            2.29,
+            2.08
+          ],
+          "peak_mb": [
+            117.4,
+            126.1,
+            117.3
+          ],
+          "median_seconds": 2.08,
+          "median_peak_mb": 117.4
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            3.78,
+            3.91,
+            4.06
+          ],
+          "peak_mb": [
+            208.2,
+            209.8,
+            206.1
+          ],
+          "median_seconds": 3.91,
+          "median_peak_mb": 208.2
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            5.15,
+            4.9,
+            4.69
+          ],
+          "peak_mb": [
+            228.7,
+            218.1,
+            227.1
+          ],
+          "median_seconds": 4.9,
+          "median_peak_mb": 227.1
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            3.9
+          ],
+          "peak_mb": [
+            133.7
+          ],
+          "median_seconds": 3.9,
+          "median_peak_mb": 133.7
+        }
+      ]
+    },
+    {
+      "label": "dotnet-cpu-8",
+      "kind": "dotnet",
+      "decision": "dropped",
+      "note": "Dropped: no faster than two nodes and about 100 MB more peak memory on every step.",
+      "date": "2026-11-12T15:20:56Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "maxCpuCount:8"
+        ],
+        "response_file": [
+          "-nodeReuse:false",
+          "-maxCpuCount:4"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 8,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 3,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.4,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 73.1
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.99,
+            3.02,
+            2.91
+          ],
+          "peak_mb": [
+            207.7,
+            207.0,
+            206.6
+          ],
+          "median_seconds": 2.99,
+          "median_peak_mb": 207.0
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            5.32,
+            5.3,
+            5.52
+          ],
+          "peak_mb": [
+            304.2,
+            309.3,
+            308.7
+          ],
+          "median_seconds": 5.32,
+          "median_peak_mb": 308.7
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            6.28,
+            5.92,
+            5.67
+          ],
+          "peak_mb": [
+            320.3,
+            326.2,
+            324.6
+          ],
+          "median_seconds": 5.92,
+          "median_peak_mb": 324.6
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            4.06
+          ],
+          "peak_mb": [
+            246.5
+          ],
+          "median_seconds": 4.06,
+          "median_peak_mb": 246.5
+        }
+      ]
+    },
+    {
+      "label": "dotnet-cpu-all",
+      "kind": "dotnet",
+      "decision": "dropped",
+      "note": "Dropped: what dotnet build does by default; slower and about 100 MB heavier than two nodes.",
+      "date": "2026-11-12T15:23:06Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "maxCpuCount"
+        ],
+        "response_file": [
+          "-nodeReuse:false",
+          "-maxCpuCount:4"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 12,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 3,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.5,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 75.4
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.81,
+            2.77,
+            3.0
+          ],
+          "peak_mb": [
+            205.9,
+            209.2,
+            213.7
+          ],
+          "median_seconds": 2.81,
+          "median_peak_mb": 209.2
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            6.0,
+            6.05,
+            5.67
+          ],
+          "peak_mb": [
+            314.3,
+            311.7,
+            310.9
+          ],
+          "median_seconds": 6.0,
+          "median_peak_mb": 311.7
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            5.59,
+            7.07,
+            5.48
+          ],
+          "peak_mb": [
+            315.8,
+            320.7,
+            326.9
+          ],
+          "median_seconds": 5.59,
+          "median_peak_mb": 320.7
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            3.93
+          ],
+          "peak_mb": [
+            232.5
+          ],
+          "median_seconds": 3.93,
+          "median_peak_mb": 232.5
+        }
+      ]
+    },
+    {
+      "label": "dotnet-cpu-1",
+      "kind": "dotnet",
+      "decision": "dropped",
+      "note": "Dropped: the least memory (163 MB on one file) but slower than two nodes on every step (one file 4.7 s against 3.9, fresh 5.7 against 4.9).",
+      "date": "2026-11-12T17:20:42Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "maxCpuCount:1"
+        ],
+        "response_file": [
+          "-nodeReuse:false",
+          "-maxCpuCount:4"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 1,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 0,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.4,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 69.6
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.44,
+            2.42,
+            2.36
+          ],
+          "peak_mb": [
+            81.2,
+            80.7,
+            81.0
+          ],
+          "median_seconds": 2.42,
+          "median_peak_mb": 81.0
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            4.9,
+            4.64,
+            4.65
+          ],
+          "peak_mb": [
+            166.8,
+            162.8,
+            161.8
+          ],
+          "median_seconds": 4.65,
+          "median_peak_mb": 162.8
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            5.74,
+            5.22,
+            6.29
+          ],
+          "peak_mb": [
+            172.9,
+            180.0,
+            176.8
+          ],
+          "median_seconds": 5.74,
+          "median_peak_mb": 176.8
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            35.17
+          ],
+          "peak_mb": [
+            96.4
+          ],
+          "median_seconds": 35.17,
+          "median_peak_mb": 96.4
+        }
+      ]
+    },
+    {
+      "label": "dotnet-baseline",
+      "kind": "dotnet",
+      "decision": "baseline",
+      "note": "The build as it stood before this section: node reuse off from Directory.Build.rsp, and every CPU, since dotnet build overrides the rsp's -maxCpuCount:4 with its own bare -maxcpucount.",
+      "date": "2026-11-12T17:31:37Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [],
+        "response_file": [
+          "-nodeReuse:false"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 12,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 3,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.5,
+          "processes": 2,
+          "nodes": 0,
+          "names": [
+            "compiler server",
+            "conhost.exe"
+          ],
+          "mb": 73.7
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            3.07,
+            2.88,
+            3.21
+          ],
+          "peak_mb": [
+            212.1,
+            214.6,
+            214.1
+          ],
+          "median_seconds": 3.07,
+          "median_peak_mb": 214.1
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            5.85,
+            5.32,
+            5.76
+          ],
+          "peak_mb": [
+            313.2,
+            309.0,
+            312.2
+          ],
+          "median_seconds": 5.76,
+          "median_peak_mb": 312.2
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            6.78,
+            7.56,
+            29.88
+          ],
+          "peak_mb": [
+            320.5,
+            326.8,
+            330.7
+          ],
+          "median_seconds": 7.56,
+          "median_peak_mb": 326.8
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            4.59
+          ],
+          "peak_mb": [
+            226.1
+          ],
+          "median_seconds": 4.59,
+          "median_peak_mb": 226.1
+        }
+      ]
+    },
+    {
+      "label": "dotnet-node-reuse",
+      "kind": "dotnet",
+      "decision": "dropped",
+      "note": "Dropped: it saves 2.7 s on a one-file build made while the nodes live (1.9 s against 4.6) and nothing on the cold steps, while 10 processes holding 268 MB stay after every build, against 74 MB without it. Memory left held is what this machine runs short of, so -nodeReuse:false stays in Directory.Build.rsp.",
+      "date": "2026-11-12T17:42:16Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "nodeReuse:true"
+        ],
+        "response_file": [
+          "-nodeReuse:false"
+        ],
+        "node_reuse": true,
+        "max_cpu_count": 12,
+        "use_shared_compilation": true
+      },
+      "observed": {
+        "max_worker_nodes": 4,
+        "compiler_server": true,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.4,
+          "processes": 10,
+          "nodes": 4,
+          "names": [
+            "compiler server",
+            "conhost.exe",
+            "MSBuild node"
+          ],
+          "mb": 268.2
+        },
+        "warm_used_nodes": true,
+        "warm_used_compiler": true
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            3.26,
+            2.95,
+            2.64
+          ],
+          "peak_mb": [
+            217.4,
+            218.6,
+            222.8
+          ],
+          "median_seconds": 2.95,
+          "median_peak_mb": 218.6
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            6.01,
+            5.78,
+            4.87
+          ],
+          "peak_mb": [
+            322.5,
+            324.8,
+            321.1
+          ],
+          "median_seconds": 5.78,
+          "median_peak_mb": 322.5
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            5.06,
+            6.09,
+            6.58
+          ],
+          "peak_mb": [
+            320.8,
+            333.2,
+            339.7
+          ],
+          "median_seconds": 6.09,
+          "median_peak_mb": 333.2
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            1.93
+          ],
+          "peak_mb": [
+            30.1
+          ],
+          "median_seconds": 1.93,
+          "median_peak_mb": 30.1
+        }
+      ]
+    },
+    {
+      "label": "dotnet-no-shared-compilation",
+      "kind": "dotnet",
+      "decision": "dropped",
+      "note": "Dropped: no compiler server is left (0 MB against 74), but one file takes 8.3 s against 5.8 and the warm build 7.6 s against 4.6, over the 10% the section allows.",
+      "date": "2026-11-12T17:57:40Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "dotnet": "11.0.100"
+      },
+      "configuration": {
+        "build_args": [
+          "p:UseSharedCompilation=false"
+        ],
+        "response_file": [
+          "-nodeReuse:false"
+        ],
+        "node_reuse": false,
+        "max_cpu_count": 12,
+        "use_shared_compilation": false
+      },
+      "observed": {
+        "max_worker_nodes": 3,
+        "compiler_server": false,
+        "left_running": {
+          "observed": true,
+          "after_seconds": 60.3,
+          "processes": 0,
+          "nodes": 0,
+          "names": [],
+          "mb": 0.0
+        },
+        "warm_used_nodes": null,
+        "warm_used_compiler": null
+      },
+      "samples": 3,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            2.91,
+            2.66,
+            2.64
+          ],
+          "peak_mb": [
+            208.1,
+            206.0,
+            208.1
+          ],
+          "median_seconds": 2.66,
+          "median_peak_mb": 208.1
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            7.42,
+            9.24,
+            8.28
+          ],
+          "peak_mb": [
+            290.8,
+            304.1,
+            304.0
+          ],
+          "median_seconds": 8.28,
+          "median_peak_mb": 304.0
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            8.54,
+            8.92,
+            9.47
+          ],
+          "peak_mb": [
+            347.0,
+            352.9,
+            353.4
+          ],
+          "median_seconds": 8.92,
+          "median_peak_mb": 352.9
+        },
+        {
+          "step": "one file changed, after a build",
+          "seconds": [
+            7.55
+          ],
+          "peak_mb": [
+            306.4
+          ],
+          "median_seconds": 7.55,
+          "median_peak_mb": 306.4
+        }
+      ]
     }
   ]
 }

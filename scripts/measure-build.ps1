@@ -25,6 +25,28 @@
 #
 # When bosun is installed the whole measurement runs through `bosun run --`, so it takes its turn with other heavy
 # jobs and the wait for a slot is outside every timed step.
+#
+# -Dotnet measures the .NET solution (Bosun.slnx) instead, with the same storage, samples and steps:
+#
+#   pwsh scripts/measure-build.ps1 -Dotnet -Label dotnet-baseline -Decision baseline
+#   pwsh scripts/measure-build.ps1 -Dotnet -Label dotnet-node-reuse -Decision dropped -BuildArgs nodeReuse:true
+#
+# -BuildArgs then names MSBuild arguments without their dash (nodeReuse:true, maxCpuCount:2,
+# p:UseSharedCompilation=false); on the command line they override Directory.Build.rsp, so a trial edits no file.
+# Each step is proved from the solution's output assemblies (-DotnetOutputs, the touched project's first; by default
+# each project's evaluated TargetPath): nothing to do rewrites none, one file changed rewrites the first, the clean
+# before a fresh build must leave none, and the fresh build must write all of them.
+#
+# A step's job ends what it left behind, which keeps samples independent but hides what MSBuild nodes and the
+# compiler server hold after a build and what they buy the next one. So each .NET label also runs one build in a job
+# this script keeps open -LingerSeconds after it returns, stores what is still running in it (count, names, private
+# memory), and times a one-file build in a job of its own while those processes live: its peak is its own job's,
+# with the memory left held stored beside it, and it counts as having used them only if their CPU time grew and it
+# started no node or compiler server of its own. The linger build is sampled while it runs, so the label stores the
+# settings in force as the build showed them (most worker nodes at once, whether the compiler server ran, whether
+# nodes stayed), beside the response file and the evaluated UseSharedCompilation; a label whose settings the build
+# contradicts stores nothing. A compiler server or reusable node already running outside a job would take work from
+# the measured builds, so one found at the start is stopped with `dotnet build-server shutdown`, which says so.
 param(
   [string]$Label,
   [ValidateSet('baseline', 'kept', 'dropped')][string]$Decision,
@@ -38,7 +60,14 @@ param(
   [ValidateRange(1, 3600)][int]$LockSeconds = 30,
   [string]$BuildScript = (Join-Path $PSScriptRoot 'build.ps1'),
   [string]$TouchFile = (Join-Path (Split-Path $PSScriptRoot) 'src\app.cpp'),
-  [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs')
+  [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs'),
+  [switch]$Dotnet,
+  [string]$DotnetCommand = 'dotnet',
+  [string]$Solution = (Join-Path (Split-Path $PSScriptRoot) 'Bosun.slnx'),
+  [string]$DotnetProject = (Join-Path (Split-Path $PSScriptRoot) 'src\Bosun.Core\Bosun.Core.csproj'),
+  [string[]]$DotnetOutputs = @(),
+  [string]$ResponseFile = (Join-Path (Split-Path $PSScriptRoot) 'Directory.Build.rsp'),
+  [ValidateRange(0, 3600)][int]$LingerSeconds = 60
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -93,6 +122,22 @@ function ConvertTo-Document($data) {
     $out.Add('')
     $configuration = $entry['configuration']
     $buildArgs = @($configuration['build_args'] | ForEach-Object { "-$_" }) -join ' '
+    if ($entry['kind'] -eq 'dotnet') {
+      $rsp = @($configuration['response_file']) -join ' '
+      $parts = @(
+        "MSBuild arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })",
+        "Directory.Build.rsp $(if ($rsp) { '`' + $rsp + '`' } else { 'empty' })",
+        "in force: node reuse $(if ($configuration['node_reuse']) { 'on' } else { 'off' }), at most $($configuration['max_cpu_count']) nodes, shared compilation $(if ($configuration['use_shared_compilation']) { 'on' } else { 'off' })"
+      )
+      $out.Add("Configuration: $($parts -join '; ').")
+      $out.Add('')
+      $seen = $entry['observed']
+      $left = $seen['left_running']
+      $names = @($left['names']) -join ', '
+      $used = { param($value) if ($null -eq $value) { 'none was left' } elseif ($value) { 'used' } else { 'not used' } }
+      $out.Add("Observed in the linger build: at most $($seen['max_worker_nodes']) worker node(s) at once; compiler server $(if ($seen['compiler_server']) { 'ran' } else { 'did not run' }). Left running $(Format-Number $left['after_seconds']) s after it returned: $($left['processes']) process(es)$(if ($names) { " ($names)" }), $(Format-Number $left['mb']) MB private memory. In the one-file build made then, the nodes left: $(& $used $seen['warm_used_nodes']); the compiler server left: $(& $used $seen['warm_used_compiler']).")
+      $out.Add('')
+    } else {
     $parts = @(
       "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })",
       "compiler launcher $(if ($configuration['launcher']) { $configuration['launcher'] } else { 'none' })",
@@ -101,6 +146,7 @@ function ConvertTo-Document($data) {
     )
     $out.Add("Configuration: $($parts -join '; ').")
     $out.Add('')
+    }
     $out.Add('| Step | Wall time (s) | Peak memory (MB) | Samples (s) |')
     $out.Add('| ---- | ------------: | ---------------: | ----------- |')
     foreach ($step in $entry['steps']) {
@@ -186,6 +232,7 @@ if (-not $env:BOSUN_MEASURE_QUEUED) {
   'bosun is not on PATH: measuring without the queue'
 }
 $BuildArgs = @($BuildArgs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$DotnetOutputs = @($DotnetOutputs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 $log = Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"
 $results = [ordered]@{}
@@ -227,6 +274,10 @@ function Get-Median([double[]]$values) {
   $middle = [int][Math]::Floor($sorted.Count / 2)
   if ($sorted.Count % 2) { $sorted[$middle] } else { [Math]::Round(($sorted[$middle - 1] + $sorted[$middle]) / 2, 2) }
 }
+
+# The .NET half reads which parameters were given from here: a dot-sourced file has a $PSBoundParameters of its
+# own. Its `exit` ends only that file, so its code is passed on.
+if ($Dotnet) { $boundParameters = $PSBoundParameters; . (Join-Path $PSScriptRoot 'lib\measure-dotnet.ps1'); exit $LASTEXITCODE }
 
 "measuring '$Label': one preparation build, then $Samples sample(s) of each step"
 Invoke-Build 'preparation build' @() $false $false

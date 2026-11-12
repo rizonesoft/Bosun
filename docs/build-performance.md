@@ -100,3 +100,136 @@ Configuration: build arguments none; compiler launcher none; linker link.exe; de
 | nothing to do | 1.1 | 43.1 | 1.2, 1.0, 1.1, 1.1, 0.9 |
 | one file changed | 7.4 | 262.5 | 7.4, 9.9, 9.5, 6.9, 6.7 |
 | fresh build | 10.0 | 379.8 | 10.0, 9.8, 10.0, 10.6, 11.8 |
+
+## dotnet-cpu-2 (kept)
+
+Kept: against dotnet-baseline (every CPU) nothing to do 2.1 s against 3.1, one file 3.9 against 5.8, fresh 4.9 against 7.6, with peak memory 208 MB against 312 on one file; the warm one-file build 3.9 s against 4.6. Passed as -maxCpuCount:2 by scripts/check-all.ps1 and the CI build, since dotnet build overrides a limit in Directory.Build.rsp.
+
+Measured 2026-11-12T15:18:45Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-maxCpuCount:2`; Directory.Build.rsp `-nodeReuse:false -maxCpuCount:4`; in force: node reuse off, at most 2 nodes, shared compilation on.
+
+Observed in the linger build: at most 1 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 76.5 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 2.1 | 117.4 | 2.1, 2.3, 2.1 |
+| one file changed | 3.9 | 208.2 | 3.8, 3.9, 4.1 |
+| fresh build | 4.9 | 227.1 | 5.2, 4.9, 4.7 |
+| one file changed, after a build | 3.9 | 133.7 | 3.9 |
+
+## dotnet-cpu-8 (dropped)
+
+Dropped: no faster than two nodes and about 100 MB more peak memory on every step.
+
+Measured 2026-11-12T15:20:56Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-maxCpuCount:8`; Directory.Build.rsp `-nodeReuse:false -maxCpuCount:4`; in force: node reuse off, at most 8 nodes, shared compilation on.
+
+Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 2 process(es) (compiler server, conhost.exe), 73.1 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 3.0 | 207.0 | 3.0, 3.0, 2.9 |
+| one file changed | 5.3 | 308.7 | 5.3, 5.3, 5.5 |
+| fresh build | 5.9 | 324.6 | 6.3, 5.9, 5.7 |
+| one file changed, after a build | 4.1 | 246.5 | 4.1 |
+
+## dotnet-cpu-all (dropped)
+
+Dropped: what dotnet build does by default; slower and about 100 MB heavier than two nodes.
+
+Measured 2026-11-12T15:23:06Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-maxCpuCount`; Directory.Build.rsp `-nodeReuse:false -maxCpuCount:4`; in force: node reuse off, at most 12 nodes, shared compilation on.
+
+Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 75.4 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 2.8 | 209.2 | 2.8, 2.8, 3.0 |
+| one file changed | 6.0 | 311.7 | 6.0, 6.1, 5.7 |
+| fresh build | 5.6 | 320.7 | 5.6, 7.1, 5.5 |
+| one file changed, after a build | 3.9 | 232.5 | 3.9 |
+
+## dotnet-cpu-1 (dropped)
+
+Dropped: the least memory (163 MB on one file) but slower than two nodes on every step (one file 4.7 s against 3.9, fresh 5.7 against 4.9).
+
+Measured 2026-11-12T17:20:42Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-maxCpuCount:1`; Directory.Build.rsp `-nodeReuse:false -maxCpuCount:4`; in force: node reuse off, at most 1 nodes, shared compilation on.
+
+Observed in the linger build: at most 0 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 2 process(es) (compiler server, conhost.exe), 69.6 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 2.4 | 81.0 | 2.4, 2.4, 2.4 |
+| one file changed | 4.7 | 162.8 | 4.9, 4.6, 4.7 |
+| fresh build | 5.7 | 176.8 | 5.7, 5.2, 6.3 |
+| one file changed, after a build | 35.2 | 96.4 | 35.2 |
+
+## dotnet-baseline (baseline)
+
+The build as it stood before this section: node reuse off from Directory.Build.rsp, and every CPU, since dotnet build overrides the rsp's -maxCpuCount:4 with its own bare -maxcpucount.
+
+Measured 2026-11-12T17:31:37Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments none; Directory.Build.rsp `-nodeReuse:false`; in force: node reuse off, at most 12 nodes, shared compilation on.
+
+Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 73.7 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 3.1 | 214.1 | 3.1, 2.9, 3.2 |
+| one file changed | 5.8 | 312.2 | 5.9, 5.3, 5.8 |
+| fresh build | 7.6 | 326.8 | 6.8, 7.6, 29.9 |
+| one file changed, after a build | 4.6 | 226.1 | 4.6 |
+
+## dotnet-node-reuse (dropped)
+
+Dropped: it saves 2.7 s on a one-file build made while the nodes live (1.9 s against 4.6) and nothing on the cold steps, while 10 processes holding 268 MB stay after every build, against 74 MB without it. Memory left held is what this machine runs short of, so -nodeReuse:false stays in Directory.Build.rsp.
+
+Measured 2026-11-12T17:42:16Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-nodeReuse:true`; Directory.Build.rsp `-nodeReuse:false`; in force: node reuse on, at most 12 nodes, shared compilation on.
+
+Observed in the linger build: at most 4 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 10 process(es) (compiler server, conhost.exe, MSBuild node), 268.2 MB private memory. In the one-file build made then, the nodes left: used; the compiler server left: used.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 3.0 | 218.6 | 3.3, 3.0, 2.6 |
+| one file changed | 5.8 | 322.5 | 6.0, 5.8, 4.9 |
+| fresh build | 6.1 | 333.2 | 5.1, 6.1, 6.6 |
+| one file changed, after a build | 1.9 | 30.1 | 1.9 |
+
+## dotnet-no-shared-compilation (dropped)
+
+Dropped: no compiler server is left (0 MB against 74), but one file takes 8.3 s against 5.8 and the warm build 7.6 s against 4.6, over the 10% the section allows.
+
+Measured 2026-11-12T17:57:40Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 3 samples.
+
+Tools: dotnet 11.0.100.
+
+Configuration: MSBuild arguments `-p:UseSharedCompilation=false`; Directory.Build.rsp `-nodeReuse:false`; in force: node reuse off, at most 12 nodes, shared compilation off.
+
+Observed in the linger build: at most 3 worker node(s) at once; compiler server did not run. Left running 60.3 s after it returned: 0 process(es), 0.0 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: none was left.
+
+| Step | Wall time (s) | Peak memory (MB) | Samples (s) |
+| ---- | ------------: | ---------------: | ----------- |
+| nothing to do | 2.7 | 208.1 | 2.9, 2.7, 2.6 |
+| one file changed | 8.3 | 304.0 | 7.4, 9.2, 8.3 |
+| fresh build | 8.9 | 352.9 | 8.5, 8.9, 9.5 |
+| one file changed, after a build | 7.6 | 306.4 | 7.6 |

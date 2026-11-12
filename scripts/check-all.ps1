@@ -62,8 +62,9 @@ if ($StepFile) {
     New-Step 'native-pe' 'python' @('scripts/native-pe-check.py', 'build/Release')
     New-Step 'core-tests' (Join-Path $repo 'build/Release/test_core.exe')
     # The .NET solution: built once, then every test project run on what was built (Microsoft.Testing.Platform, as
-    # global.json selects).
-    New-Step 'dotnet-build' 'dotnet' @('build', 'Bosun.slnx', '-nologo') -Queue
+    # global.json selects). Two nodes measured fastest and leanest (docs/build-performance.md, dotnet-cpu-2); it is
+    # passed here because `dotnet build` overrides a limit in Directory.Build.rsp.
+    New-Step 'dotnet-build' 'dotnet' @('build', 'Bosun.slnx', '-nologo', '-maxCpuCount:2') -Queue
     New-Step 'dotnet-tests' 'dotnet' @('test', '--solution', 'Bosun.slnx', '--no-build') -Queue
   )
   foreach ($test in Get-ChildItem -LiteralPath (Join-Path $repo 'tests') -Filter '*_test.ps1' | Sort-Object Name) {
@@ -114,7 +115,9 @@ foreach ($step in $steps) {
     # The step runs under the queue through a small wrapper that marks the moment its turn comes. Until that mark
     # it may wait -QueueMinutes; from it, -StepMinutes counts, exactly as for a step that is not queued.
     $mark = Join-Path ([IO.Path]::GetTempPath()) ("bosun-check-all-$PID-" + [guid]::NewGuid() + '.started')
-    $arguments = @('run', '--', 'pwsh', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'lib/queued-step.ps1'), $mark, $file) + $arguments
+    # The command goes as one encoded argument, so `pwsh -File` cannot split one shaped like `-name:value`.
+    $command = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject (@($file) + $arguments) -Compress)))
+    $arguments = @('run', '--', 'pwsh', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'lib/queued-step.ps1'), $mark, $command)
     $file = 'bosun'
     $measure.StartedPath = $mark
     $measure.QueueSeconds = [int][Math]::Ceiling($QueueMinutes * 60)

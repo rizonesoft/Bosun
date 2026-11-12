@@ -39,7 +39,7 @@ jobs:
       - name: .NET SDK in use
         run: dotnet --version
       - name: Build the .NET solution
-        run: dotnet build Bosun.slnx -nologo
+        run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
       - name: .NET tests
         run: dotnet test --solution Bosun.slnx --no-build
       - name: Language standard of every compile

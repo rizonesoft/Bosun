@@ -123,21 +123,24 @@ try {
   # The wrapper marks its start before it runs anything: a mark it cannot write means the step is not started, since
   # it would otherwise run without its own time limit.
   $wrapper = Join-Path $repo 'scripts/lib/queued-step.ps1'
+  function ConvertTo-Command([string[]]$words) { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject @($words) -Compress))) }
   Remove-Item -LiteralPath $ran -ErrorAction Ignore
   $unwritable = Join-Path $stub 'mark'  # a path under a file, so it can never be created
-  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $unwritable pwsh -NoProfile -File $stub 'wrapped' 'pass' 2>&1 | Out-String
+  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $unwritable (ConvertTo-Command @('pwsh', '-NoProfile', '-File', $stub, 'wrapped', 'pass')) 2>&1 | Out-String
   Check 'a start mark that cannot be written stops the wrapper before the command runs' ($LASTEXITCODE -eq 3 -and $text -match 'could not write its start mark' -and -not (Test-Path -LiteralPath $ran)) "(exit ${LASTEXITCODE}: $text)"
-  # One argument, none, and several all reach the command whole: a lone argument must not be splatted by letter.
-  $echo = Join-Path $work 'echo.ps1'
-  Set-Content -LiteralPath $echo -Value 'Set-Content -LiteralPath (Join-Path $PSScriptRoot "echo.txt") -Value ("count=" + $args.Count + " " + ($args -join "|"))'
-  foreach ($case in @(@{ Give = @('scripts/run-tests.py'); Want = 'count=1 scripts/run-tests.py' }, @{ Give = @(); Want = 'count=0 ' }, @{ Give = @('a b', 'c'); Want = 'count=2 a b|c' })) {
+  # One argument, none, and several all reach the command whole: a lone argument must not be splatted by letter, and
+  # one shaped like a parameter with a value must not be split in two, as `pwsh -File` would split it.
+  # The echo is Python, which gets its arguments as given: a PowerShell echo run with -File would split them itself.
+  $echo = Join-Path $work 'echo.py'
+  Set-Content -LiteralPath $echo -Value 'import os, sys; open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "echo.txt"), "w").write("count=%d %s" % (len(sys.argv) - 1, "|".join(sys.argv[1:])))'
+  foreach ($case in @(@{ Give = @('scripts/run-tests.py'); Want = 'count=1 scripts/run-tests.py' }, @{ Give = @(); Want = 'count=0 ' }, @{ Give = @('a b', 'c'); Want = 'count=2 a b|c' }, @{ Give = @('-maxCpuCount:2', 'x'); Want = 'count=2 -maxCpuCount:2|x' })) {
     $give = $case.Give
-    & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper (Join-Path $work 'echo.started') pwsh -NoProfile -File $echo @give | Out-Null
+    & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper (Join-Path $work 'echo.started') (ConvertTo-Command (@('python', $echo) + $give)) | Out-Null
     $got = Get-Content -LiteralPath (Join-Path $work 'echo.txt') -ErrorAction Ignore
     Check "the wrapper passes $($give.Count) argument(s) on whole" ($got -eq $case.Want) "(got '$got', wanted '$($case.Want)')"
   }
   $good = Join-Path $work 'good.started'
-  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $good pwsh -NoProfile -File $stub 'wrapped' 'fail' 2>&1 | Out-String
+  $text = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $wrapper $good (ConvertTo-Command @('pwsh', '-NoProfile', '-File', $stub, 'wrapped', 'fail')) 2>&1 | Out-String
   Check 'with its mark written the wrapper runs the command and passes its exit code on' ($LASTEXITCODE -eq 3 -and (Test-Path -LiteralPath $good) -and (@(Get-Content -LiteralPath $ran) -join ',') -eq 'wrapped') "(exit ${LASTEXITCODE}: $text)"
 
   # --- what the real gate covers ---
@@ -160,7 +163,7 @@ try {
   # build or test beside another repository's job.
   $queued = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: \[queued\] ' } | ForEach-Object { ($_ -split ': ')[0] })
   Check 'the build, the .NET build and tests and the Python tests are queued, and nothing else' (($queued -join ',') -eq 'build,dotnet-build,dotnet-tests,python-tests') "(queued: $($queued -join ', '))"
-  Check 'the .NET steps build the solution once and test what was built' ($real -match '(?m)^dotnet-build: \[queued\] dotnet build Bosun\.slnx' -and $real -match '(?m)^dotnet-tests: \[queued\] dotnet test --solution Bosun\.slnx --no-build')
+  Check 'the .NET steps build the solution once and test what was built' ($real -match '(?m)^dotnet-build: \[queued\] dotnet build Bosun\.slnx -nologo -maxCpuCount:2\r?$' -and $real -match '(?m)^dotnet-tests: \[queued\] dotnet test --solution Bosun\.slnx --no-build')
 
   # CI runs every PowerShell test the gate runs, and the two native checks after its build.
   $workflow = Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw
