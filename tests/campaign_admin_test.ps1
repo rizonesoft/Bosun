@@ -65,6 +65,8 @@ try {
   $out = & $pwsh -NoProfile -File $setup -Apply @custom 2>&1
   Check ($LASTEXITCODE -eq 0 -and (Get-CampaignTask 'BosunT dotnet final' $store) -and (Test-Path (Join-Path $bin2 'install-dotnet-final.ps1'))) "apply to custom targets sets them up ($(($out | Select-Object -Last 1)))"
   $kept = [IO.File]::ReadAllText($record)
+  $out = (& $pwsh -NoProfile -File $setup -Record $record -TaskStore $store -DotnetDir $dotnetDir 2>&1) -join "`n"
+  Check ($LASTEXITCODE -eq 0 -and $out -match 'preview' -and $out -match "task 'BosunT dotnet final'" -and $out -match [regex]::Escape($key2) -and $out -match [regex]::Escape($bin2) -and [IO.File]::ReadAllText($record) -eq $kept) 'the preview names the recorded targets, as apply would use them'
   foreach ($change in @(@('-PolicyKey', $keyPath), @('-BinDir', $bin), @('-TaskPrefix', 'Other'))) {
     $args2 = @($custom)
     $args2[[array]::IndexOf($args2, $change[0]) + 1] = $change[1]

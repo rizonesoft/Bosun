@@ -41,12 +41,10 @@ if (-not $DotnetDir -and -not $Restore) {
   exit 1
 }
 
-# The record, checked whole, before anything else: its targets are the ones apply and restore touch.
-$saved = $null
-if ($Apply -or $Restore) {
-  $saved = Read-Json $Record  # a corrupt record throws here, before anything changes
-  if ($saved) { Assert-Record $saved $Record 'admin' }
-}
+# The record, checked whole, before anything else: its targets are the ones the preview shows and apply and restore
+# touch.
+$saved = Read-Json $Record  # a corrupt record throws here, before anything changes
+if ($saved) { Assert-Record $saved $Record 'admin' }
 if ($saved) {
   foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
     if ($saved.PSObject.Properties.Name -notcontains $name) { continue }  # a record from before 2026-11-13: the argument stands
