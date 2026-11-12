@@ -10,6 +10,8 @@ title: "TODO-01 -- Finish the agent kit"
 
 > **Goal:** This repo runs the newest review and run machinery from every sibling, tested here, so each later section is built and stamped through it.
 
+**Completed 2026-11-12:** every section is stamped and the file-level Verification passed (`pwsh scripts/check-all.ps1`: all 23 steps, 802 Python tests). The goal as written was overtaken on 2026-11-12, when the owner ruled that Bosun imports nothing further from its siblings: what this file delivered is this repo's own gate (`scripts/check-all.ps1`), weakening scan, native build checks, pre-commit hook and clone setup, CI that runs on every change, and the measured build tooling. `§5`, `§9`, `§10` and `§11` were withdrawn, unbuilt.
+
 > **Current state:** Measured 2026-11-07. Steward's guard, dispatcher, graph and prompts were copied in on 2026-11-07 and the SDK kit seeded the rest. Recto's review-in-flight marks, settled items and dispatch hook, and Isotone's gates, are not yet ported. The private repo `rizonetech/Bosun` exists, `origin` is set, and `build.yml`, `plan.yml` and Dependabot run on `main`.
 
 **Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.

@@ -6,7 +6,6 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
-| 00 | 00-workspace/TODO-01-kit-completion.md | Port the best of the sibling kits into this repo |
 | 00 | 00-workspace/TODO-02-dotnet-foundation.md | .NET 11 solution, build props and projects |
 | 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
 | 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers |
@@ -20,3 +19,7 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | 99 | 99-manual/TODO-01-operator-steps.md | BIOS, the 64 GB decision, first walkthrough |
 
 ## Completed TODOs
+
+| Domain | File | Scope |
+| ------ | ---- | ----- |
+| 00 | 00-workspace/TODO-01-kit-completion.md | Gates, hooks, clone setup, CI and the build tooling for this repo (2026-11-12) |
