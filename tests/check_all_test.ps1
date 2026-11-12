@@ -4,7 +4,9 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $gate = Join-Path $repo 'scripts/check-all.ps1'
-$work = Join-Path ([IO.Path]::GetTempPath()) ("bosun-check-all-test-" + [guid]::NewGuid())
+# Scratch files go where BOSUN_SCRATCH says, and to the system's temporary folder only when it is not set.
+$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
+$work = Join-Path $scratch ("bosun-check-all-test-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
