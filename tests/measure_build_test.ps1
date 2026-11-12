@@ -100,14 +100,26 @@ exit 0
   $entry = $data.labels | Where-Object label -eq 'baseline'
   Check 'a measurement is stored under its label' ($run.Exit -eq 0 -and $entry.decision -eq 'baseline' -and $entry.samples -eq 2) "(exit $($run.Exit): $($run.Text))"
   Check 'each step has every sample and a median' (@($entry.steps).Count -eq 3 -and -not (@($entry.steps) | Where-Object { @($_.seconds).Count -ne 2 -or @($_.peak_mb).Count -ne 2 -or $_.median_seconds -le 0 -or $_.median_peak_mb -le 0 }))
+  # The median is worked out here from the stored samples, not read back from what the script stored: with an even
+  # count it is the mean of the middle two, with an odd count (the next label, three samples) the middle one.
+  function Get-ExpectedMedian([double[]]$values) {
+    $sorted = [double[]]@($values | Sort-Object)
+    if ($sorted.Count % 2) { $sorted[($sorted.Count - 1) / 2] } else { [Math]::Round(($sorted[$sorted.Count / 2 - 1] + $sorted[$sorted.Count / 2]) / 2, 2) }
+  }
+  function Test-Medians($steps) {
+    -not (@($steps) | Where-Object { [double]$_.median_seconds -ne (Get-ExpectedMedian $_.seconds) -or [double]$_.median_peak_mb -ne (Get-ExpectedMedian $_.peak_mb) })
+  }
+  Check 'the median of an even number of samples is the mean of the middle two' (Test-Medians $entry.steps)
   Check 'the steps are the three build workloads' ((@($entry.steps).step -join '|') -eq 'nothing to do|one file changed|fresh build')
   $runs = @(Get-Content -LiteralPath (Join-Path $dir 'runs.txt'))
   Check 'one untimed preparation build runs before the samples' ($runs.Count -eq 7 -and @($runs | Where-Object { $_ -like 'fresh=True*' }).Count -eq 2) "(runs: $($runs.Count))"
   Check 'the machine and date are recorded' ($entry.machine.name -eq $env:COMPUTERNAME -and $entry.machine.memory_gb -gt 0 -and $entry.date -match '^\d{4}-\d\d-\d\dT')
 
-  $run = Invoke-Measure 'ok' @('-Label', 'candidate', '-Decision', 'dropped', '-Samples', '1', '-BuildArgs', 'Sccache', '-Note', 'slower than the baseline')
+  $run = Invoke-Measure 'ok' @('-Label', 'candidate', '-Decision', 'dropped', '-Samples', '3', '-BuildArgs', 'Sccache', '-Note', 'slower than the baseline')
   $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
   Check 'a second label is added beside the first' ($run.Exit -eq 0 -and (@($data.labels).label -join '|') -eq 'baseline|candidate') "(exit $($run.Exit): $($run.Text))"
+  $candidateSteps = ($data.labels | Where-Object label -eq 'candidate').steps
+  Check 'the median of an odd number of samples is the middle one' (@($candidateSteps[0].seconds).Count -eq 3 -and (Test-Medians $candidateSteps))
   Check 'build arguments reach the build script' (-not (@(Get-Content -LiteralPath (Join-Path $dir 'runs.txt')) | Where-Object { $_ -notlike '*sccache=True' }))
   Check 'the build arguments are recorded' ((@(($data.labels | Where-Object label -eq 'candidate').configuration.build_args) -join '|') -eq 'Sccache')
 
