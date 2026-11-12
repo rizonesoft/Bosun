@@ -27,7 +27,7 @@ Sections: 33 | Checklist items: 292
 | [x]    | D00 T03 §9  | Named core tests and CMake resolution                           | none           | 7     |
 | [x]    | D00 T03 §11 | One global heartbeat                                            | none           | 16    |
 | [x]    | D00 T03 §12 | Review caps of 33                                               | none           | 10    |
-| [ ]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 11    |
+| [x]    | D00 T03 §13 | CI gate recovery that names its commit                          | none           | 11    |
 | [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none           | 14    |
 | [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none           | 6     |
 | [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended       | 18    |
@@ -141,6 +141,6 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 
-Progress: 18/86 verified sections, 8 ready to run now.
+Progress: 19/86 verified sections, 7 ready to run now.
 
-Checklist: 235/555 items completed (includes Commit items).
+Checklist: 236/555 items completed (includes Commit items).

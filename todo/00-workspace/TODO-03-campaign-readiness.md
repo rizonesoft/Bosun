@@ -50,7 +50,7 @@ title: "TODO-03 -- Campaign readiness"
 | 10 | §10 | Preflight and machine hold | §1, §4, §6, §7, §8, §9, §11, §12, §14, §15, D00 T01 §3 | [x] |
 | 11 | §11 | One global heartbeat | -- | [x] |
 | 12 | §12 | Review caps of 33 | §3 | [x] |
-| 13 | §13 | CI gate recovery that names its commit | §1 | [ ] |
+| 13 | §13 | CI gate recovery that names its commit | §1 | [x] |
 | 14 | §14 | Stamp filed leftovers from the third cycle | §3 | [x] |
 | 15 | §15 | One completion pass, as Steward and Recto run | §14 | [x] |
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
@@ -560,9 +560,12 @@ Filed from `D00 T03 §1`'s seventh cycle, under the owner's rule that leftovers 
 - [x] Tell a commit that is not on the remote yet apart from a branch that moved, in `recover` in `scripts/ci_status.py`: when the remote head is an ancestor of the commit, report `not_pushed` and say to push, with no run started or offered. Done when: `scripts/tests/test_ci_status.py` covers an ancestor head and a head that is not one.
 - [x] Give `scripts/campaign-preflight.ps1` the right fix when the gate prints no command: `git pull --ff-only` for a branch that moved on, `gh auth status` for a head that can't be read, and pushing only otherwise. Done when: `tests/preflight_test.ps1` covers both new cases and the two existing ones.
 - [x] Use Git for Windows' own launcher (`Git/cmd/git.exe`) for the short `PATH` in `tests/preflight_test.ps1` when it is on `PATH`. Done when: `pwsh tests/preflight_test.ps1` prints `all passed` from a shell started by Git Bash, where three of its checks failed before.
-- [ ] Commit: `ci: the gate starts a missing run for its own commit`
+- [x] Commit: `ci: the gate starts a missing run for its own commit`
 
 **Test checkpoint:** `python -m unittest scripts/tests/test_ci_status.py` and `pwsh tests/preflight_test.ps1` exit 0, and fails if a moved branch is offered or given a run, if a run on another commit counts, or if a workflow is started twice for one commit.
+
+> **Verified:** 2026-11-12 | §13 | c353f1e29a2c208a3bd3d35b9a0f3ffe60eb56d6
+> **Review:** `docs/reviews/d00-t03-s13.json`
 
 ## 14. Stamp filed leftovers from the third cycle
 

@@ -1,0 +1,91 @@
+{
+  "ref": "D00 T03 \u00a713",
+  "title": "CI gate recovery that names its commit",
+  "implementation_sha": "c353f1e29a2c208a3bd3d35b9a0f3ffe60eb56d6",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s13.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s13.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts/tests/test_ci_status.py -> Ran 131 tests, OK",
+    "pwsh tests/preflight_test.ps1 -> all passed",
+    "bosun run -- python scripts/run-tests.py -> Ran 748 tests in 91 classes, OK (skipped=11)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s13.md",
+    "verdict": "completed",
+    "candidate": "f89452d99d495e7431f8712f7e9cd522c8707e2d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s13.md",
+    "candidate": "4ca74ef6a7bb3ace4e867a4cf24199f4fe2c7dc7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "4ca74ef6a7bb3ace4e867a4cf24199f4fe2c7dc7",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
