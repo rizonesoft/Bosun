@@ -35,7 +35,9 @@
 # p:UseSharedCompilation=false); on the command line they override Directory.Build.rsp, so a trial edits no file.
 # Each step is proved from the solution's output assemblies (-DotnetOutputs, the touched project's first; by default
 # each project's evaluated TargetPath): nothing to do rewrites none, one file changed rewrites the first, the clean
-# before a fresh build must leave none, and the fresh build must write all of them.
+# before a fresh build must leave none, and the fresh build must write all of them. The linger build and the warm
+# build below are one-file builds, proved the same way. A process list Windows cannot read stores nothing, since an
+# empty one would pass for nothing running.
 #
 # A step's job ends what it left behind, which keeps samples independent but hides what MSBuild nodes and the
 # compiler server hold after a build and what they buy the next one. So each .NET label also runs one build in a job

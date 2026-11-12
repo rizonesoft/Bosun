@@ -304,10 +304,11 @@ if ($mode -eq 'outside' -and -not (Test-Path -LiteralPath (Join-Path $here 'work
   $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line; ProcessStartupInformation = $startup }
   foreach ($i in 1..150) { if (Alive 7) { break }; Start-Sleep -Milliseconds 100 }
 }
-$workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'two-workers' { 2 } default { 0 } }
+$workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'warm-noop' { 1 } 'two-workers' { 2 } default { 0 } }
 if ($workers) {
   if (Alive 1) {
     if ($mode -eq 'warm-fails') { 'error: the warm build broke'; exit 4 }
+    if ($mode -eq 'warm-noop') { 'Build succeeded.'; exit 0 }  # succeeds and compiles nothing
     $ask = Join-Path $here 'ask1.txt'; Set-Content -LiteralPath $ask -Value 'build'
     foreach ($i in 1..100) { if (-not (Test-Path -LiteralPath $ask)) { break }; Start-Sleep -Milliseconds 100 }
   } else {
@@ -328,17 +329,30 @@ elseif ($mode -eq 'noop-work') { Set-Content -LiteralPath $outs[2] -Value 'built
 'Build succeeded.'
 exit 0
 '@
+  # Runs the measuring script with the process query failing after CIM_FAIL_AFTER answers, as when WMI is unavailable.
+  Set-Content -LiteralPath (Join-Path $dn 'cim-fails.ps1') -Value @'
+$script:calls = 0
+function global:Get-CimInstance {
+  [CmdletBinding()] param([Parameter(Position = 0)][string]$ClassName, [string[]]$Property)
+  if ($ClassName -eq 'Win32_Process' -and ++$script:calls -gt [int]$env:CIM_FAIL_AFTER) { throw 'the WMI service is not available' }
+  CimCmdlets\Get-CimInstance @PSBoundParameters
+}
+$target, $rest = $args
+& $target @rest
+exit $LASTEXITCODE
+'@
   $fakeDotnet = Join-Path $dn 'dotnet.cmd'
   Set-Content -LiteralPath $fakeDotnet -Value "@pwsh -NoProfile -File `"%~dp0fake-dotnet.ps1`" %*"
   $rsp = Join-Path $dn 'Directory.Build.rsp'
   Set-Content -LiteralPath $rsp -Value @('# the repository''s settings', '-nodeReuse:false', '-maxCpuCount:4')
   function Get-WorkerIds { @(Get-ChildItem -LiteralPath $dn -Filter 'worker*.pid' -ErrorAction Ignore | ForEach-Object { [int](Get-Content -LiteralPath $_.FullName) }) }
   $workerIds = [Collections.Generic.List[int]]::new()
-  function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments) {
+  function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments, [string]$shim) {
     Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value $mode
     foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
     $clock = [Diagnostics.Stopwatch]::StartNew()
-    $text = & pwsh -NoProfile -File $measure -Dotnet -DotnetCommand $fakeDotnet -Solution (Join-Path $dn 'Fake.slnx') -DotnetProject (Join-Path $dn 'Fake.csproj') `
+    $through = @(if ($shim) { $shim })
+    $text = & pwsh -NoProfile -File @through $measure -Dotnet -DotnetCommand $fakeDotnet -Solution (Join-Path $dn 'Fake.slnx') -DotnetProject (Join-Path $dn 'Fake.csproj') `
       -DotnetOutputs ($outs -join ',') -TouchFile (Join-Path $dn 'Foundation.cs') -ResponseFile $rsp -OutDir $out -LingerSeconds 2 -Samples 1 @arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
     foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
@@ -388,6 +402,14 @@ exit 0
   $run = Invoke-DotnetMeasure 'shutdown-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept')
   Check 'a shutdown that fails is refused' ($run.Exit -eq 1 -and $run.Text -match "'dotnet build-server shutdown' failed with exit code 5 \(error: could not reach the servers\)" -and (Test-DataUnchanged)) "($($run.Text))"
   foreach ($id in Get-WorkerIds) { Stop-Process -Id $id -Force -ErrorAction Ignore }  # the outside worker is this test's own
+  Remove-Item -LiteralPath (Join-Path $dn 'worker7.pid') -ErrorAction Ignore
+  $run = Invoke-DotnetMeasure 'warm-noop' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true')
+  Check 'a warm build that compiles nothing is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed, after a build' did not rewrite out1\.dll" -and (Test-DataUnchanged)) "($($run.Text))"
+  foreach ($after in 0, 12) {
+    $env:CIM_FAIL_AFTER = $after
+    try { $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-bad', '-Decision', 'kept') (Join-Path $dn 'cim-fails.ps1') } finally { Remove-Item Env:CIM_FAIL_AFTER }
+    Check "a process list that cannot be read after $after answer(s) is refused, not read as nothing running" ($run.Exit -eq 1 -and $run.Text -match 'could not read the process list \(the WMI service is not available\)' -and (Test-DataUnchanged)) "($($run.Text))"
+  }
   Remove-Item -LiteralPath (Join-Path $dn 'worker7.pid') -ErrorAction Ignore
   $run = Invoke-DotnetMeasure 'warm-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true')
   Check 'a failed warm build stores nothing' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed, after a build' failed with exit code 4" -and (Test-DataUnchanged)) "($($run.Text))"

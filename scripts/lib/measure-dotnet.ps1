@@ -30,12 +30,9 @@ function Get-OutputTimes {
 }
 function Get-Names([string[]]$paths) { (@($paths | ForEach-Object { Split-Path $_ -Leaf }) -join ', ') }
 
-# One timed build, proved by what it wrote: 'none' rewrites no output, 'first' rewrites the touched project's, 'all'
-# writes every one. Evidence that disagrees ends the run with nothing stored.
-function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
-  $before = Get-OutputTimes
-  $result = Invoke-Step $Name $dotnetPath $buildLine
-  Assert-NoOutsideServers "step '$Name'"
+# A build is proved by what it wrote between $before and now: 'none' rewrites no output, 'first' rewrites the touched
+# project's, 'all' writes every one. Evidence that disagrees ends the run with nothing stored.
+function Assert-BuildEvidence([string]$Name, [string]$Expect, $before) {
   $after = Get-OutputTimes
   $rewritten = @($DotnetOutputs | Where-Object { $null -ne $after[$_] -and $after[$_] -ne $before[$_] })
   $missing = @($DotnetOutputs | Where-Object { $null -eq $after[$_] })
@@ -45,6 +42,14 @@ function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
     'all' { if ($rewritten.Count -ne $DotnetOutputs.Count) { "did not write $(Get-Names @($DotnetOutputs | Where-Object { $_ -notin $rewritten })), so it is not a fresh build" } }
   }
   if ($problem) { "step '$Name' $problem`: nothing was stored"; Remove-Item -LiteralPath $log -Force -ErrorAction Ignore; exit 1 }
+}
+
+# One timed build, proved by what it wrote.
+function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
+  $before = Get-OutputTimes
+  $result = Invoke-Step $Name $dotnetPath $buildLine
+  Assert-NoOutsideServers "step '$Name'"
+  Assert-BuildEvidence $Name $Expect $before
   if ($Timed) {
     if (-not $results.Contains($Name)) { $results[$Name] = @() }
     $results[$Name] += , $result
@@ -58,11 +63,23 @@ function Invoke-Clean {
   if ($left) { "the clean before a fresh build left $(Get-Names $left): nothing was stored"; exit 1 }
 }
 
+# The process list now. A query that fails, or that does not even list this process, ends the run with nothing
+# stored: read as an empty list it would pass for no worker, no compiler server and no outside server.
+function Get-ProcessList {
+  # Its callers filter what it returns, so a refusal is written to the host, where no filter drops it.
+  $why = $null
+  try { $list = @(Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine -ErrorAction Stop) }
+  catch { $why = "could not read the process list ($($_.Exception.Message))" }
+  if (-not $why -and -not ($list | Where-Object { [int]$_.ProcessId -eq $PID })) { $why = 'the process list did not include this process' }
+  if ($why) { Write-Host "$why, so what the builds ran cannot be observed: nothing was stored"; Remove-Item -LiteralPath $log -Force -ErrorAction Ignore; exit 1 }
+  $list
+}
+
 # The processes in a job now: worker nodes (MSBuild in node mode) and the compiler server (VBCSCompiler, which .NET
 # runs as `dotnet exec VBCSCompiler.dll`) are told apart by their command lines.
 function Get-JobProcesses($run) {
   $ids = [Collections.Generic.HashSet[int]]::new([int[]]@($run.ProcessIds()))
-  @(Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine -ErrorAction Ignore | Where-Object { $ids.Contains([int]$_.ProcessId) } | ForEach-Object {
+  @(Get-ProcessList | Where-Object { $ids.Contains([int]$_.ProcessId) } | ForEach-Object {
       $node = "$($_.CommandLine)" -match '[/-]nodemode:'
       [pscustomobject]@{ Id = [int]$_.ProcessId; Name = $_.Name; Node = $node; Compiler = -not $node -and "$($_.CommandLine)" -match 'VBCSCompiler' }
     })
@@ -125,7 +142,7 @@ $sdkRoot = Split-Path $dotnetPath
 function Get-OutsideServers($own = @()) {
   $ids = [Collections.Generic.HashSet[int]]::new()
   foreach ($run in $own) { if ($run) { foreach ($id in $run.ProcessIds()) { [void]$ids.Add([int]$id) } } }
-  @(Get-CimInstance Win32_Process -Property ProcessId, CommandLine -ErrorAction Ignore | Where-Object {
+  @(Get-ProcessList | Where-Object {
       $line = "$($_.CommandLine)"
       $line -match 'VBCSCompiler|[/-]nodemode:' -and $line.IndexOf($sdkRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and -not $ids.Contains([int]$_.ProcessId)
     })
@@ -162,10 +179,12 @@ foreach ($n in 1..$Samples) { Invoke-Clean; Invoke-DotnetBuild 'fresh build' 'al
 $linger = $null
 $warm = $null
 try {
+  $before = Get-OutputTimes
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
   $linger = Start-Run "$log.linger"
   $seen = Wait-Run $linger 'linger build' "$log.linger"
   Assert-NoOutsideServers "step 'linger build'" @($linger)
+  Assert-BuildEvidence 'linger build' 'first' $before
   $returned = [Diagnostics.Stopwatch]::StartNew()
   while ($returned.Elapsed.TotalSeconds -lt $LingerSeconds) { Start-Sleep -Milliseconds 200 }
   $leftInfo = Get-JobProcesses $linger
@@ -175,11 +194,13 @@ try {
   $leftNodes = @($leftInfo | Where-Object Node).Count
   $cpuBefore = Get-CpuSeconds $leftProcesses
 
+  $before = Get-OutputTimes
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
   $warm = Start-Run "$log.warm"
   $warmSeen = Wait-Run $warm 'one file changed, after a build' "$log.warm"
   $cpuAfter = Get-CpuSeconds $leftProcesses
   Assert-NoOutsideServers "step 'one file changed, after a build'" @($linger, $warm)
+  Assert-BuildEvidence 'one file changed, after a build' 'first' $before
   $usedNodes = Test-Used @($leftInfo | Where-Object Node) $cpuBefore $cpuAfter ($warmSeen.max_nodes -gt 0)
   $usedCompiler = Test-Used @($leftInfo | Where-Object Compiler) $cpuBefore $cpuAfter $warmSeen.started_compiler
   $results['one file changed, after a build'] = @($warmSeen.result)
