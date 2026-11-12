@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 33 | Checklist items: 329
+Sections: 33 | Checklist items: 334
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -41,7 +41,7 @@ Sections: 33 | Checklist items: 329
 | [x]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 10    |
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
 | [x]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
-| [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 6     |
+| [ ]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
 | [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 6     |
 | [ ]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 6     |
 | [ ]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 5     |
@@ -143,4 +143,4 @@ Sections: 5 | Checklist items: 22
 
 Progress: 28/86 verified sections, 8 ready to run now.
 
-Checklist: 315/592 items completed (includes Commit items).
+Checklist: 315/597 items completed (includes Commit items).
