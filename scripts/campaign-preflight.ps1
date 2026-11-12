@@ -263,7 +263,11 @@ function Test-Ci {
     4 { Fail "CI is still running on HEAD: $why" 'wait for it (`gh run watch`), then run the preflight again' }
     5 {
       $start = @($r.Out -split "`n" | Where-Object { $_ -match '^to get a real run: ' } | ForEach-Object { ($_ -replace '^to get a real run: ', '').Trim() })
-      $how = if ($start) { "start a run: $($start -join '; ')" } else { 'push HEAD so CI runs on it' }
+      # ci_status.py offers the command only while the remote branch is at HEAD, and says so when it is not.
+      $how = if ($start) { "start a run: $($start -join '; ')" }
+      elseif ($r.Out -match 'has moved on to') { 'git pull --ff-only' }
+      elseif ($r.Out -match 'no run was started:') { '`gh auth status`' }
+      else { 'push HEAD so CI runs on it' }
       Fail "CI has no run for HEAD: $why" "$how, then run the preflight again"
     }
     default { Fail "ci_status.py failed (exit $($r.Code)): $why" 'run `python scripts/ci_status.py --sha HEAD --use-proven` and fix what it says' }

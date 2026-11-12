@@ -224,7 +224,10 @@ try {
   Check ($left.Count -eq 0) 'and leaves no process of its tree behind'
 
   # --- The repository ---
-  $gitDir = Split-Path (Get-Command git -CommandType Application | Select-Object -First 1).Source
+  # Git for Windows' own launcher (Git\cmd\git.exe) when it is on PATH: a shell started from Git Bash puts the inner
+  # ucrt64\bin\git.exe first, and that one can't reach a remote from a PATH that holds nothing else of Git's.
+  $gits = @(Get-Command git -CommandType Application -All | ForEach-Object Source)
+  $gitDir = Split-Path (@($gits | Where-Object { (Split-Path (Split-Path $_) -Leaf) -eq 'cmd' }) + $gits | Select-Object -First 1)
   $tools = "$gitDir;$pythonDir;$system"
   $origin = Join-Path $work 'origin.git'
   $clone = Join-Path $work 'clone'
@@ -233,7 +236,7 @@ try {
   git clone -q $origin $clone 2>&1 | Out-Null
   New-Item -ItemType Directory -Force (Join-Path $clone 'scripts') | Out-Null
   # Stand-ins for the repo's own CI and guard scripts, answering with the exit code the test sets.
-  Set-Content (Join-Path $clone 'scripts\ci_status.py') "import os, sys`ncode = int(os.environ.get('BOSUN_TEST_CI', '0'))`nprint('build.yml: faked')`nif code == 5: print('to get a real run: gh workflow run build.yml --ref main')`nsys.exit(code)" -Encoding utf8
+  Set-Content (Join-Path $clone 'scripts\ci_status.py') "import os, sys`ncode = int(os.environ.get('BOSUN_TEST_CI', '0'))`nprint('build.yml: faked')`nnote = os.environ.get('BOSUN_TEST_CI_NOTE', 'to get a real run: gh workflow run build.yml --ref main')`nif code == 5: print(note)`nsys.exit(code)" -Encoding utf8
   Set-Content (Join-Path $clone 'scripts\run-guard.py') "import os, sys`nprint('task: faked')`nsys.exit(int(os.environ.get('BOSUN_TEST_GUARD', '0')))" -Encoding utf8
   git -C $clone add -A; git -C $clone -c user.name=t -c user.email=t@t commit -q -m seed; git -C $clone push -q origin main 2>&1 | Out-Null
   $repoArgs = @('-Only', 'tree,pushed,ci,guard', '-Repo', $clone)
@@ -263,7 +266,14 @@ try {
     Check ($r.Code -eq 1 -and $r.Text -match $c.Says -and $r.Text -match 'fix: ') "CI exit $($c.Code) fails with its fix"
   }
   Check ($r.Text -match 'fix: start a run: gh workflow run build\.yml --ref main, then' -and $r.Text -notmatch 'push HEAD') 'a pushed commit with no run is told to start one, not to push'
-  Remove-Item Env:BOSUN_TEST_CI
+  # With no command to offer, the fix follows what ci_status.py said: the branch moved on, or its head can't be read.
+  $env:BOSUN_TEST_CI_NOTE = 'main has moved on to 0123456789012345678901234567890123456789: gate that commit (--sha 0123456789012345678901234567890123456789)'
+  $r = Preflight $tools @('-Only', 'ci', '-Repo', $clone)
+  Check ($r.Code -eq 1 -and $r.Text -match 'fix: git pull --ff-only' -and $r.Text -notmatch 'push HEAD' -and $r.Text -notmatch 'gh workflow run') 'a branch that moved on is told to pull, not to push or start a run'
+  $env:BOSUN_TEST_CI_NOTE = "no run was started: the remote head of main couldn't be read, so no run was started: gh api exited 1: HTTP 502"
+  $r = Preflight $tools @('-Only', 'ci', '-Repo', $clone)
+  Check ($r.Code -eq 1 -and $r.Text -match 'fix: `gh auth status`' -and $r.Text -notmatch 'push HEAD') 'an unreadable remote head is told to check gh, not to push'
+  Remove-Item Env:BOSUN_TEST_CI, Env:BOSUN_TEST_CI_NOTE
   $env:BOSUN_TEST_GUARD = '1'
   $r = Preflight $tools @('-Only', 'guard', '-Repo', $clone)
   Remove-Item Env:BOSUN_TEST_GUARD

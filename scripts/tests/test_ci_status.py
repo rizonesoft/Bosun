@@ -55,11 +55,23 @@ def run(status="completed", conclusion="success", created="2026-11-07T10:00:00Z"
 class FakeGh:
     """Answers per workflow and records the arguments, so the lookup itself can be asserted."""
 
-    def __init__(self, runs=None, fail=None):
+    def __init__(self, runs=None, fail=None, head=SHA, head_fails=None, dispatch_fails=None, on_dispatch=None):
         self.runs, self.fail, self.calls = runs or {}, fail or {}, []
+        # The branch's remote head (or what a failed lookup says), and what starting a workflow does.
+        self.head, self.head_fails, self.dispatch_fails, self.on_dispatch = head, head_fails, dispatch_fails, on_dispatch
+        self.started = []
 
     def __call__(self, args):
         self.calls.append(args)
+        if args[0] == "api":
+            return (1, "", self.head_fails) if self.head_fails else (0, f"{self.head}\n", "")
+        if args[:2] == ["workflow", "run"]:
+            if self.dispatch_fails:
+                return 1, "", self.dispatch_fails
+            self.started.append(args[2:])
+            if self.on_dispatch:
+                self.on_dispatch(self, args[2])
+            return 0, "", ""
         if args[:2] == ["run", "view"]:
             return 0, json.dumps({"jobs": [{"name": "Build", "status": "completed", "conclusion": "failure", "url": "u"}]}), ""
         workflow = args[args.index("--workflow") + 1]
@@ -974,35 +986,221 @@ class Gate(Base):
         self.assertIn("gh", calls)
         self.assertNotIn("git", calls)
 
-    def test_with_no_run_and_no_proof_it_names_the_recovery(self):
-        gh = FakeGh({"plan.yml": [run()]})  # build.yml has no run, and with no record nothing proves a skip
+    # --- a workflow with no run and no proof: the gate starts it for its own commit, and only for that ---
+
+    NO_BUILD = {"plan.yml": [run()]}  # build.yml has no run, and with no record nothing proves a skip
+
+    def started_record(self):
+        return json.loads(self.state().read_text(encoding="utf-8")).get("started")
+
+    def test_the_gate_starts_a_missing_run_for_its_own_commit(self):
+        gh = FakeGh(dict(self.NO_BUILD))
         code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))
         lines = text.strip().splitlines()
-        self.assertEqual(lines[-1], "action: wait")
-        self.assertEqual(lines[-2], "to get a real run: gh workflow run build.yml --ref main")
-        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
-        self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
+        self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
+        self.assertEqual(lines[-2], "started for this commit: build.yml")
+        self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
+        self.assertIn(f"recovery: started build.yml on main at {SHA}", self.stderr)
+        self.assertNotIn("to get a real run", text)  # nobody is asked to run a command
+        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
 
-    def test_a_read_only_check_names_the_recovery_too(self):
+    def test_the_start_comes_before_the_first_sleep_and_its_run_is_then_read(self):
+        clock = _Clock()
+        slept_at_start = []
+
+        def dispatched(gh, name):
+            slept_at_start.append(clock.sleeps)
+            gh.runs[name] = [run("queued", None)]
+
+        gh = FakeGh(dict(self.NO_BUILD), on_dispatch=dispatched)
+        real_sleep = clock.sleep
+
+        def sleep(seconds):
+            real_sleep(seconds)
+            if clock.sleeps == 2:
+                gh.runs["build.yml"] = [run()]  # the started run finishes green
+
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)  # stdout is still one JSON object
+        self.assertEqual(slept_at_start, [0])  # started at the first look, with a 30 minute wait ahead
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertEqual(clock.sleeps, 2)  # pending after one sleep, green after two: no half hour wait
+        self.assertEqual(len(gh.started), 1)
+        self.assertIn("waiting: build.yml pending", self.stderr)
+
+    def test_a_workflow_is_started_once_per_commit(self):
+        clock = _Clock()
+        gh = FakeGh(dict(self.NO_BUILD))  # the started run never shows up
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual((code, data["action"], data["started"]), (ci_status.EXIT_NONE, "wait", ["build.yml"]))
+        self.assertEqual(clock.t, 1800)  # every look of the whole wait
+        self.assertEqual(len(gh.started), 1)
+        again = FakeGh(dict(self.NO_BUILD))  # a second invocation, as after a restart
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], again, FakeGit(["README.md"]), wall=lambda: 1_000_000.0 + clock.t)
+        self.assertEqual(again.started, [])
+        self.assertEqual(json.loads(raw)["started"], ["build.yml"])
+
+    def test_a_restart_in_a_new_process_starts_nothing_more(self):
+        first = self.fresh(["--gate", "--sha", "HEAD"])
+        self.assertIn("recovery: started build.yml", first[2])
+        second = self.fresh(["--gate", "--sha", "HEAD"])
+        self.assertNotIn("recovery: started", second[2])
+        self.assertIn("started for this commit: build.yml, plan.yml", second[1])
+
+    def test_a_new_commit_gets_its_own_start(self):
+        self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
+        gh = FakeGh({"plan.yml": [run(sha=OLD)]}, head=OLD)
+        self.go(["--gate", "--sha", OLD], gh, FakeGit(["README.md"]))
+        self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
+        self.assertEqual(self.started_record(), {"sha": OLD, "workflows": ["build.yml"]})
+
+    def test_a_commit_not_yet_pushed_is_told_to_push_not_that_the_branch_moved(self):
+        # The remote head is an ancestor of the gated commit: nothing moved, the commit just isn't there yet.
+        gh = FakeGh(dict(self.NO_BUILD), head=OLD)
+        code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"], ancestor=True))
+        lines = text.strip().splitlines()
+        self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
+        self.assertEqual(lines[-2], f"this commit is not on the remote yet (main there is at {OLD}): push it, then gate it")
+        self.assertEqual(gh.started, [])
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"], ancestor=True))
+        data = json.loads(raw)
+        self.assertEqual(data["not_pushed"], OLD)
+        self.assertNotIn("moved_to", data)
+        self.assertNotIn("recovery", data)
+
+    def test_a_moved_branch_is_given_no_run_and_names_the_head_to_gate(self):
+        gh = FakeGh(dict(self.NO_BUILD), head=OLD)
+        code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"], ancestor=False))
+        lines = text.strip().splitlines()
+        self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
+        self.assertEqual(lines[-2], f"main has moved on to {OLD}: gate that commit (--sha {OLD})")
+        self.assertEqual(gh.started, [])
+        self.assertIsNone(self.started_record())
+        _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"], ancestor=False))
+        data = json.loads(raw)
+        self.assertEqual((data["moved_to"], data["action"], data["exit"]), (OLD, "wait", ci_status.EXIT_NONE))
+        self.assertNotIn("recovery", data)
+        self.assertNotIn("started", data)
+
+    def test_an_unreadable_head_is_given_no_run_and_says_why(self):
+        for gh, why in ((FakeGh(dict(self.NO_BUILD), head_fails="HTTP 502: bad gateway"), "gh api exited 1: HTTP 502: bad gateway"),
+                        (FakeGh(dict(self.NO_BUILD), head="not a commit"), "gh api did not return a commit for the branch")):
+            with self.subTest(why=why):
+                code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))
+                lines = text.strip().splitlines()
+                self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
+                self.assertEqual(lines[-2], f"no run was started: the remote head of main couldn't be read, so no run was started: {why}")
+                self.assertEqual(gh.started, [])
+                _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+                data = json.loads(raw)
+                self.assertIn(why, data["recovery_error"])
+                self.assertEqual((data["action"], data["exit"]), ("wait", ci_status.EXIT_NONE))
+                self.assertNotIn("recovery", data)
+
+    def test_a_refused_start_is_reported_and_not_recorded(self):
+        gh = FakeGh(dict(self.NO_BUILD), dispatch_fails="HTTP 422: Workflow does not have 'workflow_dispatch' trigger")
+        code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        data = json.loads(raw)
+        self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
+        self.assertIn("build.yml could not be started: gh workflow run exited 1: HTTP 422", data["recovery_error"])
+        self.assertNotIn("started", data)
+        self.assertEqual(self.started_record(), {"sha": SHA, "workflows": []})
+        ok = FakeGh(dict(self.NO_BUILD))  # so the next look may try again
+        self.go(["--gate", "--sha", "HEAD"], ok, FakeGit(["README.md"]))
+        self.assertEqual(len(ok.started), 1)
+
+    def test_nothing_is_started_when_the_start_cannot_be_recorded(self):
+        gh = FakeGh(dict(self.NO_BUILD))
+        real = ci_status.write_gate
+
+        def refuse_started(path, state):
+            return False if state.get("started", {}).get("workflows") else real(path, state)
+
+        with mock.patch.object(ci_status, "write_gate", refuse_started):
+            code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
+        data = json.loads(raw)
+        self.assertEqual(gh.started, [])
+        self.assertIn("couldn't be saved, so build.yml was not started", data["recovery_error"])
+        self.assertEqual(data["action"], "wait")
+
+    def test_a_run_on_a_newer_commit_never_answers_for_the_gated_one(self):
+        # The branch advances between the head check and the start: the started run carries the newer commit.
+        clock = _Clock()
+
+        def advanced(gh, name):
+            # The branch points at the newer commit from now on. The run GitHub starts is of that commit, so it is
+            # never in the list `gh run list --commit <the gated commit>` returns, which is all the gate reads.
+            gh.head = OLD
+
+        gh = FakeGh(dict(self.NO_BUILD), on_dispatch=advanced)
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"], ancestor=False),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))  # never proceed
+        self.assertEqual({e["workflow"]: e["verdict"] for e in data["workflows"]}["build.yml"], "none")
+        self.assertEqual(data["moved_to"], OLD)  # the later looks say where the branch went
+        self.assertEqual(len(gh.started), 1)
+        commits = {args[args.index("--commit") + 1] for args in gh.calls if "--commit" in args}
+        self.assertEqual(commits, {SHA})  # every run read was asked for by this commit
+
+    def test_no_head_lookup_or_start_once_the_wait_has_passed(self):
+        result = {"workflows": [{"workflow": "build.yml", "verdict": "none"}]}
+        gh = FakeGh()
+        ci_status.recover(gh, result, "main", SHA, True, self.state(), expired=lambda: True)
+        self.assertEqual(gh.calls, [])
+        self.assertIn("the wait ran out", result["recovery_error"])
+        left = iter([False, True])  # the head is read in time, the start is not
+        ci_status.recover(gh, result, "main", SHA, True, self.state(), expired=lambda: next(left))
+        self.assertEqual([c[0] for c in gh.calls], ["api"])
+        self.assertEqual(gh.started, [])
+        self.assertIn("the wait ran out before build.yml could be started", result["recovery_error"])
+
+    def test_the_head_lookup_goes_through_the_bounded_caller(self):
+        self.assertEqual(ci_status.remote_head(FakeGh(head=OLD), "main"), OLD)
+        asked = []
+        ci_status.remote_head(lambda args: (asked.append(args), (0, SHA + "\n", ""))[1], "release/1")
+        self.assertEqual(asked, [["api", "repos/{owner}/{repo}/branches/release/1", "--jq", ".commit.sha"]])
+
+        def gone(args):
+            raise ci_status.Unavailable("the wait ran out")
+
+        with self.assertRaises(ci_status.Unavailable):
+            ci_status.remote_head(gone, "main")
+
+    def test_a_read_only_check_names_the_recovery_and_starts_nothing(self):
         # The preflight reads `--use-proven` and passes this line on as its fix, so a pushed commit with no run is never
         # told to push again.
-        gh = FakeGh({"plan.yml": [run()]})
+        gh = FakeGh(dict(self.NO_BUILD))
         code, text = self.go(["--sha", "HEAD", "--use-proven"], gh, FakeGit(["README.md"]))
         self.assertEqual(code, ci_status.EXIT_NONE)
         self.assertEqual(text.strip().splitlines()[-1], "to get a real run: gh workflow run build.yml --ref main")
         _, raw = self.go(["--sha", "HEAD", "--use-proven", "--json"], gh, FakeGit(["README.md"]))
         self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
+        self.assertEqual(gh.started, [])
+        self.assertFalse(self.state().exists())
         _, raw = self.go(["--sha", "HEAD", "--use-proven", "--json"], self.green())
         self.assertNotIn("recovery", json.loads(raw))
 
-    def test_the_recovery_survives_the_whole_wait(self):
-        clock = _Clock()
-        gh = FakeGh({"plan.yml": [run()]})
-        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]), clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
-        data = json.loads(out)
-        self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
-        self.assertEqual(data["recovery"], "gh workflow run build.yml --ref main")
-        self.assertEqual(clock.t, 1800)
+    def test_a_read_only_check_offers_no_command_for_a_moved_or_unreadable_branch(self):
+        for gh, key in ((FakeGh(dict(self.NO_BUILD), head=OLD), "moved_to"),
+                        (FakeGh(dict(self.NO_BUILD), head_fails="HTTP 502"), "recovery_error")):
+            with self.subTest(key=key):
+                code, text = self.go(["--sha", "HEAD", "--use-proven"], gh, FakeGit(["README.md"], ancestor=False))
+                self.assertEqual(code, ci_status.EXIT_NONE)  # the same exit as when the head matches
+                self.assertNotIn("to get a real run", text)
+                self.assertNotIn("gh workflow run", text)
+                _, raw = self.go(["--sha", "HEAD", "--use-proven", "--json"], gh, FakeGit(["README.md"], ancestor=False))
+                data = json.loads(raw)
+                self.assertIn(key, data)
+                self.assertNotIn("recovery", data)
+                self.assertEqual({e["workflow"]: e["verdict"] for e in data["workflows"]}, {"build.yml": "none", "plan.yml": "green"})
+
+    def test_a_look_at_the_branch_itself_still_names_the_command(self):
+        code, raw = self.go(["--json"], FakeGh({"plan.yml": [run()]}))
+        self.assertEqual(json.loads(raw)["recovery"], "gh workflow run build.yml --ref main")
 
     def test_a_proven_skip_or_a_run_needs_no_recovery(self):
         _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], self.green())
@@ -1012,7 +1210,8 @@ class Gate(Base):
         self.assertNotIn("recovery", json.loads(raw))
 
     def test_after_a_fresh_clone_a_real_run_decides(self):
-        self.assertIn("gh workflow run", self.fresh(["--gate", "--sha", "HEAD"])[1])
+        first = self.fresh(["--gate", "--sha", "HEAD"])
+        self.assertIn("started for this commit: build.yml, plan.yml", first[1])
         code, out, _ = self.fresh(["--gate", "--sha", "HEAD"], {"build.yml": [run()], "plan.yml": [run()]})
         self.assertEqual((code, out.strip().splitlines()[-1]), (0, "action: proceed"))
 
@@ -1208,8 +1407,12 @@ class Policy(unittest.TestCase):
         sections = {self.section(folder) for folder in (".claude", ".codex", ".agents")}
         self.assertEqual(len(sections), 1)
         text = sections.pop()
-        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo", "gh workflow run"):
+        # The gate starts a missing run itself, so the policy no longer hands the run a command: it says that, and what
+        # to do when the gate reports the branch moved or the start failed.
+        for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo",
+                     "starts that workflow itself", "has moved on to", "--sha <that commit>", "no run was started"):
             self.assertIn(word, text)
+        self.assertNotIn("gh workflow run", text)
 
 
 if __name__ == "__main__":

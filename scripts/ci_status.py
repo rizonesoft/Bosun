@@ -36,6 +36,19 @@ skip means the workflow's inputs haven't changed since something passed, and a r
 before it can't slip through, because its code still shows in the diff. A green clears the attempts, and if that file is
 locked it leaves `build/ci-gate.cleared`, which the next read honours once. The policy that consumes this is in the `process-phase` skill. Stdlib only; the `gh` and
 `git` runners, the clocks and the sleep are injectable for tests.
+
+A workflow that reads `none` for a commit (no run, and no proof of a skip) needs a real run, and `gh workflow run <file>
+--ref <branch>` runs whatever the branch holds when it is run. So the branch's remote head is read first (`gh api`):
+
+    it is the commit      `--gate` starts the workflow itself at the first look, before any sleep, once per commit and
+                          workflow (recorded under `started` in `build/ci-gate.json`), and says so on stderr and in
+                          `started`. A read-only look starts nothing and prints the command (`recovery`).
+    it is another commit  nothing is started or offered; `moved_to` names the head, which is the commit to gate.
+    it is behind it       the commit isn't on the remote yet, so there is nothing to run: `not_pushed` names the head.
+    it can't be read      nothing is started or offered; `recovery_error` says why.
+
+None of these changes a verdict, the exit code or the action. A run answers for a commit only through its own `headSha`
+(`gh run list --commit`), so one started just as the branch moved runs the newer commit and never turns this one green.
 """
 import argparse
 import json
@@ -275,6 +288,89 @@ def report(runner, workflows, branch, sha=None, base=None, git=None, base_proven
     if errors:
         result["error"] = errors[0]
     return result, code
+
+
+def remote_head(runner, branch):
+    """The commit the branch points at on the remote. Unavailable when gh can't say, or says something that isn't a SHA."""
+    try:
+        code, out, err = runner(["api", f"repos/{{owner}}/{{repo}}/branches/{branch}", "--jq", ".commit.sha"])
+    except FileNotFoundError:
+        raise Unavailable("gh is not installed or not on PATH") from None
+    if code != 0:
+        reason = (err or out or "").strip().splitlines()
+        raise Unavailable(f"gh api exited {code}: {(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
+    head = out.strip()
+    if not CANDIDATE.fullmatch(head):
+        raise Unavailable("gh api did not return a commit for the branch")
+    return head
+
+
+def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None):
+    """What can be done about workflows with no run and no proof, added to the report. With `gate` it starts each one
+    once, but only while the branch's remote head is this commit. Verdicts, the exit code and the action are not its to
+    change: a started run answers on a later look, through its own headSha."""
+    missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
+    for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error"):
+        result.pop(key, None)
+    if not missing:
+        return
+    if not sha:
+        # Judging the branch itself, so whatever it holds is what should run.
+        result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
+        return
+    if expired():
+        result["recovery_error"] = f"the wait ran out before the remote head of {branch} was read, so no run was started"
+        return
+    try:
+        head = remote_head(runner, branch)
+    except Unavailable as exc:
+        result["recovery_error"] = f"the remote head of {branch} couldn't be read, so no run was started: {exc}"
+        return
+    if head != sha:
+        # A remote head this commit descends from means the commit was never pushed, which is not the branch moving.
+        behind = False
+        if git:
+            try:
+                behind = git(["merge-base", "--is-ancestor", head, sha])[0] == 0
+            except Unavailable:
+                behind = False
+        result["not_pushed" if behind else "moved_to"] = head
+        return
+    if not gate:
+        result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
+        return
+    state = read_gate(path)
+    record = state.get("started")
+    if not isinstance(record, dict) or record.get("sha") != sha or not isinstance(record.get("workflows"), list):
+        record = {"sha": sha, "workflows": []}
+    errors = []
+    for name in missing:
+        if name in record["workflows"]:
+            continue
+        if expired():
+            errors.append(f"the wait ran out before {name} could be started")
+            break
+        # Recorded first: a start that can't be remembered would be repeated on every look.
+        state["started"] = {"sha": sha, "workflows": [*record["workflows"], name]}
+        if not write_gate(path, state):
+            errors.append(f"{path.name} couldn't be saved, so {name} was not started")
+            break
+        try:
+            code, out, err = runner(["workflow", "run", name, "--ref", branch])
+            if code != 0:
+                reason = (err or out or "").strip().splitlines()
+                raise Unavailable(f"gh workflow run exited {code}: {(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
+        except (Unavailable, FileNotFoundError) as exc:
+            state["started"] = record
+            write_gate(path, state)
+            errors.append(f"{name} could not be started: {exc}")
+            continue
+        record = state["started"]
+        print(f"recovery: started {name} on {branch} at {sha}", file=sys.stderr)
+    if record["workflows"]:
+        result["started"] = [name for name in record["workflows"] if name in missing]
+    if errors:
+        result["recovery_error"] = "; ".join(errors)
 
 
 def read_gate(path):
@@ -555,6 +651,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             base = None
     base_proven = bool(base) and not args.base
     result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
+    # At the first look, before any sleep: a missing run is started now, or the reason it can't be is known now.
+    recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call)
     while args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
@@ -562,11 +660,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         if remaining() <= 0:  # no tool may start now, so the last real answer stands
             break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
-    missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
-    if missing:
-        # With no run and no proof, as after a fresh clone, a real run of this commit is the way to find out. A read-only
-        # check names it too, since the preflight passes it on as the fix.
-        result["recovery"] = "; ".join(f"gh workflow run {name} --ref {args.branch}" for name in missing)
+        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call)
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
@@ -580,7 +674,16 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         for entry in result["workflows"]:
             print("\n".join(describe(entry)))
         if result.get("recovery"):
+            # The preflight reads this line and passes it on as the fix.
             print(f"to get a real run: {result['recovery']}")
+        if result.get("started"):
+            print(f"started for this commit: {', '.join(result['started'])}")
+        if result.get("moved_to"):
+            print(f"{args.branch} has moved on to {result['moved_to']}: gate that commit (--sha {result['moved_to']})")
+        if result.get("not_pushed"):
+            print(f"this commit is not on the remote yet ({args.branch} there is at {result['not_pushed']}): push it, then gate it")
+        if result.get("recovery_error"):
+            print(f"no run was started: {result['recovery_error']}")
         if args.gate:
             if result.get("reason"):
                 print(f"reason: {result['reason']}")
