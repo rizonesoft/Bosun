@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bosun.Core/Bosun.Core.csproj" />
+    <Project Path="src/Bosun.Panel/Bosun.Panel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Bosun.Core.Tests/Bosun.Core.Tests.csproj" />
+    <Project Path="tests/Bosun.Panel.Tests/Bosun.Panel.Tests.csproj" />
+  </Folder>
+</Solution>

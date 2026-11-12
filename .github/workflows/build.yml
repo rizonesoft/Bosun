@@ -30,6 +30,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      # The .NET SDK global.json pins (11.0.100, no prerelease), for tests/dotnet_nodes_test.ps1 here; building and
+      # testing the solution in CI is D00 T02 §2.
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
       - name: Build
         run: pwsh scripts\build.ps1
       - name: Language standard of every compile
@@ -68,6 +73,8 @@ jobs:
         run: pwsh tests\campaign_hold_test.ps1
       - name: Check-all gate test
         run: pwsh tests\check_all_test.ps1
+      - name: No MSBuild node outlives a .NET build
+        run: pwsh tests\dotnet_nodes_test.ps1
 
   linux:
     name: Test the WSL side on Linux

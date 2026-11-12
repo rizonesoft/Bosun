@@ -1,0 +1,4 @@
+# Every MSBuild run in this checkout: no node stays alive after a build to hold memory (measured 2026-11-10: another
+# repo's idle nodes held 1.4 GB while this repo's build waited for a slot), and no more than four nodes at once.
+-nodeReuse:false
+-maxCpuCount:4

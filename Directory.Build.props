@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- All .NET output under build/dotnet at the checkout root, beside the C++ output: never bin/ or obj/ in src/. -->
+    <ArtifactsPath>$(MSBuildThisFileDirectory)build/dotnet</ArtifactsPath>
+  </PropertyGroup>
+</Project>
