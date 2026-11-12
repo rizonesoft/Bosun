@@ -45,8 +45,10 @@
 # started no node or compiler server of its own. The linger build is sampled while it runs, so the label stores the
 # settings in force as the build showed them (most worker nodes at once, whether the compiler server ran, whether
 # nodes stayed), beside the response file and the evaluated UseSharedCompilation; a label whose settings the build
-# contradicts stores nothing. A compiler server or reusable node already running outside a job would take work from
-# the measured builds, so one found at the start is stopped with `dotnet build-server shutdown`, which says so.
+# contradicts stores nothing. A compiler server or reusable node of the same SDK running outside the measured jobs
+# would take work from the measured builds unmeasured, so one found at the start is stopped with `dotnet build-server
+# shutdown`, which says so, and one still running then, or found after any measured build (another build on this
+# machine can start one at any time), stores nothing and says why.
 param(
   [string]$Label,
   [ValidateSet('baseline', 'kept', 'dropped')][string]$Decision,

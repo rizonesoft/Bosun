@@ -292,11 +292,18 @@ $mode = Get-Content -LiteralPath (Join-Path $here 'mode.txt')
 $outs = @(1..4 | ForEach-Object { Join-Path $here "out$_.dll" })
 switch ($args[0]) {
   '--version' { '11.0.100'; exit 0 }
-  'build-server' { exit 0 }
+  'build-server' { if ($mode -eq 'shutdown-fails') { 'error: could not reach the servers'; exit 5 }; exit 0 }
   'msbuild' { if ($args -contains '-p:UseSharedCompilation=false') { 'false' } else { '' }; exit 0 }
   'clean' { foreach ($o in $outs) { if (-not ($mode -eq 'clean-leaves' -and $o -eq $outs[2])) { Remove-Item -LiteralPath $o -ErrorAction Ignore } }; Set-Content -LiteralPath (Join-Path $here 'cleaned.txt') -Value 'yes'; exit 0 }
 }
 function Alive($n) { $f = Join-Path $here "worker$n.pid"; (Test-Path -LiteralPath $f) -and [bool](Get-Process -Id ([int](Get-Content -LiteralPath $f)) -ErrorAction Ignore) }
+# Another build on the machine: a worker of this SDK started through WMI, so it is in none of the measuring script's jobs.
+if ($mode -eq 'outside' -and -not (Test-Path -LiteralPath (Join-Path $here 'worker7.pid'))) {
+  $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
+  $line = "`"$((Get-Process -Id $PID).Path)`" -NoProfile -File `"$(Join-Path $here 'worker.ps1')`" /nodemode:1 `"$here`" 7"
+  $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line; ProcessStartupInformation = $startup }
+  foreach ($i in 1..150) { if (Alive 7) { break }; Start-Sleep -Milliseconds 100 }
+}
 $workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'two-workers' { 2 } default { 0 } }
 if ($workers) {
   if (Alive 1) {
@@ -373,6 +380,15 @@ exit 0
   Check 'a label whose build contradicts its arguments is refused' ($run.Exit -eq 1 -and $run.Text -match 'contradicts the settings in force \(at most 1 node\(s\) were asked for and 2 worker node\(s\) ran at once' -and (Test-DataUnchanged)) "($($run.Text))"
   $run = Invoke-DotnetMeasure 'worker' @('-Label', 'dotnet-bad', '-Decision', 'kept')
   Check 'nodes left by a build whose settings turn reuse off are refused' ($run.Exit -eq 1 -and $run.Text -match 'node reuse is off and 1 worker node\(s\) stayed' -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'outside' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a server of this SDK that starts outside the measured builds is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'preparation build': 1 compiler server or MSBuild node process\(es\) of this SDK ran outside the measured builds" -and (Test-DataUnchanged)) "($($run.Text))"
+  # It is still running, as another build's server would be: the next measurement finds it and its shutdown leaves it.
+  $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a server the shutdown leaves running is refused before measuring' ($run.Exit -eq 1 -and $run.Text -match 'stopping them with' -and $run.Text -match 'before measuring: 1 compiler server' -and (Test-DataUnchanged)) "($($run.Text))"
+  $run = Invoke-DotnetMeasure 'shutdown-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept')
+  Check 'a shutdown that fails is refused' ($run.Exit -eq 1 -and $run.Text -match "'dotnet build-server shutdown' failed with exit code 5 \(error: could not reach the servers\)" -and (Test-DataUnchanged)) "($($run.Text))"
+  foreach ($id in Get-WorkerIds) { Stop-Process -Id $id -Force -ErrorAction Ignore }  # the outside worker is this test's own
+  Remove-Item -LiteralPath (Join-Path $dn 'worker7.pid') -ErrorAction Ignore
   $run = Invoke-DotnetMeasure 'warm-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true')
   Check 'a failed warm build stores nothing' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed, after a build' failed with exit code 4" -and (Test-DataUnchanged)) "($($run.Text))"
 
@@ -386,6 +402,8 @@ exit 0
   Check 'no worker the fake dotnet started is left running' ($workerIds.Count -gt 0 -and -not $alive) "($($workerIds.Count) started, alive: $($alive -join ', '))"
 
 } finally {
+  # Every worker the fakes started ends with the test, whatever happened to it.
+  if ($dn -and (Test-Path -LiteralPath $dn)) { foreach ($id in @($workerIds) + @(Get-WorkerIds)) { Stop-Process -Id $id -Force -ErrorAction Ignore } }
   Remove-Item Env:BOSUN_MEASURE_QUEUED -ErrorAction Ignore
   Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Ignore
 }

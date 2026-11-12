@@ -1243,8 +1243,8 @@
       "label": "dotnet-final",
       "kind": "dotnet",
       "decision": "kept",
-      "note": "What ships: node reuse off from Directory.Build.rsp and two nodes passed by the commands this repository runs. Against dotnet-baseline: nothing to do 2.3 s against 3.1, one file 4.2 against 5.8, fresh 5.2 against 7.6; peak memory 121 MB against 214, 207 against 312 and 221 against 327; the warm one-file build 3.3 s against 4.6 at 134 MB against 226; left held after a build 77.7 MB against 73.7 (the compiler server in both). No setting in the combination loses, so none is reverted.",
-      "date": "2026-11-12T19:18:40Z",
+      "note": "What ships: node reuse off from Directory.Build.rsp and two nodes passed by the commands this repository runs. Against dotnet-baseline: nothing to do 2.5 s against 3.1, one file 4.2 against 5.8, fresh 4.6 against 7.6; peak memory 123 MB against 214, 208 against 312 and 227 against 327; the warm one-file build 2.9 s against 4.6 at 134 MB against 226; left held after a build 77.3 MB against 73.7 (the compiler server in both). No setting in the combination loses, so none is reverted. Measured again after the measurement learned to refuse a server outside its jobs (review round 1), with the same result.",
+      "date": "2026-11-12T20:08:29Z",
       "machine": {
         "name": "VENOM-PC",
         "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
@@ -1269,14 +1269,14 @@
         "compiler_server": true,
         "left_running": {
           "observed": true,
-          "after_seconds": 60.3,
+          "after_seconds": 60.4,
           "processes": 2,
           "nodes": 0,
           "names": [
             "compiler server",
             "conhost.exe"
           ],
-          "mb": 77.7
+          "mb": 77.3
         },
         "warm_used_nodes": null,
         "warm_used_compiler": true
@@ -1286,58 +1286,58 @@
         {
           "step": "nothing to do",
           "seconds": [
-            2.47,
-            2.16,
-            2.31
+            2.39,
+            2.45,
+            2.48
           ],
           "peak_mb": [
-            123.9,
-            120.5,
-            115.5
+            123.7,
+            123.1,
+            123.4
           ],
-          "median_seconds": 2.31,
-          "median_peak_mb": 120.5
+          "median_seconds": 2.45,
+          "median_peak_mb": 123.4
         },
         {
           "step": "one file changed",
           "seconds": [
-            3.96,
-            4.21,
-            4.45
+            3.99,
+            4.72,
+            4.17
           ],
           "peak_mb": [
-            206.2,
-            209.6,
-            206.9
+            207.9,
+            210.5,
+            208.4
           ],
-          "median_seconds": 4.21,
-          "median_peak_mb": 206.9
+          "median_seconds": 4.17,
+          "median_peak_mb": 208.4
         },
         {
           "step": "fresh build",
           "seconds": [
-            4.64,
-            5.37,
-            5.15
+            4.63,
+            4.51,
+            4.65
           ],
           "peak_mb": [
-            215.8,
-            226.7,
-            220.8
+            227.4,
+            224.2,
+            227.2
           ],
-          "median_seconds": 5.15,
-          "median_peak_mb": 220.8
+          "median_seconds": 4.63,
+          "median_peak_mb": 227.2
         },
         {
           "step": "one file changed, after a build",
           "seconds": [
-            3.29
+            2.94
           ],
           "peak_mb": [
-            133.8
+            134.0
           ],
-          "median_seconds": 3.29,
-          "median_peak_mb": 133.8
+          "median_seconds": 2.94,
+          "median_peak_mb": 134.0
         }
       ]
     }

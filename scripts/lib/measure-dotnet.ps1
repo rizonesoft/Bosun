@@ -35,6 +35,7 @@ function Get-Names([string[]]$paths) { (@($paths | ForEach-Object { Split-Path $
 function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
   $before = Get-OutputTimes
   $result = Invoke-Step $Name $dotnetPath $buildLine
+  Assert-NoOutsideServers "step '$Name'"
   $after = Get-OutputTimes
   $rewritten = @($DotnetOutputs | Where-Object { $null -ne $after[$_] -and $after[$_] -ne $before[$_] })
   $missing = @($DotnetOutputs | Where-Object { $null -eq $after[$_] })
@@ -117,12 +118,36 @@ foreach ($switch in @($rspLines + @('-maxcpucount') + $msbuildArgs)) {
 $sharedRaw = Get-DotnetProperty $DotnetProject 'UseSharedCompilation'
 $shared = $sharedRaw -ne 'false'  # unset means the compiler's default, which is on
 
-# Another compiler server or reusable node would take work from the measured builds without being measured.
-$outside = @(Get-CimInstance Win32_Process -Property CommandLine -ErrorAction Ignore | Where-Object { "$($_.CommandLine)" -match 'VBCSCompiler|[/-]nodemode:' })
-if ($outside) {
-  "found $($outside.Count) compiler server or MSBuild node process(es) already running: stopping them with 'dotnet build-server shutdown' before measuring"
-  & $dotnetPath build-server shutdown | Out-Null
+# A compiler server or worker node of this SDK that is not in one of the measured jobs ($own) could take a measured
+# build's work without being measured: another build on this machine can start one at any time. A build hands work
+# only to servers of its own SDK, which run from its folder, so only those count.
+$sdkRoot = Split-Path $dotnetPath
+function Get-OutsideServers($own = @()) {
+  $ids = [Collections.Generic.HashSet[int]]::new()
+  foreach ($run in $own) { if ($run) { foreach ($id in $run.ProcessIds()) { [void]$ids.Add([int]$id) } } }
+  @(Get-CimInstance Win32_Process -Property ProcessId, CommandLine -ErrorAction Ignore | Where-Object {
+      $line = "$($_.CommandLine)"
+      $line -match 'VBCSCompiler|[/-]nodemode:' -and $line.IndexOf($sdkRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and -not $ids.Contains([int]$_.ProcessId)
+    })
 }
+# Ends the run with nothing stored while one is alive. A timed step's job ends its own processes as it returns, without
+# waiting for them, so they get a few seconds to go before what is left counts as outside.
+function Assert-NoOutsideServers([string]$Name, $own = @()) {
+  $grace = [Diagnostics.Stopwatch]::StartNew()
+  while (($outside = Get-OutsideServers $own) -and $grace.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 200 }
+  if ($outside) {
+    "$Name`: $($outside.Count) compiler server or MSBuild node process(es) of this SDK ran outside the measured builds (process $(@($outside | ForEach-Object ProcessId) -join ', '); another build on this machine?), so a measured build may have handed its work to them: nothing was stored"
+    Remove-Item -LiteralPath $log -Force -ErrorAction Ignore
+    exit 1
+  }
+}
+
+if (Get-OutsideServers) {
+  "found compiler server or MSBuild node process(es) of this SDK already running: stopping them with 'dotnet build-server shutdown' before measuring"
+  $said = & $dotnetPath build-server shutdown 2>&1 | Select-Object -Last 1
+  if ($LASTEXITCODE -ne 0) { "'dotnet build-server shutdown' failed with exit code $LASTEXITCODE ($said): nothing was stored"; exit 1 }
+}
+Assert-NoOutsideServers 'before measuring'
 
 "measuring '$Label' (.NET): one preparation build, then $Samples sample(s) of each step"
 Invoke-DotnetBuild 'preparation build' 'any' $false
@@ -140,6 +165,7 @@ try {
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
   $linger = Start-Run "$log.linger"
   $seen = Wait-Run $linger 'linger build' "$log.linger"
+  Assert-NoOutsideServers "step 'linger build'" @($linger)
   $returned = [Diagnostics.Stopwatch]::StartNew()
   while ($returned.Elapsed.TotalSeconds -lt $LingerSeconds) { Start-Sleep -Milliseconds 200 }
   $leftInfo = Get-JobProcesses $linger
@@ -153,6 +179,7 @@ try {
   $warm = Start-Run "$log.warm"
   $warmSeen = Wait-Run $warm 'one file changed, after a build' "$log.warm"
   $cpuAfter = Get-CpuSeconds $leftProcesses
+  Assert-NoOutsideServers "step 'one file changed, after a build'" @($linger, $warm)
   $usedNodes = Test-Used @($leftInfo | Where-Object Node) $cpuBefore $cpuAfter ($warmSeen.max_nodes -gt 0)
   $usedCompiler = Test-Used @($leftInfo | Where-Object Compiler) $cpuBefore $cpuAfter $warmSeen.started_compiler
   $results['one file changed, after a build'] = @($warmSeen.result)
