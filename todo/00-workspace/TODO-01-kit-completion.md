@@ -16,6 +16,8 @@ title: "TODO-01 -- Finish the agent kit"
 
 **Corrected 2026-11-12:** `§10` (kit updates from the three sample repos) and `§11` (removal of the samples folder) are withdrawn, unbuilt, on the owner's decision of 2026-11-12: Bosun and the Conclave-SDK kits stay separate, so Bosun imports nothing further from the SDK or its retired sibling repos. The owner removed `samples/` himself and it stays gone. The numbers 10 and 11 are not reused.
 
+**Corrected 2026-11-12 (owner):** `§5` (scheduled automations for this repo) and `§9` (register scheduled tasks on this machine) are withdrawn, unbuilt, on the owner's answer of 2026-11-12. The checks they would have scheduled are about this machine's Python and Visual Studio, which Recto's weekly tasks on the same machine already run and report; one source script did not exist; and the alert read its key through Conclave. The unused runner went with them: `.conclave/automations/`, `scripts/tests/test_automations.py` and the `scheduled-automations` skill. Reversing it costs re-filing the sections and restoring those files from git. The numbers 5 and 9 are not reused.
+
 ## Inputs
 
 - `docs/specs/2026-11-07-control-panel-design.md`, the table of sources.
@@ -42,12 +44,10 @@ title: "TODO-01 -- Finish the agent kit"
 | 2 | §2 | Settled items in review prompts | §1 | [x] |
 | 3 | §3 | Dispatch hook for background reviews | §1 | [x] |
 | 4 | §4 | Pre-commit hook and clone setup | D00 T03 §10 | [x] |
-| 5 | §5 | Scheduled automations for this repo | §4 | [ ] |
-| 6 | §6 | Gates: native build checks and check-all | §4 | [x] |
-| 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
-| 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
-| 9 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
-| 10 | §13 | Weakening scan over a diff | §6 | [x] |
+| 5 | §6 | Gates: native build checks and check-all | §4 | [x] |
+| 6 | §7 | Private GitHub repo and CI | §4 | [ ] |
+| 7 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
+| 8 | §13 | Weakening scan over a diff | §6 | [x] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -192,28 +192,6 @@ The plan must never be committed out of step with its sections. The hook that re
 > **Verified:** 2026-11-12 | §4 | ae4518ac1a120de811caf09411da90b0138aec25
 > **Review:** `docs/reviews/d00-t01-s4.json`
 
-## 5. Scheduled automations for this repo
-
-Toolchain drift should arrive as a notice, not a surprise. The kit's runner is copied in but names no tasks, and its alert names another project.
-
-**Corrected 2026-11-12 (held for the owner):** checked against the repo before building, and the section is held on a scope question only the owner can settle. What was found: (1) the Python and Visual Studio checks are about this machine, not this repo, and Recto's `recto-python-pin` and `recto-visual-studio` tasks already run them weekly on this machine and email the same address, so Bosun's copies would send the same news twice; (2) `check-dotnet-pin.py` does not exist in Isotone, Bosun has no `global.json` until `D00 T02 §1`, and the .NET pin already has its own section and wake check (`D00 T02 §3`, `scripts/dotnet-final-available.py`); (3) the sibling repos are under `D:\`, not `R:\GitHub`; (4) `.conclave/automations/alert.py` already sends to the operator's address, so only its failure-path test is missing; (5) the alert reads its key through `conclave-op`, which ties this repo's tooling to Conclave, against the 2026-11-10 rule that Bosun stays small and unconnected and the 2026-11-12 decision that its tooling is its own. The question: does Bosun still want its own scheduled checks? Recommended answer: no, withdraw this section and `§9`, and take the `bosun-pr-merge` task out of `§7`, since the only pin that is Bosun's alone is `python-version` in `.github/workflows/plan.yml`, which a reviewer sees on every Python release. The alternative is one Bosun check of that workflow pin, written here, with no email. Reversing a withdrawal costs re-filing three small sections. Nothing was built.
-
-**Phase:** 0
-**Needs:** owner-decision
-**Surface:** no
-
-**Build order:**
-
-1. Fill `.conclave/automations/tasks.json`. Done when: `run.py` validates the tasks with `folder` set to `\Bosun\`.
-2. Port the pin checks and repoint `alert.py`. Done when: a failed task writes `last.json` and the alert path is exercised in a test.
-
-- [ ] Port `check-python-pin.py` and `check-visual-studio.py` from `R:\GitHub\Recto\scripts`, and add `check-dotnet-pin.py` from `R:\GitHub\Isotone\scripts`. Done when: each exits 0 on a current pin and nonzero on a stale fixture.
-- [ ] Set `bosun-python-pin`, `bosun-visual-studio` and `bosun-dotnet-pin` in `.conclave/automations/tasks.json`. Done when: the validator in `run.py` accepts it. Cheaper substitute: a task whose name lacks the folder prefix.
-- [ ] Point `.conclave/automations/alert.py` at the operator's address, with the key source unchanged. Done when: `scripts/tests/test_automations.py` covers the failure path with a stub sender, sending no real mail. Cheaper substitute: sending a real test email from a test.
-- [ ] Commit: `automations: pin checks on a schedule`
-
-**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_automations.py` exits 0, and fails if the change is reverted.
-
 ## 6. Gates: native build checks and check-all
 
 > **Started:** 2026-11-12T04:47:02Z
@@ -255,6 +233,8 @@ One command should tell a contributor, and a run, whether the tree is fit to com
 
 The kit's CI gate and merge script need a remote. The owner asked for a private repo in the Rizonetech organization on 2026-11-07, with the finish of a public repo in case it is published later.
 
+**Corrected 2026-11-12:** the item that ported `scripts/merge_prs.py` and scheduled it as `bosun-pr-merge` is withdrawn with `§5` and `§9` (owner, 2026-11-12): Bosun has no scheduled tasks of its own. Dependabot pull requests are merged by hand or by GitHub's own auto-merge. The Build order's second step no longer includes the port, and this section waits on `§4` only.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -262,33 +242,13 @@ The kit's CI gate and merge script need a remote. The owner asked for a private 
 **Build order:**
 
 1. Create the private repo and push `main`. Done when: `git remote -v` shows it.
-2. Add `.github/workflows/build.yml` and `plan.yml`, and port `merge_prs.py`. Done when: `ci_status.py` reports green.
+2. Add `.github/workflows/build.yml` and `plan.yml`. Done when: `ci_status.py` reports green.
 
 - [x] Create `rizonetech/Bosun` as private with `gh repo create`. Done when: `gh repo view --json visibility` says PRIVATE. Cheaper substitute: a public repo.
 - [ ] Add `.github/workflows/plan.yml` and `build.yml` with pinned actions, Windows runner. Done when: both pass on `main`, and a stale plan turns `plan.yml` red on a disposable pull request branch, closed afterwards. Actions stay on major tags, kept current by Dependabot.
-- [ ] Port `scripts/merge_prs.py` from `R:\GitHub\Recto\scripts` and add `bosun-pr-merge` to `.conclave/automations/tasks.json`. Done when: a dry run lists only green Dependabot pull requests.
-- [ ] Commit: `ci: private repo, workflows and merge task`
+- [ ] Commit: `ci: private repo and workflows`
 
 **Test checkpoint:** `python scripts/ci_status.py` exits 0 on `main`, and exits 1 after a deliberately red run.
-
-## 9. Register scheduled tasks on this machine
-
-Registering this repo's own per-user tasks changes this machine, outside the repo. The owner cleared every waiting step for the unattended run on 2026-11-07.
-
-**Phase:** 0
-**Needs:** none
-**Surface:** no
-
-**Build order:**
-
-1. Run the installer. Done when: the tasks are registered.
-2. Run one task. Done when: its `last.json` exists.
-
-- [ ] Run `.conclave/automations/install.ps1`. Done when: `Get-ScheduledTask -TaskPath \Bosun\` lists the tasks, each running through `pythonw.exe`. Cheaper substitute: a task that opens a console window.
-- [ ] Run `python .conclave/automations/run.py bosun-python-pin`. Done when: `build/automations/bosun-python-pin/last.json` records its exit.
-- [ ] Commit: `automations: register on this machine`
-
-**Test checkpoint:** `Get-ScheduledTask -TaskPath \Bosun\` lists all tasks, and `build/automations/bosun-python-pin/last.json` exists.
 
 ## 12. Build and dev tool stack measured and tuned
 

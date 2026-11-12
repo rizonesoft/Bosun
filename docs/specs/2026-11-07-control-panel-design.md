@@ -32,7 +32,6 @@ Measured 2026-11-07 by reading each repo.
 | Review dispatcher and pin | Steward | Recto settled items and timing |
 | TODO graph and stamps | Steward `todo_graph.py` | Recto pre-commit hook |
 | Dispatch hook | Recto `dispatch_hook.py` | Resolute pin and record guard |
-| Scheduled automations | Recto, SDK kit | Bosun tasks and alert target |
 | Change gates | Isotone | `weakening-scan`, `native-*-check` |
 | WPF foundation | Steward.Console | Isotone token idea, Resolute capture |
 | Icon pipeline | Office generator | Recto frames, Isotone small sizes |

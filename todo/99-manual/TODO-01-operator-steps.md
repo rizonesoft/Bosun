@@ -109,7 +109,7 @@ Unattended checks prove the parts. Only a person can say the whole thing is righ
 
 - [ ] Record publish or stay private in this section. `GPL-3.0-or-later` in `LICENSE` was confirmed by the owner on 2026-11-07. Done when: the decision is committed.
 - [ ] Revisit code signing in `scripts/signing-status.ps1` if publishing. Done when: the decision is recorded.
-- [ ] Move the alert recipient in `.conclave/automations/alert.py` out of the source into ignored local config. Done when: `git grep -n "@gmail" -- .conclave` prints nothing, including `.conclave/automations/README.md`.
+- [x] Move the alert recipient in `.conclave/automations/alert.py` out of the source into ignored local config. Done when: `git grep -n "@gmail" -- .conclave` prints nothing, including `.conclave/automations/README.md`. Resolved 2026-11-12: the whole of `.conclave/automations/` was removed with `D00 T01 §5` and `§9` (owner, 2026-11-12), and `git grep -n "@gmail" -- .conclave` prints nothing.
 - [ ] Replace personal absolute paths in `todo/`, `AGENTS.md` and `docs/specs/` with repo names, keeping a stamped section's text as history. Done when: `git grep -lE "[A-Z]:\\\\GitHub" -- AGENTS.md docs` prints nothing, and open sections in `todo/` cite by repo name.
 - [ ] Review the sibling repo names in `design/mockups/control-panel.html` and `docs/images/`. Done when: private client and project names are replaced with samples.
 - [ ] Install `gitleaks` per user, then scan the full history with `gitleaks detect`. Done when: it reports no leaks.

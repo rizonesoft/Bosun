@@ -655,8 +655,10 @@ Filed from `D00 T03 §4`'s completion review. Its classifier is tested on Codex'
 
 Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook catch the campaign session's own mistakes in the spellings a session writes, but text can always be spelled another way; what makes a force push or a deletion of `main` impossible is the remote's branch protection, which this section turns on once the owner agrees, since it changes the repository's settings on GitHub.
 
+**Corrected 2026-11-12 (owner):** the owner agreed on 2026-11-12 to turn branch protection on, so the Need is cleared. Checked the same day: `main` reads `Branch not protected` and the organization's plan offers protection on a private repository.
+
 **Phase:** 0
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
