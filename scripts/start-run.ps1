@@ -1,11 +1,13 @@
 # Starts the unattended run (the campaign): an interactive session in this checkout, in this window, with every
 # permission prompt off, the run guard switched on for it, its model chosen and its goal set.
 #
-#   pwsh scripts/start-run.ps1                    start the campaign in Claude Code, in this window
+#   pwsh scripts/start-run.ps1                    start the campaign in Claude Code, in this window, at medium effort
+#                                                 (the owner's choice, 2026-11-12), whatever the user's own default is
 #   pwsh scripts/start-run.ps1 -Agent antigravity the same campaign in Google Antigravity on Gemini 4 Carbon (agy):
 #                                                 every permission auto-approved, medium effort (the owner's choice,
 #                                                 2026-11-12), the goal as its opening prompt (auto mode is not
 #                                                 offered to this account); -AgyModel names another model
+#   pwsh scripts/start-run.ps1 -Effort high       start either runner at another effort
 #   pwsh scripts/start-run.ps1 -InstallShortcut   write both desktop shortcuts for this checkout, "Bosun Claude
 #                                                 campaign" and "Bosun Carbon campaign", each running one line above
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run, and change nothing
@@ -132,11 +134,11 @@ if ($antigravity) {
 }
 
 $session = [guid]::NewGuid().ToString()
-$arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, "/goal $Goal")
+$arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, "/goal $Goal")
 if ($DryRun) {
   "in $repo"
   "python scripts/run-guard.py start --session $session"
-  "claude $($arguments[0..4] -join ' ') `"$($arguments[5])`""
+  "claude $($arguments[0..($arguments.Count - 2)] -join ' ') `"$($arguments[-1])`""
   exit 0
 }
 
