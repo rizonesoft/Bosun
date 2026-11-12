@@ -684,6 +684,8 @@ Filed from `D00 T01 §3`'s second cycle. The deny list and the dispatch hook cat
 
 ## 18. Campaign setup hardening from the preflight's completion review
 
+> **Started:** 2026-11-12T22:29:57Z
+
 Filed from `D00 T03 §10`'s completion review (`docs/reviews/00-workspace/D00-T03-s10.md`, 2026-11-08). The preflight, hold and admin setup work and are proven, so the campaign runs on them; these make their undo and their checks stricter in cases no run has met yet, and nothing waits on this section.
 
 **Corrected 2026-11-13:** checked against the tree before the build. Admin setup now registers one task (`<TaskPrefix> dotnet final`, `Get-CampaignTaskDefs` in `scripts/lib/campaign.ps1`) and copies two bodies (`install-dotnet-final.ps1`, `lib\campaign.ps1`) to `BinDir`; its record holds `PolicyKey` and the prior update values, and `-Restore` writes back to the `-PolicyKey` argument, not the recorded key. The fourth item said to detect "a restart Windows Update has already scheduled", but Windows exposes no readable record of one: the UpdateOrchestrator reboot tasks are hidden from an unelevated shell (measured on this machine). What overrides `NoAutoRebootWithLoggedOnUsers` is a compliance deadline policy, which Windows documents and keeps under the same policy key, so the item now checks those, and names a pending restart (`RebootRequired`) in its pass line. Default taken: reversing it costs one probe in `Test-Setup`.
