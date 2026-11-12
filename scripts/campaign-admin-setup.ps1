@@ -5,10 +5,16 @@
 #                                                    registers `Bosun dotnet final`
 #   pwsh scripts/campaign-admin-setup.ps1 -Restore   elevated: puts the update values back and removes the task
 #
-# Windows Update keeps downloading and installing, but never restarts while the owner is signed in:
-# NoAutoRebootWithLoggedOnUsers=1, with AUOptions=4, which that policy needs to apply. The prior state of both values
-# (each value, or its absence) is saved to %LOCALAPPDATA%\Bosun\admin-setup.json before the first change, and a second
-# -Apply keeps it, so -Restore always returns the machine to how it was before the campaign.
+# Windows Update keeps downloading and installing, but does not restart on its own while the owner is signed in:
+# NoAutoRebootWithLoggedOnUsers=1, with AUOptions=4, which that policy needs to apply. Two things still restart it: a
+# compliance deadline policy, and a restart the owner schedules once one is pending. The preflight refuses to start
+# beside either (a deadline set, or a restart pending), since neither can be held back from here.
+#
+# The prior state of both values (each value, or its absence) and the targets changed (-PolicyKey, -TaskPrefix,
+# -BinDir) are saved to %LOCALAPPDATA%\Bosun\admin-setup.json before the first change. A second -Apply keeps the
+# record, and it and -Restore use the recorded targets, refusing one given that differs, so -Restore always returns
+# the machine to how it was before the campaign. With no record and the values already held (a lost record), the
+# originals are not known: that is recorded and said, and -Restore returns Windows' defaults (both values absent).
 [CmdletBinding(DefaultParameterSetName = 'Preview')]
 param(
   [Parameter(ParameterSetName = 'Apply')][switch]$Apply,
@@ -22,6 +28,8 @@ param(
   [string]$SearchPath = ''  # the PATH a run launches with; the registry's when empty
 )
 $ErrorActionPreference = 'Stop'
+# A refusal or a failure is one plain line, whatever threw it: an unreadable record, a powercfg past its limit.
+trap { "FAIL $($_.Exception.Message)"; exit 1 }
 . (Join-Path $PSScriptRoot 'lib\campaign.ps1')
 
 # Only preview and apply need dotnet's folder, for the SDK task; undo needs only the record, so it works after an
@@ -32,8 +40,29 @@ if (-not $DotnetDir -and -not $Restore) {
   "     fix: install the .NET SDK (winget install Microsoft.DotNet.SDK.10), then run this again"
   exit 1
 }
+
+# The record, checked whole, before anything else: its targets are the ones apply and restore touch.
+$saved = $null
+if ($Apply -or $Restore) {
+  $saved = Read-Json $Record  # a corrupt record throws here, before anything changes
+  if ($saved) { Assert-Record $saved $Record 'admin' }
+}
+if ($saved) {
+  foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
+    if ($saved.PSObject.Properties.Name -notcontains $name) { continue }  # a record from before 2026-11-13: the argument stands
+    $recorded = $saved.$name
+    $given = Get-Variable -Name $name -ValueOnly
+    if ($PSBoundParameters.ContainsKey($name) -and $given -ne $recorded) {
+      "FAIL the record at $Record was made for -$name $recorded, and this run names $given; nothing was changed"
+      "     fix: leave -$name out to use the recorded one, or check the record and move it aside"
+      exit 1
+    }
+    Set-Variable -Name $name -Value $recorded
+  }
+}
+
 $defs = Get-CampaignTaskDefs $BinDir $DotnetDir $TaskPrefix
-$bodies = @('install-dotnet-final.ps1', 'lib\campaign.ps1')
+$bodies = $AdminBodies
 # What an earlier version set up and this one no longer does: undo still removes it, so a machine set up before
 # 2026-11-10 isn't left with a startup task mounting a volume that is gone.
 $retiredTasks = @("$TaskPrefix attach D")
@@ -71,7 +100,6 @@ if (-not $admin -and ($PolicyKey -like 'HKLM:*' -or -not $TaskStore)) {
 }
 
 if ($Restore) {
-  $saved = Read-Json $Record
   if (-not $saved) { "nothing to restore: no record at $Record"; exit 0 }
   $failed = @()
   foreach ($name in $UpdateValues.Keys) {
@@ -109,16 +137,26 @@ if ($Restore) {
     exit 1
   }
   Remove-Item -LiteralPath $Record
+  if ($saved.Originals -eq 'unknown') { "the update values from before the setup were not known: returned Windows' defaults (both absent)" }
   'restored the update values and removed the task; record removed'
   exit 0
 }
 
-$saved = Read-Json $Record  # a corrupt record throws here, before anything changes
 if ($saved) {
   "keeping the update values saved at $Record, from before the setup"
 } else {
-  Save-Json ([ordered]@{ PolicyKey = $PolicyKey; Update = (Get-UpdateState $PolicyKey) }) $Record
-  "saved the prior update values to $Record"
+  $prior = Get-UpdateState $PolicyKey
+  $alreadyHeld = @($UpdateValues.Keys | Where-Object { $prior[$_].Present -and $prior[$_].Value -eq $UpdateValues[$_] }).Count -eq $UpdateValues.Count
+  $originals = 'known'
+  if ($alreadyHeld) {
+    # Held with no record: a lost record, or a machine set up by hand. What was there before is not known.
+    $originals = 'unknown'
+    $prior = [ordered]@{}
+    foreach ($name in $UpdateValues.Keys) { $prior[$name] = [ordered]@{ Present = $false; Value = $null } }
+  }
+  Save-Json ([ordered]@{ PolicyKey = $PolicyKey; TaskPrefix = $TaskPrefix; BinDir = $BinDir; Originals = $originals; Update = $prior }) $Record
+  if ($alreadyHeld) { "no record at $Record of the update values from before the setup, and they are already held: the originals are not known, so -Restore will return Windows' defaults (both values absent)" }
+  else { "saved the prior update values to $Record" }
 }
 if (-not (Test-Path -LiteralPath $PolicyKey)) { New-Item -Path $PolicyKey -Force | Out-Null }
 foreach ($name in $UpdateValues.Keys) {

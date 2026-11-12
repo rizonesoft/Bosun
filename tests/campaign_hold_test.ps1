@@ -95,6 +95,24 @@ try {
   $r = Hold @('-Restore')
   Check ($r.Code -ne 0 -and [IO.File]::ReadAllText($record) -eq '{ not json') 'and restore refuses it too'
 
+  # A record that parses but is not whole is refused the same way: restoring it would put back nothing, or the wrong thing.
+  Reset '1'
+  $partial = '{"Scheme": "381b4222-f694-41f0-9685-ff5bb260df2e", "Power": [], "Lock": "1"}'
+  [IO.File]::WriteAllText($record, $partial)
+  $r = Hold @('-Apply')
+  Check ($r.Code -ne 0 -and $r.Text -match 'is not a complete hold record \(Power does not hold the 3 held settings\)' -and [IO.File]::ReadAllText($record) -eq $partial -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1') 'an incomplete record is refused with the field that is wrong, and nothing changes'
+  $r = Hold @('-Restore')
+  Check ($r.Code -ne 0 -and $r.Text -match 'is not a complete hold record' -and [IO.File]::ReadAllText($record) -eq $partial) 'and restore refuses it too'
+
+  # A powercfg write that hangs is stopped at -ProbeSeconds, with its tree.
+  Reset '1'
+  $hangPid = "$state.hang.pid"
+  $env:BOSUN_FAKE_POWERCFG_HANG = 'write'
+  try { $r = Hold @('-Apply', '-ProbeSeconds', '2') } finally { Remove-Item Env:BOSUN_FAKE_POWERCFG_HANG }
+  $hung = if (Test-Path $hangPid) { [int](Get-Content $hangPid) } else { 0 }
+  Check ($r.Code -ne 0 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $hung -and -not (Get-Process -Id $hung -ErrorAction Ignore)) "a hung powercfg write fails at -ProbeSeconds and is stopped (pid $hung)"
+  Remove-Item -LiteralPath $hangPid -ErrorAction Ignore
+
   # A restore that fails keeps the record and names what it couldn't put back; a retry then succeeds.
   Reset '1'
   Hold @('-Apply') | Out-Null

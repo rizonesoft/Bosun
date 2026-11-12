@@ -11,7 +11,8 @@
 #
 # Tools are found on the PATH a run's shortcut launches with (the machine and user PATH in the registry), not this
 # shell's, which may predate an installer's change. Each probe runs under -ProbeSeconds and is stopped with its whole
-# process tree when it overruns.
+# process tree when it overruns or the preflight is interrupted, and this process runs in a job that ends everything it
+# started when it ends, killed included.
 param(
   [string[]]$Only = @(),
   [string]$Repo = (Split-Path $PSScriptRoot),
@@ -32,6 +33,8 @@ param(
   [string]$DotnetDir = '',
   [string]$TaskStore = '',
   [string]$TaskPrefix = 'Bosun',
+  [string]$AdminRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\admin-setup.json'),
+  [string]$PendingRestartKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired',
   [string]$InactivityKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System',
   [string]$Acceptance = '',
   [string]$VsWhere = (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
@@ -40,6 +43,9 @@ param(
 # A threshold below its floor would let a check pass what it must refuse, so it is a bad argument, not a setting.
 foreach ($bad in @(@('ProbeSeconds', $ProbeSeconds, 1), @('MinFreeGB', $MinFreeGB, 1), @('MinLoginDays', $MinLoginDays, 1)) | Where-Object { $_[1] -lt $_[2] }) { "-$($bad[0]) must be at least $($bad[2]), not $($bad[1])"; exit 2 }
 if (-not $SearchPath) { $SearchPath = Get-RegistryPath }
+. (Join-Path $PSScriptRoot 'lib\job-measure.ps1')
+Stop-TreeWithThisWindow
+$PowerCfgSeconds = $ProbeSeconds
 if (-not $Acceptance) { $Acceptance = Join-Path $Repo 'docs\acceptance\preflight.md' }
 # The campaign writes where the checkout is, so that drive is the one that must not fill: never a drive named in code.
 if (-not $FreeDrives) { $FreeDrives = @([IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $Repo).Path)) }
@@ -71,7 +77,11 @@ function Find-VsCMake {
     return @{ Fix = "vswhere isn't at $VsWhere, so Visual Studio can't be found: install Visual Studio 2022 or later with the 'C++ CMake tools for Windows' component" }
   }
   # Every installed instance, newest first: the newest may lack CMake while an older one has it.
-  $all = @(& $VsWhere -products '*' -sort -property installationPath 2>$null | Where-Object { $_ })
+  $r = Invoke-Probe $VsWhere @('-products', '*', '-sort', '-property', 'installationPath') $ProbeSeconds ''
+  if ($r.TimedOut) {
+    return @{ Fix = "vswhere at $VsWhere gave no answer within $ProbeSeconds seconds and was stopped: repair the Visual Studio Installer, then run the preflight again" }
+  }
+  $all = @($r.Out -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and [IO.Path]::IsPathRooted($_) })
   if (-not $all) {
     return @{ Fix = "vswhere found no Visual Studio: install it with the 'C++ CMake tools for Windows' component" }
   }
@@ -351,7 +361,7 @@ function Test-Space {
 
 function Test-Hold {
   $fix = '`pwsh scripts/campaign-hold.ps1 -Apply`'
-  try { $saved = Read-Json $HoldRecord } catch { Fail $_.Exception.Message $fix; return }
+  try { $saved = Read-Json $HoldRecord; if ($saved) { Assert-Record $saved $HoldRecord 'hold' } } catch { Fail $_.Exception.Message $fix; return }
   if (-not $saved) { Fail "the hold isn't applied (no record at $HoldRecord)" $fix; return }
   # The values Windows obeys are the active plan's, so a plan switched to after the hold isn't held at all.
   try { $active = Get-ActiveScheme $PowerCfg } catch { Fail "the active power plan can't be read: $($_.Exception.Message)" $fix; return }
@@ -364,8 +374,13 @@ function Test-Hold {
   Pass 'hold applied: no sleep, hibernate or display timeout, no screen saver lock'
 }
 
+# The compliance deadline policies under the Windows Update policy key: one in force restarts the machine once it and its
+# grace period pass, whatever NoAutoRebootWithLoggedOnUsers or ConfigureDeadlineNoAutoReboot say.
+$DeadlineValues = @('SetComplianceDeadline', 'ConfigureDeadlineForQualityUpdates', 'ConfigureDeadlineForFeatureUpdates')
+
 function Test-Setup {
   $fix = "in an elevated shell: ``pwsh $(Join-Path $PSScriptRoot 'campaign-admin-setup.ps1') -Apply``"
+  $failedBefore = $script:failed
   $dir = $DotnetDir
   if (-not $dir) { $dir = Resolve-RunDotnet $SearchPath }
   if (-not $dir) { Fail 'no dotnet.exe on a run''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup'; return }
@@ -387,8 +402,41 @@ function Test-Setup {
     }
     foreach ($x in (Compare-CampaignTask $d $live)) { $wrong += "task '$($d.Name)' $x" }
   }
-  if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix; return }
-  Pass "admin setup in place: update restarts held, task '$($defs[0].Name)' as defined or finished"
+  # The bodies the task runs are this checkout's: a stale copy would run code no test has seen.
+  foreach ($b in $AdminBodies) {
+    $at = Join-Path $BinDir $b
+    if (-not (Test-Path -LiteralPath $at)) { $wrong += "$b is missing from $BinDir" }
+    elseif ((Get-FileHash -LiteralPath $at).Hash -ne (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $b)).Hash) { $wrong += "$b in $BinDir differs from this checkout" }
+  }
+  if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix }
+
+  # The record is the only way back to the values from before the setup.
+  $saved = $null
+  try { $saved = Read-Json $AdminRecord; if ($saved) { Assert-Record $saved $AdminRecord 'admin' } }
+  catch { Fail $_.Exception.Message 'check what it holds, move it aside, then run admin setup -Restore by hand' }
+  if (-not (Test-Path -LiteralPath $AdminRecord)) {
+    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix sets the hold up again, but -Restore can then only return Windows' defaults (both values absent)"
+  } elseif ($saved) {
+    $other = @(foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
+        $given = Get-Variable -Name $name -ValueOnly
+        if ($saved.PSObject.Properties.Name -contains $name -and $saved.$name -ne $given) { "$name $($saved.$name), not $given" }
+      })
+    if ($other) { Fail "admin setup's record at $AdminRecord is for other targets ($($other -join '; '))" "run admin setup -Restore, then -Apply, in an elevated shell, or point the preflight at the recorded targets" }
+  }
+
+  # What still restarts the machine while the owner is signed in, which no setting here holds back.
+  $deadlineKey = Split-Path $PolicyKey
+  try {
+    $set = @(foreach ($name in $DeadlineValues) { $v = Get-RegValue $deadlineKey $name; if ($null -ne $v -and -not ($name -eq 'SetComplianceDeadline' -and $v -eq 0)) { "$name=$v" } })
+    if ($set) { Fail "an update deadline is set under $deadlineKey ($($set -join ', ')): once it passes, Windows restarts whoever is signed in" "set Windows Update's 'Specify deadlines for automatic updates and restarts' policy to Not Configured (or remove those values from $deadlineKey), then run the preflight again" }
+  } catch { Fail "the update deadline policy can't be read: $($_.Exception.Message)" 'run the preflight again from your own account' }
+  if (Test-Path -LiteralPath $PendingRestartKey) {
+    Fail "an update restart is pending ($PendingRestartKey), and the owner can schedule it during the run, which nothing holds back" 'restart now, then run the preflight again'
+  }
+
+  if ($script:failed -eq $failedBefore) {
+    Pass "admin setup in place: update restarts held while signed in, no update deadline set, no restart pending, task '$($defs[0].Name)' as defined or finished, its bodies as in this checkout, its record kept"
+  }
 }
 
 function Test-Lock {

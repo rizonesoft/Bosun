@@ -13,7 +13,7 @@
 # -OutputPath sends the command's output and errors to that file; without it they go to this console.
 
 if (-not ('Bosun.JobMeasure' -as [type])) {
-  Add-Type -TypeDefinition @'
+  $jobMeasureSource = @'
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -239,6 +239,26 @@ namespace Bosun {
   }
 }
 '@
+  # Compiled once per source and PowerShell version, then loaded from the user's own cache: compiling costs most of a
+  # second, which every gate step, measurement and preflight run paid. A cache that can't be read or written only costs
+  # that second again: the source is compiled in memory as before.
+  $loaded = $false
+  try {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes("$($PSVersionTable.PSVersion)`n$jobMeasureSource")) | Select-Object -First 8 | ForEach-Object { $_.ToString('x2') })
+    $cache = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Bosun\cache'
+    $dll = Join-Path $cache "job-measure-$key.dll"
+    if (-not (Test-Path -LiteralPath $dll)) {
+      New-Item -ItemType Directory -Force -Path $cache | Out-Null
+      $temp = Join-Path $cache "job-measure-$key.$PID.tmp.dll"
+      Add-Type -TypeDefinition $jobMeasureSource -OutputAssembly $temp -OutputType Library
+      # Another process may have put the same file in place first; either copy is the same build.
+      try { [IO.File]::Move($temp, $dll) } catch { Remove-Item -LiteralPath $temp -Force -ErrorAction Ignore }
+    }
+    Add-Type -Path $dll
+    $loaded = $true
+  } catch { $loaded = $false }
+  if (-not $loaded -and -not ('Bosun.JobMeasure' -as [type])) { Add-Type -TypeDefinition $jobMeasureSource }
 }
 
 # Stop-TreeWithThisWindow: from here on, everything this PowerShell process starts ends when the process does, so a

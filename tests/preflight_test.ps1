@@ -65,6 +65,25 @@ try {
   Set-Content $vswhereTwo "@echo off`r`necho $vsNone`r`necho $vsOld" -Encoding ascii
   $r = Preflight $system @('-VsWhere', $vswhereTwo)
   Check ($r.Code -eq 1 -and $r.Text.Contains($vsOldCMake)) 'with a newer install lacking CMake, the older one that has it is named'
+  # A vswhere that hangs, with a child of its own: stopped at -ProbeSeconds, and with the preflight when it is killed.
+  $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+  $hangPy = Join-Path $work 'hang.py'
+  Set-Content $hangPy "import os, sys, time`nopen(sys.argv[1], 'w').write(str(os.getpid()))`ntime.sleep(600)" -Encoding ascii
+  $hangPid = Join-Path $work 'vswhere.pid'
+  $vswhereHang = Join-Path $work 'vswhere-hang.cmd'
+  Set-Content $vswhereHang "@`"$python`" `"$hangPy`" `"$hangPid`"" -Encoding ascii
+  $r = Preflight $system @('-VsWhere', $vswhereHang, '-ProbeSeconds', '2')
+  $hung = if (Test-Path $hangPid) { [int](Get-Content $hangPid) } else { 0 }
+  Check ($r.Code -eq 1 -and $r.Text -match 'vswhere at .* gave no answer within 2 seconds and was stopped' -and $hung -and -not (Get-Process -Id $hung -ErrorAction Ignore)) "a hung vswhere fails at -ProbeSeconds and is stopped (pid $hung)"
+  Remove-Item -LiteralPath $hangPid -ErrorAction Ignore
+  $killed = Start-Process $pwsh -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $work 'killed.txt') -ArgumentList '-NoProfile', '-File', "`"$(Join-Path $repo 'scripts\campaign-preflight.ps1')`"", '-SearchPath', "`"$system`"", '-Only', 'cmake', '-VsWhere', "`"$vswhereHang`"", '-ProbeSeconds', '600'
+  $hung = 0
+  foreach ($i in 1..150) { if (Test-Path $hangPid) { $hung = [int]("$(Get-Content $hangPid -ErrorAction Ignore)" -replace '\D', ''); if ($hung) { break } }; Start-Sleep -Milliseconds 200 }
+  Stop-Process -Id $killed.Id -Force  # as a closed window or a kill ends it: no script of its own runs
+  $left = $true
+  foreach ($i in 1..50) { if (-not ($hung -and (Get-Process -Id $hung -ErrorAction Ignore))) { $left = $false; break }; Start-Sleep -Milliseconds 200 }
+  Check ($hung -and -not $left) "a preflight killed while a probe hangs leaves no probe running (pid $hung)"
+  if ($hung) { Stop-Process -Id $hung -Force -ErrorAction Ignore }
   $vs = & (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe') -latest -products '*' -property installationPath 2>$null
   if ($vs) {
     $r = Preflight $system
@@ -383,6 +402,18 @@ try {
   $fake | ConvertTo-Json -Depth 5 | Set-Content $powerState -Encoding utf8
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'the active power plan is 8c5e7fda' -and $r.Text -match 'powercfg /setactive 381b4222') 'another power plan made active after the hold fails, naming the held one'
+  $fake.PSObject.Properties.Remove('active')
+  $fake | ConvertTo-Json -Depth 5 | Set-Content $powerState -Encoding utf8
+  # A hold record that parses but is not whole, and a powercfg read that hangs.
+  $holdKept = [IO.File]::ReadAllText($holdRecord)
+  [IO.File]::WriteAllText($holdRecord, '{"Scheme": "381b4222-f694-41f0-9685-ff5bb260df2e", "Power": [], "Lock": "0"}')
+  $r = Preflight $system $holdArgs
+  Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete hold record \(Power does not hold') 'an incomplete hold record fails with the field that is wrong'
+  [IO.File]::WriteAllText($holdRecord, $holdKept)
+  $env:BOSUN_FAKE_POWERCFG_HANG = 'read'
+  try { $r = Preflight $system ($holdArgs + @('-ProbeSeconds', '2')) } finally { Remove-Item Env:BOSUN_FAKE_POWERCFG_HANG }
+  $hung = if (Test-Path "$powerState.hang.pid") { [int](Get-Content "$powerState.hang.pid") } else { 0 }
+  Check ($r.Code -eq 1 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $hung -and -not (Get-Process -Id $hung -ErrorAction Ignore)) "a hung powercfg read fails at -ProbeSeconds and is stopped (pid $hung)"
   Remove-Item Env:BOSUN_FAKE_POWERCFG
 
   $policy = "HKCU:\Software\BosunTest\preflight-$PID\AU"
@@ -393,10 +424,13 @@ try {
   $sdkList = Join-Path $dotnetDir 'sdks.txt'
   Set-Content $sdkList '11.0.100-rc.2.26504.105 [x]'
   Set-Content (Join-Path $dotnetDir 'dotnet.cmd') "@type `"$sdkList`"" -Encoding ascii
-  $place = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir)
+  $adminRecord = Join-Path $work 'admin.json'
+  $pending = "HKCU:\Software\BosunTest\preflight-$PID\RebootRequired"
+  $place = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-AdminRecord', $adminRecord, '-PendingRestartKey', $pending)
+  $setupPlace = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-Record', $adminRecord)
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match "admin setup isn't in place" -and $r.Text -match 'NoAutoRebootWithLoggedOnUsers is absent' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'no admin setup fails with its fix'
-  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply -Record (Join-Path $work 'admin.json') @place | Out-Null
+  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply @setupPlace | Out-Null
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   admin setup in place') 'admin setup in place passes'
   $good = [IO.File]::ReadAllText($store)
@@ -421,6 +455,49 @@ try {
   Add-Content $sdkList '11.0.100 [x]'
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 0) 'an absent SDK task with the final SDK in its folder passes'
+
+  # The bodies the task runs, the record that undoes the setup, and what still restarts the machine (D00 T03 §18).
+  $body = Join-Path $bin 'lib\campaign.ps1'
+  $bodyKept = [IO.File]::ReadAllBytes($body)
+  Remove-Item -LiteralPath $body
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'lib\\campaign\.ps1 is missing from' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'a missing task body fails with -Apply as its fix'
+  [IO.File]::WriteAllBytes($body, $bodyKept + [Text.Encoding]::ASCII.GetBytes("# changed`r`n"))
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'lib\\campaign\.ps1 in .* differs from this checkout') 'a task body that differs from this checkout fails'
+  [IO.File]::WriteAllBytes($body, $bodyKept)
+  $recordKept = [IO.File]::ReadAllText($adminRecord)
+  Remove-Item -LiteralPath $adminRecord
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "can then only return Windows' defaults") 'a missing record says the originals are lost and what -Apply can and cannot do'
+  [IO.File]::WriteAllText($adminRecord, '{"PolicyKey": "x"}')
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete admin record \(Update is missing\)') 'an incomplete record fails with the field that is wrong'
+  $other = $recordKept | ConvertFrom-Json
+  $other.BinDir = Join-Path $work 'elsewhere'
+  [IO.File]::WriteAllText($adminRecord, ($other | ConvertTo-Json -Depth 5))
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'is for other targets \(BinDir ') 'a record for other targets fails'
+  [IO.File]::WriteAllText($adminRecord, $recordKept)
+  $deadlineKey = Split-Path $policy
+  foreach ($case in @(@('SetComplianceDeadline', 1), @('ConfigureDeadlineForQualityUpdates', 2), @('ConfigureDeadlineForFeatureUpdates', 7))) {
+    New-ItemProperty -LiteralPath $deadlineKey -Name $case[0] -Value $case[1] -PropertyType DWord -Force | Out-Null
+    $r = Preflight $system (@('-Only', 'setup') + $place)
+    Check ($r.Code -eq 1 -and $r.Text -match "an update deadline is set .*$($case[0])=$($case[1])" -and $r.Text -match 'Not Configured') "a deadline set by $($case[0]) fails with how to clear it"
+    if ($case[0] -eq 'ConfigureDeadlineForQualityUpdates') {
+      New-ItemProperty -LiteralPath $deadlineKey -Name ConfigureDeadlineNoAutoReboot -Value 1 -PropertyType DWord -Force | Out-Null
+      $r = Preflight $system (@('-Only', 'setup') + $place)
+      Check ($r.Code -eq 1 -and $r.Text -match 'an update deadline is set') 'a deadline with ConfigureDeadlineNoAutoReboot still fails, since a passed deadline restarts anyway'
+      Remove-ItemProperty -LiteralPath $deadlineKey -Name ConfigureDeadlineNoAutoReboot
+    }
+    Remove-ItemProperty -LiteralPath $deadlineKey -Name $case[0]
+  }
+  New-Item -Path $pending -Force | Out-Null
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 1 -and $r.Text -match 'an update restart is pending' -and $r.Text -match 'restart now, then run the preflight again') 'a pending restart fails with "restart now"'
+  Remove-Item -LiteralPath $pending
+  $r = Preflight $system (@('-Only', 'setup') + $place)
+  Check ($r.Code -eq 0 -and $r.Text -match 'no update deadline set, no restart pending' -and $r.Text -match 'its bodies as in this checkout') "with none of them the pass line says what was checked ($(($r.Text -split "`n" | Select-Object -First 1)))"
 
   $inactivity = "HKCU:\Software\BosunTest\preflight-$PID\System"
   New-Item -Path $inactivity -Force | Out-Null

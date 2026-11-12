@@ -1,5 +1,5 @@
 # What the campaign's machine scripts share: the PATH a run launches with, bounded probes, the held power and
-# lock values, and the two SYSTEM tasks admin setup registers. Dot-sourced by scripts/campaign-preflight.ps1,
+# lock values, the SYSTEM task admin setup registers, and the records both keep. Dot-sourced by scripts/campaign-preflight.ps1,
 # scripts/campaign-hold.ps1, scripts/campaign-admin-setup.ps1 and scripts/install-dotnet-final.ps1, which runs as
 # SYSTEM under Windows PowerShell 5.1, so nothing here needs PowerShell 7.
 
@@ -69,13 +69,24 @@ function Invoke-Probe([string]$exe, [string[]]$arguments, [int]$seconds, [string
   $p.StandardInput.Close()
   $out = $p.StandardOutput.ReadToEndAsync()
   $err = $p.StandardError.ReadToEndAsync()
-  if (-not $p.WaitForExit($seconds * 1000)) {
-    Stop-Tree $p.Id
-    $p.WaitForExit(10000) | Out-Null
-    return [pscustomobject]@{ Code = -1; Out = ''; TimedOut = $true }
+  # Waited for in short slices, so Ctrl+C stops the caller between them, and the finally stops the probe's tree then.
+  $settled = $false
+  try {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $p.WaitForExit(200)) {
+      if ($clock.Elapsed.TotalSeconds -ge $seconds) {
+        Stop-Tree $p.Id
+        $p.WaitForExit(10000) | Out-Null
+        $settled = $true
+        return [pscustomobject]@{ Code = -1; Out = ''; TimedOut = $true }
+      }
+    }
+    $p.WaitForExit()  # lets the output readers finish
+    $settled = $true
+    [pscustomobject]@{ Code = $p.ExitCode; Out = (($out.Result + $err.Result) -replace "`r`n", "`n").Trim(); TimedOut = $false }
+  } finally {
+    if (-not $settled -and -not $p.HasExited) { Stop-Tree $p.Id }
   }
-  $p.WaitForExit()  # lets the output readers finish
-  [pscustomobject]@{ Code = $p.ExitCode; Out = (($out.Result + $err.Result) -replace "`r`n", "`n").Trim(); TimedOut = $false }
 }
 
 # Write $object as JSON to $path by temporary file then replace, reading it back.
@@ -96,6 +107,43 @@ function Read-Json([string]$path) {
   catch { throw "$path is not a readable record ($($_.Exception.Message)); move it aside after checking what it holds" }
 }
 
+# Throws, naming $path and the first field that is wrong, unless $saved is a complete record of $kind: 'hold' (what
+# scripts/campaign-hold.ps1 saves) or 'admin' (what scripts/campaign-admin-setup.ps1 saves). Parseable is not enough:
+# a record missing a value would restore nothing for it, or the wrong thing.
+function Assert-Record($saved, [string]$path, [string]$kind) {
+  $why = $null
+  $has = { param($o, $name) $null -ne $o -and $o.PSObject.Properties.Name -contains $name }
+  $isInt = { param($v) $v -is [int] -or $v -is [long] }
+  if ($kind -eq 'hold') {
+    if (-not (& $has $saved 'Scheme') -or "$($saved.Scheme)" -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { $why = 'Scheme is not a power plan GUID' }
+    elseif (-not (& $has $saved 'Power') -or @($saved.Power).Count -ne $HoldPower.Count) { $why = "Power does not hold the $($HoldPower.Count) held settings" }
+    elseif (-not (& $has $saved 'Lock') -or ($null -ne $saved.Lock -and $saved.Lock -isnot [string])) { $why = 'Lock is missing, or neither absent nor a string' }
+    else {
+      for ($i = 0; $i -lt $HoldPower.Count -and -not $why; $i++) {
+        $e = @($saved.Power)[$i]
+        if ($e.Sub -ne $HoldPower[$i].Sub -or $e.Setting -ne $HoldPower[$i].Setting) { $why = "Power[$i] is not $($HoldPower[$i].Sub) $($HoldPower[$i].Setting)" }
+        elseif (-not (& $isInt $e.AC) -or -not (& $isInt $e.DC)) { $why = "Power[$i] ($($e.Setting)) has no whole AC and DC values" }
+      }
+    }
+  } elseif ($kind -eq 'admin') {
+    if (-not (& $has $saved 'PolicyKey') -or -not ($saved.PolicyKey -is [string]) -or -not $saved.PolicyKey) { $why = 'PolicyKey is missing' }
+    elseif (-not (& $has $saved 'Update')) { $why = 'Update is missing' }
+    else {
+      foreach ($name in $UpdateValues.Keys) {
+        $u = $saved.Update.$name
+        if ($why) { break }
+        if (-not (& $has $u 'Present') -or $u.Present -isnot [bool]) { $why = "Update.$name has no Present" }
+        elseif ($u.Present -and -not (& $isInt $u.Value)) { $why = "Update.$name is present with no whole value" }
+      }
+      foreach ($name in 'TaskPrefix', 'BinDir') {
+        if (-not $why -and (& $has $saved $name) -and -not ($saved.$name -is [string] -and $saved.$name)) { $why = "$name is empty" }
+      }
+      if (-not $why -and (& $has $saved 'Originals') -and $saved.Originals -notin 'known', 'unknown') { $why = 'Originals is neither known nor unknown' }
+    }
+  } else { throw "Assert-Record: unknown kind '$kind'" }
+  if ($why) { throw "$path is not a complete $kind record ($why); move it aside after checking what it holds" }
+}
+
 # --- The hold: power timeouts and the screen saver lock ---------------------------------------------------------
 
 # Each power value the hold sets to never (0), AC and DC.
@@ -105,16 +153,26 @@ $HoldPower = @(
   @{ Sub = 'SUB_VIDEO'; Setting = 'VIDEOIDLE' }
 )
 
+# Each powercfg call's limit in seconds: the hold and the preflight set it from their -ProbeSeconds.
+$PowerCfgSeconds = 120
+
+# One powercfg call under that limit, stopped with its tree past it, which throws.
+function Invoke-PowerCfg([string]$powercfg, [string[]]$arguments) {
+  $r = Invoke-Probe $powercfg $arguments $PowerCfgSeconds ''
+  if ($r.TimedOut) { throw "powercfg $($arguments -join ' ') gave no answer within $PowerCfgSeconds seconds and was stopped" }
+  $r
+}
+
 # The active power scheme's GUID through $powercfg.
 function Get-ActiveScheme([string]$powercfg) {
-  $text = (& $powercfg /getactivescheme 2>&1) -join "`n"
+  $text = (Invoke-PowerCfg $powercfg @('/getactivescheme')).Out
   if ($text -match '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})') { return $Matches[1].ToLower() }
   throw "powercfg /getactivescheme gave no scheme: $text"
 }
 
 # @{ AC = <int>; DC = <int> } for one setting of $scheme.
 function Get-PowerValue([string]$powercfg, [string]$scheme, [string]$sub, [string]$setting) {
-  $text = (& $powercfg /q $scheme $sub $setting 2>&1) -join "`n"
+  $text = (Invoke-PowerCfg $powercfg @('/q', $scheme, $sub, $setting)).Out
   $ac = [regex]::Match($text, 'Current AC Power Setting Index:\s*0x([0-9a-fA-F]+)')
   $dc = [regex]::Match($text, 'Current DC Power Setting Index:\s*0x([0-9a-fA-F]+)')
   if (-not $ac.Success -or -not $dc.Success) { throw "powercfg /q $scheme $sub $setting gave no values: $text" }
@@ -123,9 +181,9 @@ function Get-PowerValue([string]$powercfg, [string]$scheme, [string]$sub, [strin
 
 function Set-PowerValue([string]$powercfg, [string]$scheme, [string]$sub, [string]$setting, [string]$line, [int]$value) {
   $flag = if ($line -eq 'AC') { '/setacvalueindex' } else { '/setdcvalueindex' }
-  $out = & $powercfg $flag $scheme $sub $setting $value 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "powercfg $flag $scheme $sub $setting $value failed: $out" }
-  & $powercfg /setactive $scheme 2>&1 | Out-Null  # applies the change to the running scheme
+  $r = Invoke-PowerCfg $powercfg @($flag, $scheme, $sub, $setting, "$value")
+  if ($r.Code -ne 0) { throw "powercfg $flag $scheme $sub $setting $value failed: $($r.Out)" }
+  [void](Invoke-PowerCfg $powercfg @('/setactive', $scheme))  # applies the change to the running scheme
 }
 
 # The screen saver lock value: the string in $key, or $null when absent.
@@ -163,6 +221,9 @@ function Get-HoldState([string]$powercfg, [string]$key, [string]$scheme = '') {
 # --- The SYSTEM task ---------------------------------------------------------------------------------------------
 
 $WindowsPowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+
+# The task bodies admin setup copies to its BinDir, as paths under scripts/: the preflight checks each against this checkout.
+$AdminBodies = @('install-dotnet-final.ps1', 'lib\campaign.ps1')
 
 # The definitions admin setup registers, in the shape Get-CampaignTask reads back.
 function Get-CampaignTaskDefs([string]$binDir, [string]$dotnetDir, [string]$prefix = 'Bosun') {

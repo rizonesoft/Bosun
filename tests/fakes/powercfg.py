@@ -2,17 +2,26 @@
 
 Answers /getactivescheme, /q <scheme> <sub> <setting>, /setacvalueindex and /setdcvalueindex <scheme> <sub> <setting>
 <value>, and /setactive <scheme>, in powercfg's own output format. An optional "active" names the plan /getactivescheme reports. With BOSUN_FAKE_POWERCFG_FAIL set, every set
-command fails, as a locked-down policy would make it.
+command fails, as a locked-down policy would make it. With BOSUN_FAKE_POWERCFG_HANG set to "read" or "write", every
+query or every set command writes its process id to <state>.hang.pid and hangs for ten minutes, as a wedged powercfg
+would, so a test can prove the caller stops it.
 """
 import json
 import os
 import sys
+import time
 
 path = os.environ["BOSUN_FAKE_POWERCFG"]
 with open(path, encoding="utf-8") as f:
     state = json.load(f)
 args = [a.lower() for a in sys.argv[1:]]
 scheme = state["scheme"]
+hang = os.environ.get("BOSUN_FAKE_POWERCFG_HANG")
+kind = "write" if args[:1] in (["/setacvalueindex"], ["/setdcvalueindex"], ["/setactive"]) else "read"
+if hang == kind:
+    with open(path + ".hang.pid", "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
+    time.sleep(600)
 
 
 def save():

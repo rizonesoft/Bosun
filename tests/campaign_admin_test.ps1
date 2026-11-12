@@ -55,6 +55,45 @@ try {
   $r = Setup @('-Restore')
   Check ($r.Code -eq 0 -and (Policy) -eq $before -and -not (Get-CampaignTask 'Bosun dotnet final' $store) -and -not (Test-Path (Join-Path $bin 'install-dotnet-final.ps1')) -and -not (Test-Path $record)) 'restore puts each value back as it was (one absent, one 3), removes the task and its body, then the record'
 
+  # The targets a record was made for are the ones a repeat apply and restore touch (D00 T03 §18).
+  Reset
+  $key2 = "HKCU:\Software\BosunTest\admin-$PID\AU2"
+  New-Item -Path $key2 -Force | Out-Null
+  New-ItemProperty -LiteralPath $key2 -Name AUOptions -Value 3 -PropertyType DWord -Force | Out-Null
+  $bin2 = Join-Path $work 'bin2'
+  $custom = @('-PolicyKey', $key2, '-Record', $record, '-TaskStore', $store, '-BinDir', $bin2, '-DotnetDir', $dotnetDir, '-TaskPrefix', 'BosunT')
+  $out = & $pwsh -NoProfile -File $setup -Apply @custom 2>&1
+  Check ($LASTEXITCODE -eq 0 -and (Get-CampaignTask 'BosunT dotnet final' $store) -and (Test-Path (Join-Path $bin2 'install-dotnet-final.ps1'))) "apply to custom targets sets them up ($(($out | Select-Object -Last 1)))"
+  $kept = [IO.File]::ReadAllText($record)
+  foreach ($change in @(@('-PolicyKey', $keyPath), @('-BinDir', $bin), @('-TaskPrefix', 'Other'))) {
+    $args2 = @($custom)
+    $args2[[array]::IndexOf($args2, $change[0]) + 1] = $change[1]
+    foreach ($verb in '-Apply', '-Restore') {
+      $out = (& $pwsh -NoProfile -File $setup $verb @args2 2>&1) -join "`n"
+      Check ($LASTEXITCODE -eq 1 -and $out -match "was made for $($change[0]) " -and $out -match 'nothing was changed' -and [IO.File]::ReadAllText($record) -eq $kept -and (Policy) -eq $before -and (Get-UpdateState $key2).NoAutoRebootWithLoggedOnUsers.Value -eq 1) "$verb with $($change[0]) changed from the record is refused and changes nothing"
+    }
+  }
+  $out = & $pwsh -NoProfile -File $setup -Restore -Record $record -TaskStore $store 2>&1
+  $back = Get-UpdateState $key2
+  Check ($LASTEXITCODE -eq 0 -and -not $back.NoAutoRebootWithLoggedOnUsers.Present -and $back.AUOptions.Value -eq 3 -and -not (Get-CampaignTask 'BosunT dotnet final' $store) -and -not (Test-Path (Join-Path $bin2 'install-dotnet-final.ps1')) -and -not (Test-Path $record)) "restore with no targets given uses the recorded ones and reads every original back ($(($out | Select-Object -Last 1)))"
+
+  # A lost record: the originals are not known, so that is recorded and said, and restore returns Windows' defaults.
+  Reset
+  Setup @('-Apply') | Out-Null
+  Remove-Item -LiteralPath $record
+  $r = Setup @('-Apply')
+  Check ($r.Code -eq 0 -and $r.Text -match 'the originals are not known' -and (Read-Json $record).Originals -eq 'unknown') 'an apply with no record over held values says the originals are not known'
+  $r = Setup @('-Restore')
+  Check ($r.Code -eq 0 -and $r.Text -match 'were not known: returned Windows'' defaults' -and (Policy) -eq '{"NoAutoRebootWithLoggedOnUsers":{"Present":false,"Value":null},"AUOptions":{"Present":false,"Value":null}}') 'and restore returns both values absent, saying so'
+
+  # A record that parses but is not whole is refused before anything changes.
+  Reset
+  [IO.File]::WriteAllText($record, '{"PolicyKey": "HKCU:\\Software\\elsewhere"}')
+  foreach ($verb in '-Apply', '-Restore') {
+    $r = Setup @($verb)
+    Check ($r.Code -ne 0 -and $r.Text -match 'is not a complete admin record \(Update is missing\)' -and (Policy) -eq $before -and -not (Test-Path $store)) "$verb refuses an incomplete record with the field that is wrong, and nothing changes"
+  }
+
   # A machine set up before 2026-11-10 also has the retired VHDX task and its body: undo removes those too.
   Reset
   Setup @('-Apply') | Out-Null
@@ -141,7 +180,7 @@ Add-Content '$sdks' "`$Version [`$InstallDir\sdk]"
 }
 finally {
   Remove-Item Env:BOSUN_TEST_FAIL_AFTER_CHANGES, Env:BOSUN_FAKE_INSTALL_FAIL -ErrorAction Ignore
-  Remove-Item -LiteralPath "HKCU:\Software\BosunTest\admin-$PID" -Recurse -ErrorAction Ignore
+  Remove-Item -LiteralPath "HKCU:\Software\BosunTest\admin-$PID" -Recurse -ErrorAction Ignore  # AU and AU2
   Remove-Item -Recurse -Force $work -ErrorAction Ignore
 }
 if ($failed) { "$failed failed"; exit 1 }

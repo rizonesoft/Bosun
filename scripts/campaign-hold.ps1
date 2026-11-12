@@ -6,17 +6,32 @@
 #   pwsh scripts/campaign-hold.ps1 -Restore   writes the saved values back; the record goes only once all read back
 #
 # The record, %LOCALAPPDATA%\Bosun\campaign-hold.json, is written before the first change and never replaced by a
-# second -Apply, so the values it holds are always the ones from before the campaign.
+# second -Apply, so the values it holds are always the ones from before the campaign. A record that is not complete
+# is refused before anything changes. Each powercfg call is stopped with its tree past -ProbeSeconds (120), and this
+# process runs in a job that ends everything it started when it ends, interrupted or killed included.
 [CmdletBinding(DefaultParameterSetName = 'Preview')]
 param(
   [Parameter(ParameterSetName = 'Apply')][switch]$Apply,
   [Parameter(ParameterSetName = 'Restore')][switch]$Restore,
   [string]$Record = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
   [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
-  [string]$LockKey = 'HKCU:\Control Panel\Desktop'
+  [string]$LockKey = 'HKCU:\Control Panel\Desktop',
+  [ValidateRange(1, 3600)][int]$ProbeSeconds = 120
 )
 $ErrorActionPreference = 'Stop'
+# A refusal or a failure is one plain line, whatever threw it: an unreadable record, a powercfg past its limit.
+trap { "FAIL $($_.Exception.Message)"; exit 1 }
 . (Join-Path $PSScriptRoot 'lib\campaign.ps1')
+. (Join-Path $PSScriptRoot 'lib\job-measure.ps1')
+Stop-TreeWithThisWindow
+$PowerCfgSeconds = $ProbeSeconds
+
+# The saved record, checked whole, or $null when there is none; an unreadable or incomplete one throws.
+function Read-HoldRecord {
+  $saved = Read-Json $Record
+  if ($saved) { Assert-Record $saved $Record 'hold' }
+  $saved
+}
 
 # Test-only fault injection: stop after this many changes, as a crash or a killed shell would.
 $failAfter = [int]($env:BOSUN_TEST_FAIL_AFTER_CHANGES ?? '0')
@@ -35,7 +50,7 @@ function Show-Plan($now) {
 }
 
 if ($Restore) {
-  $saved = Read-Json $Record
+  $saved = Read-HoldRecord
   if (-not $saved) { "nothing to restore: no record at $Record"; exit 0 }
   $failed = @()
   foreach ($p in $saved.Power) {
@@ -70,7 +85,7 @@ if (-not $Apply) {
   exit 0
 }
 
-$saved = Read-Json $Record  # a corrupt record throws here, before anything changes
+$saved = Read-HoldRecord  # a corrupt or incomplete record throws here, before anything changes
 if ($saved) {
   "keeping the values saved at $Record, from before the hold"
 } else {
