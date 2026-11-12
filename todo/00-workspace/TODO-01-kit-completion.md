@@ -46,7 +46,7 @@ title: "TODO-01 -- Finish the agent kit"
 | 6 | §6 | Gates: weakening scan and native checks | §4 | [ ] |
 | 7 | §7 | Private GitHub repo and CI | §5 | [ ] |
 | 8 | §9 | Register scheduled tasks on this machine | §5 | [ ] |
-| 9 | §12 | Build and dev tool stack measured and tuned | -- | [ ] |
+| 9 | §12 | Build and dev tool stack measured and tuned | -- | [x] |
 
 ## 1. Review-in-flight marks for the guard
 
@@ -288,9 +288,12 @@ Filed 2026-11-12 on the owner's request to optimise the build and dev tools for 
 - [x] Configure fresh once in `scripts/build.ps1` when configuring from the existing `build/CMakeCache.txt` fails, and fail as before when the fresh configure fails too. Done when: `tests/build_script_test.ps1`, with a fake `cmake`, shows a bad cache configured fresh once and built, a broken project failing after the one fresh try with nothing built, and a failing `-Fresh` not tried again. Cheaper substitute: always configuring fresh, which rebuilds everything on every build.
 - [x] Add `-DecideOnly` to `scripts/measure-build.ps1`: record `-Decision` and `-Note` on a label already measured, keeping its numbers, and refuse a label never measured. Done when: `tests/measure_build_test.ps1` shows both. Cheaper substitute: measuring again to change a word.
 - [x] Add `tests/build_script_test.ps1` to the Windows job in `.github/workflows/build.yml`. Done when: the step is listed beside `tests/dev_env_test.ps1`.
-- [ ] Commit: `build: measured tool stack, keeping what wins`
+- [x] Commit: `build: measured tool stack, keeping what wins`
 
 **Test checkpoint:** `pwsh tests/measure_build_test.ps1`, `pwsh tests/dev_env_test.ps1` and `pwsh tests/build_script_test.ps1` exit 0, and fail if `Measure-Job` stops counting child processes, a failed step is stored or the renderer drops a row; `pwsh scripts/measure-build.ps1 -RenderOnly` rewrites `docs/build-performance.md` from the stored data; and `pwsh scripts/build.ps1` followed by `build/Release/test_core.exe` passes with every kept setting.
+
+> **Verified:** 2026-11-12 | §12 | 15dead954809d32f8f25caff791712b5077ef011
+> **Review:** `docs/reviews/d00-t01-s12.json`
 
 ## Verification
 

@@ -1,0 +1,94 @@
+{
+  "ref": "D00 T01 \u00a712",
+  "title": "Build and dev tool stack measured and tuned",
+  "implementation_sha": "15dead954809d32f8f25caff791712b5077ef011",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T01-s12.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T01-s12.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T01-s12.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh tests/measure_build_test.ps1 -> all checks passed (44 ok)",
+    "pwsh tests/dev_env_test.ps1 -> all checks passed (17 ok)",
+    "pwsh tests/build_script_test.ps1 -> all checks passed (8 ok)",
+    "pwsh scripts/measure-build.ps1 -RenderOnly -> rendered docs/build-performance.md from 6 label(s)",
+    "pwsh scripts/build.ps1; build/Release/test_core.exe -> ninja: no work to do. / ok"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T01-s12.md",
+    "verdict": "completed",
+    "candidate": "5f9c7cfc7cdd16345763b6d2f07a2d72a1eca08b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 returned one P3 (the median was only checked as positive); it was fixed in 5f9c7cf, so nothing was filed.",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T01-s12.md",
+    "candidate": "9eacc6286d3e1550bd12ec4b5a7fb2b195e90ab1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "9eacc6286d3e1550bd12ec4b5a7fb2b195e90ab1",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
