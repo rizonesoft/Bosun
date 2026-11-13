@@ -1,0 +1,87 @@
+{
+  "ref": "D00 T03 \u00a719",
+  "title": "Run guard holds an Antigravity run",
+  "implementation_sha": "497a32e37cc09eb873960ce9bbf0c4367504894a",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s19.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s19.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/run-tests.py test_run_guard -> Ran 103 tests in 20 classes, OK",
+    "pwsh tests/start_run_test.ps1 -> all passed",
+    "python scripts/run-tests.py test_todo_graph test_review_policy test_run_guard -> Ran 314 tests, OK (before the completion fixes)",
+    "full gate, CI on 6fac116 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43338437745, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43338437754"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s19.md",
+    "verdict": "completed",
+    "candidate": "6fac1167c995a607f3ba14a0646efe9efc0504ee",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s19.md",
+    "candidate": "7c3dcfe77ce7156826d21a2bd3edcd849610679c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7c3dcfe77ce7156826d21a2bd3edcd849610679c",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

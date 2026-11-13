@@ -42,7 +42,7 @@ Sections: 33 | Checklist items: 338
 | [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
 | [x]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
 | [x]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
-| [ ]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
+| [x]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
 | [ ]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 6     |
 | [ ]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 5     |
 
@@ -142,6 +142,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 29/87 verified sections, 7 ready to run now.
+Progress: 30/87 verified sections, 6 ready to run now.
 
-Checklist: 335/606 items completed (includes Commit items).
+Checklist: 336/606 items completed (includes Commit items).

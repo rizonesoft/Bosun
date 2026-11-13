@@ -57,7 +57,7 @@ title: "TODO-03 -- Campaign readiness"
 | 16 | §16 | Captured rate-limit output for the reviewer classifier | §4 | [ ] |
 | 17 | §17 | Branch protection on main, read back | §8 | [x] |
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [x] |
-| 19 | §19 | Run guard holds an Antigravity run | -- | [ ] |
+| 19 | §19 | Run guard holds an Antigravity run | -- | [x] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [ ] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [ ] |
 
@@ -754,9 +754,12 @@ Filed 2026-11-12 on the owner's request for a desktop shortcut that runs the pla
 - [x] Wire it in `.agents/hooks.json` (a workspace `Stop` hook running `python scripts/run-guard.py hook --runner antigravity`, with a timeout), and say in `AGENTS.md` where the guard's hooks are wired for each runner. Done when: a test reads `.agents/hooks.json` and finds the one `Stop` hook with that command.
 - [x] Have `scripts/start-run.ps1 -Agent antigravity` claim the guard with `run-guard.py start --session <id> --runner antigravity --owner-pid $PID` after its window joins its job and before starting `agy`, with `BOSUN_RUN_SESSION` set to that id for `agy`, keep the in-prompt "wait in this session" line and name the halt command in it, and run `run-guard.py end --session <id>` once `agy` returns or fails to start, since the `-NoExit` window outlives it; a live Claude Code run still refuses the start. Done when: `tests/start_run_test.ps1`, with a fake `agy` and a state file of its own, shows the claim, the variable and the settings reaching `agy`, the run recorded `ended` after a fake `agy` that exits 0 and one that exits 1 with the launcher still alive, a new start then succeeding, and the run recorded `ended` after the launcher's window process is killed.
 - [x] Say in `.claude/skills/process-plan/SKILL.md` and `.claude/skills/process-phase/SKILL.md`, and their two mirrors, that an Antigravity run has no heartbeat, so where they say to end the turn and let the heartbeat take the run up, it waits in the session instead, as its Stop hook tells it. Done when: the mirror test passes with the new text in all three copies.
-- [ ] Commit: `run: the guard holds an Antigravity run in its window`
+- [x] Commit: `run: the guard holds an Antigravity run in its window`
 
 **Test checkpoint:** `python scripts/run-tests.py test_run_guard` and `pwsh tests/start_run_test.ps1` exit 0; removing the Antigravity branch from the hook makes the guard harness fail.
+
+> **Verified:** 2026-11-13 | §19 | 497a32e37cc09eb873960ce9bbf0c4367504894a
+> **Review:** `docs/reviews/d00-t03-s19.json`
 ## 20. Runner badge and campaign names on the run shortcuts
 
 Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the same Bosun icon (`resources/bosun.ico`), so they could not be told apart at a glance. Reshaped the same day on the owner's instruction to match the launchers of the owner's other campaigns (Office, Isotone): the shortcuts are named "Bosun Claude campaign" and "Bosun Carbon campaign", and each carries the Bosun icon with a round badge in the bottom-right corner, in its runner's colour with a white outline (`#D97757` for Claude Code, `#4C8DF6` for Antigravity on Gemini 4 Carbon). A runner's mark is its company's trademark, so none is committed here: when `marks\claude.svg` or `marks\gemini.svg` exists in the icon folder on this PC it is drawn in white inside the badge from 32 px up, and without it the badge carries its colour alone. The frames come from the masters in `design/icon/`, as `AGENTS.md` requires of every app icon. Decision recorded: the earlier design (a badge cut from the agent program's own icon, a lettered fallback, a PowerShell compositor) is withdrawn in favour of the owner's own pattern; reversing it costs one rewrite of `badged` in `scripts/build-icons.py`. The Carbon shortcut now starts Antigravity on `gemini-4-carbon-medium` (the `-AgyModel` default), so its name is true; reversing that is one default.
