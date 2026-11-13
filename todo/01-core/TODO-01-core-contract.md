@@ -151,6 +151,8 @@ This is the panel's main read, and must be cheap to call every five seconds.
 
 ## 4. report --json and logger snapshots
 
+> **Started:** 2026-11-13T09:43:26Z
+
 History is a query over CSV that `report` already joins. Live data should not need a CSV read at all.
 
 **Corrected 2026-11-13:** checked against the tree before the build. `cmd_report` is at `src/app.cpp:987` (the file said 498, then 471); it joins rows through `dm::aggregate` and `dm::render` in `src/core.hpp`, which keep the worst minute, the busiest minute and each repo's peak private memory but no per-minute series and no days covered. Its folder walk takes any file whose name ends in a date with `.csv` or `.jsonl` (`file_date`), so since `D01 T01 §2` it also reads the job logs, whose JSON lines `dm::parse_row` only happens to refuse; it reads `.csv` only from here on. The Windows sampler is `write_sample` in `src/app.cpp` (`src/logger_main.cpp` is only the windowless entry point that calls `bosun_main({L"log"})`), so the snapshot is written there. The consumers decide the shape: the Memory page (`design/SPEC.md` §3: the Windows used, WSL VM and Overlapping builds cards, a history chart over 24 hours, 7 or 14 days with a table equivalent, a by-repo table sortable by private GB, peak GB and processes, and a Decision card that states when too few days are logged) and its readers (`todo/03-monitor/TODO-01-memory-page.md` §1). Decided here (industry default): both snapshots share one schema with a `side` field, and both land in the shared logs folder, `%LOCALAPPDATA%\Bosun\logs\`, beside the CSV files. Reversal cost: a second schema per side would double the panel's readers.
