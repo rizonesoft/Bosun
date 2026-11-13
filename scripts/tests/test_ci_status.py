@@ -856,10 +856,14 @@ class Gate(Base):
         data = json.loads(out)  # one object, untouched by progress
         self.assertEqual(data["action"], "wait")
         lines = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
-        self.assertEqual(len(lines), 2)
+        # No run is ever listed: the start is held for 90 s with a look every 10 s (D00 T03 §22), then made, and the
+        # last half minute of the wait is one ordinary poll.
+        self.assertEqual(len(lines), 10)
         self.assertIn("build.yml none", lines[0])
         self.assertIn("0s elapsed, 120s left", lines[0])
-        self.assertIn("60s elapsed, 60s left", lines[1])
+        self.assertIn("10s elapsed, 110s left", lines[1])
+        self.assertIn("90s elapsed, 30s left", lines[9])
+        self.assertEqual(clock.t, 120)
 
     def test_the_wait_is_a_real_bound(self):
         clock = _Clock()
@@ -1028,12 +1032,12 @@ class Gate(Base):
         self.assertNotIn("to get a real run", text)  # nobody is asked to run a command
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
 
-    def test_the_start_comes_before_the_first_sleep_and_its_run_is_then_read(self):
+    def test_a_run_never_listed_is_started_once_the_grace_has_passed_and_its_run_is_then_read(self):
         clock = _Clock()
-        slept_at_start = []
+        started_at = []
 
         def dispatched(gh, name):
-            slept_at_start.append(clock.sleeps)
+            started_at.append(clock.t)
             gh.runs[name] = [run("queued", None)]
 
         gh = FakeGh(dict(self.NO_BUILD), on_dispatch=dispatched)
@@ -1041,17 +1045,113 @@ class Gate(Base):
 
         def sleep(seconds):
             real_sleep(seconds)
-            if clock.sleeps == 2:
+            if clock.sleeps == 11:
                 gh.runs["build.yml"] = [run()]  # the started run finishes green
 
         code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]),
                             clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
         data = json.loads(out)  # stdout is still one JSON object
-        self.assertEqual(slept_at_start, [0])  # started at the first look, with a 30 minute wait ahead
+        # Held for the grace (D00 T03 §22), then started: not at the first look, where a push's own run may be seconds away.
+        self.assertEqual(started_at, [ci_status.START_GRACE_SECONDS])
         self.assertEqual((code, data["action"]), (0, "proceed"))
-        self.assertEqual(clock.sleeps, 2)  # pending after one sleep, green after two: no half hour wait
+        self.assertEqual(clock.sleeps, 11)  # nine looks of the grace, pending after the next, green after one more
         self.assertEqual(len(gh.started), 1)
         self.assertIn("waiting: build.yml pending", self.stderr)
+        self.assertEqual(data["start_held"], {"seconds": 90, "workflows": ["build.yml"]})
+
+    # --- the start is held while the push's own run may be about to be listed (D00 T03 §22) ---
+
+    def looks(self, gh, clock):
+        """The fake clock's time at each look, a look being the read of build.yml's runs."""
+        times = []
+        answer = gh.__call__
+
+        def recording(args):
+            if "--workflow" in args and args[args.index("--workflow") + 1] == "build.yml":
+                times.append(clock.t)
+            return answer(args)
+        return recording, times
+
+    def test_a_push_s_run_listed_on_the_second_look_is_never_doubled(self):
+        clock = _Clock()
+        gh = FakeGh({})  # neither workflow has a run yet: the push was seconds ago
+        ask, times = self.looks(gh, clock)
+        real_sleep = clock.sleep
+
+        def sleep(seconds):
+            real_sleep(seconds)
+            if clock.sleeps == 1:
+                gh.runs.update({"build.yml": [run("in_progress", None)], "plan.yml": [run("in_progress", None)]})
+            if clock.sleeps == 3:
+                gh.runs.update({"build.yml": [run()], "plan.yml": [run()]})
+
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], ask, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)  # one object
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertEqual(gh.started, [])  # no second run
+        self.assertNotIn("started", json.loads(self.state().read_text(encoding="utf-8")))
+        self.assertNotIn("recovery: started", self.stderr)
+        # A look every 10 s while the start is held, then ordinary polling once nothing is held.
+        self.assertEqual(times, [0, 10, 70, 130])
+        self.assertEqual(data["start_held"], {"seconds": 10, "workflows": ["build.yml", "plan.yml"]})
+        waiting = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
+        self.assertTrue(waiting[0].endswith("; holding the start of build.yml, plan.yml for 90s more in case the push's own run is about to be listed"), waiting[0])
+        self.assertNotIn("holding", waiting[1])
+        self.assertNotIn("holding", data)
+
+    def test_a_run_listed_at_the_first_look_holds_nothing(self):
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], self.green(), FakeGit(["README.md"]))
+        data = json.loads(out)
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertNotIn("start_held", data)
+        self.assertNotIn("holding", self.stderr)
+
+    def test_a_run_never_listed_is_looked_for_every_ten_seconds_then_started_once(self):
+        clock = _Clock()
+        made = []
+
+        def dispatched(gh, name):
+            # Recorded before it is made: the state already names it as the start happens.
+            made.append((clock.t, name, name in json.loads(self.state().read_text(encoding="utf-8"))["started"]["workflows"]))
+
+        gh = FakeGh({}, on_dispatch=dispatched)
+        ask, times = self.looks(gh, clock)
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "5"], ask, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual(times, [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 150, 210, 270])
+        self.assertEqual(made, [(90, "build.yml", True), (90, "plan.yml", True)])
+        self.assertEqual(gh.started, [["build.yml", "--ref", "main"], ["plan.yml", "--ref", "main"]])
+        self.assertEqual((data["action"], data["started"]), ("wait", ["build.yml", "plan.yml"]))
+        self.assertEqual(data["start_held"], {"seconds": 90, "workflows": ["build.yml", "plan.yml"]})
+
+    def test_a_wait_with_no_room_for_the_grace_starts_at_the_first_look(self):
+        # The hold must never cost the only chance to start: no wait, a wait equal to the grace, and a shorter one.
+        for wait in ([], ["--wait-minutes", "1.5"], ["--wait-minutes", "1"]):
+            with self.subTest(wait=wait):
+                self.tearDown()
+                self.setUp()
+                clock = _Clock()
+                at = []
+                gh = FakeGh({}, on_dispatch=lambda gh, name: at.append(clock.t))
+                self.go(["--gate", "--sha", "HEAD", "--json", *wait], gh, FakeGit(["README.md"]),
+                        clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+                self.assertEqual(at, [0, 0])
+                self.assertEqual(len(gh.started), 2)
+                self.assertNotIn("holding", self.stderr)
+
+    def test_a_two_hour_limit_nearly_spent_starts_at_the_first_look(self):
+        # The wait was recorded long ago for this commit, with runs then in progress; 30 s of the limit are left.
+        queued = FakeGh({"build.yml": [run("queued", None)], "plan.yml": [run("queued", None)]})
+        self.go(["--gate", "--sha", "HEAD"], queued, FakeGit(["README.md"]), wall=lambda: 1_000_000.0)
+        clock = _Clock()
+        at = []
+        gh = FakeGh({}, on_dispatch=lambda gh, name: at.append(clock.t))
+        late = 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS - 30
+        self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"]),
+                clock=clock.now, sleep=clock.sleep, wall=lambda: late + clock.t)
+        self.assertEqual(at, [0, 0])
 
     def test_a_workflow_is_started_once_per_commit(self):
         clock = _Clock()

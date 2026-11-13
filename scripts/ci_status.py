@@ -40,9 +40,16 @@ locked it leaves `build/ci-gate.cleared`, which the next read honours once. The 
 A workflow that reads `none` for a commit (no run, and no proof of a skip) needs a real run, and `gh workflow run <file>
 --ref <branch>` runs whatever the branch holds when it is run. So the branch's remote head is read first (`gh api`):
 
-    it is the commit      `--gate` starts the workflow itself at the first look, before any sleep, once per commit and
-                          workflow (recorded under `started` in `build/ci-gate.json`), and says so on stderr and in
-                          `started`. A read-only look starts nothing and prints the command (`recovery`).
+    it is the commit      `--gate` starts the workflow itself, once per commit and workflow (recorded under `started`
+                          in `build/ci-gate.json`), and says so on stderr and in `started`: but only once the workflow
+                          has had no run for START_GRACE_SECONDS since this gate's first look, looking again every
+                          GRACE_POLL_SECONDS meanwhile. GitHub lists a push's own run a few seconds after the push,
+                          and a gate called at once started a second one, which the workflow's concurrency group
+                          queued behind the first, doubling the wait (D00 T03 §22). When the wait it was given leaves
+                          no room for that (no --wait-minutes, a short one, or the two hour limit nearly spent), it
+                          starts the workflow at once, as the only chance it has. While a start is held the
+                          `waiting:` line says so, and the final JSON carries `start_held`. A read-only look starts
+                          nothing and prints the command (`recovery`).
     it is another commit  nothing is started or offered; `moved_to` names the head, which is the commit to gate.
     it is behind it       the commit isn't on the remote yet, so there is nothing to run: `not_pushed` names the head.
     it can't be read      nothing is started or offered; `recovery_error` says why.
@@ -85,6 +92,10 @@ MAX_REPAIRS = 3
 CANDIDATE = re.compile(r"[0-9a-f]{40}")
 RESOLVE_SECONDS = 5  # a name other than HEAD still needs git, and that is a quick local look
 POLL_SECONDS = 60
+# How long a gate gives a push's own run to be listed before it starts the workflow itself, and how often it looks
+# while it waits for that (D00 T03 §22).
+START_GRACE_SECONDS = 90
+GRACE_POLL_SECONDS = 10
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
 CLEARED = Path("build") / "ci-gate.cleared"
@@ -392,12 +403,13 @@ def unanswered_text(name, why, branch):
             f"this commit; if no run appears: gh workflow run {name} --ref {branch}")
 
 
-def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None):
+def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None, hold=False):
     """What can be done about workflows with no run and no proof, added to the report. With `gate` it starts each one
-    once, but only while the branch's remote head is this commit. Verdicts, the exit code and the action are not its to
-    change: a started run answers on a later look, through its own headSha."""
+    once, but only while the branch's remote head is this commit; with `hold` it starts none yet and names them under
+    `holding`, since the push's own run may be about to be listed. Verdicts, the exit code and the action are not its
+    to change: a started run answers on a later look, through its own headSha."""
     missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
-    for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error"):
+    for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error", "holding"):
         result.pop(key, None)
     if not missing:
         return
@@ -425,6 +437,9 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
         return
     if not gate:
         result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
+        return
+    if hold:
+        result["holding"] = missing
         return
     errors = []
     for name in missing:
@@ -790,16 +805,45 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             base = None
     base_proven = bool(base) and not args.base
     result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
-    # At the first look, before any sleep: a missing run is started now, or the reason it can't be is known now.
-    recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call)
+
+    def hold_left():
+        """Seconds a missing workflow's start is still held, giving the push's own run time to be listed; 0 once the
+        grace has passed, and 0 from the start when the wait leaves no room for it: with no wait there is no later
+        look, and a wait no longer than the grace (and one look) would run out with nothing started."""
+        left = started + START_GRACE_SECONDS - clock()
+        if not (args.gate and args.wait_minutes) or left <= 0 or remaining() <= left + GRACE_POLL_SECONDS:
+            return 0
+        return left
+
+    held, held_for = [], 0.0
+
+    def look_after():
+        """A missing run is started, held or explained on this look, and what was held is remembered for the report."""
+        nonlocal held_for
+        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=hold_left() > 0)
+        for name in result.get("holding", []):
+            if name not in held:
+                held.append(name)
+        if not result.get("holding") and held and not held_for:
+            held_for = clock() - started
+
+    # At the first look: a missing run is held for the grace or started now, or the reason it can't be is known now.
+    look_after()
     while args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
-        print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left", file=sys.stderr)
-        sleep(min(POLL_SECONDS, remaining()))
+        holding = result.get("holding")
+        note = (f"; holding the start of {', '.join(holding)} for {int(hold_left())}s more in case the push's own run is "
+                "about to be listed") if holding else ""
+        print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left{note}", file=sys.stderr)
+        # While a start is held the gate looks often, so the push's run is seen as soon as it is listed.
+        sleep(min(min(GRACE_POLL_SECONDS, hold_left()) if holding and hold_left() > 0 else POLL_SECONDS, remaining()))
         if remaining() <= 0:  # no tool may start now, so the last real answer stands
             break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
-        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call)
+        look_after()
+    result.pop("holding", None)
+    if held:
+        result["start_held"] = {"seconds": int(held_for or clock() - started), "workflows": sorted(held)}
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
