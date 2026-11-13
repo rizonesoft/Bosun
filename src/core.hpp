@@ -246,8 +246,12 @@ struct Report {
     std::optional<int64_t> wsl_max_swap_mb, wsl_max_psi_full_x100, wsl_max_oom_kills;
     std::map<std::string, int64_t> repo_peak_mb;                      // "side:repo"
     std::map<std::pair<std::string, std::string>, RepoPeak> repo_peaks;  // (side, repo)
-    int64_t busiest_total_mb = 0, busiest_repo_count = 0;
+    int64_t busiest_total_mb = 0, busiest_repo_count = 0;  // the minute with the most private memory in repos
     std::string busiest_minute;
+    // The minute with the most repos active at once (ties to the one with more memory, then the earlier): not the
+    // busiest minute, whose count is only that minute's (round 2 of D01 T01 §4).
+    int64_t active_max = 0, active_total_mb = 0;
+    std::string active_minute;
     std::map<std::string, MinutePoint> series;  // by minute, YYYY-MM-DDTHH:MM
     std::set<std::string> dates;               // UTC dates with a sample
     std::string first_sample, last_sample;
@@ -323,6 +327,12 @@ inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048, con
         auto& point = r.series[minute];
         point.repos = static_cast<int64_t>(repos.size());
         point.repo_private_mb = total;
+        int64_t count = static_cast<int64_t>(repos.size());
+        if (count > r.active_max || (count == r.active_max && total > r.active_total_mb)) {
+            r.active_max = count;
+            r.active_total_mb = total;
+            r.active_minute = minute;
+        }
         if (total > r.busiest_total_mb) {
             r.busiest_total_mb = total;
             r.busiest_repo_count = static_cast<int64_t>(repos.size());
@@ -1050,9 +1060,9 @@ inline std::string report_json(const Report& r, const BuildOverlap& b, const Rea
     o << "},\"builds\":{\"jobs\":" << b.jobs << ",\"max_overlap\":" << b.max_overlap << ",\"at\":";
     if (b.at) o << "\"" << utc_stamp(*b.at) << "\"";
     else o << "null";
-    o << "},\"active_repos\":{\"max\":" << r.busiest_repo_count << ",\"minute\":";
-    json_text(o, r.busiest_minute);
-    o << ",\"total_private_mb\":" << r.busiest_total_mb << "},\"repos\":[";
+    o << "},\"active_repos\":{\"max\":" << r.active_max << ",\"minute\":";
+    json_text(o, r.active_minute);
+    o << ",\"total_private_mb\":" << r.active_total_mb << "},\"repos\":[";
     std::vector<std::pair<std::pair<std::string, std::string>, RepoPeak>> peaks(r.repo_peaks.begin(), r.repo_peaks.end());
     std::sort(peaks.begin(), peaks.end(), [](const auto& a, const auto& c) {
         return a.second.private_mb != c.second.private_mb ? a.second.private_mb > c.second.private_mb : a.first < c.first;

@@ -420,6 +420,14 @@ static void report_json() {
     CHECK(series.item(0)["repos"].n == 2 && series.item(0)["repo_private_mb"].n == 5200);
     CHECK(series.item(1)["minute"].s == "2026-11-13T09:00" && series.item(1)["win_available_mb"].n == 1500 && series.item(1)["wsl_available_mb"].kind == Json::Null);
 
+    // The most repos active at once is a count, not the count of the minute with the most memory (round 2): two repos
+    // of 100 MB at 10:00 and one of 500 MB at 10:01 make 2, at 10:00.
+    std::vector<dm::Row> counted{{"2026-11-12T10:00:05", "win", "repo", "D:/x", 1, 100, 1},
+                                 {"2026-11-12T10:00:05", "win", "repo", "D:/y", 1, 100, 1},
+                                 {"2026-11-12T10:01:05", "win", "repo", "D:/z", 1, 500, 1}};
+    auto ac = json(dm::report_json(dm::aggregate(counted), dm::BuildOverlap{}, read, "t", "s", 7));
+    CHECK(ac && (*ac)["active_repos"]["max"].n == 2 && (*ac)["active_repos"]["minute"].s == "2026-11-12T10:00" && (*ac)["active_repos"]["total_private_mb"].n == 200);
+
     // The window: only samples at or after `since` count, for 1, 7 and 14 days alike, one second either side.
     for (int days : {1, 7, 14}) {
         int64_t now = *dm::utc_seconds("2026-11-20T12:00:00Z");

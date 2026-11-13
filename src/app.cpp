@@ -79,6 +79,9 @@ struct Options {
     // The WSL shim's own figures for status --json (D01 T01 §3), and its guest floor for a job's record.
     std::optional<uint64_t> guest_avail_mb, guest_total_mb, min_guest_mb;
     std::wstring wsl_logger;
+    // When the WSL shim began, in ms since 1970: acquire starts through interop up to a second later, and that much of
+    // the job's wait would otherwise be missing from its line.
+    std::optional<uint64_t> queued_at_ms;
     std::vector<std::wstring> command;
     // What a record says of the job (acquire takes them from the WSL shim; run works them out for itself).
     std::wstring repo, side, label;
@@ -117,6 +120,7 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         else if (a == L"--guest-avail-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_avail_mb = guest; }
         else if (a == L"--guest-total-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_total_mb = guest; }
         else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; }
+        else if (a == L"--queued-at-ms") { if (!count(0, UINT64_MAX, guest)) return false; o.queued_at_ms = guest; }
         else if (a == L"--wsl-logger") {
             if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
             o.wsl_logger = v;
@@ -212,6 +216,13 @@ uint32_t own_session() {
     DWORD session = 0;
     ProcessIdToSessionId(GetCurrentProcessId(), &session);
     return session;
+}
+
+int64_t epoch_ms() {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t t = (uint64_t{ft.dwHighDateTime} << 32) | ft.dwLowDateTime;
+    return static_cast<int64_t>(t / 10000ULL) - 11644473600000LL;  // FILETIME counts 100 ns from 1601
 }
 
 std::string utc_now() {
@@ -671,6 +682,13 @@ int cmd_acquire(const Options& o) {
     if (job.side.empty()) job.side = L"wsl";  // the WSL shim is acquire's caller
     std::string started_at = utc_now();
     auto took = std::chrono::steady_clock::now();
+    // The time between the shim beginning and this process starting is waiting too; bounded at a minute, so a clock
+    // that jumped between the two sides can never make a wait up.
+    double interop_lag_s = 0;
+    if (o.queued_at_ms) {
+        int64_t lag = epoch_ms() - static_cast<int64_t>(*o.queued_at_ms);
+        if (lag > 0 && lag < 60000) interop_lag_s = static_cast<double>(lag) / 1000;
+    }
     Records records(job);
     records.waiting();
     Slot slot = acquire_slot(o, [&](const char* why) { records.waiting(why); });
@@ -705,7 +723,7 @@ int cmd_acquire(const Options& o) {
     if (!told_start) started = ended;  // the command never started: all of it was waiting, none of it running
     records.done();
     if (slot.handle) ReleaseMutex(slot.handle);
-    append_job_line(job_line(job, started_at, slot.index, seconds_since(took, started), seconds_since(started, ended), code));
+    append_job_line(job_line(job, started_at, slot.index, seconds_since(took, started) + interop_lag_s, seconds_since(started, ended), code));
     return 0;
 }
 

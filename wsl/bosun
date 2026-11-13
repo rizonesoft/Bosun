@@ -178,7 +178,7 @@ began_ms="$(now_ms)"
 # this script, before it could write the job's line (D01 T01 §2). It still ends when the pipe closes.
 detach=()
 command -v setsid >/dev/null && detach=(setsid)
-"${detach[@]}" "$EXE" acquire "${args[@]}" <"$pipes/in" >"$pipes/out" &
+"${detach[@]}" "$EXE" acquire "${args[@]}" --queued-at-ms "$began_ms" <"$pipes/in" >"$pipes/out" &
 hold_pid=$!
 exec 3>"$pipes/in" 4<"$pipes/out"
 rm -rf "$pipes"
