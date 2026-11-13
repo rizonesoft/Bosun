@@ -12,6 +12,7 @@ You are an independent product reviewer. Do not modify any file. The candidate b
 - TODO section: `<DNN TNN §N>` (its contract: `python3 scripts/todo-graph.py resolve "<DNN TNN §N>"`).
 - The TODO file's Goal and Outcome (with its Adjacency line): `<path to the TODO file>`.
 - Fidelity: `<the design source the section names>`, or `none (Surface: no)`.
+- Renders, for a `Surface: yes` section: the PNGs in `build/renders/` (one per view, state and theme, listed in `build/renders/index.json` with the commit they were drawn from), written by `pwsh scripts/render-pages.ps1`. Look at them beside the design source; a folder with no `index.json` holds no current run.
 - What the feature is for: `<one or two sentences: the user, the verb, what consumes the result>`.
 - Governing documents: `AGENTS.md` and `<the plan, spec or competitive analysis that applies>`.
 - Weakening scan: `<the report of python scripts/weakening-scan.py --base <BASE_SHA> --head <TIP_SHA>, pasted whole: every signal with its answer, or the line saying there are none>`.

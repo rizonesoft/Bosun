@@ -86,6 +86,10 @@ jobs:
         run: pwsh tests\check_all_test.ps1
       - name: No MSBuild node outlives a .NET build
         run: pwsh tests\dotnet_nodes_test.ps1
+      - name: Page renders are written whole or not at all
+        run: pwsh tests\render_pages_test.ps1
+      - name: Window capture self-test
+        run: pwsh tests\capture_window_test.ps1
 
   linux:
     name: Test the WSL side on Linux

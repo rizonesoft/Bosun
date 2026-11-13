@@ -9,28 +9,11 @@ namespace Bosun.Panel.Tests;
 
 public class FoundationTests
 {
-    /// <summary>Runs on a thread of its own in the single-threaded apartment WPF needs, and returns what it returned.</summary>
-    static T OnSta<T>(Func<T> work)
-    {
-        T result = default!;
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            try { result = work(); }
-            catch (Exception e) { failure = e; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (failure is not null) throw new InvalidOperationException("the work on the STA thread failed", failure);
-        return result;
-    }
-
     [Fact]
     public void Foundation_binds_a_number_in_the_culture_it_is_given()
     {
         // 1234.5 as N2 is 1.234,50 in German and only with ICU: invariant globalization gives 1,234.50.
-        var text = OnSta(() =>
+        var text = Sta.Run(() =>
         {
             var block = new TextBlock { Language = System.Windows.Markup.XmlLanguage.GetLanguage("de-DE") };
             block.SetBinding(TextBlock.TextProperty, new Binding { Source = 1234.5, StringFormat = "N2", ConverterCulture = new CultureInfo("de-DE") });
@@ -53,7 +36,7 @@ public class FoundationTests
     public void Foundation_panel_xaml_names_a_type_of_its_own()
     {
         // Loading the compiled resource dictionary proves the temporary markup project built and the type resolved.
-        var name = OnSta(() =>
+        var name = Sta.Run(() =>
         {
             // The compiled BAML is loaded from the panel's assembly by its component path, which needs no Application
             // (an absolute pack:// address needs the scheme the Application registers).

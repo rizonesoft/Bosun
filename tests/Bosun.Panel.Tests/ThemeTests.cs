@@ -14,22 +14,6 @@ namespace Bosun.Panel.Tests;
 /// </summary>
 public class ThemeTests
 {
-    static T OnSta<T>(Func<T> work)
-    {
-        T result = default!;
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            try { result = work(); }
-            catch (Exception e) { failure = e; }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (failure is not null) throw new InvalidOperationException("the work on the STA thread failed", failure);
-        return result;
-    }
-
     static Color Hex(string value)
     {
         var digits = value.TrimStart('#');
@@ -47,7 +31,7 @@ public class ThemeTests
         var repo = TestPaths.Repo();
         using var tokens = JsonDocument.Parse(File.ReadAllText(Path.Combine(repo, "design", "tokens", "colors.json")));
         var path = TestPaths.GeneratedTheme(file);
-        var failures = OnSta(() =>
+        var failures = Sta.Run(() =>
         {
             ResourceDictionary dict;
             using (var stream = File.OpenRead(path)) dict = (ResourceDictionary)XamlReader.Load(stream);
@@ -82,7 +66,7 @@ public class ThemeTests
     [Fact]
     public void The_two_themes_hold_the_same_keys()
     {
-        var keys = OnSta(() =>
+        var keys = Sta.Run(() =>
             new[] { "Dark.xaml", "Light.xaml" }.Select(file =>
             {
                 using var stream = File.OpenRead(TestPaths.GeneratedTheme(file));

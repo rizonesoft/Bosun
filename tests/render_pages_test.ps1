@@ -1,0 +1,51 @@
+# Tests scripts/render-pages.ps1 (D02 T02 §9): it writes the sample view's four pictures and their index, and a run
+# that can't finish leaves nothing that reads as a current run.
+#
+# Each case writes into a scratch folder of its own (-Out), never build/renders. The builds are of one test project
+# that the gate has already built, so they are quick and need no queue slot.
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path $PSScriptRoot
+$script = Join-Path $repo 'scripts/render-pages.ps1'
+$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
+$work = Join-Path $scratch ("bosun-render-pages-test-" + [guid]::NewGuid())
+$failed = 0
+function Check([string]$Name, [bool]$Ok) { if ($Ok) { "ok   $Name" } else { "FAIL $Name"; $script:failed++ } }
+function Names([string]$Folder) { @(Get-ChildItem -LiteralPath $Folder -File | Sort-Object Name | ForEach-Object Name) -join ',' }
+
+New-Item -ItemType Directory -Path $work | Out-Null
+try {
+  # A build that fails: the old pictures and their index are gone before the build starts, and stay gone.
+  $out = Join-Path $work 'broken'
+  New-Item -ItemType Directory -Path $out | Out-Null
+  Set-Content -LiteralPath (Join-Path $out 'queue.normal.dark.png') 'a picture from an earlier run'
+  Set-Content -LiteralPath (Join-Path $out 'index.json') '{"renders":[{"file":"queue.normal.dark.png"}]}'
+  Set-Content -LiteralPath (Join-Path $out 'notes.txt') 'not a render'
+  $broken = Join-Path $work 'Broken.csproj'
+  Set-Content -LiteralPath $broken '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net11.0</TargetFramework></PropertyGroup><ItemGroup><Compile Include="missing.cs" /></ItemGroup></Project>'
+  $text = (& pwsh -NoProfile -File $script -Out $out -Project $broken 2>&1 | Out-String)
+  $code = $LASTEXITCODE
+  Check "a build that fails stops the run with the build's exit code ($code)" ($code -ne 0 -and $text -match 'the build failed')
+  Check "and leaves no old picture and no index, only what wasn't a render ($(Names $out))" ((Names $out) -eq 'notes.txt')
+
+  # The real project: the sample view in two states and two themes, and the index naming them.
+  $out = Join-Path $work 'real'
+  $text = (& pwsh -NoProfile -File $script -Out $out 2>&1 | Out-String)
+  $code = $LASTEXITCODE
+  Check "the real catalogue is written (exit $code)" ($code -eq 0 -and $text -match "render-pages: \d+ pictures in ")
+  $names = Names $out
+  foreach ($file in 'sample.normal.dark.png', 'sample.normal.light.png', 'sample.empty.dark.png', 'sample.empty.light.png', 'index.json') {
+    Check "$file is there" ((",$names,").Contains(",$file,"))
+  }
+  $index = Get-Content -LiteralPath (Join-Path $out 'index.json') -Raw | ConvertFrom-Json
+  $pngs = @(Get-ChildItem -LiteralPath $out -Filter '*.png' | Sort-Object Name | ForEach-Object Name)
+  Check "the index names every picture and no other ($($pngs.Count))" ((@($index.renders.file | Sort-Object) -join ',') -eq ($pngs -join ','))
+  Check 'each picture is a PNG of 1360 x 860' (-not (@($index.renders | Where-Object { $_.width -ne 1360 -or $_.height -ne 860 })) -and -not ($pngs | Where-Object {
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $out $_)); -not ($bytes.Length -gt 1000 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47) }))
+  Check 'the index says which commit the pictures are of' ($index.commit -match '^([0-9a-f]{40}|unknown)$')
+
+  # Renders stay out of Git: the default folder is under build/, which is ignored.
+  $ignored = (& git -C $repo check-ignore 'build/renders/sample.normal.dark.png' | Out-String).Trim()
+  Check 'build/renders is ignored by Git' ($ignored -eq 'build/renders/sample.normal.dark.png')
+} finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore }
+if ($failed) { "$failed check(s) failed"; exit 1 }
+'all passed'
