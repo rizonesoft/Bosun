@@ -271,7 +271,7 @@ if ($SkipWsl) {
     $r = Read-Rec 'slot-0.json'
     Check ($r.kind -eq 'holder' -and $r.command.Length -le 4096 -and $r.command.EndsWith(' [...]') -and $r.command.StartsWith('bash -c')) "a WSL command past the Windows limit still holds a slot, its label cut ($($r.command.Length) characters)"
     $longDone = $job.WaitForExit(20000)
-    if (-not $longDone) { & "$env:SystemRoot\System32	askkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }  # its whole tree, so nothing outlives the test
+    if (-not $longDone) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }  # its whole tree, so nothing outlives the test
     Check ($longDone -and (Wait-Until { -not (Records) } 10000)) "and that long job ends and its record goes ($((Records).Name -join ', '))"
     if (-not $done) { Stop-Process -Id $job.Id -Force }
   } finally {
