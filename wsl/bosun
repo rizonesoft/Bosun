@@ -181,8 +181,12 @@ fi
 export BOSUN_SLOT="$SLOT"
 export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
 
+# bosun.exe acquire writes the job's line (D01 T01 §2): it learns when the command started, after any wait for guest
+# memory, and how it ended. A pipe that's gone only loses the line.
+{ echo start >&3; } 2>/dev/null
 contained "$@"
 code=$?
+{ echo "exit $code" >&3; } 2>/dev/null
 exec 3>&- 4<&-
 wait "$hold_pid" 2>/dev/null
 exit "$code"

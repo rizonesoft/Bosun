@@ -292,11 +292,13 @@ inline std::string record_json(const SlotRecord& r) {
 
 // A flat JSON object whose values are strings, integers or null, as the records are; anything else is refused.
 struct FlatValue {
-    enum Kind { String, Integer, Null } kind = Null;
+    enum Kind { String, Integer, Decimal, Bool, Null } kind = Null;
     std::string text;
     int64_t number = 0;
     bool negative = false;
     uint64_t magnitude = 0;
+    double decimal = 0;  // a Decimal's value, and an Integer's too
+    bool flag = false;
 };
 
 inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s) {
@@ -379,6 +381,10 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         } else if (s.compare(i, 4, "null") == 0) {
             v.kind = FlatValue::Null;
             i += 4;
+        } else if (s.compare(i, 4, "true") == 0 || s.compare(i, 5, "false") == 0) {
+            v.kind = FlatValue::Bool;
+            v.flag = s[i] == 't';
+            i += v.flag ? 4 : 5;
         } else {
             v.kind = FlatValue::Integer;
             if (i < s.size() && s[i] == '-') { v.negative = true; ++i; }
@@ -390,9 +396,25 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 ++i;
                 ++digits;
             }
-            if (!digits || (i < s.size() && (s[i] == '.' || s[i] == 'e' || s[i] == 'E'))) return std::nullopt;
+            if (!digits) return std::nullopt;
             if (v.negative ? v.magnitude > uint64_t{1} << 63 : false) return std::nullopt;
             v.number = v.negative ? static_cast<int64_t>(0 - v.magnitude) : static_cast<int64_t>(v.magnitude);
+            v.decimal = static_cast<double>(v.number);
+            if (i < s.size() && s[i] == '.') {  // a decimal fraction; no exponent is ever written
+                ++i;
+                double scale = 0.1, fraction = 0;
+                size_t places = 0;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+                    fraction += (s[i] - '0') * scale;
+                    scale /= 10;
+                    ++i;
+                    ++places;
+                }
+                if (!places) return std::nullopt;
+                v.kind = FlatValue::Decimal;
+                v.decimal = v.negative ? v.decimal - fraction : v.decimal + fraction;
+            }
+            if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) return std::nullopt;
         }
         if (out.count(key)) return std::nullopt;  // a repeated key is no record anyone wrote
         out[key] = v;
@@ -497,6 +519,82 @@ inline bool reader_removes(const SlotRecord& r, RecordState state, const std::ve
     return std::any_of(all.begin(), all.end(), [&](const SlotRecord& o) {
         return o.kind == "holder" && o.pid == r.pid && o.process_start == r.process_start;
     });
+}
+
+// --- The job history log (D01 T01 §2) ---------------------------------------------------------------------------
+// One JSON line per finished job, appended to jobs-YYYY-MM-DD.jsonl: what ran when, how long it waited and ran, and how
+// it ended, for the Queue page and report --json.
+
+struct JobLine {
+    std::string started_at, ended_at;     // UTC, YYYY-MM-DDTHH:MM:SSZ: when bosun took the job, when its command ended
+    int64_t pid = 0;                      // the bosun process
+    std::string command;
+    std::optional<std::string> repo;
+    std::string side;                     // "windows" or "wsl"
+    std::string ns;
+    std::optional<int> slot;              // null for a job that ran without one
+    double waited_s = 0, ran_s = 0;       // until the command started, and from then to its end
+    std::optional<int64_t> exit_code;     // null when the WSL shim went away without one
+    bool timed_out_into_queue = false;    // the slot wait ran out and the job ran without a slot
+};
+
+inline std::string seconds_text(double s) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f", s < 0 ? 0.0 : s);
+    return buf;
+}
+
+inline std::string job_line_json(const JobLine& j) {
+    std::ostringstream o;
+    o << "{\"schema_version\":1,\"started_at\":\"" << json_escape(j.started_at) << "\",\"ended_at\":\"" << json_escape(j.ended_at)
+      << "\",\"pid\":" << j.pid << ",\"command\":\"" << json_escape(j.command) << "\",\"repo\":";
+    if (j.repo) o << "\"" << json_escape(*j.repo) << "\"";
+    else o << "null";
+    o << ",\"side\":\"" << json_escape(j.side) << "\",\"ns\":\"" << json_escape(j.ns) << "\",\"slot\":";
+    if (j.slot) o << *j.slot;
+    else o << "null";
+    o << ",\"waited_s\":" << seconds_text(j.waited_s) << ",\"ran_s\":" << seconds_text(j.ran_s) << ",\"exit_code\":";
+    if (j.exit_code) o << *j.exit_code;
+    else o << "null";
+    o << ",\"timed_out_into_queue\":" << (j.timed_out_into_queue ? "true" : "false") << "}";
+    return o.str();
+}
+
+inline std::optional<JobLine> parse_job_line(const std::string& text) {
+    auto obj = parse_flat_object(text);
+    if (!obj) return std::nullopt;
+    auto get = [&](const char* k) -> const FlatValue* {
+        auto it = obj->find(k);
+        return it == obj->end() ? nullptr : &it->second;
+    };
+    auto is = [](const FlatValue* v, FlatValue::Kind k) { return v && v->kind == k; };
+    auto number = [](const FlatValue* v) { return v && (v->kind == FlatValue::Integer || v->kind == FlatValue::Decimal); };
+    const FlatValue *version = get("schema_version"), *started = get("started_at"), *ended = get("ended_at"), *pid = get("pid"),
+                    *command = get("command"), *repo = get("repo"), *side = get("side"), *ns = get("ns"), *slot = get("slot"),
+                    *waited = get("waited_s"), *ran = get("ran_s"), *code = get("exit_code"), *timed = get("timed_out_into_queue");
+    if (!is(version, FlatValue::Integer) || version->number != 1) return std::nullopt;
+    if (!is(started, FlatValue::String) || !is(ended, FlatValue::String) || !is(pid, FlatValue::Integer) || !is(command, FlatValue::String)
+        || !is(side, FlatValue::String) || !is(ns, FlatValue::String) || !number(waited) || !number(ran) || !is(timed, FlatValue::Bool)
+        || !repo || !slot || !code)
+        return std::nullopt;
+    if (side->text != "windows" && side->text != "wsl") return std::nullopt;
+    JobLine j;
+    j.started_at = started->text;
+    j.ended_at = ended->text;
+    j.pid = pid->number;
+    j.command = command->text;
+    j.side = side->text;
+    j.ns = ns->text;
+    j.waited_s = waited->decimal;
+    j.ran_s = ran->decimal;
+    j.timed_out_into_queue = timed->flag;
+    if (repo->kind == FlatValue::String) j.repo = repo->text;
+    else if (repo->kind != FlatValue::Null) return std::nullopt;
+    if (slot->kind == FlatValue::Integer && !slot->negative) j.slot = static_cast<int>(slot->magnitude);
+    else if (slot->kind != FlatValue::Null) return std::nullopt;
+    if (code->kind == FlatValue::Integer) j.exit_code = code->number;
+    else if (code->kind != FlatValue::Null) return std::nullopt;
+    return j;
 }
 
 }  // namespace dm

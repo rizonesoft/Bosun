@@ -16,6 +16,9 @@ $nsDir = 'ns-' + (-join ($ns.ToCharArray() | ForEach-Object { if ($_ -cmatch '[a
 $recDir = Join-Path $env:LOCALAPPDATA "Bosun\run\$((Get-Process -Id $PID).SessionId)\$nsDir"
 function Records { @(Get-ChildItem -LiteralPath $recDir -Filter '*.json' -ErrorAction Ignore) }
 function Read-Rec([string]$name) { $f = Join-Path $recDir $name; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
+# The job log's lines (D01 T01 §2), read back from the test's home; -DateKind String keeps the times as written.
+function Job-Lines { @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -Filter 'jobs-*.jsonl' -ErrorAction Ignore | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json -DateKind String }) }
+function Job-Line([string]$like) { @(Job-Lines | Where-Object { $_.command -like $like }) }
 function Wait-Until([scriptblock]$ok, [int]$ms = 10000) { foreach ($i in 1..($ms / 100)) { if (& $ok) { return $true }; Start-Sleep -Milliseconds 100 }; [bool](& $ok) }
 $fail = 0
 # Start-Process joins its arguments without quoting, so paths are quoted here.
@@ -266,6 +269,70 @@ $python = (Get-Command python -CommandType Application | Select-Object -First 1)
 $broke = & $python $breakPy $bosun $ns $sleeper (Join-Path $work 'break.txt') (Join-Path $recDir 'slot-0.json') | ConvertFrom-Json
 Check ($broke.held -and $broke.code -ne 'hung' -and -not $broke.left) "Ctrl+Break ends a holder's command and its record goes ($($broke | ConvertTo-Json -Compress))"
 
+# --- The job history log (D01 T01 §2): one line per finished job, however it ended ---
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'j0.txt') 1
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'j37.txt') 1 37
+$ok = Job-Line '*j0.txt*'
+$bad = Job-Line '*j37.txt*'
+Check ($ok.Count -eq 1 -and $ok[0].exit_code -eq 0 -and $ok[0].slot -eq 0 -and $ok[0].side -eq 'windows' -and $ok[0].ns -eq $ns -and -not $ok[0].timed_out_into_queue -and $ok[0].started_at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$' -and $ok[0].ended_at -match 'Z$' -and $ok[0].ran_s -ge 0 -and $ok[0].waited_s -ge 0 -and $ok[0].pid -gt 0) "a job that exits 0 leaves one line with its fields ($($ok | ConvertTo-Json -Compress))"
+Check ($bad.Count -eq 1 -and $bad[0].exit_code -eq 37) "a job that exits 37 leaves its code ($($bad.exit_code))"
+Check ((Job-Line '*no-such-program-bosun*').exit_code -contains 127) 'a command that could not start leaves its 127'
+Check ((Job-Line '*flood.py*').exit_code -contains 74) 'a job stopped at its write budget leaves its 74'
+$crash = Join-Path $work 'crash.py'
+# A read of address 0 in C (ctypes would catch one and raise), so the process really dies of an access violation.
+Set-Content -LiteralPath $crash -Value 'import faulthandler; faulthandler._read_null()' -Encoding ascii
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $python $crash 2>$null
+Check ((Job-Line '*crash.py*').exit_code -contains -1073741819) "a command that crashes (an access violation) leaves its 0xC0000005 ($((Job-Line '*crash.py*').exit_code))"
+Check ((Job-Line '*break.txt*').exit_code -contains -1073741510) "an interrupted command (Ctrl+Break) leaves its 0xC000013A ($((Job-Line '*break.txt*').exit_code))"
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'jhold.txt')),'4000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 -- $sleeper (Join-Path $work 'jtimed.txt') 1 2>$null
+$timed = Job-Line '*jtimed.txt*'
+Check ($timed.Count -eq 1 -and $timed[0].timed_out_into_queue -and $null -eq $timed[0].slot -and $timed[0].waited_s -ge 0.9) "a job that timed out into the queue says so, with no slot ($($timed | ConvertTo-Json -Compress))"
+$null = $h.WaitForExit(15000)
+Check ((Job-Line '*nested-rec.txt*').Count -eq 0 -and (Job-Line '*nested-rec.cmd*').Count -eq 1) 'a nested run leaves exactly one line, the outer job''s'
+
+# Six jobs on six slots whose commands all wait at a barrier, released together: six whole lines, one for each.
+$barrier = Join-Path $work 'barrier.py'
+Set-Content -LiteralPath $barrier -Encoding ascii -Value @'
+import os, sys, time
+go = sys.argv[1]
+for _ in range(300):
+    if os.path.exists(go): break
+    time.sleep(0.1)
+'@
+$go = Join-Path $work 'go'
+$six = 1..6 | ForEach-Object { Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','6','--min-avail-mb','0','--',(Q $python),(Q $barrier),(Q $go),"six$_" -PassThru -WindowStyle Hidden }
+$all = Wait-Until { @(Records | Where-Object Name -like 'slot-*').Count -eq 6 } 15000
+Set-Content -LiteralPath $go -Value 'go'
+$six | Wait-Process -Timeout 30 -ErrorAction Ignore
+$lines = Job-Line '*barrier.py*'
+$pids = @($lines | ForEach-Object pid | Sort-Object -Unique)
+Check ($all -and $lines.Count -eq 6 -and $pids.Count -eq 6 -and -not (Compare-Object $pids @($six.Id | Sort-Object))) "six jobs released at once leave six whole lines, one each (held all six: $all; lines $($lines.Count), pids $($pids -join ','))"
+
+# Job logs keep the memory logs' 14 days: bosun log --once prunes an old one and keeps today's.
+$logs = Join-Path $env:LOCALAPPDATA 'Bosun\logs'
+$old = Join-Path $logs "jobs-$((Get-Date).ToUniversalTime().AddDays(-20).ToString('yyyy-MM-dd')).jsonl"
+Set-Content -LiteralPath $old -Value '{}'
+$today = @(Get-ChildItem -LiteralPath $logs -Filter "jobs-$((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')).jsonl")
+& $bosun log --once
+Check (-not (Test-Path -LiteralPath $old) -and $today.Count -eq 1 -and (Test-Path -LiteralPath $today[0].FullName)) 'bosun log --once prunes a job log 20 days old and keeps today''s'
+
+# A job log that can't be written (a file where its folder would go) changes neither the exit code nor the queue.
+$noLogHome = Join-Path $work 'no-log-home'
+New-Item -ItemType Directory -Path (Join-Path $noLogHome 'Bosun') -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $noLogHome 'Bosun\logs') -Value 'a file where the logs folder would go'
+$savedHome = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = $noLogHome
+$out = & $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'jnolog.txt') 1 37 2>&1 | Out-String
+$code = $LASTEXITCODE
+$started = Get-Date
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 5 -- $sleeper (Join-Path $work 'jnolog2.txt') 1 2>$null
+$next = $LASTEXITCODE
+$took = ((Get-Date) - $started).TotalSeconds
+$env:LOCALAPPDATA = $savedHome
+Check ($code -eq 37 -and ([regex]::Matches($out, "can't add this job to the job log")).Count -eq 1 -and $next -eq 0 -and $took -lt 4) "a job log that can't be written leaves the exit code ($code), says so once, and the next job takes the slot ($next, $([int]$took) s)"
+
 # A record that can't be written changes neither the queue nor the command's exit code, and says so once.
 $blockedHome = Join-Path $work 'blocked-home'
 New-Item -ItemType Directory -Path $blockedHome | Out-Null
@@ -323,10 +390,34 @@ if ($SkipWsl) {
     $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
     $r = Read-Rec 'slot-0.json'
     Check ($r.kind -eq 'holder' -and $r.command.Length -le 4096 -and $r.command.EndsWith(' [...]') -and $r.command.StartsWith('bash -c')) "a WSL command past the Windows limit still holds a slot, its label cut ($($r.command.Length) characters)"
+    $wslLine = Job-Line 'sleep 4'
+    Check ($wslLine.Count -eq 1 -and $wslLine[0].side -eq 'wsl' -and $wslLine[0].exit_code -eq 0 -and $wslLine[0].slot -eq 0) "a top-level WSL job leaves its line, with side wsl and its exit code ($($wslLine | ConvertTo-Json -Compress))"
     $longDone = $job.WaitForExit(20000)
     if (-not $longDone) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }  # its whole tree, so nothing outlives the test
     Check ($longDone -and (Wait-Until { -not (Records) } 10000)) "and that long job ends and its record goes ($((Records).Name -join ', '))"
     if (-not $done) { Stop-Process -Id $job.Id -Force }
+
+    # A WSL job held for guest memory after its slot: its wait counts until the command really starts, and its run from
+    # there. Slot 0 is taken, so it gets slot 1 and waits out --max-wait 3 for memory it can't have, then runs sleep 2.
+    $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'guesthold.txt')),'15000' -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','3','--','sleep','2' -PassThru -WindowStyle Hidden
+    $null = $job.WaitForExit(30000)
+    $null = Wait-Until { (Job-Line 'sleep 2').Count -eq 1 } 10000
+    $g = Job-Line 'sleep 2'
+    Check ($g.Count -eq 1 -and $g[0].slot -eq 1 -and $g[0].waited_s -ge 2.5 -and $g[0].ran_s -ge 1.5 -and $g[0].ran_s -le 3.5) "a WSL job held for guest memory counts that as waiting, not running (waited $($g.waited_s) s, ran $($g.ran_s) s)"
+    Stop-Process -Id $h.Id -Force -ErrorAction Ignore
+
+    # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
+    $marker = "killmarker$PID"
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 30'),$marker -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
+    wsl.exe -d Ubuntu -- pkill -KILL -f "wsl/bosun run .*$marker"
+    $null = Wait-Until { (Job-Line "*$marker*").Count -eq 1 } 15000
+    $k = Job-Line "*$marker*"
+    Check ($k.Count -eq 1 -and $null -eq $k[0].exit_code -and $k[0].side -eq 'wsl') "a killed WSL shim's job still leaves its line, with no exit code ($($k | ConvertTo-Json -Compress))"
+    if (-not $job.WaitForExit(10000)) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }
+    wsl.exe -d Ubuntu -- pkill -KILL -f $marker
   } finally {
     $env:WSLENV = $savedWslenv
     wsl.exe -d Ubuntu -- rm -rf "$linuxRepo"

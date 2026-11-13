@@ -196,6 +196,48 @@ static void records() {
     CHECK(!dm::reader_removes(h, dm::RecordState::Live, {h, sameHolder}));
 }
 
+static void jobs() {
+    // A finished job's line round-trips, its command holding quotes and non-ASCII text.
+    dm::JobLine j;
+    j.started_at = "2026-11-13T05:00:00Z";
+    j.ended_at = "2026-11-13T05:00:12Z";
+    j.pid = 77;
+    j.command = "pytest -k \"a and b\" caf\xc3\xa9";
+    j.repo = "D:/GitHub/Bosun";
+    j.side = "windows";
+    j.ns = "Bosun";
+    j.slot = 1;
+    j.waited_s = 3.04;
+    j.ran_s = 8.96;
+    j.exit_code = -1073741819;  // 0xC0000005, an access violation, as a signed 32-bit exit code
+    std::string text = dm::job_line_json(j);
+    CHECK(text.find("\"waited_s\":3.0") != std::string::npos && text.find("\"ran_s\":9.0") != std::string::npos);
+    auto back = dm::parse_job_line(text);
+    CHECK(back && back->command == j.command && back->repo == j.repo && back->slot == 1 && back->exit_code == j.exit_code);
+    CHECK(back && back->waited_s > 2.95 && back->waited_s < 3.05 && back->ran_s > 8.95 && back->ran_s < 9.05 && !back->timed_out_into_queue);
+    // A WSL job that timed out into the queue, outside any checkout, whose shim went away: no slot, repo or exit code.
+    dm::JobLine w = j;
+    w.side = "wsl";
+    w.slot.reset();
+    w.repo.reset();
+    w.exit_code.reset();
+    w.timed_out_into_queue = true;
+    auto wb = dm::parse_job_line(dm::job_line_json(w));
+    CHECK(wb && !wb->slot && !wb->repo && !wb->exit_code && wb->timed_out_into_queue && wb->side == "wsl");
+    // Refused: truncated, another version, a missing field, a side that isn't one.
+    CHECK(!dm::parse_job_line(text.substr(0, text.size() - 5)));
+    std::string v2 = text;
+    v2.replace(v2.find("\"schema_version\":1"), 18, "\"schema_version\":2");
+    CHECK(!dm::parse_job_line(v2));
+    CHECK(!dm::parse_job_line("{\"schema_version\":1}"));
+    std::string side = text;
+    side.replace(side.find("\"side\":\"windows\""), 16, "\"side\":\"mac\"");
+    CHECK(!dm::parse_job_line(side));
+    // The records still demand whole numbers: a decimal pid is no record.
+    std::string rec = "{\"schema_version\":1,\"kind\":\"waiter\",\"pid\":7.5,\"process_start\":1,\"started_at\":\"x\",\"command\":\"x\",\"repo\":null,\"side\":\"windows\",\"session\":0,\"ns\":\"n\"}";
+    CHECK(!dm::parse_record(rec));
+}
+
 struct Group {
     const char* name;
     void (*run)();      // null while the group is reserved
@@ -211,7 +253,7 @@ static const Group groups[] = {
     {"rows", rows, nullptr},
     {"aggregate", aggregate, nullptr},
     {"records", records, nullptr},
-    {"jobs", nullptr, "D01 T01"},
+    {"jobs", jobs, nullptr},
     {"status_json", nullptr, "D01 T01"},
     {"report_json", nullptr, "D01 T01"},
     {"config", nullptr, "D01 T01"},

@@ -285,6 +285,50 @@ class Records {
     bool warned_ = false;
 };
 
+// --- The job history log (D01 T01 §2) ---
+
+double seconds_since(std::chrono::steady_clock::time_point from, std::chrono::steady_clock::time_point to) {
+    return std::chrono::duration<double>(to - from).count();
+}
+
+// Appends the job's line to %LOCALAPPDATA%\Bosun\logs\jobs-<UTC date>.jsonl as one write to a handle opened for
+// appending, so lines from jobs ending at once never interleave. A line that can't be written is said once, and changes
+// nothing else.
+void append_job_line(const dm::JobLine& j) {
+    fs::path dir = fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"logs";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    fs::path file = dir / (L"jobs-" + widen(j.ended_at.substr(0, 10)) + L".jsonl");
+    std::string line = dm::job_line_json(j) + "\n";
+    HANDLE h = CreateFileW(file.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    DWORD written = 0;
+    bool ok = h != INVALID_HANDLE_VALUE && WriteFile(h, line.data(), static_cast<DWORD>(line.size()), &written, nullptr) && written == line.size();
+    DWORD error = ok ? 0 : GetLastError();
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    if (!ok)
+        std::cerr << "[bosun] can't add this job to the job log (" << narrow(file.wstring()) << ", error " << error
+                  << "): the job ran as it would, but the Queue page won't list it\n";
+}
+
+// The line for a job of this bosun, from its Records identity and the times it kept.
+dm::JobLine job_line(const Options& o, const std::string& started_at, int slot, double waited, double ran, std::optional<int64_t> code) {
+    dm::JobLine j;
+    j.started_at = started_at;
+    j.ended_at = utc_now();
+    j.pid = static_cast<int64_t>(GetCurrentProcessId());
+    j.command = job_command(o);
+    j.repo = job_repo(o);
+    j.side = o.side.empty() ? "windows" : narrow(o.side);
+    j.ns = narrow(o.ns);
+    if (slot >= 0) j.slot = slot;
+    j.waited_s = waited;
+    j.ran_s = ran;
+    j.exit_code = code;
+    j.timed_out_into_queue = slot < 0;
+    return j;
+}
+
 // Whether a process runs, and since when; access denied is "can't tell", never "gone".
 dm::ProbeAnswer probe_process(int64_t pid) {
     if (pid <= 0 || pid > UINT32_MAX) return {dm::ProbeAnswer::Gone, 0};
@@ -437,18 +481,23 @@ int cmd_run(const Options& o) {
         std::cerr << "usage: bosun run [options] -- command [args]\n";
         return 64;
     }
-    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot: the outer holder's record stands.
+    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot: the outer job's record and line stand.
+    std::string started_at = utc_now();
+    auto took = std::chrono::steady_clock::now();
     Records records(o);
     records.waiting();
     Slot slot = acquire_slot(o);
     records.holding(slot.index);
+    auto started = std::chrono::steady_clock::now();
     SetEnvironmentVariableW(L"BOSUN_SLOT", std::to_wstring(slot.index).c_str());
     // WSLENV carries the marker into WSL, so a nested run on the other side also passes through.
     std::wstring wslenv = env(L"WSLENV");
     SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT" : wslenv + L":BOSUN_SLOT").c_str());
     int code = run_child(o);
+    auto ended = std::chrono::steady_clock::now();
     records.done();  // before the release, so the next holder's record is never the one removed
     if (slot.handle) ReleaseMutex(slot.handle);
+    append_job_line(job_line(o, started_at, slot.index, seconds_since(took, started), seconds_since(started, ended), code));
     return code;
 }
 
@@ -456,18 +505,41 @@ int cmd_run(const Options& o) {
 int cmd_acquire(const Options& o) {
     Options job = o;
     if (job.side.empty()) job.side = L"wsl";  // the WSL shim is acquire's caller
+    std::string started_at = utc_now();
+    auto took = std::chrono::steady_clock::now();
     Records records(job);
     records.waiting();
     Slot slot = acquire_slot(o);
     records.holding(slot.index);
     std::cout << "acquired " << slot.index << std::endl;
-    char buf[64];
+    // The shim says "start" as its command starts (after any wait for guest memory) and "exit <code>" once it ends; the
+    // pipe closing with no code means the shim went away.
+    auto started = std::chrono::steady_clock::now();
+    bool told_start = false;
+    std::optional<int64_t> code;
+    std::string pending;
+    char buf[256];
     DWORD got = 0;
     HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
     while (ReadFile(in, buf, sizeof(buf), &got, nullptr) && got) {
+        pending.append(buf, got);
+        for (size_t end; (end = pending.find('\n')) != std::string::npos; pending.erase(0, end + 1)) {
+            std::string line = pending.substr(0, end);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line == "start" && !told_start) {
+                started = std::chrono::steady_clock::now();
+                told_start = true;
+            } else if (line.rfind("exit ", 0) == 0 && line.size() > 5 && line.size() < 25) {
+                char* tail = nullptr;
+                long long value = std::strtoll(line.c_str() + 5, &tail, 10);
+                if (tail && *tail == '\0') code = value;
+            }
+        }
     }
+    auto ended = std::chrono::steady_clock::now();
     records.done();
     if (slot.handle) ReleaseMutex(slot.handle);
+    append_job_line(job_line(job, started_at, slot.index, seconds_since(took, started), seconds_since(started, ended), code));
     return 0;
 }
 
@@ -498,7 +570,8 @@ int cmd_status(const Options& o) {
 
 fs::path log_dir() {
     fs::path p = fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"logs";
-    fs::create_directories(p);
+    std::error_code ec;  // a folder that can't be made is reported where it is written to, never thrown here
+    fs::create_directories(p, ec);
     return p;
 }
 
@@ -528,9 +601,11 @@ std::string date_days_ago(int days) {
 }
 
 // The date from a name such as windows-2026-11-07.csv, or empty for any other file.
+// The date at the end of a log's name: the memory logs (.csv) and the job logs (.jsonl) alike.
 std::string file_date(const fs::path& p) {
     std::string stem = narrow(p.stem().wstring());
-    return stem.size() >= 10 && p.extension() == L".csv" ? stem.substr(stem.size() - 10) : std::string{};
+    bool log = p.extension() == L".csv" || p.extension() == L".jsonl";
+    return stem.size() >= 10 && log ? stem.substr(stem.size() - 10) : std::string{};
 }
 
 struct Proc {
@@ -690,7 +765,10 @@ int cmd_log(const Options& o) {
     for (;;) {
         PdhCollectQueryData(q);
         write_sample(c, cache);
-        if (o.once) break;
+        if (o.once) {
+            prune_logs(14);  // one sample still keeps the folder to its retention
+            break;
+        }
         since_prune += o.interval_s;
         if (since_prune >= 3600) {
             prune_logs(14);
