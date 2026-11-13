@@ -1144,7 +1144,21 @@ class AntigravityRuns(unittest.TestCase):
         guard.halt(state, "operator", "pause")
         self.assertEqual(self.stop(state)[0], None)
         self.assertEqual(self.stop(self.run_state(), session="someone-else")[0], None)
-        self.assertEqual(self.stop(self.run_state(), termination="USER_CANCELLED")[0], None)
+        answer, state = self.stop(self.run_state(), termination="TERMINATION_REASON_CHAINED")
+        self.assertEqual((answer, state["active"]), (None, True), "a chained step ended the run")
+
+    def test_a_turn_antigravity_ended_itself_is_recorded_not_left_active(self):
+        answer, state = self.stop(self.run_state(), termination="USER_CANCELED", said="stop")
+        self.assertIsNone(answer)
+        self.assertEqual((state["active"], state["status"]), (False, "stopped"))
+        self.assertIn("the operator cancelled the turn", state["why"])
+        self.assertIn("start it again from its shortcut", state["why"])
+        for termination in ("ERROR", "TERMINATION_REASON_MAX_INVOCATIONS", "MAX_FORCED_INVOCATIONS", "MAX_TOKEN_BUDGET_EXCEEDED"):
+            answer, state = self.stop(self.run_state(), termination=termination)
+            self.assertIsNone(answer)
+            self.assertEqual((state["active"], state["status"]), (False, "ended"), termination)
+            self.assertIn("Antigravity ended the turn itself", state["why"])
+            self.assertIn("start it again from its shortcut", state["why"])
 
     def test_the_operators_stop_halts_and_a_message_that_mentions_one_is_flagged(self):
         answer, state = self.stop(self.run_state(), said="stop")
@@ -1167,6 +1181,7 @@ class AntigravityRuns(unittest.TestCase):
         self.assertTrue(all(answers[:-1]), "the session was let go before the stall was called")
         self.assertIsNone(answers[-1])
         self.assertEqual(state["status"], "stalled")
+        self.assertIn("close its window and start it again from its shortcut", state["why"])
         self.assertIsNone(self.stop(state, self.env(world))[0], "a stalled run was sent on")
         state = self.run_state(signature="zero")
         for n in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):

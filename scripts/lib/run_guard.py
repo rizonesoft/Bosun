@@ -74,6 +74,7 @@ STOP = re.compile(
 MENTIONS_STOP = re.compile(r"\b(stop|pause|halt|cancel|abort|quit)\b", re.IGNORECASE)
 USER_EXITS = {"prompt_input_exit", "logout", "clear"}  # the operator's own exits; a closed window reports another reason
 GONE = "its window closed, it crashed or the machine restarted"
+RESTART = "nothing resumes a run: close its window and start it again from its shortcut, or `process plan` in a new Claude Code session"
 
 
 @dataclass
@@ -391,7 +392,7 @@ def on_stop(state: dict, data: dict, env: Env) -> str | None:
         state["idle"] = 0
         state["yields"] = state.get("yields", 0) + 1
         if state["yields"] >= MAX_YIELDS:
-            end_run(state, "stalled", "no commit or change to the tree across repeated attempts")
+            end_run(state, "stalled", f"no commit or change to the tree across repeated attempts; {RESTART}")
         return None
     state["last_block"] = stamp()
     return send_back(left, state)
@@ -553,6 +554,13 @@ def halt(state: dict, ground: str, reason: str) -> None:
 # --- Antigravity ------------------------------------------------------------------------------------------------
 
 WAIT_SLICE_MINUTES = 10  # how long one sleep in a waiting Antigravity session may be, under its tool's own limits
+# The terminationReason values (agy 1.5.7) that end a turn with no way on but the operator's.
+ANTIGRAVITY_ENDS = {
+    "ERROR": "the turn failed",
+    "MAX_INVOCATIONS": "its limit on model calls in one turn",
+    "MAX_FORCED_INVOCATIONS": "its limit on continuations",
+    "MAX_TOKEN_BUDGET_EXCEEDED": "its token budget",
+}
 
 
 def antigravity_event(raw: str, session: str) -> dict:
@@ -566,8 +574,9 @@ def antigravity_event(raw: str, session: str) -> dict:
         "hook_event_name": str(data.get("hookEventName") or "Stop"),
         "session_id": session,
         "conversation": data.get("conversationId"),
-        # As the owner's Isotone adapter reads it: a turn with no reason given ended for having no tool call left.
-        "termination": str(data.get("terminationReason") or "NO_TOOL_CALL"),
+        # As the owner's Isotone adapter reads it: a turn with no reason given ended for having no tool call left. The
+        # names come short (NO_TOOL_CALL) or in full (TERMINATION_REASON_NO_TOOL_CALL); both read the same here.
+        "termination": str(data.get("terminationReason") or "NO_TOOL_CALL").removeprefix("TERMINATION_REASON_"),
         "last_user_input": str(data.get("lastUserInput") or ""),
     }
 
@@ -596,9 +605,16 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
     on wherever a Claude Code turn would be sent back, and also wherever a Claude Code turn could end to wait (a timed
     wait, a review or a CI gate in flight), since no heartbeat would wake it. An operator's plain stop in
     `lastUserInput` halts the run, and a run that changes nothing across the idle and yield limits is called stalled."""
-    if data.get("termination") != "NO_TOOL_CALL":
-        return None  # a turn Antigravity ended for its own reason (a cancel, an error) is not idleness to answer
     if not state.get("active") or state.get("session_id") != data.get("session_id"):
+        return None
+    termination = data.get("termination")
+    if termination != "NO_TOOL_CALL":
+        # A turn Antigravity ended itself leaves the session idle, and nothing would wake it: the run is over, and is
+        # recorded so rather than left looking active. The other reasons (a chained or injected step) are its own business.
+        if termination == "USER_CANCELED":
+            end_run(state, "stopped", f"the operator cancelled the turn (USER_CANCELED), so the session is not sent on; {RESTART}")
+        elif termination in ANTIGRAVITY_ENDS:
+            end_run(state, "ended", f"Antigravity ended the turn itself ({termination}: {ANTIGRAVITY_ENDS[termination]}), and nothing wakes the session; {RESTART}")
         return None
     words = data.get("last_user_input") or ""
     if is_stop(words):
