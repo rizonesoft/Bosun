@@ -12,10 +12,14 @@ title: "TODO-02 -- The application shell"
 
 > **Current state:** Measured 2026-11-07. No application exists. Steward.Console is the proven model, with known gaps: no single instance, no crash handling, arguments split on spaces, administrator required.
 
+> **Corrected 2026-11-13:** a WPF skeleton exists from `D00 T02 §1`: `src/Bosun.Panel` (`net11.0-windows`, `UseWPF`) with `App.xaml`, an empty `App.xaml.cs`, `Foundation.xaml` and `FoundationText.cs`, and `tests/Bosun.Panel.Tests` with only `FoundationTests.cs`; there is still no `Theme/`, `Shell/` or `Controls/` folder, no `MainWindow`, no `app.manifest`, and no MahApps, H.NotifyIcon or FlaUI package in `Directory.Packages.props`.
+
 ## Inputs
 
 - `design/SPEC.md` §1, §15, §17.
-- `R:\GitHub\Steward\src\Steward.Console`.
+- `D:\Steward\src\Steward.Console`.
+
+**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `R:\GitHub` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `R:\GitHub`, now reads `D:\<repo>`.
 - -> XREF: D02 T01 §4 -- consumes this file
 - -> XREF: D02 T01 §4 -- consumed by this file
 - -> XREF: D00 T02 §1 -- consumed by this file
@@ -59,12 +63,12 @@ Steward has neither single-instance nor crash handling, which the review of its 
 
 **Build order:**
 
-1. Create `src/Bosun.Panel/App.xaml.cs`. Done when: a second launch activates the first and exits.
+1. Fill `src/Bosun.Panel/App.xaml.cs` (**Corrected 2026-11-13:** it exists, an empty `App` class from `D00 T02 §1`, beside `App.xaml`, `Foundation.xaml` and `FoundationText.cs`). Done when: a second launch activates the first and exits.
 2. Add the crash handlers. Done when: a thrown exception writes a report and shows a message.
 
 - [ ] Add a named mutex and activation pipe in `App.xaml.cs`. Done when: a second process exits 0 and the first window comes to the front. Cheaper substitute: two panels polling at once.
 - [ ] Handle `DispatcherUnhandledException`, `AppDomain.UnhandledException` and `TaskScheduler.UnobservedTaskException`, writing to `%LOCALAPPDATA%\Bosun\crash\`. Done when: a test seam throwing on each path leaves a report without secrets. Cheaper substitute: swallowing the exception and carrying on silently.
-- [ ] Create `src/Bosun.Panel/app.manifest` with per-monitor v2 and `asInvoker`, citing `R:\GitHub\Steward\src\Steward.Console\app.manifest:27-28`. Done when: a test reads the manifest and asserts both. Cheaper substitute: copying `requireAdministrator`.
+- [ ] Create `src/Bosun.Panel/app.manifest` with per-monitor v2 and `asInvoker`, citing `D:\Steward\src\Steward.Console\app.manifest:27-28`. Done when: a test reads the manifest and asserts both. Cheaper substitute: copying `requireAdministrator`.
 - [ ] Commit: `shell: single instance and crash reports`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Startup` exits 0, and fails if the change is reverted.
@@ -82,7 +86,7 @@ These are small, proven and worth reusing unchanged, with their tests.
 1. Port `Observable`, `AsyncCommand`, `LiveRegion`, `SelectionGuard` and `UiLogSink`. Done when: each has its test passing here.
 2. Add a Lucide kind test. Done when: each icon name resolves against the enum.
 
-- [ ] Port `ViewModels\Observable.cs` and `Services\LiveRegion.cs` from `R:\GitHub\Steward\src\Steward.Console`. Done when: re-entry is refused and announcements fire in `tests/Bosun.Panel.Tests`.
+- [ ] Port `ViewModels\Observable.cs` and `Services\LiveRegion.cs` from `D:\Steward\src\Steward.Console`. Done when: re-entry is refused and announcements fire in `tests/Bosun.Panel.Tests`.
 - [ ] Port `SelectionGuard.cs` and `UiLogSink.cs`. Done when: a guarded rail refuses leaving a dirty page, and the sink caps at 500 entries. Cheaper substitute: undoing the selection afterwards, which does not hold in WPF.
 - [ ] Add `MahApps.Metro.IconPacks.Lucide` and a test that every `Section.Icon` parses. Done when: a misspelled kind fails the test.
 - [ ] Commit: `shell: view model base and helpers`
@@ -123,10 +127,10 @@ This is the frame every page sits in. Snap layouts need real hit testing, which 
 
 **Build order:**
 
-1. Build `MainWindow.xaml` per `design/SPEC.md` §1. Done when: the off-screen render matches the mockup's layout in both themes.
+1. Build `src/Bosun.Panel/Shell/MainWindow.xaml` per `design/SPEC.md` §1 (**Corrected 2026-11-13:** in `Shell/`, where `TODO-03` §2 and §9 extend it beside the other shell parts; this file had named it with no folder). Done when: the off-screen render matches the mockup's layout in both themes.
 2. Handle `WM_NCHITTEST`. Done when: hovering maximise reports `HTMAXBUTTON`.
 
-- [ ] Build the title bar, rail and activity pane with the `Section` record from `R:\GitHub\Steward\src\Steward.Console\ViewModels\MainViewModel.cs:112`. Done when: adding a page is one row, and pages bind through implicit `DataTemplate`s. Cheaper substitute: a static screenshot-like layout with no navigation.
+- [ ] Build the title bar, rail and activity pane with the `Section` record from `D:\Steward\src\Steward.Console\ViewModels\MainViewModel.cs:112`. Done when: adding a page is one row, and pages bind through implicit `DataTemplate`s. Cheaper substitute: a static screenshot-like layout with no navigation.
 - [ ] Return `HTMAXBUTTON` from a `WM_NCHITTEST` hook. Done when: a test with synthetic coordinates gets the right code. Cheaper substitute: custom caption buttons without snap layouts.
 - [ ] Add placeholder pages for every rail entry, each deferring to its owning section. Done when: each rail row opens a page that names its owner section, and none is a dead control.
 - [ ] Create `src/Bosun.Panel/Shell/PageFrame.xaml` and `PageBase.cs`, holding the header and the content host. Done when: a page renders through them. Cheaper substitute: each view drawing its own header.
@@ -219,7 +223,7 @@ A surface section has to be provable in an unattended run with no visible deskto
 **Build order:**
 
 1. Create `tests/Bosun.Panel.Tests/Render/PageRenderer.cs`. Done when: any WPF element renders to PNG through `RenderTargetBitmap` on a hidden STA thread.
-2. Port `R:\GitHub\Resolute\scripts\capture-window.ps1`. Done when: it captures a real window with its sidecar.
+2. Port `D:\Resolute\scripts\capture-window.ps1`. Done when: it captures a real window with its sidecar.
 
 - [ ] Render every view registered with the renderer, in each state at 1360 x 860 and in both themes, to `build/renders/`. Views register as their sections land. Done when: a test with a sample element asserts the image is not blank and has the expected size. Cheaper substitute: golden pixel comparisons that break on font updates.
 - [ ] Add `scripts/render-pages.ps1` to write all renders. Done when: the review prompt can name the folder, and renders stay out of Git.

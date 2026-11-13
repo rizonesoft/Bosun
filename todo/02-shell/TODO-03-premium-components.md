@@ -12,6 +12,8 @@ title: "TODO-03 -- Premium components"
 
 > **Current state:** Measured 2026-11-07. `design/mockups/control-panel.html` shows the finish in HTML, and the owner approved it on 2026-11-07, expecting to fine-tune it during the build. `design/tokens/colors.json` holds the radius, elevation, motion, soft status and `LineStrong` tokens. No WPF code exists. `D02 T02 §2` adds the Lucide icon pack.
 
+> **Corrected 2026-11-13:** a WPF skeleton exists from `D00 T02 §1`: `src/Bosun.Panel` (`net11.0-windows`, `UseWPF`) with `App.xaml`, an empty `App.xaml.cs`, `Foundation.xaml` and `FoundationText.cs`, and `tests/Bosun.Panel.Tests` with only `FoundationTests.cs`; there is still no `Theme/`, `Shell/` or `Controls/` folder, no `MainWindow`, no `app.manifest`, and no MahApps, H.NotifyIcon or FlaUI package in `Directory.Packages.props`.
+
 ## Inputs
 
 - `design/SPEC.md` §1 and §19, and `design/mockups/control-panel.html` for the look. The SPEC wins.

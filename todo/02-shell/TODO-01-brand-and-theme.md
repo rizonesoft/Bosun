@@ -15,8 +15,10 @@ title: "TODO-01 -- Brand and theme"
 ## Inputs
 
 - `design/SPEC.md` §1 and §18.
-- `R:\GitHub\Office\scripts\build-icons.py`, `R:\GitHub\Recto\design\tools\build_resources.py:505`, `R:\GitHub\Isotone\docs\design\app-icons.md`.
-- `R:\GitHub\Steward\src\Steward.Console\Theme\Controls.xaml`.
+- `D:\Office\scripts\build-icons.py`, `D:\Recto\design\tools\build_resources.py:505`, `D:\Isotone\docs\design\app-icons.md`.
+- `D:\Steward\src\Steward.Console\Theme\Controls.xaml`.
+
+**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `R:\GitHub` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `R:\GitHub`, now reads `D:\<repo>`.
 - -> XREF: D00 T02 §2 -- consumed by this file
 - -> XREF: D02 T02 §9 -- consumed by this file
 - -> XREF: D02 T02 §1 -- consumes this file
@@ -55,7 +57,7 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 1. Create `scripts/build-theme.py`. Done when: it writes `src/Bosun.Panel/Theme/Generated/Dark.xaml` and `Light.xaml` from `design/tokens/colors.json`.
 2. Add `--check`. Done when: a hand edit makes it exit nonzero.
 
-- [ ] Emit `C.*` colours and `B.*` brushes plus radius, spacing and type resources, with the key names of `R:\GitHub\Steward\src\Steward.Console\Theme\Dark.xaml:14`. Done when: both files load in a WPF test. Cheaper substitute: editing the generated XAML by hand.
+- [ ] Emit `C.*` colours and `B.*` brushes plus radius, spacing and type resources, with the key names of `D:\Steward\src\Steward.Console\Theme\Dark.xaml:14`. Done when: both files load in a WPF test. Cheaper substitute: editing the generated XAML by hand.
 - [ ] Refuse a token present in one theme and missing in the other. Done when: a fixture exits 2 and names the token.
 - [ ] Add `--check` to `scripts/check-all.ps1`. Done when: a changed generated file fails the gate.
 - [ ] Commit: `theme: generate XAML from tokens`
@@ -75,7 +77,7 @@ Steward proved these catch real faults (it raised `TextMute` for contrast). Here
 1. Port `ThemeContrastTests` and `TabStripStyleTests`. Done when: both themes are asserted.
 2. Add the no-hex rule across all XAML. Done when: a stray colour fails.
 
-- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, citing `R:\GitHub\Steward\tests\Steward.Console.Tests`. Done when: a lowered token fails the test. Cheaper substitute: checking only the dark theme.
+- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, citing `D:\Steward\tests\Steward.Console.Tests`. Done when: a lowered token fails the test. Cheaper substitute: checking only the dark theme.
 - [ ] Fail any hex colour or font size outside `Theme/Generated` in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a hex in a view fails it.
 - [ ] Commit: `theme: contrast and stray colour tests`
 
@@ -109,12 +111,14 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-13:** in Steward the `Btn`, `Btn.Primary` and `Btn.Danger` styles live in `Theme\Dark.xaml` (lines 97, 133, 139), not `Controls.xaml`, and `ScrollBar`, `CheckBox` and `ComboBox` there are implicit styles (`TargetType` only, `Controls.xaml:144`, `:323`, and `ComboBoxItem` at `:361`), not keyed ones: they are ported from where they are, as implicit styles where Steward has them so, and `Btn.Small` is new, as the item says.
+
 **Build order:**
 
 1. Port `Controls.xaml` to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: every style resolves in both themes.
 2. Add the missing `Btn.Small` and focus visuals. Done when: keyboard focus is visible on all controls.
 
-- [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `Btn.Chrome`, `LogBox`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `R:\GitHub\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
+- [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `Btn.Chrome`, `LogBox`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `D:\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
 - [ ] Add `FocusVisualStyle` and a 32 px minimum height for every interactive control. Done when: a test walks the styles and asserts both.
 - [ ] Add `DataGrid` styling with tabular numbers for the panel's many tables. Done when: an off-screen render of a table shows it in both themes.
 - [ ] Commit: `theme: control templates`
@@ -134,7 +138,7 @@ Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" de
 1. Create `scripts/build-icons.py` with `resvg_py`. Done when: `resources/bosun.ico` regenerates byte for byte.
 2. Point the shortcut at it. Done when: `pwsh scripts/start-run.ps1 -InstallShortcut` writes a shortcut whose icon is `resources\bosun.ico`.
 
-- [x] Render frames 16, 20, 24, 32, 40, 48, 64 and 256 per `design/SPEC.md` §18 in `scripts/build-icons.py` (`FRAMES`), stored as PNG frames written by `build`, citing `R:\GitHub\Recto\design\tools\build_resources.py:505`. Done when: the ICO holds exactly eight frames, 16, 24 and 32 come from their own masters, and 20 comes from the 16 px master (`test_frames_follow_spec`). Cheaper substitute: downscaling the 256 frame for small sizes.
+- [x] Render frames 16, 20, 24, 32, 40, 48, 64 and 256 per `design/SPEC.md` §18 in `scripts/build-icons.py` (`FRAMES`), stored as PNG frames written by `build`, citing `D:\Recto\design\tools\build_resources.py:505`. Done when: the ICO holds exactly eight frames, 16, 24 and 32 come from their own masters, and 20 comes from the 16 px master (`test_frames_follow_spec`). Cheaper substitute: downscaling the 256 frame for small sizes.
 - [x] Add `--check` to `scripts/build-icons.py`, exiting 1 when `resources/bosun.ico` differs from what the masters give. Done when: `test_check_fails_after_master_edit` passes and `test_committed_ico_matches_masters` keeps the committed file current.
 - [x] Write `resources/bosun.ico` with an atomic temporary-file-then-replace write (`write_atomic`). Done when: the file is committed and `--check` exits 0.
 - [x] Add `scripts/requirements-icons.txt` pinning `resvg-py` and `Pillow` (the tests read frames with Pillow). Done when: the generator and `scripts/tests/test_build_icons.py` run from those two packages.
