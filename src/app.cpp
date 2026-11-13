@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <type_traits>
 #include <unordered_map>
 
@@ -66,7 +67,7 @@ struct Options {
     int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2, 64));
     uint64_t min_avail_mb = env_num(L"BOSUN_MIN_AVAIL_MB", 6144);
     uint64_t max_wait_s = env_num(L"BOSUN_MAX_WAIT", 900);
-    uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100);
+    uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100, dm::kMaxWriteGb);
     std::wstring ns = L"Bosun";
     int days = 7;
     int interval_s = 30;
@@ -107,7 +108,7 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         if (a == L"--slots") { if (!count(0, 64, o.slots)) return false; }
         else if (a == L"--min-avail-mb") { if (!count(0, dm::kMaxQuantity, o.min_avail_mb)) return false; }
         else if (a == L"--max-wait") { if (!count(0, dm::kMaxQuantity, o.max_wait_s)) return false; }
-        else if (a == L"--max-write-gb") { if (!count(0, dm::kMaxQuantity, o.max_write_gb)) return false; }
+        else if (a == L"--max-write-gb") { if (!count(0, dm::kMaxWriteGb, o.max_write_gb)) return false; }
         else if (a == L"--days") { if (!count(1, 3650, o.days)) return false; }
         else if (a == L"--interval") { if (!count(1, 86400, o.interval_s)) return false; }
         else if (a == L"--guest-avail-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_avail_mb = guest; }
@@ -259,7 +260,12 @@ class Records {
         min_guest_mb_ = o.min_guest_mb;
     }
     // Written as the wait starts and rewritten (temporary file, then replace) each time its reason changes.
+    // Every change goes under one lock: a cancelled wait's console handler runs done() on another thread while the
+    // waiting thread may be rewriting the waiter's reason (round 1 of D01 T01 §3). Once done() has run, nothing is
+    // written again, so a cancelled job never republishes a record after its cleanup.
     void waiting(const char* why = "slot") {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (closed_) return;
         dm::SlotRecord r = base_;
         r.kind = "waiter";
         r.waiting_for = why;
@@ -270,6 +276,8 @@ class Records {
     }
     // Called holding slot N's mutex: only its holder ever writes or removes that slot's record.
     void holding(int slot) {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (closed_) return;
         // A reader can hold the waiter file open for a moment, which makes the removal fail: it is retried briefly, and
         // a removal that still fails stays this job's to finish when it ends (a reader also drops a waiter whose own
         // process now holds a slot, so a job is never shown both waiting and holding for longer than that).
@@ -286,12 +294,15 @@ class Records {
     }
     // Called holding the slot, once the command has started.
     void started() {
-        if (holder_.empty()) return;
+        std::lock_guard<std::mutex> lock(mu_);
+        if (closed_ || holder_.empty()) return;
         holder_record_.command_started_at = utc_now();
         write(holder_, holder_record_);
     }
     // Called before the mutex is released, so a successor's record is never the one removed.
     void done() {
+        std::lock_guard<std::mutex> lock(mu_);
+        closed_ = true;
         remove_retrying(waiter_);
         remove_retrying(holder_);
         for (const auto& path : pending_) remove_retrying(path);
@@ -349,6 +360,8 @@ class Records {
     uint64_t min_avail_mb_ = 0, max_wait_s_ = 0;
     std::optional<uint64_t> min_guest_mb_;
     bool warned_ = false;
+    bool closed_ = false;
+    std::mutex mu_;
 };
 
 // --- The job history log (D01 T01 §2) ---

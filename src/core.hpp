@@ -37,8 +37,12 @@ constexpr uint64_t kMaxQuantity = uint64_t{1} << 40;
 // A job and everything it started may write at most budget_gb in all; 0 means no budget. A command that writes without
 // end (a test whose fake child floods a log, a loop that never stops) would otherwise fill the drive, and a full system
 // drive takes Windows and the WSL disk image on it down with it.
+// The largest budget whose byte count fits 64 bits; a flag above it is refused (D01 T01 §3, round 1).
+constexpr uint64_t kMaxWriteGb = UINT64_MAX >> 30;
+
 inline bool over_write_budget(uint64_t written_bytes, uint64_t budget_gb) {
-    return budget_gb != 0 && written_bytes > budget_gb * (uint64_t{1} << 30);
+    if (budget_gb == 0 || budget_gb > kMaxWriteGb) return false;  // off, or past anything 64 bits can count
+    return written_bytes > (budget_gb << 30);
 }
 
 // Quotes one argument by the rules CommandLineToArgvW parses.

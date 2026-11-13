@@ -41,6 +41,11 @@ static void write_budget() {
     CHECK(dm::over_write_budget(100 * gb + 1, 100));
     CHECK(dm::over_write_budget(287 * gb, 100));      // the flood that filled C: on 2026-11-08
     CHECK(!dm::over_write_budget(UINT64_MAX, 0));     // 0 turns the budget off
+    // The largest budget never wraps to a small one (round 1 of D01 T01 §3): 2^34 GB once came to 0 bytes.
+    CHECK(!dm::over_write_budget(gb, dm::kMaxWriteGb) && !dm::over_write_budget(dm::kMaxWriteGb << 30, dm::kMaxWriteGb));
+    CHECK(dm::over_write_budget((dm::kMaxWriteGb << 30) + 1, dm::kMaxWriteGb));
+    CHECK(!dm::over_write_budget(gb, uint64_t{1} << 34) && !dm::over_write_budget(gb, UINT64_MAX));
+    CHECK(dm::over_write_budget(UINT64_MAX, dm::kMaxWriteGb - 1));
 }
 
 static void quoting() {

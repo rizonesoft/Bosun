@@ -460,7 +460,7 @@ Check ($s.Code -eq 0 -and $s.Obj.records.readable -eq $false -and @($s.Obj.slots
 
 # Bad values are refused with exit 64 and nothing on stdout; the guest's figures come together or not at all.
 $thirty = '1' * 30
-foreach ($bad in @(@('--guest-avail-mb'), @('--guest-avail-mb', '-5', '--guest-total-mb', '9'), @('--guest-avail-mb', '5x', '--guest-total-mb', '9'), @('--guest-avail-mb', $thirty, '--guest-total-mb', '9'), @('--guest-avail-mb', '5'), @('--wsl-logger', 'maybe'), @('--slots', '12x'), @('--min-avail-mb', '-1'))) {
+foreach ($bad in @(@('--guest-avail-mb'), @('--guest-avail-mb', '-5', '--guest-total-mb', '9'), @('--guest-avail-mb', '5x', '--guest-total-mb', '9'), @('--guest-avail-mb', $thirty, '--guest-total-mb', '9'), @('--guest-avail-mb', '5'), @('--wsl-logger', 'maybe'), @('--slots', '12x'), @('--min-avail-mb', '-1'), @('--max-write-gb', '17179869184'))) {
   $s = Status-Json $bad
   Check ($s.Code -eq 64 -and $s.Text -eq '') "status --json $($bad -join ' ') is refused, exit 64 and nothing on stdout (got $($s.Code), '$($s.Text)')"
 }
