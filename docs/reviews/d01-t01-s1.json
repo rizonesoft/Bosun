@@ -1,0 +1,97 @@
+{
+  "ref": "D01 T01 \u00a71",
+  "title": "Slot holder and waiter records",
+  "implementation_sha": "b8078b102cbbe4d2f689f9e5494d5cf229c72e2e",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-core/D01-T01-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/01-core/D01-T01-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/01-core/D01-T01-s1.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- pwsh scripts/build.ps1 -> built, warnings as errors, none",
+    "build/Release/test_core.exe records -> ok; build/Release/test_core.exe -> ok",
+    "pwsh tests/queue_test.ps1 (with its WSL half) -> all passed",
+    "full gate, CI on f6b4334 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43368080875, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43368080895"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-core/D01-T01-s1.md",
+    "verdict": "filed",
+    "candidate": "f6b4334fde4b658568436c5bb6e3b9f1a646940b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D01 T01 \u00a73",
+      "D01 T01 \u00a72",
+      "D03 T02 \u00a73"
+    ]
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 returned one P3 (the long WSL command case read another job's result), fixed in f6a1327 and f6b4334; nothing left open",
+  "plan": {
+    "report": "docs/reviews/01-core/D01-T01-s1.md",
+    "candidate": "46f3d1e1e4d09f56dbb431b311f69831adae6aa5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "46f3d1e1e4d09f56dbb431b311f69831adae6aa5",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

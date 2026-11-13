@@ -33,7 +33,7 @@ title: "TODO-01 -- The core data contract"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [ ] |
+| 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [x] |
 | 2 | §2 | Job history log | §1 | [ ] |
 | 3 | §3 | status --json | §1 | [ ] |
 | 4 | §4 | report --json and logger snapshots | §2 | [ ] |
@@ -68,9 +68,12 @@ A mutex can't name its owner. Holders and waiters publish a small record beside 
 - [x] Keep the queue unchanged when records fail: a record that can't be written (a full disk, a denied folder) prints one diagnostic (`[bosun] can't publish this job's slot record (...): the queue works, but status can't name it`) and changes neither admission nor the command's exit code; a records folder that can't be read is reported as unavailable, never as an empty queue. Done when: `tests/queue_test.ps1`, with the records folder made unwritable, runs a job that exits 37 and sees exit 37 and the diagnostic.
 - [x] Pass repo, side and command from `wsl/bosun` to `bosun.exe acquire` (`--repo`, `--side wsl`, `--label`), the label the command's words each quoted with `printf %q` and joined by spaces, and the repo the Git top level of the working folder, or none. Done when: `tests/queue_test.ps1 -Wsl` runs a top-level WSL job (no `BOSUN_SLOT`) through `acquire` and reads its record naming `wsl`, the Linux repo path and the command. WSL is not on the CI runner, so this case runs here, in the full local gate with `-Wsl`.
 - [x] Prove the integration can fail: with record publication disabled in `src/app.cpp`, or the WSL forwarding dropped from `wsl/bosun`, the matching `tests/queue_test.ps1` cases fail. Done when: both mutations are run and recorded in the commit body.
-- [ ] Commit: `core: publish slot holders and waiters`
+- [x] Commit: `core: publish slot holders and waiters`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `build\Release\test_core.exe records` and `pwsh tests\queue_test.ps1` exit 0 (CI runs both), and `pwsh tests\queue_test.ps1 -Wsl` exits 0 here; each fails if publication or the WSL forwarding is reverted.
+
+> **Verified:** 2026-11-13 | §1 | b8078b102cbbe4d2f689f9e5494d5cf229c72e2e
+> **Review:** `docs/reviews/d01-t01-s1.json`
 
 ## 2. Job history log
 

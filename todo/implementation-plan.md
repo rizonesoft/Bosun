@@ -52,7 +52,7 @@ Sections: 5 | Checklist items: 26
 
 | Status | Reference  | Deliverable                        | Needs | Items |
 | ------ | ---------- | ---------------------------------- | ----- | ----- |
-| [ ]    | D01 T01 §1 | Slot holder and waiter records     | none  | 10    |
+| [x]    | D01 T01 §1 | Slot holder and waiter records     | none  | 10    |
 | [ ]    | D01 T01 §2 | Job history log                    | none  | 4     |
 | [ ]    | D01 T01 §3 | status --json                      | none  | 4     |
 | [ ]    | D01 T01 §4 | report --json and logger snapshots | none  | 4     |
@@ -142,6 +142,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 32/87 verified sections, 4 ready to run now.
+Progress: 33/87 verified sections, 5 ready to run now.
 
-Checklist: 355/616 items completed (includes Commit items).
+Checklist: 356/616 items completed (includes Commit items).
