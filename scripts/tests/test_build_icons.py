@@ -420,6 +420,23 @@ class TrayIconsTest(unittest.TestCase):
         for flag in ("--masters", "--out", "--tokens", "--tray-out"):
             self.assertIn(flag, repair)
 
+    def test_an_app_icon_named_as_a_tray_icon_is_refused_before_anything_is_written(self):
+        # Round 1: --out naming tray-normal.ico in the tray folder wrote the tray icon over the app icon, exit 0.
+        for name in TRAY:
+            for extra in ((), ("--check",)):
+                with self.subTest(name=name, extra=extra), contextlib.redirect_stderr(io.StringIO()) as err:
+                    with self.assertRaises(SystemExit) as refused:
+                        icons.main(["--masters", str(self.masters), "--out", str(self.out / name), "--tray-out", str(self.out),
+                                    "--tokens", str(self.tokens), *extra])
+                    self.assertEqual(refused.exception.code, 2)
+                    self.assertIn("the name of a tray icon", err.getvalue())
+        self.assertEqual(self.files(), {})
+        # Seen through another spelling of the same path too.
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            icons.main(["--masters", str(self.masters), "--out", str(self.out / "sub" / ".." / "TRAY-NEEDS.ICO"),
+                        "--tray-out", str(self.out), "--tokens", str(self.tokens)])
+        self.assertEqual(self.files(), {})
+
     def test_with_out_alone_only_the_app_icon_is_built_as_before(self):
         alone = self.tmp / "alone" / "bosun.ico"
         with contextlib.redirect_stdout(io.StringIO()):

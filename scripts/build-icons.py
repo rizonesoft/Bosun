@@ -300,6 +300,11 @@ def main(argv=None) -> int:
     outputs = {args.out: (build(args.masters), len(FRAMES))}
     tray_dir = args.tray_out or (ROOT / "resources" if args.out == parser.get_default("out") else None)
     if tray_dir:
+        # The app icon and a tray icon can't be the same file: one would be written over the other, and the set would
+        # read as built with the app icon gone (round 1).
+        clash = [name for name, _, _ in TRAY_STATES.values() if (tray_dir / name).resolve() == args.out.resolve()]
+        if clash:
+            parser.error(f"--out is {clash[0]} in --tray-out, the name of a tray icon: give the app icon another name")
         try:
             colours = tray_colours(args.tokens)
         except TokenError as error:
