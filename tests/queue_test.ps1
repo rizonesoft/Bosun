@@ -101,6 +101,7 @@ Check ([bool]$repoRow) "logger attributes a process to its git repo (row: $repoR
 # A missing command reports 127 rather than hanging.
 & $bosun run --ns $ns -- no-such-program-bosun 2>$null
 Check ($LASTEXITCODE -eq 127) "missing command exits 127 (got $LASTEXITCODE)"
+Check (-not (Records)) "and a command that couldn't start leaves no record, checked at once ($((Records).Name -join ', '))"
 
 # Killing a slot holder frees the slot and kills its job tree.
 $f = Join-Path $work 'crash.txt'
@@ -212,6 +213,58 @@ Set-Content -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json") -Value 
 Check ((Read-Rec 'slot-0.json').pid -eq $b.Id -and -not (Test-Path (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json")) -and (Test-Path (Join-Path $recDir "wait-$PID-$liveStart.json"))) "a reader's pass removes a dead waiter's record only: the new holder's and a live waiter's stay (b $($b.Id); files: $((Records).Name -join ', '); holder $((Read-Rec 'slot-0.json').pid))"
 Remove-Item -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json")
 $null = $b.WaitForExit(15000)
+
+# A waiter file a reader holds open (no delete sharing) as its job takes the slot, or as it times out, is not lost: the
+# job retries, then a reader's pass drops a waiter its own process supersedes, and the job removes it when it ends.
+function Lock-File([string]$path) { [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite') }
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'lock1.txt')),'2000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'lock2.txt')),'4000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
+$lockedPath = @(Records | Where-Object Name -like "wait-$($w.Id)-*")[0].FullName
+$lock = Lock-File $lockedPath
+try { $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $w.Id } 15000 } finally { $lock.Dispose() }
+& $bosun status --ns $ns --slots 1 | Out-Null
+Check ((Read-Rec 'slot-0.json').pid -eq $w.Id -and -not (Test-Path -LiteralPath $lockedPath)) 'a waiter file held open as its job took the slot is dropped by the next reader, the job still holding'
+$null = $w.WaitForExit(15000)
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'lock3.txt')),'6000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$t = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','2','--',(Q $sleeper),(Q (Join-Path $work 'lock4.txt')),'1500' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @(Records | Where-Object Name -like "wait-$($t.Id)-*").Count -eq 1 }
+$lockedPath = @(Records | Where-Object Name -like "wait-$($t.Id)-*")[0].FullName
+$lock = Lock-File $lockedPath
+try { Start-Sleep -Milliseconds 3000 } finally { $lock.Dispose() }  # past its 2 s wait: it runs unqueued, its waiter file held
+$null = $t.WaitForExit(15000)
+Check ($t.ExitCode -eq 0 -and -not (Test-Path -LiteralPath $lockedPath)) 'a waiter file held open as its job timed out is removed by that job when it ends'
+$null = $h.WaitForExit(15000)
+Check (-not (Records)) "and nothing is left after either ($((Records).Name -join ', '))"
+
+# Ctrl+Break (Ctrl+C can't reach another process group) ends a running holder's command, and bosun, which outlives it,
+# removes its record before the slot frees.
+$breakPy = Join-Path $work 'break.py'
+Set-Content -LiteralPath $breakPy -Encoding ascii -Value @"
+import json, os, signal, subprocess, sys, time
+bosun, ns, sleeper, out, rec = sys.argv[1:6]
+p = subprocess.Popen([bosun, 'run', '--ns', ns, '--slots', '1', '--min-avail-mb', '0', '--', sleeper, out, '60000'],
+                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)  # sharing this console, so the break reaches it
+for _ in range(100):
+    try:
+        if json.load(open(rec, encoding='utf-8'))['pid'] == p.pid: break
+    except (OSError, ValueError, KeyError): pass
+    time.sleep(0.1)
+time.sleep(0.5)
+held = os.path.exists(rec)
+os.kill(p.pid, signal.CTRL_BREAK_EVENT)
+try:
+    code = p.wait(15)
+except subprocess.TimeoutExpired:
+    subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)
+    code = 'hung'
+print(json.dumps({'held': held, 'code': code, 'left': os.path.exists(rec)}))
+"@
+$python = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+$broke = & $python $breakPy $bosun $ns $sleeper (Join-Path $work 'break.txt') (Join-Path $recDir 'slot-0.json') | ConvertFrom-Json
+Check ($broke.held -and $broke.code -ne 'hung' -and -not $broke.left) "Ctrl+Break ends a holder's command and its record goes ($($broke | ConvertTo-Json -Compress))"
 
 # A record that can't be written changes neither the queue nor the command's exit code, and says so once.
 $blockedHome = Join-Path $work 'blocked-home'

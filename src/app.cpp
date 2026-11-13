@@ -222,7 +222,10 @@ class Records {
     }
     // Called holding slot N's mutex: only its holder ever writes or removes that slot's record.
     void holding(int slot) {
-        remove(waiter_);
+        // A reader can hold the waiter file open for a moment, which makes the removal fail: it is retried briefly, and
+        // a removal that still fails stays this job's to finish when it ends (a reader also drops a waiter whose own
+        // process now holds a slot, so a job is never shown both waiting and holding for longer than that).
+        if (!remove_retrying(waiter_)) pending_.push_back(waiter_);
         waiter_.clear();
         if (slot < 0) return;  // ran without a slot: there is no holder to name
         dm::SlotRecord r = base_;
@@ -233,10 +236,12 @@ class Records {
     }
     // Called before the mutex is released, so a successor's record is never the one removed.
     void done() {
-        remove(waiter_);
-        remove(holder_);
+        remove_retrying(waiter_);
+        remove_retrying(holder_);
+        for (const auto& path : pending_) remove_retrying(path);
         waiter_.clear();
         holder_.clear();
+        pending_.clear();
     }
 
   private:
@@ -263,12 +268,19 @@ class Records {
             }
         }
     }
-    static void remove(const fs::path& path) {
-        if (path.empty()) return;
-        std::error_code ec;
-        fs::remove(path, ec);
+    // Removes the file, retrying for up to half a second while another process has it open; true once it is gone.
+    static bool remove_retrying(const fs::path& path) {
+        if (path.empty()) return true;
+        for (int attempt = 0;; ++attempt) {
+            std::error_code ec;
+            fs::remove(path, ec);
+            if (!ec || !fs::exists(path, ec)) return true;
+            if (attempt == 10) return false;
+            Sleep(50);
+        }
     }
     fs::path dir_, waiter_, holder_;
+    std::vector<fs::path> pending_;  // removals that failed and are retried when the job ends
     dm::SlotRecord base_;
     bool warned_ = false;
 };
@@ -296,6 +308,7 @@ bool sweep_records(const Options& o) {
     if (!fs::exists(dir, ec)) return !ec;
     fs::directory_iterator it(dir, ec), end;
     if (ec) return false;
+    std::vector<std::pair<fs::path, dm::SlotRecord>> found;
     for (; it != end; it.increment(ec)) {
         if (ec) return false;
         const fs::path& path = it->path();
@@ -308,7 +321,12 @@ bool sweep_records(const Options& o) {
         }
         auto record = dm::parse_record(text);
         if (!record) continue;  // half written, or not one of ours: a writer replaces it, a reader leaves it
-        if (dm::reader_removes(*record, dm::record_state(*record, probe_process))) {
+        found.emplace_back(path, *record);
+    }
+    std::vector<dm::SlotRecord> records;
+    for (const auto& [path, record] : found) records.push_back(record);
+    for (const auto& [path, record] : found) {
+        if (dm::reader_removes(record, dm::record_state(record, probe_process), records)) {
             std::error_code gone;
             fs::remove(path, gone);
         }

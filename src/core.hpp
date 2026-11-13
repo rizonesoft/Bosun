@@ -487,10 +487,16 @@ inline RecordState record_state(const SlotRecord& r, const std::function<ProbeAn
     return RecordState::Live;
 }
 
-// Only a stale waiter's record is removed by a reader. A slot record is only ever written or removed by the holder of
-// that slot's mutex, so a reader never touches one: a killed holder's is replaced by the next holder.
-inline bool reader_removes(const SlotRecord& r, RecordState state) {
-    return r.kind == "waiter" && state == RecordState::Stale;
+// Only a waiter's record is ever removed by a reader: a stale one, or one superseded by a holder record of the same
+// process (same pid and start), which a job leaves when a reader had the waiter file open as it took its slot. A slot
+// record is only ever written or removed by the holder of that slot's mutex, so a reader never touches one: a killed
+// holder's is replaced by the next holder.
+inline bool reader_removes(const SlotRecord& r, RecordState state, const std::vector<SlotRecord>& all = {}) {
+    if (r.kind != "waiter") return false;
+    if (state == RecordState::Stale) return true;
+    return std::any_of(all.begin(), all.end(), [&](const SlotRecord& o) {
+        return o.kind == "holder" && o.pid == r.pid && o.process_start == r.process_start;
+    });
 }
 
 }  // namespace dm

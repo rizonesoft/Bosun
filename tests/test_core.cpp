@@ -185,6 +185,15 @@ static void records() {
     CHECK(dm::reader_removes(w, dm::RecordState::Stale));
     CHECK(!dm::reader_removes(w, dm::RecordState::Live) && !dm::reader_removes(w, dm::RecordState::Unknown));
     CHECK(!dm::reader_removes(h, dm::RecordState::Stale));
+    // A live waiter superseded by its own process's holder record goes; another process's holder doesn't supersede it.
+    dm::SlotRecord sameHolder = h;
+    sameHolder.pid = w.pid;
+    sameHolder.process_start = w.process_start;
+    CHECK(dm::reader_removes(w, dm::RecordState::Live, {w, sameHolder}));
+    dm::SlotRecord otherHolder = sameHolder;
+    otherHolder.process_start = w.process_start + 1;
+    CHECK(!dm::reader_removes(w, dm::RecordState::Live, {w, otherHolder}));
+    CHECK(!dm::reader_removes(h, dm::RecordState::Live, {h, sameHolder}));
 }
 
 struct Group {
