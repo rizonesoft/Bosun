@@ -106,6 +106,10 @@ class BuildThemeTest(unittest.TestCase):
             (setting("space", "M", 1001), "space.M"),
             (setting("type", "Body", "13"), "type.Body"),
             (setting("type", "Body", True), "type.Body"),
+            (setting("radius", "Card", 10 ** 400), "radius.Card"),    # round 1: past any float, still a refusal
+            (setting("space", "M", float("nan")), "space.M"),
+            (setting("space", "Extra\n", 12), "space.Extra"),         # round 1: a trailing newline is no name
+            (setting("dark", "Base", "#123456\n"), "dark.Base"),
             (replacing("radius", {}), "radius: is empty"),
             (replacing("space", [4, 8]), "space: must be an object"),
             (missing_group, "space: missing"),
