@@ -4,9 +4,11 @@
 usage: bosun_log.py <log_dir> [--interval 30] [--once]
 """
 import datetime
+import json
 import os
 import re
 import sys
+import tempfile
 import time
 
 PAGE_KB = os.sysconf("SC_PAGESIZE") // 1024
@@ -80,14 +82,65 @@ def meminfo():
 
 
 def psi_full_avg10_x100():
+    """The memory stall figure, or None on a kernel built without PSI: not measured is not 0 (D01 T01 §4)."""
     try:
         with open("/proc/pressure/memory", encoding="ascii") as f:
             for line in f:
                 if line.startswith("full"):
                     return int(float(line.split()[1].split("=")[1]) * 100)
     except OSError:
-        pass  # PSI is absent on kernels built without it; the column stays 0.
-    return 0
+        pass
+    return None
+
+
+def snapshot_json(at, interval, memory, repos, processes):
+    """current-wsl.json: the schema bosun.exe writes for Windows (dm::snapshot_json), side wsl and no VM view."""
+    group = lambda label, rows: [
+        {label: key, "processes": count, "private_mb": private_kb // 1024, "rss_mb": rss_kb // 1024}
+        for key, (count, private_kb, rss_kb) in rows
+    ]
+    doc = {
+        "schema_version": 1,
+        "side": "wsl",
+        "at": at,
+        "interval_s": interval,
+        "memory": memory,
+        "wsl_vm": None,
+        "repos": group("repo", repos),
+        "processes": group("name", processes),
+    }
+    return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
+
+
+def write_snapshot(log_dir, text, replace=None, attempts=20):
+    """Replaces current-wsl.json through a temporary file in the same folder, so a reader sees the old snapshot or the
+    new one, never part of either. The replace is retried for up to a second on PermissionError (a Windows reader
+    holding the file on /mnt/c); one that still fails keeps the previous snapshot, removes the temporary file, says so
+    on stderr and returns, so the logger carries on and the next sample tries again. Returns True once it landed."""
+    replace = replace or os.replace
+    path = os.path.join(log_dir, "current-wsl.json")
+    fd, temp = tempfile.mkstemp(prefix=".current-wsl.", suffix=".tmp", dir=log_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(attempts + 1):
+            try:
+                replace(temp, path)
+                return True
+            except PermissionError:
+                if attempt == attempts:
+                    raise
+                time.sleep(0.05)
+    except OSError as e:
+        print(f"[bosun] can't replace the live snapshot {path} ({e}): the previous one stays, and the next sample tries again", file=sys.stderr)
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        return False
+    return False
 
 
 def oom_kills():
@@ -98,7 +151,7 @@ def oom_kills():
     return 0
 
 
-def sample(log_dir, cache):
+def sample(log_dir, cache, interval=30):
     procs = {}
     own_repo = {}
     has_git = lambda d: os.path.exists(d + "/.git")
@@ -133,14 +186,19 @@ def sample(log_dir, cache):
     now = datetime.datetime.now(datetime.timezone.utc)
     ts = now.strftime("%Y-%m-%dT%H:%M:%S")
     mem = meminfo()
-    lines = [
-        f"{ts},wsl,sys,mem_available_mb,0,{mem['MemAvailable'] // 1024},0",
-        f"{ts},wsl,sys,mem_total_mb,0,{mem['MemTotal'] // 1024},0",
-        f"{ts},wsl,sys,swap_used_mb,0,{(mem['SwapTotal'] - mem['SwapFree']) // 1024},0",
-        f"{ts},wsl,sys,psi_full_avg10_x100,0,{psi_full_avg10_x100()},0",
-        f"{ts},wsl,sys,oom_kills,0,{oom_kills()},0",
-    ]
-    for key, (count, private_kb, rss_kb) in sorted(repos.items()):
+    # The live snapshot (D01 T01 §4) holds the same figures as these rows; a figure not measured has no row and is null.
+    memory = {
+        "available_mb": mem["MemAvailable"] // 1024,
+        "total_mb": mem["MemTotal"] // 1024,
+        "swap_used_mb": (mem["SwapTotal"] - mem["SwapFree"]) // 1024,
+        "psi_full_avg10_x100": psi_full_avg10_x100(),
+        "oom_kills": oom_kills(),
+    }
+    rows = (("mem_available_mb", "available_mb"), ("mem_total_mb", "total_mb"), ("swap_used_mb", "swap_used_mb"),
+            ("psi_full_avg10_x100", "psi_full_avg10_x100"), ("oom_kills", "oom_kills"))
+    lines = [f"{ts},wsl,sys,{name},0,{memory[key]},0" for name, key in rows if memory[key] is not None]
+    repo_rows = sorted(repos.items())
+    for key, (count, private_kb, rss_kb) in repo_rows:
         lines.append(f"{ts},wsl,repo,{csv_name(key)},{count},{private_kb // 1024},{rss_kb // 1024}")
     top = sorted(names.items(), key=lambda kv: kv[1][1], reverse=True)[:15]
     for key, (count, private_kb, rss_kb) in top:
@@ -152,6 +210,7 @@ def sample(log_dir, cache):
         if fresh:
             f.write("ts,side,kind,name,count,private_mb,rss_mb\n")
         f.write("\n".join(lines) + "\n")
+    write_snapshot(log_dir, snapshot_json(ts + "Z", interval, memory, repo_rows, top))
 
 
 def main(argv):
@@ -165,7 +224,7 @@ def main(argv):
     cache = {}
     last_clear = time.monotonic()
     while True:
-        sample(log_dir, cache)
+        sample(log_dir, cache, interval)
         if once:
             return 0
         if time.monotonic() - last_clear > 3600:

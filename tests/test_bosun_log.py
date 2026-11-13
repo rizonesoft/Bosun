@@ -1,5 +1,10 @@
+import contextlib
+import io
+import json
 import os
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "wsl"))
@@ -45,6 +50,99 @@ class CsvName(unittest.TestCase):
     def test_encodes_separators(self):
         self.assertEqual(dl.csv_name('a,b"c%'), "a%2Cb%22c%25")
         self.assertNotEqual(dl.csv_name("a,b"), dl.csv_name("a_b"))
+
+
+class Snapshot(unittest.TestCase):
+    """current-wsl.json (D01 T01 §4): the Windows schema, written whole or not at all."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="bosun-snap-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def path(self):
+        return os.path.join(self.dir, "current-wsl.json")
+
+    def leftovers(self):
+        return [n for n in os.listdir(self.dir) if n != "current-wsl.json"]
+
+    def test_every_field_from_a_fixed_sample(self):
+        memory = {"available_mb": 9000, "total_mb": 14000, "swap_used_mb": 12, "psi_full_avg10_x100": None, "oom_kills": 3}
+        repos = [("/home/u/a\"b", (3, 2048 * 1024, 1024 * 1024))]
+        procs = [("cc1plus", (4, 3072 * 1024, 2048 * 1024)), ("make", (1, 1024, 2048))]
+        doc = json.loads(dl.snapshot_json("2026-11-13T09:00:05Z", 7, memory, repos, procs))
+        self.assertEqual(doc["schema_version"], 1)
+        self.assertEqual((doc["side"], doc["at"], doc["interval_s"]), ("wsl", "2026-11-13T09:00:05Z", 7))
+        self.assertEqual(doc["memory"], memory)
+        self.assertIsNone(doc["wsl_vm"])
+        self.assertEqual(doc["repos"], [{"repo": "/home/u/a\"b", "processes": 3, "private_mb": 2048, "rss_mb": 1024}])
+        self.assertEqual(doc["processes"], [{"name": "cc1plus", "processes": 4, "private_mb": 3072, "rss_mb": 2048},
+                                            {"name": "make", "processes": 1, "private_mb": 1, "rss_mb": 2}])
+
+    def test_lands_only_through_a_replace_from_the_same_folder(self):
+        calls = []
+
+        def replace(src, dst):
+            calls.append((src, dst))
+            os.replace(src, dst)
+
+        self.assertTrue(dl.write_snapshot(self.dir, '{"v":1}', replace=replace))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(os.path.dirname(calls[0][0]), self.dir)
+        self.assertEqual(calls[0][1], self.path())
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"v":1}')
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_reader_holding_the_old_file_still_reads_the_old_one(self):
+        dl.write_snapshot(self.dir, '{"old":1}')
+        with open(self.path(), encoding="utf-8") as held:
+            dl.write_snapshot(self.dir, '{"new":2}')
+            self.assertEqual(held.read(), '{"old":1}')  # a write in place would show the new bytes here
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"new":2}')
+
+    def test_a_failed_replace_keeps_the_old_file_and_the_next_one_lands(self):
+        dl.write_snapshot(self.dir, '{"old":1}')
+
+        def refuse(src, dst):
+            raise PermissionError(13, "held by a Windows reader")
+
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertFalse(dl.write_snapshot(self.dir, '{"new":2}', replace=refuse, attempts=2))
+        self.assertIn("can't replace the live snapshot", err.getvalue())
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"old":1}')
+        self.assertEqual(self.leftovers(), [])
+        self.assertTrue(dl.write_snapshot(self.dir, '{"next":3}'))
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"next":3}')
+
+    def test_a_sample_without_psi_has_no_psi_row_and_a_null(self):
+        saved = dl.psi_full_avg10_x100
+        dl.psi_full_avg10_x100 = lambda: None
+        self.addCleanup(setattr, dl, "psi_full_avg10_x100", saved)
+        dl.sample(self.dir, {}, interval=9)
+        csv = [n for n in os.listdir(self.dir) if n.endswith(".csv")]
+        self.assertEqual(len(csv), 1)
+        with open(os.path.join(self.dir, csv[0]), encoding="utf-8") as f:
+            rows = f.read().splitlines()
+        self.assertFalse([r for r in rows if ",psi_full_avg10_x100," in r])
+        with open(self.path(), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertIsNone(doc["memory"]["psi_full_avg10_x100"])
+        self.assertEqual(doc["interval_s"], 9)
+        # The snapshot holds the same figures as the sample's own rows.
+        avail = [r for r in rows if ",mem_available_mb," in r][0].split(",")
+        self.assertEqual(doc["at"], avail[0] + "Z")
+        self.assertEqual(doc["memory"]["available_mb"], int(avail[5]))
+        for r in rows:
+            f = r.split(",")
+            if len(f) == 7 and f[2] == "repo":
+                match = [g for g in doc["repos"] if dl.csv_name(g["repo"]) == f[3]]
+                self.assertEqual(len(match), 1)
+                self.assertEqual((match[0]["processes"], match[0]["private_mb"], match[0]["rss_mb"]), (int(f[4]), int(f[5]), int(f[6])))
+        procs = [r.split(",") for r in rows if ",proc," in r]
+        self.assertEqual([dl.csv_name(p["name"]) for p in doc["processes"]], [p[3] for p in procs])
 
 
 if __name__ == "__main__":

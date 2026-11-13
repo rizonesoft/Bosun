@@ -889,7 +889,65 @@ std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstrin
     return repo;
 }
 
-void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::string>& cache) {
+// Replaces current-<side>.json (D01 T01 §4): a temporary file in the folder moved over the old one, so a reader sees
+// the old snapshot or the new one, never part of either. The move is retried for up to a second while a reader holds
+// the file open; a snapshot that still can't be replaced keeps the old one, removes its temporary file, is said once
+// per logger run and is written again at the next sample.
+// Renames `from` over `to` with POSIX semantics (Windows 10 1809 and later, on NTFS): the replace succeeds even while a
+// reader holds the old file open sharing delete, and that reader goes on reading the old file. MoveFileExW refuses
+// that case with access denied, so a panel reading the snapshot would block every replace.
+bool posix_replace(const fs::path& from, const fs::path& to) {
+    HANDLE h = CreateFileW(from.c_str(), DELETE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    std::wstring target = to.wstring();
+    std::vector<BYTE> buf(sizeof(FILE_RENAME_INFO) + target.size() * sizeof(wchar_t), 0);
+    auto* info = reinterpret_cast<FILE_RENAME_INFO*>(buf.data());
+    // The first member is a union of ReplaceIfExists and, for FileRenameInfoEx, Flags: written as the DWORD so the
+    // code doesn't depend on the SDK naming the union's second member.
+    constexpr DWORD kReplaceIfExists = 0x1, kPosixSemantics = 0x2;  // FILE_RENAME_FLAG_*
+    *reinterpret_cast<DWORD*>(buf.data()) = kReplaceIfExists | kPosixSemantics;
+    info->RootDirectory = nullptr;
+    info->FileNameLength = static_cast<DWORD>(target.size() * sizeof(wchar_t));
+    std::memcpy(info->FileName, target.data(), info->FileNameLength);
+    constexpr auto kFileRenameInfoEx = static_cast<FILE_INFO_BY_HANDLE_CLASS>(22);
+    BOOL ok = SetFileInformationByHandle(h, kFileRenameInfoEx, info, static_cast<DWORD>(buf.size()));
+    DWORD error = ok ? 0 : GetLastError();
+    CloseHandle(h);
+    SetLastError(error);
+    return ok != 0;
+}
+
+void publish_snapshot(const fs::path& path, const std::string& text) {
+    static bool warned = false;
+    fs::path temp = path;
+    temp += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+    bool ok = false;
+    DWORD error = 0;
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        ok = static_cast<bool>(out.flush());
+        if (!ok) error = GetLastError();
+    }
+    for (int attempt = 0; ok; ++attempt) {
+        if (posix_replace(temp, path)) return;
+        // Where POSIX renames aren't supported (an older Windows, a FAT or network drive) the classic replace still is.
+        if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return;
+        error = GetLastError();
+        if ((error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) || attempt == 20) ok = false;
+        else Sleep(50);
+    }
+    std::error_code ec;
+    fs::remove(temp, ec);
+    if (!warned) {
+        std::cerr << "[bosun] can't replace the live snapshot " << narrow(path.wstring()) << " (error " << error
+                  << "): the previous one stays, and the next sample tries again\n";
+        warned = true;
+    }
+}
+
+void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::string>& cache, int interval_s) {
     auto procs = snapshot_processes();
     std::unordered_map<ULONG_PTR, size_t> by_pid;
     std::unordered_map<ULONG_PTR, std::string> own_repo;
@@ -922,26 +980,59 @@ void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::st
         o << ts << ",win," << kind << "," << dm::csv_name(name) << "," << count << "," << priv << "," << rss << "\n";
     };
     constexpr uint64_t MB = 1024 * 1024;
+    // The live snapshot (D01 T01 §4) holds the same figures as this sample's rows; what wasn't measured is null there
+    // and has no row here, never a 0.
+    dm::Snapshot snap;
+    snap.side = "windows";
+    snap.at = ts + "Z";
+    snap.interval_s = interval_s;
     MEMORYSTATUSEX m{};
     m.dwLength = sizeof(m);
-    GlobalMemoryStatusEx(&m);
-    row("sys", "available_mb", 0, m.ullAvailPhys / MB, 0);
-    row("sys", "commit_mb", 0, (m.ullTotalPageFile - m.ullAvailPageFile) / MB, 0);
-    row("sys", "commit_limit_mb", 0, m.ullTotalPageFile / MB, 0);
+    std::optional<int64_t> avail, total, commit, limit, pages;
+    if (GlobalMemoryStatusEx(&m)) {
+        avail = static_cast<int64_t>(m.ullAvailPhys / MB);
+        total = static_cast<int64_t>(m.ullTotalPhys / MB);
+        commit = static_cast<int64_t>((m.ullTotalPageFile - m.ullAvailPageFile) / MB);
+        limit = static_cast<int64_t>(m.ullTotalPageFile / MB);
+        row("sys", "available_mb", 0, *avail, 0);
+        row("sys", "commit_mb", 0, *commit, 0);
+        row("sys", "commit_limit_mb", 0, *limit, 0);
+    }
     PDH_FMT_COUNTERVALUE value{};
-    if (PdhGetFormattedCounterValue(counter, PDH_FMT_LARGE, nullptr, &value) == ERROR_SUCCESS)
+    if (PdhGetFormattedCounterValue(counter, PDH_FMT_LARGE, nullptr, &value) == ERROR_SUCCESS) {
+        pages = value.largeValue;
         row("sys", "pages_in_per_sec", 0, value.largeValue, 0);
-    for (const auto& [name, g] : repos) row("repo", name, g.count, g.priv / MB, g.ws / MB);
+    }
+    snap.memory = {{"available_mb", avail}, {"total_mb", total}, {"commit_mb", commit}, {"commit_limit_mb", limit}, {"pages_in_per_sec", pages}};
+    for (const auto& [name, g] : repos) {
+        row("repo", name, g.count, g.priv / MB, g.ws / MB);
+        snap.repos.push_back({name, g.count, static_cast<int64_t>(g.priv / MB), static_cast<int64_t>(g.ws / MB)});
+    }
     std::vector<std::pair<std::string, Group>> sorted(names.begin(), names.end());
     std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second.priv > b.second.priv; });
-    for (size_t i = 0; i < sorted.size() && i < 15; ++i)
+    for (size_t i = 0; i < sorted.size() && i < 15; ++i) {
         row("proc", sorted[i].first, sorted[i].second.count, sorted[i].second.priv / MB, sorted[i].second.ws / MB);
+        snap.processes.push_back({sorted[i].first, sorted[i].second.count, static_cast<int64_t>(sorted[i].second.priv / MB),
+                                  static_cast<int64_t>(sorted[i].second.ws / MB)});
+    }
+    // The WSL VM as the host sees it, from this same process list: never a call into WSL, so it never starts the VM.
+    dm::WslVm vm;
+    for (const auto& [name, g] : names) {
+        if (_stricmp(name.c_str(), "vmmemWSL") != 0 && _stricmp(name.c_str(), "vmmem") != 0) continue;
+        vm.running = true;
+        vm.processes += g.count;
+        vm.private_mb += static_cast<int64_t>(g.priv / MB);
+        vm.rss_mb += static_cast<int64_t>(g.ws / MB);
+    }
+    snap.wsl_vm = vm;
 
     fs::path file = log_dir() / (L"windows-" + std::wstring(ts.begin(), ts.begin() + 10) + L".csv");
     bool fresh = !fs::exists(file);
     std::ofstream f(file, std::ios::app | std::ios::binary);
     if (fresh) f << "ts,side,kind,name,count,private_mb,rss_mb\n";
     f << o.str();
+    f.close();
+    publish_snapshot(log_dir() / L"current-windows.json", dm::snapshot_json(snap));
 }
 
 void prune_logs(int keep_days) {
@@ -966,7 +1057,7 @@ int cmd_log(const Options& o) {
     int since_prune = INT_MAX / 2;
     for (;;) {
         PdhCollectQueryData(q);
-        write_sample(c, cache);
+        write_sample(c, cache, o.interval_s);
         if (o.once) {
             prune_logs(14);  // one sample still keeps the folder to its retention
             break;
@@ -984,21 +1075,67 @@ int cmd_log(const Options& o) {
     return 0;
 }
 
+int64_t now_epoch_s() {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t t = (uint64_t{ft.dwHighDateTime} << 32) | ft.dwLowDateTime;
+    return static_cast<int64_t>(t / 10000000ULL) - 11644473600LL;  // FILETIME counts 100 ns from 1601
+}
+
+// History over the last --days times 24 hours (D01 T01 §4): memory from the .csv logs, builds from the job logs, each
+// sample filtered by its own time, and what couldn't be read said, so a partial history never reads as a whole one.
 int cmd_report(const Options& o) {
-    std::string cutoff = date_days_ago(o.days);
+    int64_t now = now_epoch_s();
+    std::string since = dm::utc_stamp(now - int64_t{o.days} * 86400);  // YYYY-MM-DDTHH:MM:SSZ
+    std::string since_row = since.substr(0, 19);                       // as the CSV rows write it
+    std::string since_date = since.substr(0, 10);
     std::vector<dm::Row> rows;
+    std::vector<dm::JobLine> jobs;
+    dm::ReadStatus read;
     std::error_code ec;
-    for (const auto& e : fs::directory_iterator(log_dir(), ec)) {
-        std::string d = file_date(e.path());
-        if (d.empty() || d < cutoff) continue;
-        std::ifstream f(e.path());
+    fs::path dir = log_dir();
+    fs::directory_iterator it(dir, ec), end;
+    if (ec) read.complete = false;
+    for (; !ec && it != end; it.increment(ec)) {
+        const fs::path& path = it->path();
+        std::string d = file_date(path);
+        if (d.empty() || d < since_date) continue;
+        bool csv = path.extension() == L".csv";
+        bool job_log = path.extension() == L".jsonl" && path.filename().wstring().rfind(L"jobs-", 0) == 0;
+        if (!csv && !job_log) continue;
+        ++read.files;
+        std::ifstream f(path, std::ios::binary);
+        if (!f) {
+            read.complete = false;
+            ++read.unreadable_files;
+            continue;
+        }
         std::string line;
         while (std::getline(f, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (auto r = dm::parse_row(line)) rows.push_back(std::move(*r));
+            if (line.empty()) continue;
+            if (csv) {
+                if (line.rfind("ts,", 0) == 0) continue;  // the header
+                if (auto r = dm::parse_row(line)) rows.push_back(std::move(*r));
+                else ++read.rejected_rows;
+            } else if (auto j = dm::parse_job_line(line)) {
+                jobs.push_back(std::move(*j));
+            } else {
+                ++read.rejected_rows;
+            }
+        }
+        if (f.bad()) {
+            read.complete = false;
+            ++read.unreadable_files;
         }
     }
-    std::cout << dm::render(dm::aggregate(rows));
+    if (ec) read.complete = false;  // a listing that failed part way ends the loop early
+    dm::Report report = dm::aggregate(rows, 2048, since_row);
+    if (o.json) {
+        std::cout << dm::report_json(report, dm::build_overlap(jobs, now - int64_t{o.days} * 86400), read, dm::utc_stamp(now), since, o.days) << "\n";
+        return 0;
+    }
+    std::cout << dm::render(report);
     return 0;
 }
 

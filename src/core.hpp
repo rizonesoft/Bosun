@@ -1,10 +1,12 @@
 // Platform-free logic, kept apart from the Windows calls so it can be unit tested.
 #pragma once
 #include <algorithm>
+#include <cstdio>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -148,10 +150,46 @@ inline std::string csv_name(const std::string& s) {
     return out;
 }
 
+// The inverse of csv_name (and of wsl/bosun_log.py's csv_name): each %XX back to its byte, anything else as it is, so
+// a name read from history matches the same name in a live snapshot (D01 T01 §4).
+inline std::string csv_unname(const std::string& s) {
+    auto hex = [](char c) -> int {
+        if (c >= '0' && c <= '9') return c - '0';
+        if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+        return -1;
+    };
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        int hi = 0, lo = 0;
+        if (s[i] == '%' && i + 2 < s.size() && (hi = hex(s[i + 1])) >= 0 && (lo = hex(s[i + 2])) >= 0) {
+            out.push_back(static_cast<char>(hi * 16 + lo));
+            i += 2;
+        } else {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
 struct Row {
     std::string ts, side, kind, name;
     int64_t count = 0, private_mb = 0, rss_mb = 0;
 };
+
+// A whole decimal integer, sign allowed, with nothing else in the field; std::stoll took "12x" as 12.
+inline std::optional<int64_t> csv_integer(const std::string& f) {
+    if (f.empty() || f.size() > 20) return std::nullopt;
+    size_t i = f[0] == '-' ? 1 : 0;
+    if (i == f.size()) return std::nullopt;
+    int64_t v = 0;
+    for (; i < f.size(); ++i) {
+        if (f[i] < '0' || f[i] > '9') return std::nullopt;
+        if (v > (INT64_MAX - (f[i] - '0')) / 10) return std::nullopt;
+        v = v * 10 + (f[i] - '0');
+    }
+    return f[0] == '-' ? -v : v;
+}
 
 inline std::optional<Row> parse_row(const std::string& line) {
     std::vector<std::string> f;
@@ -159,61 +197,93 @@ inline std::optional<Row> parse_row(const std::string& line) {
     std::string item;
     while (std::getline(ss, item, ',')) f.push_back(item);
     if (f.size() != 7 || f[0] == "ts") return std::nullopt;
-    try {
-        return Row{f[0], f[1], f[2], f[3], std::stoll(f[4]), std::stoll(f[5]), std::stoll(f[6])};
-    } catch (...) {
-        return std::nullopt;  // A partial line from a sampler killed mid-write.
-    }
+    auto count = csv_integer(f[4]), priv = csv_integer(f[5]), rss = csv_integer(f[6]);
+    if (!count || !priv || !rss || f[0].size() != 19) return std::nullopt;  // a partial line from a sampler killed mid-write
+    return Row{f[0], f[1], f[2], csv_unname(f[3]), *count, *priv, *rss};
 }
 
-struct Report {
-    int64_t win_samples = 0, low_samples = 0;
-    std::optional<int64_t> min_avail_mb;
-    std::string worst_minute;
-    std::map<std::string, int64_t> worst_repos;
-    int64_t max_commit_mb = 0, commit_limit_mb = 0, max_pages_in = 0;
-    std::optional<int64_t> wsl_min_avail_mb;
-    int64_t wsl_max_swap_mb = 0, wsl_max_psi_full_x100 = 0, wsl_max_oom_kills = 0;
-    std::map<std::string, int64_t> repo_peak_mb;
-    int64_t busiest_total_mb = 0, busiest_repo_count = 0;
-    std::string busiest_minute;
+// One UTC minute of history: each side's lowest available memory that minute (null without a sample), and how many
+// repos had processes with their summed private memory.
+struct MinutePoint {
+    std::optional<int64_t> win_available_mb, wsl_available_mb;
+    int64_t repos = 0, repo_private_mb = 0;
 };
 
-// low_mb marks a sample as memory pressure. Samples from both sides join on the minute.
-inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048) {
+struct RepoPeak {
+    int64_t private_mb = 0, rss_mb = 0, processes = 0;
+};
+
+struct Report {
+    int64_t win_samples = 0, low_samples = 0, wsl_samples = 0;
+    std::optional<int64_t> min_avail_mb;
+    std::string worst_minute;
+    std::map<std::string, int64_t> worst_repos;  // "side:repo" at the lowest-memory minute
+    // Null when no sample of it was taken (D01 T01 §4): a maximum of nothing is not 0.
+    std::optional<int64_t> max_commit_mb, commit_limit_mb, max_pages_in;
+    std::optional<int64_t> wsl_min_avail_mb;
+    std::optional<int64_t> wsl_max_swap_mb, wsl_max_psi_full_x100, wsl_max_oom_kills;
+    std::map<std::string, int64_t> repo_peak_mb;                      // "side:repo"
+    std::map<std::pair<std::string, std::string>, RepoPeak> repo_peaks;  // (side, repo)
+    int64_t busiest_total_mb = 0, busiest_repo_count = 0;
+    std::string busiest_minute;
+    std::map<std::string, MinutePoint> series;  // by minute, YYYY-MM-DDTHH:MM
+    std::set<std::string> dates;               // UTC dates with a sample
+    std::string first_sample, last_sample;
+};
+
+inline void keep_max(std::optional<int64_t>& m, int64_t v) {
+    if (!m || v > *m) m = v;
+}
+
+// low_mb marks a sample as memory pressure. Samples from both sides join on the minute. Only samples at or after
+// `since` (YYYY-MM-DDTHH:MM:SS, UTC, as the rows write it) count, for every figure alike; empty takes them all.
+inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048, const std::string& since = {}) {
     Report r;
     std::map<std::string, std::map<std::string, int64_t>> minute_repos;
     std::map<std::string, int64_t> minute_avail;
     for (const auto& row : rows) {
+        if (!since.empty() && row.ts < since) continue;
         std::string minute = row.ts.substr(0, 16);
+        r.dates.insert(row.ts.substr(0, 10));
+        if (r.first_sample.empty() || row.ts < r.first_sample) r.first_sample = row.ts;
+        if (row.ts > r.last_sample) r.last_sample = row.ts;
         if (row.kind == "repo") {
             std::string key = row.side + ":" + row.name;
             auto& m = minute_repos[minute][key];
             m = std::max(m, row.private_mb);
             auto& peak = r.repo_peak_mb[key];
             peak = std::max(peak, row.private_mb);
+            auto& p = r.repo_peaks[{row.side, row.name}];
+            p.private_mb = std::max(p.private_mb, row.private_mb);
+            p.rss_mb = std::max(p.rss_mb, row.rss_mb);
+            p.processes = std::max(p.processes, row.count);
         } else if (row.kind == "sys" && row.side == "win") {
             if (row.name == "available_mb") {
                 ++r.win_samples;
                 if (row.private_mb < low_mb) ++r.low_samples;
                 auto it = minute_avail.find(minute);
                 if (it == minute_avail.end() || row.private_mb < it->second) minute_avail[minute] = row.private_mb;
+                auto& point = r.series[minute].win_available_mb;
+                if (!point || row.private_mb < *point) point = row.private_mb;
             } else if (row.name == "commit_mb") {
-                r.max_commit_mb = std::max(r.max_commit_mb, row.private_mb);
+                keep_max(r.max_commit_mb, row.private_mb);
             } else if (row.name == "commit_limit_mb") {
-                r.commit_limit_mb = std::max(r.commit_limit_mb, row.private_mb);
+                keep_max(r.commit_limit_mb, row.private_mb);
             } else if (row.name == "pages_in_per_sec") {
-                r.max_pages_in = std::max(r.max_pages_in, row.private_mb);
+                keep_max(r.max_pages_in, row.private_mb);
             }
         } else if (row.kind == "sys" && row.side == "wsl") {
             if (row.name == "mem_available_mb") {
+                ++r.wsl_samples;
                 if (!r.wsl_min_avail_mb || row.private_mb < *r.wsl_min_avail_mb) r.wsl_min_avail_mb = row.private_mb;
+                auto& point = r.series[minute].wsl_available_mb;
+                if (!point || row.private_mb < *point) point = row.private_mb;
             } else if (row.name == "swap_used_mb") {
-                r.wsl_max_swap_mb = std::max(r.wsl_max_swap_mb, row.private_mb);
+                keep_max(r.wsl_max_swap_mb, row.private_mb);
             } else if (row.name == "psi_full_avg10_x100") {
-                r.wsl_max_psi_full_x100 = std::max(r.wsl_max_psi_full_x100, row.private_mb);
+                keep_max(r.wsl_max_psi_full_x100, row.private_mb);
             } else if (row.name == "oom_kills") {
-                r.wsl_max_oom_kills = std::max(r.wsl_max_oom_kills, row.private_mb);
+                keep_max(r.wsl_max_oom_kills, row.private_mb);
             }
         }
     }
@@ -228,6 +298,9 @@ inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048) {
     for (const auto& [minute, repos] : minute_repos) {
         int64_t total = 0;
         for (const auto& [name, mb] : repos) total += mb;
+        auto& point = r.series[minute];
+        point.repos = static_cast<int64_t>(repos.size());
+        point.repo_private_mb = total;
         if (total > r.busiest_total_mb) {
             r.busiest_total_mb = total;
             r.busiest_repo_count = static_cast<int64_t>(repos.size());
@@ -237,6 +310,31 @@ inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048) {
     return r;
 }
 
+// Seconds since 1970 as YYYY-MM-DDTHH:MM:SSZ (the inverse of utc_seconds; Howard Hinnant's civil_from_days).
+inline std::string utc_stamp(int64_t t) {
+    int64_t days = t >= 0 ? t / 86400 : (t - 86399) / 86400;
+    int64_t secs = t - days * 86400;
+    int64_t z = days + 719468;
+    int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t y = yoe + era * 400;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp = (5 * doy + 2) / 153;
+    int64_t d = doy - (153 * mp + 2) / 5 + 1;
+    int64_t m = mp < 10 ? mp + 3 : mp - 9;
+    if (m <= 2) ++y;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04lld-%02lld-%02lldT%02lld:%02lld:%02lldZ", static_cast<long long>(y), static_cast<long long>(m),
+                  static_cast<long long>(d), static_cast<long long>(secs / 3600), static_cast<long long>(secs / 60 % 60),
+                  static_cast<long long>(secs % 60));
+    return buf;
+}
+
+inline std::string mb_or(const std::optional<int64_t>& v, const char* none = "not measured") {
+    return v ? std::to_string(*v) : std::string(none);
+}
+
 inline std::string render(const Report& r) {
     std::ostringstream o;
     if (!r.min_avail_mb) return "No samples yet. Is the logger running? Check with: bosun status\n";
@@ -244,12 +342,14 @@ inline std::string render(const Report& r) {
     o << "Times are UTC.\nWindows\n";
     o << "  samples: " << r.win_samples << ", under 2 GB available: " << r.low_samples << " (" << static_cast<int>(pct + 0.5) << "%)\n";
     o << "  lowest available: " << *r.min_avail_mb << " MB at " << r.worst_minute << "\n";
-    o << "  peak commit: " << r.max_commit_mb << " of " << r.commit_limit_mb << " MB\n";
-    o << "  peak page-ins: " << r.max_pages_in << " per second\n";
+    o << "  peak commit: " << mb_or(r.max_commit_mb) << " of " << mb_or(r.commit_limit_mb) << " MB\n";
+    o << "  peak page-ins: " << mb_or(r.max_pages_in) << " per second\n";
     o << "WSL\n";
     if (r.wsl_min_avail_mb) {
-        o << "  lowest available: " << *r.wsl_min_avail_mb << " MB, peak swap: " << r.wsl_max_swap_mb << " MB\n";
-        o << "  peak stall (PSI full avg10): " << r.wsl_max_psi_full_x100 / 100 << "%, OOM kills counter: " << r.wsl_max_oom_kills << "\n";
+        o << "  lowest available: " << *r.wsl_min_avail_mb << " MB, peak swap: " << mb_or(r.wsl_max_swap_mb) << " MB\n";
+        o << "  peak stall (PSI full avg10): "
+          << (r.wsl_max_psi_full_x100 ? std::to_string(*r.wsl_max_psi_full_x100 / 100) + "%" : std::string("not measured"))
+          << ", OOM kills counter: " << mb_or(r.wsl_max_oom_kills) << "\n";
     } else {
         o << "  no samples\n";
     }
@@ -264,6 +364,12 @@ inline std::string render(const Report& r) {
     for (const auto& [name, mb] : peaks) o << "  " << mb << " MB  " << name << "\n";
     return o.str();
 }
+
+// What report could read: a folder or file it couldn't open makes it incomplete, and rows it refused are counted.
+struct ReadStatus {
+    bool complete = true;
+    int64_t files = 0, unreadable_files = 0, rejected_rows = 0;
+};
 
 // --- Slot holder and waiter records (D01 T01 §1) ------------------------------------------------------------------
 // A mutex can't name its owner, so each holder and waiter publishes a small JSON record beside it. The mutex stays the
@@ -832,6 +938,166 @@ inline std::optional<JobLine> parse_job_line(const std::string& text) {
     if (code->kind == FlatValue::Integer) j.exit_code = code->number;
     else if (code->kind != FlatValue::Null) return std::nullopt;
     return j;
+}
+
+// Overlapping builds from the job log (D01 T01 §2): each job's run is the interval from ended_at minus ran_s to
+// ended_at, and the overlap is the most runs open at one instant. A job that only waited (ran_s 0) never counts, and
+// two runs where one ends as the next starts don't overlap. Only jobs that ended at or after `since_s` count.
+struct BuildOverlap {
+    int64_t jobs = 0, max_overlap = 0;
+    std::optional<int64_t> at;  // seconds since 1970, when the most runs were open
+};
+
+inline BuildOverlap build_overlap(const std::vector<JobLine>& jobs, int64_t since_s) {
+    BuildOverlap b;
+    std::vector<std::pair<double, int>> events;  // (time, +1 start or -1 end); an end sorts before a start at one time
+    for (const auto& j : jobs) {
+        auto end = utc_seconds(j.ended_at);
+        if (!end || *end < since_s) continue;
+        ++b.jobs;
+        if (j.ran_s <= 0) continue;
+        double stop = static_cast<double>(*end), start = stop - j.ran_s;
+        events.push_back({start, +1});
+        events.push_back({stop, -1});
+    }
+    std::sort(events.begin(), events.end());
+    int64_t open = 0;
+    for (const auto& [t, delta] : events) {
+        open += delta;
+        if (open > b.max_overlap) {
+            b.max_overlap = open;
+            b.at = static_cast<int64_t>(t);
+        }
+    }
+    return b;
+}
+
+// --- report --json and the logger snapshots (D01 T01 §4) -----------------------------------------------------------
+
+inline void json_count(std::ostringstream& o, const std::optional<int64_t>& v) {
+    if (v) o << *v;
+    else o << "null";
+}
+
+inline void json_text(std::ostringstream& o, const std::string& v) {
+    if (v.empty()) o << "null";
+    else o << "\"" << json_escape(v) << "\"";
+}
+
+// A "side:repo" key back into its two parts; the side never holds a colon.
+inline std::pair<std::string, std::string> side_and_repo(const std::string& key) {
+    size_t colon = key.find(':');
+    return colon == std::string::npos ? std::pair<std::string, std::string>{"", key} : std::pair{key.substr(0, colon), key.substr(colon + 1)};
+}
+
+inline std::string report_json(const Report& r, const BuildOverlap& b, const ReadStatus& read, const std::string& generated_at,
+                               const std::string& since, int days_requested, int64_t low_mb = 2048) {
+    std::ostringstream o;
+    o << "{\"schema_version\":1,\"generated_at\":\"" << json_escape(generated_at) << "\",\"since\":\"" << json_escape(since)
+      << "\",\"days_requested\":" << days_requested << ",\"days_covered\":" << r.dates.size() << ",\"first_sample\":";
+    json_text(o, r.first_sample);
+    o << ",\"last_sample\":";
+    json_text(o, r.last_sample);
+    o << ",\"low_mb\":" << low_mb << ",\"read\":{\"complete\":" << (read.complete ? "true" : "false") << ",\"files\":" << read.files
+      << ",\"unreadable_files\":" << read.unreadable_files << ",\"rejected_rows\":" << read.rejected_rows << "}";
+    o << ",\"windows\":{\"samples\":" << r.win_samples << ",\"low_samples\":" << r.low_samples << ",\"min_available_mb\":";
+    json_count(o, r.min_avail_mb);
+    o << ",\"worst_minute\":";
+    json_text(o, r.worst_minute);
+    o << ",\"worst_repos\":[";
+    std::vector<std::pair<std::string, int64_t>> worst(r.worst_repos.begin(), r.worst_repos.end());
+    std::sort(worst.begin(), worst.end(), [](const auto& a, const auto& c) { return a.second != c.second ? a.second > c.second : a.first < c.first; });
+    for (size_t i = 0; i < worst.size(); ++i) {
+        auto [side, repo] = side_and_repo(worst[i].first);
+        o << (i ? "," : "") << "{\"repo\":\"" << json_escape(repo) << "\",\"side\":\"" << json_escape(side) << "\",\"private_mb\":" << worst[i].second << "}";
+    }
+    o << "],\"max_commit_mb\":";
+    json_count(o, r.max_commit_mb);
+    o << ",\"commit_limit_mb\":";
+    json_count(o, r.commit_limit_mb);
+    o << ",\"max_pages_in_per_sec\":";
+    json_count(o, r.max_pages_in);
+    o << "},\"wsl\":{\"samples\":" << r.wsl_samples << ",\"min_available_mb\":";
+    json_count(o, r.wsl_min_avail_mb);
+    o << ",\"max_swap_mb\":";
+    json_count(o, r.wsl_max_swap_mb);
+    o << ",\"max_psi_full_avg10_x100\":";
+    json_count(o, r.wsl_max_psi_full_x100);
+    o << ",\"max_oom_kills\":";
+    json_count(o, r.wsl_max_oom_kills);
+    o << "},\"builds\":{\"jobs\":" << b.jobs << ",\"max_overlap\":" << b.max_overlap << ",\"at\":";
+    if (b.at) o << "\"" << utc_stamp(*b.at) << "\"";
+    else o << "null";
+    o << "},\"active_repos\":{\"max\":" << r.busiest_repo_count << ",\"minute\":";
+    json_text(o, r.busiest_minute);
+    o << ",\"total_private_mb\":" << r.busiest_total_mb << "},\"repos\":[";
+    std::vector<std::pair<std::pair<std::string, std::string>, RepoPeak>> peaks(r.repo_peaks.begin(), r.repo_peaks.end());
+    std::sort(peaks.begin(), peaks.end(), [](const auto& a, const auto& c) {
+        return a.second.private_mb != c.second.private_mb ? a.second.private_mb > c.second.private_mb : a.first < c.first;
+    });
+    for (size_t i = 0; i < peaks.size(); ++i) {
+        const auto& [key, p] = peaks[i];
+        o << (i ? "," : "") << "{\"repo\":\"" << json_escape(key.second) << "\",\"side\":\"" << json_escape(key.first) << "\",\"peak_private_mb\":"
+          << p.private_mb << ",\"peak_rss_mb\":" << p.rss_mb << ",\"peak_processes\":" << p.processes << "}";
+    }
+    o << "],\"series\":[";
+    bool first = true;
+    for (const auto& [minute, point] : r.series) {
+        o << (first ? "" : ",") << "{\"minute\":\"" << json_escape(minute) << "\",\"win_available_mb\":";
+        json_count(o, point.win_available_mb);
+        o << ",\"wsl_available_mb\":";
+        json_count(o, point.wsl_available_mb);
+        o << ",\"repos\":" << point.repos << ",\"repo_private_mb\":" << point.repo_private_mb << "}";
+        first = false;
+    }
+    o << "]}";
+    return o.str();
+}
+
+// One live sample, as the loggers write it to current-<side>.json beside the CSV files: the same figures as the sample's
+// CSV rows, so the panel's live cards need no CSV read.
+struct SnapshotGroup {
+    std::string name;
+    int64_t processes = 0, private_mb = 0, rss_mb = 0;
+};
+
+struct WslVm {
+    bool running = false;
+    int64_t processes = 0, private_mb = 0, rss_mb = 0;
+};
+
+struct Snapshot {
+    std::string side, at;  // "windows" or "wsl"; UTC, YYYY-MM-DDTHH:MM:SSZ
+    int64_t interval_s = 0;
+    std::vector<std::pair<std::string, std::optional<int64_t>>> memory;  // in the order written; null when not measured
+    std::optional<WslVm> wsl_vm;                                         // the Windows side's view of the WSL VM
+    std::vector<SnapshotGroup> repos, processes;
+};
+
+inline std::string snapshot_json(const Snapshot& s) {
+    std::ostringstream o;
+    o << "{\"schema_version\":1,\"side\":\"" << json_escape(s.side) << "\",\"at\":\"" << json_escape(s.at) << "\",\"interval_s\":" << s.interval_s
+      << ",\"memory\":{";
+    for (size_t i = 0; i < s.memory.size(); ++i) {
+        o << (i ? "," : "") << "\"" << json_escape(s.memory[i].first) << "\":";
+        json_count(o, s.memory[i].second);
+    }
+    o << "},\"wsl_vm\":";
+    if (s.wsl_vm)
+        o << "{\"running\":" << (s.wsl_vm->running ? "true" : "false") << ",\"processes\":" << s.wsl_vm->processes << ",\"private_mb\":" << s.wsl_vm->private_mb
+          << ",\"rss_mb\":" << s.wsl_vm->rss_mb << "}";
+    else o << "null";
+    auto groups = [&](const char* key, const char* label, const std::vector<SnapshotGroup>& list) {
+        o << ",\"" << key << "\":[";
+        for (size_t i = 0; i < list.size(); ++i)
+            o << (i ? "," : "") << "{\"" << label << "\":\"" << json_escape(list[i].name) << "\",\"processes\":" << list[i].processes
+              << ",\"private_mb\":" << list[i].private_mb << ",\"rss_mb\":" << list[i].rss_mb << "}";
+        o << "]";
+    };
+    groups("repos", "repo", s.repos);
+    groups("processes", "name", s.processes);
+    o << "}";
+    return o.str();
 }
 
 }  // namespace dm

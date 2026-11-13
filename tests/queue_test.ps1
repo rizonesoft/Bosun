@@ -475,6 +475,96 @@ $s = Status-Json
 Remove-Item Env:BOSUN_SLOTS
 Check (@($s.Obj.slots).Count -eq 2 -and $warned -match 'ignoring BOSUN_SLOTS=3x') "a bad BOSUN_SLOTS is said and the default of 2 slots kept ($($warned.Trim()))"
 
+# --- report --json and the live snapshots (D01 T01 §4), from logs folders of the test's own ---
+$repHome = Join-Path $work 'report-home'
+$repLogs = Join-Path $repHome 'Bosun\logs'
+New-Item -ItemType Directory -Path $repLogs -Force | Out-Null
+$t1 = (Get-Date).ToUniversalTime().AddHours(-25)
+$t2 = (Get-Date).ToUniversalTime().AddHours(-1)
+$s1 = $t1.ToString('yyyy-MM-ddTHH:mm:ss'); $s2 = $t2.ToString('yyyy-MM-ddTHH:mm:ss')
+$head = 'ts,side,kind,name,count,private_mb,rss_mb'
+[IO.File]::WriteAllText((Join-Path $repLogs "windows-$($t1.ToString('yyyy-MM-dd')).csv"), "$head`n$s1,win,sys,available_mb,0,9000,0`n$s1,win,repo,D:/A,3,1000,800`n$s1,win,repo,D:/C,1,10,10`n")
+[IO.File]::WriteAllText((Join-Path $repLogs "windows-$($t2.ToString('yyyy-MM-dd')).csv"), "$head`n$s2,win,sys,available_mb,0,1500,0`n$s2,win,repo,D:/A,4,3000,2500`n")
+[IO.File]::WriteAllText((Join-Path $repLogs "wsl-$($t1.ToString('yyyy-MM-dd')).csv"), "$head`n$s1,wsl,sys,mem_available_mb,0,7000,0`n$s1,wsl,repo,/home/u/b%2Cc,2,4000,3000`n")
+$jobLine = { param($end, $ran) '{"schema_version":1,"started_at":"' + $end + '","ended_at":"' + $end + '","pid":1,"command":"x","repo":null,"side":"windows","ns":"T","slot":0,"waited_s":0.0,"ran_s":' + $ran + ',"exit_code":0,"timed_out_into_queue":false}' }
+$e1 = $t2.AddSeconds(10).ToString('yyyy-MM-ddTHH:mm:ssZ'); $e2 = $t2.AddSeconds(8).ToString('yyyy-MM-ddTHH:mm:ssZ')
+[IO.File]::WriteAllText((Join-Path $repLogs "jobs-$($t2.ToString('yyyy-MM-dd')).jsonl"), ((& $jobLine $e1 '10.0') + "`n" + (& $jobLine $e2 '4.0') + "`n"))
+function Report-Json([string]$home_) {
+  $env:LOCALAPPDATA = $home_
+  $text = (& $bosun report --json --days 7 2>$null | Out-String).Trim()
+  $code = $LASTEXITCODE
+  $env:LOCALAPPDATA = $savedHome
+  $obj = $null
+  # Text that isn't JSON leaves Obj null, which every check below reads as a failure.
+  try { $obj = $text | ConvertFrom-Json -DateKind String } catch { $obj = $null }
+  [pscustomobject]@{ Code = $code; Text = $text; Obj = $obj }
+}
+$rj = Report-Json $repHome
+$ro = $rj.Obj
+Check ($rj.Code -eq 0 -and $ro.schema_version -eq 1 -and $ro.days_covered -eq 2 -and $ro.read.complete -eq $true -and $ro.read.rejected_rows -eq 0 -and $ro.read.files -eq 4) "report --json covers two days from four files, all read ($($rj.Text.Substring(0, [Math]::Min(300, $rj.Text.Length))))"
+Check ($ro.windows.min_available_mb -eq 1500 -and $ro.wsl.min_available_mb -eq 7000 -and $null -eq $ro.wsl.max_psi_full_avg10_x100 -and @($ro.series).Count -eq 2) "it gives each side's lowest memory, a null for what was never sampled, and one series entry per sampled minute"
+Check ($ro.repos[0].repo -eq '/home/u/b,c' -and $ro.repos[0].peak_private_mb -eq 4000 -and $ro.repos[1].repo -eq 'D:/A' -and $ro.repos[1].peak_processes -eq 4 -and $ro.active_repos.max -eq 3 -and $ro.builds.max_overlap -eq 2 -and $ro.builds.jobs -eq 2) "it gives each repo's peaks, decoded, the repos active at once and the builds that overlapped ($($ro.repos | ConvertTo-Json -Compress), builds $($ro.builds | ConvertTo-Json -Compress))"
+$env:LOCALAPPDATA = $repHome
+$text = & $bosun report --days 7 | Out-String
+$env:LOCALAPPDATA = $savedHome
+Check ($text -match 'lowest available: 1500 MB') "the text report reads the same history"
+# A line cut short by a sampler killed mid-write is counted, and a file that can't be opened makes the read incomplete.
+$cut = Join-Path $repLogs "windows-$($t2.ToString('yyyy-MM-dd')).csv"
+[IO.File]::AppendAllText($cut, "$s2,win,sys,avail")
+$rj = Report-Json $repHome
+Check ($rj.Obj.read.rejected_rows -eq 1 -and $rj.Obj.read.complete -eq $true) "a truncated last line is counted as one rejected row ($($rj.Obj.read | ConvertTo-Json -Compress))"
+$lock = [IO.File]::Open($cut, 'Open', 'Read', 'None')
+try { $rj = Report-Json $repHome } finally { $lock.Dispose() }
+Check ($rj.Obj.read.complete -eq $false -and $rj.Obj.read.unreadable_files -eq 1 -and $rj.Obj.days_covered -eq 1) "a CSV held open with no sharing makes the read incomplete and is counted, its day left out ($($rj.Obj.read | ConvertTo-Json -Compress), $($rj.Obj.days_covered) day)"
+$emptyHome = Join-Path $work 'empty-report-home'
+New-Item -ItemType Directory -Path (Join-Path $emptyHome 'Bosun\logs') -Force | Out-Null
+$rj = Report-Json $emptyHome
+Check ($rj.Code -eq 0 -and $rj.Obj.days_covered -eq 0 -and @($rj.Obj.series).Count -eq 0 -and $null -eq $rj.Obj.windows.min_available_mb -and $rj.Obj.read.complete -eq $true) "an empty logs folder gives 0 days covered, an empty series and no made-up minimum"
+
+# The Windows snapshot holds the same figures as its sample's CSV rows.
+$snapHome = Join-Path $work 'snap-home'
+$snapLogs = Join-Path $snapHome 'Bosun\logs'
+$env:LOCALAPPDATA = $snapHome
+& $bosun log --once --interval 7
+$env:LOCALAPPDATA = $savedHome
+$snapFile = Join-Path $snapLogs 'current-windows.json'
+$snap = Get-Content -LiteralPath $snapFile -Raw | ConvertFrom-Json -DateKind String
+$rows = @(Get-ChildItem -LiteralPath $snapLogs -Filter 'windows-*.csv' | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ -like "$($snap.at.TrimEnd('Z')),*" } | ForEach-Object { , ($_ -split ',') })
+$sys = @{}; foreach ($r in $rows) { if ($r[2] -eq 'sys') { $sys[$r[3]] = [int64]$r[5] } }
+$memOk = $snap.memory.available_mb -eq $sys['available_mb'] -and $snap.memory.commit_mb -eq $sys['commit_mb'] -and $snap.memory.commit_limit_mb -eq $sys['commit_limit_mb'] -and $snap.memory.total_mb -gt 0 -and $(if ($sys.ContainsKey('pages_in_per_sec')) { $snap.memory.pages_in_per_sec -eq $sys['pages_in_per_sec'] } else { $null -eq $snap.memory.pages_in_per_sec })
+$unname = { param($n) [regex]::Replace($n, '%([0-9A-F]{2})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }) }
+$repoRows = @($rows | Where-Object { $_[2] -eq 'repo' })
+$repoOk = $repoRows.Count -eq @($snap.repos).Count -and -not @($repoRows | Where-Object { $n = & $unname $_[3]; $g = @($snap.repos | Where-Object repo -eq $n); $g.Count -ne 1 -or $g[0].processes -ne [int64]$_[4] -or $g[0].private_mb -ne [int64]$_[5] -or $g[0].rss_mb -ne [int64]$_[6] })
+$procNames = @($rows | Where-Object { $_[2] -eq 'proc' } | ForEach-Object { & $unname $_[3] })
+$procOk = ($procNames -join '|') -eq (@($snap.processes | ForEach-Object name) -join '|') -and $procNames.Count -gt 0
+$vmRuns = [bool](Get-Process -Name 'vmmemWSL', 'vmmem' -ErrorAction Ignore)
+Check ($snap.schema_version -eq 1 -and $snap.side -eq 'windows' -and $snap.interval_s -eq 7 -and $rows.Count -gt 0 -and $memOk) "current-windows.json gives the memory figures of its sample's CSV rows ($($snap.memory | ConvertTo-Json -Compress))"
+Check ($repoOk -and $procOk) "and each repo's three numbers and the processes in the same order ($($repoRows.Count) repos, $($procNames.Count) processes)"
+Check ($snap.wsl_vm.running -eq $vmRuns) "its WSL VM reads running $($snap.wsl_vm.running), as Get-Process sees vmmemWSL ($vmRuns)"
+# Replaced, never written in place: a reader holding the old snapshot (sharing read and delete) still reads the old one.
+$held = [IO.FileStream]::new($snapFile, 'Open', 'Read', ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+try {
+  $before = [IO.StreamReader]::new($held).ReadToEnd()
+  Start-Sleep -Milliseconds 1100  # a later second, so the new snapshot's bytes differ
+  $env:LOCALAPPDATA = $snapHome; & $bosun log --once; $env:LOCALAPPDATA = $savedHome
+  $null = $held.Seek(0, 'Begin')
+  $through = [IO.StreamReader]::new($held).ReadToEnd()
+} finally { $held.Dispose() }
+$after = Get-Content -LiteralPath $snapFile -Raw
+Check ($before -eq $through -and $after -ne $before -and ($after | ConvertFrom-Json).side -eq 'windows') "a reader holding the old snapshot still reads the old bytes while the new one replaces it"
+# Held without delete sharing, it can't be replaced: the old one stays, nothing is left behind, and the next sample lands.
+$held = [IO.File]::Open($snapFile, 'Open', 'Read', 'Read')
+try {
+  Start-Sleep -Milliseconds 1100
+  $env:LOCALAPPDATA = $snapHome; $said = & $bosun log --once 2>&1 | Out-String; $heldCode = $LASTEXITCODE; $env:LOCALAPPDATA = $savedHome
+} finally { $held.Dispose() }
+$kept = Get-Content -LiteralPath $snapFile -Raw
+$temps = @(Get-ChildItem -LiteralPath $snapLogs -Filter '*.tmp')
+Start-Sleep -Milliseconds 1100
+$env:LOCALAPPDATA = $snapHome; & $bosun log --once; $env:LOCALAPPDATA = $savedHome
+$next = Get-Content -LiteralPath $snapFile -Raw
+Check ($heldCode -eq 0 -and $said -match "can't replace the live snapshot" -and $kept -eq $after -and $temps.Count -eq 0 -and $next -ne $kept) "a snapshot that can't be replaced keeps the old one, leaves no temporary file, and the next sample lands (exit $heldCode, $($temps.Count) left)"
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'
@@ -549,6 +639,15 @@ if ($SkipWsl) {
     $null = wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim run --ns $ns --slots 1 --min-avail-mb 0 --max-write-gb 9999999999 -- true 2>&1
     $huge = $LASTEXITCODE
     Check ($zeros -eq 0 -and $suffix -eq 64 -and $huge -eq 64) "the shim takes --max-wait 0000000003 (exit $zeros) and refuses 3x (exit $suffix) and a budget past its bound (exit $huge)"
+
+    # The WSL logger's snapshot (D01 T01 §4), read from Windows in the shared logs folder, as the panel reads it.
+    $wslLogs = Join-Path $work 'wsl-logs'
+    New-Item -ItemType Directory -Path $wslLogs -Force | Out-Null
+    $wslLogsLinux = (wsl.exe -d Ubuntu -- wslpath -a $wslLogs.Replace('\', '/')).Trim()
+    $logger = (wsl.exe -d Ubuntu -- wslpath -a (Join-Path $PSScriptRoot '..\wsl\bosun_log.py').Replace('\', '/')).Trim()
+    wsl.exe -d Ubuntu -- python3 -I $logger $wslLogsLinux --once
+    $cw = Get-Content -LiteralPath (Join-Path $wslLogs 'current-wsl.json') -Raw | ConvertFrom-Json -DateKind String
+    Check ($cw.schema_version -eq 1 -and $cw.side -eq 'wsl' -and [math]::Abs($cw.memory.total_mb - $total) -le 0.1 * $total -and $null -eq $cw.wsl_vm -and @(Get-ChildItem -LiteralPath $wslLogs -Filter '*.tmp').Count -eq 0) "the WSL logger's current-wsl.json reads from Windows, its total memory as /proc/meminfo gives ($($cw.memory | ConvertTo-Json -Compress))"
 
     # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
     $marker = "killmarker$PID"

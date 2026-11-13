@@ -337,6 +337,131 @@ static std::optional<Json> json(const std::string& t) {
     return out;
 }
 
+static void report_json() {
+    // CSV names come back decoded, exactly as both writers encode them: a literal "%2C" and a comma stay apart.
+    auto lit = dm::parse_row("2026-11-12T10:00:05,win,repo,D:/a%252Cb,1,10,5");
+    auto comma = dm::parse_row("2026-11-12T10:00:05,win,repo,D:/a%2Cb,1,20,6");
+    CHECK(lit && comma && lit->name == "D:/a%2Cb" && comma->name == "D:/a,b");
+    CHECK(dm::csv_unname(dm::csv_name("q\"x%y,z\r\n")) == "q\"x%y,z\r\n" && dm::csv_unname("%zz%4") == "%zz%4");
+    CHECK(!dm::parse_row("2026-11-12T10:00:05,win,sys,available_mb,0,12x,0") && !dm::parse_row("2026-11-12T10:0,win,sys,available_mb,0,1,0"));
+
+    // Two days of both sides, in the writers' own row format.
+    std::vector<std::string> csv{
+        "2026-11-12T10:00:05,win,sys,available_mb,0,9000,0",
+        "2026-11-12T10:00:05,win,sys,commit_mb,0,30000,0",
+        "2026-11-12T10:00:05,win,sys,commit_limit_mb,0,80000,0",
+        "2026-11-12T10:00:05,win,repo,D:/A,3,1000,800",
+        "2026-11-12T10:00:35,win,sys,available_mb,0,8000,0",
+        "2026-11-12T10:00:35,win,repo,D:/A,5,1200,700",
+        "2026-11-12T10:00:20,wsl,sys,mem_available_mb,0,7000,0",
+        "2026-11-12T10:00:20,wsl,sys,swap_used_mb,0,100,0",
+        "2026-11-12T10:00:20,wsl,sys,oom_kills,0,1,0",
+        "2026-11-12T10:00:20,wsl,repo,/home/u/b%2C\"c,2,4000,3000",
+        "2026-11-13T09:00:05,win,sys,available_mb,0,1500,0",
+        "2026-11-13T09:00:05,win,sys,pages_in_per_sec,0,77,0",
+        "2026-11-13T09:00:05,win,repo,D:/A,4,3000,2500",
+        "2026-11-13T09:00:05,win,repo,D:/Q\\uote,1,50,40",
+    };
+    std::vector<dm::Row> rows;
+    for (const auto& line : csv) {
+        auto r = dm::parse_row(line);
+        CHECK(r.has_value());
+        if (r) rows.push_back(*r);
+    }
+    dm::Report r = dm::aggregate(rows);
+    std::vector<dm::JobLine> runs(4);
+    runs[0].ended_at = "2026-11-13T09:00:10Z"; runs[0].ran_s = 10;  // 09:00:00 to 09:00:10
+    runs[1].ended_at = "2026-11-13T09:00:08Z"; runs[1].ran_s = 4;   // 09:00:04 to 09:00:08: overlaps the first
+    runs[2].ended_at = "2026-11-13T09:00:20Z"; runs[2].ran_s = 0;   // only waited
+    runs[3].ended_at = "2026-11-01T00:00:00Z"; runs[3].ran_s = 50;  // outside the window
+    dm::BuildOverlap b = dm::build_overlap(runs, *dm::utc_seconds("2026-11-06T00:00:00Z"));
+    CHECK(b.jobs == 3 && b.max_overlap == 2 && b.at && dm::utc_stamp(*b.at) == "2026-11-13T09:00:04Z");
+    // Two runs that follow each other within one minute don't overlap; a job that never ran counts for nothing.
+    std::vector<dm::JobLine> follow(2);
+    follow[0].ended_at = "2026-11-13T09:00:10Z"; follow[0].ran_s = 10;
+    follow[1].ended_at = "2026-11-13T09:00:30Z"; follow[1].ran_s = 20;  // starts as the first ends
+    CHECK(dm::build_overlap(follow, 0).max_overlap == 1);
+    std::vector<dm::JobLine> waited(1);
+    waited[0].ended_at = "2026-11-13T09:00:10Z";
+    CHECK(dm::build_overlap(waited, 0).max_overlap == 0 && !dm::build_overlap(waited, 0).at);
+    CHECK(dm::utc_stamp(0) == "1970-01-01T00:00:00Z" && dm::utc_stamp(*dm::utc_seconds("2028-02-29T23:59:59Z")) == "2028-02-29T23:59:59Z");
+
+    dm::ReadStatus read;
+    read.files = 3;
+    auto j = json(dm::report_json(r, b, read, "2026-11-13T10:00:00Z", "2026-11-06T10:00:00Z", 7));
+    CHECK(j.has_value());
+    if (!j) return;
+    const Json& s = *j;
+    CHECK(s["schema_version"].n == 1 && s["days_requested"].n == 7 && s["days_covered"].n == 2 && s["since"].s == "2026-11-06T10:00:00Z");
+    CHECK(s["first_sample"].s == "2026-11-12T10:00:05" && s["last_sample"].s == "2026-11-13T09:00:05");
+    CHECK(s["read"]["complete"].b && s["read"]["files"].n == 3 && s["read"]["rejected_rows"].n == 0);
+    CHECK(s["windows"]["samples"].n == 3 && s["windows"]["low_samples"].n == 1 && s["windows"]["min_available_mb"].n == 1500);
+    CHECK(s["windows"]["worst_minute"].s == "2026-11-13T09:00" && s["windows"]["max_commit_mb"].n == 30000 && s["windows"]["max_pages_in_per_sec"].n == 77);
+    CHECK(s["windows"]["worst_repos"].item(0)["repo"].s == "D:/A" && s["windows"]["worst_repos"].item(0)["private_mb"].n == 3000);
+    CHECK(s["wsl"]["samples"].n == 1 && s["wsl"]["min_available_mb"].n == 7000 && s["wsl"]["max_swap_mb"].n == 100 && s["wsl"]["max_oom_kills"].n == 1);
+    CHECK(s["wsl"]["max_psi_full_avg10_x100"].kind == Json::Null);  // never sampled: null, not 0
+    CHECK(s["builds"]["jobs"].n == 3 && s["builds"]["max_overlap"].n == 2 && s["builds"]["at"].s == "2026-11-13T09:00:04Z");
+    CHECK(s["active_repos"]["max"].n == 2 && s["active_repos"]["minute"].s == "2026-11-12T10:00" && s["active_repos"]["total_private_mb"].n == 5200);
+    // Repos by peak private memory, highest first, each name decoded and read back unchanged.
+    const Json& repos = s["repos"];
+    CHECK(repos.items.size() == 3);
+    CHECK(repos.item(0)["repo"].s == "/home/u/b,\"c" && repos.item(0)["side"].s == "wsl" && repos.item(0)["peak_private_mb"].n == 4000);
+    CHECK(repos.item(1)["repo"].s == "D:/A" && repos.item(1)["peak_private_mb"].n == 3000 && repos.item(1)["peak_rss_mb"].n == 2500 && repos.item(1)["peak_processes"].n == 5);
+    CHECK(repos.item(2)["repo"].s == "D:/Q\\uote");
+    // The series: one entry per sampled minute, oldest first, each side null where it has no sample.
+    const Json& series = s["series"];
+    CHECK(series.items.size() == 2);
+    CHECK(series.item(0)["minute"].s == "2026-11-12T10:00" && series.item(0)["win_available_mb"].n == 8000 && series.item(0)["wsl_available_mb"].n == 7000);
+    CHECK(series.item(0)["repos"].n == 2 && series.item(0)["repo_private_mb"].n == 5200);
+    CHECK(series.item(1)["minute"].s == "2026-11-13T09:00" && series.item(1)["win_available_mb"].n == 1500 && series.item(1)["wsl_available_mb"].kind == Json::Null);
+
+    // The window: only samples at or after `since` count, for 1, 7 and 14 days alike, one second either side.
+    for (int days : {1, 7, 14}) {
+        int64_t now = *dm::utc_seconds("2026-11-20T12:00:00Z");
+        std::string since = dm::utc_stamp(now - int64_t{days} * 86400).substr(0, 19);
+        std::string before = dm::utc_stamp(now - int64_t{days} * 86400 - 1).substr(0, 19);
+        std::vector<dm::Row> edge{{before, "win", "sys", "available_mb", 0, 100, 0}, {since, "win", "sys", "available_mb", 0, 5000, 0}};
+        dm::Report w = dm::aggregate(edge, 2048, since);
+        CHECK(w.win_samples == 1 && w.min_avail_mb == 5000 && w.first_sample == since && w.dates.size() == 1);
+    }
+
+    // A Windows-only history: the WSL figures are null, never 0; no samples at all give 0 days and an empty series.
+    std::vector<dm::Row> winOnly{rows[0], rows[1]};
+    auto wo = json(dm::report_json(dm::aggregate(winOnly), dm::BuildOverlap{}, read, "t", "s", 7));
+    CHECK(wo && (*wo)["wsl"]["min_available_mb"].kind == Json::Null && (*wo)["wsl"]["max_swap_mb"].kind == Json::Null && (*wo)["wsl"]["samples"].n == 0);
+    CHECK(wo && (*wo)["windows"]["max_pages_in_per_sec"].kind == Json::Null && (*wo)["builds"]["at"].kind == Json::Null);
+    dm::ReadStatus partial;
+    partial.complete = false;
+    partial.unreadable_files = 1;
+    partial.rejected_rows = 2;
+    auto none = json(dm::report_json(dm::aggregate({}), dm::BuildOverlap{}, partial, "t", "s", 1));
+    CHECK(none && (*none)["days_covered"].n == 0 && (*none)["series"].items.empty() && (*none)["first_sample"].kind == Json::Null);
+    CHECK(none && (*none)["windows"]["min_available_mb"].kind == Json::Null && !(*none)["read"]["complete"].b && (*none)["read"]["unreadable_files"].n == 1);
+    CHECK(none && (*none)["read"]["rejected_rows"].n == 2 && (*none)["active_repos"]["minute"].kind == Json::Null);
+    // The text report reads the same join.
+    CHECK(dm::render(r).find("lowest available: 1500 MB at 2026-11-13T09:00") != std::string::npos);
+
+    // The live snapshot's schema, the same for both sides.
+    dm::Snapshot snap;
+    snap.side = "windows";
+    snap.at = "2026-11-13T09:00:05Z";
+    snap.interval_s = 30;
+    snap.memory = {{"available_mb", 1500}, {"total_mb", 32000}, {"pages_in_per_sec", std::nullopt}};
+    snap.wsl_vm = dm::WslVm{true, 1, 14000, 5000};
+    snap.repos = {{"D:/a\"b\\c", 3, 100, 80}};
+    snap.processes = {{"cl.exe", 4, 900, 700}, {"link.exe", 1, 300, 200}};
+    auto sj = json(dm::snapshot_json(snap));
+    CHECK(sj.has_value());
+    if (!sj) return;
+    CHECK((*sj)["schema_version"].n == 1 && (*sj)["side"].s == "windows" && (*sj)["at"].s == snap.at && (*sj)["interval_s"].n == 30);
+    CHECK((*sj)["memory"]["available_mb"].n == 1500 && (*sj)["memory"]["total_mb"].n == 32000 && (*sj)["memory"]["pages_in_per_sec"].kind == Json::Null);
+    CHECK((*sj)["wsl_vm"]["running"].b && (*sj)["wsl_vm"]["private_mb"].n == 14000 && (*sj)["repos"].item(0)["repo"].s == "D:/a\"b\\c");
+    CHECK((*sj)["processes"].items.size() == 2 && (*sj)["processes"].item(0)["name"].s == "cl.exe" && (*sj)["processes"].item(1)["rss_mb"].n == 200);
+    snap.wsl_vm.reset();
+    auto sw = json(dm::snapshot_json(snap));
+    CHECK(sw && (*sw).has("wsl_vm") && (*sw)["wsl_vm"].kind == Json::Null);
+}
+
 static void status_json() {
     auto running = [](uint64_t start) { return [start](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::Running, start}; }; };
     (void)running;
@@ -527,7 +652,7 @@ static const Group groups[] = {
     {"jobs", jobs, nullptr},
     {"options", options, nullptr},
     {"status_json", status_json, nullptr},
-    {"report_json", nullptr, "D01 T01"},
+    {"report_json", report_json, nullptr},
     {"config", nullptr, "D01 T01"},
     {"pressure", nullptr, "D05 T02"},
 };
