@@ -45,7 +45,7 @@ title: "TODO-02 -- The application shell"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Startup, single instance and crash handling | D02 T01 §4 | [ ] |
 | 2 | §2 | View model base and accessibility helpers | §1 | [ ] |
-| 3 | §3 | Process runner | D00 T02 §1 | [ ] |
+| 3 | §3 | Process runner | D00 T02 §1 | [x] |
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [ ] |
 | 5 | §5 | Settings store and theme switching | §4 | [ ] |
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
@@ -123,9 +123,12 @@ Every tool call goes through here, so it owns the rules: an argument list, no wi
 - [x] Give `bosun config set` and `unset --json`, and the refusals of `config get --json`, a `schema_version` in `src/app.cpp` (`config_reply`): `{"schema_version":1,"ok":...}`. Done when: `tests/queue_test.ps1` reads `schema_version` 1 on a saved value, a refused one and an unknown key.
 - [x] Add `RunJsonAsync<T>` refusing an unknown `schema_version` (`JsonResult<T>`: `Ok` with the value, `Unsupported` with the version found and the one supported, `Invalid` with why, `Failed`, each carrying the `ProcessResult`, so the stderr of a call that succeeded is kept: `bosun` exits 0 while warning there that it ignored a damaged config file or a bad variable, and the caller shows that as a WARN line in the Activity pane of `D02 T02 §4`): the process must exit 0 with untruncated stdout that is one JSON object whose `schema_version` is the integer the caller supports, read through the caller's `JsonTypeInfo<T>`. Done when: a newer schema gives a typed `Unsupported` result, not an exception or defaults, and so does an older one; text that isn't JSON, a JSON array, an object with no `schema_version` or a string one, an object the type can't be read from, and truncated output are each `Invalid` with a reason; a nonzero exit, a timeout, a cancel and a missing program are each `Failed` carrying the result, stderr included; the supported version reads the value; a child that prints valid JSON and a warning on stderr is `Ok` with that warning in its `Process.StandardError`; and, against the real `build\Release\bosun.exe` with `LOCALAPPDATA` set by the request to a folder of the test's own, `config set slots 3 --json` is `Ok`, `config get --json` then reads `slots` saved as 3, and `config set slots 0 --json` is `Failed` with exit 64. Cheaper substitute: deserialising straight into the type, where a missing field becomes a default.
 - [x] Prove the checks can fail: with the job left out of the start-up attributes, the `orphan` and `tree` tests fail (their grandchildren, bounded and ended by the tests, write on); with the cap removed, the flood test fails. Done when: both mutations are run and recorded in the commit body.
-- [ ] Commit: `core: process runner`
+- [x] Commit: `core: process runner`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ProcessRunner*"` exits 0, and fails if the change is reverted; `pwsh tests/queue_test.ps1 -SkipWsl` prints `all passed`.
+
+> **Verified:** 2026-11-13 | §3 | 72c10ee1645bf422e233ad7ba360a6ddfb27fb77
+> **Review:** `docs/reviews/d02-t02-s3.json`
 
 ## 4. Window chrome, rail and activity pane
 
