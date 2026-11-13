@@ -403,10 +403,11 @@ def unanswered_text(name, why, branch):
             f"this commit; if no run appears: gh workflow run {name} --ref {branch}")
 
 
-def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None, hold=False):
+def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None, hold=lambda: False):
     """What can be done about workflows with no run and no proof, added to the report. With `gate` it starts each one
-    once, but only while the branch's remote head is this commit; with `hold` it starts none yet and names them under
-    `holding`, since the push's own run may be about to be listed. Verdicts, the exit code and the action are not its
+    once, but only while the branch's remote head is this commit; while `hold()` says so it starts none yet and names
+    them under `holding`, since the push's own run may be about to be listed. `hold` is asked after the remote head has
+    been read, not before: that lookup can be slow, and a hold decided before it could outlast the grace (round 1). Verdicts, the exit code and the action are not its
     to change: a started run answers on a later look, through its own headSha."""
     missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
     for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error", "holding"):
@@ -438,7 +439,7 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     if not gate:
         result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
         return
-    if hold:
+    if hold():
         result["holding"] = missing
         return
     errors = []
@@ -820,7 +821,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     def look_after():
         """A missing run is started, held or explained on this look, and what was held is remembered for the report."""
         nonlocal held_for
-        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=hold_left() > 0)
+        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=lambda: hold_left() > 0)
         for name in result.get("holding", []):
             if name not in held:
                 held.append(name)
@@ -836,7 +837,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                 "about to be listed") if holding else ""
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left{note}", file=sys.stderr)
         # While a start is held the gate looks often, so the push's run is seen as soon as it is listed.
-        sleep(min(min(GRACE_POLL_SECONDS, hold_left()) if holding and hold_left() > 0 else POLL_SECONDS, remaining()))
+        # A held start that has come due meanwhile is looked at again at once, never after a whole poll.
+        sleep(min(min(GRACE_POLL_SECONDS, hold_left()) if holding else POLL_SECONDS, remaining()))
         if remaining() <= 0:  # no tool may start now, so the last real answer stands
             break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)

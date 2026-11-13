@@ -1126,6 +1126,43 @@ class Gate(Base):
         self.assertEqual((data["action"], data["started"]), ("wait", ["build.yml", "plan.yml"]))
         self.assertEqual(data["start_held"], {"seconds": 90, "workflows": ["build.yml", "plan.yml"]})
 
+    def test_a_slow_head_lookup_that_crosses_the_grace_still_starts_the_run(self):
+        # Round 1: the hold was decided before the remote head was read, so a lookup that took the gate past the grace
+        # left it holding, and a two minute wait ran out with nothing started.
+        clock = _Clock()
+        at = []
+        gh = FakeGh({}, on_dispatch=lambda gh, name: at.append(clock.t))
+        answer = gh.__call__
+
+        def slow_head(args):
+            if args[0] == "api" and clock.t == 80:
+                clock.t += 15  # the request that crosses 90 seconds
+            return answer(args)
+
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "2"], slow_head, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        self.assertEqual(at, [95, 95])  # started on that same look, the moment the lookup returned past the grace
+        self.assertEqual(len(gh.started), 2)
+        self.assertEqual(json.loads(out)["started"], ["build.yml", "plan.yml"])
+
+    def test_a_held_start_that_comes_due_is_looked_at_again_at_once(self):
+        # A look at 85 s (after a slow report) leaves 5 s of grace: the gate sleeps those 5 s, not a whole poll.
+        clock = _Clock()
+        at = []
+        gh = FakeGh({}, on_dispatch=lambda gh, name: at.append(clock.t))
+        answer = gh.__call__
+        slowed = []
+
+        def slow_list(args):
+            if "--workflow" in args and clock.t == 80 and not slowed:
+                slowed.append(1)
+                clock.t += 5
+            return answer(args)
+
+        self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "5"], slow_list, FakeGit(["README.md"]),
+                clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        self.assertEqual(at, [90, 90])
+
     def test_a_wait_with_no_room_for_the_grace_starts_at_the_first_look(self):
         # The hold must never cost the only chance to start: no wait, a wait equal to the grace, and a shorter one.
         for wait in ([], ["--wait-minutes", "1.5"], ["--wait-minutes", "1"]):
