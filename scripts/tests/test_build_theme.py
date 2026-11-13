@@ -9,6 +9,7 @@ import re
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("build_theme", ROOT / "scripts" / "build-theme.py")
@@ -166,6 +167,70 @@ class BuildThemeTest(unittest.TestCase):
                 self.assertEqual(self.run_theme()[0], 0)
                 self.assertIn(line, (self.out / file).read_text(encoding="utf-8"))
                 self.assertEqual(self.run_theme("--check")[0], 0)
+
+    def temps(self):
+        return [p.name for p in self.out.glob("*.tmp")] + [p.name for p in self.out.glob(".*")]
+
+    def edit_token(self):
+        tokens = self.load()
+        tokens["dark"]["Accent"] = "#123456"
+        tokens["light"]["Accent"] = "#654321"
+        self.save(tokens)
+
+    def test_a_file_that_cant_be_staged_changes_nothing(self):
+        # Completion review: a full disk refuses the second temporary file, before either target is touched.
+        self.run_theme()
+        before = self.outputs()
+        self.edit_token()
+        real = theme.tempfile.mkstemp
+        calls = []
+
+        def full_on_second(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise OSError(28, "No space left on device")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(theme.tempfile, "mkstemp", full_on_second):
+            code, err = self.run_theme()
+        self.assertEqual(code, 3)
+        self.assertIn("nothing was changed", err)
+        self.assertIn("No space left", err)
+        self.assertEqual(self.outputs(), before)
+        self.assertEqual(self.temps(), [])
+        self.assertEqual(self.run_theme("--check")[0], 1)  # the drift is still seen
+        self.assertEqual(self.run_theme(), (0, ""))        # and a retry lands
+        self.assertEqual(self.run_theme("--check")[0], 0)
+
+    def test_a_held_file_is_left_as_it_was_and_the_report_says_what_changed(self):
+        # Completion review: Light.xaml held open, so Dark is updated and Light is not, and that is said.
+        self.run_theme()
+        before = self.outputs()
+        self.edit_token()
+        real = theme.os.replace
+
+        def light_is_held(src, dst):
+            if str(dst).endswith("Light.xaml"):
+                raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+            return real(src, dst)
+
+        with mock.patch.object(theme.os, "replace", light_is_held):
+            code, err = self.run_theme()
+        self.assertEqual(code, 3)
+        after = self.outputs()
+        self.assertNotEqual(after["Dark.xaml"], before["Dark.xaml"])
+        self.assertEqual(after["Light.xaml"], before["Light.xaml"], "the held file is exactly as it was")
+        self.assertRegex(err, r"can't replace .*Light\.xaml")
+        self.assertRegex(err, r"Updated: .*Dark\.xaml")
+        self.assertRegex(err, r"Left as they were: .*Light\.xaml")
+        self.assertEqual(self.temps(), [])
+        code, err = self.run_theme("--check")
+        self.assertEqual(code, 1)
+        self.assertIn("Light.xaml", err)
+        self.assertNotIn("Dark.xaml", err)
+        self.assertEqual(self.run_theme(), (0, ""))  # released: the retry finishes the pair
+        self.assertEqual(self.run_theme("--check")[0], 0)
+        self.assertIn(b"#654321", self.outputs()["Light.xaml"])
 
     def test_check_writes_nothing(self):
         self.assertEqual(self.run_theme("--check")[0], 1)  # nothing generated yet

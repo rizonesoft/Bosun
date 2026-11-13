@@ -13,7 +13,8 @@ hand edit. An eight-digit colour is alpha first (#AARRGGBB), as WPF reads it, so
     python scripts/build-theme.py --tokens <colors.json> --out <folder> [--check]
 
 reads and writes elsewhere, for the tests. Exit 0 done, 1 a generated file differs (`--check`), 2 a token is bad,
-named by its path (`dark.TextDim`), with nothing written.
+named by its path (`dark.TextDim`), with nothing written, 3 a generated file couldn't be written, with what was
+updated and what was left as it was said.
 """
 import argparse
 import json
@@ -120,19 +121,45 @@ def render(groups: dict, theme: str) -> str:
     return "\n".join(lines)
 
 
-def write_atomically(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+def discard(temp: str) -> None:
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-            f.write(text)
-        os.replace(temp, path)
-    except BaseException:
+        os.unlink(temp)
+    except OSError:
+        pass  # already gone, or held: a stray temporary file changes nothing a reader sees
+
+
+def write_outputs(outputs: dict) -> int:
+    """Writes every generated file, or says exactly what happened. Each is staged as a temporary file beside its
+    target first, so a full disk or a denied folder fails before anything is changed; then each is moved over its
+    target. A move that fails (a file held open) leaves that file as it was, the temporary files are removed, and the
+    report names what was updated and what wasn't. Returns 0, or 3 when an output couldn't be written."""
+    staged = []  # (temporary file, target)
+    try:
+        for path, text in outputs.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+            staged.append((temp, path))
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+    except OSError as e:
+        for temp, _ in staged:
+            discard(temp)
+        print(f"build-theme: can't write the generated theme ({e}); nothing was changed", file=sys.stderr)
+        return 3
+    done = []
+    for index, (temp, path) in enumerate(staged):
         try:
-            os.unlink(temp)
-        except OSError:
-            pass
-        raise
+            os.replace(temp, path)
+            done.append(path)
+        except OSError as e:
+            for other, _ in staged[index:]:
+                discard(other)
+            left = [str(p) for _, p in staged[index:]]
+            print(f"build-theme: can't replace {path} ({e}). Updated: {', '.join(map(str, done)) or 'nothing'}. "
+                  f"Left as they were: {', '.join(left)}. Close whatever holds the file and run the script again; "
+                  "--check fails until it has.", file=sys.stderr)
+            return 3
+    return 0
 
 
 def same(path: Path, text: str) -> bool:
@@ -166,9 +193,7 @@ def main(argv=None) -> int:
         for path in stale:
             print(f"build-theme: {path} is missing or differs from the tokens: run python scripts/build-theme.py", file=sys.stderr)
         return 1 if stale else 0
-    for path, text in outputs.items():
-        write_atomically(path, text)
-    return 0
+    return write_outputs(outputs)
 
 
 if __name__ == "__main__":
