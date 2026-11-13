@@ -83,7 +83,7 @@ try {
   try { $out = (& $pwsh -NoProfile -File $script -DryRun) -join "`n" } finally { $env:Path = $path }
   Remove-Item Env:RUN_GUARD_STATE
   Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $state)) 'a dry run leaves the run state alone'
-  Check ($out -match '(?m)run-guard\.py start --session ([0-9a-f-]{36})\s*$' -and $out -match "claude --session-id $($Matches[1]) --dangerously-skip-permissions --model opus --effort medium `"/goal ") 'the guard is told the same session id the session starts with, in bypass mode, at medium effort, with its goal'
+  Check ($out -match '(?m)run-guard\.py start --session ([0-9a-f-]{36})\s*$' -and $out -match "claude --session-id $($Matches[1]) --dangerously-skip-permissions --model opus --effort medium --name Bosun Claude campaign `"/goal ") 'the guard is told the same session id the session starts with, in bypass mode, at medium effort, with its goal'
   Check ($out -notmatch 'claude-opus-\d') 'the model is the alias for the newest Opus, never one pinned version'
   Check ($out -match '100% complete' -and $out -match 'query next') 'the goal names the finish line'
   Check ($out -notmatch 'guard resumes' -and $out -match 'own heartbeat takes the run up again') 'the goal promises no resume: the session''s own heartbeat carries a wait'
@@ -111,17 +111,17 @@ try {
     $saved = if (Test-Path $state) { Get-Content $state -Raw | ConvertFrom-Json }
     Check ($code -eq 0 -and $out -match 'sign-in: the long-lived token from your user variables' -and $out -match 'TOKEN=set') 'a window without the token gets it from the user''s variables'
     Check ($out -notmatch 'tok-start-run-test') 'and the token is never printed'
-    Check ($out -match 'ARGS=--session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus --effort medium "/goal test goal"') 'the session starts on the newest Opus at medium effort, whatever the user''s own default, with every prompt off and its goal'
+    Check ($out -match 'ARGS=--session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus --effort medium --name "Bosun Claude campaign" "/goal test goal"') 'the session starts on the newest Opus at medium effort, whatever the user''s own default, with every prompt off and its goal'
     $kept = @($saved.PSObject.Properties.Name)
     Check ($saved.active -and $saved.session_id -match '^[0-9a-f-]{36}$' -and -not ($kept | Where-Object { $_ -in 'model', 'permission_mode', 'child' })) "the guard holds the run for that session and keeps nothing a resume would need ($($kept -join ', '))"
     Remove-Item $state -ErrorAction Ignore
     $env:CLAUDE_CODE_OAUTH_TOKEN = 'tok-in-this-window'
     $out = (& $pwsh -NoProfile -File $script -UserEnvKey $envKey -Goal 'test goal' -Model sonnet) -join "`n"
     Check ($out -match 'sign-in: the long-lived token this window already has' -and $out -match 'TOKEN=set' -and $out -notmatch 'tok-in-this-window') 'a window that has the token uses it as it is'
-    Check ($out -match '--model sonnet --effort medium "/goal') '-Model starts another model'
+    Check ($out -match '--model sonnet --effort medium --name "Bosun Claude campaign" "/goal') '-Model starts another model'
     Remove-Item $state -ErrorAction Ignore
     $out = (& $pwsh -NoProfile -File $script -UserEnvKey $envKey -Goal 'test goal' -Effort low) -join "`n"
-    Check ($out -match '--model opus --effort low "/goal') '-Effort starts another effort'
+    Check ($out -match '--model opus --effort low --name "Bosun Claude campaign" "/goal') '-Effort starts another effort'
 
     # The window closes: the launcher's process ends, and nothing it started keeps running. The stand-in claude
     # starts a process of its own and both wait; each ends by itself after two minutes whatever happens here.

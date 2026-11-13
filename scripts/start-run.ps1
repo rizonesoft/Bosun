@@ -177,7 +177,8 @@ if ($antigravity) {
 }
 
 $session = [guid]::NewGuid().ToString()
-$arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, "/goal $Goal")
+# --name keeps the shortcut's name in the window title: Claude Code otherwise replaces the title with its own topic.
+$arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, '--name', ($launchers | Where-Object Agent -EQ $Agent).Name, "/goal $Goal")
 if ($DryRun) {
   "in $repo"
   "python scripts/run-guard.py start --session $session"
