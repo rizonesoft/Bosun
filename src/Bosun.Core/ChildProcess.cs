@@ -21,12 +21,15 @@ internal sealed class ChildProcess : IDisposable
     private readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _disposed;
 
-    private ChildProcess(IntPtr job, IntPtr process, Stream input, Stream output, Stream error)
+    private ChildProcess(IntPtr job, IntPtr process, int id, Stream input, Stream output, Stream error)
     {
-        (_job, _process, Input, Output, Error) = (job, process, input, output, error);
+        (_job, _process, Id, Input, Output, Error) = (job, process, id, input, output, error);
         _exit = new ProcessExit(process);
         _wait = ThreadPool.RegisterWaitForSingleObject(_exit, (_, _) => _exited.TrySetResult(), null, Timeout.Infinite, executeOnlyOnce: true);
     }
+
+    /// <summary>The child's process id.</summary>
+    public int Id { get; }
 
     /// <summary>The child's stdin, to write to. Whoever writes closes it.</summary>
     public Stream Input { get; }
@@ -122,7 +125,7 @@ internal sealed class ChildProcess : IDisposable
                 throw Failure($"can't start {program}");
 
             CloseHandle(made.hThread);
-            var child = new ChildProcess(job, made.hProcess,
+            var child = new ChildProcess(job, made.hProcess, made.dwProcessId,
                 new FileStream(ourIn, FileAccess.Write, 1, isAsync: false),
                 new FileStream(ourOut, FileAccess.Read, 1, isAsync: false),
                 new FileStream(ourErr, FileAccess.Read, 1, isAsync: false));

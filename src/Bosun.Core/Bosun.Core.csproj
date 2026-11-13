@@ -2,4 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The tests reach the process runner's start, to make it slow. -->
+    <InternalsVisibleTo Include="Bosun.Core.Tests" />
+  </ItemGroup>
 </Project>

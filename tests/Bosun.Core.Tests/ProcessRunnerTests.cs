@@ -223,6 +223,47 @@ public class ProcessRunnerTests
         Assert.False(File.Exists(beat.File), "nothing was started, so nothing wrote");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_start_that_is_slow_is_inside_the_time_limit_and_the_cancel_and_what_it_starts_late_is_ended(bool cancelIt)
+    {
+        // Round 1: the start ran before the limit began and couldn't be cancelled, so a PATH folder on a dead network
+        // share held the caller for as long as Windows took. Here the start takes 1.5 s, then starts a real child.
+        ChildProcess? late = null;
+        var slow = new ProcessRunner(request =>
+        {
+            Thread.Sleep(1500);
+            return late = ChildProcess.Start(request);
+        });
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        if (cancelIt) cancel.CancelAfter(300);
+        var request = Ask("sleep", "30000") with { Timeout = cancelIt ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(300) };
+
+        var result = await slow.RunAsync(request, cancel.Token);
+
+        Assert.Equal(cancelIt ? ProcessOutcome.Cancelled : ProcessOutcome.TimedOut, result.Outcome);
+        Assert.True(result.Elapsed < TimeSpan.FromSeconds(1.2), $"returned at its limit, not when the start finished ({result.Elapsed})");
+        for (var tries = 0; tries < 100 && late is null; tries++) await Task.Delay(50, TestContext.Current.CancellationToken);
+        Assert.NotNull(late);
+        // The child the late start made would sleep for 30 s: it is ended as soon as it exists.
+        var gone = false;
+        for (var tries = 0; tries < 60 && !gone; tries++)
+        {
+            try
+            {
+                using var still = Process.GetProcessById(late.Id);
+                gone = still.HasExited || still.ProcessName != "Bosun.TestChild";
+            }
+            catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+            {
+                gone = true; // no such process any more
+            }
+            if (!gone) await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
+        Assert.True(gone, "the child a late start made is still running");
+    }
+
     // ---- input the child doesn't take ----
 
     [Fact]
