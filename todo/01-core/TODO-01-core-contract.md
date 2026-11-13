@@ -113,21 +113,28 @@ The Queue page and the overlap analysis both need to know what ran when. One fil
 
 This is the panel's main read, and must be cheap to call every five seconds.
 
+**Corrected 2026-11-13:** checked against the tree before the build. `cmd_status` is at `src/app.cpp:578` (the file said 269, then 246). Its reader pass `sweep_records` (`src/app.cpp:373`) parses every record but keeps none, so the live holders and waiters must come back from it rather than be read twice. The WSL shim's `status` branch (`wsl/bosun:20`) only adds `--slots` and execs `bosun.exe`, and the WSL logger (`wsl/bosun_log.py`) publishes no singleton marker, so the guest's figures and its logger's state can only come from the shim. The section said "the same output comes from either side" and "logger state" without saying how; decided here (industry default, one producer): the shim measures the guest and passes it to `bosun.exe status` as flags, so one C++ writer builds the whole object and bash never edits JSON. Reversal cost: a WSL-side JSON writer would duplicate the schema in two languages.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Add `--json` to `cmd_status` at `src/app.cpp:269` (**Corrected 2026-11-13:** it said 246). Done when: it prints one versioned object.
-2. Add the WSL shim's forwarding. Done when: the same output comes from either side.
+1. Define the status object and its writer in `src/core.hpp`. Done when: `test_core.exe status_json` covers every field and the escaping.
+2. Gather it in `cmd_status` and print it for `--json`. Done when: `tests/queue_test.ps1` parses a real holder and waiter from it.
+3. Forward guest memory and the WSL logger's state from `wsl/bosun`. Done when: the WSL half of `tests/queue_test.ps1` reads them.
 
-- [ ] Emit `schema_version`, slots with holders, waiters, available and total memory, and logger state in `src/app.cpp`. Done when: the output parses and a test asserts each field. Cheaper substitute: changing the existing text output.
-- [ ] Forward the flag in `wsl/bosun`, adding guest memory. Done when: `wsl -- bosun status --json` includes guest available and total.
-- [ ] Add cases to `tests/test_core.cpp` for JSON escaping of commands with quotes and paths. Done when: a command holding quotes and backslashes round-trips. Cheaper substitute: string concatenation with no escaping.
+- [ ] Define `dm::StatusView` and `dm::status_json` in `src/core.hpp`: one line, `{"schema_version":1,"ns":...,"slots":[{"index":N,"busy":bool,"holder":<record>|null}],"waiters":[<record>...],"memory":{"available_mb":N,"total_mb":N,"min_avail_mb":N},"guest":{"available_mb":N,"total_mb":N,"min_guest_mb":N}|null,"logger":{"windows":"running"|"not running","wsl":"running"|"not running"|null},"records":{"readable":bool,"dir":"..."}}`, each record written by `dm::record_json` and every string through `dm::json_escape`. Done when: `test_core.exe status_json` asserts each field of a sample view, parsed back, including a free slot, a busy slot with no holder record and the null `guest` and `logger.wsl` of a Windows call. Cheaper substitute: changing the existing text output.
+- [ ] Return the live records from the reader pass in `src/app.cpp` (`sweep_records`): its readable flag plus every record that is not stale and not removed (a waiter superseded by its holder record is dropped), an unknown (access denied) record kept, since not knowing is not dead. Done when: the text `status` behaves as before and `--json` reuses the one pass.
+- [ ] Build the view in `cmd_status` (`src/app.cpp`): slot N is busy when its mutex is held, and its holder is the live `slot-N.json` record only when the slot is busy, so a killed holder's leftover never names a holder of a free slot; a busy slot without a live record has `holder` null; waiters are the live waiter records, oldest first. `--json` prints the object and nothing else on stdout, exit 0; without it the three text lines stay exactly as they are. Done when: `tests/queue_test.ps1` runs `bosun status --json` while one job holds slot 0 and one waits, and reads `slots[0].holder.pid`, the waiter's pid, the memory figures and `records.readable`; and after the holder ends, `slots[0].busy` is false and `holder` null. Cheaper substitute: holders inferred from waiter files.
+- [ ] Refuse a bad guest flag in `parse_options` (`src/app.cpp`): `--guest-avail-mb`, `--guest-total-mb`, `--min-guest-mb` take a whole number and `--wsl-logger` takes `running` or `stopped`; any other value is the usual bad-flag refusal (exit 64). Done when: `tests/queue_test.ps1` checks `bosun status --json --guest-avail-mb x` exits 64 with nothing on stdout.
+- [ ] Forward in `wsl/bosun`: `status` passes `--guest-avail-mb` and `--guest-total-mb` from `/proc/meminfo`, `--min-guest-mb` from `BOSUN_MIN_GUEST_MB`, and `--wsl-logger` from whether a `bosun_log.py` process runs (`pgrep -f`), with or without `BOSUN_SLOTS`, the typed flags still later and winning. Done when: the WSL half of `tests/queue_test.ps1` runs the shim's `status --json` and reads guest `available_mb` and `total_mb` within 10% of `/proc/meminfo` and a `logger.wsl` of `running` or `not running`. Cheaper substitute: the guest figures left out of the WSL call.
+- [ ] Add cases to `tests/test_core.cpp` (`status_json`) for JSON escaping of commands with quotes, backslashes and a control character, and of a namespace and folder path with backslashes. Done when: each string round-trips through a JSON parse unchanged. Cheaper substitute: string concatenation with no escaping.
+- [ ] Prove the integration can fail: with the holder dropped from the view in `cmd_status`, or the guest flags dropped from `wsl/bosun`, the matching `tests/queue_test.ps1` cases fail. Done when: both mutations are run and recorded in the commit body.
 - [ ] Commit: `core: status --json`
 
-**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe status_json` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe status_json` exits 0 and `pwsh tests/queue_test.ps1` (with its WSL half) prints `all passed`; each fails if the change is reverted.
 
 ## 4. report --json and logger snapshots
 
