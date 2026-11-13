@@ -16,19 +16,30 @@ MAX_WAIT="${BOSUN_MAX_WAIT:-900}"
 MAX_WRITE_GB="${BOSUN_MAX_WRITE_GB:-100}"
 
 guest_avail_mb() { awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo; }
+guest_total_mb() { awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo; }
 
-if [ "${1:-}" = "status" ] && [ -n "${BOSUN_SLOTS:-}" ]; then
-  shift
-  exec "$EXE" status --slots "$BOSUN_SLOTS" "$@"  # Later flags win, so a typed --slots still applies.
-fi
-[ "${1:-}" = "run" ] || exec "$EXE" "$@"
-shift
-
-# Linux variables do not reach bosun.exe by themselves, so they travel as flags.
+# Linux variables do not reach bosun.exe by themselves, so they travel as flags, the same ones for run and status.
 # Flags from the command line come later and win.
 args=(--max-wait "$MAX_WAIT")
 [ -n "${BOSUN_SLOTS:-}" ] && args+=(--slots "$BOSUN_SLOTS")
 [ -n "${BOSUN_MIN_AVAIL_MB:-}" ] && args+=(--min-avail-mb "$BOSUN_MIN_AVAIL_MB")
+
+# The WSL logger is the bosun-log.service user unit wsl/install.sh sets up: asked of systemd, so no other process that
+# merely mentions bosun_log.py counts. Without a user systemd it can't be told.
+wsl_logger() {
+  if ! command -v systemctl >/dev/null || ! systemctl --user show-environment >/dev/null 2>&1; then echo unknown; return; fi
+  if systemctl --user is-active --quiet bosun-log.service; then echo running; else echo stopped; fi
+}
+
+# status adds this side's own figures (D01 T01 §3), which Windows can't see, so bosun.exe writes the one object.
+if [ "${1:-}" = "status" ]; then
+  shift
+  case "$MIN_GUEST_MB" in ''|*[!0-9]*) die "BOSUN_MIN_GUEST_MB must be a whole number of MB" ;; esac
+  exec "$EXE" status "${args[@]}" --guest-avail-mb "$(guest_avail_mb)" --guest-total-mb "$(guest_total_mb)" \
+    --min-guest-mb "$MIN_GUEST_MB" --wsl-logger "$(wsl_logger)" "$@"
+fi
+[ "${1:-}" = "run" ] || exec "$EXE" "$@"
+shift
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do
   case "$1" in
     --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; MAX_WAIT="$2"; args+=("$1" "$2"); shift 2 ;;
@@ -45,6 +56,13 @@ shift
 case "$MAX_WRITE_GB" in ''|*[!0-9]*) die "--max-write-gb must be a whole number of GB" ;; esac
 [ "${#MAX_WRITE_GB}" -le 9 ] || die "--max-write-gb is too large"
 MAX_WRITE_GB=$((10#$MAX_WRITE_GB))
+case "$MIN_GUEST_MB" in ''|*[!0-9]*) die "--min-guest-mb must be a whole number of MB" ;; esac
+[ "${#MIN_GUEST_MB}" -le 9 ] || die "--min-guest-mb is too large"
+MIN_GUEST_MB=$((10#$MIN_GUEST_MB))
+case "$MAX_WAIT" in ''|*[!0-9]*) die "--max-wait must be a whole number of seconds" ;; esac
+[ "${#MAX_WAIT}" -le 9 ] || die "--max-wait is too large"
+MAX_WAIT=$((10#$MAX_WAIT))
+args+=(--min-guest-mb "$MIN_GUEST_MB")  # acquire puts the guest floor in the holder's record, for status
 
 # Says a thing once per boot, so a missing protection is reported without filling every job's output.
 warn_once() {
@@ -145,7 +163,14 @@ done
 # exits, which would abort this script under set -u if bosun.exe failed early.
 pipes="$(mktemp -d)" || die "cannot create a temp folder"
 mkfifo "$pipes/in" "$pipes/out"
-SECONDS=0  # One deadline covers both the slot wait and the guest memory wait.
+# One deadline covers both the slot wait and the guest memory wait, kept in milliseconds: bash's SECONDS counts whole
+# wall-clock seconds from when it was set, so a three second wait could end after barely two.
+now_ms() {
+  local t="${EPOCHREALTIME:-}"
+  t="${t//[!0-9]/}"  # the decimal separator follows the locale
+  if [ -n "$t" ]; then echo $((10#$t / 1000)); else date +%s%3N; fi
+}
+began_ms="$(now_ms)"
 # acquire runs in a session of its own: the hangup a dying terminal sends its process group would otherwise end it with
 # this script, before it could write the job's line (D01 T01 §2). It still ends when the pipe closes.
 detach=()
@@ -173,8 +198,9 @@ if [ "$SLOT" != "0" ] && [ "$SLOT" != "-1" ]; then
   while [ "$(guest_avail_mb)" -lt "$MIN_GUEST_MB" ]; do
     [ -z "$announced" ] && echo "[bosun] waiting for WSL memory ($(guest_avail_mb) MB available)" >&2
     announced=1
-    if [ "$MAX_WAIT" -gt 0 ] && [ "$SECONDS" -ge "$MAX_WAIT" ]; then
-      echo "[bosun] waited ${SECONDS} s, starting anyway" >&2
+    waited_ms=$(( $(now_ms) - began_ms ))
+    if [ "$MAX_WAIT" -gt 0 ] && [ "$waited_ms" -ge $((MAX_WAIT * 1000)) ]; then
+      echo "[bosun] waited $((waited_ms / 1000)) s, starting anyway" >&2
       break
     fi
     sleep 2

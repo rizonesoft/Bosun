@@ -1,7 +1,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <optional>
 #include <set>
+#include <string>
+#include <vector>
 
 #include "../src/core.hpp"
 
@@ -194,6 +198,263 @@ static void records() {
     otherHolder.process_start = w.process_start + 1;
     CHECK(!dm::reader_removes(w, dm::RecordState::Live, {w, otherHolder}));
     CHECK(!dm::reader_removes(h, dm::RecordState::Live, {h, sameHolder}));
+
+    // The §3 fields round-trip: a holder's acquisition, command start and guest floor; a waiter's reason and limits.
+    dm::SlotRecord t = h;
+    t.acquired_at = "2026-11-13T04:00:05Z";
+    t.command_started_at = "2026-11-13T04:00:06Z";
+    t.min_guest_mb = 3072;
+    auto tb = dm::parse_record(dm::record_json(t));
+    CHECK(tb && tb->acquired_at == t.acquired_at && tb->command_started_at == t.command_started_at && tb->min_guest_mb == 3072u);
+    dm::SlotRecord u = w;
+    u.waiting_for = "memory";
+    u.min_avail_mb = 6144;
+    u.max_wait_s = 900;
+    auto ub = dm::parse_record(dm::record_json(u));
+    CHECK(ub && ub->waiting_for == "memory" && ub->min_avail_mb == 6144u && ub->max_wait_s == 900u);
+    // A §1 record, without them, still reads, with them null.
+    CHECK(back && !back->acquired_at && !back->command_started_at && !back->min_guest_mb);
+    CHECK(wb && !wb->waiting_for && !wb->min_avail_mb && !wb->max_wait_s);
+    // A wrong shape refuses the record: a stamp that isn't one, an unknown reason, a negative or string count.
+    auto with = [&](const dm::SlotRecord& r, const std::string& from, const std::string& to) {
+        std::string s = dm::record_json(r);
+        size_t at = s.find(from);
+        CHECK(at != std::string::npos);
+        return at == std::string::npos ? s : s.replace(at, from.size(), to);
+    };
+    CHECK(!dm::parse_record(with(t, "\"acquired_at\":\"2026-11-13T04:00:05Z\"", "\"acquired_at\":\"yesterday\"")));
+    CHECK(!dm::parse_record(with(t, "\"acquired_at\":\"2026-11-13T04:00:05Z\"", "\"acquired_at\":5")));
+    CHECK(!dm::parse_record(with(u, "\"waiting_for\":\"memory\"", "\"waiting_for\":\"tea\"")));
+    CHECK(!dm::parse_record(with(u, "\"min_avail_mb\":6144", "\"min_avail_mb\":-1")));
+    CHECK(!dm::parse_record(with(u, "\"max_wait_s\":900", "\"max_wait_s\":\"900\"")));
+    CHECK(dm::parse_record(with(u, "\"waiting_for\":\"memory\"", "\"waiting_for\":null")).has_value());
+    CHECK(dm::utc_seconds("1970-01-01T00:00:00Z") == 0 && dm::utc_seconds("2026-11-13T04:00:05Z") == 1794542405);
+    CHECK(!dm::utc_seconds("2026-13-01T00:00:00Z") && !dm::utc_seconds("2026-11-13 04:00:05Z") && !dm::utc_seconds(""));
+}
+
+static void options() {
+    // Whole numbers only: no sign, space, prefix or trailing text, and within the flag's bounds.
+    for (const char* bad : {"", "-1", "+1", "12x", " 12", "12 ", "0x10", "1.5", "123456789012345678901234567890", "18446744073709551616"})
+        CHECK(!dm::parse_count(bad, 0, dm::kMaxQuantity));
+    CHECK(dm::parse_count("0", 0, 10) == 0u && dm::parse_count("10", 0, 10) == 10u && dm::parse_count("007", 0, 10) == 7u);
+    CHECK(!dm::parse_count("11", 0, 10) && !dm::parse_count("0", 1, 10));
+    CHECK(dm::parse_count("18446744073709551615", 0, UINT64_MAX) == UINT64_MAX);
+    CHECK(dm::parse_count("1099511627776", 0, dm::kMaxQuantity) == dm::kMaxQuantity && !dm::parse_count("1099511627777", 0, dm::kMaxQuantity));
+}
+
+// A small JSON reader for the tests alone, so status --json is checked by parsing it, not by searching its text.
+struct Json {
+    enum Kind { Null, Bool, Number, String, Array, Object } kind = Null;
+    bool b = false;
+    double n = 0;
+    std::string s;
+    std::vector<Json> items;
+    std::map<std::string, Json> fields;
+    const Json& operator[](const char* k) const {
+        static const Json none;
+        auto it = fields.find(k);
+        return it == fields.end() ? none : it->second;
+    }
+    const Json& item(size_t i) const {
+        static const Json none;
+        return i < items.size() ? items[i] : none;
+    }
+    bool has(const char* k) const { return fields.count(k) != 0; }
+};
+
+static bool parse_json(const std::string& t, size_t& i, Json& out) {
+    auto ws = [&] { while (i < t.size() && (t[i] == ' ' || t[i] == '\n' || t[i] == '\r' || t[i] == '\t')) ++i; };
+    ws();
+    if (i >= t.size()) return false;
+    char c = t[i];
+    if (c == '{' || c == '[') {
+        bool object = c == '{';
+        out.kind = object ? Json::Object : Json::Array;
+        ++i;
+        ws();
+        if (i < t.size() && t[i] == (object ? '}' : ']')) return ++i, true;
+        for (;;) {
+            std::string key;
+            if (object) {
+                Json k;
+                if (!parse_json(t, i, k) || k.kind != Json::String) return false;
+                key = k.s;
+                ws();
+                if (i >= t.size() || t[i++] != ':') return false;
+            }
+            Json v;
+            if (!parse_json(t, i, v)) return false;
+            if (object) {
+                if (out.fields.count(key)) return false;
+                out.fields[key] = v;
+            } else out.items.push_back(v);
+            ws();
+            if (i < t.size() && t[i] == ',') { ++i; continue; }
+            if (i < t.size() && t[i] == (object ? '}' : ']')) return ++i, true;
+            return false;
+        }
+    }
+    if (c == '"') {
+        // Strings go through the records' own reader, which handles every escape.
+        size_t end = i + 1;
+        while (end < t.size() && t[end] != '"') end += t[end] == '\\' ? 2 : 1;
+        if (end >= t.size()) return false;
+        auto flat = dm::parse_flat_object("{\"v\":" + t.substr(i, end - i + 1) + "}");
+        if (!flat) return false;
+        out.kind = Json::String;
+        out.s = flat->at("v").text;
+        i = end + 1;
+        return true;
+    }
+    for (const char* word : {"null", "true", "false"}) {
+        if (t.compare(i, std::strlen(word), word) == 0) {
+            out.kind = word[0] == 'n' ? Json::Null : Json::Bool;
+            out.b = word[0] == 't';
+            i += std::strlen(word);
+            return true;
+        }
+    }
+    size_t start = i;
+    if (i < t.size() && t[i] == '-') ++i;
+    while (i < t.size() && ((t[i] >= '0' && t[i] <= '9') || t[i] == '.')) ++i;
+    if (i == start) return false;
+    out.kind = Json::Number;
+    out.n = std::strtod(t.substr(start, i - start).c_str(), nullptr);
+    return true;
+}
+
+static std::optional<Json> json(const std::string& t) {
+    size_t i = 0;
+    Json out;
+    if (!parse_json(t, i, out)) return std::nullopt;
+    while (i < t.size() && (t[i] == ' ' || t[i] == '\n' || t[i] == '\r')) ++i;
+    if (i != t.size()) return std::nullopt;
+    return out;
+}
+
+static void status_json() {
+    auto running = [](uint64_t start) { return [start](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::Running, start}; }; };
+    (void)running;
+    auto rec = [](const char* kind, int64_t pid, const char* at) {
+        dm::SlotRecord r;
+        r.kind = kind;
+        r.pid = pid;
+        r.process_start = 1000 + static_cast<uint64_t>(pid);
+        r.started_at = at;
+        r.command = "cmake --build build";
+        r.repo = "D:/GitHub/Bosun";
+        r.side = "windows";
+        r.session = 1;
+        r.ns = "Bosun";
+        return r;
+    };
+    // Five slots: 0 busy with a live holder that is running; 1 free, holding a killed holder's leftover; 2 busy with no
+    // record; 3 busy with a WSL holder (state unknown) waiting for guest memory; 4 can't be probed, no record.
+    dm::SlotRecord h0 = rec("holder", 10, "2026-11-13T04:00:00Z");
+    h0.slot = 0;
+    h0.acquired_at = "2026-11-13T04:00:30Z";
+    h0.command_started_at = "2026-11-13T04:00:31Z";
+    h0.command = "\"C:\\Program Files\\x.exe\" --name \"q\" a\tb";
+    dm::SlotRecord left1 = rec("holder", 11, "2026-11-13T03:00:00Z");
+    left1.slot = 1;
+    left1.acquired_at = "2026-11-13T03:00:00Z";
+    dm::SlotRecord h3 = rec("holder", 13, "2026-11-13T04:01:00Z");
+    h3.slot = 3;
+    h3.side = "wsl";
+    h3.acquired_at = "2026-11-13T04:01:10Z";
+    h3.min_guest_mb = 3072;
+    // Waiters: an old one (given last, printed first), a newer one, a stale one, and one superseded by its own holder.
+    dm::SlotRecord wNew = rec("waiter", 20, "2026-11-13T04:02:00Z");
+    wNew.waiting_for = "memory";
+    wNew.min_avail_mb = 6144;
+    wNew.max_wait_s = 900;
+    dm::SlotRecord wOld = rec("waiter", 21, "2026-11-13T04:01:30Z");
+    wOld.waiting_for = "slot";
+    dm::SlotRecord wStale = rec("waiter", 22, "2026-11-13T04:00:00Z");
+    dm::SlotRecord wSuper = rec("waiter", 10, "2026-11-13T04:00:00Z");  // h0's own process, before it took slot 0
+    dm::StatusInput in;
+    in.ns = "Bo\\sun \"q\"";
+    in.at = "2026-11-13T04:03:00Z";
+    in.busy = {true, false, true, true, std::nullopt};
+    in.records = {{h0, dm::RecordState::Live},   {left1, dm::RecordState::Live},   {h3, dm::RecordState::Unknown},
+                  {wNew, dm::RecordState::Live}, {wStale, dm::RecordState::Stale}, {wSuper, dm::RecordState::Live},
+                  {wOld, dm::RecordState::Live}};
+    in.records_readable = true;
+    in.records_skipped = 2;
+    in.records_dir = "C:\\Users\\a\\AppData\\Local\\Bosun\\run\\1\\ns-%42osun";
+    in.available_mb = 12000;
+    in.total_mb = 32000;
+    in.min_avail_mb = 6144;
+    std::string text = dm::status_json(in);
+    CHECK(text.find('\n') == std::string::npos);  // one line
+    auto j = json(text);
+    CHECK(j.has_value());
+    if (!j) return;
+    const Json& s = *j;
+    CHECK(s["schema_version"].n == 1 && s["ns"].s == in.ns && s["at"].s == in.at);
+    CHECK(s["slots"].items.size() == 5);
+    const Json& s0 = s["slots"].item(0);
+    CHECK(s0["index"].n == 0 && s0["busy"].kind == Json::Bool && s0["busy"].b);
+    CHECK(s0["holder"]["pid"].n == 10 && s0["holder"]["state"].s == "live" && s0["holder"]["phase"].s == "running");
+    CHECK(s0["holder"]["command"].s == h0.command && s0["holder"]["repo"].s == "D:/GitHub/Bosun" && s0["holder"]["slot"].n == 0);
+    CHECK(s0["holder"]["waited_s"].n == 30 && s0["holder"]["running_s"].n == 149);
+    const Json& s1 = s["slots"].item(1);
+    CHECK(s1["busy"].kind == Json::Bool && !s1["busy"].b && s1["holder"].kind == Json::Null);  // the leftover names nobody
+    const Json& s2 = s["slots"].item(2);
+    CHECK(s2["busy"].b && s2["holder"].kind == Json::Null);
+    const Json& s3 = s["slots"].item(3);
+    CHECK(s3["holder"]["state"].s == "unknown" && s3["holder"]["phase"].s == "waiting for guest memory");
+    CHECK(s3["holder"]["running_s"].kind == Json::Null && s3["holder"]["waited_s"].n == 10 && s3["holder"]["min_guest_mb"].n == 3072);
+    const Json& s4 = s["slots"].item(4);
+    CHECK(s4["busy"].kind == Json::Null && s4["holder"].kind == Json::Null);
+    // Waiters: oldest first, the stale and the superseded left out, each with its reason, limits and wait so far.
+    CHECK(s["waiters"].items.size() == 2);
+    CHECK(s["waiters"].item(0)["pid"].n == 21 && s["waiters"].item(0)["waiting_for"].s == "slot" && s["waiters"].item(0)["waited_s"].n == 90);
+    CHECK(s["waiters"].item(1)["pid"].n == 20 && s["waiters"].item(1)["waiting_for"].s == "memory" && s["waiters"].item(1)["min_avail_mb"].n == 6144);
+    CHECK(s["waiters"].item(1)["max_wait_s"].n == 900 && s["waiters"].item(1)["state"].s == "live" && !s["waiters"].item(1).has("slot"));
+    CHECK(s["memory"]["available_mb"].n == 12000 && s["memory"]["total_mb"].n == 32000 && s["memory"]["min_avail_mb"].n == 6144);
+    // A Windows call: no guest, no WSL logger.
+    CHECK(s.has("guest") && s["guest"].kind == Json::Null && s["logger"]["windows"].s == "not running" && s["logger"]["wsl"].kind == Json::Null);
+    CHECK(s["records"]["readable"].b && s["records"]["skipped"].n == 2 && s["records"]["dir"].s == in.records_dir);
+
+    // A WSL call with failed memory reads: null, never 0; the guest and its logger as the shim gave them.
+    dm::StatusInput w2;
+    w2.ns = "Bosun";
+    w2.at = in.at;
+    w2.busy = {false};
+    w2.records_readable = false;
+    w2.guest = dm::GuestFigures{4000, 16000, 3072};
+    w2.windows_logger = true;
+    w2.wsl_logger = "unknown";
+    auto k = json(dm::status_json(w2));
+    CHECK(k.has_value());
+    if (!k) return;
+    CHECK((*k)["memory"]["available_mb"].kind == Json::Null && (*k)["memory"]["total_mb"].kind == Json::Null);
+    CHECK((*k)["guest"]["available_mb"].n == 4000 && (*k)["guest"]["total_mb"].n == 16000 && (*k)["guest"]["min_guest_mb"].n == 3072);
+    CHECK((*k)["logger"]["windows"].s == "running" && (*k)["logger"]["wsl"].s == "unknown");
+    CHECK(!(*k)["records"]["readable"].b && (*k)["waiters"].kind == Json::Array && (*k)["waiters"].items.empty());
+
+    // A holder record from before §3, with no acquisition time: its wait and phase can't be told, so they are null.
+    dm::SlotRecord old = rec("holder", 30, "2026-11-13T04:00:00Z");
+    old.slot = 0;
+    dm::StatusInput w3 = w2;
+    w3.busy = {true};
+    w3.records = {{old, dm::RecordState::Live}};
+    auto m = json(dm::status_json(w3));
+    CHECK(m && (*m)["slots"].item(0)["holder"]["phase"].kind == Json::Null && (*m)["slots"].item(0)["holder"]["waited_s"].kind == Json::Null);
+
+    // Escaping: quotes, backslashes and a control character in the command, namespace and folder all read back unchanged.
+    for (const char* hostile : {"a\"b", "C:\\x\\\"y\\\\", "tab\there\x01", "caf\xc3\xa9 \\\\?\\UNC\\s"}) {
+        dm::StatusInput e = w2;
+        e.ns = hostile;
+        e.records_dir = hostile;
+        dm::SlotRecord r = old;
+        r.command = hostile;
+        e.busy = {true};
+        e.records = {{r, dm::RecordState::Live}};
+        auto back = json(dm::status_json(e));
+        CHECK(back && (*back)["ns"].s == hostile && (*back)["records"]["dir"].s == hostile && (*back)["slots"].item(0)["holder"]["command"].s == hostile);
+    }
 }
 
 static void jobs() {
@@ -254,7 +515,8 @@ static const Group groups[] = {
     {"aggregate", aggregate, nullptr},
     {"records", records, nullptr},
     {"jobs", jobs, nullptr},
-    {"status_json", nullptr, "D01 T01"},
+    {"options", options, nullptr},
+    {"status_json", status_json, nullptr},
     {"report_json", nullptr, "D01 T01"},
     {"config", nullptr, "D01 T01"},
     {"pressure", nullptr, "D05 T02"},

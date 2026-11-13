@@ -9,9 +9,11 @@
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <type_traits>
 #include <unordered_map>
 
 #include "app.hpp"
@@ -43,9 +45,14 @@ std::wstring env(const wchar_t* name) {
     return n ? std::wstring(buf, n) : std::wstring{};
 }
 
-uint64_t env_num(const wchar_t* name, uint64_t fallback) {
+// A limit from the environment, parsed as strictly as its flag; a value that isn't one is said and the default kept.
+uint64_t env_num(const wchar_t* name, uint64_t fallback, uint64_t hi = dm::kMaxQuantity) {
     std::wstring v = env(name);
-    return v.empty() ? fallback : std::wcstoull(v.c_str(), nullptr, 10);
+    if (v.empty()) return fallback;
+    auto n = dm::parse_count(narrow(v), 0, hi);
+    if (n) return *n;
+    std::wcerr << L"[bosun] ignoring " << name << L"=" << v << L": not a whole number up to " << hi << L", so " << fallback << L" applies\n";
+    return fallback;
 }
 
 uint64_t available_mb() {
@@ -56,7 +63,7 @@ uint64_t available_mb() {
 }
 
 struct Options {
-    int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2));
+    int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2, 64));
     uint64_t min_avail_mb = env_num(L"BOSUN_MIN_AVAIL_MB", 6144);
     uint64_t max_wait_s = env_num(L"BOSUN_MAX_WAIT", 900);
     uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100);
@@ -64,13 +71,17 @@ struct Options {
     int days = 7;
     int interval_s = 30;
     bool once = false;
+    bool json = false;
+    // The WSL shim's own figures for status --json (D01 T01 §3), and its guest floor for a job's record.
+    std::optional<uint64_t> guest_avail_mb, guest_total_mb, min_guest_mb;
+    std::wstring wsl_logger;
     std::vector<std::wstring> command;
     // What a record says of the job (acquire takes them from the WSL shim; run works them out for itself).
     std::wstring repo, side, label;
 };
 
 // Returns false on a bad flag. Everything after -- is the command.
-bool parse_options(const std::vector<std::wstring>& args, Options& o) {
+bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         if (a == L"--") {
@@ -81,15 +92,32 @@ bool parse_options(const std::vector<std::wstring>& args, Options& o) {
             o.once = true;
             continue;
         }
+        if (a == L"--json") {
+            o.json = true;
+            continue;
+        }
         if (i + 1 >= args.size()) return false;
         const std::wstring& v = args[++i];
-        if (a == L"--slots") o.slots = std::stoi(v);
-        else if (a == L"--min-avail-mb") o.min_avail_mb = std::stoull(v);
-        else if (a == L"--max-wait") o.max_wait_s = std::stoull(v);
-        else if (a == L"--max-write-gb") o.max_write_gb = std::stoull(v);
+        auto count = [&](uint64_t lo, uint64_t hi, auto& out) {
+            auto n = dm::parse_count(narrow(v), lo, hi);
+            if (n) out = static_cast<std::remove_reference_t<decltype(out)>>(*n);
+            return n.has_value();
+        };
+        uint64_t guest = 0;
+        if (a == L"--slots") { if (!count(0, 64, o.slots)) return false; }
+        else if (a == L"--min-avail-mb") { if (!count(0, dm::kMaxQuantity, o.min_avail_mb)) return false; }
+        else if (a == L"--max-wait") { if (!count(0, dm::kMaxQuantity, o.max_wait_s)) return false; }
+        else if (a == L"--max-write-gb") { if (!count(0, dm::kMaxQuantity, o.max_write_gb)) return false; }
+        else if (a == L"--days") { if (!count(1, 3650, o.days)) return false; }
+        else if (a == L"--interval") { if (!count(1, 86400, o.interval_s)) return false; }
+        else if (a == L"--guest-avail-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_avail_mb = guest; }
+        else if (a == L"--guest-total-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_total_mb = guest; }
+        else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; }
+        else if (a == L"--wsl-logger") {
+            if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
+            o.wsl_logger = v;
+        }
         else if (a == L"--ns") o.ns = v;
-        else if (a == L"--days") o.days = std::stoi(v);
-        else if (a == L"--interval") o.interval_s = std::stoi(v);
         else if (a == L"--repo") o.repo = v;
         else if (a == L"--side") {
             if (v != L"windows" && v != L"wsl") return false;
@@ -99,6 +127,11 @@ bool parse_options(const std::vector<std::wstring>& args, Options& o) {
         else return false;
     }
     return true;
+}
+
+// The guest's two figures come together or not at all, so a half-measured guest never reads as a real one.
+bool parse_options(const std::vector<std::wstring>& args, Options& o) {
+    return parse_flags(args, o) && o.guest_avail_mb.has_value() == o.guest_total_mb.has_value();
 }
 
 // Slot mutexes are opened by processes of either integrity level, so the
@@ -118,8 +151,10 @@ struct Slot {
     int index = -1;
 };
 
-// Takes a slot, or returns index -1 after max_wait so that a job is delayed and never stalled for good.
-Slot acquire_slot(const Options& o) {
+// Takes a slot, or returns index -1 after max_wait so that a job is delayed and never stalled for good. `reason` hears
+// why it waits ("slot" while every slot it may take is held, "memory" while a free slot's floor is unmet) each time
+// that changes, so the waiter's record says why without being rewritten on every poll.
+Slot acquire_slot(const Options& o, const std::function<void(const char*)>& reason = {}) {
     std::vector<HANDLE> handles;
     for (int i = 0; i < o.slots; ++i) {
         HANDLE h = open_slot(o.ns, i);
@@ -131,7 +166,9 @@ Slot acquire_slot(const Options& o) {
     }
     auto start = std::chrono::steady_clock::now();
     bool announced = false;
+    const char* told = "slot";  // what the waiter record already says
     for (;;) {
+        const char* why = "slot";
         for (int i = 0; i < o.slots; ++i) {
             DWORD w = WaitForSingleObject(handles[i], 0);
             if (w != WAIT_OBJECT_0 && w != WAIT_ABANDONED) continue;
@@ -141,7 +178,10 @@ Slot acquire_slot(const Options& o) {
                 return {handles[i], i};
             }
             ReleaseMutex(handles[i]);
+            why = "memory";
         }
+        if (reason && std::strcmp(why, told) != 0) reason(why);
+        told = why;
         auto waited = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count();
         if (o.max_wait_s && static_cast<uint64_t>(waited) >= o.max_wait_s) {
             std::cerr << "[bosun] waited " << waited << " s, starting anyway without a slot\n";
@@ -214,10 +254,17 @@ class Records {
         base_.side = o.side.empty() ? "windows" : narrow(o.side);
         base_.session = own_session();
         base_.ns = narrow(o.ns);
+        min_avail_mb_ = o.min_avail_mb;
+        max_wait_s_ = o.max_wait_s;
+        min_guest_mb_ = o.min_guest_mb;
     }
-    void waiting() {
+    // Written as the wait starts and rewritten (temporary file, then replace) each time its reason changes.
+    void waiting(const char* why = "slot") {
         dm::SlotRecord r = base_;
         r.kind = "waiter";
+        r.waiting_for = why;
+        r.min_avail_mb = min_avail_mb_;
+        r.max_wait_s = max_wait_s_;
         waiter_ = dir_ / widen(dm::waiter_file(r.pid, r.process_start));
         write(waiter_, r);
     }
@@ -229,11 +276,19 @@ class Records {
         if (!remove_retrying(waiter_)) pending_.push_back(waiter_);
         waiter_.clear();
         if (slot < 0) return;  // ran without a slot: there is no holder to name
-        dm::SlotRecord r = base_;
-        r.kind = "holder";
-        r.slot = slot;
+        holder_record_ = base_;
+        holder_record_.kind = "holder";
+        holder_record_.slot = slot;
+        holder_record_.acquired_at = utc_now();
+        if (slot > 0) holder_record_.min_guest_mb = min_guest_mb_;  // the shim waits for guest memory past slot 0 only
         holder_ = dir_ / widen(dm::slot_file(slot));
-        write(holder_, r);
+        write(holder_, holder_record_);
+    }
+    // Called holding the slot, once the command has started.
+    void started() {
+        if (holder_.empty()) return;
+        holder_record_.command_started_at = utc_now();
+        write(holder_, holder_record_);
     }
     // Called before the mutex is released, so a successor's record is never the one removed.
     void done() {
@@ -258,7 +313,15 @@ class Records {
             out.write(text.data(), static_cast<std::streamsize>(text.size()));
             ok = static_cast<bool>(out.flush());
         }
-        if (ok) ok = MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+        // A reader (status, the panel, a test) can hold the record open for a moment, which makes the replace fail with
+        // a sharing violation or access denied: it is retried for up to a second, since a record is rewritten only when
+        // what it says changes, so one lost replace would leave it saying the old thing for good.
+        for (int attempt = 0; ok; ++attempt) {
+            if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) break;
+            DWORD error = GetLastError();
+            if ((error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) || attempt == 20) ok = false;
+            else Sleep(50);
+        }
         if (!ok) {
             DWORD error = ec ? static_cast<DWORD>(ec.value()) : GetLastError();
             fs::remove(temp, ec);
@@ -282,7 +345,9 @@ class Records {
     }
     fs::path dir_, waiter_, holder_;
     std::vector<fs::path> pending_;  // removals that failed and are retried when the job ends
-    dm::SlotRecord base_;
+    dm::SlotRecord base_, holder_record_;
+    uint64_t min_avail_mb_ = 0, max_wait_s_ = 0;
+    std::optional<uint64_t> min_guest_mb_;
     bool warned_ = false;
 };
 
@@ -368,17 +433,34 @@ dm::ProbeAnswer probe_process(int64_t pid) {
     return answer;
 }
 
-// A reader's pass over the records: removes stale waiters only, and says whether the folder could be read at all, so
-// an unreadable folder is never taken for an empty queue.
-bool sweep_records(const Options& o) {
+// What a reader's pass found: whether the folder could be read at all (so an unreadable folder is never taken for an
+// empty queue), how many record files it couldn't read or parse, and every record it parsed and kept, with its state.
+struct RecordsPass {
+    bool readable = true;
+    int skipped = 0;
+    std::vector<dm::SeenRecord> seen;
+};
+
+// A reader's pass over the records: removes stale and superseded waiters only, and returns the rest.
+RecordsPass sweep_records(const Options& o) {
+    RecordsPass pass;
     std::error_code ec;
     fs::path dir = records_dir(o);
-    if (!fs::exists(dir, ec)) return !ec;
+    if (!fs::exists(dir, ec)) {
+        pass.readable = !ec;
+        return pass;
+    }
     fs::directory_iterator it(dir, ec), end;
-    if (ec) return false;
-    std::vector<std::pair<fs::path, dm::SlotRecord>> found;
+    if (ec) {
+        pass.readable = false;
+        return pass;
+    }
+    std::vector<std::pair<fs::path, dm::SeenRecord>> found;
     for (; it != end; it.increment(ec)) {
-        if (ec) return false;
+        if (ec) {
+            pass.readable = false;
+            return pass;
+        }
         const fs::path& path = it->path();
         if (path.extension() != L".json") continue;
         std::string text;
@@ -388,18 +470,23 @@ bool sweep_records(const Options& o) {
             text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         }
         auto record = dm::parse_record(text);
-        if (!record) continue;  // half written, or not one of ours: a writer replaces it, a reader leaves it
-        found.emplace_back(path, *record);
+        if (!record) {  // half written, held open or not one of ours: a writer replaces it, a reader leaves it
+            ++pass.skipped;
+            continue;
+        }
+        found.push_back({path, {*record, dm::record_state(*record, probe_process)}});
     }
     std::vector<dm::SlotRecord> records;
-    for (const auto& [path, record] : found) records.push_back(record);
-    for (const auto& [path, record] : found) {
-        if (dm::reader_removes(record, dm::record_state(record, probe_process), records)) {
+    for (const auto& [path, seen] : found) records.push_back(seen.record);
+    for (const auto& [path, seen] : found) {
+        if (dm::reader_removes(seen.record, seen.state, records)) {
             std::error_code gone;
             fs::remove(path, gone);
+        } else {
+            pass.seen.push_back(seen);
         }
     }
-    return true;
+    return pass;
 }
 
 BOOL WINAPI ignore_ctrl(DWORD) { return TRUE; }  // The child receives Ctrl+C and decides; the parent outlives it.
@@ -427,7 +514,8 @@ bool is_batch(const std::wstring& path) {
     return ext == L".cmd" || ext == L".bat";
 }
 
-int run_child(const Options& o) {
+// `on_start` runs once the command is running, so its holder record can say since when.
+int run_child(const Options& o, const std::function<void()>& on_start = {}) {
     std::wstring program = resolve_program(o.command[0]);
     if (program.empty()) {
         std::wcerr << L"[bosun] command not found: " << o.command[0] << L"\n";
@@ -473,6 +561,7 @@ int run_child(const Options& o) {
         return 70;
     }
     ResumeThread(pi.hThread);
+    if (on_start) on_start();
     // The job counts what every process in the tree writes, a child the command left behind included, so a runaway is
     // stopped wherever in the tree it is, before it fills the drive. Windows keeps no per-job count of disk writes
     // alone: this one includes bytes written to pipes, so the budget is generous enough for heavy pipelines too.
@@ -515,7 +604,7 @@ int cmd_run(const Options& o) {
     g_wait.took = took;
     SetConsoleCtrlHandler(cancel_wait, TRUE);
     records.waiting();
-    Slot slot = acquire_slot(o);
+    Slot slot = acquire_slot(o, [&](const char* why) { records.waiting(why); });
     int waiting = 0;
     if (!g_wait.phase.compare_exchange_strong(waiting, 1)) Sleep(INFINITE);  // cancelled meanwhile: its handler exits
     records.holding(slot.index);
@@ -524,7 +613,7 @@ int cmd_run(const Options& o) {
     // WSLENV carries the marker into WSL, so a nested run on the other side also passes through.
     std::wstring wslenv = env(L"WSLENV");
     SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT" : wslenv + L":BOSUN_SLOT").c_str());
-    int code = run_child(o);
+    int code = run_child(o, [&] { records.started(); });
     auto ended = std::chrono::steady_clock::now();
     records.done();  // before the release, so the next holder's record is never the one removed
     if (slot.handle) ReleaseMutex(slot.handle);
@@ -540,7 +629,7 @@ int cmd_acquire(const Options& o) {
     auto took = std::chrono::steady_clock::now();
     Records records(job);
     records.waiting();
-    Slot slot = acquire_slot(o);
+    Slot slot = acquire_slot(o, [&](const char* why) { records.waiting(why); });
     records.holding(slot.index);
     std::cout << "acquired " << slot.index << std::endl;
     // The shim says "start" as its command starts (after any wait for guest memory) and "exit <code>" once it ends; the
@@ -560,6 +649,7 @@ int cmd_acquire(const Options& o) {
             if (line == "start" && !told_start) {
                 started = std::chrono::steady_clock::now();
                 told_start = true;
+                records.started();
             } else if (line.rfind("exit ", 0) == 0 && line.size() > 5 && line.size() < 25) {
                 char* tail = nullptr;
                 long long value = std::strtoll(line.c_str() + 5, &tail, 10);
@@ -578,25 +668,58 @@ int cmd_acquire(const Options& o) {
 int cmd_status(const Options& o) {
     // Stale waiters go; holders' records are only ever their holders' to change. A folder that can't be read is said,
     // never shown as an empty queue.
-    bool records_readable = sweep_records(o);
+    RecordsPass pass = sweep_records(o);
     int busy = 0;
+    std::vector<std::optional<bool>> held;
     for (int i = 0; i < o.slots; ++i) {
         HANDLE h = open_slot(o.ns, i);
-        if (!h) continue;
+        if (!h) {  // can't be told; the text count has always treated it as free
+            held.push_back(std::nullopt);
+            continue;
+        }
         DWORD w = WaitForSingleObject(h, 0);
-        if (w == WAIT_OBJECT_0 || w == WAIT_ABANDONED) ReleaseMutex(h);
-        else ++busy;
+        if (w == WAIT_OBJECT_0 || w == WAIT_ABANDONED) {
+            ReleaseMutex(h);
+            held.push_back(false);
+        } else if (w == WAIT_TIMEOUT) {
+            ++busy;
+            held.push_back(true);
+        } else {
+            ++busy;
+            held.push_back(std::nullopt);
+        }
         CloseHandle(h);
     }
     MEMORYSTATUSEX m{};
     m.dwLength = sizeof(m);
-    GlobalMemoryStatusEx(&m);
+    bool measured = GlobalMemoryStatusEx(&m) != 0;
+    HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\Bosun.Logger");
+    bool logger_running = logger != nullptr;
+    if (logger) CloseHandle(logger);
+    if (o.json) {
+        dm::StatusInput in;
+        in.ns = narrow(o.ns);
+        in.at = utc_now();
+        in.busy = held;
+        in.records = pass.seen;
+        in.records_readable = pass.readable;
+        in.records_skipped = pass.skipped;
+        in.records_dir = narrow(records_dir(o).wstring());
+        if (measured) {
+            in.available_mb = m.ullAvailPhys / (1024 * 1024);
+            in.total_mb = m.ullTotalPhys / (1024 * 1024);
+        }
+        in.min_avail_mb = o.min_avail_mb;
+        if (o.guest_avail_mb) in.guest = dm::GuestFigures{*o.guest_avail_mb, *o.guest_total_mb, o.min_guest_mb.value_or(0)};
+        in.windows_logger = logger_running;
+        if (!o.wsl_logger.empty()) in.wsl_logger = o.wsl_logger == L"running" ? "running" : o.wsl_logger == L"stopped" ? "not running" : "unknown";
+        std::cout << dm::status_json(in) << "\n";
+        return 0;
+    }
     std::cout << "slots busy: " << busy << " of " << o.slots << "\n";
     std::cout << "available: " << available_mb() << " of " << m.ullTotalPhys / (1024 * 1024) << " MB\n";
-    HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\Bosun.Logger");
-    std::cout << "logger: " << (logger ? "running" : "not running") << "\n";
-    if (logger) CloseHandle(logger);
-    if (!records_readable) std::cout << "records: unavailable (" << narrow(records_dir(o).wstring()) << " can't be read), so who holds and waits can't be named\n";
+    std::cout << "logger: " << (logger_running ? "running" : "not running") << "\n";
+    if (!pass.readable) std::cout << "records: unavailable (" << narrow(records_dir(o).wstring()) << " can't be read), so who holds and waits can't be named\n";
     return 0;
 }
 

@@ -16,6 +16,24 @@ inline bool slot_admits(int slot, uint64_t avail_mb, uint64_t min_avail_mb) {
     return slot == 0 || avail_mb >= min_avail_mb;
 }
 
+// A flag's or variable's whole number: ASCII digits only (no sign, space, prefix or trailing text) within [lo, hi], or
+// nothing. std::stoull took "12x" as 12 and "-1" as the largest value, so a typo became a limit nobody asked for.
+inline std::optional<uint64_t> parse_count(const std::string& s, uint64_t lo, uint64_t hi) {
+    if (s.empty() || s.size() > 20) return std::nullopt;
+    uint64_t v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return std::nullopt;
+        uint64_t d = static_cast<uint64_t>(c - '0');
+        if (v > (UINT64_MAX - d) / 10) return std::nullopt;
+        v = v * 10 + d;
+    }
+    if (v < lo || v > hi) return std::nullopt;
+    return v;
+}
+
+// The bound on MB, second and GB values: far past any machine, short of any overflow when they are multiplied out.
+constexpr uint64_t kMaxQuantity = uint64_t{1} << 40;
+
 // A job and everything it started may write at most budget_gb in all; 0 means no budget. A command that writes without
 // end (a test whose fake child floods a log, a loop that never stops) would otherwise fill the drive, and a full system
 // drive takes Windows and the WSL disk image on it down with it.
@@ -276,19 +294,75 @@ struct SlotRecord {
     std::optional<int> slot;            // holders only
     uint32_t session = 0;
     std::string ns;
+    // Added by D01 T01 §3, for the Queue page's waited, running and why. Optional, so a record an older bosun.exe wrote
+    // still reads, with them null.
+    std::optional<std::string> acquired_at;         // holders: UTC when the slot was taken
+    std::optional<std::string> command_started_at;  // holders: UTC when the command started, null until it has
+    std::optional<uint64_t> min_guest_mb;           // WSL holders past slot 0: the guest memory floor the shim waits on
+    std::optional<std::string> waiting_for;         // waiters: "slot" (every slot held) or "memory" (a slot's floor unmet)
+    std::optional<uint64_t> min_avail_mb, max_wait_s;  // waiters: the limits the job waits under
 };
 
-inline std::string record_json(const SlotRecord& r) {
+// YYYY-MM-DDTHH:MM:SSZ as seconds since 1970, or nothing for any other text.
+inline std::optional<int64_t> utc_seconds(const std::string& t) {
+    if (t.size() != 20 || t[4] != '-' || t[7] != '-' || t[10] != 'T' || t[13] != ':' || t[16] != ':' || t[19] != 'Z') return std::nullopt;
+    auto num = [&](size_t at, size_t len, int& out) {
+        out = 0;
+        for (size_t k = at; k < at + len; ++k) {
+            if (t[k] < '0' || t[k] > '9') return false;
+            out = out * 10 + (t[k] - '0');
+        }
+        return true;
+    };
+    int y, mo, d, h, mi, s;
+    if (!num(0, 4, y) || !num(5, 2, mo) || !num(8, 2, d) || !num(11, 2, h) || !num(14, 2, mi) || !num(17, 2, s)) return std::nullopt;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) return std::nullopt;
+    // Days from the civil date (Howard Hinnant's algorithm).
+    int yy = y - (mo <= 2);
+    int era = (yy >= 0 ? yy : yy - 399) / 400;
+    int yoe = yy - era * 400;
+    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = int64_t{era} * 146097 + doe - 719468;
+    return days * 86400 + h * 3600 + mi * 60 + s;
+}
+
+// A record's fields, without the braces, so status --json can extend the object it embeds.
+inline std::string record_fields(const SlotRecord& r) {
     std::ostringstream o;
-    o << "{\"schema_version\":1,\"kind\":\"" << json_escape(r.kind) << "\",\"pid\":" << r.pid << ",\"process_start\":" << r.process_start
+    auto text = [&](const std::optional<std::string>& v) {
+        if (v) o << "\"" << json_escape(*v) << "\"";
+        else o << "null";
+    };
+    auto count = [&](const std::optional<uint64_t>& v) {
+        if (v) o << *v;
+        else o << "null";
+    };
+    o << "\"schema_version\":1,\"kind\":\"" << json_escape(r.kind) << "\",\"pid\":" << r.pid << ",\"process_start\":" << r.process_start
       << ",\"started_at\":\"" << json_escape(r.started_at) << "\",\"command\":\"" << json_escape(r.command) << "\",\"repo\":";
-    if (r.repo) o << "\"" << json_escape(*r.repo) << "\"";
-    else o << "null";
+    text(r.repo);
     o << ",\"side\":\"" << json_escape(r.side) << "\"";
     if (r.slot) o << ",\"slot\":" << *r.slot;
-    o << ",\"session\":" << r.session << ",\"ns\":\"" << json_escape(r.ns) << "\"}";
+    o << ",\"session\":" << r.session << ",\"ns\":\"" << json_escape(r.ns) << "\"";
+    if (r.kind == "holder") {
+        o << ",\"acquired_at\":";
+        text(r.acquired_at);
+        o << ",\"command_started_at\":";
+        text(r.command_started_at);
+        o << ",\"min_guest_mb\":";
+        count(r.min_guest_mb);
+    } else {
+        o << ",\"waiting_for\":";
+        text(r.waiting_for);
+        o << ",\"min_avail_mb\":";
+        count(r.min_avail_mb);
+        o << ",\"max_wait_s\":";
+        count(r.max_wait_s);
+    }
     return o.str();
 }
+
+inline std::string record_json(const SlotRecord& r) { return "{" + record_fields(r) + "}"; }
 
 // A flat JSON object whose values are strings, integers or null, as the records are; anything else is refused.
 struct FlatValue {
@@ -465,6 +539,29 @@ inline std::optional<SlotRecord> parse_record(const std::string& text) {
     } else if (obj->count("slot")) {
         return std::nullopt;
     }
+    // The §3 fields: absent or null reads as null, any other wrong shape refuses the record, as for the fields above.
+    auto opt_stamp = [&](const char* k, std::optional<std::string>& out) {
+        auto it = obj->find(k);
+        if (it == obj->end() || it->second.kind == FlatValue::Null) return true;
+        if (it->second.kind != FlatValue::String || !utc_seconds(it->second.text)) return false;
+        out = it->second.text;
+        return true;
+    };
+    auto opt_count = [&](const char* k, std::optional<uint64_t>& out) {
+        auto it = obj->find(k);
+        if (it == obj->end() || it->second.kind == FlatValue::Null) return true;
+        if (it->second.kind != FlatValue::Integer || it->second.negative || it->second.magnitude > kMaxQuantity) return false;
+        out = it->second.magnitude;
+        return true;
+    };
+    if (!opt_stamp("acquired_at", r.acquired_at) || !opt_stamp("command_started_at", r.command_started_at) ||
+        !opt_count("min_guest_mb", r.min_guest_mb) || !opt_count("min_avail_mb", r.min_avail_mb) || !opt_count("max_wait_s", r.max_wait_s))
+        return std::nullopt;
+    auto why = obj->find("waiting_for");
+    if (why != obj->end() && why->second.kind != FlatValue::Null) {
+        if (why->second.kind != FlatValue::String || (why->second.text != "slot" && why->second.text != "memory")) return std::nullopt;
+        r.waiting_for = why->second.text;
+    }
     return r;
 }
 
@@ -519,6 +616,132 @@ inline bool reader_removes(const SlotRecord& r, RecordState state, const std::ve
     return std::any_of(all.begin(), all.end(), [&](const SlotRecord& o) {
         return o.kind == "holder" && o.pid == r.pid && o.process_start == r.process_start;
     });
+}
+
+// --- status --json (D01 T01 §3) ------------------------------------------------------------------------------------
+// The panel's main read: each slot and who holds it, who waits and why, memory on both sides and the loggers, as one
+// versioned object. Anything that couldn't be measured is null and a records folder that couldn't be read says so,
+// so nothing unknown ever reads as zero, free or an empty queue.
+
+struct SeenRecord {
+    SlotRecord record;
+    RecordState state = RecordState::Unknown;
+};
+
+struct GuestFigures {
+    uint64_t available_mb = 0, total_mb = 0, min_guest_mb = 0;
+};
+
+struct StatusInput {
+    std::string ns, at;                     // the queue namespace; now, UTC
+    std::vector<std::optional<bool>> busy;  // per slot: its mutex held, free, or unknown when it couldn't be probed
+    std::vector<SeenRecord> records;        // every record the reader pass parsed, with its state
+    bool records_readable = true;
+    int records_skipped = 0;                // .json files it couldn't read or parse
+    std::string records_dir;
+    std::optional<uint64_t> available_mb, total_mb;
+    uint64_t min_avail_mb = 0;
+    std::optional<GuestFigures> guest;      // the WSL shim's figures; none from a Windows call
+    bool windows_logger = false;
+    std::optional<std::string> wsl_logger;  // "running", "not running" or "unknown"; none from a Windows call
+};
+
+struct StatusView {
+    std::vector<std::optional<SeenRecord>> holders;  // per slot
+    std::vector<SeenRecord> waiters;                 // oldest first
+};
+
+// Slot N's holder is its live or unknown slot-N record, and only while slot N is busy (or can't be told), so a killed
+// holder's leftover never names a holder of a free slot. Waiters are the live and unknown waiter records not
+// superseded by their own holder record. Stale records are left out.
+inline StatusView status_view(const StatusInput& in) {
+    StatusView v;
+    std::vector<SlotRecord> all;
+    for (const auto& s : in.records) all.push_back(s.record);
+    v.holders.resize(in.busy.size());
+    for (const auto& s : in.records) {
+        if (s.state == RecordState::Stale) continue;
+        const SlotRecord& r = s.record;
+        if (r.kind == "holder") {
+            if (!r.slot || *r.slot < 0 || static_cast<size_t>(*r.slot) >= in.busy.size()) continue;
+            if (in.busy[*r.slot] == false) continue;
+            v.holders[*r.slot] = s;
+        } else if (!reader_removes(r, s.state, all)) {
+            v.waiters.push_back(s);
+        }
+    }
+    std::sort(v.waiters.begin(), v.waiters.end(), [](const SeenRecord& a, const SeenRecord& b) {
+        if (a.record.started_at != b.record.started_at) return a.record.started_at < b.record.started_at;
+        return a.record.pid < b.record.pid;
+    });
+    return v;
+}
+
+// Whole seconds from one stamp to another, never below zero; nothing when either is missing or malformed.
+inline std::optional<int64_t> seconds_between(const std::optional<std::string>& from, const std::optional<std::string>& to) {
+    if (!from || !to) return std::nullopt;
+    auto a = utc_seconds(*from), b = utc_seconds(*to);
+    if (!a || !b) return std::nullopt;
+    return *b > *a ? *b - *a : 0;
+}
+
+inline std::string status_json(const StatusInput& in) {
+    StatusView v = status_view(in);
+    std::ostringstream o;
+    auto count = [&](const std::optional<int64_t>& n) {
+        if (n) o << *n;
+        else o << "null";
+    };
+    auto state = [](RecordState s) { return s == RecordState::Live ? "live" : "unknown"; };
+    o << "{\"schema_version\":1,\"ns\":\"" << json_escape(in.ns) << "\",\"at\":\"" << json_escape(in.at) << "\",\"slots\":[";
+    for (size_t i = 0; i < in.busy.size(); ++i) {
+        if (i) o << ",";
+        o << "{\"index\":" << i << ",\"busy\":" << (!in.busy[i] ? "null" : *in.busy[i] ? "true" : "false") << ",\"holder\":";
+        if (!v.holders[i]) {
+            o << "null}";
+            continue;
+        }
+        const SlotRecord& r = v.holders[i]->record;
+        // A record from before §3 has no acquired_at: how long it waited and what it is doing can't be told.
+        const char* phase = nullptr;
+        if (r.command_started_at) phase = "running";
+        else if (r.acquired_at && r.side == "wsl" && r.min_guest_mb && *r.min_guest_mb > 0) phase = "waiting for guest memory";
+        else if (r.acquired_at) phase = "starting";
+        o << "{" << record_fields(r) << ",\"state\":\"" << state(v.holders[i]->state) << "\",\"waited_s\":";
+        count(seconds_between(r.started_at, r.acquired_at));
+        o << ",\"running_s\":";
+        count(seconds_between(r.command_started_at, in.at));
+        o << ",\"phase\":";
+        if (phase) o << "\"" << phase << "\"";
+        else o << "null";
+        o << "}}";
+    }
+    o << "],\"waiters\":[";
+    for (size_t i = 0; i < v.waiters.size(); ++i) {
+        if (i) o << ",";
+        const SlotRecord& r = v.waiters[i].record;
+        o << "{" << record_fields(r) << ",\"state\":\"" << state(v.waiters[i].state) << "\",\"waited_s\":";
+        count(seconds_between(r.started_at, in.at));
+        o << "}";
+    }
+    auto mb = [&](const std::optional<uint64_t>& n) {
+        if (n) o << *n;
+        else o << "null";
+    };
+    o << "],\"memory\":{\"available_mb\":";
+    mb(in.available_mb);
+    o << ",\"total_mb\":";
+    mb(in.total_mb);
+    o << ",\"min_avail_mb\":" << in.min_avail_mb << "},\"guest\":";
+    if (in.guest)
+        o << "{\"available_mb\":" << in.guest->available_mb << ",\"total_mb\":" << in.guest->total_mb << ",\"min_guest_mb\":" << in.guest->min_guest_mb << "}";
+    else o << "null";
+    o << ",\"logger\":{\"windows\":\"" << (in.windows_logger ? "running" : "not running") << "\",\"wsl\":";
+    if (in.wsl_logger) o << "\"" << json_escape(*in.wsl_logger) << "\"";
+    else o << "null";
+    o << "},\"records\":{\"readable\":" << (in.records_readable ? "true" : "false") << ",\"skipped\":" << in.records_skipped << ",\"dir\":\""
+      << json_escape(in.records_dir) << "\"}}";
+    return o.str();
 }
 
 // --- The job history log (D01 T01 §2) ---------------------------------------------------------------------------

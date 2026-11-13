@@ -395,6 +395,84 @@ Check ($shown -match 'slots busy: 0 of 1' -and $shown -match "records: unavailab
 $shown = & $bosun status --ns $ns --slots 1 | Out-String
 Check ($shown -notmatch 'records:') "and says nothing of them when they can"
 
+# --- status --json (D01 T01 §3): the panel's one read, parsed as the panel parses it ---
+function Status-Json([string[]]$Extra = @()) {
+  $text = (& $bosun status --ns $ns --json @Extra 2>$null | Out-String).Trim()
+  $obj = $null
+  # Text that isn't JSON leaves Obj null, which every check below reads as a failure; a refusal is checked by its Text.
+  try { $obj = $text | ConvertFrom-Json -DateKind String } catch { $obj = $null }
+  [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text; Obj = $obj }
+}
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sj1.txt')),'5000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').command_started_at }
+$w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'sj2.txt')),'200' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
+Start-Sleep -Seconds 2  # so the holder has run, and the waiter waited, a measurable while
+$s = Status-Json @('--slots', '1', '--min-avail-mb', '0')
+$sh = $s.Obj.slots[0].holder
+$sw = @($s.Obj.waiters | Where-Object pid -eq $w.Id)
+$rec = Read-Rec 'slot-0.json'
+Check ($s.Code -eq 0 -and $s.Obj.schema_version -eq 1 -and $s.Obj.ns -eq $ns -and @($s.Obj.slots).Count -eq 1 -and $s.Obj.slots[0].busy -eq $true) "status --json parses, versioned, with its one slot busy ($($s.Text))"
+Check ($sh.pid -eq $h.Id -and $sh.phase -eq 'running' -and $sh.state -eq 'live' -and $sh.running_s -ge 1 -and $null -ne $sh.waited_s -and $sh.command -like '*sj1.txt*') "it names the holder, running for $($sh.running_s) s after waiting $($sh.waited_s) s"
+Check ($rec.acquired_at -and $rec.command_started_at -and $rec.command_started_at -ge $rec.acquired_at) "the holder's record says when it took the slot and when its command started ($($rec.acquired_at), $($rec.command_started_at))"
+Check ($sw.Count -eq 1 -and $sw[0].waiting_for -eq 'slot' -and $sw[0].waited_s -ge 1 -and $sw[0].min_avail_mb -eq 0 -and $sw[0].max_wait_s -eq 60 -and $sw[0].state -eq 'live') "it names the waiter, waiting for a slot ($($sw | ConvertTo-Json -Compress))"
+Check ($s.Obj.memory.total_mb -gt 0 -and $s.Obj.memory.available_mb -le $s.Obj.memory.total_mb -and $s.Obj.memory.min_avail_mb -eq 0 -and $s.Obj.records.readable -eq $true -and $s.Obj.records.skipped -eq 0) "it gives this machine's memory and readable records"
+$loggerRuns = [bool](Get-Process -Name 'bosun-logger' -ErrorAction Ignore)
+Check ($s.Obj.logger.windows -eq $(if ($loggerRuns) { 'running' } else { 'not running' }) -and $null -eq $s.Obj.logger.wsl -and $null -eq $s.Obj.guest) "the Windows logger reads $($s.Obj.logger.windows), as Get-Process sees it, with no guest from a Windows call"
+$null = $h.WaitForExit(15000); $null = $w.WaitForExit(15000)
+$s = Status-Json @('--slots', '1', '--min-avail-mb', '0')
+Check ($s.Obj.slots[0].busy -eq $false -and $null -eq $s.Obj.slots[0].holder -and @($s.Obj.waiters).Count -eq 0) "once they end, the slot reads free with no holder and nobody waits ($($s.Text))"
+
+# A free slot held shut by its memory floor: the waiter says it waits for memory, under its own limits.
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sjm1.txt')),'5000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','99999999','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'sjm2.txt')),'200' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (@(Records | Where-Object Name -like "wait-$($w.Id)-*") | ForEach-Object { Read-Rec $_.Name }).waiting_for -eq 'memory' }
+$s = Status-Json @('--slots', '2')
+$sw = @($s.Obj.waiters | Where-Object pid -eq $w.Id)
+Check ($sw.Count -eq 1 -and $sw[0].waiting_for -eq 'memory' -and $sw[0].min_avail_mb -eq 99999999 -and $s.Obj.slots[1].busy -eq $false) "a waiter held by slot 1's memory floor says it waits for memory ($($sw | ConvertTo-Json -Compress))"
+& "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $w.Id 2>&1 | Out-Null
+$null = $h.WaitForExit(15000)
+
+# A reader holding the waiter's record open as its reason changes doesn't lose the change: the replace is retried. Both
+# slots held, so it waits for a slot; slot 1's job ends while the record is held open, so it now waits for memory.
+$h0 = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sjo0.txt')),'6000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h0.Id }
+$h1 = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sjo1.txt')),'1500' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-1.json').pid -eq $h1.Id }
+$w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','99999999','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'sjo2.txt')),'200' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
+$wfile = (Records | Where-Object Name -like "wait-$($w.Id)-*" | Select-Object -First 1).FullName
+$before = (Read-Rec (Split-Path -Leaf $wfile)).waiting_for
+$held = [IO.File]::Open($wfile, 'Open', 'Read', 'Read')  # as .NET readers open it: no sharing for replacement
+try { $null = $h1.WaitForExit(10000); Start-Sleep -Milliseconds 300 } finally { $held.Dispose() }
+$null = Wait-Until { (Read-Rec (Split-Path -Leaf $wfile)).waiting_for -eq 'memory' } 3000
+$after = (Read-Rec (Split-Path -Leaf $wfile)).waiting_for
+Check ($before -eq 'slot' -and $after -eq 'memory') "a waiter's reason changes from slot to memory even while a reader held its record open (from '$before' to '$after')"
+& "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $w.Id 2>&1 | Out-Null
+$null = $h0.WaitForExit(15000)
+
+# An unreadable records folder still gives the object, saying so, with the slots it could probe.
+$env:LOCALAPPDATA = $unreadHome
+$s = Status-Json @('--slots', '1')
+$env:LOCALAPPDATA = $savedHome
+Check ($s.Code -eq 0 -and $s.Obj.records.readable -eq $false -and @($s.Obj.slots).Count -eq 1 -and @($s.Obj.waiters).Count -eq 0) "with its records folder unreadable, status --json says so and still parses ($($s.Text))"
+
+# Bad values are refused with exit 64 and nothing on stdout; the guest's figures come together or not at all.
+$thirty = '1' * 30
+foreach ($bad in @(@('--guest-avail-mb'), @('--guest-avail-mb', '-5', '--guest-total-mb', '9'), @('--guest-avail-mb', '5x', '--guest-total-mb', '9'), @('--guest-avail-mb', $thirty, '--guest-total-mb', '9'), @('--guest-avail-mb', '5'), @('--wsl-logger', 'maybe'), @('--slots', '12x'), @('--min-avail-mb', '-1'))) {
+  $s = Status-Json $bad
+  Check ($s.Code -eq 64 -and $s.Text -eq '') "status --json $($bad -join ' ') is refused, exit 64 and nothing on stdout (got $($s.Code), '$($s.Text)')"
+}
+$s = Status-Json @('--guest-avail-mb', '5', '--guest-total-mb', '9', '--min-guest-mb', '3', '--wsl-logger', 'stopped')
+Check ($s.Code -eq 0 -and $s.Obj.guest.available_mb -eq 5 -and $s.Obj.guest.total_mb -eq 9 -and $s.Obj.guest.min_guest_mb -eq 3 -and $s.Obj.logger.wsl -eq 'not running') "the WSL side's figures read back as given ($($s.Obj.guest | ConvertTo-Json -Compress), $($s.Obj.logger.wsl))"
+# A limit in the environment is parsed as strictly as its flag: a bad one is said and the default kept.
+$env:BOSUN_SLOTS = '3x'
+$warned = & $bosun status --ns $ns --json 2>&1 | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | Out-String
+$s = Status-Json
+Remove-Item Env:BOSUN_SLOTS
+Check (@($s.Obj.slots).Count -eq 2 -and $warned -match 'ignoring BOSUN_SLOTS=3x') "a bad BOSUN_SLOTS is said and the default of 2 slots kept ($($warned.Trim()))"
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'
@@ -441,11 +519,26 @@ if ($SkipWsl) {
     $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'guesthold.txt')),'15000' -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
     $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','3','--','sleep','2' -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-1.json').side -eq 'wsl' } 15000
+    # status --json from the shim, while that job waits for guest memory on slot 1 (D01 T01 §3).
+    $gs = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim status --ns $ns --slots 2 --json | Out-String) | ConvertFrom-Json -DateKind String
+    $gh = $gs.slots[1].holder
+    Check ($gh.side -eq 'wsl' -and $gh.phase -eq 'waiting for guest memory' -and $gh.min_guest_mb -eq 99999999 -and $null -eq $gh.running_s) "status --json shows a WSL job held for guest memory as such ($($gh | ConvertTo-Json -Compress))"
     $null = $job.WaitForExit(30000)
     $null = Wait-Until { (Job-Line 'sleep 2').Count -eq 1 } 10000
     $g = Job-Line 'sleep 2'
     Check ($g.Count -eq 1 -and $g[0].slot -eq 1 -and $g[0].waited_s -ge 2.5 -and $g[0].ran_s -ge 1.5 -and $g[0].ran_s -le 3.5) "a WSL job held for guest memory counts that as waiting, not running (waited $($g.waited_s) s, ran $($g.ran_s) s)"
     Stop-Process -Id $h.Id -Force -ErrorAction Ignore
+
+    # The shim's status --json adds the guest's memory and its logger, and forwards the Windows floor as run does.
+    $mem = @(wsl.exe -d Ubuntu -e awk '/^MemTotal:/ {t = int($2/1024)} /^MemAvailable:/ {a = int($2/1024)} END {print t; print a}' /proc/meminfo)
+    $ws = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" BOSUN_MIN_AVAIL_MB=1234 bash $shim status --ns $ns --json | Out-String) | ConvertFrom-Json -DateKind String
+    $total = [double]$mem[0]
+    Check ($ws.guest.total_mb -gt 0 -and [math]::Abs($ws.guest.total_mb - $total) -le 0.1 * $total -and [math]::Abs($ws.guest.available_mb - [double]$mem[1]) -le 0.1 * $total) "the shim's status --json gives guest memory as /proc/meminfo does ($($ws.guest | ConvertTo-Json -Compress) against $($mem -join ', ') MB)"
+    $typed = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" BOSUN_MIN_AVAIL_MB=1234 bash $shim status --ns $ns --json --min-avail-mb 5678 | Out-String) | ConvertFrom-Json -DateKind String
+    Check ($ws.memory.min_avail_mb -eq 1234 -and $typed.memory.min_avail_mb -eq 5678) "it forwards BOSUN_MIN_AVAIL_MB, and a typed --min-avail-mb wins ($($ws.memory.min_avail_mb), then $($typed.memory.min_avail_mb))"
+    $active = (wsl.exe -d Ubuntu -- systemctl --user is-active bosun-log.service 2>$null | Out-String).Trim()
+    Check ($(if ($active -eq 'active') { $ws.logger.wsl -eq 'running' } else { $ws.logger.wsl -in 'not running', 'unknown' })) "the WSL logger reads $($ws.logger.wsl), as systemd says $active"
 
     # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
     $marker = "killmarker$PID"
