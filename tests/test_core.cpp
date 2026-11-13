@@ -349,6 +349,16 @@ static void report_json() {
     auto utf = dm::parse_row("2026-11-12T10:00:05,wsl,repo,/home/u/caf%C3%A9,1,1,1");
     CHECK(utf && utf->name == "/home/u/caf\xc3\xa9");
     CHECK(dm::valid_utf8("caf\xc3\xa9 \xf0\x9f\x98\x80") && !dm::valid_utf8("\xc0\xaf") && !dm::valid_utf8("\xed\xa0\x80") && !dm::valid_utf8("\xf4\x90\x80\x80"));
+    // A stamp that is 19 bytes but no time, and quantities past what any sampler writes, are refused (round 3).
+    CHECK(!dm::parse_row("2026-11-13T23:59:5\xff,win,repo,test,1,100,100") && !dm::parse_row("2026-13-13T23:59:59,win,repo,test,1,100,100"));
+    CHECK(!dm::parse_row("2026-11-13T23:59:59,win,repo,test,1,9223372036854775807,1") && !dm::parse_row("2026-11-13T23:59:59,win,repo,test,-1,1,1"));
+    CHECK(dm::parse_row("2026-11-13T23:59:59,win,repo,test,1,1099511627776,1").has_value() && !dm::parse_row("2026-11-13T23:59:59,win,repo,test,1,1099511627777,1"));
+    // With each quantity bounded at 2^40, thousands of repos at the bound in one minute still total exactly; only past
+    // millions of them would the sum saturate (at INT64_MAX / 2), never wrap negative.
+    std::vector<dm::Row> big;
+    for (int k = 0; k < 9000; ++k) big.push_back({"2026-11-13T10:00:00", "win", "repo", "r" + std::to_string(k), 1, int64_t{1} << 40, 1});
+    dm::Report bg = dm::aggregate(big);
+    CHECK(bg.busiest_total_mb == 9000 * (int64_t{1} << 40) && bg.active_total_mb == bg.busiest_total_mb && bg.active_max == 9000);
 
     // Two days of both sides, in the writers' own row format.
     std::vector<std::string> csv{

@@ -150,6 +150,30 @@ inline std::string csv_name(const std::string& s) {
     return out;
 }
 
+// YYYY-MM-DDTHH:MM:SSZ as seconds since 1970, or nothing for any other text.
+inline std::optional<int64_t> utc_seconds(const std::string& t) {
+    if (t.size() != 20 || t[4] != '-' || t[7] != '-' || t[10] != 'T' || t[13] != ':' || t[16] != ':' || t[19] != 'Z') return std::nullopt;
+    auto num = [&](size_t at, size_t len, int& out) {
+        out = 0;
+        for (size_t k = at; k < at + len; ++k) {
+            if (t[k] < '0' || t[k] > '9') return false;
+            out = out * 10 + (t[k] - '0');
+        }
+        return true;
+    };
+    int y, mo, d, h, mi, s;
+    if (!num(0, 4, y) || !num(5, 2, mo) || !num(8, 2, d) || !num(11, 2, h) || !num(14, 2, mi) || !num(17, 2, s)) return std::nullopt;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) return std::nullopt;
+    // Days from the civil date (Howard Hinnant's algorithm).
+    int yy = y - (mo <= 2);
+    int era = (yy >= 0 ? yy : yy - 399) / 400;
+    int yoe = yy - era * 400;
+    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = int64_t{era} * 146097 + doe - 719468;
+    return days * 86400 + h * 3600 + mi * 60 + s;
+}
+
 // The inverse of csv_name (and of wsl/bosun_log.py's csv_name): each %XX back to its byte, anything else as it is, so
 // a name read from history matches the same name in a live snapshot (D01 T01 §4).
 inline std::string csv_unname(const std::string& s) {
@@ -218,7 +242,12 @@ inline std::optional<Row> parse_row(const std::string& line) {
     while (std::getline(ss, item, ',')) f.push_back(item);
     if (f.size() != 7 || f[0] == "ts") return std::nullopt;
     auto count = csv_integer(f[4]), priv = csv_integer(f[5]), rss = csv_integer(f[6]);
-    if (!count || !priv || !rss || f[0].size() != 19) return std::nullopt;  // a partial line from a sampler killed mid-write
+    if (!count || !priv || !rss) return std::nullopt;  // a partial line from a sampler killed mid-write
+    // A real time (round 3: a 19-byte stamp with a stray byte had gone into the JSON), and quantities no sampler can
+    // write past: never negative, at most 2^40 MB, so no sum of them can overflow.
+    if (!utc_seconds(f[0] + "Z")) return std::nullopt;
+    for (int64_t v : {*count, *priv, *rss})
+        if (v < 0 || v > static_cast<int64_t>(kMaxQuantity)) return std::nullopt;
     std::string name = csv_unname(f[3]);
     if (!valid_utf8(name) || !valid_utf8(f[1]) || !valid_utf8(f[2])) return std::nullopt;  // no writer makes it: refused and counted
     return Row{f[0], f[1], f[2], std::move(name), *count, *priv, *rss};
@@ -323,7 +352,7 @@ inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048, con
     }
     for (const auto& [minute, repos] : minute_repos) {
         int64_t total = 0;
-        for (const auto& [name, mb] : repos) total += mb;
+        for (const auto& [name, mb] : repos) total = std::min<int64_t>(total + mb, INT64_MAX / 2);  // saturates, never wraps
         auto& point = r.series[minute];
         point.repos = static_cast<int64_t>(repos.size());
         point.repo_private_mb = total;
@@ -445,29 +474,6 @@ struct SlotRecord {
     std::optional<uint64_t> min_avail_mb, max_wait_s;  // waiters: the limits the job waits under
 };
 
-// YYYY-MM-DDTHH:MM:SSZ as seconds since 1970, or nothing for any other text.
-inline std::optional<int64_t> utc_seconds(const std::string& t) {
-    if (t.size() != 20 || t[4] != '-' || t[7] != '-' || t[10] != 'T' || t[13] != ':' || t[16] != ':' || t[19] != 'Z') return std::nullopt;
-    auto num = [&](size_t at, size_t len, int& out) {
-        out = 0;
-        for (size_t k = at; k < at + len; ++k) {
-            if (t[k] < '0' || t[k] > '9') return false;
-            out = out * 10 + (t[k] - '0');
-        }
-        return true;
-    };
-    int y, mo, d, h, mi, s;
-    if (!num(0, 4, y) || !num(5, 2, mo) || !num(8, 2, d) || !num(11, 2, h) || !num(14, 2, mi) || !num(17, 2, s)) return std::nullopt;
-    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 60) return std::nullopt;
-    // Days from the civil date (Howard Hinnant's algorithm).
-    int yy = y - (mo <= 2);
-    int era = (yy >= 0 ? yy : yy - 399) / 400;
-    int yoe = yy - era * 400;
-    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = int64_t{era} * 146097 + doe - 719468;
-    return days * 86400 + h * 3600 + mi * 60 + s;
-}
 
 // A record's fields, without the braces, so status --json can extend the object it embeds.
 inline std::string record_fields(const SlotRecord& r) {
