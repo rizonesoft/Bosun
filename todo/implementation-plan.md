@@ -60,11 +60,11 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 130
+Sections: 23 | Checklist items: 131
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
-| [ ]    | D02 T01 §1  | Generate the theme from tokens              | none            | 4     |
+| [ ]    | D02 T01 §1  | Generate the theme from tokens              | none            | 5     |
 | [ ]    | D02 T01 §2  | Contrast and stray colour tests             | none            | 3     |
 | [ ]    | D02 T01 §5  | App icon ICO from the masters               | none            | 6     |
 | [ ]    | D02 T01 §3  | Tray state icons and the icon drift gate    | none            | 4     |
@@ -144,4 +144,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 37/87 verified sections, 3 ready to run now.
 
-Checklist: 401/645 items completed (includes Commit items).
+Checklist: 401/646 items completed (includes Commit items).

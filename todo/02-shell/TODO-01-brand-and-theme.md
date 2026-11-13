@@ -48,6 +48,8 @@ title: "TODO-01 -- Brand and theme"
 
 Hand-edited XAML is how themes drift. The generator owns the colour resources and everything else refers to them.
 
+**Corrected 2026-11-13:** checked against the tree before the build. `design/tokens/colors.json` holds `dark` and `light` with the same 20 colours each, `radius` (5), `space` (5) and `type` (5), plus `elevation` and `motion`, which `D02 T03 §1` emits, so this section doesn't. An eight-digit colour is alpha first (`OkSoft` `#2446C96B` is `Ok` `#46C96B` at alpha `0x24`), as WPF reads `#AARRGGBB`, so colours pass through unchanged. Steward's key names (`D:\Steward\src\Steward.Console\Theme\Dark.xaml`) are `C.<name>` colours, `B.<name>` brushes, `T.<name>` type sizes and `R.<name>` corner radii; spacing takes `S.<name>`. `src/Bosun.Panel` has no `Theme/` folder yet, and `scripts/check-all.ps1` lists its steps in one table (`New-Step`). The script follows `scripts/build-icons.py`: a docstring giving its usage, `--check` exiting 1 when a generated file differs, and tests in `scripts/tests/`, which `scripts/run-tests.py` runs. Decided here (industry default): the generated files are LF text with a header naming the generator and the token file and saying not to edit them, written temporary-file-then-replace, and `--check` compares them with line endings normalised, so Git's CRLF conversion is never a difference. Reversal cost: none beyond the generator.
+
 **Phase:** 2
 **Needs:** none
 **Surface:** no
@@ -57,12 +59,13 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 1. Create `scripts/build-theme.py`. Done when: it writes `src/Bosun.Panel/Theme/Generated/Dark.xaml` and `Light.xaml` from `design/tokens/colors.json`.
 2. Add `--check`. Done when: a hand edit makes it exit nonzero.
 
-- [ ] Emit `C.*` colours and `B.*` brushes plus radius, spacing and type resources, with the key names of `D:\Steward\src\Steward.Console\Theme\Dark.xaml:14`. Done when: both files load in a WPF test. Cheaper substitute: editing the generated XAML by hand.
-- [ ] Refuse a token present in one theme and missing in the other. Done when: a fixture exits 2 and names the token.
-- [ ] Add `--check` to `scripts/check-all.ps1`. Done when: a changed generated file fails the gate.
+- [ ] Emit `C.*` colours and `B.*` brushes plus radius, spacing and type resources, with the key names of `D:\Steward\src\Steward.Console\Theme\Dark.xaml:14`, in `scripts/build-theme.py`: for each theme a `ResourceDictionary` with a `Color` `C.<name>` and a frozen `SolidColorBrush` `B.<name>` for each colour, in the token file's order, a `CornerRadius` `R.<name>` for each radius, and a `sys:Double` `S.<name>` for each space and `T.<name>` for each type size, under a header that names the generator and the token file and says not to edit the file, written temporary-file-then-replace. Done when: both files load in a WPF test, `tests/Bosun.Panel.Tests/ThemeTests.cs`, through `XamlReader` on an STA thread, and `C.Base`, `B.OkSoft`, `R.Card`, `S.M` and `T.Metric` read back as their tokens in each theme. Cheaper substitute: editing the generated XAML by hand.
+- [ ] Refuse bad tokens in `scripts/build-theme.py` with exit 2 and a message naming the token, writing nothing: a colour present in one theme and missing in the other; a colour that isn't `#RRGGBB` or `#AARRGGBB`; a radius, space or type size that isn't a number from 0 to 1000 (and a radius of 999 or more, the pill, stays as it is); a missing `dark`, `light`, `radius`, `space` or `type`; and a token file that isn't JSON. Done when: `scripts/tests/test_build_theme.py` runs each fixture and reads exit 2 and the token's name, with the generated files unchanged.
+- [ ] Add `--check` in `scripts/build-theme.py`: it writes nothing, and exits 1 naming each generated file that is missing or differs from what the tokens give (line endings aside), 0 when both match. Done when: `scripts/tests/test_build_theme.py` reads 0 on a fresh build, 1 after a hand edit and after a deleted file, and 0 again after a rebuild, and a CRLF copy of a matching file still reads 0.
+- [ ] Add the check to `scripts/check-all.ps1` as the `theme` step (`python scripts/build-theme.py --check`), after `plan`. Done when: a changed generated file fails the gate, shown by `pwsh scripts/check-all.ps1 -Only theme` exiting nonzero after a hand edit and 0 after a rebuild.
 - [ ] Commit: `theme: generate XAML from tokens`
 
-**Test checkpoint:** `python scripts/build-theme.py --check` exits 0, and exits nonzero after a hand edit.
+**Test checkpoint:** `python scripts/build-theme.py --check` exits 0, and exits nonzero after a hand edit; `python scripts/run-tests.py` passes `test_build_theme`; and `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ThemeTests*"` passes.
 
 ## 2. Contrast and stray colour tests
 
