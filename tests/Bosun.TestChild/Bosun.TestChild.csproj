@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The program the process runner's tests start (tests/Bosun.Core.Tests/ProcessRunnerTests.cs): no shell on the
+       machine hands its arguments on unchanged, so the tests bring a child of their own. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+</Project>

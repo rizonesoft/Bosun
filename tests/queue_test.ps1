@@ -597,7 +597,7 @@ $cfgHome = Join-Path $work 'cfg-home'
 $env:LOCALAPPDATA = $cfgHome
 $cfgFile = Join-Path $cfgHome 'Bosun\config.json'
 $first = CfgJson @('set', 'slots', '1', '--json')
-Check ($first.Code -eq 0 -and $first.Obj.ok -eq $true -and $first.Obj.saved -eq 1 -and (Test-Path -LiteralPath $cfgFile)) "config set saves into a home with no Bosun folder yet ($($first.Text))"
+Check ($first.Code -eq 0 -and $first.Obj.schema_version -eq 1 -and $first.Obj.ok -eq $true -and $first.Obj.saved -eq 1 -and (Test-Path -LiteralPath $cfgFile)) "config set saves into a home with no Bosun folder yet ($($first.Text))"
 $null = Cfg @('set', 'min_avail_mb', '1234'); $null = Cfg @('set', 'max_wait_s', '77'); $null = Cfg @('set', 'min_guest_mb', '555')
 $g = (CfgJson @('get', '--json')).Obj
 Check ($g.limits.slots.saved -eq 1 -and $g.limits.slots.source -eq 'file' -and $g.limits.min_avail_mb.value -eq 1234 -and $g.limits.max_wait_s.saved -eq 77 -and $g.limits.min_guest_mb.source -eq 'file' -and $g.valid -eq $true -and $g.exists -eq $true) "each key saved reads back as saved, from the file ($($g.limits | ConvertTo-Json -Compress))"
@@ -614,7 +614,7 @@ Check ($e1.value -eq 4000 -and $e1.source -eq 'environment' -and $e1.saved -eq 2
 $before = [IO.File]::ReadAllBytes($cfgFile)
 foreach ($bad in @(@('slots', '0'), @('slots', '2x'), @('min_avail_mb', '-1'), @('nonsense', '1'))) {
   $r = CfgJson (@('set') + $bad + @('--json'))
-  Check ($r.Code -eq 64 -and $r.Obj.ok -eq $false -and $r.Obj.key -eq $bad[0] -and $r.Obj.error) "config set $($bad -join ' ') is refused with exit 64 and its key named ($($r.Text))"
+  Check ($r.Code -eq 64 -and $r.Obj.schema_version -eq 1 -and $r.Obj.ok -eq $false -and $r.Obj.key -eq $bad[0] -and $r.Obj.error) "config set $($bad -join ' ') is refused with exit 64 and its key named ($($r.Text))"
 }
 Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($before)) "and the file is byte for byte as it was"
 $null = Cfg @('unset', 'slots')
@@ -659,7 +659,7 @@ $env:BOSUN_SLOTS = 'bad'
 $badText = & $bosun config get slots 2>&1 | Out-String
 $badJson = (CfgJson @('get', '--json')).Obj.limits.slots
 Remove-Item Env:BOSUN_SLOTS
-Check ($unknownKey.Code -eq 64 -and $unknownKey.Obj.ok -eq $false -and $unknownKey.Obj.key -eq 'nonsense') "config get of an unknown key is refused in JSON with --json ($($unknownKey.Text))"
+Check ($unknownKey.Code -eq 64 -and $unknownKey.Obj.schema_version -eq 1 -and $unknownKey.Obj.ok -eq $false -and $unknownKey.Obj.key -eq 'nonsense') "config get of an unknown key is refused in JSON with --json ($($unknownKey.Text))"
 Check ($badText -match 'ignoring BOSUN_SLOTS=bad' -and $badText -match 'slots=3' -and $badJson.variable_error -match 'BOSUN_SLOTS=bad' -and $badJson.source -eq 'file') "config get says a bad BOSUN_SLOTS on both paths and reports the saved 3 it falls back to"
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $cfgDir = Split-Path $cfgFile

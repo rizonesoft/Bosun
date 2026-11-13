@@ -1305,7 +1305,7 @@ int write_config(const dm::ConfigFile& f, std::string& error) {
 
 void config_reply(bool json, bool ok, const std::string& key, const std::string& message, std::optional<uint64_t> saved = std::nullopt) {
     if (json) {
-        std::cout << "{\"ok\":" << (ok ? "true" : "false") << ",\"key\":\"" << dm::json_escape(key) << "\"";
+        std::cout << "{\"schema_version\":1,\"ok\":" << (ok ? "true" : "false") << ",\"key\":\"" << dm::json_escape(key) << "\"";
         if (ok) {
             std::cout << ",\"saved\":";
             if (saved) std::cout << *saved;

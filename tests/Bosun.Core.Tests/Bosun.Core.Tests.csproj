@@ -9,5 +9,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Bosun.Core\Bosun.Core.csproj" />
+    <!-- Built first, never referenced: the process runner's tests start it as a program. -->
+    <ProjectReference Include="..\Bosun.TestChild\Bosun.TestChild.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
