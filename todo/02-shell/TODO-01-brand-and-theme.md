@@ -46,6 +46,8 @@ title: "TODO-01 -- Brand and theme"
 
 ## 1. Generate the theme from tokens
 
+> **Started:** 2026-11-13T13:47:19Z
+
 Hand-edited XAML is how themes drift. The generator owns the colour resources and everything else refers to them.
 
 **Corrected 2026-11-13:** checked against the tree before the build. `design/tokens/colors.json` holds `dark` and `light` with the same 20 colours each, `radius` (5), `space` (5) and `type` (5), plus `elevation` and `motion`, which `D02 T03 §1` emits, so this section doesn't. An eight-digit colour is alpha first (`OkSoft` `#2446C96B` is `Ok` `#46C96B` at alpha `0x24`), as WPF reads `#AARRGGBB`, so colours pass through unchanged. Steward's key names (`D:\Steward\src\Steward.Console\Theme\Dark.xaml`) are `C.<name>` colours, `B.<name>` brushes, `T.<name>` type sizes and `R.<name>` corner radii; spacing takes `S.<name>`. `src/Bosun.Panel` has no `Theme/` folder yet, and `scripts/check-all.ps1` lists its steps in one table (`New-Step`). The script follows `scripts/build-icons.py`: a docstring giving its usage, `--check` exiting 1 when a generated file differs, and tests in `scripts/tests/`, which `scripts/run-tests.py` runs. Decided here (industry default): the generated files are LF text with a header naming the generator and the token file and saying not to edit them, written temporary-file-then-replace, and `--check` compares them with line endings normalised, so Git's CRLF conversion is never a difference. Reversal cost: none beyond the generator.
