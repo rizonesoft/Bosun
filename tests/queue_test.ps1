@@ -564,6 +564,21 @@ Start-Sleep -Milliseconds 1100
 $env:LOCALAPPDATA = $snapHome; & $bosun log --once; $env:LOCALAPPDATA = $savedHome
 $next = Get-Content -LiteralPath $snapFile -Raw
 Check ($heldCode -eq 0 -and $said -match "can't replace the live snapshot" -and $kept -eq $after -and $temps.Count -eq 0 -and $next -ne $kept) "a snapshot that can't be replaced keeps the old one, leaves no temporary file, and the next sample lands (exit $heldCode, $($temps.Count) left)"
+Check (($next | ConvertFrom-Json).history_written -eq $true) "a sample whose CSV row was written says so in its snapshot"
+# A history that can't be written (today's CSV held with no sharing) still gives a fresh snapshot that says so, the
+# logger says it once and exits 0, and the next sample once released writes both (completion review).
+$todayCsv = @(Get-ChildItem -LiteralPath $snapLogs -Filter 'windows-*.csv' | Sort-Object Name | Select-Object -Last 1)[0].FullName
+$csvLock = [IO.File]::Open($todayCsv, 'Open', 'Read', 'None')
+try {
+  Start-Sleep -Milliseconds 1100
+  $env:LOCALAPPDATA = $snapHome; $lost = & $bosun log --once 2>&1 | Out-String; $lostCode = $LASTEXITCODE; $env:LOCALAPPDATA = $savedHome
+} finally { $csvLock.Dispose() }
+$lostSnap = Get-Content -LiteralPath $snapFile -Raw | ConvertFrom-Json -DateKind String
+$rowsBefore = @(Get-Content -LiteralPath $todayCsv).Count
+Start-Sleep -Milliseconds 1100
+$env:LOCALAPPDATA = $snapHome; & $bosun log --once; $env:LOCALAPPDATA = $savedHome
+$back = Get-Content -LiteralPath $snapFile -Raw | ConvertFrom-Json -DateKind String
+Check ($lostCode -eq 0 -and $lost -match 'history is being lost' -and $lostSnap.history_written -eq $false -and $lostSnap.at -ne ($next | ConvertFrom-Json -DateKind String).at -and $back.history_written -eq $true -and @(Get-Content -LiteralPath $todayCsv).Count -gt $rowsBefore) "a CSV that can't be written still gives a fresh snapshot saying history_written false, and the next sample writes both (exit $lostCode)"
 
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {

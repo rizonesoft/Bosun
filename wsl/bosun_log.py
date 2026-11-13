@@ -99,7 +99,7 @@ def psi_full_avg10_x100():
     return None
 
 
-def snapshot_json(at, interval, memory, repos, processes):
+def snapshot_json(at, interval, memory, repos, processes, history_written=True):
     """current-wsl.json: the schema bosun.exe writes for Windows (dm::snapshot_json), side wsl and no VM view."""
     group = lambda label, rows: [
         {label: key, "processes": count, "private_mb": private_kb // 1024, "rss_mb": rss_kb // 1024}
@@ -114,6 +114,7 @@ def snapshot_json(at, interval, memory, repos, processes):
         "wsl_vm": None,
         "repos": group("repo", repos),
         "processes": group("name", processes),
+        "history_written": history_written,
     }
     return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
 
@@ -215,11 +216,19 @@ def sample(log_dir, cache, interval=30):
 
     path = os.path.join(log_dir, f"wsl-{now:%Y-%m-%d}.csv")
     fresh = not os.path.exists(path)
-    with open(path, "a", encoding="utf-8", newline="\n") as f:
-        if fresh:
-            f.write("ts,side,kind,name,count,private_mb,rss_mb\n")
-        f.write("\n".join(lines) + "\n")
-    write_snapshot(log_dir, snapshot_json(ts + "Z", interval, memory, repo_rows, top))
+    # A sample that can't go into the history (a full disk, a denied or held file) is said and shown in the snapshot,
+    # and sampling carries on: the snapshot is still written, and the next sample tries the CSV again (completion
+    # review of D01 T01 §4).
+    history_written = True
+    try:
+        with open(path, "a", encoding="utf-8", newline="\n") as f:
+            if fresh:
+                f.write("ts,side,kind,name,count,private_mb,rss_mb\n")
+            f.write("\n".join(lines) + "\n")
+    except OSError as e:
+        history_written = False
+        print(f"[bosun] can't add this sample to {path} ({e}): history is being lost, though sampling goes on", file=sys.stderr)
+    write_snapshot(log_dir, snapshot_json(ts + "Z", interval, memory, repo_rows, top, history_written))
 
 
 def main(argv):

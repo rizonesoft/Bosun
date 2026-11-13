@@ -917,6 +917,10 @@ struct JobLine {
     double waited_s = 0, ran_s = 0;       // until the command started, and from then to its end
     std::optional<int64_t> exit_code;     // null when the WSL shim went away without one
     bool timed_out_into_queue = false;    // the slot wait ran out and the job ran without a slot
+    // The run's end and length in milliseconds (D01 T01 §4 completion review): ended_at keeps whole seconds and ran_s
+    // tenths, so two jobs run one after the other within a second looked like they overlapped. Optional, so a line
+    // from before reads with them null and falls back to the coarse times.
+    std::optional<int64_t> ended_ms, ran_ms;
 };
 
 inline std::string seconds_text(double s) {
@@ -937,7 +941,13 @@ inline std::string job_line_json(const JobLine& j) {
     o << ",\"waited_s\":" << seconds_text(j.waited_s) << ",\"ran_s\":" << seconds_text(j.ran_s) << ",\"exit_code\":";
     if (j.exit_code) o << *j.exit_code;
     else o << "null";
-    o << ",\"timed_out_into_queue\":" << (j.timed_out_into_queue ? "true" : "false") << "}";
+    o << ",\"timed_out_into_queue\":" << (j.timed_out_into_queue ? "true" : "false") << ",\"ended_ms\":";
+    if (j.ended_ms) o << *j.ended_ms;
+    else o << "null";
+    o << ",\"ran_ms\":";
+    if (j.ran_ms) o << *j.ran_ms;
+    else o << "null";
+    o << "}";
     return o.str();
 }
 
@@ -977,6 +987,12 @@ inline std::optional<JobLine> parse_job_line(const std::string& text) {
     else if (repo->kind != FlatValue::Null) return std::nullopt;
     if (slot->kind == FlatValue::Integer && !slot->negative) j.slot = static_cast<int>(slot->magnitude);
     else if (slot->kind != FlatValue::Null) return std::nullopt;
+    for (auto [key, out] : {std::pair{"ended_ms", &j.ended_ms}, std::pair{"ran_ms", &j.ran_ms}}) {
+        const FlatValue* v = get(key);
+        if (!v || v->kind == FlatValue::Null) continue;
+        if (v->kind != FlatValue::Integer || v->negative) return std::nullopt;
+        *out = v->number;
+    }
     if (code->kind == FlatValue::Integer) j.exit_code = code->number;
     else if (code->kind != FlatValue::Null) return std::nullopt;
     return j;
@@ -992,13 +1008,20 @@ struct BuildOverlap {
 
 inline BuildOverlap build_overlap(const std::vector<JobLine>& jobs, int64_t since_s) {
     BuildOverlap b;
-    std::vector<std::pair<double, int>> events;  // (time, +1 start or -1 end); an end sorts before a start at one time
+    // In milliseconds: from ended_ms and ran_ms where the line has them, else from the second and tenth it always has.
+    // Each run is clipped to the window, so a job that started before it counts only from `since`, and one that ended
+    // as the window began counts for nothing (completion review).
+    std::vector<std::pair<int64_t, int>> events;  // (ms, +1 start or -1 end); an end sorts before a start at one time
+    const int64_t since_ms = since_s * 1000;
     for (const auto& j : jobs) {
         auto end = utc_seconds(j.ended_at);
         if (!end || *end < since_s) continue;
         ++b.jobs;
-        if (j.ran_s <= 0) continue;
-        double stop = static_cast<double>(*end), start = stop - j.ran_s;
+        int64_t stop = j.ended_ms ? *j.ended_ms : *end * 1000;
+        int64_t ran = j.ran_ms ? *j.ran_ms : static_cast<int64_t>(j.ran_s * 1000 + 0.5);
+        if (ran <= 0) continue;
+        int64_t start = std::max(stop - ran, since_ms);
+        if (stop <= start) continue;
         events.push_back({start, +1});
         events.push_back({stop, -1});
     }
@@ -1008,7 +1031,7 @@ inline BuildOverlap build_overlap(const std::vector<JobLine>& jobs, int64_t sinc
         open += delta;
         if (open > b.max_overlap) {
             b.max_overlap = open;
-            b.at = static_cast<int64_t>(t);
+            b.at = t / 1000;
         }
     }
     return b;
@@ -1114,6 +1137,7 @@ struct Snapshot {
     std::vector<std::pair<std::string, std::optional<int64_t>>> memory;  // in the order written; null when not measured
     std::optional<WslVm> wsl_vm;                                         // the Windows side's view of the WSL VM
     std::vector<SnapshotGroup> repos, processes;
+    bool history_written = true;  // whether this sample's CSV rows were written: false while history is being lost
 };
 
 inline std::string snapshot_json(const Snapshot& s) {
@@ -1138,7 +1162,7 @@ inline std::string snapshot_json(const Snapshot& s) {
     };
     groups("repos", "repo", s.repos);
     groups("processes", "name", s.processes);
-    o << "}";
+    o << ",\"history_written\":" << (s.history_written ? "true" : "false") << "}";
     return o.str();
 }
 

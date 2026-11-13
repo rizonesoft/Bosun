@@ -1,4 +1,5 @@
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -86,6 +87,23 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(doc["repos"], [{"repo": "/home/u/a\"b", "processes": 3, "private_mb": 2048, "rss_mb": 1024}])
         self.assertEqual(doc["processes"], [{"name": "cc1plus", "processes": 4, "private_mb": 3072, "rss_mb": 2048},
                                             {"name": "make", "processes": 1, "private_mb": 1, "rss_mb": 2}])
+        self.assertIs(doc["history_written"], True)
+
+    def test_a_history_that_cant_be_written_still_gives_a_snapshot_and_sampling_goes_on(self):
+        csv = os.path.join(self.dir, "wsl-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d") + ".csv")
+        os.mkdir(csv)  # a folder where the day's CSV would go: opening it to append fails, as a full disk or denied file does
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            dl.sample(self.dir, {}, interval=5)  # returns, never raises out of the logger's loop
+        self.assertIn("history is being lost", err.getvalue())
+        with open(self.path(), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertIs(doc["history_written"], False)
+        self.assertGreater(doc["memory"]["total_mb"], 0)
+        os.rmdir(csv)
+        dl.sample(self.dir, {}, interval=5)  # recovered: the next sample writes both
+        self.assertTrue(os.path.isfile(csv))
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertIs(json.load(f)["history_written"], True)
 
     def test_lands_only_through_a_replace_from_the_same_folder(self):
         calls = []

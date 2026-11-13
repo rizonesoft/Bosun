@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <climits>
 #include <cstdio>
 #include <cstring>
@@ -437,7 +438,10 @@ void append_job_line(const dm::JobLine& j) {
 dm::JobLine job_line(const Options& o, const std::string& started_at, int slot, double waited, double ran, std::optional<int64_t> code) {
     dm::JobLine j;
     j.started_at = started_at;
-    j.ended_at = utc_now();
+    int64_t ended_ms = epoch_ms();
+    j.ended_at = dm::utc_stamp(ended_ms / 1000);  // the same instant as ended_ms, so the two never straddle a second
+    j.ended_ms = ended_ms;
+    j.ran_ms = static_cast<int64_t>(std::llround(ran * 1000));
     j.pid = static_cast<int64_t>(GetCurrentProcessId());
     j.command = job_command(o);
     j.repo = job_repo(o);
@@ -1050,6 +1054,16 @@ void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::st
     if (fresh) f << "ts,side,kind,name,count,private_mb,rss_mb\n";
     f << o.str();
     f.close();
+    // A history row that couldn't be written (a full disk, a denied or held file) is said once per logger run and shown
+    // in the snapshot, and sampling carries on, so the live view never hides that history is being lost (completion
+    // review of D01 T01 §4).
+    snap.history_written = !f.fail();
+    static bool history_warned = false;
+    if (!snap.history_written && !history_warned) {
+        std::cerr << "[bosun] can't add this sample to " << narrow(file.wstring()) << " (error " << GetLastError()
+                  << "): history is being lost, though sampling goes on\n";
+        history_warned = true;
+    }
     publish_snapshot(log_dir() / L"current-windows.json", dm::snapshot_json(snap));
 }
 

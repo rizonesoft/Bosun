@@ -399,6 +399,33 @@ static void report_json() {
     std::vector<dm::JobLine> waited(1);
     waited[0].ended_at = "2026-11-13T09:00:10Z";
     CHECK(dm::build_overlap(waited, 0).max_overlap == 0 && !dm::build_overlap(waited, 0).at);
+    // Completion review: runs are clipped to the window, so one that began before it counts from `since` and one that
+    // ended as the window began counts for nothing; and in milliseconds, two jobs run one after the other within the
+    // same second (both ending at 09:00:10) don't overlap, while two that truly share 200 ms do.
+    int64_t cut = *dm::utc_seconds("2026-11-13T09:00:00Z");
+    std::vector<dm::JobLine> span(2);
+    span[0].ended_at = "2026-11-13T09:00:05Z"; span[0].ran_s = 60;  // began a minute before the cutoff
+    span[1].ended_at = "2026-11-13T09:00:00Z"; span[1].ran_s = 30;  // ended exactly at it
+    dm::BuildOverlap sp = dm::build_overlap(span, cut);
+    CHECK(sp.jobs == 2 && sp.max_overlap == 1 && sp.at && *sp.at == cut);
+    std::vector<dm::JobLine> quick(2);
+    quick[0].ended_at = "2026-11-13T09:00:10Z"; quick[0].ended_ms = cut * 1000 + 10200; quick[0].ran_ms = 300;  // 09:00:09.900 to .200
+    quick[1].ended_at = "2026-11-13T09:00:10Z"; quick[1].ended_ms = cut * 1000 + 10700; quick[1].ran_ms = 400;  // 09:00:10.300 to .700
+    CHECK(dm::build_overlap(quick, 0).max_overlap == 1);
+    quick[1].ended_ms = cut * 1000 + 10500;
+    quick[1].ran_ms = 500;  // 09:00:10.000 to .500, sharing 200 ms with the first
+    CHECK(dm::build_overlap(quick, 0).max_overlap == 2);
+    // The millisecond fields round-trip, and a line from before them still reads, with them null.
+    dm::JobLine ms = quick[0];
+    ms.started_at = "2026-11-13T09:00:09Z";
+    ms.side = "windows";
+    auto msb = dm::parse_job_line(dm::job_line_json(ms));
+    CHECK(msb && msb->ended_ms == ms.ended_ms && msb->ran_ms == 300);
+    dm::JobLine old = ms;
+    old.ended_ms.reset();
+    old.ran_ms.reset();
+    auto oldb = dm::parse_job_line(dm::job_line_json(old));
+    CHECK(oldb && !oldb->ended_ms && !oldb->ran_ms);
     CHECK(dm::utc_stamp(0) == "1970-01-01T00:00:00Z" && dm::utc_stamp(*dm::utc_seconds("2028-02-29T23:59:59Z")) == "2028-02-29T23:59:59Z");
     // A job line whose time isn't one, or whose duration is negative, is refused (and so counted), never read and then
     // dropped where its time is used (round 4).
