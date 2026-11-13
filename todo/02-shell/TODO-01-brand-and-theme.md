@@ -150,6 +150,8 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 
 ## 5. App icon ICO from the masters
 
+> **Started:** 2026-11-13T16:10:22Z
+
 Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" desktop shortcut showed PowerShell's icon because `scripts/start-run.ps1` looks for `resources/bosun.ico`, which §3 was to make only after the theme. The app ICO needs only the SVG masters, so it ships here with no dependency, and §3 keeps the tray states.
 
 **Corrected 2026-11-13:** checked against the tree before its review. The section was built and committed on 2026-11-12 (`b16d74d`) with every item but the commit ticked, and never reviewed or stamped; it runs its review cycle as a section already implemented, with its checkpoint re-run. One item has been overtaken: since `D00 T03 §20` (stamped), `scripts/start-run.ps1 -InstallShortcut` writes two campaign shortcuts, each carrying a badged icon that `scripts/build-icons.py --out ... --badge-fill` renders from these same masters into the user's application data folder, and `resources\bosun.ico` is the base of those and the icon a shortcut carries when its badge can't be rendered (`tests/start_run_test.ps1` proves both). So the item's `IconLocation` of `D:\Bosun\resources\bosun.ico,0` held when it was ticked and is now the fallback case. The committed ICO is kept current by `test_committed_ico_matches_masters`, which CI runs through `scripts/run-tests.py`; the `check-all` gate step for icons is `D02 T01 §3`'s. The generator's later badge work (`ee6a9ea`, `2dce31e`, `a82113f`) belongs to `D00 T03 §20` and was reviewed there.
