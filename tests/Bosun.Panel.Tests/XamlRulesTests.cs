@@ -44,6 +44,13 @@ public class XamlRulesTests
     [InlineData("<Rectangle><Rectangle.Fill><LinearGradientBrush><GradientStop Color=\"#000000\" Offset=\"0\"/></LinearGradientBrush></Rectangle.Fill></Rectangle>", "colour #000000")]
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"Foreground\"><Setter.Value>Red</Setter.Value></Setter></Style></Grid.Resources>", "colour Red")]
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\"><Setter.Value>13</Setter.Value></Setter></Style></Grid.Resources>", "font size 13")]
+    // A size with a unit is as hard-coded as one without (completion review): WPF reads px, pt, in and cm.
+    [InlineData("<TextBlock FontSize=\"12pt\"/>", "font size 12pt")]
+    [InlineData("<TextBlock FontSize=\"16 px\"/>", "font size 16 px")]
+    [InlineData("<TextBlock FontSize=\"0.5cm\"/>", "font size 0.5cm")]
+    [InlineData("<TextBlock><TextBlock.FontSize>1in</TextBlock.FontSize></TextBlock>", "font size 1in")]
+    [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\" Value=\"10PT\"/></Style></Grid.Resources>", "font size 10PT")]
+    [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\"><Setter.Value>11pt</Setter.Value></Setter></Style></Grid.Resources>", "font size 11pt")]
     [InlineData("<TextBlock FontSize=\"13\"/>", "font size 13")]
     [InlineData("<TextBlock TextElement.FontSize=\"12.5\"/>", "font size 12.5")]
     [InlineData("<TextBlock><TextBlock.FontSize>13</TextBlock.FontSize></TextBlock>", "font size 13")]
@@ -111,6 +118,35 @@ public class XamlRulesTests
         Assert.Single(violations);
         Assert.Contains(names, violations[0].What, StringComparison.Ordinal);
         Assert.Equal(3, violations[0].Line);
+    }
+
+    // Completion review: a block comment neither hides a literal nor makes commented-out code count.
+    [Theory]
+    [InlineData("label.FontSize = /* caption */ 13;", "font size")]
+    [InlineData("label.Foreground = Brushes./* stop */Red;", "colour Brushes.Red")]
+    [InlineData("var s = \"/* not a comment\"; label.FontSize = 13; // */", "font size")]
+    [InlineData("var q = '\"'; label.FontSize = 13;", "font size")]
+    [InlineData("var v = @\"C:\\\"; label.FontSize = 13;", "font size")]
+    public void A_block_comment_or_a_string_does_not_hide_a_literal(string statement, string names)
+    {
+        var violations = Code(statement);
+        Assert.Single(violations);
+        Assert.Contains(names, violations[0].What, StringComparison.Ordinal);
+        Assert.Equal(3, violations[0].Line);
+    }
+
+    [Theory]
+    [InlineData("/* old: label.FontSize = 13; label.Foreground = Brushes.Red; */")]
+    [InlineData("/* old:\n            label.FontSize = 13;\n            var c = \"#FF0000\";\n        */ label.FontSize = (double)FindResource(\"T.Body\");")]
+    [InlineData("var s = \"a // and a /* inside a string start no comment\"; var size = (double)FindResource(\"T.Body\");")]
+    public void Commented_out_code_is_not_code(string statement) => Assert.Empty(Code(statement));
+
+    [Fact]
+    public void A_literal_after_a_block_comment_is_reported_on_its_own_line()
+    {
+        var violations = Code("/* one\n           two */\n        label.FontSize = 13;");
+        Assert.Single(violations);
+        Assert.Equal(5, violations[0].Line);  // the comment's two lines come first
     }
 
     [Fact]

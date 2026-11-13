@@ -69,7 +69,11 @@ static partial class XamlRules
         return (violations, read);
     }
 
-    static bool IsNumber(string value) => double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+    /// <summary>A size as WPF reads one: a number, with or without a unit (13, 12.5, 12pt, 16px, 1in, 0.5cm).</summary>
+    static bool IsSize(string value) => SizeLiteral().IsMatch(value.Trim());
+
+    [GeneratedRegex(@"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*(?:px|pt|in|cm)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex SizeLiteral();
 
     /// <summary>A literal, not a markup extension such as {StaticResource B.Text} or {x:Null}.</summary>
     static bool IsLiteral(string value) => value.Trim() is { Length: > 0 } v && v[0] != '{';
@@ -88,7 +92,7 @@ static partial class XamlRules
             var v = value.Trim();
             if (Last(property) == "FontSize")
             {
-                if (IsNumber(v)) found.Add(new Violation(file, Line(at), $"font size {v} written {where}: use a T.* resource"));
+                if (IsSize(v)) found.Add(new Violation(file, Line(at), $"font size {v} written {where}: use a T.* resource"));
                 return;
             }
             if (!ColourProperties.Contains(Last(property)) || !IsLiteral(v) || v == "Transparent") return;
@@ -128,9 +132,9 @@ static partial class XamlRules
     static List<Violation> CSharp(string file, string text)
     {
         var found = new List<Violation>();
-        // Comments go line by line, then the code is matched as one text: a statement broken over lines
+        // Comments go first, then the code is matched as one text: a statement broken over lines
         // ("label.FontSize =\n13;", "Brushes.\nRed") is the same statement (round 1). Lines keep their numbers.
-        var code = string.Join('\n', text.Replace("\r\n", "\n").Split('\n').Select(WithoutComment));
+        var code = WithoutComments(text.Replace("\r\n", "\n"));
         string Flat(Match m) => Regex.Replace(m.Value, @"\s+", " ").Trim();
         void Add(Match m, string what) => found.Add(new Violation(file, code.AsSpan(0, m.Index).Count('\n') + 1, what));
         foreach (Match m in HexColourString().Matches(code)) Add(m, $"colour {m.Value} written in a string: use a B.* or C.* resource");
@@ -141,17 +145,65 @@ static partial class XamlRules
         return found.OrderBy(v => v.Line).ToList();
     }
 
-    /// <summary>The line up to a // comment that isn't inside a string, so prose about colours is not code.</summary>
-    static string WithoutComment(string line)
+    /// <summary>
+    /// The code with every comment blanked, line and block alike, and every newline kept, so lines keep their numbers:
+    /// "FontSize = /* caption */ 13" is still a font size set to a number, and code inside a comment is not code
+    /// (completion review). Strings are left as they are: "//" or "/*" inside one starts no comment.
+    /// </summary>
+    static string WithoutComments(string text)
     {
-        bool quoted = false;
-        for (int i = 0; i < line.Length; i++)
+        var code = new System.Text.StringBuilder(text.Length);
+        int i = 0;
+        while (i < text.Length)
         {
-            char c = line[i];
-            if (c == '\\' && quoted) { i++; continue; }
-            if (c == '"') quoted = !quoted;
-            else if (!quoted && c == '/' && i + 1 < line.Length && line[i + 1] == '/') return line[..i];
+            char c = text[i];
+            char next = i + 1 < text.Length ? text[i + 1] : '\0';
+            if (c == '/' && next == '/')
+            {
+                while (i < text.Length && text[i] != '\n') { code.Append(' '); i++; }
+            }
+            else if (c == '/' && next == '*')
+            {
+                int end = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                int stop = end < 0 ? text.Length : end + 2;
+                for (; i < stop; i++) code.Append(text[i] == '\n' ? '\n' : ' ');
+            }
+            else if (c == '"')
+            {
+                // A verbatim string (@"..." or $@"...") ends at a quote that isn't doubled; any other at one not escaped.
+                bool verbatim = i > 0 && (text[i - 1] == '@' || (text[i - 1] == '$' && i > 1 && text[i - 2] == '@'));
+                code.Append(c);
+                i++;
+                while (i < text.Length)
+                {
+                    char s = text[i];
+                    code.Append(s);
+                    i++;
+                    if (verbatim && s == '"' && i < text.Length && text[i] == '"') { code.Append('"'); i++; continue; }
+                    if (!verbatim && s == '\\' && i < text.Length) { code.Append(text[i]); i++; continue; }
+                    if (s == '"' || (!verbatim && s == '\n')) break;
+                }
+            }
+            else if (c == '\'')
+            {
+                // A character literal, so '"' opens no string.
+                code.Append(c);
+                i++;
+                while (i < text.Length)
+                {
+                    char s = text[i];
+                    code.Append(s);
+                    i++;
+                    if (s == '\\' && i < text.Length) { code.Append(text[i]); i++; continue; }
+                    if (s == '\'' || s == '\n') break;
+                }
+            }
+            else
+            {
+                code.Append(c);
+                i++;
+            }
         }
-        return line;
+        return code.ToString();
     }
 }
