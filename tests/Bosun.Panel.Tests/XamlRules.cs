@@ -118,7 +118,9 @@ static partial class XamlRules
             if (!takesValue) continue;
             if (HexColour().IsMatch(own))
                 found.Add(new Violation(file, Line(element), $"colour {own} written in <{name}>: use a B.* or C.* resource"));
-            Value(element, name, own, $"in <{name}>");
+            // <Setter.Value> holds the value of its setter's property, so it is judged as that property (round 1).
+            var judgedAs = name == "Setter.Value" && (string?)element.Parent?.Attribute("Property") is { } of ? of : name;
+            Value(element, judgedAs, own, judgedAs == name ? $"in <{name}>" : $"in a Setter for {judgedAs}");
         }
         return found;
     }
@@ -126,18 +128,17 @@ static partial class XamlRules
     static List<Violation> CSharp(string file, string text)
     {
         var found = new List<Violation>();
-        var lines = text.Replace("\r\n", "\n").Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            var line = WithoutComment(lines[i]);
-            void Add(string what) => found.Add(new Violation(file, i + 1, what));
-            foreach (Match m in HexColourString().Matches(line)) Add($"colour {m.Value} written in a string: use a B.* or C.* resource");
-            foreach (Match m in ColourMade().Matches(line)) Add($"colour made in code ({m.Value}): use a B.* or C.* resource");
-            foreach (Match m in NamedColour().Matches(line))
-                if (m.Groups[2].Value != "Transparent") Add($"colour {m.Value} written in code: use a B.* or C.* resource");
-            foreach (Match m in FontSizeNumber().Matches(line)) Add($"font size set to a number ({m.Value.Trim()}...): use a T.* resource");
-        }
-        return found;
+        // Comments go line by line, then the code is matched as one text: a statement broken over lines
+        // ("label.FontSize =\n13;", "Brushes.\nRed") is the same statement (round 1). Lines keep their numbers.
+        var code = string.Join('\n', text.Replace("\r\n", "\n").Split('\n').Select(WithoutComment));
+        string Flat(Match m) => Regex.Replace(m.Value, @"\s+", " ").Trim();
+        void Add(Match m, string what) => found.Add(new Violation(file, code.AsSpan(0, m.Index).Count('\n') + 1, what));
+        foreach (Match m in HexColourString().Matches(code)) Add(m, $"colour {m.Value} written in a string: use a B.* or C.* resource");
+        foreach (Match m in ColourMade().Matches(code)) Add(m, $"colour made in code ({Flat(m)}): use a B.* or C.* resource");
+        foreach (Match m in NamedColour().Matches(code))
+            if (m.Groups[2].Value != "Transparent") Add(m, $"colour {Regex.Replace(m.Value, @"\s+", "")} written in code: use a B.* or C.* resource");
+        foreach (Match m in FontSizeNumber().Matches(code)) Add(m, $"font size set to a number ({Flat(m)}...): use a T.* resource");
+        return found.OrderBy(v => v.Line).ToList();
     }
 
     /// <summary>The line up to a // comment that isn't inside a string, so prose about colours is not code.</summary>

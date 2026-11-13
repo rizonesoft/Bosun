@@ -42,6 +42,8 @@ public class XamlRulesTests
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"Foreground\" Value=\"Red\"/></Style></Grid.Resources>", "colour Red")]
     [InlineData("<Grid.Resources><Style TargetType=\"Border\"><Setter Property=\"Background\"><Setter.Value>#102030</Setter.Value></Setter></Style></Grid.Resources>", "colour #102030")]
     [InlineData("<Rectangle><Rectangle.Fill><LinearGradientBrush><GradientStop Color=\"#000000\" Offset=\"0\"/></LinearGradientBrush></Rectangle.Fill></Rectangle>", "colour #000000")]
+    [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"Foreground\"><Setter.Value>Red</Setter.Value></Setter></Style></Grid.Resources>", "colour Red")]
+    [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\"><Setter.Value>13</Setter.Value></Setter></Style></Grid.Resources>", "font size 13")]
     [InlineData("<TextBlock FontSize=\"13\"/>", "font size 13")]
     [InlineData("<TextBlock TextElement.FontSize=\"12.5\"/>", "font size 12.5")]
     [InlineData("<TextBlock><TextBlock.FontSize>13</TextBlock.FontSize></TextBlock>", "font size 13")]
@@ -97,6 +99,25 @@ public class XamlRulesTests
     [InlineData("var text = \"Issue #123 is fixed\"; // was #FF0000, or Brushes.Red")]
     [InlineData("var MinFontSize = 5; var url = \"https://example.org/#fff\";")]
     public void Theme_lookups_comparisons_and_comments_pass(string line) => Assert.Empty(Code(line));
+
+    [Theory]
+    [InlineData("label.FontSize =\n            13;", "font size")]
+    [InlineData("label.Foreground = Brushes.\n            Red;", "colour Brushes.Red")]
+    [InlineData("var b = new SolidColorBrush(Color\n            .FromRgb(1, 2, 3));", "colour made in code")]
+    [InlineData("label.SetValue(TextBlock.FontSizeProperty,\n            13.0);", "font size")]
+    public void A_statement_broken_over_lines_still_fails_on_the_line_it_starts(string statement, string names)
+    {
+        var violations = Code(statement);
+        Assert.Single(violations);
+        Assert.Contains(names, violations[0].What, StringComparison.Ordinal);
+        Assert.Equal(3, violations[0].Line);
+    }
+
+    [Fact]
+    public void A_setter_s_value_element_with_a_margin_or_a_resource_passes()
+    {
+        Assert.Empty(Xaml("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"Margin\"><Setter.Value>13</Setter.Value></Setter><Setter Property=\"Foreground\"><Setter.Value><StaticResource ResourceKey=\"B.Text\"/></Setter.Value></Setter></Style></Grid.Resources>"));
+    }
 
     [Fact]
     public void XAML_that_is_not_well_formed_is_a_violation_not_a_pass()
