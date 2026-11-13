@@ -269,6 +269,45 @@ $python = (Get-Command python -CommandType Application | Select-Object -First 1)
 $broke = & $python $breakPy $bosun $ns $sleeper (Join-Path $work 'break.txt') (Join-Path $recDir 'slot-0.json') | ConvertFrom-Json
 Check ($broke.held -and $broke.code -ne 'hung' -and -not $broke.left) "Ctrl+Break ends a holder's command and its record goes ($($broke | ConvertTo-Json -Compress))"
 
+# Ctrl+Break while a job waits for a slot: it never runs its command, its waiting record goes, and it still leaves its
+# line, with no slot, all of its time waiting and Windows' own exit code for an interruption (completion review).
+$waitBreakPy = Join-Path $work 'waitbreak.py'
+Set-Content -LiteralPath $waitBreakPy -Encoding ascii -Value @"
+import glob, json, os, signal, subprocess, sys, time
+bosun, ns, sleeper, out, holdout, recdir = sys.argv[1:7]
+h = subprocess.Popen([bosun, 'run', '--ns', ns, '--slots', '1', '--min-avail-mb', '0', '--', sleeper, holdout, '20000'],
+                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+rec = os.path.join(recdir, 'slot-0.json')
+for _ in range(100):
+    try:
+        if json.load(open(rec, encoding='utf-8'))['pid'] == h.pid: break
+    except (OSError, ValueError, KeyError): pass
+    time.sleep(0.1)
+p = subprocess.Popen([bosun, 'run', '--ns', ns, '--slots', '1', '--min-avail-mb', '0', '--', sleeper, out, '1'],
+                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)  # sharing this console, so the break reaches it
+mine = os.path.join(recdir, 'wait-%d-*.json' % p.pid)
+for _ in range(100):
+    if glob.glob(mine): break
+    time.sleep(0.1)
+waited = bool(glob.glob(mine))
+time.sleep(1.5)
+os.kill(p.pid, signal.CTRL_BREAK_EVENT)
+try:
+    code = p.wait(15)
+except subprocess.TimeoutExpired:
+    subprocess.run(['taskkill', '/T', '/F', '/PID', str(p.pid)], capture_output=True)
+    code = 'hung'
+left = bool(glob.glob(mine))
+subprocess.run(['taskkill', '/T', '/F', '/PID', str(h.pid)], capture_output=True)
+h.wait(15)
+print(json.dumps({'waited': waited, 'code': code, 'left': left, 'pid': p.pid}))
+"@
+$wb = & $python $waitBreakPy $bosun $ns $sleeper (Join-Path $work 'waitbreak.txt') (Join-Path $work 'waitbreakhold.txt') $recDir | ConvertFrom-Json
+$wl = Job-Line '*waitbreak.txt*'
+Check ($wb.waited -and $wb.code -eq 3221225786 -and -not $wb.left -and -not (Test-Path -LiteralPath (Join-Path $work 'waitbreak.txt'))) "Ctrl+Break while waiting ends the job with 0xC000013A, its command never run and its waiting record gone ($($wb | ConvertTo-Json -Compress))"
+Check ($wl.Count -eq 1 -and $wl[0].pid -eq $wb.pid -and $null -eq $wl[0].slot -and $wl[0].ran_s -eq 0 -and $wl[0].waited_s -ge 1.4 -and $wl[0].exit_code -eq -1073741510 -and -not $wl[0].timed_out_into_queue) "a job cancelled while waiting leaves one line: no slot, all waiting, its 0xC000013A ($($wl | ConvertTo-Json -Compress))"
+Remove-Item -LiteralPath (Join-Path $recDir 'slot-0.json') -ErrorAction Ignore  # the killed holder's, which the next holder would replace
+
 # --- The job history log (D01 T01 §2): one line per finished job, however it ended ---
 & $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'j0.txt') 1
 & $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'j37.txt') 1 37
@@ -440,6 +479,9 @@ if ($SkipWsl) {
     $n = Job-Line "*$never*"
     Check ($n.Count -eq 1 -and $n[0].ran_s -eq 0 -and $n[0].waited_s -ge 2.5 -and $null -eq $n[0].exit_code) "a WSL job ended before its command started counts it all as waiting (waited $($n.waited_s) s, ran $($n.ran_s) s)"
     if (-not $job.WaitForExit(10000)) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }
+    # WORKAROUND: WSL's /init interop proxy for the killed shim's acquire stays in poll after bosun.exe has exited, so
+    # the test ends every process carrying its marker, not only the shim, and leaves nothing running.
+    wsl.exe -d Ubuntu -- pkill -KILL -f $never
     Stop-Process -Id $h.Id -Force -ErrorAction Ignore
   } finally {
     $env:WSLENV = $savedWslenv

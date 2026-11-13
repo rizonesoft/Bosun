@@ -5,6 +5,7 @@
 #include <pdh.h>
 #include <sddl.h>
 
+#include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstdio>
@@ -329,6 +330,29 @@ dm::JobLine job_line(const Options& o, const std::string& started_at, int slot, 
     return j;
 }
 
+// A job cancelled while it waits for a slot (Ctrl+C, Ctrl+Break, its console closing) still leaves its line: no slot, all
+// of its time waiting, none running, and the exit code Windows gives an interrupted process. The phase decides once
+// whether the slot or the cancel came first, so the line is never written for a job that went on to run.
+struct WaitCancel {
+    std::atomic<int> phase{0};  // 0 waiting, 1 past the wait, 2 cancelled
+    const Options* o = nullptr;
+    Records* records = nullptr;
+    std::string started_at;
+    std::chrono::steady_clock::time_point took;
+};
+WaitCancel g_wait;
+
+BOOL WINAPI cancel_wait(DWORD) {
+    int waiting = 0;
+    if (!g_wait.phase.compare_exchange_strong(waiting, 2)) return TRUE;  // past the wait: the command takes the signal
+    g_wait.records->done();
+    double waited = seconds_since(g_wait.took, std::chrono::steady_clock::now());
+    dm::JobLine j = job_line(*g_wait.o, g_wait.started_at, -1, waited, 0, static_cast<int32_t>(STATUS_CONTROL_C_EXIT));
+    j.timed_out_into_queue = false;  // no slot because it was cancelled, not because the wait ran out
+    append_job_line(j);
+    ExitProcess(STATUS_CONTROL_C_EXIT);
+}
+
 // Whether a process runs, and since when; access denied is "can't tell", never "gone".
 dm::ProbeAnswer probe_process(int64_t pid) {
     if (pid <= 0 || pid > UINT32_MAX) return {dm::ProbeAnswer::Gone, 0};
@@ -485,8 +509,15 @@ int cmd_run(const Options& o) {
     std::string started_at = utc_now();
     auto took = std::chrono::steady_clock::now();
     Records records(o);
+    g_wait.o = &o;
+    g_wait.records = &records;
+    g_wait.started_at = started_at;
+    g_wait.took = took;
+    SetConsoleCtrlHandler(cancel_wait, TRUE);
     records.waiting();
     Slot slot = acquire_slot(o);
+    int waiting = 0;
+    if (!g_wait.phase.compare_exchange_strong(waiting, 1)) Sleep(INFINITE);  // cancelled meanwhile: its handler exits
     records.holding(slot.index);
     auto started = std::chrono::steady_clock::now();
     SetEnvironmentVariableW(L"BOSUN_SLOT", std::to_wstring(slot.index).c_str());
