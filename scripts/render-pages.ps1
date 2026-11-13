@@ -25,7 +25,14 @@ $index = Join-Path $Out 'index.json'
 
 # The same rule as RenderCatalog.Clear: the index first, then the pictures; nothing else in the folder is touched.
 if (Test-Path -LiteralPath $Out -PathType Container) {
-  foreach ($name in 'index.json', 'index.json.tmp') { Remove-Item -LiteralPath (Join-Path $Out $name) -Force -ErrorAction Ignore }
+  # An index that can't be removed (something holds it open) would be left saying an old run is current: the run
+  # stops here, before a picture is touched. A file that isn't there is nothing to remove.
+  foreach ($name in 'index.json', 'index.json.tmp') {
+    $old = Join-Path $Out $name
+    if (-not (Test-Path -LiteralPath $old)) { continue }
+    try { Remove-Item -LiteralPath $old -Force }
+    catch { "render-pages: $old can't be removed ($($_.Exception.Message)), so nothing was changed; close what holds it and run again"; exit 1 }
+  }
   Get-ChildItem -LiteralPath $Out -File | Where-Object { $_.Name -cmatch '^[a-z0-9-]+\.[a-z0-9-]+\.(dark|light)\.png(\.tmp)?$' } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 }

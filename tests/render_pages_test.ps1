@@ -27,6 +27,19 @@ try {
   Check "a build that fails stops the run with the build's exit code ($code)" ($code -ne 0 -and $text -match 'the build failed')
   Check "and leaves no old picture and no index, only what wasn't a render ($(Names $out))" ((Names $out) -eq 'notes.txt')
 
+  # An index held open can't be removed: the run stops before it touches a picture, so the old run is still whole.
+  $out = Join-Path $work 'held'
+  New-Item -ItemType Directory -Path $out | Out-Null
+  Set-Content -LiteralPath (Join-Path $out 'queue.normal.dark.png') 'a picture from an earlier run'
+  Set-Content -LiteralPath (Join-Path $out 'index.json') '{"renders":[{"file":"queue.normal.dark.png"}]}'
+  $hold = [IO.File]::Open((Join-Path $out 'index.json'), 'Open', 'Read', 'None')
+  try {
+    $text = (& pwsh -NoProfile -File $script -Out $out -Project $broken 2>&1 | Out-String)
+    $code = $LASTEXITCODE
+  } finally { $hold.Dispose() }
+  Check "an index that can't be removed stops the run (exit $code) saying so" ($code -eq 1 -and $text -match "index\.json can't be removed" -and $text -notmatch 'the build failed')
+  Check "and the earlier run is left whole ($(Names $out))" ((Names $out) -eq 'index.json,queue.normal.dark.png')
+
   # The real project: the sample view in two states and two themes, and the index naming them.
   $out = Join-Path $work 'real'
   $text = (& pwsh -NoProfile -File $script -Out $out 2>&1 | Out-String)

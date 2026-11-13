@@ -98,6 +98,10 @@ param(
     # Start a console program in this console, not in a window of its own (the self-test's launches).
     [switch]$NoNewWindow,
 
+    # A drill: reading the process list fails once something has been launched, as it does when the WMI service
+    # is down. What was launched must be stopped all the same, and the pair released.
+    [switch]$DrillProcessListFails,
+
     # The fixture and launch arguments the sidecar must record so a second
     # operator can recreate the comparison from the sidecar alone
     # (the sidecar's fixture and launch lines).
@@ -633,6 +637,27 @@ Start-Sleep -Seconds 90
         Check 'a process of the same name that was running before is left alone' (Test-Alive $bystanders[0].Id)
         Check 'and so is one of the same name that someone else started meanwhile' (Test-Alive $bystanders[1].Id)
         Check 'nothing was written for a capture that never happened' (-not (Test-Path -LiteralPath (Join-Path $ownDir 'shot.png')) -and -not (Test-Path -LiteralPath (Join-Path $ownDir 'shot.txt')))
+
+        # The process list can't be read after the launch: the capture fails, and what it launched is stopped all the
+        # same (as a tree, so the child goes with it), and the pair is free for the next capture.
+        Remove-Item -LiteralPath $pids -Force
+        $run = Start-Quiet @('-NoProfile', '-File', $PSCommandPath, '-Path', $shell, "-LaunchArgs:-NoProfile -File `"$(Join-Path $ownDir 'launch.ps1')`"",
+            '-NoNewWindow', '-WaitSeconds', '6', '-Out', (Join-Path $ownDir 'shot.png'), '-DrillProcessListFails')
+        $said = $run.StandardOutput.ReadToEnd() + $run.StandardError.ReadToEnd()
+        $exited = $run.WaitForExit(60000)
+        $deadline = (Get-Date).AddSeconds(10)
+        while (-not (Test-Path -LiteralPath $pids) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
+        $drilled = @(if (Test-Path -LiteralPath $pids) { (Get-Content -LiteralPath $pids -Raw).Trim() -split ' ' | ForEach-Object { [int]$_ } })
+        $started += $drilled
+        Start-Sleep -Milliseconds 500
+        Check 'a capture that can''t read the process list fails and says so' ($exited -and $run.ExitCode -ne 0 -and $said -like '*the process list could not be read*')
+        if (-not ($exited -and $run.ExitCode -ne 0 -and $said -like '*the process list could not be read*')) { Write-Host "  the capture exited $($run.ExitCode) saying: $said" }
+        Check 'and still stops the program it launched and that program''s child' ($drilled.Count -eq 2 -and -not (Test-Alive $drilled[0]) -and -not (Test-Alive $drilled[1]))
+        $lockKey = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes(([System.IO.Path]::GetFullPath((Join-Path $ownDir 'shot.png'))).ToLowerInvariant()))).Replace('-', '').Substring(0, 32)
+        $probe = Start-Quiet @('-NoProfile', '-Command', "`$m = [System.Threading.Mutex]::new(`$false, 'Local\BosunCapturePair-$lockKey'); try { if (`$m.WaitOne(1000)) { 'free' } else { 'held' } } catch [System.Threading.AbandonedMutexException] { 'abandoned' }")
+        $answer = $probe.StandardOutput.ReadToEnd().Trim()
+        $null = $probe.WaitForExit(15000)
+        Check "and leaves the pair free, released not abandoned ($answer)" ($answer -eq 'free')
     } finally {
         # The self-test's own ending of everything it started, whatever the script under test did.
         foreach ($id in @($bystanders | ForEach-Object Id) + @($started)) { if (Test-Alive $id) { & taskkill.exe /T /F /PID $id 2>&1 | Out-Null } }
@@ -739,6 +764,8 @@ $target = $null
 
 function Update-Ours {
     if ($script:ours.Count -eq 0) { return }
+    # The drill's failure starts four seconds after the launch, so the launched program has had time to start.
+    if ($DrillProcessListFails -and ((Get-Date) - $script:launchedAt).TotalSeconds -ge 4) { throw 'drill: the process list is unavailable' }
     # If the process list can't be read, what this launch started is unknown: that stops the capture, by the error.
     $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)
     do {
@@ -763,7 +790,9 @@ function Get-Ours {
 function Stop-Ours {
     # Everything this invocation started, as a tree, and nothing else. Safe to call on every way out.
     if ($KeepOpen) { return }
-    Update-Ours
+    # Looking for more descendants can fail (the process list unreadable); what is already known is stopped all the
+    # same, each as a tree, and the failure is said.
+    try { Update-Ours } catch { Write-Host "capture-window: the process list could not be read ($($_.Exception.Message)); stopping what is already known to be this launch's" -ForegroundColor Yellow }
     foreach ($p in @(Get-Ours)) { & taskkill.exe /T /F /PID $p.Id 2>&1 | Out-Null }
 }
 
@@ -775,6 +804,7 @@ if ($Path) {
     $launched = Start-Process @startArgs
     # Ours from this moment, window or no window.
     $script:ours[$launched.Id] = $launched.StartTime
+    $script:launchedAt = Get-Date
 
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     do { Start-Sleep -Milliseconds 250; Update-Ours } while ((Get-Date) -lt $deadline)
@@ -963,6 +993,10 @@ Stop-Ours
 Exit-Capture 0
 } finally {
     # An error or Ctrl+C after the launch takes no exit path above: what was started is stopped here too.
-    if ((Get-Variable ours -Scope Script -ErrorAction Ignore) -and $script:ours.Count) { Stop-Ours }
-    if ($script:PairLock) { $script:PairLock.ReleaseMutex(); $script:PairLock.Dispose(); $script:PairLock = $null }
+    try {
+        if ((Get-Variable ours -Scope Script -ErrorAction Ignore) -and $script:ours.Count) { Stop-Ours }
+    } finally {
+        # Released whatever the cleanup above did.
+        if ($script:PairLock) { $script:PairLock.ReleaseMutex(); $script:PairLock.Dispose(); $script:PairLock = $null }
+    }
 }

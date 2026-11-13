@@ -225,21 +225,15 @@ public class PageRendererTests
     public void Every_registered_view_is_written_in_each_state_and_theme_with_an_index()
     {
         // The real folder: this is the run that writes the renders a review reads (scripts/render-pages.ps1 runs it).
+        // It puts nothing of its own there and removes nothing but renders: a reviewer's notes beside them are theirs
+        // (round 1: this test planted a notes.txt there and deleted it, and with it one a person had written).
         var folder = RenderCatalog.Folder();
-        Directory.CreateDirectory(folder);
-        var stale = Path.Combine(folder, "removed-view.normal.dark.png");
-        var notOurs = Path.Combine(folder, "notes.txt");
-        File.WriteAllText(stale, "a render of a view that is gone");
-        File.WriteAllText(notOurs, "not a render");
-        try
         {
             var written = RenderCatalog.WriteAll(RenderCatalog.Cases, folder);
 
             Assert.Equal(RenderCatalog.Cases.Count * 2, written.Count);
-            Assert.False(File.Exists(stale), "a picture left by an earlier run is gone");
-            Assert.Equal("not a render", File.ReadAllText(notOurs));
-            var expected = RenderCatalog.Cases.SelectMany(view => new[] { $"{view.Name}.dark.png", $"{view.Name}.light.png" }).Append("index.json").Append("notes.txt").Order(StringComparer.Ordinal);
-            Assert.Equal(expected, Directory.GetFiles(folder).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            var expected = RenderCatalog.Cases.SelectMany(view => new[] { $"{view.Name}.dark.png", $"{view.Name}.light.png" }).Append("index.json").Order(StringComparer.Ordinal);
+            Assert.Equal(expected, Directory.GetFiles(folder).Select(Path.GetFileName).Where(name => name == "index.json" || name!.EndsWith(".png", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
 
             using var index = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "index.json")));
             Assert.Matches("^([0-9a-f]{40}|unknown)$", index.RootElement.GetProperty("commit").GetString());
@@ -256,11 +250,24 @@ public class PageRendererTests
                 Assert.True(pixels.Distinct().Count() > 2, $"{file} is not blank");
             }
         }
-        finally
-        {
-            File.Delete(notOurs);
-            File.Delete(stale);
-        }
+    }
+
+    [Fact]
+    public void A_run_removes_the_pictures_an_earlier_run_left_and_nothing_else()
+    {
+        using var folder = new Scratch();
+        File.WriteAllText(Path.Combine(folder.Path, "removed-view.normal.dark.png"), "a render of a view that is gone");
+        File.WriteAllText(Path.Combine(folder.Path, "notes.txt"), "a reviewer's notes");
+
+        RenderCatalog.WriteAll(RenderCatalog.Cases, folder.Path);
+
+        Assert.Equal([.. SampleFiles.Append("notes.txt").Order(StringComparer.Ordinal)], folder.Names());
+        Assert.Equal("a reviewer's notes", File.ReadAllText(Path.Combine(folder.Path, "notes.txt")));
+
+        // And when the run fails, the notes are still there.
+        Assert.Throws<RenderException>(() => RenderCatalog.WriteAll([Sample() with { Shows = "not on the page" }], folder.Path));
+        Assert.Equal(["notes.txt"], folder.Names());
+        Assert.Equal("a reviewer's notes", File.ReadAllText(Path.Combine(folder.Path, "notes.txt")));
     }
 
     [Fact]
