@@ -224,44 +224,64 @@ public class ProcessRunnerTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task A_start_that_is_slow_is_inside_the_time_limit_and_the_cancel_and_what_it_starts_late_is_ended(bool cancelIt)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task A_start_that_is_slow_is_inside_the_limit_and_the_cancel_and_its_command_never_takes_effect(bool cancelIt, bool childExists)
     {
         // Round 1: the start ran before the limit began and couldn't be cancelled, so a PATH folder on a dead network
-        // share held the caller for as long as Windows took. Here the start takes 1.5 s, then starts a real child.
-        ChildProcess? late = null;
-        var slow = new ProcessRunner(request =>
+        // share held the caller for as long as Windows took. Completion review: and once the call had returned, the
+        // late start still let its command run for a moment, so a save could land after the caller was told it was
+        // cancelled. Here the start takes 1.5 s, either before the child is created or with the child created and
+        // not yet let go; the command writes a file the instant it runs.
+        using var beat = new Beat();
+        var finished = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = new ProcessRunner((request, gate) =>
         {
-            Thread.Sleep(1500);
-            return late = ChildProcess.Start(request);
+            try
+            {
+                if (childExists) gate.Created = () => Thread.Sleep(1500);
+                else Thread.Sleep(1500);
+                var child = ChildProcess.Start(request, gate);
+                finished.SetResult(null);
+                return child;
+            }
+            catch (Exception e)
+            {
+                finished.SetResult(e);
+                throw;
+            }
         });
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         if (cancelIt) cancel.CancelAfter(300);
-        var request = Ask("sleep", "30000") with { Timeout = cancelIt ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(300) };
+        var request = Ask("beat", beat.File) with { Timeout = cancelIt ? TimeSpan.FromSeconds(30) : TimeSpan.FromMilliseconds(300) };
 
         var result = await slow.RunAsync(request, cancel.Token);
 
         Assert.Equal(cancelIt ? ProcessOutcome.Cancelled : ProcessOutcome.TimedOut, result.Outcome);
         Assert.True(result.Elapsed < TimeSpan.FromSeconds(1.2), $"returned at its limit, not when the start finished ({result.Elapsed})");
-        for (var tries = 0; tries < 100 && late is null; tries++) await Task.Delay(50, TestContext.Current.CancellationToken);
-        Assert.NotNull(late);
-        // The child the late start made would sleep for 30 s: it is ended as soon as it exists.
-        var gone = false;
-        for (var tries = 0; tries < 60 && !gone; tries++)
-        {
-            try
-            {
-                using var still = Process.GetProcessById(late.Id);
-                gone = still.HasExited || still.ProcessName != "Bosun.TestChild";
-            }
-            catch (Exception e) when (e is ArgumentException or InvalidOperationException)
-            {
-                gone = true; // no such process any more
-            }
-            if (!gone) await Task.Delay(50, TestContext.Current.CancellationToken);
-        }
-        Assert.True(gone, "the child a late start made is still running");
+        Assert.IsType<OperationCanceledException>(await finished.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        await Task.Delay(700, TestContext.Current.CancellationToken);
+        Assert.False(File.Exists(beat.File), "the command ran after the call had returned");
+    }
+
+    [Fact]
+    public async Task A_start_gate_is_decided_once()
+    {
+        var released = new StartGate();
+        Assert.True(released.Release());
+        Assert.False(released.Abandon()); // the child is running: the caller ends it instead
+        released.ThrowIfAbandoned();
+
+        var abandoned = new StartGate();
+        Assert.True(abandoned.Abandon());
+        Assert.False(abandoned.Release());
+        Assert.Throws<OperationCanceledException>(abandoned.ThrowIfAbandoned);
+
+        // A child created and never let go leaves nothing behind: the next call still works.
+        var result = await Run("exit", "4");
+        Assert.Equal(4, result.ExitCode);
     }
 
     // ---- input the child doesn't take ----

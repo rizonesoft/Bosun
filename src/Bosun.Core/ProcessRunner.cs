@@ -118,12 +118,12 @@ public abstract record JsonResult<T>
 public sealed class ProcessRunner
 {
     private const string CutMarker = "[cut at {0} bytes]";
-    private readonly Func<ProcessRequest, ChildProcess> _start;
+    private readonly Func<ProcessRequest, StartGate, ChildProcess> _start;
 
     public ProcessRunner() : this(ChildProcess.Start) { }
 
     /// <summary>For the tests: a start that can be made slow, as a PATH folder on a dead network share makes it.</summary>
-    internal ProcessRunner(Func<ProcessRequest, ChildProcess> start) => _start = start;
+    internal ProcessRunner(Func<ProcessRequest, StartGate, ChildProcess> start) => _start = start;
 
     public async Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
     {
@@ -137,9 +137,14 @@ public sealed class ProcessRunner
         // start runs off the caller's thread, and a call that ends first returns at once and ends what the start made.
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var limit = Task.Delay(request.Timeout, stop.Token);
-        var starting = Task.Run(() => _start(request), CancellationToken.None);
+        var gate = new StartGate();
+        var starting = Task.Run(() => _start(request, gate), CancellationToken.None);
         if (await Task.WhenAny(starting, limit).ConfigureAwait(false) != starting)
         {
+            // The gate is taken first: from here the start can't let its child run, so the command has no effect
+            // after this call has said it timed out or was cancelled. If the child was let go a moment before, it is
+            // ended below as soon as the start hands it over.
+            gate.Abandon();
             _ = starting.ContinueWith(static late =>
             {
                 if (late.IsCompletedSuccessfully)
@@ -147,7 +152,7 @@ public sealed class ProcessRunner
                     late.Result.EndTree();
                     late.Result.Dispose();
                 }
-                else _ = late.Exception; // it couldn't start after all: nothing to end
+                else _ = late.Exception; // it was stopped at the gate, or couldn't start: nothing to end
             }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             return new(cancellationToken.IsCancellationRequested ? ProcessOutcome.Cancelled : ProcessOutcome.TimedOut) { Elapsed = clock.Elapsed };
         }

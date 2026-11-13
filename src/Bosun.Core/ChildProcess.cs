@@ -12,6 +12,30 @@ namespace Bosun.Core;
 /// instruction, and so is everything it starts. The same attributes list the three pipe ends as the only handles the
 /// child inherits. Closing this ends whatever is still in the job.
 /// </summary>
+/// <summary>
+/// Decides, once, whether a child that is being started gets to run. The start creates the child suspended and lets it
+/// go with <see cref="Release"/>; a call that ends first takes the gate with <see cref="Abandon"/>, and the child is
+/// then ended without having run. Exactly one of the two wins.
+/// </summary>
+internal sealed class StartGate
+{
+    private int _state; // 0 undecided, 1 released, 2 abandoned
+
+    /// <summary>For the tests: runs once the child exists, before it is let go.</summary>
+    public Action? Created { get; set; }
+
+    /// <summary>True when the child may run: the call had not ended.</summary>
+    public bool Release() => Interlocked.CompareExchange(ref _state, 1, 0) == 0;
+
+    /// <summary>True when the start was stopped before its child ran; false when the child is already running.</summary>
+    public bool Abandon() => Interlocked.CompareExchange(ref _state, 2, 0) == 0;
+
+    public void ThrowIfAbandoned()
+    {
+        if (Volatile.Read(ref _state) == 2) throw new OperationCanceledException("the call ended before the program was started");
+    }
+}
+
 internal sealed class ChildProcess : IDisposable
 {
     private readonly IntPtr _job;
@@ -63,8 +87,9 @@ internal sealed class ChildProcess : IDisposable
     /// Starts the request's program. Throws, with every handle closed and no process left, when the job, the pipes or
     /// the process can't be made.
     /// </summary>
-    public static ChildProcess Start(ProcessRequest request)
+    public static ChildProcess Start(ProcessRequest request, StartGate gate)
     {
+        gate.ThrowIfAbandoned();
         var program = ProcessRunner.Resolve(request.Program);
         var commandLine = ProcessRunner.CommandLine(program, request.Arguments);
         if (commandLine.Length > 32766) throw new ArgumentException($"the program and its arguments come to {commandLine.Length} characters; Windows takes at most 32,766");
@@ -78,6 +103,7 @@ internal sealed class ChildProcess : IDisposable
         SafeFileHandle? childIn = null, childOut = null, childErr = null, ourIn = null, ourOut = null, ourErr = null;
         try
         {
+            gate.ThrowIfAbandoned(); // finding the program can be slow: the call may have ended meanwhile
             job = CreateJobObjectW(IntPtr.Zero, IntPtr.Zero);
             if (job == IntPtr.Zero) throw Failure("can't make a job for the program");
             var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
@@ -120,11 +146,31 @@ internal sealed class ChildProcess : IDisposable
 
             var line = new StringBuilder(commandLine, commandLine.Length + 1); // CreateProcessW may write to it
             if (!CreateProcessW(program, line, IntPtr.Zero, IntPtr.Zero, true,
-                    EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+                    EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | CREATE_SUSPENDED,
                     environment, request.WorkingDirectory, ref startup, out var made))
                 throw Failure($"can't start {program}");
 
+            // The child exists but has not run an instruction. It is let go only while the call still wants it: a call
+            // that timed out or was cancelled while this start was under way must never see its command take effect.
+            gate.Created?.Invoke();
+            if (!gate.Release())
+            {
+                TerminateJobObject(job, 1);
+                CloseHandle(made.hThread);
+                CloseHandle(made.hProcess);
+                throw new OperationCanceledException("the call ended before the program was let run");
+            }
+
+            var resumed = ResumeThread(made.hThread) != uint.MaxValue;
+            var why = resumed ? null : Failure($"can't let {program} run");
             CloseHandle(made.hThread);
+            if (why is not null)
+            {
+                TerminateJobObject(job, 1);
+                CloseHandle(made.hProcess);
+                throw why;
+            }
+
             var child = new ChildProcess(job, made.hProcess, made.dwProcessId,
                 new FileStream(ourIn, FileAccess.Write, 1, isAsync: false),
                 new FileStream(ourOut, FileAccess.Read, 1, isAsync: false),
@@ -193,6 +239,7 @@ internal sealed class ChildProcess : IDisposable
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
     private const uint CREATE_NO_WINDOW = 0x08000000;
+    private const uint CREATE_SUSPENDED = 0x00000004;
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
     private const int JobObjectExtendedLimitInformation = 9;
     private static readonly IntPtr PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002;
@@ -293,6 +340,9 @@ internal sealed class ChildProcess : IDisposable
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint ResumeThread(IntPtr thread);
 
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
