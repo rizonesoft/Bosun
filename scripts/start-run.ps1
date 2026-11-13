@@ -74,6 +74,8 @@ if ($InstallShortcut) {
   # and the icon a shortcut carries when its badge cannot be rendered.
   $plain = Join-Path $repo 'resources\bosun.ico'
   $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  $shell = New-Object -ComObject WScript.Shell
+  $failed = 0
   foreach ($l in $launchers) {
     $icon = Join-Path $IconDir $l.Icon
     $said = 'python is not on PATH'
@@ -89,17 +91,37 @@ if ($InstallShortcut) {
       "the badged icon for '$($l.Name)' could not be rendered ($said): the shortcut carries the plain Bosun icon. Fix: python -m pip install -r scripts/requirements-icons.txt, then this again"
       $icon = $plain
     }
+    # Written beside its final name, read back, and only then put in place: a save that fails (a full disk, a denied
+    # write) leaves the shortcut that was there as it was.
     $link = Join-Path $ShortcutDir "$($l.Name).lnk"
-    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-    $shortcut.TargetPath = $pwsh
-    $shortcut.Arguments = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`"" + $(if ($l.Agent -ne 'claude') { " -Agent $($l.Agent)" })
-    $shortcut.WorkingDirectory = $repo
-    $shortcut.Description = $l.Description
-    if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
-    $shortcut.WindowStyle = 1  # a normal window
-    $shortcut.Save()
-    "shortcut written: $link"
+    $staged = Join-Path $ShortcutDir "$($l.Name).new.lnk"  # WScript.Shell saves only to a .lnk name
+    $arguments = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`"" + $(if ($l.Agent -ne 'claude') { " -Agent $($l.Agent)" })
+    try {
+      $shortcut = $shell.CreateShortcut($staged)
+      $shortcut.TargetPath = $pwsh
+      $shortcut.Arguments = $arguments
+      $shortcut.WorkingDirectory = $repo
+      $shortcut.Description = $l.Description
+      if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
+      $shortcut.WindowStyle = 1  # a normal window
+      $shortcut.Save()
+      $back = $shell.CreateShortcut($staged)
+      $wrong = @(
+        if ($back.TargetPath -ne $pwsh) { "target $($back.TargetPath)" }
+        if ($back.Arguments -ne $arguments) { "arguments $($back.Arguments)" }
+        if ($back.WorkingDirectory -ne $repo) { "folder $($back.WorkingDirectory)" }
+        if ((Test-Path -LiteralPath $icon) -and $back.IconLocation -ne "$icon,0") { "icon $($back.IconLocation)" }
+      )
+      if ($wrong) { throw "it read back with $($wrong -join ', ')" }
+      [IO.File]::Move($staged, $link, $true)
+      "shortcut written: $link"
+    } catch {
+      Remove-Item -LiteralPath $staged -Force -ErrorAction Ignore
+      "FAIL the shortcut '$($l.Name)' could not be written ($($_.Exception.Message)): the one already at $link, if any, is unchanged"
+      $failed++
+    }
   }
+  if ($failed) { 'the earlier shortcuts are kept until both are written: fix what is named above, then run this again'; exit 1 }
   # The names this file, and a hand-made copy, gave the same two launchers before 2026-11-12.
   foreach ($old in 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk') {
     $path = Join-Path $ShortcutDir $old

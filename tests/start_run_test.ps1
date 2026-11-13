@@ -51,6 +51,20 @@ try {
   $carbonHash = (Get-FileHash -LiteralPath $carbonIcon).Hash
   Check ($claudeHash -eq (Expected '#D97757' 'claude.svg') -and $carbonHash -eq (Expected '#4C8DF6' 'gemini.svg')) 'each icon carries its own runner''s mark, byte for byte as the builder draws it'
   Check ($claudeHash -ne (Expected '#D97757' 'gemini.svg') -and $carbonHash -ne (Expected '#4C8DF6' 'claude.svg')) 'and not the other runner''s mark'
+  # A shortcut that can't be replaced (here a read-only one, as a denied write is): the one there is left as it was,
+  # no staged file is left beside it, the earlier names are kept, and the install says so and fails.
+  $kept = [IO.File]::ReadAllBytes($link)
+  Set-Content -LiteralPath (Join-Path $work 'Bosun unattended run.lnk') -Value 'an earlier shortcut'
+  Set-ItemProperty -LiteralPath $link -Name IsReadOnly -Value $true
+  try {
+    $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $work -IconDir $icons) -join "`n"
+    $code = $LASTEXITCODE
+  } finally { Set-ItemProperty -LiteralPath $link -Name IsReadOnly -Value $false }
+  $leftStaged = @(Get-ChildItem -LiteralPath $work -Filter '*.new.lnk')
+  Check ($code -eq 1 -and $out -match "FAIL the shortcut 'Bosun Claude campaign' could not be written" -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($link)) -eq [Convert]::ToBase64String($kept) -and -not $leftStaged -and (Test-Path -LiteralPath (Join-Path $work 'Bosun unattended run.lnk'))) "a shortcut that can't be replaced is left as it was, with no staged file and the earlier names kept (exit $code)"
+  $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $work -IconDir $icons) -join "`n"
+  Check ($LASTEXITCODE -eq 0 -and -not (Test-Path -LiteralPath (Join-Path $work 'Bosun unattended run.lnk')) -and $shell.CreateShortcut($link).IconLocation -eq "$claudeIcon,0") 'once it can be, the install writes both and then removes the earlier names'
+
   # An icon folder that can't be made: the shortcuts are still written, with the plain icon and a notice.
   $blocked = Join-Path $work 'not-a-folder'
   Set-Content -LiteralPath $blocked -Value 'a file where the icon folder would go'
