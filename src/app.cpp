@@ -28,6 +28,14 @@ std::string narrow(const std::wstring& w) {
     return s;
 }
 
+std::wstring widen(const std::string& s) {
+    if (s.empty()) return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
 std::wstring env(const wchar_t* name) {
     wchar_t buf[32768];
     DWORD n = GetEnvironmentVariableW(name, buf, 32768);
@@ -56,6 +64,8 @@ struct Options {
     int interval_s = 30;
     bool once = false;
     std::vector<std::wstring> command;
+    // What a record says of the job (acquire takes them from the WSL shim; run works them out for itself).
+    std::wstring repo, side, label;
 };
 
 // Returns false on a bad flag. Everything after -- is the command.
@@ -79,6 +89,12 @@ bool parse_options(const std::vector<std::wstring>& args, Options& o) {
         else if (a == L"--ns") o.ns = v;
         else if (a == L"--days") o.days = std::stoi(v);
         else if (a == L"--interval") o.interval_s = std::stoi(v);
+        else if (a == L"--repo") o.repo = v;
+        else if (a == L"--side") {
+            if (v != L"windows" && v != L"wsl") return false;
+            o.side = v;
+        }
+        else if (a == L"--label") o.label = v;
         else return false;
     }
     return true;
@@ -137,6 +153,167 @@ Slot acquire_slot(const Options& o) {
         }
         Sleep(500);
     }
+}
+
+// --- Slot records (D01 T01 §1): who holds each slot and who waits, beside the mutexes, which stay the authority ---
+
+uint64_t own_process_start() {
+    FILETIME created{}, exited{}, kernel{}, user{};
+    GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user);
+    return (uint64_t{created.dwHighDateTime} << 32) | created.dwLowDateTime;
+}
+
+uint32_t own_session() {
+    DWORD session = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &session);
+    return session;
+}
+
+std::string utc_now() {
+    SYSTEMTIME t;
+    GetSystemTime(&t);
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04u-%02u-%02uT%02u:%02u:%02uZ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    return buf;
+}
+
+// %LOCALAPPDATA%\Bosun\run\<session>\<ns>\: per Windows session, as the Local\ mutexes are, and per namespace.
+fs::path records_dir(const Options& o) {
+    return fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"run" / std::to_wstring(own_session()) / widen(dm::ns_dir(narrow(o.ns)));
+}
+
+// The job's repo: the one the WSL shim named, or the nearest folder above the working directory holding .git.
+std::optional<std::string> job_repo(const Options& o) {
+    if (!o.repo.empty()) return narrow(o.repo);
+    wchar_t cwd[MAX_PATH * 4];
+    DWORD n = GetCurrentDirectoryW(MAX_PATH * 4, cwd);
+    if (!n || n >= MAX_PATH * 4) return std::nullopt;
+    return dm::repo_from_path(narrow(std::wstring(cwd, n)), [](const std::string& dir) {
+        std::error_code ec;
+        return fs::exists(fs::path(widen(dir)) / L".git", ec);
+    });
+}
+
+std::string job_command(const Options& o) {
+    if (!o.label.empty()) return narrow(o.label);
+    std::wstring line;
+    for (const auto& a : o.command) line += (line.empty() ? L"" : L" ") + dm::quote_arg(a);
+    return narrow(line);
+}
+
+// Publishes this job's records. A record that can't be written says so once and changes nothing the queue does.
+class Records {
+  public:
+    explicit Records(const Options& o) : dir_(records_dir(o)) {
+        base_.pid = static_cast<int64_t>(GetCurrentProcessId());
+        base_.process_start = own_process_start();
+        base_.started_at = utc_now();
+        base_.command = job_command(o);
+        base_.repo = job_repo(o);
+        base_.side = o.side.empty() ? "windows" : narrow(o.side);
+        base_.session = own_session();
+        base_.ns = narrow(o.ns);
+    }
+    void waiting() {
+        dm::SlotRecord r = base_;
+        r.kind = "waiter";
+        waiter_ = dir_ / widen(dm::waiter_file(r.pid, r.process_start));
+        write(waiter_, r);
+    }
+    // Called holding slot N's mutex: only its holder ever writes or removes that slot's record.
+    void holding(int slot) {
+        remove(waiter_);
+        waiter_.clear();
+        if (slot < 0) return;  // ran without a slot: there is no holder to name
+        dm::SlotRecord r = base_;
+        r.kind = "holder";
+        r.slot = slot;
+        holder_ = dir_ / widen(dm::slot_file(slot));
+        write(holder_, r);
+    }
+    // Called before the mutex is released, so a successor's record is never the one removed.
+    void done() {
+        remove(waiter_);
+        remove(holder_);
+        waiter_.clear();
+        holder_.clear();
+    }
+
+  private:
+    void write(const fs::path& path, const dm::SlotRecord& r) {
+        std::error_code ec;
+        fs::create_directories(dir_, ec);
+        std::string text = dm::record_json(r);
+        fs::path temp = path;
+        temp += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+        bool ok = !ec;
+        if (ok) {
+            std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+            out.write(text.data(), static_cast<std::streamsize>(text.size()));
+            ok = static_cast<bool>(out.flush());
+        }
+        if (ok) ok = MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+        if (!ok) {
+            DWORD error = ec ? static_cast<DWORD>(ec.value()) : GetLastError();
+            fs::remove(temp, ec);
+            if (!warned_) {
+                std::cerr << "[bosun] can't publish this job's slot record (" << narrow(path.parent_path().wstring()) << ", error " << error
+                          << "): the queue works, but status can't name it\n";
+                warned_ = true;
+            }
+        }
+    }
+    static void remove(const fs::path& path) {
+        if (path.empty()) return;
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+    fs::path dir_, waiter_, holder_;
+    dm::SlotRecord base_;
+    bool warned_ = false;
+};
+
+// Whether a process runs, and since when; access denied is "can't tell", never "gone".
+dm::ProbeAnswer probe_process(int64_t pid) {
+    if (pid <= 0 || pid > UINT32_MAX) return {dm::ProbeAnswer::Gone, 0};
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!h) return {GetLastError() == ERROR_INVALID_PARAMETER ? dm::ProbeAnswer::Gone : dm::ProbeAnswer::CantTell, 0};
+    DWORD code = 0;
+    FILETIME created{}, exited{}, kernel{}, user{};
+    dm::ProbeAnswer answer{dm::ProbeAnswer::CantTell, 0};
+    if (GetExitCodeProcess(h, &code) && code != STILL_ACTIVE) answer = {dm::ProbeAnswer::Gone, 0};
+    else if (GetProcessTimes(h, &created, &exited, &kernel, &user))
+        answer = {dm::ProbeAnswer::Running, (uint64_t{created.dwHighDateTime} << 32) | created.dwLowDateTime};
+    CloseHandle(h);
+    return answer;
+}
+
+// A reader's pass over the records: removes stale waiters only, and says whether the folder could be read at all, so
+// an unreadable folder is never taken for an empty queue.
+bool sweep_records(const Options& o) {
+    std::error_code ec;
+    fs::path dir = records_dir(o);
+    if (!fs::exists(dir, ec)) return !ec;
+    fs::directory_iterator it(dir, ec), end;
+    if (ec) return false;
+    for (; it != end; it.increment(ec)) {
+        if (ec) return false;
+        const fs::path& path = it->path();
+        if (path.extension() != L".json") continue;
+        std::string text;
+        {
+            // Closed before any removal below: Windows won't delete a file this process still has open.
+            std::ifstream in(path, std::ios::binary);
+            text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        auto record = dm::parse_record(text);
+        if (!record) continue;  // half written, or not one of ours: a writer replaces it, a reader leaves it
+        if (dm::reader_removes(*record, dm::record_state(*record, probe_process))) {
+            std::error_code gone;
+            fs::remove(path, gone);
+        }
+    }
+    return true;
 }
 
 BOOL WINAPI ignore_ctrl(DWORD) { return TRUE; }  // The child receives Ctrl+C and decides; the parent outlives it.
@@ -242,31 +419,42 @@ int cmd_run(const Options& o) {
         std::cerr << "usage: bosun run [options] -- command [args]\n";
         return 64;
     }
-    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot.
+    if (!env(L"BOSUN_SLOT").empty()) return run_child(o);  // Already inside a slot: the outer holder's record stands.
+    Records records(o);
+    records.waiting();
     Slot slot = acquire_slot(o);
+    records.holding(slot.index);
     SetEnvironmentVariableW(L"BOSUN_SLOT", std::to_wstring(slot.index).c_str());
     // WSLENV carries the marker into WSL, so a nested run on the other side also passes through.
     std::wstring wslenv = env(L"WSLENV");
     SetEnvironmentVariableW(L"WSLENV", (wslenv.empty() ? L"BOSUN_SLOT" : wslenv + L":BOSUN_SLOT").c_str());
     int code = run_child(o);
+    records.done();  // before the release, so the next holder's record is never the one removed
     if (slot.handle) ReleaseMutex(slot.handle);
     return code;
 }
 
 // Holds a slot for the WSL shim until stdin closes, which happens whenever the shim exits or dies.
 int cmd_acquire(const Options& o) {
+    Options job = o;
+    if (job.side.empty()) job.side = L"wsl";  // the WSL shim is acquire's caller
+    Records records(job);
+    records.waiting();
     Slot slot = acquire_slot(o);
+    records.holding(slot.index);
     std::cout << "acquired " << slot.index << std::endl;
     char buf[64];
     DWORD got = 0;
     HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
     while (ReadFile(in, buf, sizeof(buf), &got, nullptr) && got) {
     }
+    records.done();
     if (slot.handle) ReleaseMutex(slot.handle);
     return 0;
 }
 
 int cmd_status(const Options& o) {
+    sweep_records(o);  // stale waiters go; holders' records are only ever their holders' to change
     int busy = 0;
     for (int i = 0; i < o.slots; ++i) {
         HANDLE h = open_slot(o.ns, i);

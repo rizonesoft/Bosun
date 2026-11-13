@@ -243,4 +243,252 @@ inline std::string render(const Report& r) {
     return o.str();
 }
 
+// --- Slot holder and waiter records (D01 T01 §1) ------------------------------------------------------------------
+// A mutex can't name its owner, so each holder and waiter publishes a small JSON record beside it. The mutex stays the
+// only authority: a record only says who, and one whose process is gone is ignored.
+
+// JSON string contents for UTF-8 text: quotes and backslashes escaped, control characters as \u00XX. The one escaper
+// every JSON the tools write goes through (status --json reuses it).
+inline std::string json_escape(const std::string& s) {
+    static const char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (unsigned char c : s) {
+        if (c == '"') out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c < 0x20) {
+            out += "\\u00";
+            out.push_back(hex[c >> 4]);
+            out.push_back(hex[c & 0xF]);
+        } else out.push_back(static_cast<char>(c));
+    }
+    return out;
+}
+
+struct SlotRecord {
+    std::string kind;                   // "holder" or "waiter"
+    int64_t pid = 0;
+    uint64_t process_start = 0;         // the process's creation time, a FILETIME as GetProcessTimes gives it
+    std::string started_at;             // UTC, YYYY-MM-DDTHH:MM:SSZ
+    std::string command;                // the command line as run
+    std::optional<std::string> repo;    // null outside a Git checkout
+    std::string side;                   // "windows" or "wsl"
+    std::optional<int> slot;            // holders only
+    uint32_t session = 0;
+    std::string ns;
+};
+
+inline std::string record_json(const SlotRecord& r) {
+    std::ostringstream o;
+    o << "{\"schema_version\":1,\"kind\":\"" << json_escape(r.kind) << "\",\"pid\":" << r.pid << ",\"process_start\":" << r.process_start
+      << ",\"started_at\":\"" << json_escape(r.started_at) << "\",\"command\":\"" << json_escape(r.command) << "\",\"repo\":";
+    if (r.repo) o << "\"" << json_escape(*r.repo) << "\"";
+    else o << "null";
+    o << ",\"side\":\"" << json_escape(r.side) << "\"";
+    if (r.slot) o << ",\"slot\":" << *r.slot;
+    o << ",\"session\":" << r.session << ",\"ns\":\"" << json_escape(r.ns) << "\"}";
+    return o.str();
+}
+
+// A flat JSON object whose values are strings, integers or null, as the records are; anything else is refused.
+struct FlatValue {
+    enum Kind { String, Integer, Null } kind = Null;
+    std::string text;
+    int64_t number = 0;
+    bool negative = false;
+    uint64_t magnitude = 0;
+};
+
+inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s) {
+    size_t i = 0;
+    auto ws = [&] { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i; };
+    auto hex4 = [&](uint32_t& v) -> bool {
+        if (i + 4 > s.size()) return false;
+        v = 0;
+        for (int k = 0; k < 4; ++k) {
+            char c = s[i++];
+            v <<= 4;
+            if (c >= '0' && c <= '9') v |= static_cast<uint32_t>(c - '0');
+            else if (c >= 'a' && c <= 'f') v |= static_cast<uint32_t>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') v |= static_cast<uint32_t>(c - 'A' + 10);
+            else return false;
+        }
+        return true;
+    };
+    auto put_utf8 = [](std::string& out, uint32_t cp) {
+        if (cp < 0x80) out.push_back(static_cast<char>(cp));
+        else if (cp < 0x800) { out.push_back(static_cast<char>(0xC0 | (cp >> 6))); out.push_back(static_cast<char>(0x80 | (cp & 0x3F))); }
+        else if (cp < 0x10000) { out.push_back(static_cast<char>(0xE0 | (cp >> 12))); out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (cp & 0x3F))); }
+        else { out.push_back(static_cast<char>(0xF0 | (cp >> 18))); out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F))); out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F))); out.push_back(static_cast<char>(0x80 | (cp & 0x3F))); }
+    };
+    auto str = [&](std::string& out) -> bool {
+        if (i >= s.size() || s[i] != '"') return false;
+        ++i;
+        while (i < s.size()) {
+            char c = s[i++];
+            if (c == '"') return true;
+            if (static_cast<unsigned char>(c) < 0x20) return false;
+            if (c != '\\') { out.push_back(c); continue; }
+            if (i >= s.size()) return false;
+            char e = s[i++];
+            switch (e) {
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '/': out.push_back('/'); break;
+                case 'b': out.push_back('\b'); break;
+                case 'f': out.push_back('\f'); break;
+                case 'n': out.push_back('\n'); break;
+                case 'r': out.push_back('\r'); break;
+                case 't': out.push_back('\t'); break;
+                case 'u': {
+                    uint32_t cp = 0;
+                    if (!hex4(cp)) return false;
+                    if (cp >= 0xD800 && cp <= 0xDBFF) {
+                        uint32_t low = 0;
+                        if (i + 2 > s.size() || s[i] != '\\' || s[i + 1] != 'u') return false;
+                        i += 2;
+                        if (!hex4(low) || low < 0xDC00 || low > 0xDFFF) return false;
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+                    } else if (cp >= 0xDC00 && cp <= 0xDFFF) return false;
+                    put_utf8(out, cp);
+                    break;
+                }
+                default: return false;
+            }
+        }
+        return false;
+    };
+    std::map<std::string, FlatValue> out;
+    ws();
+    if (i >= s.size() || s[i] != '{') return std::nullopt;
+    ++i;
+    ws();
+    if (i < s.size() && s[i] == '}') { ++i; ws(); return i == s.size() ? std::optional(out) : std::nullopt; }
+    for (;;) {
+        ws();
+        std::string key;
+        if (!str(key)) return std::nullopt;
+        ws();
+        if (i >= s.size() || s[i] != ':') return std::nullopt;
+        ++i;
+        ws();
+        FlatValue v;
+        if (i < s.size() && s[i] == '"') {
+            v.kind = FlatValue::String;
+            if (!str(v.text)) return std::nullopt;
+        } else if (s.compare(i, 4, "null") == 0) {
+            v.kind = FlatValue::Null;
+            i += 4;
+        } else {
+            v.kind = FlatValue::Integer;
+            if (i < s.size() && s[i] == '-') { v.negative = true; ++i; }
+            size_t digits = 0;
+            while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+                uint64_t d = static_cast<uint64_t>(s[i] - '0');
+                if (v.magnitude > (UINT64_MAX - d) / 10) return std::nullopt;
+                v.magnitude = v.magnitude * 10 + d;
+                ++i;
+                ++digits;
+            }
+            if (!digits || (i < s.size() && (s[i] == '.' || s[i] == 'e' || s[i] == 'E'))) return std::nullopt;
+            if (v.negative ? v.magnitude > uint64_t{1} << 63 : false) return std::nullopt;
+            v.number = v.negative ? static_cast<int64_t>(0 - v.magnitude) : static_cast<int64_t>(v.magnitude);
+        }
+        if (out.count(key)) return std::nullopt;  // a repeated key is no record anyone wrote
+        out[key] = v;
+        ws();
+        if (i < s.size() && s[i] == ',') { ++i; continue; }
+        if (i < s.size() && s[i] == '}') { ++i; break; }
+        return std::nullopt;
+    }
+    ws();
+    if (i != s.size()) return std::nullopt;
+    return out;
+}
+
+// The record in `text`, or nothing when it is truncated, isn't one object, has another schema version or lacks a field.
+inline std::optional<SlotRecord> parse_record(const std::string& text) {
+    auto obj = parse_flat_object(text);
+    if (!obj) return std::nullopt;
+    auto get = [&](const char* k, FlatValue::Kind kind) -> const FlatValue* {
+        auto it = obj->find(k);
+        return it != obj->end() && it->second.kind == kind ? &it->second : nullptr;
+    };
+    const FlatValue* version = get("schema_version", FlatValue::Integer);
+    if (!version || version->number != 1) return std::nullopt;
+    SlotRecord r;
+    const FlatValue *kind = get("kind", FlatValue::String), *pid = get("pid", FlatValue::Integer),
+                    *start = get("process_start", FlatValue::Integer), *at = get("started_at", FlatValue::String),
+                    *command = get("command", FlatValue::String), *side = get("side", FlatValue::String),
+                    *session = get("session", FlatValue::Integer), *ns = get("ns", FlatValue::String);
+    if (!kind || !pid || !start || !at || !command || !side || !session || !ns) return std::nullopt;
+    if ((kind->text != "holder" && kind->text != "waiter") || (side->text != "windows" && side->text != "wsl")) return std::nullopt;
+    if (pid->negative || pid->magnitude == 0 || start->negative || session->negative || session->magnitude > UINT32_MAX) return std::nullopt;
+    r.kind = kind->text;
+    r.pid = pid->number;
+    r.process_start = start->magnitude;
+    r.started_at = at->text;
+    r.command = command->text;
+    r.side = side->text;
+    r.session = static_cast<uint32_t>(session->magnitude);
+    r.ns = ns->text;
+    auto repo = obj->find("repo");
+    if (repo == obj->end()) return std::nullopt;
+    if (repo->second.kind == FlatValue::String) r.repo = repo->second.text;
+    else if (repo->second.kind != FlatValue::Null) return std::nullopt;
+    const FlatValue* slot = get("slot", FlatValue::Integer);
+    if (r.kind == "holder") {
+        if (!slot || slot->negative || slot->magnitude > 4096) return std::nullopt;
+        r.slot = static_cast<int>(slot->magnitude);
+    } else if (obj->count("slot")) {
+        return std::nullopt;
+    }
+    return r;
+}
+
+// A queue namespace as a folder name: an injective mapping onto text Windows accepts as one. Letters, digits, '_' and
+// '-' stay; every other UTF-8 byte, '.' included (Windows drops a trailing dot), becomes %XX; and the "ns-" prefix keeps
+// an empty name and the reserved device names (CON, NUL, COM1...) valid.
+inline std::string ns_dir(const std::string& ns) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string out = "ns-";
+    for (unsigned char c : ns) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out.push_back(static_cast<char>(c));
+        else {
+            out.push_back('%');
+            out.push_back(hex[c >> 4]);
+            out.push_back(hex[c & 0xF]);
+        }
+    }
+    return out;
+}
+
+inline std::string slot_file(int slot) { return "slot-" + std::to_string(slot) + ".json"; }
+
+// Named by the process's id and start, so cleaning up a dead waiter can never remove a successor's record.
+inline std::string waiter_file(int64_t pid, uint64_t process_start) {
+    return "wait-" + std::to_string(pid) + "-" + std::to_string(process_start) + ".json";
+}
+
+// What a probe of a process says: running (with its start time), gone, or that it can't be told (access denied).
+struct ProbeAnswer {
+    enum What { Running, Gone, CantTell } what = CantTell;
+    uint64_t start = 0;
+};
+
+enum class RecordState { Live, Stale, Unknown };
+
+inline RecordState record_state(const SlotRecord& r, const std::function<ProbeAnswer(int64_t)>& probe) {
+    ProbeAnswer a = probe(r.pid);
+    if (a.what == ProbeAnswer::CantTell) return RecordState::Unknown;  // not knowing is not the same as dead
+    if (a.what == ProbeAnswer::Gone || a.start != r.process_start) return RecordState::Stale;
+    return RecordState::Live;
+}
+
+// Only a stale waiter's record is removed by a reader. A slot record is only ever written or removed by the holder of
+// that slot's mutex, so a reader never touches one: a killed holder's is replaced by the next holder.
+inline bool reader_removes(const SlotRecord& r, RecordState state) {
+    return r.kind == "waiter" && state == RecordState::Stale;
+}
+
 }  // namespace dm

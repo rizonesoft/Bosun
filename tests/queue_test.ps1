@@ -9,6 +9,12 @@ $sleeper = Join-Path $Build 'test_sleeper.exe'
 $ns = "BosunTest$PID"
 $work = Join-Path ([IO.Path]::GetTempPath()) "bosun-test-$PID"
 New-Item -ItemType Directory -Path $work | Out-Null
+# The slot records go to a home of the test's own (D01 T01 §1), so none of this machine's own jobs is read or touched.
+$env:LOCALAPPDATA = Join-Path $work 'home'
+$recDir = Join-Path $env:LOCALAPPDATA "Bosun\run\$((Get-Process -Id $PID).SessionId)\ns-$ns"
+function Records { @(Get-ChildItem -LiteralPath $recDir -Filter '*.json' -ErrorAction Ignore) }
+function Read-Rec([string]$name) { $f = Join-Path $recDir $name; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
+function Wait-Until([scriptblock]$ok, [int]$ms = 10000) { foreach ($i in 1..($ms / 100)) { if (& $ok) { return $true }; Start-Sleep -Milliseconds 100 }; [bool](& $ok) }
 $fail = 0
 # Start-Process joins its arguments without quoting, so paths are quoted here.
 function Q($s) { "`"$s`"" }
@@ -155,6 +161,67 @@ Start-Sleep -Milliseconds 500
 Check ((Get-Item (Join-Path $work 'flood.bin')).Length -eq $size) 'nothing is still writing after the job ends'
 Remove-Item (Join-Path $work 'flood.bin')
 
+# --- The slot records (D01 T01 §1): who holds each slot and who waits, read from the real files ---
+Check (-not (Records)) "every job above left no record behind, the command that couldn't start and the one the write budget stopped included ($((Records).Name -join ', '))"
+
+# A holder names its pid, command, repo and side while it runs; a second job waits with a record of its own; a third
+# that times out runs without a slot and leaves nothing; and the waiter becomes the holder when the slot frees.
+$recRepo = Join-Path $work 'recrepo'
+New-Item -ItemType Directory -Path (Join-Path $recRepo '.git'), (Join-Path $recRepo 'sub') -Force | Out-Null
+$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'rec1.txt')),'4000' -PassThru -WindowStyle Hidden -WorkingDirectory (Join-Path $recRepo 'sub')
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$r = Read-Rec 'slot-0.json'
+Check ($r.kind -eq 'holder' -and $r.pid -eq $h.Id -and $r.slot -eq 0 -and $r.side -eq 'windows' -and $r.ns -eq $ns -and $r.repo -eq ($recRepo -replace '\\', '/') -and $r.command -like '*test_sleeper.exe*rec1.txt 4000' -and $r.process_start -gt 0 -and $r.started_at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$') "a holder's record names its pid, command, repo and side (want pid $($h.Id), repo $($recRepo -replace '\\', '/'); got $($r | ConvertTo-Json -Compress))"
+$w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'rec2.txt')),'500' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
+$waiter = @(Records | Where-Object Name -like 'wait-*')
+Check ($waiter.Count -eq 1 -and (Get-Content -LiteralPath $waiter[0].FullName -Raw | ConvertFrom-Json).kind -eq 'waiter' -and $waiter[0].Name -like "wait-$($w.Id)-*") "a job waiting for the slot has a waiter record ($($waiter.Name -join ', '))"
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 -- $sleeper (Join-Path $work 'rec3.txt') 200 2>$null
+Check (@(Records | Where-Object Name -like 'wait-*').Count -eq 1 -and (Read-Rec 'slot-0.json').pid -eq $h.Id) 'a job that timed out ran without a slot and left no record, the holder''s untouched'
+$took = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $w.Id } 15000
+Check ($took -and -not @(Records | Where-Object Name -like 'wait-*')) 'when the slot frees, the waiter becomes the holder and its waiter record goes'
+$null = $w.WaitForExit(15000)
+Check ($null -ne $w.ExitCode -and -not (Records)) 'and once it ends, no record is left'
+
+# A run inside a slot writes no record and leaves the outer holder's as it was.
+$nestedRec = Join-Path $work 'nested-rec.cmd'
+Set-Content $nestedRec "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested-rec.txt`" 200`r`n@copy /y `"$recDir\slot-0.json`" `"$work\outer-after-inner.json`" >nul" -Encoding ascii
+$outer = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $nestedRec) -PassThru -WindowStyle Hidden
+$null = $outer.WaitForExit(15000)
+$kept = if (Test-Path (Join-Path $work 'outer-after-inner.json')) { Get-Content (Join-Path $work 'outer-after-inner.json') -Raw | ConvertFrom-Json }
+Check ($kept.pid -eq $outer.Id -and -not (Records)) "a nested run leaves the outer holder's record as it was (outer $($outer.Id), read $($kept.pid))"
+
+# Cleanup by construction: a killed holder's record is replaced by the next holder's, and a reader's pass (status)
+# removes a dead waiter's record but never the new holder's or a live waiter's.
+$a = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'reca.txt')),'60000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $a.Id }
+Stop-Process -Id $a.Id -Force
+$b = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'recb.txt')),'4000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $b.Id }
+$gone = Start-Process $sleeper -ArgumentList (Q (Join-Path $work 'gone.txt')),'1' -PassThru -WindowStyle Hidden
+$goneStart = $gone.StartTime.ToFileTimeUtc()
+$null = $gone.WaitForExit(5000)
+$liveStart = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()
+function Waiter-Json([int]$id, [long]$start) { "{`"schema_version`":1,`"kind`":`"waiter`",`"pid`":$id,`"process_start`":$start,`"started_at`":`"2026-11-13T00:00:00Z`",`"command`":`"x`",`"repo`":null,`"side`":`"windows`",`"session`":0,`"ns`":`"$ns`"}" }
+New-Item -ItemType Directory -Force -Path $recDir | Out-Null  # so a publisher that wrote nothing still gets every check
+Set-Content -LiteralPath (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json") -Value (Waiter-Json $gone.Id $goneStart) -NoNewline
+Set-Content -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json") -Value (Waiter-Json $PID $liveStart) -NoNewline
+& $bosun status --ns $ns --slots 1 | Out-Null
+Check ((Read-Rec 'slot-0.json').pid -eq $b.Id -and -not (Test-Path (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json")) -and (Test-Path (Join-Path $recDir "wait-$PID-$liveStart.json"))) "a reader's pass removes a dead waiter's record only: the new holder's and a live waiter's stay (b $($b.Id); files: $((Records).Name -join ', '); holder $((Read-Rec 'slot-0.json').pid))"
+Remove-Item -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json")
+$null = $b.WaitForExit(15000)
+
+# A record that can't be written changes neither the queue nor the command's exit code, and says so once.
+$blockedHome = Join-Path $work 'blocked-home'
+New-Item -ItemType Directory -Path $blockedHome | Out-Null
+Set-Content -LiteralPath (Join-Path $blockedHome 'Bosun') -Value 'a file where the Bosun folder would go'
+$savedHome = $env:LOCALAPPDATA
+$env:LOCALAPPDATA = $blockedHome
+$out = & $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'rec37.txt') 1 37 2>&1 | Out-String
+$code = $LASTEXITCODE
+$env:LOCALAPPDATA = $savedHome
+Check ($code -eq 37 -and $out -match "can't publish this job's slot record" -and ([regex]::Matches($out, "can't publish")).Count -eq 1) "a record that can't be written leaves the exit code (got $code) and says so once"
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'
@@ -165,6 +232,25 @@ if ($SkipWsl) {
   $done = $job.WaitForExit(20000)
   Check $done 'a nested run in WSL does not deadlock'
   if ($done) { Check ($job.ExitCode -eq 0) "the nested WSL run exits 0 (got $($job.ExitCode))" } else { Stop-Process -Id $job.Id -Force }
+
+  # A top-level WSL run holds its slot through bosun.exe acquire, whose record names wsl, the Linux repo and the command.
+  $linuxRepo = "/tmp/bosunrec$PID"
+  wsl.exe -d Ubuntu -- mkdir -p "$linuxRepo/.git" "$linuxRepo/sub"
+  $savedWslenv = $env:WSLENV
+  $env:WSLENV = (@($savedWslenv, 'LOCALAPPDATA') | Where-Object { $_ }) -join ':'  # the test's home reaches bosun.exe
+  try {
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','sleep','4' -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
+    $r = Read-Rec 'slot-0.json'
+    Check ($r.side -eq 'wsl' -and $r.repo -eq $linuxRepo -and $r.command -eq 'sleep 4' -and $r.kind -eq 'holder') "a top-level WSL run's record names wsl, the Linux repo and its command ($($r | ConvertTo-Json -Compress))"
+    $done = $job.WaitForExit(20000)
+    # bosun.exe acquire is a Windows process of its own, which removes the record a moment after the shim has gone.
+    Check ($done -and (Wait-Until { -not (Records) } 10000)) "and it goes when the WSL job ends ($((Records).Name -join ', '))"
+    if (-not $done) { Stop-Process -Id $job.Id -Force }
+  } finally {
+    $env:WSLENV = $savedWslenv
+    wsl.exe -d Ubuntu -- rm -rf "$linuxRepo"
+  }
 }
 
 Remove-Item $work -Recurse -Force

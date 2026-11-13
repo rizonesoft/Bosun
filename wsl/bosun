@@ -124,6 +124,19 @@ if [ -n "${BOSUN_SLOT:-}" ]; then
   exit $?
 fi
 
+# What the job's record names (D01 T01 §1): this side, the command with each word quoted as the shell reads it back,
+# and the Git top level of the working folder when there is one. bosun.exe acquire writes the record, as it holds the slot.
+label="$(printf '%q ' "$@")"
+args+=(--side wsl --label "${label% }")
+# Found as bosun.exe finds a Windows job's, the nearest folder up holding .git, so no Linux git is needed (where there is
+# none, `git` on the PATH is Windows Git through interop, which names the folder by its \\wsl.localhost path).
+dir="$PWD"
+while :; do
+  if [ -e "$dir/.git" ]; then args+=(--repo "$dir"); break; fi
+  [ "$dir" = "/" ] || [ -z "$dir" ] && break
+  dir="$(dirname "$dir")"
+done
+
 # Named pipes rather than coproc: bash unsets a coproc's variables the moment it
 # exits, which would abort this script under set -u if bosun.exe failed early.
 pipes="$(mktemp -d)" || die "cannot create a temp folder"

@@ -113,6 +113,76 @@ static void aggregate() {
     CHECK(dm::render(dm::Report{}).find("No samples") != std::string::npos);
 }
 
+static void records() {
+    // A holder's record round-trips, its command holding quotes, backslashes, a control character and non-ASCII text.
+    dm::SlotRecord h;
+    h.kind = "holder";
+    h.pid = 4242;
+    h.process_start = 134390106322799740ULL;
+    h.started_at = "2026-11-13T04:00:00Z";
+    h.command = "\"C:\\Program Files\\x.exe\" --name \"caf\xc3\xa9\" a\tb";
+    h.repo = "D:/GitHub/Bosun";
+    h.side = "windows";
+    h.slot = 1;
+    h.session = 3;
+    h.ns = "Bosun";
+    std::string text = dm::record_json(h);
+    CHECK(text.find("\\u0009") != std::string::npos);  // the tab, as a control character
+    auto back = dm::parse_record(text);
+    CHECK(back && back->command == h.command && back->repo == h.repo && back->slot == 1 && back->pid == 4242);
+    CHECK(back && back->process_start == h.process_start && back->session == 3 && back->kind == "holder" && back->side == "windows");
+    // A waiter outside any checkout: no slot, and a null repo.
+    dm::SlotRecord w = h;
+    w.kind = "waiter";
+    w.slot.reset();
+    w.repo.reset();
+    w.side = "wsl";
+    auto wb = dm::parse_record(dm::record_json(w));
+    CHECK(wb && !wb->repo && !wb->slot && wb->side == "wsl");
+    CHECK(dm::record_json(w).find("\"repo\":null") != std::string::npos);
+    // Refused, never thrown: truncated, not an object, another version, a missing field, a holder with no slot.
+    CHECK(!dm::parse_record(text.substr(0, text.size() / 2)));
+    CHECK(!dm::parse_record("[]"));
+    CHECK(!dm::parse_record(""));
+    CHECK(!dm::parse_record("null"));
+    std::string v2 = text;
+    v2.replace(v2.find("\"schema_version\":1"), 18, "\"schema_version\":2");
+    CHECK(!dm::parse_record(v2));
+    CHECK(!dm::parse_record("{\"schema_version\":1,\"kind\":\"holder\"}"));
+    std::string noslot = dm::record_json(h);
+    noslot.replace(noslot.find(",\"slot\":1"), 9, "");
+    CHECK(!dm::parse_record(noslot));
+    // \u escapes, a surrogate pair included, read back as UTF-8.
+    std::string escaped = text;
+    escaped.replace(escaped.find("\"ns\":\"Bosun\""), 12, "\"ns\":\"\\u00e9\\ud83d\\ude00\"");
+    auto e = dm::parse_record(escaped);
+    CHECK(e && e->ns == "\xc3\xa9\xf0\x9f\x98\x80");
+
+    // Namespaces map injectively onto valid folder names.
+    CHECK(dm::ns_dir("Bosun") == "ns-Bosun");
+    CHECK(dm::ns_dir("a.b") != dm::ns_dir("a_b") && dm::ns_dir("a/b") != dm::ns_dir("a%2Fb"));
+    CHECK(dm::ns_dir("") == "ns-" && dm::ns_dir("CON") == "ns-CON" && dm::ns_dir("x.") == "ns-x%2E");
+    for (const char* ns : {"a b", "x:y", "q?", "\xc3\xa9", ".", ".."}) {
+        std::string d = dm::ns_dir(ns);
+        CHECK(d.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-%") == std::string::npos);
+        CHECK(d.back() != '.');
+    }
+    CHECK(dm::waiter_file(7, 99) == "wait-7-99.json" && dm::slot_file(0) == "slot-0.json");
+    // A waiter record as another program writes it, compact, with a null repo and session 0.
+    CHECK(dm::parse_record("{\"schema_version\":1,\"kind\":\"waiter\",\"pid\":45980,\"process_start\":134390171843506943,\"started_at\":\"2026-11-13T00:00:00Z\",\"command\":\"x\",\"repo\":null,\"side\":\"windows\",\"session\":0,\"ns\":\"Dbg\"}").has_value());
+
+    // A record is live while its pid runs with its start time; gone or reused is stale; can't tell is unknown.
+    auto running = [](uint64_t start) { return [start](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::Running, start}; }; };
+    CHECK(dm::record_state(h, running(h.process_start)) == dm::RecordState::Live);
+    CHECK(dm::record_state(h, running(h.process_start + 1)) == dm::RecordState::Stale);
+    CHECK(dm::record_state(h, [](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::Gone, 0}; }) == dm::RecordState::Stale);
+    CHECK(dm::record_state(h, [](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::CantTell, 0}; }) == dm::RecordState::Unknown);
+    // Readers remove only a stale waiter: never a slot record, a live waiter or one whose process can't be told.
+    CHECK(dm::reader_removes(w, dm::RecordState::Stale));
+    CHECK(!dm::reader_removes(w, dm::RecordState::Live) && !dm::reader_removes(w, dm::RecordState::Unknown));
+    CHECK(!dm::reader_removes(h, dm::RecordState::Stale));
+}
+
 struct Group {
     const char* name;
     void (*run)();      // null while the group is reserved
@@ -127,7 +197,7 @@ static const Group groups[] = {
     {"repos", repos, nullptr},
     {"rows", rows, nullptr},
     {"aggregate", aggregate, nullptr},
-    {"records", nullptr, "D01 T01"},
+    {"records", records, nullptr},
     {"status_json", nullptr, "D01 T01"},
     {"report_json", nullptr, "D01 T01"},
     {"config", nullptr, "D01 T01"},
