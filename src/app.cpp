@@ -1196,9 +1196,19 @@ LoadedConfig load_config() {
         c.readable = false;
         return c;
     }
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // At most 64 KB is read (round 1): the four limits take a few hundred bytes, and a file of any size would otherwise
+    // be loaded whole before every command, so a huge one is refused whole, as a damaged one is.
+    constexpr std::streamsize kMaxConfig = 64 * 1024;
+    std::string text(static_cast<size_t>(kMaxConfig) + 1, '\0');
+    in.read(text.data(), kMaxConfig + 1);
     if (in.bad()) {
         c.readable = false;
+        return c;
+    }
+    text.resize(static_cast<size_t>(in.gcount()));
+    if (static_cast<std::streamsize>(text.size()) > kMaxConfig) {
+        c.file.valid = false;
+        c.file.error = "larger than 64 KB, far past what its limits take";
         return c;
     }
     c.file = dm::parse_config(text);
@@ -1364,8 +1374,14 @@ int cmd_config(const std::vector<std::wstring>& rest) {
         }
     }
     // One writer at a time: the read, the change and the replace happen under this mutex.
+    // Only a writer that holds it goes on (round 1): one that can't make it, or waits 10 s in vain, changes nothing.
     HANDLE lock = CreateMutexW(nullptr, FALSE, L"Local\\Bosun.Config");
-    if (lock) WaitForSingleObject(lock, 10000);
+    DWORD owned = lock ? WaitForSingleObject(lock, 10000) : WAIT_FAILED;
+    if (owned != WAIT_OBJECT_0 && owned != WAIT_ABANDONED) {
+        if (lock) CloseHandle(lock);
+        config_reply(json, false, key, "another config save is still running, so nothing was changed; try again");
+        return 75;
+    }
     LoadedConfig c = load_config();
     int code = 0;
     std::string error;

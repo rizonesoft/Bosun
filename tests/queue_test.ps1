@@ -647,6 +647,18 @@ $runCode = $LASTEXITCODE
 $g = (CfgJson @('get', '--json')).Obj
 Check ($r.Code -eq 74 -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($damaged)) "config set refuses to overwrite a damaged file (exit $($r.Code)), leaving it as it was"
 Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json')).Count -eq 1 -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "with a damaged config.json a build still runs on the defaults (exit $runCode), said once"
+# Round 1: a file past 64 KB is refused whole without being loaded, and a save that can't own the writers' mutex
+# changes nothing.
+[IO.File]::WriteAllText($cfgFile, '{"schema_version":1,"slots":1,"pad":"' + ('x' * 70000) + '"}')
+$bigOut = & $bosun status 2>&1 | Out-String
+$g = (CfgJson @('get', '--json')).Obj
+Check ($bigOut -match 'larger than 64 KB' -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "a config.json past 64 KB is refused whole and the defaults apply"
+Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":3}' -NoNewline
+$before = [IO.File]::ReadAllBytes($cfgFile)
+$holdMutex = [System.Threading.Mutex]::new($false, 'Local\Bosun.Config')
+$null = $holdMutex.WaitOne()
+try { $busy = CfgJson @('set', 'slots', '4', '--json') } finally { $holdMutex.ReleaseMutex(); $holdMutex.Dispose() }
+Check ($busy.Code -eq 75 -and $busy.Obj.ok -eq $false -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($before)) "a save that can't own the writers' mutex in 10 s changes nothing (exit $($busy.Code))"
 $env:LOCALAPPDATA = $savedHome
 
 # Saved limits govern real jobs (in the test's own home, so its records and job log are the ones read here).

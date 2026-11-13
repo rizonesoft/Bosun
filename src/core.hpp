@@ -521,9 +521,12 @@ struct FlatValue {
     uint64_t magnitude = 0;
     double decimal = 0;  // a Decimal's value, and an Integer's too
     bool flag = false;
+    bool overflow = false;  // an integer past 64 bits, kept only when the caller asked (D01 T01 §5, round 1)
 };
 
-inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s) {
+// `allow_overflow` keeps an integer too large for 64 bits as an Integer marked `overflow`, so a caller that refuses
+// one key (config.json) can do that; every other caller refuses the whole object, as it always has.
+inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s, bool allow_overflow = false) {
     size_t i = 0;
     auto ws = [&] { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i; };
     auto hex4 = [&](uint32_t& v) -> bool {
@@ -610,16 +613,25 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         } else {
             v.kind = FlatValue::Integer;
             if (i < s.size() && s[i] == '-') { v.negative = true; ++i; }
-            size_t digits = 0;
+            size_t digits = 0, digits_from = i;
             while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
                 uint64_t d = static_cast<uint64_t>(s[i] - '0');
-                if (v.magnitude > (UINT64_MAX - d) / 10) return std::nullopt;
-                v.magnitude = v.magnitude * 10 + d;
+                if (v.overflow || v.magnitude > (UINT64_MAX - d) / 10) {
+                    if (!allow_overflow) return std::nullopt;
+                    v.overflow = true;
+                    v.magnitude = UINT64_MAX;
+                } else {
+                    v.magnitude = v.magnitude * 10 + d;
+                }
                 ++i;
                 ++digits;
             }
             if (!digits) return std::nullopt;
-            if (v.negative ? v.magnitude > uint64_t{1} << 63 : false) return std::nullopt;
+            if (v.negative && v.magnitude > uint64_t{1} << 63) {
+                if (!allow_overflow) return std::nullopt;
+                v.overflow = true;
+            }
+            if (v.overflow) v.text = s.substr(digits_from, i - digits_from);  // kept, to be written back unchanged
             v.number = v.negative ? static_cast<int64_t>(0 - v.magnitude) : static_cast<int64_t>(v.magnitude);
             v.decimal = static_cast<double>(v.number);
             if (i < s.size() && s[i] == '.') {  // a decimal fraction; no exponent is ever written
@@ -636,7 +648,23 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 v.kind = FlatValue::Decimal;
                 v.decimal = v.negative ? v.decimal - fraction : v.decimal + fraction;
             }
-            if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) return std::nullopt;
+            // An exponent, as JSON allows (round 1: config.json's writer keeps an unknown decimal as %.17g, which
+            // can write one). At most three digits, so the scale stays a double.
+            if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+                ++i;
+                bool down = false;
+                if (i < s.size() && (s[i] == '+' || s[i] == '-')) down = s[i++] == '-';
+                int e = 0, places = 0;
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9' && places < 4) {
+                    e = e * 10 + (s[i++] - '0');
+                    ++places;
+                }
+                if (!places || places > 3 || (i < s.size() && s[i] >= '0' && s[i] <= '9')) return std::nullopt;
+                double scale = 1;
+                for (int k = 0; k < e; ++k) scale *= 10;
+                v.decimal = down ? v.decimal / scale : v.decimal * scale;
+                v.kind = FlatValue::Decimal;
+            }
         }
         if (out.count(key)) return std::nullopt;  // a repeated key is no record anyone wrote
         out[key] = v;
@@ -1206,14 +1234,14 @@ struct ConfigFile {
 
 inline ConfigFile parse_config(const std::string& text) {
     ConfigFile f;
-    auto obj = parse_flat_object(text);
+    auto obj = parse_flat_object(text, true);
     if (!obj) {
         f.valid = false;
         f.error = "not one flat JSON object (cut short, a repeated key, or not JSON)";
         return f;
     }
     auto version = obj->find("schema_version");
-    if (version == obj->end() || version->second.kind != FlatValue::Integer || version->second.number != 1) {
+    if (version == obj->end() || version->second.kind != FlatValue::Integer || version->second.overflow || version->second.number != 1) {
         f.valid = false;
         f.error = version == obj->end() ? "no schema_version" : "schema_version is not 1";
         return f;
@@ -1225,7 +1253,7 @@ inline ConfigFile parse_config(const std::string& text) {
             f.unknown.push_back({key, v});
             continue;
         }
-        if (v.kind != FlatValue::Integer || v.negative || v.magnitude < spec->min || v.magnitude > spec->max) {
+        if (v.kind != FlatValue::Integer || v.overflow || v.negative || v.magnitude < spec->min || v.magnitude > spec->max) {
             f.refused.push_back({key, "must be " + limit_range(*spec)});
             continue;
         }
@@ -1245,7 +1273,10 @@ inline std::string config_json(const ConfigFile& f) {
         o << ",\n  \"" << json_escape(key) << "\": ";
         switch (v.kind) {
             case FlatValue::String: o << "\"" << json_escape(v.text) << "\""; break;
-            case FlatValue::Integer: o << v.number; break;
+            case FlatValue::Integer:
+                if (v.overflow) o << (v.negative ? "-" : "") << v.text;  // its own digits, as read
+                else o << v.number;
+                break;
             case FlatValue::Decimal: {
                 char buf[40];
                 std::snprintf(buf, sizeof(buf), "%.17g", v.decimal);

@@ -548,6 +548,21 @@ static void config() {
         CHECK(r.values.size() == 3 && !r.values.count(key));
     }
     CHECK(dm::parse_config("{\"schema_version\":1,\"slots\":64,\"max_wait_s\":604800}").values.size() == 2);  // the bounds themselves
+    // Round 1: an unknown decimal written back as %.17g reads again (exponents are JSON), and an integer past 64 bits
+    // refuses its own key, keeping its siblings; an unknown one is written back with its own digits.
+    dm::ConfigFile tiny = dm::parse_config("{\"schema_version\":1,\"slots\":1,\"future\":0.000001}");
+    dm::ConfigFile tinyBack = dm::parse_config(dm::config_json(tiny));
+    CHECK(tiny.valid && tinyBack.valid && tinyBack.values.at("slots") == 1 && tinyBack.unknown.size() == 1);
+    CHECK(tinyBack.unknown.size() == 1 && tinyBack.unknown[0].second.decimal > 0.0000009 && tinyBack.unknown[0].second.decimal < 0.0000011);
+    auto exp = dm::parse_flat_object("{\"a\":1e-6,\"b\":2.5E+3,\"c\":7e2}");
+    CHECK(exp && exp->at("a").kind == dm::FlatValue::Decimal && exp->at("b").decimal == 2500 && exp->at("c").decimal == 700);
+    CHECK(!dm::parse_flat_object("{\"a\":1e}") && !dm::parse_flat_object("{\"a\":1e9999}"));
+    dm::ConfigFile big = dm::parse_config("{\"schema_version\":1,\"slots\":1,\"min_guest_mb\":18446744073709551616}");
+    CHECK(big.valid && big.values.at("slots") == 1 && big.refused.size() == 1 && big.refused[0].first == "min_guest_mb");
+    CHECK(!dm::parse_flat_object("{\"a\":18446744073709551616}"));  // every other reader still refuses the object
+    dm::ConfigFile bigUnknown = dm::parse_config("{\"schema_version\":1,\"later\":123456789012345678901234567890}");
+    CHECK(bigUnknown.valid && dm::config_json(bigUnknown).find("\"later\": 123456789012345678901234567890") != std::string::npos);
+    CHECK(!dm::parse_config("{\"schema_version\":18446744073709551617}").valid);
     // Precedence: flag, then a valid variable, then the file, then the default, each named.
     const dm::LimitSpec& slots = *dm::find_limit("slots");
     CHECK(dm::resolve_limit(slots, 7, std::string("5"), 3).value == 7 && dm::resolve_limit(slots, 7, std::string("5"), 3).source == "flag");
