@@ -43,10 +43,26 @@ class BuildIconsTest(unittest.TestCase):
 
         for size, png in built.items():
             self.assertEqual(Image.open(io.BytesIO(png)).size, (size, size))
-        for size in (16, 24, 32):
-            self.assertEqual(built[size], icons.render(self.masters / f"bosun-{size}.svg", size))
-        self.assertEqual(built[20], icons.render(self.masters / "bosun-16.svg", 20))
+        self.assertEqual(self.off_spec(built), [], "every frame is drawn from the master SPEC section 18 names")
+        # And each master really gives a different picture at these sizes, so the frames can't match by accident.
         self.assertNotEqual(built[16], icons.render(self.masters / "bosun-256.svg", 16))
+        self.assertNotEqual(built[20], icons.render(self.masters / "bosun-256.svg", 20))
+        for size in (40, 48, 64):
+            self.assertNotEqual(built[size], icons.render(self.masters / "bosun-32.svg", size))
+
+    def off_spec(self, built):
+        """The frame sizes not drawn from the master SPEC section 18 names. The table is written out here on its own,
+        not read from the generator's: 16, 24 and 32 px from their own pixel-grid masters, 20 px from the 16 px file,
+        and 40 px and above from the 256 master."""
+        spec = {16: 16, 20: 16, 24: 24, 32: 32, 40: 256, 48: 256, 64: 256, 256: 256}
+        return [size for size, master in spec.items() if built[size] != icons.render(self.masters / f"bosun-{master}.svg", size)]
+
+    def test_a_frame_from_the_wrong_master_is_off_spec(self):
+        # The plan review's mutation, kept as a test: 40, 48 and 64 px drawn from the 32 px master, or 20 px from the 256
+        # one, are frames SPEC section 18 does not allow, and the check names exactly those.
+        for wrong, named in (({40: 32, 48: 32, 64: 32}, [40, 48, 64]), ({20: 256}, [20]), ({256: 32}, [256])):
+            with self.subTest(wrong=wrong), mock.patch.dict(icons.FRAMES, wrong):
+                self.assertEqual(self.off_spec(frames(icons.build(self.masters))), named)
 
     def test_reproducible(self):
         self.assertEqual(icons.build(self.masters), icons.build(self.masters))
