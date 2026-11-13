@@ -35,7 +35,8 @@
 # Each shortcut carries the Bosun icon with its runner's badge in the corner, rendered for this PC by
 # scripts/build-icons.py into the user's own application data folder (-IconDir), never into the repository. A
 # runner's mark is its company's trademark and is not kept here: when marks\claude.svg or marks\gemini.svg exists in
-# that folder it is drawn in the badge, and without it the badge carries the runner's colour alone.
+# that folder it is drawn in the badge, and without it the badge carries the runner's colour alone; running
+# -InstallShortcut again applies a mark put there later.
 #
 # The session signs in with the long-lived token in the user variable CLAUDE_CODE_OAUTH_TOKEN (see
 # scripts/store-claude-token.ps1). A window opened before the token was stored doesn't have it yet, so it is read from

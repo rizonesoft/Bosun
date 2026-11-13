@@ -6,6 +6,7 @@ import shutil
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("build_icons", ROOT / "scripts" / "build-icons.py")
@@ -124,6 +125,18 @@ class BadgedIconTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(SystemExit):
                 icons.main(bad)
         self.assertEqual(icons.main(["--check"]), 0, "the committed icon was touched")
+
+    def test_a_failed_replace_keeps_the_old_icon_and_leaves_no_temporary_file(self):
+        out = self.tmp / "launcher.ico"
+        out.write_bytes(b"the icon from before")
+
+        def refused(src, dst):
+            raise PermissionError(13, "the icon is open in another process", str(dst))
+
+        with mock.patch.object(icons.os, "replace", refused), self.assertRaises(OSError):
+            icons.main(["--out", str(out), "--badge-fill", "#4C8DF6"])
+        self.assertEqual(out.read_bytes(), b"the icon from before")
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["launcher.ico", "mark.svg"])
 
 
 if __name__ == "__main__":

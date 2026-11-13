@@ -13,6 +13,10 @@ function Check([bool]$ok, [string]$what) {
 try {
   # One call writes a launcher for each runner, and removes the names the same launchers had before.
   $icons = Join-Path $work 'icons'
+  # Distinct marks, as a runner's trademark the owner keeps on this PC: each must reach its own icon.
+  New-Item -ItemType Directory -Force (Join-Path $icons 'marks') | Out-Null
+  Set-Content (Join-Path $icons 'marks\claude.svg') '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>' -Encoding ascii
+  Set-Content (Join-Path $icons 'marks\gemini.svg') '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>' -Encoding ascii
   $earlier = 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk'
   foreach ($name in $earlier) { Set-Content -LiteralPath (Join-Path $work $name) -Value 'an earlier shortcut' }
   $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $work -IconDir $icons) -join "`n"
@@ -34,14 +38,28 @@ try {
   Check ($read.IconLocation -eq "$claudeIcon,0" -and $carbon.IconLocation -eq "$carbonIcon,0" -and (Test-Path $claudeIcon) -and (Test-Path $carbonIcon)) "each shortcut names its own icon file ($($read.IconLocation); $($carbon.IconLocation))"
   $hashes = @($claudeIcon, $carbonIcon, (Join-Path $repo 'resources\bosun.ico') | Where-Object { Test-Path $_ } | ForEach-Object { (Get-FileHash -LiteralPath $_).Hash })
   Check (@($hashes | Select-Object -Unique).Count -eq 3) 'the two badges differ from each other and from the plain Bosun icon'
+  # Each installed icon is exactly what the icon builder makes from its own colour and its own mark (the build is
+  # reproducible), and not what the other runner's mark makes.
+  $iconPython = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+  $builder = Join-Path $repo 'scripts\build-icons.py'
+  function Expected([string]$fill, [string]$mark) {
+    $at = Join-Path $work "expected-$([guid]::NewGuid()).ico"
+    & $iconPython $builder --out $at --badge-fill $fill --badge-mark (Join-Path $icons "marks\$mark") | Out-Null
+    (Get-FileHash -LiteralPath $at).Hash
+  }
+  $claudeHash = (Get-FileHash -LiteralPath $claudeIcon).Hash
+  $carbonHash = (Get-FileHash -LiteralPath $carbonIcon).Hash
+  Check ($claudeHash -eq (Expected '#D97757' 'claude.svg') -and $carbonHash -eq (Expected '#4C8DF6' 'gemini.svg')) 'each icon carries its own runner''s mark, byte for byte as the builder draws it'
+  Check ($claudeHash -ne (Expected '#D97757' 'gemini.svg') -and $carbonHash -ne (Expected '#4C8DF6' 'claude.svg')) 'and not the other runner''s mark'
   # An icon folder that can't be made: the shortcuts are still written, with the plain icon and a notice.
   $blocked = Join-Path $work 'not-a-folder'
   Set-Content -LiteralPath $blocked -Value 'a file where the icon folder would go'
   $plainDir = Join-Path $work 'plain'
   New-Item -ItemType Directory -Force $plainDir | Out-Null
   $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $plainDir -IconDir $blocked) -join "`n"
-  $fallback = $shell.CreateShortcut((Join-Path $plainDir 'Bosun Claude campaign.lnk'))
-  Check ($LASTEXITCODE -eq 0 -and $fallback.IconLocation -eq "$(Join-Path $repo 'resources\bosun.ico'),0" -and $out -match 'could not be rendered') "a badge that can't be rendered leaves the plain Bosun icon and says so ($($fallback.IconLocation))"
+  $plainIcon = "$(Join-Path $repo 'resources\bosun.ico'),0"
+  $fallbacks = @(foreach ($n in 'Bosun Claude campaign', 'Bosun Carbon campaign') { $at = Join-Path $plainDir "$n.lnk"; if (Test-Path -LiteralPath $at) { $shell.CreateShortcut($at).IconLocation } else { 'missing' } })
+  Check ($LASTEXITCODE -eq 0 -and $fallbacks.Count -eq 2 -and -not ($fallbacks | Where-Object { $_ -ne $plainIcon }) -and $out -match 'could not be rendered') "a badge that can't be rendered leaves both shortcuts with the plain Bosun icon and says so ($($fallbacks -join '; '))"
 
   $state = Join-Path $work 'state.json'
   $env:RUN_GUARD_STATE = $state
