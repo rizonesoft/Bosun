@@ -7,7 +7,6 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | Domain | File | Scope |
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
-| 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers |
 | 02 | 02-shell/TODO-01-brand-and-theme.md | Generated theme, icon pipeline and control templates |
 | 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, tray |
 | 02 | 02-shell/TODO-03-premium-components.md | Mica shell, Lucide glyphs and premium components |
@@ -23,3 +22,4 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-01-kit-completion.md | Gates, hooks, clone setup, CI and the build tooling for this repo (2026-11-12) |
 | 00 | 00-workspace/TODO-02-dotnet-foundation.md | .NET 11 solution, build props and projects, its build measured for memory and speed (2026-11-13) |
+| 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers (2026-11-13) |
