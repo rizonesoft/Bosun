@@ -762,6 +762,8 @@ Filed 2026-11-12 on the owner's request for a desktop shortcut that runs the pla
 > **Review:** `docs/reviews/d00-t03-s19.json`
 ## 20. Runner badge and campaign names on the run shortcuts
 
+> **Started:** 2026-11-13T01:29:34Z
+
 Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the same Bosun icon (`resources/bosun.ico`), so they could not be told apart at a glance. Reshaped the same day on the owner's instruction to match the launchers of the owner's other campaigns (Office, Isotone): the shortcuts are named "Bosun Claude campaign" and "Bosun Carbon campaign", and each carries the Bosun icon with a round badge in the bottom-right corner, in its runner's colour with a white outline (`#D97757` for Claude Code, `#4C8DF6` for Antigravity on Gemini 4 Carbon). A runner's mark is its company's trademark, so none is committed here: when `marks\claude.svg` or `marks\gemini.svg` exists in the icon folder on this PC it is drawn in white inside the badge from 32 px up, and without it the badge carries its colour alone. The frames come from the masters in `design/icon/`, as `AGENTS.md` requires of every app icon. Decision recorded: the earlier design (a badge cut from the agent program's own icon, a lettered fallback, a PowerShell compositor) is withdrawn in favour of the owner's own pattern; reversing it costs one rewrite of `badged` in `scripts/build-icons.py`. The Carbon shortcut now starts Antigravity on `gemini-4-carbon-medium` (the `-AgyModel` default), so its name is true; reversing that is one default.
 
 **Phase:** 0
