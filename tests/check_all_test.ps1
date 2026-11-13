@@ -181,7 +181,7 @@ try {
   Check 'with -Wsl every shell script in wsl/ has its own syntax step' ($scripts.Count -ge 4 -and -not $unchecked) "(not checked: $($unchecked -join ', '))"
   Check 'the Linux job checks the same scripts by pattern, not by a list that can fall behind' ((Get-Content -LiteralPath (Join-Path $repo '.github/workflows/build.yml') -Raw) -match 'for f in wsl/bosun wsl/\*\.sh; do bash -n')
   $names = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: ' } | ForEach-Object { ($_ -split ': ')[0] })
-  Check 'the steps come in the order the gate documents' (($names[0..9] -join ',') -eq 'plan,theme,weakening,tiers,build,native-std,native-pe,core-tests,dotnet-build,dotnet-tests' -and $names[-1] -eq 'python-tests')
+  Check 'the steps come in the order the gate documents' (($names[0..10] -join ',') -eq 'plan,theme,icons,weakening,tiers,build,native-std,native-pe,core-tests,dotnet-build,dotnet-tests' -and $names[-1] -eq 'python-tests')
   # The heavy steps wait their turn through `bosun run --`, and -List says which: a step that lost its -Queue would
   # build or test beside another repository's job.
   $queued = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: \[queued\] ' } | ForEach-Object { ($_ -split ': ')[0] })
