@@ -39,7 +39,7 @@ title: "TODO-01 -- Brand and theme"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Generate the theme from tokens | D00 T02 §2 | [x] |
-| 2 | §2 | Contrast and stray colour tests | §1 | [ ] |
+| 2 | §2 | Contrast and stray colour tests | §1 | [x] |
 | 3 | §5 | App icon ICO from the masters | -- | [ ] |
 | 4 | §3 | Tray state icons and the icon drift gate | §1, §5 | [ ] |
 | 5 | §4 | Control templates | §2, D02 T02 §9 | [ ] |
@@ -101,6 +101,9 @@ Steward proved these catch real faults (it raised `TextMute` for contrast). Here
 - [x] Commit: `theme: contrast and stray colour tests`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ThemeContrast*" --filter-class "*XamlRules*"` exits 0, and fails if the change is reverted: with `dark.TextMute` lowered to `#5A6270` in `design/tokens/colors.json` and the theme regenerated, `ThemeContrastTests` fails; with a hex colour added to `src/Bosun.Panel/Foundation.xaml`, `XamlRulesTests` fails.
+
+> **Verified:** 2026-11-13 | §2 | 9d23badcf6e5e28d91122e37f8caa8387e4aa77a
+> **Review:** `docs/reviews/d02-t01-s2.json`
 
 ## 3. Tray state icons and the icon drift gate
 

@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T01 \u00a72",
+  "title": "Contrast and stray colour tests",
+  "implementation_sha": "9d23badcf6e5e28d91122e37f8caa8387e4aa77a",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T01-s2.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-class \"*ThemeContrast*\" --filter-class \"*XamlRules*\" --filter-class \"*ThemeTests*\" -> 81 passed",
+    "mutations: dark.TextMute lowered and the theme regenerated -> ThemeContrastTests failed; a hex brush added to Foundation.xaml -> XamlRulesTests failed; restored -> 0 failed",
+    "full gate, CI on 9d23bad -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43454661362, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43454667593"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T01-s2.md",
+    "verdict": "completed",
+    "candidate": "cf9945ff7308c6d3a1c8bc92167a686d42282392",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "round 1's two P3 (a statement broken over lines, a Setter.Value element) were fixed in cf9945f with fixtures; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T01-s2.md",
+    "candidate": "ebb05f35a6bd19a7933ff861711b96c6c65ad2f0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "ebb05f35a6bd19a7933ff861711b96c6c65ad2f0",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
