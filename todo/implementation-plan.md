@@ -48,14 +48,14 @@ Sections: 33 | Checklist items: 343
 
 ### Phase 1: Core data contract
 
-Sections: 5 | Checklist items: 42
+Sections: 5 | Checklist items: 46
 
 | Status | Reference  | Deliverable                        | Needs | Items |
 | ------ | ---------- | ---------------------------------- | ----- | ----- |
 | [x]    | D01 T01 §1 | Slot holder and waiter records     | none  | 10    |
 | [x]    | D01 T01 §2 | Job history log                    | none  | 8     |
 | [x]    | D01 T01 §3 | status --json                      | none  | 13    |
-| [ ]    | D01 T01 §4 | report --json and logger snapshots | none  | 7     |
+| [ ]    | D01 T01 §4 | report --json and logger snapshots | none  | 11    |
 | [ ]    | D01 T01 §5 | One config file for queue limits   | none  | 4     |
 
 ### Phase 2: Shell and brand
@@ -144,4 +144,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 35/87 verified sections, 5 ready to run now.
 
-Checklist: 377/632 items completed (includes Commit items).
+Checklist: 377/636 items completed (includes Commit items).
