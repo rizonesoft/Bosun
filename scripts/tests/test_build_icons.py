@@ -126,6 +126,17 @@ class BadgedIconTest(unittest.TestCase):
                 icons.main(bad)
         self.assertEqual(icons.main(["--check"]), 0, "the committed icon was touched")
 
+    def test_a_mark_that_cant_be_drawn_is_refused_and_nothing_is_written(self):
+        out = self.tmp / "launcher.ico"
+        out.write_bytes(b"the icon from before")
+        for name, text in (("truncated.svg", "<svg this is truncated"), ("empty.svg", '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>')):
+            bad = self.tmp / name
+            bad.write_text(text, encoding="utf-8")
+            with self.subTest(mark=name):
+                self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(bad)]), 1)
+                self.assertEqual(out.read_bytes(), b"the icon from before")
+        self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(self.mark)]), 0, "a good mark was refused")
+
     def test_a_failed_replace_keeps_the_old_icon_and_leaves_no_temporary_file(self):
         out = self.tmp / "launcher.ico"
         out.write_bytes(b"the icon from before")
@@ -136,7 +147,7 @@ class BadgedIconTest(unittest.TestCase):
         with mock.patch.object(icons.os, "replace", refused), self.assertRaises(OSError):
             icons.main(["--out", str(out), "--badge-fill", "#4C8DF6"])
         self.assertEqual(out.read_bytes(), b"the icon from before")
-        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["launcher.ico", "mark.svg"])
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir() if p.suffix != ".svg"), ["launcher.ico"])
 
 
 if __name__ == "__main__":

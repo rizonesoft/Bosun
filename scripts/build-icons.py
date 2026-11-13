@@ -65,6 +65,23 @@ def badged(png: bytes, size: int, fill: str, mark: Path | None) -> bytes:
     return bytes(resvg_py.svg_to_bytes(svg_string=svg, width=size, height=size))
 
 
+def check_mark(mark: Path) -> None:
+    """Raise ValueError unless the mark file draws something on its own. Embedded in the badge, a mark the renderer
+    can't read is dropped in silence, which would ship a colour-only badge as if the mark were there."""
+    import io
+
+    import resvg_py
+    from PIL import Image
+
+    try:
+        png = bytes(resvg_py.svg_to_bytes(svg_string=mark.read_text(encoding="utf-8"), width=64, height=64))
+        drawn = Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3][1] > 0
+    except Exception as error:  # the renderer and the decoder raise their own types for a file they can't read
+        raise ValueError(f"the mark {mark} can't be drawn ({error})") from error
+    if not drawn:
+        raise ValueError(f"the mark {mark} draws nothing")
+
+
 def build(masters: Path, badge_fill: str | None = None, badge_mark: Path | None = None) -> bytes:
     """The whole ICO file: header, one directory entry per frame, then the PNG frames in size order."""
     frames = []
@@ -113,6 +130,12 @@ def main(argv=None) -> int:
     elif args.badge_mark:
         parser.error("--badge-mark needs --badge-fill")
     mark = args.badge_mark if args.badge_mark and args.badge_mark.is_file() else None
+    if mark:
+        try:
+            check_mark(mark)
+        except ValueError as error:
+            print(f"{error}: nothing was written; mend or remove it", file=sys.stderr)
+            return 1
     content = build(args.masters, args.badge_fill, mark)
     if args.check:
         current = args.out.read_bytes() if args.out.is_file() else None
