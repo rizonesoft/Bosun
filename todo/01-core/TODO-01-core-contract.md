@@ -43,6 +43,8 @@ title: "TODO-01 -- The core data contract"
 
 A mutex can't name its owner. Holders and waiters publish a small record beside the mutex. The mutex stays the only authority, and a stale record is ignored.
 
+**Corrected 2026-11-13:** checked against the tree before the build. The slot mutexes are per queue namespace (`Local\<ns>.Slot.N`, `open_slot` in `src/app.cpp`), and `tests/queue_test.ps1` runs in a namespace of its own, so the records go per namespace too (`%LOCALAPPDATA%\Bosun\run\<ns>\`); otherwise a test's holders would read as the machine's. The WSL shim (`wsl/bosun`) holds a slot through a `bosun.exe acquire` it keeps on a pipe, so that process writes the record, and the shim passes the command beside the repo and side, since the record names all three. A Windows job's repo is the nearest folder above its working directory holding `.git` (`src/core.hpp:99`, as the logger attributes a process).
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -52,9 +54,9 @@ A mutex can't name its owner. Holders and waiters publish a small record beside 
 1. Write records in `cmd_run` and `cmd_acquire`. Done when: a holder's record exists for as long as it holds the slot.
 2. Read them with staleness checks. Done when: a killed job's record is ignored and cleaned up.
 
-- [ ] Write `%LOCALAPPDATA%\Bosun\run\slot-N.json` and `wait-<pid>.json` with `pid`, process start time, command, repo, side and start time, atomically, in `src/app.cpp`. Done when: both files appear and disappear with a real job. Cheaper substitute: treating a record as the lock.
+- [ ] Write `%LOCALAPPDATA%\Bosun\run\<ns>\slot-N.json` and `wait-<pid>.json` with `pid`, process start time, command, repo, side and start time, atomically, in `src/app.cpp`. Done when: both files appear and disappear with a real job. Cheaper substitute: treating a record as the lock.
 - [ ] Validate a record against the live process and start time in `src/core.hpp`. Done when: a record of a dead or reused pid reads as absent, and a truncated record does not crash. Cheaper substitute: trusting the pid alone.
-- [ ] Pass repo and side from `wsl/bosun` through to `bosun.exe acquire`. Done when: a WSL job's record says `wsl` and names the Linux repo path.
+- [ ] Pass repo, side and command from `wsl/bosun` through to `bosun.exe acquire` (`--repo`, `--side`, `--label`). Done when: a WSL job's record says `wsl`, names the Linux repo path and its command.
 - [ ] Add cases to `tests/test_core.cpp` and `tests/queue_test.ps1`. Done when: killed holder, reused pid and malformed record are all covered.
 - [ ] Commit: `core: publish slot holders and waiters`
 
@@ -90,7 +92,7 @@ This is the panel's main read, and must be cheap to call every five seconds.
 
 **Build order:**
 
-1. Add `--json` to `cmd_status` at `src/app.cpp:246`. Done when: it prints one versioned object.
+1. Add `--json` to `cmd_status` at `src/app.cpp:269` (**Corrected 2026-11-13:** it said 246). Done when: it prints one versioned object.
 2. Add the WSL shim's forwarding. Done when: the same output comes from either side.
 
 - [ ] Emit `schema_version`, slots with holders, waiters, available and total memory, and logger state in `src/app.cpp`. Done when: the output parses and a test asserts each field. Cheaper substitute: changing the existing text output.
@@ -113,7 +115,7 @@ History is a query over CSV that `report` already joins. Live data should not ne
 1. Add `--json` to `cmd_report`. Done when: peaks, overlaps and per repo numbers come back as one object.
 2. Write `current-windows.json` and `current-wsl.json` per sample. Done when: each is replaced atomically every 30 seconds.
 
-- [ ] Emit per-minute series, per-repo peak and private memory, overlap count and days covered from `cmd_report` at `src/app.cpp:471`. Done when: a fixture CSV gives the expected numbers. Cheaper substitute: the panel re-implementing the join.
+- [ ] Emit per-minute series, per-repo peak and private memory, overlap count and days covered from `cmd_report` at `src/app.cpp:498` (**Corrected 2026-11-13:** it said 471). Done when: a fixture CSV gives the expected numbers. Cheaper substitute: the panel re-implementing the join.
 - [ ] Write the snapshot in `src/logger_main.cpp` with temp-then-rename. Done when: a reader polling during writes never sees a partial file. Cheaper substitute: writing in place.
 - [ ] Write the same format from `wsl/bosun_log.py` to the shared logs folder. Done when: `tests/test_bosun_log.py` asserts the format and atomic rename.
 - [ ] Commit: `core: report --json and live snapshots`
@@ -134,7 +136,7 @@ The panel's Limits form needs a place to write. Flags and environment keep winni
 2. Add `bosun config get|set` with range checks. Done when: bad values are refused without changing the file.
 
 - [ ] Parse `slots`, `min_avail_mb`, `max_wait` and `min_guest_mb` in `src/core.hpp`. Done when: each precedence level is tested, and a malformed file warns and uses defaults. Cheaper substitute: a malformed file aborting every build.
-- [ ] Add `config` to the command table at `src/app.cpp:511`, writing atomically. Done when: `bosun config set slots 0` exits nonzero and changes nothing.
+- [ ] Add `config` to the command dispatch at `src/app.cpp:535` (**Corrected 2026-11-13:** it said a command table at 511), writing atomically. Done when: `bosun config set slots 0` exits nonzero and changes nothing.
 - [ ] Read the same limits in `wsl/bosun` through `bosun.exe config get`. Done when: a WSL job honours a file-set guest floor.
 - [ ] Commit: `core: config file for limits`
 
