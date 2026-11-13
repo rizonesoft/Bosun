@@ -111,6 +111,8 @@ The Queue page and the overlap analysis both need to know what ran when. One fil
 
 ## 3. status --json
 
+> **Started:** 2026-11-13T07:59:58Z
+
 This is the panel's main read, and must be cheap to call every five seconds.
 
 **Corrected 2026-11-13:** checked against the tree before the build. `cmd_status` is at `src/app.cpp:578` (the file said 269, then 246). Its reader pass `sweep_records` (`src/app.cpp:373`) parses every record but keeps none, so the live holders and waiters must come back from it rather than be read twice. The WSL shim's `status` branch (`wsl/bosun:20`) only adds `--slots` and execs `bosun.exe`, and the WSL logger (`wsl/bosun_log.py`) publishes no singleton marker, so the guest's figures and its logger's state can only come from the shim. The section said "the same output comes from either side" and "logger state" without saying how; decided here (industry default, one producer): the shim measures the guest and passes it to `bosun.exe status` as flags, so one C++ writer builds the whole object and bash never edits JSON. Reversal cost: a WSL-side JSON writer would duplicate the schema in two languages.
