@@ -60,6 +60,7 @@ title: "TODO-03 -- Campaign readiness"
 | 19 | §19 | Run guard holds an Antigravity run | -- | [x] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
+| 22 | §22 | CI gate waits for a push's own run before starting one | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -821,6 +822,30 @@ Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`
 
 > **Verified:** 2026-11-13 | §21 | 0362d7229e96e3ddda118e2b589aa8693ab648e1
 > **Review:** `docs/reviews/d00-t03-s21.json`
+
+## 22. CI gate waits for a push's own run before starting one
+
+Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed to block itself. `scripts/ci_status.py --gate` starts a workflow that has no run for its commit at its first look (`recover`, called from `main` before any sleep). Called seconds after `git push`, as `process-phase` has it called, that look comes before GitHub lists the push's own run, so the gate starts a second one (`workflow_dispatch`). `build.yml`'s concurrency group (`build-${{ github.ref }}`, with nothing cancelled on `main`) queues the second behind the first, and the gate waits for the newer of the two: measured on `9d23bad`, `2fd2c64` and `ab72045`, the push's run and the gate's were created three or four seconds apart, the Windows job took 12.5 minutes, and the gate waited about 25. Every section gates twice, so this doubles the longest wait of every section left in the plan.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Hold the start in `scripts/ci_status.py`. Done when: a run that appears within the grace is never doubled, in `scripts/tests/test_ci_status.py`.
+2. Say what the gate is doing, and keep the documents true. Done when: the waiting line names the hold, and the skill text and its mirrors match.
+
+- [ ] Add `START_GRACE_SECONDS` (90) and `GRACE_POLL_SECONDS` (10) to `scripts/ci_status.py`, and in `main` with `--gate` and `--sha` hold the start of a workflow that reads `none`: `recover` starts nothing until that long has passed since this gate's first look (by the `clock` it is given), and until then the gate looks again every `GRACE_POLL_SECONDS` instead of every `POLL_SECONDS`. Done when: with a fake runner whose push run appears on the second look, no `gh workflow run` call is made, nothing is recorded under `started` in the gate's state, and the gate goes on to judge that run. Cheaper substitute: a fixed sleep before the first look, which delays every gate, the ones whose run is already listed too.
+- [ ] Start a workflow that still reads `none` once the grace has passed, once per commit and workflow, as today. Done when: with a fake runner that never lists a run, exactly one `gh workflow run` per workflow is made, at the first look after the grace and not before, and it is recorded under `started` before it is made.
+- [ ] Never let the hold cost the only chance to start: when the wait left is shorter than the grace left (a short `--wait-minutes`, or none), the workflow is started on that look. Done when: `--gate --wait-minutes 0` with no run starts each workflow on its one look, as it does today, and a one minute wait starts it on a look before the wait runs out.
+- [ ] Leave a read-only look (no `--gate`) as it is: it starts nothing and prints the command under `recovery`. Done when: the existing read-only tests pass unchanged.
+- [ ] Say the hold: while a start is held, the `waiting:` line on stderr ends with `holding the start of <workflow> for <N>s in case the push's own run is about to be listed`, and `--json` gives `start_held_s`. Done when: a test reads both on a held look and neither once the run is listed.
+- [ ] Correct the module docstring of `scripts/ci_status.py` (it says the gate starts the workflow "at the first look, before any sleep") and the `wait` action in `.claude/skills/process-phase/SKILL.md` and its mirrors in `.agents/skills/` and `.codex/skills/` ("the gate starts that workflow itself at its first look"): the gate starts it once it has had no run for 90 seconds. Done when: the three skill files are the same text and the skill mirror test passes.
+- [ ] Prove it on the real thing: with this on `main`, push a commit and run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30` at once. Done when: `gh run list --commit <sha>` shows one `build.yml` run and one `plan.yml` run, both from `push`, the gate prints `proceed`, and its wait is recorded in the run file beside the 25 minutes measured before.
+- [ ] Commit: `ci: the gate waits for a push's own run before starting one`
+
+**Test checkpoint:** `python scripts/run-tests.py test_ci_status` exits 0, and with the hold removed (the start made at the first look again) the test of a run that appears on the second look fails.
 
 ## Verification
 
