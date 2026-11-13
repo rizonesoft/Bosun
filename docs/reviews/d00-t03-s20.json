@@ -1,0 +1,87 @@
+{
+  "ref": "D00 T03 \u00a720",
+  "title": "Runner badge and campaign names on the run shortcuts",
+  "implementation_sha": "fb9b97c5bb97f795642c221f04366d65ec5866b1",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s20.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s20.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/run-tests.py test_build_icons -> Ran 10 tests in 2 classes, OK",
+    "pwsh tests/start_run_test.ps1 -> all passed",
+    "pwsh scripts/start-run.ps1 -InstallShortcut -> both real shortcuts written with the owner's marks, no staged file left",
+    "full gate, CI on a82113f -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43346245391, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43346245388"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s20.md",
+    "verdict": "completed",
+    "candidate": "a82113f3f7be4f199b72736b6e5f66fed58a11c5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s20.md",
+    "candidate": "e83f79b4a87258d926836a7ffa3f25e01d1e5079",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "e83f79b4a87258d926836a7ffa3f25e01d1e5079",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

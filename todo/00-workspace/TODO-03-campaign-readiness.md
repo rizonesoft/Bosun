@@ -58,7 +58,7 @@ title: "TODO-03 -- Campaign readiness"
 | 17 | §17 | Branch protection on main, read back | §8 | [x] |
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [x] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [x] |
-| 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [ ] |
+| 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [ ] |
 
 ## 1. CI status that proves the commit
@@ -783,9 +783,12 @@ Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the s
 - [x] Prove the marks through the installer in `tests/start_run_test.ps1`: with distinct mark files in the test's `-IconDir\marks`, each installed icon is byte for byte what `python scripts/build-icons.py --badge-fill <its colour> --badge-mark <its mark>` writes (the build is reproducible), and differs from the same badge with the other runner's mark. Done when: the test fails when `--badge-mark` is dropped or the two marks are swapped.
 - [x] Prove the atomic write in `scripts/tests/test_build_icons.py`: when the replace of an existing `--out` fails (the file held open by another process, as Windows refuses), the old icon's bytes survive and no temporary file is left beside it. Done when: the test fails against a direct write to `--out`.
 - [x] Read both shortcuts back in the fallback case of `tests/start_run_test.ps1`. Done when: both links exist and name `resources\bosun.ico` after the badge can't be rendered.
-- [ ] Commit: `run: the campaign shortcuts' marks, atomic write and fallback are proven` (the build itself shipped in `ee6a9ea`, "run: campaign shortcuts carry their runner's badge, and nothing resumes a run")
+- [x] Commit: `run: the campaign shortcuts' marks, atomic write and fallback are proven` (the build itself shipped in `ee6a9ea`, "run: campaign shortcuts carry their runner's badge, and nothing resumes a run")
 
 **Test checkpoint:** `python scripts/run-tests.py test_build_icons` and `pwsh tests/start_run_test.ps1` exit 0, and fail if the badge is not drawn, both shortcuts name the same icon, a mark is dropped or swapped, or an icon is written in place.
+
+> **Verified:** 2026-11-13 | §20 | fb9b97c5bb97f795642c221f04366d65ec5866b1
+> **Review:** `docs/reviews/d00-t03-s20.json`
 
 ## 21. Run guard waits on a long local gate
 
