@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "section": "D00 T03 §16",
+    "need": "third-party",
+    "check": [
+      "python",
+      "-c",
+      "import pathlib, sys; sys.exit(0 if any(p.read_text(encoding='utf-8', errors='replace').splitlines()[2:3] == ['class: rate-limit'] for p in pathlib.Path('build/review-failures').glob('*.txt')) else 1)"
+    ]
+  }
+]
