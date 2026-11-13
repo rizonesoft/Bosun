@@ -55,6 +55,8 @@ if ($StepFile) {
 } else {
   $steps = @(
     New-Step 'plan' 'python' @('scripts/todo-graph.py', 'plan', '--check')
+    # The panel's theme is generated from design/tokens/colors.json (D02 T01 §1): a hand edit or a stale theme fails here.
+    New-Step 'theme' 'python' @('scripts/build-theme.py', '--check')
     New-Step 'weakening' 'python' @('scripts/weakening-scan.py')
     New-Step 'tiers' 'node' @('scripts/verify-agent-tiers.mjs')
     New-Step 'build' 'pwsh' @('-NoProfile', '-File', 'scripts/build.ps1') -Queue
