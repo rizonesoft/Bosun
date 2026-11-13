@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 150
+Sections: 23 | Checklist items: 151
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -78,7 +78,7 @@ Sections: 23 | Checklist items: 150
 | [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 9     |
 | [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 5     |
 | [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 5     |
-| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 3     |
+| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 4     |
 | [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none            | 8     |
 | [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | display-session | 9     |
 | [ ]    | D02 T03 §3  | Lucide icon map and rail marker             | display-session | 6     |
@@ -145,4 +145,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 43/88 verified sections, 6 ready to run now.
 
-Checklist: 440/674 items completed (includes Commit items).
+Checklist: 440/675 items completed (includes Commit items).
