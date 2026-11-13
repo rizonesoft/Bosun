@@ -78,6 +78,8 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 
 ## 2. Contrast and stray colour tests
 
+> **Started:** 2026-11-13T14:59:14Z
+
 Steward proved these catch real faults (it raised `TextMute` for contrast). Here they cover both themes.
 
 **Corrected 2026-11-13:** checked against the tree before the build. Steward's `ThemeContrastTests.cs` reads `Theme\Dark.xaml` from the test's output folder and checks `Text`, `TextDim` and `TextMute` on `Base`, `Surface` and `Raised`; here the colours are read from the generated files of `D02 T01 §1` in the checkout, for both themes, and the roles are every colour the panel draws words in: the three text roles, `Accent`, the four status colours (`design/SPEC.md` §1: each state has a word), and `OnAccent` on `Accent` for `Btn.Primary`. Measured 2026-11-13, every one of those is at least 4.60:1 in both themes (the lowest are light `Accent` on `Raised` at 4.60 and dark `TextMute` on `Raised` at 4.94), so no token changes. The soft status tints are `D02 T03 §1`'s. Steward's `TabStripStyleTests.cs` holds two things: its no-colour rule, which becomes the rule here, and its assertions on the `TabStrip.Item` style, which need `Theme/Controls.xaml` and so move to `D02 T01 §4`, where that style is ported (an item is added there). The panel's XAML today is `App.xaml` and `Foundation.xaml`, with no colour or font size in either. The checkpoint's filter is the Microsoft.Testing.Platform form the repo uses (`--filter-class`), not `--filter FullyQualifiedName~`. Decided here: the rule reads every `.xaml` and `.cs` under `src/Bosun.Panel` outside `Theme/Generated`, since a colour typed into code-behind drifts as surely as one typed into a view. Reversal cost: none.
