@@ -825,6 +825,8 @@ Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`
 
 ## 22. CI gate waits for a push's own run before starting one
 
+> **Started:** 2026-11-13T17:31:49Z
+
 Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed to block itself. `scripts/ci_status.py --gate` starts a workflow that has no run for its commit at its first look (`recover`, called from `main` before any sleep). Called seconds after `git push`, as `process-phase` has it called, that look comes before GitHub lists the push's own run, so the gate starts a second one (`workflow_dispatch`). `build.yml`'s concurrency group (`build-${{ github.ref }}`, with nothing cancelled on `main`) queues the second behind the first, and the gate waits for the newer of the two: measured on `9d23bad`, `2fd2c64` and `ab72045`, the push's run and the gate's were created three or four seconds apart, the Windows job took 12.5 minutes, and the gate waited about 25. Every section gates twice, so this doubles the longest wait of every section left in the plan.
 
 **Corrected 2026-11-13 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s22.md` returned four gaps (3 P2, 1 P3), planned in below: the short-wait rule includes equality and holds for the persisted two-hour limit too; the hold has a stated place in the output (the `waiting:` line while it lasts, and one `start_held` object in the final JSON, so stdout stays one object); the tests read the fake clock at each look, so ten-second polling during the hold and ordinary polling after it are proved; and the documents say when the gate starts at once.
