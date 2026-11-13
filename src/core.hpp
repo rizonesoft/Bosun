@@ -650,19 +650,22 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 v.decimal = v.negative ? v.decimal - fraction : v.decimal + fraction;
             }
             // An exponent, as JSON allows (round 1: config.json's writer keeps an unknown decimal as %.17g, which
-            // can write one). At most three digits, so the scale stays a double.
+            // can write one). Every digit is read (round 4), and the scale is worked out only up to 400, past any
+            // double: beyond that a zero or a negative exponent makes 0, and a positive one a value past range.
             if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
                 ++i;
                 bool down = false;
                 if (i < s.size() && (s[i] == '+' || s[i] == '-')) down = s[i++] == '-';
                 int e = 0, places = 0;
-                while (i < s.size() && s[i] >= '0' && s[i] <= '9' && places < 4) {
-                    e = e * 10 + (s[i++] - '0');
+                while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+                    if (e < 400) e = e * 10 + (s[i] - '0');
+                    ++i;
                     ++places;
                 }
-                if (!places || places > 3 || (i < s.size() && s[i] >= '0' && s[i] <= '9')) return std::nullopt;
+                if (!places) return std::nullopt;
+                if (e > 400) e = 400;
                 double scale = 1;
-                for (int k = 0; k < e; ++k) scale *= 10;
+                for (int k = 0; k < e; ++k) scale *= 10;  // 1e400 is inf, so a positive exponent past range stays past it
                 if (v.decimal != 0) v.decimal = down ? v.decimal / scale : v.decimal * scale;  // 0e309 is 0, not 0 * inf
                 v.kind = FlatValue::Decimal;
                 // A value past a double's range (1e309) is no number any reader can use: refused, or, where the caller

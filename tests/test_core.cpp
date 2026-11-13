@@ -557,6 +557,11 @@ static void config() {
     auto exp = dm::parse_flat_object("{\"a\":1e-6,\"b\":2.5E+3,\"c\":7e2}");
     CHECK(exp && exp->at("a").kind == dm::FlatValue::Decimal && exp->at("b").decimal == 2500 && exp->at("c").decimal == 700);
     CHECK(!dm::parse_flat_object("{\"a\":1e}") && !dm::parse_flat_object("{\"a\":1e9999}"));
+    // Round 4: a long exponent is read whole: 0e9999 and 1e-9999 are 0, and in config.json 1e9999 refuses only its key.
+    auto longExp = dm::parse_flat_object("{\"a\":0e9999,\"b\":1e-9999}");
+    CHECK(longExp && longExp->at("a").decimal == 0 && longExp->at("b").decimal == 0);
+    dm::ConfigFile longCfg = dm::parse_config("{\"schema_version\":1,\"slots\":1,\"min_guest_mb\":1e9999}");
+    CHECK(longCfg.valid && longCfg.values.at("slots") == 1 && longCfg.refused.size() == 1 && longCfg.refused[0].first == "min_guest_mb");
     dm::ConfigFile big = dm::parse_config("{\"schema_version\":1,\"slots\":1,\"min_guest_mb\":18446744073709551616}");
     CHECK(big.valid && big.values.at("slots") == 1 && big.refused.size() == 1 && big.refused[0].first == "min_guest_mb");
     CHECK(!dm::parse_flat_object("{\"a\":18446744073709551616}"));  // every other reader still refuses the object
