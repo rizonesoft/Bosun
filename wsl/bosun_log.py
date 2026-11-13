@@ -32,6 +32,12 @@ def repo_for_dir(path, has_git, cache):
     return repo
 
 
+def utf8_text(name):
+    """A name as text both the CSV and the snapshot's JSON can hold: a Linux path need not be UTF-8, and Python keeps
+    its stray bytes as surrogates, which a UTF-8 write refuses. Each such byte becomes U+FFFD (D01 T01 §4, round 1)."""
+    return name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def csv_name(name):
     """Percent-encodes characters that would break a CSV row, so distinct names stay distinct."""
     return re.sub(r'[%,"\r\n]', lambda m: f"%{ord(m.group()):02X}", name)
@@ -119,8 +125,10 @@ def write_snapshot(log_dir, text, replace=None, attempts=20):
     on stderr and returns, so the logger carries on and the next sample tries again. Returns True once it landed."""
     replace = replace or os.replace
     path = os.path.join(log_dir, "current-wsl.json")
-    fd, temp = tempfile.mkstemp(prefix=".current-wsl.", suffix=".tmp", dir=log_dir)
+    temp = None
     try:
+        # Inside the handled path (round 1): a full disk or no inodes left can refuse the temporary file itself.
+        fd, temp = tempfile.mkstemp(prefix=".current-wsl.", suffix=".tmp", dir=log_dir)
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
             f.flush()
@@ -135,10 +143,11 @@ def write_snapshot(log_dir, text, replace=None, attempts=20):
                 time.sleep(0.05)
     except OSError as e:
         print(f"[bosun] can't replace the live snapshot {path} ({e}): the previous one stays, and the next sample tries again", file=sys.stderr)
-        try:
-            os.unlink(temp)
-        except OSError:
-            pass
+        if temp:
+            try:
+                os.unlink(temp)
+            except OSError:
+                pass
         return False
     return False
 
@@ -168,7 +177,7 @@ def sample(log_dir, cache, interval=30):
         except OSError:
             continue  # Another user's process, or it exited.
         if cwd != "/":
-            own_repo[pid] = repo_for_dir(cwd, has_git, cache)
+            own_repo[pid] = utf8_text(repo_for_dir(cwd, has_git, cache))  # the raw path finds .git; the text is what's written
     owners = attribute(procs, own_repo)
 
     repos = {}

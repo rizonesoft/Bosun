@@ -52,6 +52,15 @@ class CsvName(unittest.TestCase):
         self.assertNotEqual(dl.csv_name("a,b"), dl.csv_name("a_b"))
 
 
+class Utf8Text(unittest.TestCase):
+    def test_a_path_that_is_not_utf8_becomes_writable_text(self):
+        raw = b"/home/u/caf\xe9".decode("utf-8", "surrogateescape")  # as os.readlink gives a Latin-1 named folder
+        text = dl.utf8_text(raw)
+        self.assertEqual(text, "/home/u/caf�")
+        text.encode("utf-8")  # a UTF-8 write takes it
+        self.assertEqual(dl.utf8_text("/home/u/café"), "/home/u/café")
+
+
 class Snapshot(unittest.TestCase):
     """current-wsl.json (D01 T01 §4): the Windows schema, written whole or not at all."""
 
@@ -116,6 +125,22 @@ class Snapshot(unittest.TestCase):
         self.assertTrue(dl.write_snapshot(self.dir, '{"next":3}'))
         with open(self.path(), encoding="utf-8") as f:
             self.assertEqual(f.read(), '{"next":3}')
+
+    def test_a_temporary_file_that_cant_be_made_keeps_the_old_one(self):
+        dl.write_snapshot(self.dir, '{"old":1}')
+        saved = dl.tempfile.mkstemp
+
+        def full(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+
+        dl.tempfile.mkstemp = full
+        self.addCleanup(setattr, dl.tempfile, "mkstemp", saved)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertFalse(dl.write_snapshot(self.dir, '{"new":2}'))  # returns, never raises out of sample()
+        self.assertIn("No space left", err.getvalue())
+        with open(self.path(), encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"old":1}')
+        self.assertEqual(self.leftovers(), [])
 
     def test_a_sample_without_psi_has_no_psi_row_and_a_null(self):
         saved = dl.psi_full_avg10_x100

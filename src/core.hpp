@@ -172,6 +172,26 @@ inline std::string csv_unname(const std::string& s) {
     return out;
 }
 
+// Whether `s` is well-formed UTF-8 (no overlong forms, surrogates or values past U+10FFFF), so text read from a file
+// can go into JSON a strict reader accepts (D01 T01 §4, round 1: a hand-made "%FF" name had decoded to a raw byte).
+inline bool valid_utf8(const std::string& s) {
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        size_t n = c < 0x80 ? 0 : (c >> 5) == 0x6 ? 1 : (c >> 4) == 0xE ? 2 : (c >> 3) == 0x1E ? 3 : 9;
+        if (n == 9 || (n > 0 && i + n >= s.size())) return false;  // a bad lead byte, or a sequence cut short
+        uint32_t cp = n == 0 ? c : n == 1 ? (c & 0x1F) : n == 2 ? (c & 0x0F) : (c & 0x07);
+        for (size_t k = 1; k <= n; ++k) {
+            unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc >> 6) != 0x2) return false;
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if ((n == 1 && cp < 0x80) || (n == 2 && cp < 0x800) || (n == 3 && cp < 0x10000) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        i += n + 1;
+    }
+    return true;
+}
+
 struct Row {
     std::string ts, side, kind, name;
     int64_t count = 0, private_mb = 0, rss_mb = 0;
@@ -199,7 +219,9 @@ inline std::optional<Row> parse_row(const std::string& line) {
     if (f.size() != 7 || f[0] == "ts") return std::nullopt;
     auto count = csv_integer(f[4]), priv = csv_integer(f[5]), rss = csv_integer(f[6]);
     if (!count || !priv || !rss || f[0].size() != 19) return std::nullopt;  // a partial line from a sampler killed mid-write
-    return Row{f[0], f[1], f[2], csv_unname(f[3]), *count, *priv, *rss};
+    std::string name = csv_unname(f[3]);
+    if (!valid_utf8(name) || !valid_utf8(f[1]) || !valid_utf8(f[2])) return std::nullopt;  // no writer makes it: refused and counted
+    return Row{f[0], f[1], f[2], std::move(name), *count, *priv, *rss};
 }
 
 // One UTC minute of history: each side's lowest available memory that minute (null without a sample), and how many

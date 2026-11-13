@@ -344,6 +344,11 @@ static void report_json() {
     CHECK(lit && comma && lit->name == "D:/a%2Cb" && comma->name == "D:/a,b");
     CHECK(dm::csv_unname(dm::csv_name("q\"x%y,z\r\n")) == "q\"x%y,z\r\n" && dm::csv_unname("%zz%4") == "%zz%4");
     CHECK(!dm::parse_row("2026-11-12T10:00:05,win,sys,available_mb,0,12x,0") && !dm::parse_row("2026-11-12T10:0,win,sys,available_mb,0,1,0"));
+    // A name that decodes to bytes that aren't UTF-8 is refused, so the JSON stays valid (round 1); real UTF-8 passes.
+    CHECK(!dm::parse_row("2026-11-12T10:00:05,win,repo,%FF,1,100,100") && !dm::parse_row("2026-11-12T10:00:05,win,repo,a%C3,1,1,1"));
+    auto utf = dm::parse_row("2026-11-12T10:00:05,wsl,repo,/home/u/caf%C3%A9,1,1,1");
+    CHECK(utf && utf->name == "/home/u/caf\xc3\xa9");
+    CHECK(dm::valid_utf8("caf\xc3\xa9 \xf0\x9f\x98\x80") && !dm::valid_utf8("\xc0\xaf") && !dm::valid_utf8("\xed\xa0\x80") && !dm::valid_utf8("\xf4\x90\x80\x80"));
 
     // Two days of both sides, in the writers' own row format.
     std::vector<std::string> csv{
