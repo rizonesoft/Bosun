@@ -580,6 +580,132 @@ $env:LOCALAPPDATA = $snapHome; & $bosun log --once; $env:LOCALAPPDATA = $savedHo
 $back = Get-Content -LiteralPath $snapFile -Raw | ConvertFrom-Json -DateKind String
 Check ($lostCode -eq 0 -and $lost -match 'history is being lost' -and $lostSnap.history_written -eq $false -and $lostSnap.at -ne ($next | ConvertFrom-Json -DateKind String).at -and $back.history_written -eq $true -and @(Get-Content -LiteralPath $todayCsv).Count -gt $rowsBefore) "a CSV that can't be written still gives a fresh snapshot saying history_written false, and the next sample writes both (exit $lostCode)"
 
+# --- One config file for queue limits (D01 T01 §5) ---
+function Cfg([string[]]$a) {
+  $text = (& $bosun config @a 2>$null | Out-String).Trim()
+  [pscustomobject]@{ Code = $LASTEXITCODE; Text = $text }
+}
+function CfgJson([string[]]$a) {
+  $r = Cfg $a
+  $obj = $null
+  # Text that isn't JSON leaves Obj null, which every check below reads as a failure.
+  try { $obj = $r.Text | ConvertFrom-Json -DateKind String } catch { $obj = $null }
+  [pscustomobject]@{ Code = $r.Code; Obj = $obj; Text = $r.Text }
+}
+# A home with no Bosun folder yet: the first save makes it.
+$cfgHome = Join-Path $work 'cfg-home'
+$env:LOCALAPPDATA = $cfgHome
+$cfgFile = Join-Path $cfgHome 'Bosun\config.json'
+$first = CfgJson @('set', 'slots', '1', '--json')
+Check ($first.Code -eq 0 -and $first.Obj.ok -eq $true -and $first.Obj.saved -eq 1 -and (Test-Path -LiteralPath $cfgFile)) "config set saves into a home with no Bosun folder yet ($($first.Text))"
+$null = Cfg @('set', 'min_avail_mb', '1234'); $null = Cfg @('set', 'max_wait_s', '77'); $null = Cfg @('set', 'min_guest_mb', '555')
+$g = (CfgJson @('get', '--json')).Obj
+Check ($g.limits.slots.saved -eq 1 -and $g.limits.slots.source -eq 'file' -and $g.limits.min_avail_mb.value -eq 1234 -and $g.limits.max_wait_s.saved -eq 77 -and $g.limits.min_guest_mb.source -eq 'file' -and $g.valid -eq $true -and $g.exists -eq $true) "each key saved reads back as saved, from the file ($($g.limits | ConvertTo-Json -Compress))"
+# Under an environment override, what is saved is still told apart from what is in effect.
+$env:BOSUN_MIN_AVAIL_MB = '4000'
+$null = Cfg @('set', 'min_avail_mb', '2222')
+$e1 = (CfgJson @('get', '--json')).Obj.limits.min_avail_mb
+$null = Cfg @('unset', 'min_avail_mb')
+$e2 = (CfgJson @('get', '--json')).Obj.limits.min_avail_mb
+Remove-Item Env:BOSUN_MIN_AVAIL_MB
+$e3 = (CfgJson @('get', '--json')).Obj.limits.min_avail_mb
+Check ($e1.value -eq 4000 -and $e1.source -eq 'environment' -and $e1.saved -eq 2222 -and $e2.source -eq 'environment' -and $null -eq $e2.saved -and $e3.source -eq 'default' -and $e3.value -eq 6144) "with BOSUN_MIN_AVAIL_MB set, a save and an unset change what is saved while the variable stays in effect"
+# Refused values change nothing, byte for byte, and say which key.
+$before = [IO.File]::ReadAllBytes($cfgFile)
+foreach ($bad in @(@('slots', '0'), @('slots', '2x'), @('min_avail_mb', '-1'), @('nonsense', '1'))) {
+  $r = CfgJson (@('set') + $bad + @('--json'))
+  Check ($r.Code -eq 64 -and $r.Obj.ok -eq $false -and $r.Obj.key -eq $bad[0] -and $r.Obj.error) "config set $($bad -join ' ') is refused with exit 64 and its key named ($($r.Text))"
+}
+Check ([Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($before)) "and the file is byte for byte as it was"
+$null = Cfg @('unset', 'slots')
+Check ((CfgJson @('get', '--json')).Obj.limits.slots.source -eq 'default') "config unset puts a key back to its default"
+$lines = @((& $bosun config get max_wait_s min_guest_mb) | Where-Object { $_ })
+Check ($lines.Count -eq 2 -and $lines[0] -eq 'max_wait_s=77' -and $lines[1] -eq 'min_guest_mb=555') "config get with keys prints one key=value line each, as the WSL shim reads them ($($lines -join '; '))"
+# Saving safely: a file held with no sharing can't be read, so it is not written; one held sharing read only can't
+# be replaced, so the old one stays with nothing left behind, and the save works once released.
+$before = [IO.File]::ReadAllBytes($cfgFile)
+$lock = [IO.File]::Open($cfgFile, 'Open', 'Read', 'None')
+try { $r1 = CfgJson @('set', 'slots', '3', '--json') } finally { $lock.Dispose() }
+$lock = [IO.File]::Open($cfgFile, 'Open', 'Read', 'Read')
+try { $r2 = CfgJson @('set', 'slots', '3', '--json') } finally { $lock.Dispose() }
+$leftTemps = @(Get-ChildItem -LiteralPath (Split-Path $cfgFile) -Filter '*.tmp').Count
+$same = [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($before)
+$r3 = CfgJson @('set', 'slots', '3', '--json')
+Check ($r1.Code -eq 74 -and $r1.Obj.ok -eq $false -and $r2.Code -eq 74 -and $same -and $leftTemps -eq 0 -and $r3.Code -eq 0 -and (CfgJson @('get', '--json')).Obj.limits.slots.saved -eq 3) "a held config file is never half written: refused (exit $($r1.Code), $($r2.Code)), kept, nothing left behind, and saved once released"
+# Two writers at once don't lose each other's change.
+$w1 = Start-Process $bosun -ArgumentList 'config', 'set', 'max_wait_s', '11' -PassThru -WindowStyle Hidden
+$w2 = Start-Process $bosun -ArgumentList 'config', 'set', 'min_guest_mb', '22' -PassThru -WindowStyle Hidden
+$null = $w1.WaitForExit(15000); $null = $w2.WaitForExit(15000)
+$both = (CfgJson @('get', '--json')).Obj.limits
+Check ($both.max_wait_s.saved -eq 11 -and $both.min_guest_mb.saved -eq 22 -and $both.slots.saved -eq 3) "two config set at once both land ($($both.max_wait_s.saved), $($both.min_guest_mb.saved))"
+# A damaged file is never overwritten, and never stops a build: the command runs on the defaults, saying so once.
+Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":' -NoNewline
+$damaged = [IO.File]::ReadAllBytes($cfgFile)
+$r = CfgJson @('set', 'slots', '2', '--json')
+$runOut = & $bosun run --ns $ns -- $sleeper (Join-Path $work 'cfgbad.txt') 1 37 2>&1 | Out-String
+$runCode = $LASTEXITCODE
+$g = (CfgJson @('get', '--json')).Obj
+Check ($r.Code -eq 74 -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($damaged)) "config set refuses to overwrite a damaged file (exit $($r.Code)), leaving it as it was"
+Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json')).Count -eq 1 -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "with a damaged config.json a build still runs on the defaults (exit $runCode), said once"
+$env:LOCALAPPDATA = $savedHome
+
+# Saved limits govern real jobs (in the test's own home, so its records and job log are the ones read here).
+$homeCfg = Join-Path $savedHome 'Bosun\config.json'
+$minAvail = { (Status-Json).Obj.memory.min_avail_mb }
+$d0 = & $minAvail
+$null = Cfg @('set', 'min_avail_mb', '1234'); $d1 = & $minAvail
+$env:BOSUN_MIN_AVAIL_MB = '4000'; $d2 = & $minAvail
+$d3 = (Status-Json @('--min-avail-mb', '5000')).Obj.memory.min_avail_mb
+Remove-Item Env:BOSUN_MIN_AVAIL_MB
+Check ($d0 -eq 6144 -and $d1 -eq 1234 -and $d2 -eq 4000 -and $d3 -eq 5000) "the memory floor comes from the default, then the file, then the variable, then the flag ($d0, $d1, $d2, $d3)"
+$null = Cfg @('unset', 'min_avail_mb')
+foreach ($n in 1, 2) {
+  $null = Cfg @('set', 'slots', "$n")
+  $f = Join-Path $work "cfgslots$n.txt"
+  $two = 1..2 | ForEach-Object { Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--min-avail-mb', '0', '--', (Q $sleeper), (Q $f), '800' -PassThru -WindowStyle Hidden }
+  $two | Wait-Process -Timeout 60
+  $o = MaxOverlap $f
+  Check ($o -eq $n) "with slots $n saved, two jobs overlap by $n (got $o)"
+}
+$null = Cfg @('unset', 'slots')
+# The saved wait: 2 s runs a job without a slot after about 2 s; 0 waits as long as it takes.
+$h = Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--slots', '1', '--min-avail-mb', '0', '--', (Q $sleeper), (Q (Join-Path $work 'cfgw0.txt')), '6000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$null = Cfg @('set', 'max_wait_s', '2')
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'cfgw2.txt') 1 2>$null
+$w2l = Job-Line '*cfgw2.txt*'
+$env:BOSUN_MAX_WAIT = '1'
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'cfgwe.txt') 1 2>$null
+Remove-Item Env:BOSUN_MAX_WAIT
+$wel = Job-Line '*cfgwe.txt*'
+Check ($w2l.Count -eq 1 -and $w2l[0].timed_out_into_queue -eq $true -and $w2l[0].waited_s -ge 1.5 -and $w2l[0].waited_s -lt 4.5 -and $wel.Count -eq 1 -and $wel[0].timed_out_into_queue -eq $true -and $wel[0].waited_s -lt 1.8) "a saved max_wait_s 2 runs a job without a slot after $($w2l.waited_s) s, and BOSUN_MAX_WAIT=1 beats it ($($wel.waited_s) s)"
+$null = $h.WaitForExit(15000)
+$h = Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--slots', '1', '--min-avail-mb', '0', '--', (Q $sleeper), (Q (Join-Path $work 'cfgz0.txt')), '4000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$null = Cfg @('set', 'max_wait_s', '0')
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 -- $sleeper (Join-Path $work 'cfgz.txt') 1 2>$null
+$zl = Job-Line '*cfgz.txt*'
+Check ($zl.Count -eq 1 -and $zl[0].timed_out_into_queue -eq $false -and $zl[0].slot -eq 0 -and $zl[0].waited_s -ge 3) "a saved max_wait_s 0 waits as long as it takes, then takes the slot (waited $($zl.waited_s) s)"
+$null = $h.WaitForExit(15000)
+$h = Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--slots', '1', '--min-avail-mb', '0', '--max-wait', '0', '--', (Q $sleeper), (Q (Join-Path $work 'cfgf0.txt')), '4000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+& $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 -- $sleeper (Join-Path $work 'cfgf.txt') 1 2>$null
+$fl = Job-Line '*cfgf.txt*'
+Check ($fl.Count -eq 1 -and $fl[0].timed_out_into_queue -eq $true -and $fl[0].waited_s -lt 1.8) "a typed --max-wait 1 beats the saved 0 ($($fl.waited_s) s)"
+$null = $h.WaitForExit(15000)
+# The saved memory floor holds slot 1 shut.
+$null = Cfg @('set', 'max_wait_s', '60')
+$null = Cfg @('set', 'min_avail_mb', '99999999')
+$h = Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--slots', '2', '--', (Q $sleeper), (Q (Join-Path $work 'cfgm0.txt')), '5000' -PassThru -WindowStyle Hidden
+$null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+$w = Start-Process $bosun -ArgumentList 'run', '--ns', $ns, '--slots', '2', '--', (Q $sleeper), (Q (Join-Path $work 'cfgm1.txt')), '200' -PassThru -WindowStyle Hidden
+$held = Wait-Until { (@(Records | Where-Object Name -like "wait-$($w.Id)-*") | ForEach-Object { Read-Rec $_.Name }).waiting_for -eq 'memory' }
+Check ($held -and -not (Read-Rec 'slot-1.json')) "a saved min_avail_mb holds a second job off slot 1, waiting for memory"
+& "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $w.Id 2>&1 | Out-Null
+$null = $h.WaitForExit(15000)
+$null = & $bosun status --ns $ns  # a reader's pass sweeps the killed waiter's record, as one does in use
+Remove-Item -LiteralPath $homeCfg -ErrorAction Ignore  # the later cases set their own limits
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'
@@ -663,6 +789,40 @@ if ($SkipWsl) {
     wsl.exe -d Ubuntu -- python3 -I $logger $wslLogsLinux --once
     $cw = Get-Content -LiteralPath (Join-Path $wslLogs 'current-wsl.json') -Raw | ConvertFrom-Json -DateKind String
     Check ($cw.schema_version -eq 1 -and $cw.side -eq 'wsl' -and [math]::Abs($cw.memory.total_mb - $total) -le 0.1 * $total -and $null -eq $cw.wsl_vm -and @(Get-ChildItem -LiteralPath $wslLogs -Filter '*.tmp').Count -eq 0) "the WSL logger's current-wsl.json reads from Windows, its total memory as /proc/meminfo gives ($($cw.memory | ConvertTo-Json -Compress))"
+
+    # The shim takes the saved wait and guest floor (D01 T01 §5). Slot 0 held, so the job gets slot 1 and waits for guest
+    # memory it can't have, for the saved 3 s rather than the shim's own 900.
+    $null = & $bosun config set min_guest_mb 99999999
+    $null = & $bosun config set max_wait_s 3
+    $gs2 = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim status --ns $ns --slots 2 --json | Out-String) | ConvertFrom-Json -DateKind String
+    $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'cfgwslhold.txt')),'30000' -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+    $cfgMark = "cfgwsl$PID"
+    wsl.exe -d Ubuntu --cd "$linuxRepo/sub" -- env "BOSUN_EXE=$exeWsl" bash $shim run --ns $ns --slots 2 --min-avail-mb 0 -- bash -c 'exit 0' $cfgMark 2>&1 | Out-Null
+    $null = Wait-Until { (Job-Line "*$cfgMark*").Count -eq 1 } 10000
+    $cl = Job-Line "*$cfgMark*"
+    $zeroMark = "cfgwslzero$PID"
+    wsl.exe -d Ubuntu --cd "$linuxRepo/sub" -- env "BOSUN_EXE=$exeWsl" BOSUN_MIN_GUEST_MB=0 bash $shim run --ns $ns --slots 2 --min-avail-mb 0 -- bash -c 'exit 0' $zeroMark 2>&1 | Out-Null
+    $null = Wait-Until { (Job-Line "*$zeroMark*").Count -eq 1 } 10000
+    $zl = Job-Line "*$zeroMark*"
+    $badMark = "cfgwslbad$PID"
+    $badSaid = wsl.exe -d Ubuntu --cd "$linuxRepo/sub" -- env "BOSUN_EXE=$exeWsl" BOSUN_MAX_WAIT=abc bash $shim run --ns $ns --slots 2 --min-avail-mb 0 -- bash -c 'exit 0' $badMark 2>&1 | Out-String
+    $null = Wait-Until { (Job-Line "*$badMark*").Count -eq 1 } 10000
+    $bl = Job-Line "*$badMark*"
+    Stop-Process -Id $h.Id -Force -ErrorAction Ignore
+    Remove-Item -LiteralPath (Join-Path $recDir 'slot-0.json') -ErrorAction Ignore  # the stopped holder's
+    Check ($gs2.guest.min_guest_mb -eq 99999999) "the shim's status --json reads the saved guest floor ($($gs2.guest.min_guest_mb))"
+    Check ($cl.Count -eq 1 -and $cl[0].slot -eq 1 -and $cl[0].waited_s -ge 2.5 -and $cl[0].waited_s -le 10) "a WSL job waits out the saved max_wait_s 3 for the saved guest floor (waited $($cl.waited_s) s)"
+    Check ($zl.Count -eq 1 -and $zl[0].waited_s -lt 2.5) "with BOSUN_MIN_GUEST_MB=0 the same job doesn't wait (waited $($zl.waited_s) s)"
+    Check ($bl.Count -eq 1 -and $badSaid -match 'ignoring BOSUN_MAX_WAIT=abc' -and $bl[0].waited_s -ge 2.5 -and $bl[0].waited_s -le 10) "a bad BOSUN_MAX_WAIT is said and skipped, so the saved wait still applies (waited $($bl.waited_s) s)"
+    # A bosun.exe whose config get fails: the shim says so and runs on its own defaults.
+    $fakeExe = Join-Path $work 'fake-bosun.sh'
+    [IO.File]::WriteAllText($fakeExe, "#!/bin/bash`nif [ `"`$1`" = config ]; then exit 1; fi`nexec `"`$REAL_BOSUN`" `"`$@`"`n")
+    $fakeWsl = (wsl.exe -d Ubuntu -- wslpath -a $fakeExe.Replace('\', '/')).Trim()
+    $failSaid = wsl.exe -d Ubuntu --cd "$linuxRepo/sub" -- env "BOSUN_EXE=$fakeWsl" "REAL_BOSUN=$exeWsl" bash $shim run --ns $ns --slots 1 --min-avail-mb 0 -- true 2>&1 | Out-String
+    $failCode = $LASTEXITCODE
+    Check ($failCode -eq 0 -and $failSaid -match "can't read the saved limits") "when bosun.exe can't answer config get, the shim says so and runs on its defaults (exit $failCode)"
+    Remove-Item -LiteralPath (Join-Path $savedHome 'Bosun\config.json') -ErrorAction Ignore
 
     # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
     $marker = "killmarker$PID"

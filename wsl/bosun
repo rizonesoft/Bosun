@@ -11,8 +11,6 @@ explicit_exe="${BOSUN_EXE:-}"
 [ -r "$HOME/.config/bosun/env" ] && . "$HOME/.config/bosun/env"
 EXE="${explicit_exe:-${BOSUN_EXE:-bosun.exe}}"
 export BOSUN_EXE="$EXE"  # A nested shim must use the same executable.
-MIN_GUEST_MB="${BOSUN_MIN_GUEST_MB:-3072}"
-MAX_WAIT="${BOSUN_MAX_WAIT:-900}"
 MAX_WRITE_GB="${BOSUN_MAX_WRITE_GB:-100}"
 
 guest_avail_mb() { awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo; }
@@ -28,11 +26,54 @@ whole() {
 }
 guest_total_mb() { awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo; }
 
-# Linux variables do not reach bosun.exe by themselves, so they travel as flags, the same ones for run and status.
-# Flags from the command line come later and win.
-args=(--max-wait "$MAX_WAIT")
-[ -n "${BOSUN_SLOTS:-}" ] && args+=(--slots "$BOSUN_SLOTS")
-[ -n "${BOSUN_MIN_AVAIL_MB:-}" ] && args+=(--min-avail-mb "$BOSUN_MIN_AVAIL_MB")
+# A limit from a Linux variable ($1), printed as plain decimal when it is a whole number from $2 to $3; a bad one is
+# said and skipped, so that one limit falls back to config.json or its default (D01 T01 §5), as bosun.exe does.
+env_limit() {
+  local v="${!1:-}"
+  [ -n "$v" ] || return 1
+  case "$v" in *[!0-9]*) echo "[bosun] ignoring $1=$v: not a whole number" >&2; return 1 ;; esac
+  v="${v#"${v%%[!0]*}"}"
+  v="${v:-0}"
+  if [ "${#v}" -gt 13 ] || [ "$v" -lt "$2" ] || [ "$v" -gt "$3" ]; then
+    echo "[bosun] ignoring $1=${!1}: not from $2 to $3" >&2
+    return 1
+  fi
+  printf '%s' "$v"
+}
+
+# Linux variables do not reach bosun.exe by themselves, so the valid ones travel as flags, the same ones for run and
+# status, and flags from the command line come later and win. A limit no variable sets bosun.exe takes from
+# config.json itself; the wait and guest floor the shim needs for its own guest-memory wait it asks for (config_limits).
+args=()
+MAX_WAIT=""
+MIN_GUEST_MB=""
+v="$(env_limit BOSUN_SLOTS 1 64)" && args+=(--slots "$v")
+v="$(env_limit BOSUN_MIN_AVAIL_MB 0 1099511627776)" && args+=(--min-avail-mb "$v")
+v="$(env_limit BOSUN_MAX_WAIT 0 604800)" && MAX_WAIT="$v"
+v="$(env_limit BOSUN_MIN_GUEST_MB 0 1099511627776)" && MIN_GUEST_MB="$v"
+
+# The wait and guest floor no variable or flag set, from config.json or the defaults, in one call to bosun.exe (the
+# same resolution it makes for itself); when it can't answer, the shim's own defaults, said once.
+config_limits() {
+  local need=() out k val
+  [ -n "$MAX_WAIT" ] || need+=(max_wait_s)
+  [ -n "$MIN_GUEST_MB" ] || need+=(min_guest_mb)
+  [ "${#need[@]}" -gt 0 ] || return 0
+  if out="$("$EXE" config get "${need[@]}" 2>/dev/null)"; then
+    while IFS='=' read -r k val; do
+      val="${val%$'\r'}"
+      case "$k" in
+        max_wait_s) [ -n "$MAX_WAIT" ] || MAX_WAIT="$val" ;;
+        min_guest_mb) [ -n "$MIN_GUEST_MB" ] || MIN_GUEST_MB="$val" ;;
+      esac
+    done <<<"$out"
+  fi
+  if [ -z "$MAX_WAIT" ] || [ -z "$MIN_GUEST_MB" ]; then
+    echo "[bosun] can't read the saved limits through $EXE config get, so this job uses the defaults" >&2
+  fi
+  MAX_WAIT="${MAX_WAIT:-900}"
+  MIN_GUEST_MB="${MIN_GUEST_MB:-3072}"
+}
 
 # The WSL logger is the bosun-log.service user unit wsl/install.sh sets up: asked of systemd, so no other process that
 # merely mentions bosun_log.py counts. Without a user systemd it can't be told.
@@ -44,16 +85,16 @@ wsl_logger() {
 # status adds this side's own figures (D01 T01 §3), which Windows can't see, so bosun.exe writes the one object.
 if [ "${1:-}" = "status" ]; then
   shift
-  whole MIN_GUEST_MB BOSUN_MIN_GUEST_MB "$MIN_GUEST_MB" 1099511627776
+  [ -n "$MIN_GUEST_MB" ] && args+=(--min-guest-mb "$MIN_GUEST_MB")  # else bosun.exe takes it from config.json
   exec "$EXE" status "${args[@]}" --guest-avail-mb "$(guest_avail_mb)" --guest-total-mb "$(guest_total_mb)" \
-    --min-guest-mb "$MIN_GUEST_MB" --wsl-logger "$(wsl_logger)" "$@"
+    --wsl-logger "$(wsl_logger)" "$@"
 fi
 [ "${1:-}" = "run" ] || exec "$EXE" "$@"
 shift
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do
   case "$1" in
-    --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; MAX_WAIT="$2"; args+=("$1" "$2"); shift 2 ;;
-    --min-guest-mb) [ $# -ge 2 ] || die "--min-guest-mb needs a value"; MIN_GUEST_MB="$2"; shift 2 ;;
+    --max-wait) [ $# -ge 2 ] || die "--max-wait needs a value"; whole MAX_WAIT --max-wait "$2" 1099511627776; shift 2 ;;
+    --min-guest-mb) [ $# -ge 2 ] || die "--min-guest-mb needs a value"; whole MIN_GUEST_MB --min-guest-mb "$2" 1099511627776; shift 2 ;;
     --max-write-gb) [ $# -ge 2 ] || die "--max-write-gb needs a value"; MAX_WRITE_GB="$2"; shift 2 ;;
     --slots|--min-avail-mb|--ns) [ $# -ge 2 ] || die "$1 needs a value"; args+=("$1" "$2"); shift 2 ;;
     *) die "unknown option $1" ;;
@@ -63,9 +104,6 @@ done
 shift
 [ $# -gt 0 ] || die "usage: bosun run [options] -- command [args]"
 whole MAX_WRITE_GB --max-write-gb "$MAX_WRITE_GB" 8589934591  # bash's signed 64 bits must hold it in bytes
-whole MIN_GUEST_MB --min-guest-mb "$MIN_GUEST_MB" 1099511627776
-whole MAX_WAIT --max-wait "$MAX_WAIT" 1099511627776
-args+=(--min-guest-mb "$MIN_GUEST_MB")  # acquire puts the guest floor in the holder's record, for status
 
 # Says a thing once per boot, so a missing protection is reported without filling every job's output.
 warn_once() {
@@ -144,6 +182,9 @@ if [ -n "${BOSUN_SLOT:-}" ]; then
   contained "$@"
   exit $?
 fi
+
+config_limits
+args+=(--max-wait "$MAX_WAIT" --min-guest-mb "$MIN_GUEST_MB")  # acquire puts the guest floor in the holder's record
 
 # What the job's record names (D01 T01 §1): this side, the command with each word quoted as the shell reads it back,
 # and the Git top level of the working folder when there is one. bosun.exe acquire writes the record, as it holds the slot.

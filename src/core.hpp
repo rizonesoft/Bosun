@@ -1166,4 +1166,120 @@ inline std::string snapshot_json(const Snapshot& s) {
     return o.str();
 }
 
+// --- One config file for queue limits (D01 T01 §5) -------------------------------------------------------------------
+// %LOCALAPPDATA%\Bosun\config.json holds the limits the panel's Limits form saves. A flag beats a variable, a variable
+// the file, and the file the default, so scripts that set flags or variables behave as they always have.
+
+struct LimitSpec {
+    const char* key;
+    uint64_t min, max, fallback;
+    const char* env;  // the variable that sets it
+};
+
+inline const std::vector<LimitSpec>& limit_specs() {
+    static const std::vector<LimitSpec> specs{
+        {"slots", 1, 64, 2, "BOSUN_SLOTS"},
+        {"min_avail_mb", 0, kMaxQuantity, 6144, "BOSUN_MIN_AVAIL_MB"},
+        {"max_wait_s", 0, 604800, 900, "BOSUN_MAX_WAIT"},  // 0 is no deadline: a job waits as long as it takes
+        {"min_guest_mb", 0, kMaxQuantity, 3072, "BOSUN_MIN_GUEST_MB"},
+    };
+    return specs;
+}
+
+inline const LimitSpec* find_limit(const std::string& key) {
+    for (const auto& s : limit_specs())
+        if (key == s.key) return &s;
+    return nullptr;
+}
+
+inline std::string limit_range(const LimitSpec& s) {
+    return "a whole number from " + std::to_string(s.min) + " to " + std::to_string(s.max);
+}
+
+struct ConfigFile {
+    bool valid = true;                                        // false: the whole file was refused, every key falls back
+    std::string error;                                        // why, when it was
+    std::map<std::string, uint64_t> values;                   // the known keys it sets validly
+    std::vector<std::pair<std::string, std::string>> refused;  // (key, why) for each known key with a bad value
+    std::vector<std::pair<std::string, FlatValue>> unknown;   // keys this version doesn't know, kept to write back
+};
+
+inline ConfigFile parse_config(const std::string& text) {
+    ConfigFile f;
+    auto obj = parse_flat_object(text);
+    if (!obj) {
+        f.valid = false;
+        f.error = "not one flat JSON object (cut short, a repeated key, or not JSON)";
+        return f;
+    }
+    auto version = obj->find("schema_version");
+    if (version == obj->end() || version->second.kind != FlatValue::Integer || version->second.number != 1) {
+        f.valid = false;
+        f.error = version == obj->end() ? "no schema_version" : "schema_version is not 1";
+        return f;
+    }
+    for (const auto& [key, v] : *obj) {
+        if (key == "schema_version") continue;
+        const LimitSpec* spec = find_limit(key);
+        if (!spec) {
+            f.unknown.push_back({key, v});
+            continue;
+        }
+        if (v.kind != FlatValue::Integer || v.negative || v.magnitude < spec->min || v.magnitude > spec->max) {
+            f.refused.push_back({key, "must be " + limit_range(*spec)});
+            continue;
+        }
+        f.values[key] = v.magnitude;
+    }
+    return f;
+}
+
+inline std::string config_json(const ConfigFile& f) {
+    std::ostringstream o;
+    o << "{\n  \"schema_version\": 1";
+    for (const auto& s : limit_specs()) {
+        auto it = f.values.find(s.key);
+        if (it != f.values.end()) o << ",\n  \"" << s.key << "\": " << it->second;
+    }
+    for (const auto& [key, v] : f.unknown) {
+        o << ",\n  \"" << json_escape(key) << "\": ";
+        switch (v.kind) {
+            case FlatValue::String: o << "\"" << json_escape(v.text) << "\""; break;
+            case FlatValue::Integer: o << v.number; break;
+            case FlatValue::Decimal: {
+                char buf[40];
+                std::snprintf(buf, sizeof(buf), "%.17g", v.decimal);
+                o << buf;
+                break;
+            }
+            case FlatValue::Bool: o << (v.flag ? "true" : "false"); break;
+            case FlatValue::Null: o << "null"; break;
+        }
+    }
+    o << "\n}\n";
+    return o.str();
+}
+
+struct ResolvedLimit {
+    uint64_t value = 0;
+    std::string source;     // "flag", "environment", "file" or "default"
+    std::string env_error;  // why the variable was skipped, when it was set but bad
+};
+
+// The flag if given, else a valid variable, else a valid saved value, else the default.
+inline ResolvedLimit resolve_limit(const LimitSpec& s, const std::optional<uint64_t>& flag, const std::optional<std::string>& env,
+                                   const std::optional<uint64_t>& saved) {
+    ResolvedLimit r;
+    std::optional<uint64_t> from_env;
+    if (env && !env->empty()) {
+        from_env = parse_count(*env, s.min, s.max);
+        if (!from_env) r.env_error = std::string(s.env) + "=" + *env + " is not " + limit_range(s);
+    }
+    if (flag) r = {*flag, "flag", r.env_error};
+    else if (from_env) r = {*from_env, "environment", ""};
+    else if (saved) r = {*saved, "file", r.env_error};
+    else r = {s.fallback, "default", r.env_error};
+    return r;
+}
+
 }  // namespace dm

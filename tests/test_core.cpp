@@ -522,6 +522,47 @@ static void report_json() {
     CHECK(sw && (*sw).has("wsl_vm") && (*sw)["wsl_vm"].kind == Json::Null);
 }
 
+static void config() {
+    // A file round-trips: the keys it sets, in table order, and a key this version doesn't know kept as it was.
+    dm::ConfigFile f = dm::parse_config("{\"schema_version\":1,\"max_wait_s\":0,\"slots\":3,\"future\":\"x\\\"y\"}");
+    CHECK(f.valid && f.refused.empty() && f.values.at("slots") == 3 && f.values.at("max_wait_s") == 0 && f.unknown.size() == 1);
+    dm::ConfigFile back = dm::parse_config(dm::config_json(f));
+    CHECK(back.valid && back.values == f.values && back.unknown.size() == 1 && back.unknown[0].second.text == "x\"y");
+    CHECK(dm::config_json(f).find("\"slots\": 3,\n  \"max_wait_s\": 0") != std::string::npos);  // table order
+    // The whole file is refused, every key falling back, for text that isn't one object or isn't this version's.
+    for (const char* bad : {"{\"schema_version\":1,\"slots\":", "[]", "", "{\"slots\":3}", "{\"schema_version\":2,\"slots\":3}",
+                            "{\"schema_version\":1,\"slots\":3,\"slots\":4}"}) {
+        dm::ConfigFile r = dm::parse_config(bad);
+        CHECK(!r.valid && !r.error.empty() && r.values.empty());
+    }
+    // One key is refused, with its reason, for a value outside its bounds or not a whole number; its siblings are kept.
+    const std::vector<std::pair<std::string, std::string>> badKeys{{"slots", "0"},          {"slots", "65"},          {"slots", "\"2\""},
+                                                                   {"min_avail_mb", "-1"},   {"max_wait_s", "604801"}, {"min_guest_mb", "1.5"}};
+    for (const auto& [key, value] : badKeys) {
+        std::string text = "{\"schema_version\":1";
+        for (const auto& spec : dm::limit_specs())  // every other key, valid, beside the bad one
+            if (key != spec.key) text += ",\"" + std::string(spec.key) + "\":" + std::to_string(spec.min + 1);
+        text += ",\"" + key + "\":" + value + "}";
+        dm::ConfigFile r = dm::parse_config(text);
+        CHECK(r.valid && r.refused.size() == 1 && r.refused[0].first == key && r.refused[0].second.find("whole number from") != std::string::npos);
+        CHECK(r.values.size() == 3 && !r.values.count(key));
+    }
+    CHECK(dm::parse_config("{\"schema_version\":1,\"slots\":64,\"max_wait_s\":604800}").values.size() == 2);  // the bounds themselves
+    // Precedence: flag, then a valid variable, then the file, then the default, each named.
+    const dm::LimitSpec& slots = *dm::find_limit("slots");
+    CHECK(dm::resolve_limit(slots, 7, std::string("5"), 3).value == 7 && dm::resolve_limit(slots, 7, std::string("5"), 3).source == "flag");
+    CHECK(dm::resolve_limit(slots, std::nullopt, std::string("5"), 3).value == 5 && dm::resolve_limit(slots, std::nullopt, std::string("5"), 3).source == "environment");
+    CHECK(dm::resolve_limit(slots, std::nullopt, std::nullopt, 3).value == 3 && dm::resolve_limit(slots, std::nullopt, std::nullopt, 3).source == "file");
+    CHECK(dm::resolve_limit(slots, std::nullopt, std::nullopt, std::nullopt).value == 2 && dm::resolve_limit(slots, std::nullopt, std::nullopt, std::nullopt).source == "default");
+    // A bad variable is skipped for its key alone, with its reason: the saved value then wins.
+    dm::ResolvedLimit skipped = dm::resolve_limit(slots, std::nullopt, std::string("3x"), 4);
+    CHECK(skipped.value == 4 && skipped.source == "file" && skipped.env_error.find("BOSUN_SLOTS=3x") != std::string::npos);
+    CHECK(dm::resolve_limit(slots, std::nullopt, std::string("99"), std::nullopt).source == "default");  // past the bound
+    dm::ResolvedLimit good = dm::resolve_limit(*dm::find_limit("max_wait_s"), std::nullopt, std::string("30"), 5);
+    CHECK(good.value == 30 && good.source == "environment" && good.env_error.empty());
+    CHECK(!dm::find_limit("nonsense") && dm::limit_specs().size() == 4);
+}
+
 static void status_json() {
     auto running = [](uint64_t start) { return [start](int64_t) { return dm::ProbeAnswer{dm::ProbeAnswer::Running, start}; }; };
     (void)running;
@@ -713,7 +754,7 @@ static const Group groups[] = {
     {"options", options, nullptr},
     {"status_json", status_json, nullptr},
     {"report_json", report_json, nullptr},
-    {"config", nullptr, "D01 T01"},
+    {"config", config, nullptr},
     {"pressure", nullptr, "D05 T02"},
 };
 

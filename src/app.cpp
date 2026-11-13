@@ -68,9 +68,11 @@ uint64_t available_mb() {
 }
 
 struct Options {
-    int slots = static_cast<int>(env_num(L"BOSUN_SLOTS", 2, 64));
-    uint64_t min_avail_mb = env_num(L"BOSUN_MIN_AVAIL_MB", 6144);
-    uint64_t max_wait_s = env_num(L"BOSUN_MAX_WAIT", 900);
+    // The four limits are resolved in apply_limits (D01 T01 §5): flag, then variable, then config.json, then default.
+    int slots = 2;
+    uint64_t min_avail_mb = 6144;
+    uint64_t max_wait_s = 900;
+    std::map<std::string, uint64_t> limit_flags;  // the limits given as flags, by config key
     uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100, dm::kMaxWriteGb);
     std::wstring ns = L"Bosun";
     int days = 7;
@@ -112,15 +114,15 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
             return n.has_value();
         };
         uint64_t guest = 0;
-        if (a == L"--slots") { if (!count(0, 64, o.slots)) return false; }
-        else if (a == L"--min-avail-mb") { if (!count(0, dm::kMaxQuantity, o.min_avail_mb)) return false; }
-        else if (a == L"--max-wait") { if (!count(0, dm::kMaxQuantity, o.max_wait_s)) return false; }
+        if (a == L"--slots") { if (!count(0, 64, o.slots)) return false; o.limit_flags["slots"] = static_cast<uint64_t>(o.slots); }
+        else if (a == L"--min-avail-mb") { if (!count(0, dm::kMaxQuantity, o.min_avail_mb)) return false; o.limit_flags["min_avail_mb"] = o.min_avail_mb; }
+        else if (a == L"--max-wait") { if (!count(0, dm::kMaxQuantity, o.max_wait_s)) return false; o.limit_flags["max_wait_s"] = o.max_wait_s; }
         else if (a == L"--max-write-gb") { if (!count(0, dm::kMaxWriteGb, o.max_write_gb)) return false; }
         else if (a == L"--days") { if (!count(1, 3650, o.days)) return false; }
         else if (a == L"--interval") { if (!count(1, 86400, o.interval_s)) return false; }
         else if (a == L"--guest-avail-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_avail_mb = guest; }
         else if (a == L"--guest-total-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_total_mb = guest; }
-        else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; }
+        else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; o.limit_flags["min_guest_mb"] = guest; }
         else if (a == L"--queued-at-ms") { if (!count(0, UINT64_MAX, guest)) return false; o.queued_at_ms = guest; }
         else if (a == L"--wsl-logger") {
             if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
@@ -1173,12 +1175,230 @@ int cmd_report(const Options& o) {
 
 }  // namespace
 
+
+// --- One config file for queue limits (D01 T01 §5) ---
+
+fs::path config_path() { return fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"config.json"; }
+
+struct LoadedConfig {
+    bool exists = false, readable = true;
+    dm::ConfigFile file;
+};
+
+LoadedConfig load_config() {
+    LoadedConfig c;
+    std::error_code ec;
+    fs::path path = config_path();
+    c.exists = fs::exists(path, ec);
+    if (!c.exists) return c;
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        c.readable = false;
+        return c;
+    }
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (in.bad()) {
+        c.readable = false;
+        return c;
+    }
+    c.file = dm::parse_config(text);
+    return c;
+}
+
+std::optional<std::string> env_text(const char* name) {
+    std::wstring v = env(widen(name).c_str());
+    if (v.empty()) return std::nullopt;
+    return narrow(v);
+}
+
+std::optional<uint64_t> saved_value(const LoadedConfig& c, const char* key) {
+    if (!c.exists || !c.readable || !c.file.valid) return std::nullopt;
+    auto it = c.file.values.find(key);
+    return it == c.file.values.end() ? std::nullopt : std::optional<uint64_t>(it->second);
+}
+
+// The four limits for this command: flag, then variable, then config.json, then default. What was ignored is said once
+// on stderr, and the command runs on the fallbacks, so a damaged file never stops a build.
+void apply_limits(Options& o) {
+    LoadedConfig c = load_config();
+    std::string where = narrow(config_path().wstring());
+    if (c.exists && !c.readable) std::cerr << "[bosun] ignoring " << where << ": it can't be read, so its limits don't apply\n";
+    else if (c.exists && !c.file.valid) std::cerr << "[bosun] ignoring " << where << ": " << c.file.error << ", so its limits don't apply\n";
+    for (const auto& [key, why] : c.file.refused) std::cerr << "[bosun] ignoring " << key << " in " << where << ": it " << why << "\n";
+    for (const auto& spec : dm::limit_specs()) {
+        auto flag = o.limit_flags.find(spec.key);
+        dm::ResolvedLimit r = dm::resolve_limit(spec, flag == o.limit_flags.end() ? std::nullopt : std::optional<uint64_t>(flag->second),
+                                                env_text(spec.env), saved_value(c, spec.key));
+        if (!r.env_error.empty()) std::cerr << "[bosun] ignoring " << r.env_error << ", so " << spec.key << " is " << r.value << " from the " << r.source << "\n";
+        std::string key = spec.key;
+        if (key == "slots") o.slots = static_cast<int>(r.value);
+        else if (key == "min_avail_mb") o.min_avail_mb = r.value;
+        else if (key == "max_wait_s") o.max_wait_s = r.value;
+        else if (key == "min_guest_mb") o.min_guest_mb = r.value;
+    }
+}
+
+// config.json replaced whole, under a mutex so two writers can't lose each other's change: 0 saved, 74 it couldn't be
+// (said in `error`), the old file kept and no temporary file left.
+int write_config(const dm::ConfigFile& f, std::string& error) {
+    fs::path path = config_path();
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    if (ec) {
+        error = "can't make " + narrow(path.parent_path().wstring()) + " (" + ec.message() + ")";
+        return 74;
+    }
+    fs::path temp = path;
+    temp += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+    std::string text = dm::config_json(f);
+    bool ok;
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+        ok = static_cast<bool>(out.flush());
+    }
+    DWORD code = ok ? 0 : GetLastError();
+    for (int attempt = 0; ok; ++attempt) {
+        if (posix_replace(temp, path)) return 0;
+        if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return 0;
+        code = GetLastError();
+        if ((code != ERROR_SHARING_VIOLATION && code != ERROR_ACCESS_DENIED) || attempt == 20) ok = false;
+        else Sleep(50);
+    }
+    fs::remove(temp, ec);
+    error = "can't replace " + narrow(path.wstring()) + " (error " + std::to_string(code) + "); it is unchanged";
+    return 74;
+}
+
+void config_reply(bool json, bool ok, const std::string& key, const std::string& message, std::optional<uint64_t> saved = std::nullopt) {
+    if (json) {
+        std::cout << "{\"ok\":" << (ok ? "true" : "false") << ",\"key\":\"" << dm::json_escape(key) << "\"";
+        if (ok) {
+            std::cout << ",\"saved\":";
+            if (saved) std::cout << *saved;
+            else std::cout << "null";
+        } else {
+            std::cout << ",\"error\":\"" << dm::json_escape(message) << "\"";
+        }
+        std::cout << "}\n";
+    } else if (ok) {
+        std::cout << message << "\n";
+    } else {
+        std::cerr << "[bosun] " << message << "\n";
+    }
+}
+
+// bosun config get [<key>...] [--json] | set <key> <value> [--json] | unset <key> [--json]
+int cmd_config(const std::vector<std::wstring>& rest) {
+    bool json = false;
+    std::vector<std::string> words;
+    for (const auto& a : rest) {
+        if (a == L"--json") json = true;
+        else words.push_back(narrow(a));
+    }
+    if (words.empty()) {
+        std::cerr << "usage: bosun config get [<key>...] [--json] | set <key> <value> [--json] | unset <key> [--json]\n";
+        return 64;
+    }
+    const std::string verb = words[0];
+    if (verb == "get") {
+        LoadedConfig c = load_config();
+        std::vector<const dm::LimitSpec*> asked;
+        for (size_t i = 1; i < words.size(); ++i) {
+            const dm::LimitSpec* spec = dm::find_limit(words[i]);
+            if (!spec) {
+                std::cerr << "[bosun] no limit named " << words[i] << "\n";
+                return 64;
+            }
+            asked.push_back(spec);
+        }
+        if (!json) {
+            if (asked.empty())
+                for (const auto& spec : dm::limit_specs()) asked.push_back(&spec);
+            for (const auto* spec : asked) {
+                dm::ResolvedLimit r = dm::resolve_limit(*spec, std::nullopt, env_text(spec->env), saved_value(c, spec->key));
+                std::cout << spec->key << "=" << r.value << "\n";
+            }
+            return 0;
+        }
+        std::ostringstream o;
+        o << "{\"schema_version\":1,\"path\":\"" << dm::json_escape(narrow(config_path().wstring())) << "\",\"exists\":" << (c.exists ? "true" : "false")
+          << ",\"readable\":" << (c.readable ? "true" : "false") << ",\"valid\":" << (c.exists && c.readable && !c.file.valid ? "false" : "true") << ",\"error\":";
+        if (c.exists && !c.readable) o << "\"it can't be read\"";
+        else if (c.exists && !c.file.valid) o << "\"" << dm::json_escape(c.file.error) << "\"";
+        else o << "null";
+        o << ",\"refused\":[";
+        for (size_t i = 0; i < c.file.refused.size(); ++i)
+            o << (i ? "," : "") << "{\"key\":\"" << dm::json_escape(c.file.refused[i].first) << "\",\"error\":\"" << dm::json_escape(c.file.refused[i].second) << "\"}";
+        o << "],\"limits\":{";
+        bool first = true;
+        for (const auto& spec : dm::limit_specs()) {
+            auto saved = saved_value(c, spec.key);
+            dm::ResolvedLimit r = dm::resolve_limit(spec, std::nullopt, env_text(spec.env), saved);
+            o << (first ? "" : ",") << "\"" << spec.key << "\":{\"value\":" << r.value << ",\"source\":\"" << r.source << "\",\"saved\":";
+            if (saved) o << *saved;
+            else o << "null";
+            o << ",\"min\":" << spec.min << ",\"max\":" << spec.max << ",\"default\":" << spec.fallback << ",\"variable\":\"" << spec.env << "\"}";
+            first = false;
+        }
+        o << "}}";
+        std::cout << o.str() << "\n";
+        return 0;
+    }
+    if (verb != "set" && verb != "unset") {
+        std::cerr << "[bosun] config takes get, set or unset\n";
+        return 64;
+    }
+    const std::string key = words.size() > 1 ? words[1] : "";
+    const dm::LimitSpec* spec = dm::find_limit(key);
+    if (!spec || words.size() != (verb == "set" ? 3u : 2u)) {
+        config_reply(json, false, key, spec ? "usage: bosun config " + verb + " <key>" + (verb == "set" ? " <value>" : "") : "no limit named " + key);
+        return 64;
+    }
+    std::optional<uint64_t> value;
+    if (verb == "set") {
+        value = dm::parse_count(words[2], spec->min, spec->max);
+        if (!value) {
+            config_reply(json, false, key, key + " must be " + dm::limit_range(*spec));
+            return 64;
+        }
+    }
+    // One writer at a time: the read, the change and the replace happen under this mutex.
+    HANDLE lock = CreateMutexW(nullptr, FALSE, L"Local\\Bosun.Config");
+    if (lock) WaitForSingleObject(lock, 10000);
+    LoadedConfig c = load_config();
+    int code = 0;
+    std::string error;
+    if (c.exists && !c.readable) {
+        error = narrow(config_path().wstring()) + " can't be read, so it isn't overwritten";
+        code = 74;
+    } else if (c.exists && !c.file.valid) {
+        error = narrow(config_path().wstring()) + " is damaged (" + c.file.error + "), so it isn't overwritten; fix or remove it";
+        code = 74;
+    } else {
+        if (value) c.file.values[key] = *value;
+        else c.file.values.erase(key);
+        code = write_config(c.file, error);
+    }
+    if (lock) {
+        ReleaseMutex(lock);
+        CloseHandle(lock);
+    }
+    if (code) {
+        config_reply(json, false, key, error);
+        return code;
+    }
+    config_reply(json, true, key, value ? key + " saved as " + std::to_string(*value) : key + " removed; it now comes from the variable or the default", value);
+    return 0;
+}
+
 int bosun_main(const std::vector<std::wstring>& args) {
     if (args.empty()) {
-        std::cerr << "usage: bosun run|acquire|status|log|report [options] [-- command]\n";
+        std::cerr << "usage: bosun run|acquire|status|log|report|config [options] [-- command]\n";
         return 64;
     }
     std::vector<std::wstring> rest(args.begin() + 1, args.end());
+    if (args[0] == L"config") return cmd_config(rest);
     Options o;
     try {
         if (!parse_options(rest, o)) {
@@ -1189,6 +1409,7 @@ int bosun_main(const std::vector<std::wstring>& args) {
         std::cerr << "[bosun] bad option value\n";
         return 64;
     }
+    apply_limits(o);
     if (o.slots < 1) {
         std::cerr << "[bosun] --slots must be at least 1\n";
         return 64;
