@@ -515,7 +515,7 @@ inline std::string record_json(const SlotRecord& r) { return "{" + record_fields
 // A flat JSON object whose values are strings, integers or null, as the records are; anything else is refused.
 struct FlatValue {
     enum Kind { String, Integer, Decimal, Bool, Null } kind = Null;
-    std::string text;
+    std::string text;  // a String's contents; a number's own text, exactly as read (round 2 of D01 T01 §5)
     int64_t number = 0;
     bool negative = false;
     uint64_t magnitude = 0;
@@ -600,6 +600,7 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         ++i;
         ws();
         FlatValue v;
+        size_t number_from = i;  // where a number's own text starts
         if (i < s.size() && s[i] == '"') {
             v.kind = FlatValue::String;
             if (!str(v.text)) return std::nullopt;
@@ -613,7 +614,7 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         } else {
             v.kind = FlatValue::Integer;
             if (i < s.size() && s[i] == '-') { v.negative = true; ++i; }
-            size_t digits = 0, digits_from = i;
+            size_t digits = 0;
             while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
                 uint64_t d = static_cast<uint64_t>(s[i] - '0');
                 if (v.overflow || v.magnitude > (UINT64_MAX - d) / 10) {
@@ -631,7 +632,6 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 if (!allow_overflow) return std::nullopt;
                 v.overflow = true;
             }
-            if (v.overflow) v.text = s.substr(digits_from, i - digits_from);  // kept, to be written back unchanged
             v.number = v.negative ? static_cast<int64_t>(0 - v.magnitude) : static_cast<int64_t>(v.magnitude);
             v.decimal = static_cast<double>(v.number);
             if (i < s.size() && s[i] == '.') {  // a decimal fraction; no exponent is ever written
@@ -666,6 +666,7 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 v.kind = FlatValue::Decimal;
             }
         }
+        if (v.kind == FlatValue::Integer || v.kind == FlatValue::Decimal) v.text = s.substr(number_from, i - number_from);
         if (out.count(key)) return std::nullopt;  // a repeated key is no record anyone wrote
         out[key] = v;
         ws();
@@ -1273,16 +1274,10 @@ inline std::string config_json(const ConfigFile& f) {
         o << ",\n  \"" << json_escape(key) << "\": ";
         switch (v.kind) {
             case FlatValue::String: o << "\"" << json_escape(v.text) << "\""; break;
+            // A number goes back exactly as it was read, so no value this version doesn't know is ever rewritten: not an
+            // unsigned one as signed, nor one past a double's range as "inf" (round 2).
             case FlatValue::Integer:
-                if (v.overflow) o << (v.negative ? "-" : "") << v.text;  // its own digits, as read
-                else o << v.number;
-                break;
-            case FlatValue::Decimal: {
-                char buf[40];
-                std::snprintf(buf, sizeof(buf), "%.17g", v.decimal);
-                o << buf;
-                break;
-            }
+            case FlatValue::Decimal: o << v.text; break;
             case FlatValue::Bool: o << (v.flag ? "true" : "false"); break;
             case FlatValue::Null: o << "null"; break;
         }

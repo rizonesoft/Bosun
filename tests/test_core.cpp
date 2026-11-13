@@ -563,6 +563,14 @@ static void config() {
     dm::ConfigFile bigUnknown = dm::parse_config("{\"schema_version\":1,\"later\":123456789012345678901234567890}");
     CHECK(bigUnknown.valid && dm::config_json(bigUnknown).find("\"later\": 123456789012345678901234567890") != std::string::npos);
     CHECK(!dm::parse_config("{\"schema_version\":18446744073709551617}").valid);
+    // Round 2: unknown numbers go back exactly as read: an unsigned one past INT64_MAX, one past a double's range, and
+    // one with an exponent, each survives a save and reads again.
+    dm::ConfigFile odd = dm::parse_config("{\"schema_version\":1,\"slots\":1,\"u\":18446744073709551615,\"huge\":1e309,\"e\":2.50E-3}");
+    std::string written = dm::config_json(odd);
+    CHECK(odd.valid && written.find("\"u\": 18446744073709551615") != std::string::npos && written.find("\"huge\": 1e309") != std::string::npos);
+    CHECK(written.find("\"e\": 2.50E-3") != std::string::npos && written.find("inf") == std::string::npos && written.find("-1") == std::string::npos);
+    dm::ConfigFile oddBack = dm::parse_config(written);
+    CHECK(oddBack.valid && oddBack.values.at("slots") == 1 && oddBack.unknown.size() == 3 && dm::config_json(oddBack) == written);
     // Precedence: flag, then a valid variable, then the file, then the default, each named.
     const dm::LimitSpec& slots = *dm::find_limit("slots");
     CHECK(dm::resolve_limit(slots, 7, std::string("5"), 3).value == 7 && dm::resolve_limit(slots, 7, std::string("5"), 3).source == "flag");
