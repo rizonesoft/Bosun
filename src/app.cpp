@@ -454,7 +454,9 @@ int cmd_acquire(const Options& o) {
 }
 
 int cmd_status(const Options& o) {
-    sweep_records(o);  // stale waiters go; holders' records are only ever their holders' to change
+    // Stale waiters go; holders' records are only ever their holders' to change. A folder that can't be read is said,
+    // never shown as an empty queue.
+    bool records_readable = sweep_records(o);
     int busy = 0;
     for (int i = 0; i < o.slots; ++i) {
         HANDLE h = open_slot(o.ns, i);
@@ -472,6 +474,7 @@ int cmd_status(const Options& o) {
     HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\Bosun.Logger");
     std::cout << "logger: " << (logger ? "running" : "not running") << "\n";
     if (logger) CloseHandle(logger);
+    if (!records_readable) std::cout << "records: unavailable (" << narrow(records_dir(o).wstring()) << " can't be read), so who holds and waits can't be named\n";
     return 0;
 }
 

@@ -224,6 +224,18 @@ $code = $LASTEXITCODE
 $env:LOCALAPPDATA = $savedHome
 Check ($code -eq 37 -and $out -match "can't publish this job's slot record" -and ([regex]::Matches($out, "can't publish")).Count -eq 1) "a record that can't be written leaves the exit code (got $code) and says so once"
 
+# A records folder that can't be read (here a file where it would be) is said by status, never shown as an empty queue.
+$unreadHome = Join-Path $work 'unread-home'
+$unreadDir = Join-Path $unreadHome "Bosun\run\$((Get-Process -Id $PID).SessionId)"
+New-Item -ItemType Directory -Path $unreadDir -Force | Out-Null
+Set-Content -LiteralPath (Join-Path $unreadDir $nsDir) -Value 'a file where the records folder would go'
+$env:LOCALAPPDATA = $unreadHome
+$shown = & $bosun status --ns $ns --slots 1 | Out-String
+$env:LOCALAPPDATA = $savedHome
+Check ($shown -match 'slots busy: 0 of 1' -and $shown -match "records: unavailable \(.*can't be read\)") "status says the records can't be read ($($shown.Trim() -replace '\s+', ' '))"
+$shown = & $bosun status --ns $ns --slots 1 | Out-String
+Check ($shown -notmatch 'records:') "and says nothing of them when they can"
+
 # The nesting marker crosses into WSL, so a run on the other side does not wait on its own slot.
 if ($SkipWsl) {
   'skip the nested WSL run: -SkipWsl was given'
