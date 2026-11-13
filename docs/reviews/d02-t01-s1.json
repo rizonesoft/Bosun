@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T01 \u00a71",
+  "title": "Generate the theme from tokens",
+  "implementation_sha": "a07111b17d9cb9f153498b6dc94b79d4ff34bf0d",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T01-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/build-theme.py --check -> exit 0; pwsh scripts/check-all.ps1 -Only theme fails after a hand edit and passes once rebuilt",
+    "python -m unittest scripts.tests.test_build_theme -> Ran 10 tests, OK",
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-class \"*ThemeTests*\" -> 3 passed",
+    "full gate, CI on a07111b -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43444448300, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43444448486"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T01-s1.md",
+    "verdict": "completed",
+    "candidate": "28841e883ced2a3e181b1c676db04e6516623c23",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T01-s1.md",
+    "candidate": "7ad60eb13d29298acc68798853ea72f5f9b3021a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7ad60eb13d29298acc68798853ea72f5f9b3021a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -64,7 +64,7 @@ Sections: 23 | Checklist items: 133
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
-| [ ]    | D02 T01 §1  | Generate the theme from tokens              | none            | 7     |
+| [x]    | D02 T01 §1  | Generate the theme from tokens              | none            | 7     |
 | [ ]    | D02 T01 §2  | Contrast and stray colour tests             | none            | 3     |
 | [ ]    | D02 T01 §5  | App icon ICO from the masters               | none            | 6     |
 | [ ]    | D02 T01 §3  | Tray state icons and the icon drift gate    | none            | 4     |
@@ -142,6 +142,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 37/87 verified sections, 3 ready to run now.
+Progress: 38/87 verified sections, 5 ready to run now.
 
 Checklist: 408/648 items completed (includes Commit items).

@@ -38,7 +38,7 @@ title: "TODO-01 -- Brand and theme"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Generate the theme from tokens | D00 T02 §2 | [ ] |
+| 1 | §1 | Generate the theme from tokens | D00 T02 §2 | [x] |
 | 2 | §2 | Contrast and stray colour tests | §1 | [ ] |
 | 3 | §5 | App icon ICO from the masters | -- | [ ] |
 | 4 | §3 | Tray state icons and the icon drift gate | §1, §5 | [ ] |
@@ -72,6 +72,9 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 - [x] Commit: `theme: generate XAML from tokens`
 
 **Test checkpoint:** `python scripts/build-theme.py --check` exits 0, and exits nonzero after a hand edit; `python scripts/run-tests.py` passes `test_build_theme`; and `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ThemeTests*"` passes.
+
+> **Verified:** 2026-11-13 | §1 | a07111b17d9cb9f153498b6dc94b79d4ff34bf0d
+> **Review:** `docs/reviews/d02-t01-s1.json`
 
 ## 2. Contrast and stray colour tests
 
