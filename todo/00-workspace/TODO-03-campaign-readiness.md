@@ -794,6 +794,8 @@ Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the s
 
 Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`review_in_flight`) or the CI gate (`ci_in_flight`) runs, but not while `scripts/check-all.ps1` (about 15 minutes) or `scripts/measure-build.ps1` runs in the background: the Stop hook sends the turn straight back, three times in that section, and the session can only wait in a foreground loop, which holds the tool for up to ten minutes and is cut off past it (`docs/phase-runs/2026-11-12-phase-0.md`, Lessons). The fix follows the review marks: each long gate leaves a mark while it runs, and a live mark is a wait.
 
+**Corrected 2026-11-13:** checked against the tree before the build. Since this was filed, the owner's test cadence (`process-todo-section`, "Test cadence") made CI the full gate of record, so a local `check-all` runs only for what CI can't run, to reproduce a red run, or when the CI gate answers `unverified`; a real-machine measurement (`scripts/measure-build.ps1`) still runs here for many minutes, so the wait is still worth having. And `D00 T03 §19` added the Antigravity runner, whose Stop hook sends a session on to wait inside it where a Claude Code turn may end (`on_antigravity_stop` in `scripts/lib/run_guard.py`): a gate in flight is one more such wait there. Nothing of this section exists in the tree yet (`gate_in_flight`, `gating` and `build/gate-in-flight/` are absent).
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -804,7 +806,7 @@ Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`
 2. Wait on it. Done when: the checkpoint passes.
 
 - [ ] Add `gate_in_flight(root)` to `scripts/lib/run_guard.py`, reading `build/gate-in-flight/*.json` (`pid`, `deadline`, `what`) as `review_in_flight` reads its marks: a mark counts only while its process lives and before its deadline. Done when: `scripts/tests/test_run_guard.py` shows a live mark counted, and a dead pid, a passed deadline and an unreadable file each not counted.
-- [ ] Add `gating` to `Env` and treat it in `on_stop` as `reviewing` and `ci_waiting` are: the turn may end, and it is not idleness. Done when: a test shows a Stop with a live gate mark is let through and the same Stop without one is sent back.
+- [ ] Add `gating` to `Env` and treat it in `on_stop` as `reviewing` and `ci_waiting` are: the turn may end, and it is not idleness; and in `on_antigravity_stop` as they are there, sending the session on to wait for it in the session. Done when: a test shows a Claude Code Stop with a live gate mark let through and the same Stop without one sent back, and an Antigravity Stop with a live mark answered with the wait for the gate.
 - [ ] Write the mark from `scripts/check-all.ps1` and `scripts/measure-build.ps1` (one shared helper in `scripts/lib/`), atomically, with this process's id and a deadline of the gate's own limit, and remove it in a `finally`. Done when: `tests/check_all_test.ps1` (or the gate's existing test) shows the mark present during a run and gone after a pass, a failure and Ctrl+C. Cheaper substitute: a lock file with no pid or deadline, which a crash leaves holding the run.
 - [ ] Name the local gate as a wait in `.claude/skills/process-phase/SKILL.md` and its two mirrors, beside the CI gate, and strike the foreground-loop lesson. Done when: the mirror test passes with the new text.
 - [ ] Commit: `run: the guard waits on a long local gate`
