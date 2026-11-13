@@ -45,7 +45,7 @@ Sections: 34 | Checklist items: 352
 | [x]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
-| [ ]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
+| [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
 
 ### Phase 1: Core data contract
 
@@ -143,6 +143,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 40/88 verified sections, 5 ready to run now.
+Progress: 41/88 verified sections, 4 ready to run now.
 
-Checklist: 423/661 items completed (includes Commit items).
+Checklist: 424/661 items completed (includes Commit items).

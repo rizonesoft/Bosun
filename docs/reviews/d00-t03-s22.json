@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T03 \u00a722",
+  "title": "CI gate waits for a push's own run before starting one",
+  "implementation_sha": "4e7f3bc9e3f06a80f3f5520ebc89095c8d6e9b1c",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s22.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s22.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/run-tests.py test_ci_status -> 141 tests in 7 classes, OK",
+    "python scripts/run-tests.py -> 796 tests in 93 classes, OK (on 1e34f22)",
+    "with START_GRACE_SECONDS 0, test_a_push_s_run_listed_on_the_second_look_is_never_doubled fails",
+    "on the real repository, 1e34f22: one build.yml and one plan.yml run, both from push; proceed after about 13 minutes, against 25 before",
+    "full gate, CI on 4e7f3bc -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43483744145, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43483744212"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s22.md",
+    "verdict": "completed",
+    "candidate": "2a9cb728613e36d0b8dcd95a4ca3f1fbbef90c4e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s22.md",
+    "candidate": "2a709521bf9bc8e584d5d535b844f3de6c25df86",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "2a709521bf9bc8e584d5d535b844f3de6c25df86",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

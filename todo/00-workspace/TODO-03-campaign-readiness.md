@@ -60,7 +60,7 @@ title: "TODO-03 -- Campaign readiness"
 | 19 | §19 | Run guard holds an Antigravity run | -- | [x] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
-| 22 | §22 | CI gate waits for a push's own run before starting one | -- | [ ] |
+| 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -848,9 +848,12 @@ Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed t
 - [x] Correct the module docstring of `scripts/ci_status.py` (it says the gate starts the workflow "at the first look, before any sleep") and the `wait` action in `.claude/skills/process-phase/SKILL.md` and its mirrors in `.agents/skills/` and `.codex/skills/` ("the gate starts that workflow itself at its first look"): the gate starts it once it has had no run for 90 seconds, or at once when the wait it was given leaves no room for that. Done when: the three skill files are the same text and the skill mirror test passes, and the docstring names the grace, the ten-second looks during it and the start-at-once case.
 - [x] Prove it on the real thing: with this on `main`, push a commit and run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30` at once. Done when: `gh run list --commit <sha>` shows one `build.yml` run and one `plan.yml` run, both from `push`, the gate prints `proceed`, and its wait is recorded in the run file beside the 25 minutes measured before.
 - [x] Settle the reviews' findings in `scripts/ci_status.py`: `recover` asks whether the start is still held after it has read the remote head, and a held start that comes due is looked at again at once (round 1); `start_held.seconds` adds up the time actually held across an interrupted hold (completion review). Done when: `scripts/tests/test_ci_status.py` starts both workflows at 95 s after a 15 s head lookup at the 80 s look, and reads 30 s held for a hold a failed look interrupts.
-- [ ] Commit: `ci: the gate waits for a push's own run before starting one`
+- [x] Commit: `ci: the gate waits for a push's own run before starting one`
 
 **Test checkpoint:** `python scripts/run-tests.py test_ci_status` exits 0, and with the hold removed (the start made at the first look again) the test of a run that appears on the second look fails.
+
+> **Verified:** 2026-11-13 | §22 | 4e7f3bc9e3f06a80f3f5520ebc89095c8d6e9b1c
+> **Review:** `docs/reviews/d00-t03-s22.json`
 
 ## Verification
 
