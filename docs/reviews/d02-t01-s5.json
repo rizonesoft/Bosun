@@ -1,0 +1,86 @@
+{
+  "ref": "D02 T01 \u00a75",
+  "title": "App icon ICO from the masters",
+  "implementation_sha": "ab7204548d6370e2b60594e373650632f1ea2c6e",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T01-s5.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/run-tests.py test_build_icons -> 13 tests in 2 classes, OK",
+    "python scripts/build-icons.py --check -> resources/bosun.ico matches the masters, exit 0",
+    "pwsh tests/start_run_test.ps1 -> all passed",
+    "full gate, CI on ab72045 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43465639002, plan.yml green (gate: proceed)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T01-s5.md",
+    "verdict": "filed",
+    "candidate": "2fd2c64a2d061113cf2387b1387b4fd0fc4207e1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D02 T01 \u00a73",
+      "D02 T02 \u00a74",
+      "D07 T01 \u00a71"
+    ]
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T01-s5.md",
+    "candidate": "87b26c5b18f86295013cd3aa2fd79adca44496d1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "87b26c5b18f86295013cd3aa2fd79adca44496d1",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
