@@ -111,23 +111,13 @@ def main() -> int:
                 state = {}
             if unreadable is None:
                 state["last_error"] = f"{guard.stamp()} whether the session is still running couldn't be told: {error!r}"
-        word = "unreadable" if unreadable else ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
-        detail = {k: state.get(k) for k in ("session_id", "runner", "why", "started", "ended", "yields", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
-        if guard.waiting(state):
-            detail["wait_until"] = guard.stamp(state["wait_until"])
-        data = {"state": word, **detail, **guard.health(state)}
-        if unreadable:
-            data["state_error"] = unreadable
+        word, data, lines = guard.status_view(state, guard.REAL, unreadable)
         if args.json:
             say(json.dumps(data))
             return 0
         say(word)
-        if unreadable:
-            say(f"the run state can't be read: {unreadable}")
-        for failure in data.get("hook_failures") or []:
-            say(f"a hook failed open at {failure.get('at')}: {failure.get('error')}")
-        if word == "waiting":
-            say(f"waiting for {state['wait_reason']} until {detail['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
+        for line in lines:
+            say(line)
         say(json.dumps(data))
         return 0
     if args.command == "wait":

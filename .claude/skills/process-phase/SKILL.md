@@ -57,6 +57,8 @@ In the generated plan's table order, for each open row: `process-todo-section` (
 
 ### Red-first CI
 
+A long local gate is a wait too: while `pwsh scripts/check-all.ps1` or `pwsh scripts/measure-build.ps1` runs it keeps a mark under `build/gate-in-flight/` (`scripts/lib/gate-mark.ps1`), so run it with `run_in_background` and end the turn until it reports, as for the CI gate; `python scripts/run-guard.py status` says `waiting` for it meanwhile.
+
 After each stamped section, push, then run `python scripts/ci_status.py --gate --sha HEAD --wait-minutes 30`, and act on the one action it prints. It can poll for 30 minutes, longer than one tool call, so run it with `run_in_background` and end the turn until it reports: while it polls the run guard holds the next row (`ci_in_flight` in `scripts/lib/run_guard.py`), and the gate's result, or the next heartbeat tick once it has ended, resumes the run. It remembers the last proven commit, so a restart after a push loses nothing. One exception to the hold (the owner's cadence, 2026-11-13): when the stamped candidate's own CI run was green, gated before its completion review as `process-todo-section` requires, and the commits since it touch only `todo/`, `docs/reviews/` and `docs/phase-runs/`, nothing the gate checks can have turned red, so the next row starts while the gate polls in the background, and a `repair` it prints comes before anything else in that row: An Antigravity run has no heartbeat, so nothing wakes its session once a turn ends: where this says to end the turn and let the heartbeat take the run up, it waits in the session instead (sleeps of at most ten minutes, then looking again), as its Stop hook tells it.
 
 - `proceed`: start the next row.

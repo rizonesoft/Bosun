@@ -101,6 +101,10 @@ $unknown = @($Only | Where-Object { $_ -notin $steps.Name })
 if ($unknown) { "check-all: no step named $($unknown -join ', '). The steps are: $($steps.Name -join ', ')"; exit 2 }
 if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 
+# While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1).
+. (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
+$gateMark = Enter-GateMark 'check-all'
+try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
 $started = [Diagnostics.Stopwatch]::StartNew()
 foreach ($step in $steps) {
@@ -140,3 +144,4 @@ foreach ($step in $steps) {
 }
 "all $($steps.Count) steps passed in $([int]$started.Elapsed.TotalSeconds) s"
 exit 0
+} finally { Exit-GateMark $gateMark }

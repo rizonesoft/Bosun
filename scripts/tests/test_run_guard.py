@@ -1219,5 +1219,96 @@ class AntigravityRuns(unittest.TestCase):
         self.assertGreater(stops[0]["timeout"], 0)
 
 
+class LocalGates(unittest.TestCase):
+    """D00 T03 §21: a long local gate (check-all, a build measurement) is a wait, as a review or a CI gate is: its mark
+    holds while the gate's process runs, the turn may end under it, and `status` says waiting."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.marks = self.root / "build" / "gate-in-flight"
+        self.marks.mkdir(parents=True)
+        self.path = self.root / "state.json"
+
+    def mark(self, name="1.json", **doc):
+        (self.marks / name).write_text(json.dumps(doc), encoding="utf-8")
+
+    def live(self, **extra):
+        return {"pid": os.getpid(), "started": guard.process_started(os.getpid()), "what": "check-all", **extra}
+
+    def test_only_a_mark_of_the_process_still_running_counts(self):
+        self.assertIsNone(guard.gate_in_flight(self.root))
+        self.mark(**self.live(since="2026-01-01T00:00:00Z"))  # older than any step's limit: age is not what ends it
+        self.assertIn("check-all, pid", guard.gate_in_flight(self.root))
+        (self.marks / "1.json").unlink()
+        dead = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True).stdout)
+        for doc in ({"pid": dead, "started": 1, "what": "gone"}, {**self.live(), "started": 1}, {"what": "no pid"}):
+            self.mark(**doc)
+            self.assertIsNone(guard.gate_in_flight(self.root), f"{doc} held the run")
+        (self.marks / "1.json").write_text("{not json", encoding="utf-8")
+        self.assertIsNone(guard.gate_in_flight(self.root))
+
+    def env(self, world, gate):
+        return guard.replace(world.env(), gating=lambda: gate)
+
+    def test_a_claude_turn_may_end_under_a_gate_without_spending_its_budget(self):
+        world = World(signature="one")
+        state = active(signature="one", idle=1, yields=1)
+        for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
+            self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, self.env(world, "check-all, pid 1")))
+        self.assertEqual((state["idle"], state["yields"], state["active"]), (1, 1, True))
+        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, self.env(world, None)))
+
+    def test_an_antigravity_session_is_sent_to_wait_for_the_gate(self):
+        state = {}
+        env = guard.replace(World().env(), process_alive=lambda pid, started: True, gating=lambda: "measure-build x, pid 7")
+        guard.start(state, "agy", env, runner="antigravity", owner_pid=7, owner_started=1)
+        reason = guard.on_antigravity_stop(state, {"session_id": "agy", "termination": "NO_TOOL_CALL", "last_user_input": ""}, env)
+        self.assertIn("waiting for a local gate in flight (measure-build x, pid 7)", reason)
+        self.assertIn("wait for it in this session", reason)
+
+    def test_status_waits_for_each_thing_in_flight_and_is_active_after(self):
+        state = active()
+        for field, value, what in (("reviewing", "astra, dispatcher pid 1", "a review"), ("ci_waiting", "abc, gate pid 2", "a CI gate"),
+                                   ("gating", "check-all, pid 3", "a local gate")):
+            env = guard.replace(World().env(), **{field: lambda value=value: value})
+            word, data, lines = guard.status_view(state, env, path=self.path)
+            self.assertEqual((word, data["state"]), ("waiting", "waiting"), what)
+            self.assertEqual(data["in_flight"], f"{what} in flight ({value})")
+            self.assertIn(f"waiting for {what} in flight ({value})", lines)
+        word, data, lines = guard.status_view(state, World().env(), path=self.path)
+        self.assertEqual((word, "in_flight" in data, lines), ("active", False, []))
+        self.assertEqual(guard.status_view({"active": False, "status": "ended"}, guard.replace(World().env(), gating=lambda: "x"), path=self.path)[0], "ended")
+
+    def test_through_the_cli_a_real_mark_holds_both_runners_and_status(self):
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+        self.addCleanup(lambda: (holder.kill(), holder.wait()))
+        marks = guard.ROOT / "build" / "gate-in-flight"
+        marks.mkdir(parents=True, exist_ok=True)
+        mark = marks / f"{holder.pid}.json"
+        self.addCleanup(lambda: mark.unlink(missing_ok=True))
+        mark.write_text(json.dumps({"pid": holder.pid, "started": guard.process_started(holder.pid), "what": "check-all (test)"}), encoding="utf-8")
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "PYTHONIOENCODING": "utf-8"}
+        script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+        cli = lambda *args, **kw: subprocess.run([*script, *args], env={**env, **kw.pop("extra", {})}, capture_output=True, text=True,
+                                                  encoding="utf-8", timeout=300, **kw)
+        guard.save(active(session_id="claude-1", changed_at=time.time(), started_at=time.time()), self.path)
+        done = cli("hook", input=json.dumps({"hook_event_name": "Stop", "session_id": "claude-1"}))
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, ""), "a Claude Code Stop under a running gate was sent back")
+        shown = cli("status")
+        self.assertEqual(shown.stdout.splitlines()[0], "waiting")
+        self.assertIn("waiting for a local gate in flight (check-all (test), pid", shown.stdout)
+        self.assertIn("a local gate in flight", json.loads(cli("status", "--json").stdout)["in_flight"])
+        state = {}
+        guard.start(state, "agy-1", guard.REAL, runner="antigravity", owner_pid=os.getpid(), owner_started=guard.process_started(os.getpid()))
+        guard.save(state, self.path)
+        done = cli("hook", "--runner", "antigravity", extra={"BOSUN_RUN_SESSION": "agy-1"},
+                   input=json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}))
+        self.assertIn("waiting for a local gate in flight", json.loads(done.stdout)["reason"])
+        mark.unlink()
+        self.assertNotEqual(cli("status").stdout.splitlines()[0], "waiting", "the wait outlived the gate's mark")
+
+
 if __name__ == "__main__":
     unittest.main()

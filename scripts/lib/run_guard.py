@@ -96,6 +96,8 @@ class Env:
     reviewing: Callable[[], object] = lambda: None
     # Which commit a CI gate is polling now, or None (`ci_in_flight`).
     ci_waiting: Callable[[], object] = lambda: None
+    # Which long local gate (check-all, a build measurement) is running now, or None (`gate_in_flight`).
+    gating: Callable[[], object] = lambda: None
     # Whether the process with this id still runs and started at this time (an Antigravity run's owner).
     process_alive: Callable[[int, object], bool] = lambda pid, started: process_started(pid) == started
 
@@ -362,16 +364,83 @@ def ci_in_flight(root: Path = ROOT) -> str | None:
     return None
 
 
+def gate_in_flight(root: Path = ROOT) -> str | None:
+    """The long local gate running now (scripts/check-all.ps1, scripts/measure-build.ps1), from the marks it keeps
+    under build/gate-in-flight/ (scripts/lib/gate-mark.ps1), or None. A mark counts while the process that wrote it
+    runs, judged by its pid and start time, however long that is: a gate limits its steps and queue waits apart, so
+    there is no deadline to keep, and a gate that was killed or crashed holds nothing."""
+    folder = Path(root) / "build" / "gate-in-flight"
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return None
+    for name in names:
+        try:
+            doc = json.loads((folder / name).read_text(encoding="utf-8-sig"))
+            pid, started = int(doc["pid"]), int(doc["started"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        try:
+            if pid > 0 and process_started(pid) == started:
+                return f"{doc.get('what') or 'a gate'}, pid {pid}"
+        except OSError:
+            continue  # can't tell: holding the run on it would be holding it on nothing seen
+    return None
+
+
+def in_flight(env: Env) -> str | None:
+    """What the run waits for in flight now, for `status`: a review, a CI gate or a local gate, or None."""
+    for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting), ("a local gate", env.gating)):
+        found = read()
+        if found:
+            return f"{what} in flight ({found})"
+    return None
+
+
+STATUS_FIELDS = ("session_id", "runner", "why", "started", "ended", "yields", "last_error", "heartbeat_at",
+                 "last_api_failure", "wait_reason", "wait_detail")
+
+
+def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path = STATE) -> tuple[str, dict, list[str]]:
+    """What `status` shows: its first word, its JSON and the lines between them. A run waits while a wait is set or a
+    review, a CI gate or a local gate is in flight, so the heartbeat never takes the next row under one."""
+    flying = in_flight(env) if state.get("active") and not unreadable else None
+    if unreadable:
+        word = "unreadable"
+    elif state.get("active"):
+        word = "waiting" if waiting(state) or flying else "active"
+    else:
+        word = state.get("status") or "inactive"
+    data = {"state": word, **{k: state.get(k) for k in STATUS_FIELDS if state.get(k) is not None}}
+    if waiting(state):
+        data["wait_until"] = stamp(state["wait_until"])
+    data.update(health(state, path))
+    if flying:
+        data["in_flight"] = flying
+    if unreadable:
+        data["state_error"] = unreadable
+    lines = []
+    if unreadable:
+        lines.append(f"the run state can't be read: {unreadable}")
+    for failure in data.get("hook_failures") or []:
+        lines.append(f"a hook failed open at {failure.get('at')}: {failure.get('error')}")
+    if word == "waiting" and waiting(state):
+        lines.append(f"waiting for {state['wait_reason']} until {data['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
+    if word == "waiting" and flying:
+        lines.append(f"waiting for {flying}")
+    return word, data, lines
+
+
 def on_stop(state: dict, data: dict, env: Env) -> str | None:
     if not state.get("active") or state.get("session_id") != data.get("session_id"):
         return None
     now = time.time()
     # A run waiting on its rows goes on early when a wake's check passes: the session applies the wake.
     woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
-    if (waiting(state, now) and not woken) or env.reviewing() or env.ci_waiting():
+    if (waiting(state, now) and not woken) or env.reviewing() or env.ci_waiting() or env.gating():
         # The turn may end, and it isn't idleness: nothing can be done until a wait passes, a review in flight must not
-        # have the tree change under it, and a CI `wait` starts no next row. Its notification, or the heartbeat,
-        # takes the row up again.
+        # have the tree change under it, a CI `wait` starts no next row, and a long local gate is still deciding.
+        # Its notification, or the heartbeat, takes the row up again.
         return None
     if state.get("wait_until") is not None:
         end_wait(state, now, env.signature())
@@ -624,11 +693,13 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
     woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
     if waiting(state, now) and not woken:
         return wait_in_session(state)
-    review, ci = env.reviewing(), env.ci_waiting()
+    review, ci, gate = env.reviewing(), env.ci_waiting(), env.gating()
     if review:
         return wait_for_flight("a review", review)
     if ci:
         return wait_for_flight("a CI gate", ci)
+    if gate:
+        return wait_for_flight("a local gate", gate)
     reason = on_stop(state, data, env)
     if reason is None and state.get("active"):
         if waiting(state, time.time()):
@@ -909,7 +980,7 @@ def write_acceptance(kind: str, text: str, root: Path = ROOT, today: str | None 
 
 
 REAL = Env(rows=real_rows, signature=real_signature, alive=real_alive, finish=real_finish, wakes=real_wakes,
-           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight)
+           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight, gating=gate_in_flight)
 
 
 def health(state: dict, path: Path = STATE, now: float | None = None) -> dict:

@@ -27,6 +27,8 @@ if ($mode -like 'child-*') {
   $child = Start-Process pwsh -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 300'
   Set-Content -LiteralPath (Join-Path $here 'child.pid') -Value $child.Id
 }
+# What a step sees of the gate's own mark while it runs (D00 T03 §21).
+if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'marks.txt') -Value @(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore).Count }
 switch ($mode) {
   'fail' { exit 3 }
   'child-fail' { exit 5 }
@@ -48,6 +50,20 @@ function Invoke-Gate([string[]]$arguments, [string]$script = $gate) {
 }
 
 try {
+  # --- the gate's mark: present while its steps run, gone after a pass and after a failure, the exit code kept ---
+  $marks = Join-Path $work 'marks'
+  $env:BOSUN_GATE_MARK_DIR = $marks
+  try {
+    foreach ($case in @(@{ Steps = @(@{ name = 'one' }, @{ name = 'two' }); Exit = 0; Says = 'a pass' }, @{ Steps = @(@{ name = 'one' }, @{ name = 'two'; mode = 'fail' }); Exit = 1; Says = 'a failure' })) {
+      Set-Steps $case.Steps
+      Remove-Item -LiteralPath (Join-Path $work 'marks.txt') -ErrorAction Ignore
+      $r = Invoke-Gate @('-StepFile', $stepFile)
+      $seen = @(Get-Content -LiteralPath (Join-Path $work 'marks.txt') -ErrorAction Ignore)
+      $left = @(Get-ChildItem -LiteralPath $marks -Filter '*.json' -ErrorAction Ignore)
+      Check "the gate's mark is there while each step runs and gone after $($case.Says), exit $($case.Exit) kept" ($r.Exit -eq $case.Exit -and $seen.Count -eq 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $($r.Exit), seen: $($seen -join ','), left: $($left.Count))"
+    }
+  } finally { Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore }
+
   # --- the runner, with stand-in steps ---
   Set-Steps @(@{ name = 'one' }, @{ name = 'two' }, @{ name = 'three' })
   $listed = Invoke-Gate @('-StepFile', $stepFile, '-List')
@@ -183,7 +199,7 @@ try {
   # --- the real plan step against a stale plan, in a temporary copy of the plan tooling ---
   $copy = Join-Path $work 'copy'
   New-Item -ItemType Directory -Path (Join-Path $copy 'scripts/lib'), (Join-Path $copy 'todo/00-workspace'), (Join-Path $copy 'tests') | Out-Null
-  foreach ($name in 'todo-graph.py', 'review-dispatch.py', 'check-all.ps1', 'lib/todo_graph.py', 'lib/host_caps.py', 'lib/job-measure.ps1') {
+  foreach ($name in 'todo-graph.py', 'review-dispatch.py', 'check-all.ps1', 'lib/todo_graph.py', 'lib/host_caps.py', 'lib/job-measure.ps1', 'lib/gate-mark.ps1') {
     Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination (Join-Path $copy "scripts/$name")
   }
   # A valid one-section TODO file, from the fixture the graph's own tests use.
@@ -203,7 +219,7 @@ try {
   # --- the real weakening step: an unanswered removal in what is committed stops the gate ---
   $scanRepo = Join-Path $work 'scan'
   New-Item -ItemType Directory -Path (Join-Path $scanRepo 'scripts/lib'), (Join-Path $scanRepo 'tests') | Out-Null
-  foreach ($name in 'check-all.ps1', 'weakening-scan.py', 'lib/job-measure.ps1') {
+  foreach ($name in 'check-all.ps1', 'weakening-scan.py', 'lib/job-measure.ps1', 'lib/gate-mark.ps1') {
     Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination (Join-Path $scanRepo "scripts/$name")
   }
   Set-Content -LiteralPath (Join-Path $scanRepo 'tests/a_test.ps1') -Value "Check 'one thing holds' (1 -eq 1)", "Check 'another thing holds' (2 -eq 2)"

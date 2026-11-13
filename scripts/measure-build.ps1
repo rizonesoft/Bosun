@@ -221,6 +221,11 @@ if ($DecideOnly) {
   exit 0
 }
 
+# From here to the end, the run guard reads this measurement as a wait, its queue wait included
+# (scripts/lib/gate-mark.ps1).
+. (Join-Path $PSScriptRoot 'lib\gate-mark.ps1')
+$gateMark = Enter-GateMark "measure-build $Label"
+try {
 # Take a turn in the queue, once: the wait for a slot happens here, before any step is timed.
 if (-not $env:BOSUN_MEASURE_QUEUED) {
   $env:BOSUN_MEASURE_QUEUED = '1'
@@ -362,3 +367,4 @@ Update-Data {
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
 foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s, $(Format-Number $step['median_peak_mb']) MB" }
 exit 0
+} finally { Exit-GateMark $gateMark }
