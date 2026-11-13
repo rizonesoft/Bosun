@@ -1,0 +1,107 @@
+{
+  "ref": "D01 T01 \u00a74",
+  "title": "report --json and logger snapshots",
+  "implementation_sha": "4fbe65ac7c8688539b568d0b18bb58804c976fb8",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-core/D01-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/01-core/D01-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/01-core/D01-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/01-core/D01-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/01-core/D01-T01-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- pwsh scripts/build.ps1 -> built, warnings as errors, none",
+    "build/Release/test_core.exe report_json -> ok; test_core.exe (all groups) -> ok",
+    "pwsh tests/queue_test.ps1 (with its WSL half) -> all passed",
+    "wsl python3 -B tests/test_bosun_log.py -> Ran 16 tests, OK",
+    "full gate, CI on 4fbe65a -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43418023233, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43418023203"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-core/D01-T01-s4.md",
+    "verdict": "filed",
+    "candidate": "9a3207f71d45e9cfeee65e1d563ede204ddf88be",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D03 T01 \u00a71",
+      "D03 T01 \u00a72",
+      "D03 T01 \u00a73"
+    ]
+  },
+  "rounds_spent": 5,
+  "plan": {
+    "report": "docs/reviews/01-core/D01-T01-s4.md",
+    "candidate": "08da3778495e8b51ad3673929b4befc50758aece",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "08da3778495e8b51ad3673929b4befc50758aece",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

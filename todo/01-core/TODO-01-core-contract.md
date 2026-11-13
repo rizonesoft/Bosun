@@ -36,7 +36,7 @@ title: "TODO-01 -- The core data contract"
 | 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [x] |
 | 2 | §2 | Job history log | §1 | [x] |
 | 3 | §3 | status --json | §1 | [x] |
-| 4 | §4 | report --json and logger snapshots | §2 | [ ] |
+| 4 | §4 | report --json and logger snapshots | §2 | [x] |
 | 5 | §5 | One config file for queue limits | §3 | [ ] |
 
 ## 1. Slot holder and waiter records
@@ -185,6 +185,9 @@ History is a query over CSV that `report` already joins. Live data should not ne
 - [x] Commit: `core: report --json and live snapshots`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe report_json` exits 0, `pwsh tests/queue_test.ps1` (with its WSL half) prints `all passed`, and `python3 -B tests/test_bosun_log.py` passes in WSL; each fails if the change is reverted.
+
+> **Verified:** 2026-11-13 | §4 | 4fbe65ac7c8688539b568d0b18bb58804c976fb8
+> **Review:** `docs/reviews/d01-t01-s4.json`
 
 ## 5. One config file for queue limits
 
