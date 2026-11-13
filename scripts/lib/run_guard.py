@@ -289,6 +289,8 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
     state.pop("started_at", None)  # the session is here, so it is judged like any other from now on
+    for key in OWNER_KEYS:
+        state.pop(key, None)  # a Claude Code session owns it now, judged by its own record, not a former owner's process
     state["session_id"] = session
     return heartbeat_note()
 

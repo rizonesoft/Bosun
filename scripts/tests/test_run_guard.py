@@ -1085,6 +1085,17 @@ class AntigravityRuns(unittest.TestCase):
                     owner_pid=self.owner["pid"], owner_started=self.owner["started"])
         self.assertEqual((claude["session_id"], claude["runner"]), (self.SESSION, "antigravity"))
 
+    def test_a_claude_session_taking_over_a_dead_antigravity_run_owns_it_itself(self):
+        state = self.run_state()
+        self.owner["alive"] = False  # the Antigravity window was closed
+        world = World(alive=["claude-live"])
+        guard.on_prompt(state, {"prompt": "process plan", "session_id": "claude-live"}, self.env(world))
+        self.assertEqual(state["session_id"], "claude-live")
+        self.assertFalse({"runner", "owner_pid", "owner_started"} & set(state), "the former owner's process stayed")
+        self.assertFalse(guard.close_if_gone(state, self.env(world)), "the live Claude Code run was taken for gone")
+        with self.assertRaisesRegex(ValueError, "owns the active run"):
+            guard.start(state, "second-run", self.env(world), runner="antigravity", owner_pid=self.owner["pid"], owner_started=self.owner["started"])
+
     def test_end_records_its_own_run_ended_and_nothing_else(self):
         state = self.run_state()
         self.assertTrue(guard.end(state, self.SESSION, "agy exited (0)"))
