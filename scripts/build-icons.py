@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 
@@ -140,7 +141,13 @@ def main(argv=None) -> int:
     if args.check:
         current = args.out.read_bytes() if args.out.is_file() else None
         if current != content:
-            print(f"{args.out} is out of date with {args.masters}: run python scripts/build-icons.py", file=sys.stderr)
+            # The repair names the same masters and output this check was given, so following it mends what was checked.
+            repair = ["python", "scripts/build-icons.py"]
+            if args.masters != parser.get_default("masters"):
+                repair += ["--masters", str(args.masters)]
+            if args.out != parser.get_default("out"):
+                repair += ["--out", str(args.out)]
+            print(f"{args.out} is out of date with {args.masters}: run {subprocess.list2cmdline(repair)}", file=sys.stderr)
             return 1
         print(f"{args.out} matches the masters")
         return 0

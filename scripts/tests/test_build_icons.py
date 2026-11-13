@@ -77,6 +77,34 @@ class BuildIconsTest(unittest.TestCase):
         master.write_text(master.read_text(encoding="utf-8").replace("#35D6A6", "#35D6A7"), encoding="utf-8")
         self.assertEqual(icons.main(["--check", "--masters", str(self.masters), "--out", str(self.out)]), 1)
 
+    def test_the_repair_a_failed_check_names_mends_what_was_checked(self):
+        # Completion review: the message named the default command, which rebuilds the repository's icon, not this one.
+        import contextlib
+        import shlex
+
+        spaced = self.tmp / "my icons" / "bosun.ico"
+        spaced.parent.mkdir()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(icons.main(["--check", "--masters", str(self.masters), "--out", str(spaced)]), 1)  # not built yet
+        said = err.getvalue()
+        repair = said.split(": run ", 1)[1].strip()
+        self.assertIn(f'--out "{spaced}"', repair)  # quoted, for its space
+        self.assertIn(f"--masters {self.masters}", repair)
+        # Followed as written, it builds the file that was checked.
+        words = shlex.split(repair, posix=False)
+        self.assertEqual(words[:2], ["python", "scripts/build-icons.py"])
+        self.assertEqual(icons.main([w.strip('"') for w in words[2:]]), 0)
+        self.assertEqual(icons.main(["--check", "--masters", str(self.masters), "--out", str(spaced)]), 0)
+
+    def test_the_default_check_names_the_default_repair(self):
+        import contextlib
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), mock.patch.object(icons, "build", return_value=b"not the committed icon"):
+            self.assertEqual(icons.main(["--check"]), 1)
+        self.assertTrue(err.getvalue().strip().endswith(": run python scripts/build-icons.py"))
+
 
 class BadgedIconTest(unittest.TestCase):
     """A campaign launcher's icon (scripts/start-run.ps1 -InstallShortcut): the app icon with its runner's badge."""
