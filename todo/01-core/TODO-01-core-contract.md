@@ -35,7 +35,7 @@ title: "TODO-01 -- The core data contract"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [x] |
 | 2 | §2 | Job history log | §1 | [x] |
-| 3 | §3 | status --json | §1 | [ ] |
+| 3 | §3 | status --json | §1 | [x] |
 | 4 | §4 | report --json and logger snapshots | §2 | [ ] |
 | 5 | §5 | One config file for queue limits | §3 | [ ] |
 
@@ -145,6 +145,9 @@ This is the panel's main read, and must be cheap to call every five seconds.
 - [x] Commit: `core: status --json`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe status_json`, `records` and `options` exit 0 and `pwsh tests/queue_test.ps1` (with its WSL half) prints `all passed`; each fails if the change is reverted.
+
+> **Verified:** 2026-11-13 | §3 | fad45bd4973ae4c41b5ed08db8b3217ca7c93058
+> **Review:** `docs/reviews/d01-t01-s3.json`
 
 ## 4. report --json and logger snapshots
 

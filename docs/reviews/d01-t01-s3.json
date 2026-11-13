@@ -1,0 +1,88 @@
+{
+  "ref": "D01 T01 \u00a73",
+  "title": "status --json",
+  "implementation_sha": "fad45bd4973ae4c41b5ed08db8b3217ca7c93058",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-core/D01-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/01-core/D01-T01-s3.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- pwsh scripts/build.ps1 -> built, warnings as errors, none",
+    "build/Release/test_core.exe status_json, records, options -> ok; test_core.exe (all groups) -> ok",
+    "pwsh tests/queue_test.ps1 (with its WSL half) -> all passed",
+    "full gate, CI on fad45bd -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43399011478, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43399021599"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-core/D01-T01-s3.md",
+    "verdict": "completed",
+    "candidate": "587caea4f7ebc1d20729b2224e3bb0b43fbae040",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "round 2's one P3 (the shim's nine-digit limit refused --max-wait 0000000003) was fixed in 587caea, with a queue_test case; nothing left open",
+  "plan": {
+    "report": "docs/reviews/01-core/D01-T01-s3.md",
+    "candidate": "c786d0fc4d0db4511a5448a9c2b9201273141e86",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "c786d0fc4d0db4511a5448a9c2b9201273141e86",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
