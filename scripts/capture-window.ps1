@@ -411,7 +411,9 @@ function Invoke-SelfTest {
     function Check([string]$Name, [bool]$Ok) {
         if ($Ok) { Write-Host "PASS $Name" } else { Write-Host "FAIL $Name"; $failed.Add($Name) }
     }
-    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("capture-pair-selftest-" + [Guid]::NewGuid().ToString('N'))
+    # The repository's scratch folder when BOSUN_SCRATCH names one, else the system's temporary folder.
+    $scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [System.IO.Path]::GetTempPath() }
+    $dir = Join-Path $scratch ("capture-pair-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $dir | Out-Null
     try {
         $png = Join-Path $dir 'shot.png'
@@ -558,7 +560,7 @@ function Invoke-SelfTest {
     Check 'a target that is gone, hidden or moved is refused naming it, and one where it was is not' ((Test-Target $null $frame ([IntPtr]77)) -like '*target window 77 is gone*' -and (Test-Target $hidden $frame ([IntPtr]77)) -like "*target window 77 ('w100', pid 7) is no longer visible*" -and (Test-Target $moved $frame ([IntPtr]77)) -like "*target window 77 ('w140', pid 7) moved*" -and $null -eq (Test-Target $here $frame ([IntPtr]77)))
 
     # The pair lock is released however the script ends, even run in this process, where exit does not end the thread.
-    $lockDir = Join-Path ([System.IO.Path]::GetTempPath()) ("capture-lock-selftest-" + [Guid]::NewGuid().ToString('N'))
+    $lockDir = Join-Path $scratch ("capture-lock-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $lockDir | Out-Null
     try {
         $lockPng = Join-Path $lockDir 'lock.png'
@@ -597,7 +599,7 @@ function Invoke-SelfTest {
     # What a launch started is stopped as a tree, also when no window ever appears, and a process that only has
     # the same name is left alone. Every process here is a console program started without a window of its own, and
     # each sleeps for a bounded time, so one that nothing stops still ends.
-    $ownDir = Join-Path ([System.IO.Path]::GetTempPath()) ("capture-ours-selftest-" + [Guid]::NewGuid().ToString('N'))
+    $ownDir = Join-Path $scratch ("capture-ours-selftest-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $ownDir | Out-Null
     $shell = (Get-Process -Id $PID).Path
     function Start-Quiet([string[]]$Arguments) {
