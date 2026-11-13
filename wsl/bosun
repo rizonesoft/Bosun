@@ -126,8 +126,12 @@ fi
 
 # What the job's record names (D01 T01 §1): this side, the command with each word quoted as the shell reads it back,
 # and the Git top level of the working folder when there is one. bosun.exe acquire writes the record, as it holds the slot.
+# At most 4096 characters, cut with " [...]": Linux accepts argument lists past the Windows command-line limit, and a
+# label that made bosun.exe's command line too long would make Windows refuse the acquire, running the job unqueued.
 label="$(printf '%q ' "$@")"
-args+=(--side wsl --label "${label% }")
+label="${label% }"
+[ "${#label}" -gt 4096 ] && label="${label:0:4090} [...]"
+args+=(--side wsl --label "$label")
 # Found as bosun.exe finds a Windows job's, the nearest folder up holding .git, so no Linux git is needed (where there is
 # none, `git` on the PATH is Windows Git through interop, which names the folder by its \\wsl.localhost path).
 dir="$PWD"

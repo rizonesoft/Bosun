@@ -446,14 +446,16 @@ inline std::optional<SlotRecord> parse_record(const std::string& text) {
     return r;
 }
 
-// A queue namespace as a folder name: an injective mapping onto text Windows accepts as one. Letters, digits, '_' and
-// '-' stay; every other UTF-8 byte, '.' included (Windows drops a trailing dot), becomes %XX; and the "ns-" prefix keeps
-// an empty name and the reserved device names (CON, NUL, COM1...) valid.
+// A queue namespace as a folder name: an injective mapping onto text Windows accepts as one, and injective however the
+// file system folds case, since the mutex names are case-sensitive and the folder names are not. Lower-case letters,
+// digits, '_' and '-' stay; every other UTF-8 byte becomes %XX in upper-case hex, an upper-case letter included (so
+// "ReviewCase" and "reviewcase" stay apart) and '.' too (Windows drops a trailing dot); and the "ns-" prefix keeps an
+// empty name and the reserved device names (CON, NUL, COM1...) valid.
 inline std::string ns_dir(const std::string& ns) {
     static const char hex[] = "0123456789ABCDEF";
     std::string out = "ns-";
     for (unsigned char c : ns) {
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out.push_back(static_cast<char>(c));
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out.push_back(static_cast<char>(c));
         else {
             out.push_back('%');
             out.push_back(hex[c >> 4]);

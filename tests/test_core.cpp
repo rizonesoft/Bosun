@@ -159,9 +159,13 @@ static void records() {
     CHECK(e && e->ns == "\xc3\xa9\xf0\x9f\x98\x80");
 
     // Namespaces map injectively onto valid folder names.
-    CHECK(dm::ns_dir("Bosun") == "ns-Bosun");
+    CHECK(dm::ns_dir("Bosun") == "ns-%42osun");
     CHECK(dm::ns_dir("a.b") != dm::ns_dir("a_b") && dm::ns_dir("a/b") != dm::ns_dir("a%2Fb"));
-    CHECK(dm::ns_dir("") == "ns-" && dm::ns_dir("CON") == "ns-CON" && dm::ns_dir("x.") == "ns-x%2E");
+    CHECK(dm::ns_dir("") == "ns-" && dm::ns_dir("CON") == "ns-%43%4F%4E" && dm::ns_dir("x.") == "ns-x%2E");
+    // Distinct however the file system folds case (round 1 of the review): mutex names are case-sensitive.
+    auto folded = [](std::string d) { for (auto& c : d) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return d; };
+    CHECK(folded(dm::ns_dir("ReviewCase")) != folded(dm::ns_dir("reviewcase")));
+    CHECK(folded(dm::ns_dir("%4a")) != folded(dm::ns_dir("J")) && folded(dm::ns_dir("%4A")) != folded(dm::ns_dir("J")));
     for (const char* ns : {"a b", "x:y", "q?", "\xc3\xa9", ".", ".."}) {
         std::string d = dm::ns_dir(ns);
         CHECK(d.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-%") == std::string::npos);

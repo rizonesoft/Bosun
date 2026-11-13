@@ -11,7 +11,9 @@ $work = Join-Path ([IO.Path]::GetTempPath()) "bosun-test-$PID"
 New-Item -ItemType Directory -Path $work | Out-Null
 # The slot records go to a home of the test's own (D01 T01 §1), so none of this machine's own jobs is read or touched.
 $env:LOCALAPPDATA = Join-Path $work 'home'
-$recDir = Join-Path $env:LOCALAPPDATA "Bosun\run\$((Get-Process -Id $PID).SessionId)\ns-$ns"
+# The namespace's folder: upper-case letters as %XX (dm::ns_dir), so names differing only in case stay apart.
+$nsDir = 'ns-' + (-join ($ns.ToCharArray() | ForEach-Object { if ($_ -cmatch '[a-z0-9_-]') { $_ } else { '%{0:X2}' -f [int]$_ } }))
+$recDir = Join-Path $env:LOCALAPPDATA "Bosun\run\$((Get-Process -Id $PID).SessionId)\$nsDir"
 function Records { @(Get-ChildItem -LiteralPath $recDir -Filter '*.json' -ErrorAction Ignore) }
 function Read-Rec([string]$name) { $f = Join-Path $recDir $name; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
 function Wait-Until([scriptblock]$ok, [int]$ms = 10000) { foreach ($i in 1..($ms / 100)) { if (& $ok) { return $true }; Start-Sleep -Milliseconds 100 }; [bool](& $ok) }
@@ -185,7 +187,7 @@ Check ($null -ne $w.ExitCode -and -not (Records)) 'and once it ends, no record i
 
 # A run inside a slot writes no record and leaves the outer holder's as it was.
 $nestedRec = Join-Path $work 'nested-rec.cmd'
-Set-Content $nestedRec "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested-rec.txt`" 200`r`n@copy /y `"$recDir\slot-0.json`" `"$work\outer-after-inner.json`" >nul" -Encoding ascii
+Set-Content $nestedRec "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested-rec.txt`" 200`r`n@copy /y `"$($recDir -replace '%', '%%')\slot-0.json`" `"$work\outer-after-inner.json`" >nul" -Encoding ascii
 $outer = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $nestedRec) -PassThru -WindowStyle Hidden
 $null = $outer.WaitForExit(15000)
 $kept = if (Test-Path (Join-Path $work 'outer-after-inner.json')) { Get-Content (Join-Path $work 'outer-after-inner.json') -Raw | ConvertFrom-Json }
@@ -246,6 +248,18 @@ if ($SkipWsl) {
     $done = $job.WaitForExit(20000)
     # bosun.exe acquire is a Windows process of its own, which removes the record a moment after the shim has gone.
     Check ($done -and (Wait-Until { -not (Records) } 10000)) "and it goes when the WSL job ends ($((Records).Name -join ', '))"
+
+    # A Linux command longer than Windows allows a command line is still queued: its label is cut, never the slot. The
+    # argument is built inside Linux, since Windows can't start wsl.exe with one that long either.
+    $longRun = Join-Path $work 'long-run.sh'
+    [IO.File]::WriteAllText($longRun, "long=`"`$(head -c 40000 /dev/zero | tr '\0' x)`"`nBOSUN_EXE=`"`$2`" exec bash `"`$1`" run --ns `"`$3`" --slots 1 --min-avail-mb 0 --max-wait 0 -- bash -c 'sleep 4' `"`$long`"`n")
+    $longRunWsl = (wsl.exe -d Ubuntu -- wslpath -a $longRun.Replace('\', '/')).Trim()
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','bash',(Q $longRunWsl),(Q $shim),(Q $exeWsl),$ns -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
+    $r = Read-Rec 'slot-0.json'
+    Check ($r.kind -eq 'holder' -and $r.command.Length -le 4096 -and $r.command.EndsWith(' [...]') -and $r.command.StartsWith('bash -c')) "a WSL command past the Windows limit still holds a slot, its label cut ($($r.command.Length) characters)"
+    $null = $job.WaitForExit(20000)
+    $null = Wait-Until { -not (Records) } 10000
     if (-not $done) { Stop-Process -Id $job.Id -Force }
   } finally {
     $env:WSLENV = $savedWslenv
