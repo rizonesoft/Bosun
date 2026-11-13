@@ -146,7 +146,11 @@ done
 pipes="$(mktemp -d)" || die "cannot create a temp folder"
 mkfifo "$pipes/in" "$pipes/out"
 SECONDS=0  # One deadline covers both the slot wait and the guest memory wait.
-"$EXE" acquire "${args[@]}" <"$pipes/in" >"$pipes/out" &
+# acquire runs in a session of its own: the hangup a dying terminal sends its process group would otherwise end it with
+# this script, before it could write the job's line (D01 T01 §2). It still ends when the pipe closes.
+detach=()
+command -v setsid >/dev/null && detach=(setsid)
+"${detach[@]}" "$EXE" acquire "${args[@]}" <"$pipes/in" >"$pipes/out" &
 hold_pid=$!
 exec 3>"$pipes/in" 4<"$pipes/out"
 rm -rf "$pipes"
@@ -182,11 +186,12 @@ export BOSUN_SLOT="$SLOT"
 export WSLENV="${WSLENV:+$WSLENV:}BOSUN_SLOT"
 
 # bosun.exe acquire writes the job's line (D01 T01 §2): it learns when the command started, after any wait for guest
-# memory, and how it ended. A pipe that's gone only loses the line.
-{ echo start >&3; } 2>/dev/null
+# memory, and how it ended. A pipe that's gone only loses the line: each message is sent from a subshell, so the
+# SIGPIPE of a dead acquire ends that subshell, never this script or the command's exit code.
+( echo start >&3 ) 2>/dev/null
 contained "$@"
 code=$?
-{ echo "exit $code" >&3; } 2>/dev/null
+( echo "exit $code" >&3 ) 2>/dev/null
 exec 3>&- 4<&-
 wait "$hold_pid" 2>/dev/null
 exit "$code"

@@ -537,6 +537,7 @@ int cmd_acquire(const Options& o) {
         }
     }
     auto ended = std::chrono::steady_clock::now();
+    if (!told_start) started = ended;  // the command never started: all of it was waiting, none of it running
     records.done();
     if (slot.handle) ReleaseMutex(slot.handle);
     append_job_line(job_line(job, started_at, slot.index, seconds_since(took, started), seconds_since(started, ended), code));

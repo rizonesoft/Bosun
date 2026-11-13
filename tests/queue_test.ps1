@@ -418,6 +418,29 @@ if ($SkipWsl) {
     Check ($k.Count -eq 1 -and $null -eq $k[0].exit_code -and $k[0].side -eq 'wsl') "a killed WSL shim's job still leaves its line, with no exit code ($($k | ConvertTo-Json -Compress))"
     if (-not $job.WaitForExit(10000)) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }
     wsl.exe -d Ubuntu -- pkill -KILL -f $marker
+
+    # Its acquire stopped while the command runs: the shim lives on and keeps the command's own exit code (round 1).
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 6; exit 37') -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
+    Stop-Process -Id (Read-Rec 'slot-0.json').pid -Force
+    $done = $job.WaitForExit(30000)
+    Check ($done -and $job.ExitCode -eq 37) "a WSL job whose acquire was stopped still exits with its command's 37 (got $($job.ExitCode))"
+    if (-not $done) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }
+    Remove-Item -LiteralPath (Join-Path $recDir 'slot-0.json') -ErrorAction Ignore  # the stopped acquire's, which the next holder would replace
+
+    # A WSL job ended before its command started (here waiting for guest memory on slot 1): all of it was waiting.
+    $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'neverhold.txt')),'20000' -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
+    $never = "nevermarker$PID"
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','0','--','bash','-c',(Q 'exit 0'),$never -PassThru -WindowStyle Hidden
+    $null = Wait-Until { (Read-Rec 'slot-1.json').side -eq 'wsl' } 15000
+    Start-Sleep -Seconds 3
+    wsl.exe -d Ubuntu -- pkill -KILL -f "wsl/bosun run .*$never"
+    $null = Wait-Until { (Job-Line "*$never*").Count -eq 1 } 15000
+    $n = Job-Line "*$never*"
+    Check ($n.Count -eq 1 -and $n[0].ran_s -eq 0 -and $n[0].waited_s -ge 2.5 -and $null -eq $n[0].exit_code) "a WSL job ended before its command started counts it all as waiting (waited $($n.waited_s) s, ran $($n.ran_s) s)"
+    if (-not $job.WaitForExit(10000)) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $job.Id 2>&1 | Out-Null }
+    Stop-Process -Id $h.Id -Force -ErrorAction Ignore
   } finally {
     $env:WSLENV = $savedWslenv
     wsl.exe -d Ubuntu -- rm -rf "$linuxRepo"
