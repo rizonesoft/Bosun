@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 34 | Checklist items: 351
+Sections: 34 | Checklist items: 352
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -45,7 +45,7 @@ Sections: 34 | Checklist items: 351
 | [x]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
-| [ ]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 8     |
+| [ ]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
 
 ### Phase 1: Core data contract
 
@@ -145,4 +145,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 40/88 verified sections, 5 ready to run now.
 
-Checklist: 422/660 items completed (includes Commit items).
+Checklist: 423/661 items completed (includes Commit items).

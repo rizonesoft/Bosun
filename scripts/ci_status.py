@@ -816,17 +816,20 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             return 0
         return left
 
-    held, held_for = [], 0.0
+    held, held_for, held_since = [], 0.0, None
 
     def look_after():
-        """A missing run is started, held or explained on this look, and what was held is remembered for the report."""
-        nonlocal held_for
+        """A missing run is started, held or explained on this look, and what was held is remembered for the report:
+        the time between a look that held and the next look, added up, so a hold that a failed look interrupts and a
+        later one resumes counts for all of it (completion review)."""
+        nonlocal held_for, held_since
+        if held_since is not None:
+            held_for += clock() - held_since
         recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=lambda: hold_left() > 0)
         for name in result.get("holding", []):
             if name not in held:
                 held.append(name)
-        if not result.get("holding") and held and not held_for:
-            held_for = clock() - started
+        held_since = clock() if result.get("holding") else None
 
     # At the first look: a missing run is held for the grace or started now, or the reason it can't be is known now.
     look_after()
@@ -843,9 +846,11 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             break
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
         look_after()
+    if held_since is not None:  # the wait ran out while a start was still held
+        held_for += clock() - held_since
     result.pop("holding", None)
     if held:
-        result["start_held"] = {"seconds": int(held_for or clock() - started), "workflows": sorted(held)}
+        result["start_held"] = {"seconds": int(held_for), "workflows": sorted(held)}
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action

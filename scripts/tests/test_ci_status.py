@@ -1163,6 +1163,31 @@ class Gate(Base):
                 clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
         self.assertEqual(at, [90, 90])
 
+    def test_a_hold_interrupted_by_a_failed_look_counts_all_the_time_it_held(self):
+        # Completion review: no run at 0 s, GitHub unreachable at 10 s, no run again at 70 and 80 s, the run listed at
+        # 90 s. The start was held from 0 to 10 and from 70 to 90: 30 seconds, where the report had said 10.
+        clock = _Clock()
+        gh = FakeGh({})
+        ask, times = self.looks(gh, clock)
+        real_sleep = clock.sleep
+
+        def sleep(seconds):
+            real_sleep(seconds)
+            if clock.sleeps == 1:
+                gh.fail = {"build.yml": "connection reset", "plan.yml": "connection reset"}
+            if clock.sleeps == 2:
+                gh.fail = {}
+            if clock.sleeps == 4:
+                gh.runs.update({"build.yml": [run()], "plan.yml": [run()]})
+
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], ask, FakeGit(["README.md"]),
+                            clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual(times, [0, 10, 70, 80, 90])
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertEqual(gh.started, [])
+        self.assertEqual(data["start_held"], {"seconds": 30, "workflows": ["build.yml", "plan.yml"]})
+
     def test_a_wait_with_no_room_for_the_grace_starts_at_the_first_look(self):
         # The hold must never cost the only chance to start: no wait, a wait equal to the grace, and a shorter one.
         for wait in ([], ["--wait-minutes", "1.5"], ["--wait-minutes", "1"]):
