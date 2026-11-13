@@ -653,6 +653,12 @@ Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json'
 $bigOut = & $bosun status 2>&1 | Out-String
 $g = (CfgJson @('get', '--json')).Obj
 Check ($bigOut -match 'larger than 64 KB' -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "a config.json past 64 KB is refused whole and the defaults apply"
+# Round 3: a save that would write more than the reader takes is refused, so a save can never lock the limits out.
+[IO.File]::WriteAllText($cfgFile, '{"schema_version":1,"slots":1,"future":"' + ('x' * 65490) + '"}')
+$nearFull = [IO.File]::ReadAllBytes($cfgFile)
+$over = CfgJson @('set', 'max_wait_s', '30', '--json')
+$g = (CfgJson @('get', '--json')).Obj
+Check ($nearFull.Length -le 65536 -and $over.Code -eq 74 -and $over.Obj.error -match '64 KB' -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($nearFull) -and $g.limits.slots.saved -eq 1) "a save that would pass 64 KB is refused and the file still reads ($($nearFull.Length) bytes, exit $($over.Code))"
 Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":3}' -NoNewline
 $before = [IO.File]::ReadAllBytes($cfgFile)
 $holdMutex = [System.Threading.Mutex]::new($false, 'Local\Bosun.Config')

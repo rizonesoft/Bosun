@@ -1198,7 +1198,7 @@ LoadedConfig load_config() {
     }
     // At most 64 KB is read (round 1): the four limits take a few hundred bytes, and a file of any size would otherwise
     // be loaded whole before every command, so a huge one is refused whole, as a damaged one is.
-    constexpr std::streamsize kMaxConfig = 64 * 1024;
+    constexpr auto kMaxConfig = static_cast<std::streamsize>(dm::kMaxConfigBytes);
     std::string text(static_cast<size_t>(kMaxConfig) + 1, '\0');
     in.read(text.data(), kMaxConfig + 1);
     if (in.bad()) {
@@ -1261,6 +1261,10 @@ int write_config(const dm::ConfigFile& f, std::string& error) {
     fs::path temp = path;
     temp += L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
     std::string text = dm::config_json(f);
+    if (text.size() > dm::kMaxConfigBytes) {
+        error = "the saved file would be larger than 64 KB, more than it may hold, so " + narrow(path.wstring()) + " is unchanged";
+        return 74;
+    }
     bool ok;
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);

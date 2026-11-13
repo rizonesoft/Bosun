@@ -1,6 +1,7 @@
 // Platform-free logic, kept apart from the Windows calls so it can be unit tested.
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <functional>
@@ -662,8 +663,14 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
                 if (!places || places > 3 || (i < s.size() && s[i] >= '0' && s[i] <= '9')) return std::nullopt;
                 double scale = 1;
                 for (int k = 0; k < e; ++k) scale *= 10;
-                v.decimal = down ? v.decimal / scale : v.decimal * scale;
+                if (v.decimal != 0) v.decimal = down ? v.decimal / scale : v.decimal * scale;  // 0e309 is 0, not 0 * inf
                 v.kind = FlatValue::Decimal;
+                // A value past a double's range (1e309) is no number any reader can use: refused, or, where the caller
+                // keeps overflow (config.json's unknown keys), kept by its text alone (round 3 of D01 T01 §5).
+                if (!std::isfinite(v.decimal)) {
+                    if (!allow_overflow) return std::nullopt;
+                    v.overflow = true;
+                }
             }
         }
         if (v.kind == FlatValue::Integer || v.kind == FlatValue::Decimal) v.text = s.substr(number_from, i - number_from);
@@ -1000,7 +1007,8 @@ inline std::optional<JobLine> parse_job_line(const std::string& text) {
     if (side->text != "windows" && side->text != "wsl") return std::nullopt;
     // Real times and durations no job can have the other way round, so a damaged line is refused and counted rather
     // than read and then dropped where its time is used (round 4 of D01 T01 §4).
-    if (!utc_seconds(started->text) || !utc_seconds(ended->text) || waited->decimal < 0 || ran->decimal < 0 || ran->decimal > 1e9 || waited->decimal > 1e9)
+    if (!utc_seconds(started->text) || !utc_seconds(ended->text) || !std::isfinite(waited->decimal) || !std::isfinite(ran->decimal) ||
+        waited->decimal < 0 || ran->decimal < 0 || ran->decimal > 1e9 || waited->decimal > 1e9)
         return std::nullopt;
     JobLine j;
     j.started_at = started->text;
@@ -1198,6 +1206,10 @@ inline std::string snapshot_json(const Snapshot& s) {
 // --- One config file for queue limits (D01 T01 §5) -------------------------------------------------------------------
 // %LOCALAPPDATA%\Bosun\config.json holds the limits the panel's Limits form saves. A flag beats a variable, a variable
 // the file, and the file the default, so scripts that set flags or variables behave as they always have.
+
+// The most config.json may hold, read or written: the four limits take a few hundred bytes (round 3: a save that wrote
+// more than the reader takes had made every saved limit unreadable).
+constexpr size_t kMaxConfigBytes = 64 * 1024;
 
 struct LimitSpec {
     const char* key;

@@ -569,6 +569,11 @@ static void config() {
     std::string written = dm::config_json(odd);
     CHECK(odd.valid && written.find("\"u\": 18446744073709551615") != std::string::npos && written.find("\"huge\": 1e309") != std::string::npos);
     CHECK(written.find("\"e\": 2.50E-3") != std::string::npos && written.find("inf") == std::string::npos && written.find("-1") == std::string::npos);
+    // Round 3: 0e309 is zero, not NaN, and a value past a double's range is refused by every reader but config.json's
+    // unknown keys, so no job line can carry a non-finite duration.
+    auto zero = dm::parse_flat_object("{\"a\":0e309}");
+    CHECK(zero && zero->at("a").decimal == 0 && !dm::parse_flat_object("{\"a\":1e309}") && !dm::parse_flat_object("{\"a\":-1e309}"));
+    CHECK(!dm::parse_job_line("{\"schema_version\":1,\"started_at\":\"2026-11-13T09:00:00Z\",\"ended_at\":\"2026-11-13T09:00:10Z\",\"pid\":1,\"command\":\"b\",\"repo\":null,\"side\":\"windows\",\"ns\":\"d\",\"slot\":null,\"waited_s\":0,\"ran_s\":1e309,\"exit_code\":0,\"timed_out_into_queue\":false}"));
     dm::ConfigFile oddBack = dm::parse_config(written);
     CHECK(oddBack.valid && oddBack.values.at("slots") == 1 && oddBack.unknown.size() == 3 && dm::config_json(oddBack) == written);
     // Precedence: flag, then a valid variable, then the file, then the default, each named.
