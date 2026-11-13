@@ -651,6 +651,32 @@ Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json'
 Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":0,"max_wait_s":5}' -NoNewline
 $keyOut = & $bosun status 2>&1 | Out-String
 Check ($keyOut -match 'ignoring slots in .*config\.json: it must be a whole number from 1 to 64; slots uses 2 from the default' -and ([regex]::Matches($keyOut, 'ignoring')).Count -eq 1) "a refused key is said with the value and source it falls back to ($(($keyOut -split "`n")[0].Trim()))"
+# Completion review: reads say what they ignored, an unknown key is refused in JSON, a file that can't be read is said
+# and never overwritten, and a temporary file that can't be written changes nothing.
+Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":3}' -NoNewline
+$unknownKey = CfgJson @('get', 'nonsense', '--json')
+$env:BOSUN_SLOTS = 'bad'
+$badText = & $bosun config get slots 2>&1 | Out-String
+$badJson = (CfgJson @('get', '--json')).Obj.limits.slots
+Remove-Item Env:BOSUN_SLOTS
+Check ($unknownKey.Code -eq 64 -and $unknownKey.Obj.ok -eq $false -and $unknownKey.Obj.key -eq 'nonsense') "config get of an unknown key is refused in JSON with --json ($($unknownKey.Text))"
+Check ($badText -match 'ignoring BOSUN_SLOTS=bad' -and $badText -match 'slots=3' -and $badJson.variable_error -match 'BOSUN_SLOTS=bad' -and $badJson.source -eq 'file') "config get says a bad BOSUN_SLOTS on both paths and reports the saved 3 it falls back to"
+$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$cfgDir = Split-Path $cfgFile
+$before = [IO.File]::ReadAllBytes($cfgFile)
+& icacls.exe $cfgFile /deny "${me}:(R)" | Out-Null
+try {
+  $unread = (CfgJson @('get', '--json')).Obj
+  $unreadSave = CfgJson @('set', 'slots', '4', '--json')
+} finally { & icacls.exe $cfgFile /reset | Out-Null }
+Check ($unread.readable -eq $false -and $unread.limits.slots.source -eq 'default' -and $unreadSave.Code -eq 74 -and $unreadSave.Obj.error -match "can't be read" -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($before)) "a config.json that can't be read reads as unreadable, never as no settings, and is not overwritten (exit $($unreadSave.Code))"
+& icacls.exe $cfgDir /deny "${me}:(AD,WD)" | Out-Null
+try { $noTemp = CfgJson @('set', 'slots', '5', '--json') } finally { & icacls.exe $cfgDir /remove:d $me | Out-Null }
+$tempsLeft = @(Get-ChildItem -LiteralPath $cfgDir -Filter '*.tmp').Count
+$afterTemp = CfgJson @('set', 'slots', '5', '--json')
+Check ($noTemp.Code -eq 74 -and $noTemp.Obj.ok -eq $false -and $noTemp.Obj.key -eq 'slots' -and $noTemp.Obj.error -match 'temporary file' -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -ne '' -and $tempsLeft -eq 0 -and $afterTemp.Code -eq 0) "a temporary file that can't be written changes nothing, leaves nothing, and the save works once allowed (exit $($noTemp.Code), $tempsLeft left)"
+Check ([Convert]::ToBase64String($before) -ne [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -and (CfgJson @('get', '--json')).Obj.limits.slots.saved -eq 5) "and the save once allowed is the one read back"
+
 # Round 1: a file past 64 KB is refused whole without being loaded, and a save that can't own the writers' mutex
 # changes nothing.
 [IO.File]::WriteAllText($cfgFile, '{"schema_version":1,"slots":1,"pad":"' + ('x' * 70000) + '"}')
@@ -834,6 +860,10 @@ if ($SkipWsl) {
     Stop-Process -Id $h.Id -Force -ErrorAction Ignore
     Remove-Item -LiteralPath (Join-Path $recDir 'slot-0.json') -ErrorAction Ignore  # the stopped holder's
     Check ($gs2.guest.min_guest_mb -eq 99999999) "the shim's status --json reads the saved guest floor ($($gs2.guest.min_guest_mb))"
+    # The shim's config reads see its Linux variables, as its jobs do (completion review).
+    $linuxGet = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" BOSUN_SLOTS=1 BOSUN_MAX_WAIT=7 bash $shim config get slots max_wait_s min_guest_mb | Out-String).Trim() -split "`r?`n"
+    $linuxJson = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" BOSUN_MIN_AVAIL_MB=1234 BOSUN_MIN_GUEST_MB=0 bash $shim config get --json | Out-String) | ConvertFrom-Json
+    Check (($linuxGet -join ';') -eq 'slots=1;max_wait_s=7;min_guest_mb=99999999' -and $linuxJson.limits.min_avail_mb.value -eq 1234 -and $linuxJson.limits.min_avail_mb.source -eq 'environment' -and $linuxJson.limits.min_guest_mb.value -eq 0) "the shim's config get reports the Linux variables its jobs use ($($linuxGet -join '; '))"
     Check ($cl.Count -eq 1 -and $cl[0].slot -eq 1 -and $cl[0].waited_s -ge 2.5 -and $cl[0].waited_s -le 10) "a WSL job waits out the saved max_wait_s 3 for the saved guest floor (waited $($cl.waited_s) s)"
     Check ($zl.Count -eq 1 -and $zl[0].waited_s -lt 2.5) "with BOSUN_MIN_GUEST_MB=0 the same job doesn't wait (waited $($zl.waited_s) s)"
     Check ($bl.Count -eq 1 -and $badSaid -match 'ignoring BOSUN_MAX_WAIT=abc' -and $bl[0].waited_s -ge 2.5 -and $bl[0].waited_s -le 10) "a bad BOSUN_MAX_WAIT is said and skipped, so the saved wait still applies (waited $($bl.waited_s) s)"

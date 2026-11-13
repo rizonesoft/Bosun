@@ -557,6 +557,11 @@ static void config() {
     auto exp = dm::parse_flat_object("{\"a\":1e-6,\"b\":2.5E+3,\"c\":7e2}");
     CHECK(exp && exp->at("a").kind == dm::FlatValue::Decimal && exp->at("b").decimal == 2500 && exp->at("c").decimal == 700);
     CHECK(!dm::parse_flat_object("{\"a\":1e}") && !dm::parse_flat_object("{\"a\":1e9999}"));
+    // Completion review: a leading zero is no JSON number, so the whole config file is refused rather than kept.
+    CHECK(!dm::parse_flat_object("{\"a\":01}") && !dm::parse_flat_object("{\"a\":-01}") && !dm::parse_flat_object("{\"a\":00.5}"));
+    auto zeros = dm::parse_flat_object("{\"a\":0,\"b\":-0,\"c\":0.5,\"d\":10}");
+    CHECK(zeros && zeros->at("a").magnitude == 0 && zeros->at("c").decimal == 0.5 && zeros->at("d").magnitude == 10);
+    CHECK(!dm::parse_config("{\"schema_version\":1,\"slots\":01}").valid && !dm::parse_config("{\"schema_version\":1,\"later\":007}").valid);
     // Round 4: a long exponent is read whole: 0e9999 and 1e-9999 are 0, and in config.json 1e9999 refuses only its key.
     auto longExp = dm::parse_flat_object("{\"a\":0e9999,\"b\":1e-9999}");
     CHECK(longExp && longExp->at("a").decimal == 0 && longExp->at("b").decimal == 0);

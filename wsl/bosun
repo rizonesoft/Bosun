@@ -89,6 +89,15 @@ if [ "${1:-}" = "status" ]; then
   exec "$EXE" status "${args[@]}" --guest-avail-mb "$(guest_avail_mb)" --guest-total-mb "$(guest_total_mb)" \
     --wsl-logger "$(wsl_logger)" "$@"
 fi
+# config resolves the same Linux variables its jobs honour (completion review of D01 T01 §5): they cross to bosun.exe
+# through WSLENV, so it says a bad one and reports what a job here would use.
+if [ "${1:-}" = "config" ]; then
+  for name in BOSUN_SLOTS BOSUN_MIN_AVAIL_MB BOSUN_MAX_WAIT BOSUN_MIN_GUEST_MB; do
+    [ -n "${!name:-}" ] && export "$name" && WSLENV="${WSLENV:+$WSLENV:}$name"
+  done
+  export WSLENV
+  exec "$EXE" "$@"
+fi
 [ "${1:-}" = "run" ] || exec "$EXE" "$@"
 shift
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do

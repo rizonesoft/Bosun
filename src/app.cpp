@@ -1190,6 +1190,11 @@ LoadedConfig load_config() {
     std::error_code ec;
     fs::path path = config_path();
     c.exists = fs::exists(path, ec);
+    if (ec) {  // can't tell whether it is there (a folder denied, say): unreadable, so it is said and never overwritten
+        c.exists = true;
+        c.readable = false;
+        return c;
+    }
     if (!c.exists) return c;
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -1281,6 +1286,11 @@ int write_config(const dm::ConfigFile& f, std::string& error) {
         ok = static_cast<bool>(out.flush());
     }
     DWORD code = ok ? 0 : GetLastError();
+    if (!ok) {  // the temporary file couldn't be made or written (a folder denied, a full disk): nothing was replaced
+        fs::remove(temp, ec);
+        error = "can't write a temporary file beside " + narrow(path.wstring()) + " (error " + std::to_string(code) + "); it is unchanged";
+        return 74;
+    }
     for (int attempt = 0; ok; ++attempt) {
         if (posix_replace(temp, path)) return 0;
         if (MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return 0;
@@ -1330,7 +1340,7 @@ int cmd_config(const std::vector<std::wstring>& rest) {
         for (size_t i = 1; i < words.size(); ++i) {
             const dm::LimitSpec* spec = dm::find_limit(words[i]);
             if (!spec) {
-                std::cerr << "[bosun] no limit named " << words[i] << "\n";
+                config_reply(json, false, words[i], "no limit named " + words[i]);
                 return 64;
             }
             asked.push_back(spec);
@@ -1340,6 +1350,7 @@ int cmd_config(const std::vector<std::wstring>& rest) {
                 for (const auto& spec : dm::limit_specs()) asked.push_back(&spec);
             for (const auto* spec : asked) {
                 dm::ResolvedLimit r = dm::resolve_limit(*spec, std::nullopt, env_text(spec->env), saved_value(c, spec->key));
+                if (!r.env_error.empty()) std::cerr << "[bosun] ignoring " << r.env_error << ", so " << spec->key << " is " << r.value << " from the " << r.source << "\n";
                 std::cout << spec->key << "=" << r.value << "\n";
             }
             return 0;
@@ -1361,7 +1372,11 @@ int cmd_config(const std::vector<std::wstring>& rest) {
             o << (first ? "" : ",") << "\"" << spec.key << "\":{\"value\":" << r.value << ",\"source\":\"" << r.source << "\",\"saved\":";
             if (saved) o << *saved;
             else o << "null";
-            o << ",\"min\":" << spec.min << ",\"max\":" << spec.max << ",\"default\":" << spec.fallback << ",\"variable\":\"" << spec.env << "\"}";
+            o << ",\"min\":" << spec.min << ",\"max\":" << spec.max << ",\"default\":" << spec.fallback << ",\"variable\":\"" << spec.env
+              << "\",\"variable_error\":";
+            if (r.env_error.empty()) o << "null";
+            else o << "\"" << dm::json_escape(r.env_error) << "\"";
+            o << "}";
             first = false;
         }
         o << "}}";

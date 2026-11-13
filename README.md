@@ -57,7 +57,22 @@ Sessions and editors stay open as normal. Only commands wrapped in `bosun run` q
 - After 15 minutes a waiting job starts anyway, with a warning.
 - A crashed job frees its slot immediately.
 
-Change the defaults with `--slots`, `--min-avail-mb` and `--max-wait`, or `BOSUN_SLOTS`, `BOSUN_MIN_AVAIL_MB` and `BOSUN_MAX_WAIT`. In WSL, `--min-guest-mb` or `BOSUN_MIN_GUEST_MB` sets the VM threshold.
+## How do I change the limits?
+
+Save them once with `bosun config set`, and every job on Windows and in WSL uses them:
+
+```powershell
+bosun config set slots 3              # how many jobs run at once, 1 to 64
+bosun config set min_avail_mb 8192    # the memory the second slot needs on Windows, in MB
+bosun config set max_wait_s 600       # how long a job waits before it starts anyway, in seconds; 0 waits as long as it takes
+bosun config set min_guest_mb 4096    # the memory the second slot needs inside the WSL VM, in MB
+bosun config get                      # each limit, and where it came from
+bosun config unset slots              # back to the default
+```
+
+The limits live in `%LOCALAPPDATA%\Bosun\config.json`. A flag wins over a variable, a variable over the saved file, and the file over the default, so a script that passes `--slots`, `--min-avail-mb`, `--max-wait` or `--min-guest-mb`, or sets `BOSUN_SLOTS`, `BOSUN_MIN_AVAIL_MB`, `BOSUN_MAX_WAIT` or `BOSUN_MIN_GUEST_MB`, behaves as it always has. `bosun config get --json` shows each limit's value in effect, its source and what is saved, apart, so you can see when a variable is overriding a saved value.
+
+A value out of range is refused and the file is left as it was. If the file is damaged, every job says so once and runs on the defaults, and `config set` refuses to overwrite it: fix it by hand, or delete it to start again from the defaults.
 
 ## What stops a job from filling the disk?
 

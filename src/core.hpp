@@ -615,6 +615,8 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         } else {
             v.kind = FlatValue::Integer;
             if (i < s.size() && s[i] == '-') { v.negative = true; ++i; }
+            // JSON allows no leading zero: "01" is no number any writer makes (completion review of D01 T01 §5).
+            if (i + 1 < s.size() && s[i] == '0' && s[i + 1] >= '0' && s[i + 1] <= '9') return std::nullopt;
             size_t digits = 0;
             while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
                 uint64_t d = static_cast<uint64_t>(s[i] - '0');
