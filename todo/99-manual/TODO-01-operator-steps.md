@@ -18,6 +18,7 @@ title: "TODO-01 -- Operator steps"
 - `design/SPEC.md`.
 - -> XREF: D07 T01 §6 -- consumed by this file
 - -> XREF: D05 T02 §3 -- consumed by this file
+- -> XREF: D00 T03 §19 -- consumed by this file
 
 ## Outcome
 
@@ -37,6 +38,7 @@ title: "TODO-01 -- Operator steps"
 | 3 | §3 | First attended walkthrough | D07 T01 §6 | [ ] |
 | 4 | §4 | Decide whether to make the repo public | -- | [ ] |
 | 5 | §5 | Acceptance: real machine changes | D05 T02 §3 | [ ] |
+| 6 | §6 | First Carbon campaign run | D00 T03 §19 | [ ] |
 
 ## 1. Enable XMP in the BIOS
 
@@ -139,6 +141,26 @@ The run proves these against disposable targets, as the owner chose. This is the
 - [ ] Commit: `manual: acceptance of machine changes`
 
 **Test checkpoint:** `Test-Path $env:LOCALAPPDATA\Bosun\campaign-hold.json, $env:LOCALAPPDATA\Bosun\admin-setup.json` prints `False` twice after the two restores, and `True` for either one still applied.
+
+## 6. First Carbon campaign run
+
+Filed 2026-11-13 from `D00 T03 §19`, which proves the guard's hold of an Antigravity session against a fake `agy`. The real one can't run on the repository's tree while a Claude Code run holds it, since two writers on one tree is the worse failure, so it is the owner's first start of the Carbon shortcut.
+
+**Phase:** 99
+**Needs:** operator,attended
+**Surface:** no
+
+**Build order:**
+
+1. Start the Carbon campaign with no other run live. Done when: `python scripts/run-guard.py status` names the Antigravity runner.
+2. Let it ship or park one ready row. Done when: the outcome is in the phase run file.
+
+- [ ] Close any Claude Code run, then start "Bosun Carbon campaign" from the desktop. Done when: `python scripts/run-guard.py status` prints `active` with runner `antigravity`.
+- [ ] Watch one section through with no input: the Stop hook sends the session on while rows remain and while a review or CI gate is in flight. Done when: the session shipped or parked one ready row, recorded in the phase run file, or the blocker is recorded with its fix and filed through `add-todo`.
+- [ ] Close its window. Done when: `python scripts/run-guard.py status` prints `ended` and no `agy` process from it is left.
+- [ ] Commit: `manual: first Carbon campaign run`
+
+**Test checkpoint:** the phase run file names the section the Carbon session took and its outcome, and `python scripts/run-guard.py status` prints `ended` after the window closed.
 
 ## Verification
 

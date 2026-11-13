@@ -131,7 +131,7 @@ Sections: 7 | Checklist items: 33
 
 ### Phase 99: Manual, operator only
 
-Sections: 5 | Checklist items: 22
+Sections: 6 | Checklist items: 26
 
 | Status | Reference  | Deliverable                            | Needs                    | Items |
 | ------ | ---------- | -------------------------------------- | ------------------------ | ----- |
@@ -140,7 +140,8 @@ Sections: 5 | Checklist items: 22
 | [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 2     |
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
+| [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 4     |
 
-Progress: 29/86 verified sections, 7 ready to run now.
+Progress: 29/87 verified sections, 7 ready to run now.
 
-Checklist: 326/597 items completed (includes Commit items).
+Checklist: 327/601 items completed (includes Commit items).
