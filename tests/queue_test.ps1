@@ -434,8 +434,10 @@ Check ($sw.Count -eq 1 -and $sw[0].waiting_for -eq 'memory' -and $sw[0].min_avai
 & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $w.Id 2>&1 | Out-Null
 $null = $h.WaitForExit(15000)
 
-# A reader holding the waiter's record open as its reason changes doesn't lose the change: the replace is retried. Both
-# slots held, so it waits for a slot; slot 1's job ends while the record is held open, so it now waits for memory.
+# A reader holding the waiter's record open as its reason changes doesn't lose the change: the replace is retried, and
+# a write still refused after that is kept and tried again until it lands (completion review), so the record is held
+# open for 2.5 s, past the first second of retries. Both slots held, so it waits for a slot; slot 1's job ends while the
+# record is held open, so it now waits for memory.
 $h0 = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sjo0.txt')),'6000' -PassThru -WindowStyle Hidden
 $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h0.Id }
 $h1 = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'sjo1.txt')),'1500' -PassThru -WindowStyle Hidden
@@ -445,10 +447,10 @@ $null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Coun
 $wfile = (Records | Where-Object Name -like "wait-$($w.Id)-*" | Select-Object -First 1).FullName
 $before = (Read-Rec (Split-Path -Leaf $wfile)).waiting_for
 $held = [IO.File]::Open($wfile, 'Open', 'Read', 'Read')  # as .NET readers open it: no sharing for replacement
-try { $null = $h1.WaitForExit(10000); Start-Sleep -Milliseconds 300 } finally { $held.Dispose() }
+try { $null = $h1.WaitForExit(10000); Start-Sleep -Milliseconds 2500 } finally { $held.Dispose() }
 $null = Wait-Until { (Read-Rec (Split-Path -Leaf $wfile)).waiting_for -eq 'memory' } 3000
 $after = (Read-Rec (Split-Path -Leaf $wfile)).waiting_for
-Check ($before -eq 'slot' -and $after -eq 'memory') "a waiter's reason changes from slot to memory even while a reader held its record open (from '$before' to '$after')"
+Check ($before -eq 'slot' -and $after -eq 'memory') "a waiter's reason changes from slot to memory even while a reader held its record open for 2.5 s (from '$before' to '$after')"
 & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $w.Id 2>&1 | Out-Null
 $null = $h0.WaitForExit(15000)
 

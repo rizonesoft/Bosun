@@ -429,7 +429,7 @@ static void status_json() {
     w2.busy = {false};
     w2.records_readable = false;
     w2.guest = dm::GuestFigures{4000, 16000, 3072};
-    w2.windows_logger = true;
+    w2.windows_logger = dm::logger_state(true, 0);
     w2.wsl_logger = "unknown";
     auto k = json(dm::status_json(w2));
     CHECK(k.has_value());
@@ -438,6 +438,11 @@ static void status_json() {
     CHECK((*k)["guest"]["available_mb"].n == 4000 && (*k)["guest"]["total_mb"].n == 16000 && (*k)["guest"]["min_guest_mb"].n == 3072);
     CHECK((*k)["logger"]["windows"].s == "running" && (*k)["logger"]["wsl"].s == "unknown");
     CHECK(!(*k)["records"]["readable"].b && (*k)["waiters"].kind == Json::Array && (*k)["waiters"].items.empty());
+
+    // The logger: access denied means its mutex exists (another security context), so it runs; not found is stopped;
+    // anything else can't be told (completion review).
+    CHECK(std::string(dm::logger_state(true, 0)) == "running" && std::string(dm::logger_state(false, 5)) == "running");
+    CHECK(std::string(dm::logger_state(false, 2)) == "not running" && std::string(dm::logger_state(false, 6)) == "unknown");
 
     // A holder record from before §3, with no acquisition time: its wait and phase can't be told, so they are null.
     dm::SlotRecord old = rec("holder", 30, "2026-11-13T04:00:00Z");

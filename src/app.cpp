@@ -13,7 +13,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <condition_variable>
+#include <map>
 #include <mutex>
+#include <thread>
 #include <type_traits>
 #include <unordered_map>
 
@@ -281,6 +284,7 @@ class Records {
         // A reader can hold the waiter file open for a moment, which makes the removal fail: it is retried briefly, and
         // a removal that still fails stays this job's to finish when it ends (a reader also drops a waiter whose own
         // process now holds a slot, so a job is never shown both waiting and holding for longer than that).
+        unsent_.erase(waiter_);  // the waiter's record goes, so an unsent version of it must never land later
         if (!remove_retrying(waiter_)) pending_.push_back(waiter_);
         waiter_.clear();
         if (slot < 0) return;  // ran without a slot: there is no holder to name
@@ -301,15 +305,22 @@ class Records {
     }
     // Called before the mutex is released, so a successor's record is never the one removed.
     void done() {
-        std::lock_guard<std::mutex> lock(mu_);
-        closed_ = true;
-        remove_retrying(waiter_);
-        remove_retrying(holder_);
-        for (const auto& path : pending_) remove_retrying(path);
-        waiter_.clear();
-        holder_.clear();
-        pending_.clear();
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            if (closed_) return;
+            closed_ = true;
+            unsent_.clear();
+            remove_retrying(waiter_);
+            remove_retrying(holder_);
+            for (const auto& path : pending_) remove_retrying(path);
+            waiter_.clear();
+            holder_.clear();
+            pending_.clear();
+        }
+        wake_.notify_all();
+        if (retry_.joinable() && retry_.get_id() != std::this_thread::get_id()) retry_.join();
     }
+    ~Records() { done(); }
 
   private:
     void write(const fs::path& path, const dm::SlotRecord& r) {
@@ -333,14 +344,32 @@ class Records {
             if ((error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) || attempt == 20) ok = false;
             else Sleep(50);
         }
-        if (!ok) {
+        if (ok) {
+            unsent_.erase(path);
+            return;
+        }
+        {
             DWORD error = ec ? static_cast<DWORD>(ec.value()) : GetLastError();
             fs::remove(temp, ec);
+            // Kept and retried until it lands or the job ends (completion review): a record is rewritten only when what
+            // it says changes, so a write lost to a longer lock or a full disk would otherwise leave it wrong for good.
+            unsent_[path] = r;
+            if (!retry_.joinable()) retry_ = std::thread([this] { retry_unsent(); });
             if (!warned_) {
                 std::cerr << "[bosun] can't publish this job's slot record (" << narrow(path.parent_path().wstring()) << ", error " << error
                           << "): the queue works, but status can't name it\n";
                 warned_ = true;
             }
+        }
+    }
+    // Every half second, tries again each record that couldn't be written, newest version only, until the job ends.
+    void retry_unsent() {
+        std::unique_lock<std::mutex> lock(mu_);
+        while (!closed_) {
+            wake_.wait_for(lock, std::chrono::milliseconds(500));
+            if (closed_) break;
+            auto unsent = unsent_;
+            for (const auto& [path, record] : unsent) write(path, record);
         }
     }
     // Removes the file, retrying for up to half a second while another process has it open; true once it is gone.
@@ -362,6 +391,9 @@ class Records {
     bool warned_ = false;
     bool closed_ = false;
     std::mutex mu_;
+    std::map<fs::path, dm::SlotRecord> unsent_;  // the newest version of each record that couldn't be written
+    std::condition_variable wake_;
+    std::thread retry_;  // started at the first write that fails
 };
 
 // --- The job history log (D01 T01 §2) ---
@@ -469,11 +501,9 @@ RecordsPass sweep_records(const Options& o) {
         return pass;
     }
     std::vector<std::pair<fs::path, dm::SeenRecord>> found;
-    for (; it != end; it.increment(ec)) {
-        if (ec) {
-            pass.readable = false;
-            return pass;
-        }
+    // An error while advancing can also leave the iterator at its end, ending the loop before the check inside it, so
+    // it is checked after the loop too: what was read is kept, and the pass says it is incomplete (completion review).
+    for (; !ec && it != end; it.increment(ec)) {
         const fs::path& path = it->path();
         if (path.extension() != L".json") continue;
         std::string text;
@@ -489,6 +519,7 @@ RecordsPass sweep_records(const Options& o) {
         }
         found.push_back({path, {*record, dm::record_state(*record, probe_process)}});
     }
+    if (ec) pass.readable = false;
     std::vector<dm::SlotRecord> records;
     for (const auto& [path, seen] : found) records.push_back(seen.record);
     for (const auto& [path, seen] : found) {
@@ -707,7 +738,8 @@ int cmd_status(const Options& o) {
     m.dwLength = sizeof(m);
     bool measured = GlobalMemoryStatusEx(&m) != 0;
     HANDLE logger = OpenMutexW(SYNCHRONIZE, FALSE, L"Local\\Bosun.Logger");
-    bool logger_running = logger != nullptr;
+    DWORD logger_error = logger ? 0 : GetLastError();
+    std::string logger_says = dm::logger_state(logger != nullptr, logger_error);
     if (logger) CloseHandle(logger);
     if (o.json) {
         dm::StatusInput in;
@@ -724,14 +756,16 @@ int cmd_status(const Options& o) {
         }
         in.min_avail_mb = o.min_avail_mb;
         if (o.guest_avail_mb) in.guest = dm::GuestFigures{*o.guest_avail_mb, *o.guest_total_mb, o.min_guest_mb.value_or(0)};
-        in.windows_logger = logger_running;
+        in.windows_logger = logger_says;
         if (!o.wsl_logger.empty()) in.wsl_logger = o.wsl_logger == L"running" ? "running" : o.wsl_logger == L"stopped" ? "not running" : "unknown";
         std::cout << dm::status_json(in) << "\n";
         return 0;
     }
     std::cout << "slots busy: " << busy << " of " << o.slots << "\n";
     std::cout << "available: " << available_mb() << " of " << m.ullTotalPhys / (1024 * 1024) << " MB\n";
-    std::cout << "logger: " << (logger_running ? "running" : "not running") << "\n";
+    std::cout << "logger: " << logger_says;
+    if (logger_says == "unknown") std::cout << " (error " << logger_error << " opening its mutex)";
+    std::cout << "\n";
     if (!pass.readable) std::cout << "records: unavailable (" << narrow(records_dir(o).wstring()) << " can't be read), so who holds and waits can't be named\n";
     return 0;
 }

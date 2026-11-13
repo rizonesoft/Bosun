@@ -627,6 +627,16 @@ inline bool reader_removes(const SlotRecord& r, RecordState state, const std::ve
 // versioned object. Anything that couldn't be measured is null and a records folder that couldn't be read says so,
 // so nothing unknown ever reads as zero, free or an empty queue.
 
+// The Windows logger's state from opening its singleton mutex: opened, or refused with access denied (it exists, in
+// a security context this caller can't open), is running; not found is not running; any other error can't be told
+// (completion review: access denied had read as "not running").
+inline const char* logger_state(bool opened, uint32_t error) {
+    constexpr uint32_t kFileNotFound = 2, kAccessDenied = 5;  // ERROR_FILE_NOT_FOUND, ERROR_ACCESS_DENIED
+    if (opened || error == kAccessDenied) return "running";
+    if (error == kFileNotFound) return "not running";
+    return "unknown";
+}
+
 struct SeenRecord {
     SlotRecord record;
     RecordState state = RecordState::Unknown;
@@ -646,7 +656,7 @@ struct StatusInput {
     std::optional<uint64_t> available_mb, total_mb;
     uint64_t min_avail_mb = 0;
     std::optional<GuestFigures> guest;      // the WSL shim's figures; none from a Windows call
-    bool windows_logger = false;
+    std::string windows_logger = "not running";  // dm::logger_state
     std::optional<std::string> wsl_logger;  // "running", "not running" or "unknown"; none from a Windows call
 };
 
@@ -740,7 +750,7 @@ inline std::string status_json(const StatusInput& in) {
     if (in.guest)
         o << "{\"available_mb\":" << in.guest->available_mb << ",\"total_mb\":" << in.guest->total_mb << ",\"min_guest_mb\":" << in.guest->min_guest_mb << "}";
     else o << "null";
-    o << ",\"logger\":{\"windows\":\"" << (in.windows_logger ? "running" : "not running") << "\",\"wsl\":";
+    o << ",\"logger\":{\"windows\":\"" << json_escape(in.windows_logger) << "\",\"wsl\":";
     if (in.wsl_logger) o << "\"" << json_escape(*in.wsl_logger) << "\"";
     else o << "null";
     o << "},\"records\":{\"readable\":" << (in.records_readable ? "true" : "false") << ",\"skipped\":" << in.records_skipped << ",\"dir\":\""
