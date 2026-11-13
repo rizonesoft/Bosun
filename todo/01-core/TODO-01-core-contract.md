@@ -34,7 +34,7 @@ title: "TODO-01 -- The core data contract"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Slot holder and waiter records | D00 T03 §10 | [x] |
-| 2 | §2 | Job history log | §1 | [ ] |
+| 2 | §2 | Job history log | §1 | [x] |
 | 3 | §3 | status --json | §1 | [ ] |
 | 4 | §4 | report --json and logger snapshots | §2 | [ ] |
 | 5 | §5 | One config file for queue limits | §3 | [ ] |
@@ -102,9 +102,12 @@ The Queue page and the overlap analysis both need to know what ran when. One fil
 - [x] Prune job logs with the memory logs in `prune_logs` in `src/app.cpp`, reading the date from a `.jsonl` name too, and prune on `bosun log --once`, which ended before pruning. Done when: `tests/queue_test.ps1`, with a job log dated 20 days ago and one from today in the test's own home, sees the old one removed and today's kept by `bosun log --once`.
 - [x] Prove simultaneous appends: six jobs on six slots whose commands all wait at a barrier, released together, each leave one whole line. Done when: `tests/queue_test.ps1` releases the six at once and parses six lines, each with its own pid.
 - [x] Prove the append can fail the tests: with the append removed from `cmd_run`, the `tests/queue_test.ps1` job-log cases fail. Done when: the mutation is run and recorded in the commit body.
-- [ ] Commit: `core: job history log`
+- [x] Commit: `core: job history log`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `build\Release\test_core.exe jobs` and `pwsh tests\queue_test.ps1` exit 0 here (with its WSL half), and CI runs `test_core.exe` and `pwsh tests\queue_test.ps1 -SkipWsl`; the job-log cases of `queue_test.ps1` fail if the append is removed.
+
+> **Verified:** 2026-11-13 | §2 | fe89dcf643eefa870ee45aa44da52766fe783606
+> **Review:** `docs/reviews/d01-t01-s2.json`
 
 ## 3. status --json
 

@@ -1,0 +1,86 @@
+{
+  "ref": "D01 T01 \u00a72",
+  "title": "Job history log",
+  "implementation_sha": "fe89dcf643eefa870ee45aa44da52766fe783606",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-core/D01-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/01-core/D01-T01-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- pwsh scripts/build.ps1 -> built, warnings as errors, none",
+    "pwsh tests/queue_test.ps1 (with its WSL half) -> all passed",
+    "full gate, CI on fe89dcf -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43387230195, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43387230150"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-core/D01-T01-s2.md",
+    "verdict": "completed",
+    "candidate": "cb692bf65f9afb53e9f13bb05e93c24ecb143c31",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/01-core/D01-T01-s2.md",
+    "candidate": "707195e42c2095da49cff20af5155ac699459a7e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "707195e42c2095da49cff20af5155ac699459a7e",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
