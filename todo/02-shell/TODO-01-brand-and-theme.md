@@ -152,6 +152,8 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 
 Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" desktop shortcut showed PowerShell's icon because `scripts/start-run.ps1` looks for `resources/bosun.ico`, which §3 was to make only after the theme. The app ICO needs only the SVG masters, so it ships here with no dependency, and §3 keeps the tray states.
 
+**Corrected 2026-11-13:** checked against the tree before its review. The section was built and committed on 2026-11-12 (`b16d74d`) with every item but the commit ticked, and never reviewed or stamped; it runs its review cycle as a section already implemented, with its checkpoint re-run. One item has been overtaken: since `D00 T03 §20` (stamped), `scripts/start-run.ps1 -InstallShortcut` writes two campaign shortcuts, each carrying a badged icon that `scripts/build-icons.py --out ... --badge-fill` renders from these same masters into the user's application data folder, and `resources\bosun.ico` is the base of those and the icon a shortcut carries when its badge can't be rendered (`tests/start_run_test.ps1` proves both). So the item's `IconLocation` of `D:\Bosun\resources\bosun.ico,0` held when it was ticked and is now the fallback case. The committed ICO is kept current by `test_committed_ico_matches_masters`, which CI runs through `scripts/run-tests.py`; the `check-all` gate step for icons is `D02 T01 §3`'s. The generator's later badge work (`ee6a9ea`, `2dce31e`, `a82113f`) belongs to `D00 T03 §20` and was reviewed there.
+
 **Phase:** 2
 **Needs:** none
 **Surface:** no
@@ -159,7 +161,7 @@ Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" de
 **Build order:**
 
 1. Create `scripts/build-icons.py` with `resvg_py`. Done when: `resources/bosun.ico` regenerates byte for byte.
-2. Point the shortcut at it. Done when: `pwsh scripts/start-run.ps1 -InstallShortcut` writes a shortcut whose icon is `resources\bosun.ico`.
+2. Point the shortcut at it. Done when: `pwsh scripts/start-run.ps1 -InstallShortcut` writes a shortcut whose icon is `resources\bosun.ico` (**Corrected 2026-11-13:** today that is the shortcut's icon when its runner badge can't be rendered, and the base every badged icon is drawn on).
 
 - [x] Render frames 16, 20, 24, 32, 40, 48, 64 and 256 per `design/SPEC.md` §18 in `scripts/build-icons.py` (`FRAMES`), stored as PNG frames written by `build`, citing `D:\Recto\design\tools\build_resources.py:505`. Done when: the ICO holds exactly eight frames, 16, 24 and 32 come from their own masters, and 20 comes from the 16 px master (`test_frames_follow_spec`). Cheaper substitute: downscaling the 256 frame for small sizes.
 - [x] Add `--check` to `scripts/build-icons.py`, exiting 1 when `resources/bosun.ico` differs from what the masters give. Done when: `test_check_fails_after_master_edit` passes and `test_committed_ico_matches_masters` keeps the committed file current.
