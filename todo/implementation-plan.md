@@ -60,7 +60,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 133
+Sections: 23 | Checklist items: 134
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -71,7 +71,7 @@ Sections: 23 | Checklist items: 133
 | [ ]    | D02 T02 §3  | Process runner                              | none            | 4     |
 | [ ]    | D02 T02 §8  | Pollers that stop when nothing is looking   | none            | 4     |
 | [ ]    | D02 T02 §9  | Off-screen page rendering for review        | none            | 4     |
-| [ ]    | D02 T01 §4  | Control templates                           | none            | 4     |
+| [ ]    | D02 T01 §4  | Control templates                           | none            | 5     |
 | [ ]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 4     |
 | [ ]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 4     |
 | [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 9     |
@@ -144,4 +144,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 38/87 verified sections, 5 ready to run now.
 
-Checklist: 408/648 items completed (includes Commit items).
+Checklist: 408/649 items completed (includes Commit items).

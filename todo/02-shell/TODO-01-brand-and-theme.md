@@ -80,20 +80,22 @@ Hand-edited XAML is how themes drift. The generator owns the colour resources an
 
 Steward proved these catch real faults (it raised `TextMute` for contrast). Here they cover both themes.
 
+**Corrected 2026-11-13:** checked against the tree before the build. Steward's `ThemeContrastTests.cs` reads `Theme\Dark.xaml` from the test's output folder and checks `Text`, `TextDim` and `TextMute` on `Base`, `Surface` and `Raised`; here the colours are read from the generated files of `D02 T01 §1` in the checkout, for both themes, and the roles are every colour the panel draws words in: the three text roles, `Accent`, the four status colours (`design/SPEC.md` §1: each state has a word), and `OnAccent` on `Accent` for `Btn.Primary`. Measured 2026-11-13, every one of those is at least 4.60:1 in both themes (the lowest are light `Accent` on `Raised` at 4.60 and dark `TextMute` on `Raised` at 4.94), so no token changes. The soft status tints are `D02 T03 §1`'s. Steward's `TabStripStyleTests.cs` holds two things: its no-colour rule, which becomes the rule here, and its assertions on the `TabStrip.Item` style, which need `Theme/Controls.xaml` and so move to `D02 T01 §4`, where that style is ported (an item is added there). The panel's XAML today is `App.xaml` and `Foundation.xaml`, with no colour or font size in either. The checkpoint's filter is the Microsoft.Testing.Platform form the repo uses (`--filter-class`), not `--filter FullyQualifiedName~`. Decided here: the rule reads every `.xaml` and `.cs` under `src/Bosun.Panel` outside `Theme/Generated`, since a colour typed into code-behind drifts as surely as one typed into a view. Reversal cost: none.
+
 **Phase:** 2
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Port `ThemeContrastTests` and `TabStripStyleTests`. Done when: both themes are asserted.
-2. Add the no-hex rule across all XAML. Done when: a stray colour fails.
+1. Port `ThemeContrastTests`. Done when: both themes are asserted.
+2. Add the no-stray-colour rule across the panel's XAML and code. Done when: a stray colour fails.
 
-- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, citing `D:\Steward\tests\Steward.Console.Tests`. Done when: a lowered token fails the test. Cheaper substitute: checking only the dark theme.
-- [ ] Fail any hex colour or font size outside `Theme/Generated` in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a hex in a view fails it.
+- [ ] Assert at least 4.5:1 for each text role on `Base`, `Surface` and `Raised`, in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, citing `D:\Steward\tests\Steward.Console.Tests`: for each generated theme, `Text`, `TextDim`, `TextMute`, `Accent`, `Ok`, `Warn`, `Danger` and `Info` on each of the three surfaces, and `OnAccent` on `Accent`, by WCAG 2 relative luminance, through one function (`ThemeContrast.Failures`) that takes a theme's colours and names each failing pair with its ratio; and `TextMute` stays below `TextDim`, and `TextDim` below `Text`, in contrast on `Base`. Done when: both real themes give no failure; a lowered token fails the test (the dark theme's colours with `TextMute` lowered to `#5A6270` name `TextMute` on `Raised`, and the light theme's with `Accent` raised to `#5B8DEF` name `Accent`); and a theme missing a role is a failure, not a pass. Cheaper substitute: checking only the dark theme.
+- [ ] Fail any colour or font size outside `Theme/Generated` in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`, through one function (`XamlRules.Violations`) over a file's text, run on every `.xaml` and `.cs` under `src/Bosun.Panel` outside `Theme/Generated`: in XAML, an attribute value or element text that is a hex colour (`#RGB`, `#ARGB`, `#RRGGBB` or `#AARRGGBB`), a named colour on a brush or colour property (`Foreground`, `Background`, `BorderBrush`, `Fill`, `Stroke`, `Color` and a `Setter` for one), `Transparent` excepted, and a `FontSize` (attribute or `Setter`) that is a number; in C#, a hex colour in a string, `Color.FromRgb`, `Color.FromArgb`, `ColorConverter`, and `Colors.` or `Brushes.` members other than `Transparent`. Each violation names the file, the line and what was found. Done when: the panel's real files give none and at least `App.xaml` was read; and a hex in a view fails it, as do each of the other cases, from fixture text, while a `{StaticResource B.Text}`, a `{DynamicResource T.Body}`, `Transparent` and `Text="Issue #123"` pass.
 - [ ] Commit: `theme: contrast and stray colour tests`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~ThemeContrast` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ThemeContrast*" --filter-class "*XamlRules*"` exits 0, and fails if the change is reverted: with `dark.TextMute` lowered to `#5A6270` in `design/tokens/colors.json` and the theme regenerated, `ThemeContrastTests` fails; with a hex colour added to `src/Bosun.Panel/Foundation.xaml`, `XamlRulesTests` fails.
 
 ## 3. Tray state icons and the icon drift gate
 
@@ -131,6 +133,7 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 2. Add the missing `Btn.Small` and focus visuals. Done when: keyboard focus is visible on all controls.
 
 - [ ] Port `Btn`, `Btn.Primary`, `Btn.Danger`, `Btn.Chrome`, `LogBox`, `NavList`, `ScrollBar`, `TabStrip`, `Field`, `CheckBox` and `ComboBox` from `D:\Steward\src\Steward.Console\Theme\Controls.xaml`. Done when: each style applies without a resource lookup failure in both themes. Cheaper substitute: literal colours left in a template.
+- [ ] Port the `TabStrip.Item` assertions of `D:\Steward\tests\Steward.Console.Tests\TabStripStyleTests.cs` to `tests/Bosun.Panel.Tests/TabStripStyleTests.cs` (**Added 2026-11-13** from `D02 T01 §2`, which ports that file's no-colour rule but has no `Controls.xaml` to read): unselected tabs draw in `B.TextDim`, the selected one in `B.Accent` with an underline, a disabled one at 0.4 opacity with its tooltip still shown, and each is at least 44 px high. Done when: the test reads `src/Bosun.Panel/Theme/Controls.xaml` and fails if a setter is changed.
 - [ ] Add `FocusVisualStyle` and a 32 px minimum height for every interactive control. Done when: a test walks the styles and asserts both.
 - [ ] Add `DataGrid` styling with tabular numbers for the panel's many tables. Done when: an off-screen render of a table shows it in both themes.
 - [ ] Commit: `theme: control templates`
