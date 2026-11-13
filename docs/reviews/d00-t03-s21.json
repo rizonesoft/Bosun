@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T03 \u00a721",
+  "title": "Run guard waits on a long local gate",
+  "implementation_sha": "0362d7229e96e3ddda118e2b589aa8693ab648e1",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s21.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s21.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts.tests.test_run_guard.LocalGates -> OK (7 tests)",
+    "pwsh tests/check_all_test.ps1 -> all checks passed",
+    "pwsh tests/measure_build_test.ps1 -> all checks passed",
+    "pwsh scripts/check-all.ps1 -Only python-tests -> all 1 steps passed in 260 s, status naming it in flight",
+    "full gate, CI on ef1dca8 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43357365971, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43357365849"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s21.md",
+    "verdict": "completed",
+    "candidate": "ef1dca88e4a377bdc7f038d60db5b80221875d77",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s21.md",
+    "candidate": "c1cb63f705e90cfc2f9d72b8c70f5943289bff4e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "c1cb63f705e90cfc2f9d72b8c70f5943289bff4e",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -59,7 +59,7 @@ title: "TODO-03 -- Campaign readiness"
 | 18 | §18 | Campaign setup hardening from the preflight's completion review | §10 | [x] |
 | 19 | §19 | Run guard holds an Antigravity run | -- | [x] |
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
-| 21 | §21 | Run guard waits on a long local gate | -- | [ ] |
+| 21 | §21 | Run guard waits on a long local gate | -- | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -815,9 +815,12 @@ Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`
 - [x] Have `python scripts/run-guard.py status` print `waiting` while a review, a CI gate or a local gate is in flight, naming it (`waiting for <what> in flight`), in its text and in `--json` (`state` `waiting`, `in_flight`), and `active` again once it has ended. Done when: a test shows each of the three in flight in both forms, and `active` after.
 - [x] Write the mark from `scripts/check-all.ps1` and `scripts/measure-build.ps1` through one shared helper in `scripts/lib/` (`gate-mark.ps1`), atomically (a temporary file, then a replace), with this process's id, its start time and what runs, before the first step or queue wait, and remove it in a `finally`, keeping the gate's own exit code. Done when: `tests/check_all_test.ps1` and `tests/measure_build_test.ps1` each show the mark present while a step runs and gone after a pass and after a failure, with the exit code unchanged. Cheaper substitute: a lock file with no pid, which a crash leaves holding the run.
 - [x] Name the local gate as a wait in `.claude/skills/process-phase/SKILL.md` and its two mirrors, beside the CI gate, and strike the foreground-loop lesson in `docs/phase-runs/2026-11-12-phase-0.md`. Done when: the mirror test passes with the new text.
-- [ ] Commit: `run: the guard waits on a long local gate`
+- [x] Commit: `run: the guard waits on a long local gate`
 
 **Test checkpoint:** `python scripts/run-tests.py test_run_guard`, `pwsh tests/check_all_test.ps1` and `pwsh tests/measure_build_test.ps1` exit 0, and removing the `gating` check from `on_stop`, or the `REAL` wiring, makes the guard harness fail.
+
+> **Verified:** 2026-11-13 | §21 | 0362d7229e96e3ddda118e2b589aa8693ab648e1
+> **Review:** `docs/reviews/d00-t03-s21.json`
 
 ## Verification
 

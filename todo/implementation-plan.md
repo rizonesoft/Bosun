@@ -44,7 +44,7 @@ Sections: 33 | Checklist items: 343
 | [x]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
 | [x]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
-| [ ]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
+| [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
 
 ### Phase 1: Core data contract
 
@@ -142,6 +142,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 31/87 verified sections, 5 ready to run now.
+Progress: 32/87 verified sections, 4 ready to run now.
 
-Checklist: 345/611 items completed (includes Commit items).
+Checklist: 346/611 items completed (includes Commit items).
