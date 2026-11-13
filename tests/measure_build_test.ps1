@@ -441,8 +441,16 @@ exit $LASTEXITCODE
   $after = Get-Label 'dotnet-reuse'
   Check 'the stored .NET settings survive -RenderOnly and -DecideOnly' ($after.decision -eq 'kept' -and ($after.configuration | ConvertTo-Json -Compress) -eq ($reuse.configuration | ConvertTo-Json -Compress) -and ($after.observed | ConvertTo-Json -Compress -Depth 5) -eq ($reuse.observed | ConvertTo-Json -Compress -Depth 5))
 
-  $alive = @($workerIds | Select-Object -Unique | Where-Object { Get-Process -Id $_ -ErrorAction Ignore })
-  Check 'no worker the fake dotnet started is left running' ($workerIds.Count -gt 0 -and -not $alive) "($($workerIds.Count) started, alive: $($alive -join ', '))"
+  # A job ends its processes, and Stop-Process ends one, without waiting for them to exit, so a worker can still be on
+  # its way out at this instant on a slow machine (red on CI at b9939b1, green at the same measuring code before). A
+  # worker left running lives its two minutes; one on its way out is gone in moments: give the exits fifteen seconds.
+  $alive = @()
+  foreach ($i in 1..75) {
+    $alive = @($workerIds | Select-Object -Unique | Where-Object { Get-Process -Id $_ -ErrorAction Ignore })
+    if (-not $alive) { break }
+    Start-Sleep -Milliseconds 200
+  }
+  Check 'no worker the fake dotnet started is left running' ($workerIds.Count -gt 0 -and -not $alive) "($($workerIds.Count) started, alive after 15 s: $($alive -join ', '))"
 
 } finally {
   # Every worker the fakes started ends with the test, whatever happened to it.
