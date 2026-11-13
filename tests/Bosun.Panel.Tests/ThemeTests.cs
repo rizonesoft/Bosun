@@ -30,16 +30,6 @@ public class ThemeTests
         return result;
     }
 
-    // The checkout: the first folder up holding both the solution and the token file, since a copy of Bosun.slnx can sit
-    // under build/ (one did, from a measurement run).
-    static string Repo()
-    {
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "Bosun.slnx")) && File.Exists(Path.Combine(dir.FullName, "design", "tokens", "colors.json")))
-                return dir.FullName;
-        throw new InvalidOperationException("no checkout (Bosun.slnx beside design/tokens/colors.json) above " + AppContext.BaseDirectory);
-    }
-
     static Color Hex(string value)
     {
         var digits = value.TrimStart('#');
@@ -54,9 +44,9 @@ public class ThemeTests
     [InlineData("light", "Light.xaml")]
     public void Theme_holds_every_token_with_its_type_and_value_and_nothing_else(string theme, string file)
     {
-        var repo = Repo();
+        var repo = TestPaths.Repo();
         using var tokens = JsonDocument.Parse(File.ReadAllText(Path.Combine(repo, "design", "tokens", "colors.json")));
-        var path = Path.Combine(repo, "src", "Bosun.Panel", "Theme", "Generated", file);
+        var path = TestPaths.GeneratedTheme(file);
         var failures = OnSta(() =>
         {
             ResourceDictionary dict;
@@ -95,7 +85,7 @@ public class ThemeTests
         var keys = OnSta(() =>
             new[] { "Dark.xaml", "Light.xaml" }.Select(file =>
             {
-                using var stream = File.OpenRead(Path.Combine(Repo(), "src", "Bosun.Panel", "Theme", "Generated", file));
+                using var stream = File.OpenRead(TestPaths.GeneratedTheme(file));
                 var dict = (ResourceDictionary)XamlReader.Load(stream);
                 return dict.Keys.Cast<object>().Select(k => k.ToString()!).OrderBy(k => k, StringComparer.Ordinal).ToArray();
             }).ToArray());
