@@ -154,6 +154,8 @@ Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" de
 
 **Corrected 2026-11-13:** checked against the tree before its review. The section was built and committed on 2026-11-12 (`b16d74d`) with every item but the commit ticked, and never reviewed or stamped; it runs its review cycle as a section already implemented, with its checkpoint re-run. One item has been overtaken: since `D00 T03 §20` (stamped), `scripts/start-run.ps1 -InstallShortcut` writes two campaign shortcuts, each carrying a badged icon that `scripts/build-icons.py --out ... --badge-fill` renders from these same masters into the user's application data folder, and `resources\bosun.ico` is the base of those and the icon a shortcut carries when its badge can't be rendered (`tests/start_run_test.ps1` proves both). So the item's `IconLocation` of `D:\Bosun\resources\bosun.ico,0` held when it was ticked and is now the fallback case. The committed ICO is kept current by `test_committed_ico_matches_masters`, which CI runs through `scripts/run-tests.py`; the `check-all` gate step for icons is `D02 T01 §3`'s. The generator's later badge work (`ee6a9ea`, `2dce31e`, `a82113f`) belongs to `D00 T03 §20` and was reviewed there.
 
+**Corrected 2026-11-13 (plan review):** the plan review in `docs/reviews/02-shell/D02-T01-s5.md` returned one gap (P2), planned in below: `test_frames_follow_spec` checked the masters of 16, 20, 24 and 32 px only, so 40, 48 and 64 px drawn from the 32 px master passed it, and a regenerated ICO would then have satisfied the drift check too. The test now holds `design/SPEC.md` §18's table itself and checks every frame against it, and the wrong-master mutation is kept as a test.
+
 **Phase:** 2
 **Needs:** none
 **Surface:** no
@@ -168,9 +170,10 @@ Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" de
 - [x] Write `resources/bosun.ico` with an atomic temporary-file-then-replace write (`write_atomic`). Done when: the file is committed and `--check` exits 0.
 - [x] Add `scripts/requirements-icons.txt` pinning `resvg-py` and `Pillow` (the tests read frames with Pillow). Done when: the generator and `scripts/tests/test_build_icons.py` run from those two packages.
 - [x] Reinstall the desktop shortcut with `pwsh scripts/start-run.ps1 -InstallShortcut`. Done when: its `IconLocation` reads `D:\Bosun\resources\bosun.ico,0` and the extracted icon is the Bosun tile.
+- [ ] Prove every frame's master in `scripts/tests/test_build_icons.py` (**Added 2026-11-13** from the plan review): `test_frames_follow_spec` checks each of the eight frames against the master `design/SPEC.md` §18 names, from a table written in the test, and `test_a_frame_from_the_wrong_master_is_off_spec` draws 40, 48 and 64 px from the 32 px master, 20 px from the 256 one and 256 px from the 32 one. Done when: each wrong table is named off spec for exactly its sizes, and the committed ICO still matches the masters.
 - [ ] Commit: `brand: app icon ICO from the masters, used by the run shortcut`
 
-**Test checkpoint:** `python scripts/run-tests.py test_build_icons` passes; rendering the 20 px frame from the 256 px master makes `test_frames_follow_spec` fail.
+**Test checkpoint:** `python scripts/run-tests.py test_build_icons` passes; rendering the 20 px frame from the 256 px master, or the 40, 48 and 64 px frames from the 32 px one, in `scripts/build-icons.py` (`FRAMES`) makes `test_frames_follow_spec` fail; and `python scripts/build-icons.py --check` exits 0.
 
 ## Verification
 
