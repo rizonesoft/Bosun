@@ -37,6 +37,13 @@ from typing import Callable, Iterator
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = Path(os.environ.get("RUN_GUARD_STATE") or ROOT / ".git" / "run-guard" / "state.json")
+# Where the waits in flight are recorded (review marks, the CI gate's record, the local gates' marks): this checkout's
+# build/ folder, or RUN_GUARD_BUILD, so a test of the guard's CLI doesn't read the writer's own reviews and gates.
+BUILD = Path(os.environ.get("RUN_GUARD_BUILD") or ROOT / "build")
+
+
+def build_dir(root: Path | None) -> Path:
+    return BUILD if root is None else Path(root) / "build"
 CRON = "7,22,37,52 * * * *"
 
 MAX_IDLE_BLOCKS = 5  # sends back in a row with nothing changed, before the turn may end
@@ -327,11 +334,11 @@ def pid_alive(pid: int) -> bool:
     return process_started(pid) is not None
 
 
-def review_in_flight(root: Path = ROOT) -> str | None:
+def review_in_flight(root: Path | None = None) -> str | None:
     """A reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/, or None. A
     mark counts only while its process lives and its deadline hasn't passed, so a crashed dispatcher's leftover never
     holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
-    folder = Path(root) / "build" / "review-in-flight"
+    folder = build_dir(root) / "review-in-flight"
     try:
         names = sorted(os.listdir(folder))
     except OSError:
@@ -350,12 +357,12 @@ def review_in_flight(root: Path = ROOT) -> str | None:
 CI_WAIT_LIMIT = 2 * 60 * 60  # scripts/ci_status.py WAIT_LIMIT_SECONDS: past it the gate answers `unverified`
 
 
-def ci_in_flight(root: Path = ROOT) -> str | None:
+def ci_in_flight(root: Path | None = None) -> str | None:
     """The commit a CI gate (`scripts/ci_status.py --gate`) is polling now, from its wait in build/ci-gate.json, or None.
     process-phase holds the next row on a `wait`, so this does too. It counts only while the gate that wrote it lives
     and within the gate's own limit, so a killed gate's record never holds a run."""
     try:
-        waiting = json.loads((Path(root) / "build" / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
+        waiting = json.loads((build_dir(root) / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
         sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None  # no wait, or one from a gate too old to name its pid: nothing is polling
@@ -364,12 +371,19 @@ def ci_in_flight(root: Path = ROOT) -> str | None:
     return None
 
 
-def gate_in_flight(root: Path = ROOT) -> str | None:
+def gate_mark_dir(root: Path | None = None) -> Path:
+    """Where the gates keep their marks: build/gate-in-flight/ (`BUILD`), or BOSUN_GATE_MARK_DIR when that is set, as
+    scripts/lib/gate-mark.ps1 reads it (a gate's own tests, which must not see the gate running them)."""
+    override = os.environ.get("BOSUN_GATE_MARK_DIR")
+    return Path(override) if override and root is None else build_dir(root) / "gate-in-flight"
+
+
+def gate_in_flight(root: Path | None = None) -> str | None:
     """The long local gate running now (scripts/check-all.ps1, scripts/measure-build.ps1), from the marks it keeps
-    under build/gate-in-flight/ (scripts/lib/gate-mark.ps1), or None. A mark counts while the process that wrote it
-    runs, judged by its pid and start time, however long that is: a gate limits its steps and queue waits apart, so
-    there is no deadline to keep, and a gate that was killed or crashed holds nothing."""
-    folder = Path(root) / "build" / "gate-in-flight"
+    (scripts/lib/gate-mark.ps1, `gate_mark_dir`), or None. A mark counts while the process that wrote it runs, judged
+    by its pid and start time, however long that is: a gate limits its steps and queue waits apart, so there is no
+    deadline to keep, and a gate that was killed or crashed holds nothing."""
+    folder = gate_mark_dir(root)
     try:
         names = sorted(os.listdir(folder))
     except OSError:
@@ -389,12 +403,10 @@ def gate_in_flight(root: Path = ROOT) -> str | None:
 
 
 def in_flight(env: Env) -> str | None:
-    """What the run waits for in flight now, for `status`: a review, a CI gate or a local gate, or None."""
-    for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting), ("a local gate", env.gating)):
-        found = read()
-        if found:
-            return f"{what} in flight ({found})"
-    return None
+    """Everything the run waits for in flight now, for `status`: a review, a CI gate and a local gate, or None."""
+    found = [f"{what} in flight ({which})" for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting),
+                                                             ("a local gate", env.gating)) if (which := read())]
+    return "; ".join(found) or None
 
 
 STATUS_FIELDS = ("session_id", "runner", "why", "started", "ended", "yields", "last_error", "heartbeat_at",
@@ -661,9 +673,9 @@ def wait_in_session(state: dict) -> str:
     )
 
 
-def wait_for_flight(what: str, which: object) -> str:
+def wait_for_flight(flying: str) -> str:
     return (
-        f"The unattended run is waiting for {what} in flight ({which}). Nothing wakes this session once its turn ends, so "
+        f"The unattended run is waiting for {flying}. Nothing wakes this session once its turn ends, so "
         f"wait for it in this session: sleep in steps of at most {WAIT_SLICE_MINUTES} minutes and look again, build "
         "nothing and change nothing in the tree meanwhile, then act on its result and continue process-plan."
     )
@@ -693,13 +705,9 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
     woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
     if waiting(state, now) and not woken:
         return wait_in_session(state)
-    review, ci, gate = env.reviewing(), env.ci_waiting(), env.gating()
-    if review:
-        return wait_for_flight("a review", review)
-    if ci:
-        return wait_for_flight("a CI gate", ci)
-    if gate:
-        return wait_for_flight("a local gate", gate)
+    flying = in_flight(env)
+    if flying:
+        return wait_for_flight(flying)
     reason = on_stop(state, data, env)
     if reason is None and state.get("active"):
         if waiting(state, time.time()):

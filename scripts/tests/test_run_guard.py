@@ -1201,7 +1201,8 @@ class AntigravityRuns(unittest.TestCase):
         self.assertEqual((done.returncode, done.stdout.strip()), (0, ""), "a Stop with no active run was answered")
 
     def test_start_and_end_through_the_cli(self):
-        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "PYTHONIOENCODING": "utf-8"}
+        # A build folder of its own: the writer's own reviews and CI gates in flight would read as waits here.
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build"), "PYTHONIOENCODING": "utf-8"}
         script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
         cli = lambda *args: subprocess.run([*script, *args], env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
         done = cli("start", "--session", self.SESSION, "--runner", "antigravity", "--owner-pid", str(os.getpid()))
@@ -1277,6 +1278,9 @@ class LocalGates(unittest.TestCase):
             self.assertEqual((word, data["state"]), ("waiting", "waiting"), what)
             self.assertEqual(data["in_flight"], f"{what} in flight ({value})")
             self.assertIn(f"waiting for {what} in flight ({value})", lines)
+        both = guard.replace(World().env(), ci_waiting=lambda: "abc, gate pid 2", gating=lambda: "check-all, pid 3")
+        self.assertEqual(guard.status_view(state, both, path=self.path)[1]["in_flight"],
+                         "a CI gate in flight (abc, gate pid 2); a local gate in flight (check-all, pid 3)", "one wait hid another")
         word, data, lines = guard.status_view(state, World().env(), path=self.path)
         self.assertEqual((word, "in_flight" in data, lines), ("active", False, []))
         self.assertEqual(guard.status_view({"active": False, "status": "ended"}, guard.replace(World().env(), gating=lambda: "x"), path=self.path)[0], "ended")
@@ -1284,12 +1288,16 @@ class LocalGates(unittest.TestCase):
     def test_through_the_cli_a_real_mark_holds_both_runners_and_status(self):
         holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
         self.addCleanup(lambda: (holder.kill(), holder.wait()))
-        marks = guard.ROOT / "build" / "gate-in-flight"
-        marks.mkdir(parents=True, exist_ok=True)
+        # A build folder of the test's own (RUN_GUARD_BUILD): the repository's holds the mark of the gate running this
+        # suite (round 1 of the review) and the writer's own reviews and CI gates in flight.
+        build = self.root / "own-build"
+        marks = build / "gate-in-flight"
+        marks.mkdir(parents=True)
         mark = marks / f"{holder.pid}.json"
         self.addCleanup(lambda: mark.unlink(missing_ok=True))
         mark.write_text(json.dumps({"pid": holder.pid, "started": guard.process_started(holder.pid), "what": "check-all (test)"}), encoding="utf-8")
-        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "PYTHONIOENCODING": "utf-8"}
+        env = {k: v for k, v in os.environ.items() if k != "BOSUN_GATE_MARK_DIR"}
+        env.update(RUN_GUARD_STATE=str(self.path), RUN_GUARD_BUILD=str(build), PYTHONIOENCODING="utf-8")
         script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
         cli = lambda *args, **kw: subprocess.run([*script, *args], env={**env, **kw.pop("extra", {})}, capture_output=True, text=True,
                                                   encoding="utf-8", timeout=300, **kw)
@@ -1305,9 +1313,9 @@ class LocalGates(unittest.TestCase):
         guard.save(state, self.path)
         done = cli("hook", "--runner", "antigravity", extra={"BOSUN_RUN_SESSION": "agy-1"},
                    input=json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}))
-        self.assertIn("waiting for a local gate in flight", json.loads(done.stdout)["reason"])
+        self.assertIn("waiting for a local gate in flight (check-all (test), pid", json.loads(done.stdout)["reason"])
         mark.unlink()
-        self.assertNotEqual(cli("status").stdout.splitlines()[0], "waiting", "the wait outlived the gate's mark")
+        self.assertEqual(cli("status").stdout.splitlines()[0], "active", "the wait outlived the gate's mark")
 
 
 if __name__ == "__main__":
