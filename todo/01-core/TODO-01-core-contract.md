@@ -77,6 +77,8 @@ A mutex can't name its owner. Holders and waiters publish a small record beside 
 
 ## 2. Job history log
 
+> **Started:** 2026-11-13T06:09:17Z
+
 The Queue page and the overlap analysis both need to know what ran when. One file per day, kept as long as the memory logs.
 
 **Corrected 2026-11-13:** checked against the tree before the build. The log's pruning is `prune_logs` in `src/app.cpp` (the section named `src/logger_main.cpp`, which is only the logger's windowless entry point), and it reads a file's date only from a `.csv` name (`file_date`), so a `.jsonl` file would never go. A WSL job is run by `wsl/bosun` while `bosun.exe acquire` holds its slot, and the section named no writer for it: `acquire` writes its line, as it writes its record (`D01 T01 §1`), learning the exit code from the shim over the pipe they already share. A run inside a slot (`BOSUN_SLOT`) writes no line, as it writes no record: the outer job's line covers it.
