@@ -1,0 +1,88 @@
+{
+  "ref": "D02 T01 \u00a73",
+  "title": "Tray state icons and the icon drift gate",
+  "implementation_sha": "6eff3036ee5b0d481f35bd6f9e52e5e0c2265603",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T01-s3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/build-icons.py --check -> exit 0, all four ICO files match the masters",
+    "python scripts/run-tests.py test_build_icons -> 25 tests in 3 classes, OK",
+    "pwsh scripts/check-all.ps1 -Only icons -> passed; FAIL icons after a hand edit of resources/bosun.ico; passed once rebuilt",
+    "pwsh tests/check_all_test.ps1 -> all checks passed; pwsh tests/start_run_test.ps1 -> all passed",
+    "full gate, CI on 6eff303 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43487916623, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43487916731"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T01-s3.md",
+    "verdict": "complete",
+    "candidate": "6eff3036ee5b0d481f35bd6f9e52e5e0c2265603",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T01-s3.md",
+    "candidate": "f69f8ec43f276452e609e70216ae13a6df113f78",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "f69f8ec43f276452e609e70216ae13a6df113f78",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

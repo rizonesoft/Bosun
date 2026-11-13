@@ -41,7 +41,7 @@ title: "TODO-01 -- Brand and theme"
 | 1 | §1 | Generate the theme from tokens | D00 T02 §2 | [x] |
 | 2 | §2 | Contrast and stray colour tests | §1 | [x] |
 | 3 | §5 | App icon ICO from the masters | -- | [x] |
-| 4 | §3 | Tray state icons and the icon drift gate | §1, §5 | [ ] |
+| 4 | §3 | Tray state icons and the icon drift gate | §1, §5 | [x] |
 | 5 | §4 | Control templates | §2, D02 T02 §9 | [ ] |
 
 ## 1. Generate the theme from tokens
@@ -130,9 +130,12 @@ The app ICO and its generator shipped first in §5 (the desktop shortcut needed 
 - [x] Cover all four files with `--check` and the default build in `scripts/build-icons.py`: with no `--out`, the build writes `resources/bosun.ico` and the three tray files, and `--check` exits 1 naming each of the four that is missing or differs from what the masters and tokens give, with the repair command; with `--out` the app icon alone is built or checked, as today, unless `--tray-out <folder>` names where the tray files go (the tests' form). A badged icon (`--badge-fill`) is unchanged. Done when: tests read exit 0 for the committed four; exit 1 naming only `tray-pressure.ico` after it is hand-edited; only `tray-pressure.ico` after `dark.Warn` changes, only `tray-needs.ico` after `dark.Info` changes, all three tray files' overlays being untouched by a change to `dark.Accent`, which names none; only `bosun.ico` after the 256 px master is edited, and all four after the 16 px master is; and a rebuild makes each pass again.
 - [x] Run `python scripts/build-icons.py --check` from `scripts/check-all.ps1` as the `icons` step, after `theme`, and give the order in `AGENTS.md` and `tests/check_all_test.ps1`. Done when: a hand-edited `resources/bosun.ico` fails the gate (`pwsh scripts/check-all.ps1 -Only icons` exits nonzero) and a rebuild passes it. Cheaper substitute: no drift check, as with `steward.ico`.
 - [x] Add `fonttools` to `scripts/requirements-icons.txt` only if the tray glyphs need it. Done when: the overlays are drawn as SVG shapes, so the file is unchanged, and a clean environment built from it runs the generator: CI's fresh runner installs exactly that file (`.github/workflows/build.yml`, `plan.yml`) and runs `test_build_icons` and the `icons` step.
-- [ ] Commit: `brand: tray state icons and the icon drift gate`
+- [x] Commit: `brand: tray state icons and the icon drift gate`
 
 **Test checkpoint:** `python scripts/build-icons.py --check` exits 0 with all four ICO files, and exits nonzero after a master is edited; `python scripts/run-tests.py test_build_icons` passes; and `pwsh scripts/check-all.ps1 -Only icons` fails after a hand edit of `resources/bosun.ico`.
+
+> **Verified:** 2026-11-13 | §3 | 6eff3036ee5b0d481f35bd6f9e52e5e0c2265603
+> **Review:** `docs/reviews/d02-t01-s3.json`
 
 ## 4. Control templates
 
