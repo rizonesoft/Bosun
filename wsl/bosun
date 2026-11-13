@@ -16,6 +16,16 @@ MAX_WAIT="${BOSUN_MAX_WAIT:-900}"
 MAX_WRITE_GB="${BOSUN_MAX_WRITE_GB:-100}"
 
 guest_avail_mb() { awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo; }
+# A whole number read as bosun.exe reads one (dm::parse_count): digits only, leading zeros allowed, at most $4, put
+# in the variable $1 as plain decimal, so 08 is eight and never an arithmetic error. $2 names it in the refusal.
+whole() {
+  local v="$3"
+  case "$v" in ''|*[!0-9]*) die "$2 must be a whole number" ;; esac
+  v="${v#"${v%%[!0]*}"}"
+  v="${v:-0}"
+  { [ "${#v}" -le 13 ] && [ "$v" -le "$4" ]; } || die "$2 is too large (at most $4)"
+  printf -v "$1" '%s' "$v"
+}
 guest_total_mb() { awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo; }
 
 # Linux variables do not reach bosun.exe by themselves, so they travel as flags, the same ones for run and status.
@@ -34,7 +44,7 @@ wsl_logger() {
 # status adds this side's own figures (D01 T01 §3), which Windows can't see, so bosun.exe writes the one object.
 if [ "${1:-}" = "status" ]; then
   shift
-  case "$MIN_GUEST_MB" in ''|*[!0-9]*) die "BOSUN_MIN_GUEST_MB must be a whole number of MB" ;; esac
+  whole MIN_GUEST_MB BOSUN_MIN_GUEST_MB "$MIN_GUEST_MB" 1099511627776
   exec "$EXE" status "${args[@]}" --guest-avail-mb "$(guest_avail_mb)" --guest-total-mb "$(guest_total_mb)" \
     --min-guest-mb "$MIN_GUEST_MB" --wsl-logger "$(wsl_logger)" "$@"
 fi
@@ -52,16 +62,9 @@ done
 [ "${1:-}" = "--" ] || die "usage: bosun run [options] -- command [args]"
 shift
 [ $# -gt 0 ] || die "usage: bosun run [options] -- command [args]"
-# Read as decimal, so 08 is eight and not an arithmetic error, and kept short enough that the byte count can't overflow.
-case "$MAX_WRITE_GB" in ''|*[!0-9]*) die "--max-write-gb must be a whole number of GB" ;; esac
-[ "${#MAX_WRITE_GB}" -le 9 ] || die "--max-write-gb is too large"
-MAX_WRITE_GB=$((10#$MAX_WRITE_GB))
-case "$MIN_GUEST_MB" in ''|*[!0-9]*) die "--min-guest-mb must be a whole number of MB" ;; esac
-[ "${#MIN_GUEST_MB}" -le 9 ] || die "--min-guest-mb is too large"
-MIN_GUEST_MB=$((10#$MIN_GUEST_MB))
-case "$MAX_WAIT" in ''|*[!0-9]*) die "--max-wait must be a whole number of seconds" ;; esac
-[ "${#MAX_WAIT}" -le 9 ] || die "--max-wait is too large"
-MAX_WAIT=$((10#$MAX_WAIT))
+whole MAX_WRITE_GB --max-write-gb "$MAX_WRITE_GB" 8589934591  # bash's signed 64 bits must hold it in bytes
+whole MIN_GUEST_MB --min-guest-mb "$MIN_GUEST_MB" 1099511627776
+whole MAX_WAIT --max-wait "$MAX_WAIT" 1099511627776
 args+=(--min-guest-mb "$MIN_GUEST_MB")  # acquire puts the guest floor in the holder's record, for status
 
 # Says a thing once per boot, so a missing protection is reported without filling every job's output.

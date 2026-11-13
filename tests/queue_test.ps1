@@ -539,6 +539,14 @@ if ($SkipWsl) {
     Check ($ws.memory.min_avail_mb -eq 1234 -and $typed.memory.min_avail_mb -eq 5678) "it forwards BOSUN_MIN_AVAIL_MB, and a typed --min-avail-mb wins ($($ws.memory.min_avail_mb), then $($typed.memory.min_avail_mb))"
     $active = (wsl.exe -d Ubuntu -- systemctl --user is-active bosun-log.service 2>$null | Out-String).Trim()
     Check ($(if ($active -eq 'active') { $ws.logger.wsl -eq 'running' } else { $ws.logger.wsl -in 'not running', 'unknown' })) "the WSL logger reads $($ws.logger.wsl), as systemd says $active"
+    # The shim reads whole numbers as bosun.exe does: leading zeros are fine, a suffix or a value past its bound is not.
+    $null = wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0000000003 -- true 2>&1
+    $zeros = $LASTEXITCODE
+    $null = wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 3x -- true 2>&1
+    $suffix = $LASTEXITCODE
+    $null = wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim run --ns $ns --slots 1 --min-avail-mb 0 --max-write-gb 9999999999 -- true 2>&1
+    $huge = $LASTEXITCODE
+    Check ($zeros -eq 0 -and $suffix -eq 64 -and $huge -eq 64) "the shim takes --max-wait 0000000003 (exit $zeros) and refuses 3x (exit $suffix) and a budget past its bound (exit $huge)"
 
     # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
     $marker = "killmarker$PID"
