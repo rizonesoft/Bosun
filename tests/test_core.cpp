@@ -400,6 +400,16 @@ static void report_json() {
     waited[0].ended_at = "2026-11-13T09:00:10Z";
     CHECK(dm::build_overlap(waited, 0).max_overlap == 0 && !dm::build_overlap(waited, 0).at);
     CHECK(dm::utc_stamp(0) == "1970-01-01T00:00:00Z" && dm::utc_stamp(*dm::utc_seconds("2028-02-29T23:59:59Z")) == "2028-02-29T23:59:59Z");
+    // A job line whose time isn't one, or whose duration is negative, is refused (and so counted), never read and then
+    // dropped where its time is used (round 4).
+    CHECK(!dm::parse_job_line("{\"schema_version\":1,\"started_at\":\"2026-11-13T09:00:00Z\",\"ended_at\":\"broken\",\"pid\":1,\"command\":\"build\",\"repo\":null,\"side\":\"windows\",\"ns\":\"default\",\"slot\":null,\"waited_s\":0,\"ran_s\":10,\"exit_code\":0,\"timed_out_into_queue\":false}"));
+    dm::JobLine neg = runs[0];
+    neg.started_at = "2026-11-13T09:00:00Z";
+    neg.side = "windows";
+    CHECK(dm::parse_job_line(dm::job_line_json(neg)).has_value());
+    std::string negText = dm::job_line_json(neg);
+    negText.replace(negText.find("\"ran_s\":10.0"), 12, "\"ran_s\":-1.0");
+    CHECK(!dm::parse_job_line(negText));
 
     dm::ReadStatus read;
     read.files = 3;

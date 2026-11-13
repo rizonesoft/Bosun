@@ -959,6 +959,10 @@ inline std::optional<JobLine> parse_job_line(const std::string& text) {
         || !repo || !slot || !code)
         return std::nullopt;
     if (side->text != "windows" && side->text != "wsl") return std::nullopt;
+    // Real times and durations no job can have the other way round, so a damaged line is refused and counted rather
+    // than read and then dropped where its time is used (round 4 of D01 T01 §4).
+    if (!utc_seconds(started->text) || !utc_seconds(ended->text) || waited->decimal < 0 || ran->decimal < 0 || ran->decimal > 1e9 || waited->decimal > 1e9)
+        return std::nullopt;
     JobLine j;
     j.started_at = started->text;
     j.ended_at = ended->text;
