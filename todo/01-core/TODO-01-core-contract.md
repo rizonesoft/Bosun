@@ -2,7 +2,7 @@
 schema_version: 1
 id: core-contract
 domain: 01-core
-status: active
+status: done
 title: "TODO-01 -- The core data contract"
 ---
 
@@ -37,7 +37,7 @@ title: "TODO-01 -- The core data contract"
 | 2 | §2 | Job history log | §1 | [x] |
 | 3 | §3 | status --json | §1 | [x] |
 | 4 | §4 | report --json and logger snapshots | §2 | [x] |
-| 5 | §5 | One config file for queue limits | §3 | [ ] |
+| 5 | §5 | One config file for queue limits | §3 | [x] |
 
 ## 1. Slot holder and waiter records
 
@@ -221,6 +221,9 @@ The panel's Limits form needs a place to write. Flags and environment keep winni
 - [x] Commit: `core: config file for limits`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe config` exits 0 and `pwsh tests/queue_test.ps1` (with its WSL half) prints `all passed`; each fails if the change is reverted.
+
+> **Verified:** 2026-11-13 | §5 | a8e1b49cdba667af59541077d2e479ccefeb2b72
+> **Review:** `docs/reviews/d01-t01-s5.json`
 
 ## Verification
 
