@@ -15,8 +15,9 @@ function Get-GateMarkDir {
   Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'build\gate-in-flight'
 }
 
-# Writes this process's mark, by a temporary file then a replace, and returns its path; $null when it can't be written,
-# since a gate that runs unmarked only loses the wait, and must not fail for it.
+# Writes this process's mark, by a temporary file then a replace, and returns its path. A mark that can't be written
+# (a full disk, a denied folder) throws, naming the folder: an unmarked gate would let the run guard send its session
+# on to a next row while the gate still runs, so the gate stops before its first step instead.
 function Enter-GateMark([string]$What) {
   try {
     $dir = Get-GateMarkDir
@@ -34,7 +35,7 @@ function Enter-GateMark([string]$What) {
     $path
   } catch {
     if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction Ignore }
-    $null
+    throw "the gate's mark couldn't be written to $(Get-GateMarkDir) ($($_.Exception.Message)), so the run guard couldn't tell it runs: free the space or the folder, then run this again"
   }
 }
 

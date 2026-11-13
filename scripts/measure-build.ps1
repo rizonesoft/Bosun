@@ -224,7 +224,7 @@ if ($DecideOnly) {
 # From here to the end, the run guard reads this measurement as a wait, its queue wait included
 # (scripts/lib/gate-mark.ps1).
 . (Join-Path $PSScriptRoot 'lib\gate-mark.ps1')
-$gateMark = Enter-GateMark "measure-build $Label"
+try { $gateMark = Enter-GateMark "measure-build $Label" } catch { "measure-build: $($_.Exception.Message): nothing was measured"; exit 1 }
 try {
 # Take a turn in the queue, once: the wait for a slot happens here, before any step is timed.
 if (-not $env:BOSUN_MEASURE_QUEUED) {

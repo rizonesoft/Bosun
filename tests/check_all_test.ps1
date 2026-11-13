@@ -62,6 +62,13 @@ try {
       $left = @(Get-ChildItem -LiteralPath $marks -Filter '*.json' -ErrorAction Ignore)
       Check "the gate's mark is there while each step runs and gone after $($case.Says), exit $($case.Exit) kept" ($r.Exit -eq $case.Exit -and $seen.Count -eq 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $($r.Exit), seen: $($seen -join ','), left: $($left.Count))"
     }
+    # A mark that can't be written (here a file where its folder would go): the gate stops before its first step.
+    $blocked = Join-Path $work 'not-a-folder'
+    Set-Content -LiteralPath $blocked -Value 'a file where the marks folder would go'
+    $env:BOSUN_GATE_MARK_DIR = $blocked
+    Set-Steps @(@{ name = 'one' })
+    $r = Invoke-Gate @('-StepFile', $stepFile)
+    Check "a gate whose mark can't be written stops before its first step, saying why" ($r.Exit -eq 1 -and -not $r.Ran -and $r.Text -match "the gate's mark couldn't be written") "(exit $($r.Exit), ran: $($r.Ran -join ','): $($r.Text))"
   } finally { Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore }
 
   # --- the runner, with stand-in steps ---

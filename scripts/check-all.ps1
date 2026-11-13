@@ -103,7 +103,7 @@ if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1).
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
-$gateMark = Enter-GateMark 'check-all'
+try { $gateMark = Enter-GateMark 'check-all' } catch { "check-all: $($_.Exception.Message)"; exit 1 }
 try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
 $started = [Diagnostics.Stopwatch]::StartNew()

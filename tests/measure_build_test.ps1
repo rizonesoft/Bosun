@@ -127,6 +127,15 @@ exit 0
       $exitKept = if ($case.Pass) { $code -eq 0 } else { $code -eq 1 -and $text -match "step 'fresh build'" }
       Check "the measurement's mark is there while each build runs and gone after a $(if ($case.Pass) { 'pass' } else { 'failure' }), its exit kept" ($exitKept -and $seen.Count -ge 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $code, seen: $($seen -join ','), left: $($left.Count))"
     }
+    # A mark that can't be written: nothing is measured, and it says why.
+    $blocked = Join-Path $dir 'not-a-folder'
+    Set-Content -LiteralPath $blocked -Value 'a file where the marks folder would go'
+    $env:BOSUN_GATE_MARK_DIR = $blocked
+    Set-Content -LiteralPath (Join-Path $dir 'mode.txt') -Value 'ok'
+    Remove-Item -LiteralPath (Join-Path $dir 'runs.txt') -ErrorAction Ignore
+    $text = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $markOut -Label 'mark-blocked' -Decision 'kept' -Samples 1 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    Check "a measurement whose mark can't be written measures nothing, saying why" ($code -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt')) -and $text -match "the gate's mark couldn't be written" -and $text -match 'nothing was measured') "(exit $code): $text"
   } finally { Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore }
   Remove-Item -LiteralPath (Join-Path $dir 'built.txt') -ErrorAction Ignore
 

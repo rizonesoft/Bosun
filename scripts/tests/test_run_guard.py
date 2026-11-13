@@ -1250,6 +1250,18 @@ class LocalGates(unittest.TestCase):
         (self.marks / "1.json").write_text("{not json", encoding="utf-8")
         self.assertIsNone(guard.gate_in_flight(self.root))
 
+    def test_every_gate_running_at_once_is_named_and_one_ending_leaves_the_other(self):
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+        self.addCleanup(lambda: (holder.kill(), holder.wait()))
+        self.mark("a.json", **self.live(what="check-all"))
+        self.mark("b.json", pid=holder.pid, started=guard.process_started(holder.pid), what="measure-build baseline")
+        both = guard.gate_in_flight(self.root)
+        self.assertIn("check-all, pid", both)
+        self.assertIn(f"measure-build baseline, pid {holder.pid}", both)
+        holder.kill()
+        holder.wait()
+        self.assertEqual(guard.gate_in_flight(self.root), f"check-all, pid {os.getpid()}", "the gate still running was hidden")
+
     def env(self, world, gate):
         return guard.replace(world.env(), gating=lambda: gate)
 

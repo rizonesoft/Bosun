@@ -388,6 +388,7 @@ def gate_in_flight(root: Path | None = None) -> str | None:
         names = sorted(os.listdir(folder))
     except OSError:
         return None
+    live = []
     for name in names:
         try:
             doc = json.loads((folder / name).read_text(encoding="utf-8-sig"))
@@ -396,10 +397,10 @@ def gate_in_flight(root: Path | None = None) -> str | None:
             continue
         try:
             if pid > 0 and process_started(pid) == started:
-                return f"{doc.get('what') or 'a gate'}, pid {pid}"
+                live.append(f"{doc.get('what') or 'a gate'}, pid {pid}")  # every one: two gates can run at once
         except OSError:
             continue  # can't tell: holding the run on it would be holding it on nothing seen
-    return None
+    return "; ".join(live) or None
 
 
 def in_flight(env: Env) -> str | None:
