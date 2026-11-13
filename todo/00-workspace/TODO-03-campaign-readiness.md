@@ -792,6 +792,8 @@ Filed 2026-11-12 on the owner's request: the two desktop shortcuts carried the s
 
 ## 21. Run guard waits on a long local gate
 
+> **Started:** 2026-11-13T02:29:56Z
+
 Filed 2026-11-12 from `D00 T02 §4`. The guard lets a turn end while a review (`review_in_flight`) or the CI gate (`ci_in_flight`) runs, but not while `scripts/check-all.ps1` (about 15 minutes) or `scripts/measure-build.ps1` runs in the background: the Stop hook sends the turn straight back, three times in that section, and the session can only wait in a foreground loop, which holds the tool for up to ten minutes and is cut off past it (`docs/phase-runs/2026-11-12-phase-0.md`, Lessons). The fix follows the review marks: each long gate leaves a mark while it runs, and a live mark is a wait.
 
 **Corrected 2026-11-13:** checked against the tree before the build. Since this was filed, the owner's test cadence (`process-todo-section`, "Test cadence") made CI the full gate of record, so a local `check-all` runs only for what CI can't run, to reproduce a red run, or when the CI gate answers `unverified`; a real-machine measurement (`scripts/measure-build.ps1`) still runs here for many minutes, so the wait is still worth having. And `D00 T03 §19` added the Antigravity runner, whose Stop hook sends a session on to wait inside it where a Claude Code turn may end (`on_antigravity_stop` in `scripts/lib/run_guard.py`): a gate in flight is one more such wait there. Nothing of this section exists in the tree yet (`gate_in_flight`, `gating` and `build/gate-in-flight/` are absent).
