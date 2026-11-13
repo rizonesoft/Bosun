@@ -1232,9 +1232,7 @@ std::optional<uint64_t> saved_value(const LoadedConfig& c, const char* key) {
 void apply_limits(Options& o) {
     LoadedConfig c = load_config();
     std::string where = narrow(config_path().wstring());
-    if (c.exists && !c.readable) std::cerr << "[bosun] ignoring " << where << ": it can't be read, so its limits don't apply\n";
-    else if (c.exists && !c.file.valid) std::cerr << "[bosun] ignoring " << where << ": " << c.file.error << ", so its limits don't apply\n";
-    for (const auto& [key, why] : c.file.refused) std::cerr << "[bosun] ignoring " << key << " in " << where << ": it " << why << "\n";
+    std::map<std::string, dm::ResolvedLimit> resolved;
     for (const auto& spec : dm::limit_specs()) {
         auto flag = o.limit_flags.find(spec.key);
         dm::ResolvedLimit r = dm::resolve_limit(spec, flag == o.limit_flags.end() ? std::nullopt : std::optional<uint64_t>(flag->second),
@@ -1245,7 +1243,18 @@ void apply_limits(Options& o) {
         else if (key == "min_avail_mb") o.min_avail_mb = r.value;
         else if (key == "max_wait_s") o.max_wait_s = r.value;
         else if (key == "min_guest_mb") o.min_guest_mb = r.value;
+        resolved[key] = r;
     }
+    // Said after the limits are resolved, so each warning names what the command runs on instead (round 5).
+    auto in_use = [&](const std::string& key) {
+        const dm::ResolvedLimit& r = resolved.at(key);
+        return key + " uses " + std::to_string(r.value) + " from the " + r.source;
+    };
+    std::string all;
+    for (const auto& spec : dm::limit_specs()) all += (all.empty() ? "" : ", ") + in_use(spec.key);
+    if (c.exists && !c.readable) std::cerr << "[bosun] ignoring " << where << ": it can't be read; " << all << "\n";
+    else if (c.exists && !c.file.valid) std::cerr << "[bosun] ignoring " << where << ": " << c.file.error << "; " << all << "\n";
+    for (const auto& [key, why] : c.file.refused) std::cerr << "[bosun] ignoring " << key << " in " << where << ": it " << why << "; " << in_use(key) << "\n";
 }
 
 // config.json replaced whole, under a mutex so two writers can't lose each other's change: 0 saved, 74 it couldn't be

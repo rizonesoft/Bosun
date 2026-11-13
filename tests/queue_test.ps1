@@ -646,7 +646,11 @@ $runOut = & $bosun run --ns $ns -- $sleeper (Join-Path $work 'cfgbad.txt') 1 37 
 $runCode = $LASTEXITCODE
 $g = (CfgJson @('get', '--json')).Obj
 Check ($r.Code -eq 74 -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cfgFile)) -eq [Convert]::ToBase64String($damaged)) "config set refuses to overwrite a damaged file (exit $($r.Code)), leaving it as it was"
-Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json')).Count -eq 1 -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "with a damaged config.json a build still runs on the defaults (exit $runCode), said once"
+Check ($runCode -eq 37 -and ([regex]::Matches($runOut, 'ignoring .*config\.json')).Count -eq 1 -and $runOut -match 'slots uses 2 from the default' -and $g.valid -eq $false -and $g.limits.slots.source -eq 'default') "with a damaged config.json a build still runs on the defaults (exit $runCode), said once with what it uses"
+# One refused key names what the command runs on instead (round 5).
+Set-Content -LiteralPath $cfgFile -Value '{"schema_version":1,"slots":0,"max_wait_s":5}' -NoNewline
+$keyOut = & $bosun status 2>&1 | Out-String
+Check ($keyOut -match 'ignoring slots in .*config\.json: it must be a whole number from 1 to 64; slots uses 2 from the default' -and ([regex]::Matches($keyOut, 'ignoring')).Count -eq 1) "a refused key is said with the value and source it falls back to ($(($keyOut -split "`n")[0].Trim()))"
 # Round 1: a file past 64 KB is refused whole without being loaded, and a save that can't own the writers' mutex
 # changes nothing.
 [IO.File]::WriteAllText($cfgFile, '{"schema_version":1,"slots":1,"pad":"' + ('x' * 70000) + '"}')
