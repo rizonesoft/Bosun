@@ -6,6 +6,11 @@ A run starts only when the operator starts it, and it lives in the session's win
 - The session ends its turn: the Stop hook sends it back while runnable rows remain.
 - The session sits idle (an API error, a yield): a CronCreate tick in that session wakes it.
 
+An Antigravity run (`start --runner antigravity`) is held the same way through Antigravity's own Stop hook
+(`hook --runner antigravity`, wired in .agents/hooks.json). It has no heartbeat, so nothing wakes a session whose turn
+ended: where a Claude Code turn may end to wait, an Antigravity session is sent on to wait inside it. It keeps no
+session record either, so the run lives while its launcher's window process (`--owner-pid`) does.
+
 Nothing restarts or resumes a run. When its session is gone (the window closed, a crash, a reboot) the run has
 ended: it is recorded as ended, `status` says so, and no scheduled task, watchdog or launcher brings it back.
 
@@ -90,6 +95,8 @@ class Env:
     reviewing: Callable[[], object] = lambda: None
     # Which commit a CI gate is polling now, or None (`ci_in_flight`).
     ci_waiting: Callable[[], object] = lambda: None
+    # Whether the process with this id still runs and started at this time (an Antigravity run's owner).
+    process_alive: Callable[[int, object], bool] = lambda pid, started: process_started(pid) == started
 
 
 def stamp(now: float | None = None) -> str:
@@ -276,7 +283,7 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
                 "something else, carry on."
             )
         return None
-    if state.get("active") and state.get("session_id") not in (None, session) and env.alive(state["session_id"]):
+    if state.get("active") and state.get("session_id") not in (None, session) and run_alive(state, env):
         return f"Another session ({state['session_id']}) owns the active run. Never run two writers on one tree: stop and say so."
     if not state.get("active"):
         state.clear()
@@ -303,7 +310,7 @@ def send_back(left: list[str] | None, state: dict) -> str:
     rows = "the next ready row" if not left else f"{len(left)} runnable rows, first {left[0]}"
     if left and left[0] in FINISH_STEPS:
         rows = f"one finishing step: {FINISH_STEPS[left[0]]}"
-    heartbeat = "" if heartbeat_current(state) else "The heartbeat is not armed or is about to expire: create it again with CronCreate if this session is interactive, deleting any old one. "
+    heartbeat = "" if heartbeat_current(state) or state.get("runner") == "antigravity" else "The heartbeat is not armed or is about to expire: create it again with CronCreate if this session is interactive, deleting any old one. "
     return heartbeat + (
         f"Unattended run is active: {rows}. Do not stop or report: continue process-plan now. A section that cannot be "
         "stamped is recorded and passed over, not a reason to end the run. Halting needs data loss, credentials, shared "
@@ -454,17 +461,55 @@ def on_stop_failure(state: dict, data: dict, now: float | None = None) -> None:
         set_wait(state, "overloaded", now + OVERLOADED_WAIT, f"Anthropic's API reported {error}; the run looks again in 5 minutes")
 
 
-def start(state: dict, session: str, env: Env, now: float | None = None) -> None:
+RUNNERS = ("claude", "antigravity")
+OWNER_KEYS = ("runner", "owner_pid", "owner_started")
+
+
+def run_alive(state: dict, env: Env) -> bool:
+    """Whether the active run's session still runs: a Claude Code session from Claude Code's own record of it, an
+    Antigravity session from its launcher's window process, which `agy` lives inside. Raises when it can't tell."""
+    if state.get("runner") == "antigravity":
+        return env.process_alive(int(state.get("owner_pid") or 0), state.get("owner_started"))
+    return env.alive(state["session_id"])
+
+
+def start(state: dict, session: str, env: Env, now: float | None = None, runner: str = "claude",
+          owner_pid: int | None = None, owner_started: object = None) -> None:
     """Switch the run on for a session the operator is about to start (scripts/start-run.ps1), or take over a run
-    whose own session is gone. The session isn't running yet, so it has START_GRACE to appear before it is judged."""
+    whose own session is gone. A Claude Code session isn't running yet, so it has START_GRACE to appear before it is
+    judged; an Antigravity run is judged by its owner process (`owner_pid`, which started at `owner_started`)."""
+    if runner not in RUNNERS:
+        raise ValueError(f"runner must be one of: {', '.join(RUNNERS)}")
+    if runner == "antigravity" and (not owner_pid or owner_started is None):
+        raise ValueError("an Antigravity run needs its owner process (--owner-pid), and that process must be running")
     owner = state.get("session_id")
-    if state.get("active") and owner not in (None, session) and env.alive(owner):
-        raise ValueError(f"session {owner} owns the active run and is alive; never run two writers on one tree")
     now = time.time() if now is None else now
+    # A Claude Code session claimed a moment ago may not be running yet: inside its grace it holds the run as if it were.
+    claimed = state.get("runner") != "antigravity" and now - state.get("started_at", 0) < START_GRACE
+    if state.get("active") and owner not in (None, session) and (claimed or run_alive(state, env)):
+        who = f"the {state.get('runner', 'claude')} session {owner}"
+        raise ValueError(f"{who} owns the active run and is alive or about to start; never run two writers on one tree")
     if not state.get("active"):
         state.clear()
         state.update(active=True, status="active", started=stamp(now), changed_at=now)
+    for key in OWNER_KEYS:
+        state.pop(key, None)
     state.update(session_id=session, started_at=now)
+    if runner == "antigravity":
+        state.update(runner=runner, owner_pid=int(owner_pid), owner_started=owner_started)
+
+
+END_STATES = ("complete", "parked", "stalled", "halted", "ended", "stopped", "drained")
+
+
+def end(state: dict, session: str, reason: str) -> bool:
+    """Record the run of `session` ended, as its launcher does once the CLI it started has returned (an Antigravity
+    window outlives `agy`). A run already in an end state, or another session's, is left as it is. Returns whether it
+    changed anything."""
+    if not state.get("active") or state.get("session_id") != session:
+        return False
+    end_run(state, "ended", reason.strip() or "the session's CLI returned")
+    return True
 
 
 def on_session_end(state: dict, data: dict) -> None:
@@ -487,7 +532,9 @@ def close_if_gone(state: dict, env: Env, now: float | None = None) -> bool:
     if not state.get("active") or not owner:
         return False
     now = time.time() if now is None else now
-    if now - state.get("started_at", 0) < START_GRACE or env.alive(owner):
+    # An Antigravity run's owner process is running from the start, so it has no grace to wait out.
+    grace = state.get("runner") != "antigravity" and now - state.get("started_at", 0) < START_GRACE
+    if grace or run_alive(state, env):
         return False
     end_run(state, "ended", f"session {owner} is gone ({GONE}); nothing resumes a run: `process plan` in a new session starts one")
     return True
@@ -499,6 +546,104 @@ def halt(state: dict, ground: str, reason: str) -> None:
     if not reason.strip():
         raise ValueError("a halt needs a reason")
     end_run(state, "halted", f"{ground}: {reason.strip()}")
+
+
+# --- Antigravity ------------------------------------------------------------------------------------------------
+
+WAIT_SLICE_MINUTES = 10  # how long one sleep in a waiting Antigravity session may be, under its tool's own limits
+
+
+def antigravity_event(raw: str, session: str) -> dict:
+    """Antigravity's Stop hook input as the guard reads it. Its JSON (`agy` 1.5.7) carries `hookEventName`, `cwd`,
+    `conversationId`, `terminationReason`, `continuation_active` and `lastUserInput`; the run's own session id is
+    the one its launcher gave it in BOSUN_RUN_SESSION, since `agy` names conversations itself."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("Antigravity's hook input is not a JSON object")
+    return {
+        "hook_event_name": str(data.get("hookEventName") or "Stop"),
+        "session_id": session,
+        "conversation": data.get("conversationId"),
+        # As the owner's Isotone adapter reads it: a turn with no reason given ended for having no tool call left.
+        "termination": str(data.get("terminationReason") or "NO_TOOL_CALL"),
+        "last_user_input": str(data.get("lastUserInput") or ""),
+    }
+
+
+def wait_in_session(state: dict) -> str:
+    until = stamp(state["wait_until"])
+    detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
+    return (
+        f"The unattended run waits for {state.get('wait_reason')} until {until}{detail}. Nothing wakes this session "
+        f"once its turn ends, so wait in it: sleep in steps of at most {WAIT_SLICE_MINUTES} minutes (for example "
+        f"`python -c \"import time; time.sleep({WAIT_SLICE_MINUTES * 60})\"`) until {until}, then continue process-plan. "
+        "Build nothing meanwhile."
+    )
+
+
+def wait_for_flight(what: str, which: object) -> str:
+    return (
+        f"The unattended run is waiting for {what} in flight ({which}). Nothing wakes this session once its turn ends, so "
+        f"wait for it in this session: sleep in steps of at most {WAIT_SLICE_MINUTES} minutes and look again, build "
+        "nothing and change nothing in the tree meanwhile, then act on its result and continue process-plan."
+    )
+
+
+def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
+    """What Antigravity's Stop hook answers: the reason to send the session on, or None to let the turn end. It goes
+    on wherever a Claude Code turn would be sent back, and also wherever a Claude Code turn could end to wait (a timed
+    wait, a review or a CI gate in flight), since no heartbeat would wake it. An operator's plain stop in
+    `lastUserInput` halts the run, and a run that changes nothing across the idle and yield limits is called stalled."""
+    if data.get("termination") != "NO_TOOL_CALL":
+        return None  # a turn Antigravity ended for its own reason (a cancel, an error) is not idleness to answer
+    if not state.get("active") or state.get("session_id") != data.get("session_id"):
+        return None
+    words = data.get("last_user_input") or ""
+    if is_stop(words):
+        halt(state, "operator", words.strip())
+        return None
+    now = time.time()
+    woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
+    if waiting(state, now) and not woken:
+        return wait_in_session(state)
+    review, ci = env.reviewing(), env.ci_waiting()
+    if review:
+        return wait_for_flight("a review", review)
+    if ci:
+        return wait_for_flight("a CI gate", ci)
+    reason = on_stop(state, data, env)
+    if reason is None and state.get("active"):
+        if waiting(state, time.time()):
+            return wait_in_session(state)  # what is left can only wait (settle set the wait)
+        # The idle limit let a Claude Code turn end for its heartbeat to take up; with none, the run goes on until the
+        # yield limit calls it stalled.
+        reason = send_back(env.rows() or None, state) + " Nothing has changed across several attempts: if this row is blocked, record why and take the next one."
+    if reason and state.get("first_user_input") is None:
+        state["first_user_input"] = hashlib.sha256(words.encode("utf-8")).hexdigest()
+    if reason and words and MENTIONS_STOP.search(words) and hashlib.sha256(words.encode("utf-8")).hexdigest() != state.get("first_user_input"):
+        reason += (" The operator's last message mentions stopping: if they asked to stop or pause the run, run "
+                   "`python scripts/run-guard.py halt --ground operator --reason <their words>` and end the turn.")
+    return reason
+
+
+def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path = STATE) -> str:
+    """One Antigravity hook event. Returns what the hook prints: `{"decision": "continue", "reason": ...}` or nothing."""
+    env = REAL if env is None else env
+    data = antigravity_event(raw, session)
+    if data["hook_event_name"] != "Stop":
+        return ""
+    peek = load(path)
+    if peek.get("active") and peek.get("session_id") == session:
+        env = snapshot(env, state=peek)  # the slow reads, before the lock
+    with locked(path):
+        state = load(path)
+        before = json.dumps(state, sort_keys=True)
+        merge_pending_wait(state, path, time.time())
+        reason = on_antigravity_stop(state, data, env)
+        if json.dumps(state, sort_keys=True) != before:
+            save_retrying(state, path)
+            log(f"antigravity Stop: {state.get('status')} {state.get('why', '')}".rstrip(), path)
+    return json.dumps({"decision": "continue", "reason": reason}) if reason else ""
 
 
 # The world, on this machine.

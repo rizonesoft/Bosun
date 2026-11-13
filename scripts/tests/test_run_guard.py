@@ -829,7 +829,7 @@ class NoAutoResume(unittest.TestCase):
         # Read from the usage line, never by running them: what the scheduled task ran, and what scheduled it.
         usage = cli("--help").stdout
         commands = usage[usage.index("{") + 1:usage.index("}")].split(",")
-        self.assertEqual(sorted(commands), ["halt", "hook", "start", "status", "uninstall", "wait"])
+        self.assertEqual(sorted(commands), ["end", "halt", "hook", "start", "status", "uninstall", "wait"])
         shown = cli("status")
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertEqual(shown.stdout.splitlines()[0], "ended")
@@ -1020,6 +1020,177 @@ class Waits(unittest.TestCase):
 
     def test_the_heartbeat_keeps_its_job_while_the_run_waits(self):
         self.assertIn("If it prints waiting, end the turn and keep this job", guard.heartbeat_note())
+
+
+class AntigravityRuns(unittest.TestCase):
+    """D00 T03 §19: an Antigravity run is held through Antigravity's own Stop hook, lives while its launcher's window
+    process does, and, with no heartbeat to wake it, is sent on to wait inside its session."""
+
+    SESSION = "4a6e0b1c-agy0-4000-8000-000000000019"
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.path = Path(self.folder.name) / "state.json"
+        self.owner = {"pid": 4242, "started": 777, "alive": True}
+
+    def env(self, world=None, reviewing=None, ci=None):
+        base = (world or World()).env()
+        return guard.replace(base, process_alive=lambda pid, started: self.owner["alive"] and (pid, started) == (self.owner["pid"], self.owner["started"]),
+                             reviewing=lambda: reviewing, ci_waiting=lambda: ci)
+
+    def run_state(self, **extra):
+        state = {}
+        guard.start(state, self.SESSION, self.env(), runner="antigravity", owner_pid=self.owner["pid"], owner_started=self.owner["started"])
+        state.update(extra)
+        return state
+
+    def stop(self, state, env=None, termination="NO_TOOL_CALL", said="Finish the Bosun implementation plan", session=None):
+        guard.save(state, self.path)
+        raw = json.dumps({"hookEventName": "Stop", "conversationId": "c-1", "cwd": str(guard.ROOT), "terminationReason": termination,
+                          "continuation_active": True, "lastUserInput": said})
+        out = guard.hook_antigravity(raw, session or self.SESSION, env or self.env(), self.path)
+        return (json.loads(out) if out else None), guard.load(self.path)
+
+    def test_the_run_lives_while_its_owner_process_does_and_not_after(self):
+        state = self.run_state()
+        self.assertEqual((state["runner"], state["owner_pid"]), ("antigravity", 4242))
+        self.assertFalse(guard.close_if_gone(state, self.env()), "a live owner's run was ended")
+        reused = dict(state, owner_started=778)  # the same pid, started at another time: another process
+        self.assertTrue(guard.close_if_gone(reused, self.env()), "a reused pid kept the run alive")
+        self.owner["alive"] = False
+        self.assertTrue(guard.close_if_gone(state, self.env()))
+        self.assertEqual(state["status"], "ended")
+
+    def test_a_claude_start_is_refused_while_it_lives_and_the_other_way_round(self):
+        state = self.run_state()
+        with self.assertRaisesRegex(ValueError, "antigravity session .* owns the active run"):
+            guard.start(state, "claude-session", self.env())
+        claude = active(session_id="claude-session")
+        with self.assertRaisesRegex(ValueError, "owns the active run"):
+            guard.start(claude, self.SESSION, self.env(World(alive=["claude-session"])), runner="antigravity",
+                        owner_pid=self.owner["pid"], owner_started=self.owner["started"])
+        with self.assertRaisesRegex(ValueError, "needs its owner process"):
+            guard.start({}, self.SESSION, self.env(), runner="antigravity")
+
+    def test_a_run_claimed_a_moment_ago_refuses_another_start(self):
+        claude = {}
+        guard.start(claude, "claude-session", self.env(), now=1000.0)
+        with self.assertRaisesRegex(ValueError, "about to start"):
+            guard.start(claude, self.SESSION, self.env(), now=1000.0 + guard.START_GRACE - 1, runner="antigravity",
+                        owner_pid=self.owner["pid"], owner_started=self.owner["started"])
+        with self.assertRaisesRegex(ValueError, "about to start"):
+            guard.start(claude, "another-claude", self.env(), now=1000.0 + 5)
+        guard.start(claude, self.SESSION, self.env(), now=1000.0 + guard.START_GRACE, runner="antigravity",
+                    owner_pid=self.owner["pid"], owner_started=self.owner["started"])
+        self.assertEqual((claude["session_id"], claude["runner"]), (self.SESSION, "antigravity"))
+
+    def test_end_records_its_own_run_ended_and_nothing_else(self):
+        state = self.run_state()
+        self.assertTrue(guard.end(state, self.SESSION, "agy exited (0)"))
+        self.assertEqual((state["active"], state["status"], state["why"]), (False, "ended", "agy exited (0)"))
+        again = dict(state)
+        self.assertFalse(guard.end(again, self.SESSION, "twice"))
+        self.assertEqual(again, state)
+        halted = self.run_state()
+        guard.halt(halted, "operator", "pause")
+        kept = dict(halted)
+        self.assertFalse(guard.end(halted, self.SESSION, "agy exited (0)"))
+        self.assertEqual(halted, kept)
+        other = self.run_state()
+        self.assertFalse(guard.end(other, "someone-else", "agy exited (0)"))
+        self.assertTrue(other["active"])
+
+    def test_rows_left_send_the_session_on_without_heartbeat_advice(self):
+        answer, state = self.stop(self.run_state(signature="one"))
+        self.assertEqual(answer["decision"], "continue")
+        self.assertIn("Unattended run is active", answer["reason"])
+        self.assertNotIn("CronCreate", answer["reason"])
+        self.assertTrue(state["active"])
+
+    def test_a_review_or_a_ci_gate_in_flight_is_waited_for_in_the_session(self):
+        for kwargs, what in (({"reviewing": "astra, dispatcher pid 1"}, "a review"), ({"ci": "abc123, gate pid 2"}, "a CI gate")):
+            answer, _ = self.stop(self.run_state(), self.env(**kwargs))
+            self.assertEqual(answer["decision"], "continue")
+            self.assertIn(f"waiting for {what} in flight", answer["reason"])
+            self.assertIn("wait for it in this session", answer["reason"])
+
+    def test_a_timed_wait_is_answered_with_its_end_then_the_ordinary_continuation(self):
+        state = self.run_state(signature="one")
+        guard.set_wait(state, "reviewer-unavailable", time.time() + 1800, "the reviewer is rate limited")
+        answer, kept = self.stop(state)
+        self.assertIn("waits for reviewer-unavailable until", answer["reason"])
+        self.assertIn(guard.stamp(state["wait_until"]), answer["reason"])
+        self.assertIn("sleep in steps of at most 10 minutes", answer["reason"])
+        self.assertIn("wait_until", kept, "the wait was dropped before it passed")
+        kept["wait_until"] = time.time() - 1
+        answer, after = self.stop(kept)
+        self.assertIn("Unattended run is active", answer["reason"])
+        self.assertNotIn("wait_until", after)
+
+    def test_the_end_states_and_another_session_answer_nothing(self):
+        state = self.run_state()
+        guard.halt(state, "operator", "pause")
+        self.assertEqual(self.stop(state)[0], None)
+        self.assertEqual(self.stop(self.run_state(), session="someone-else")[0], None)
+        self.assertEqual(self.stop(self.run_state(), termination="USER_CANCELLED")[0], None)
+
+    def test_the_operators_stop_halts_and_a_message_that_mentions_one_is_flagged(self):
+        answer, state = self.stop(self.run_state(), said="stop")
+        self.assertIsNone(answer)
+        self.assertEqual((state["active"], state["status"], state["why"]), (False, "halted", "operator: stop"))
+        state = self.run_state(signature="one")
+        answer, state = self.stop(state, said="Finish the plan; if asked, run run-guard.py halt")
+        self.assertNotIn("mentions stopping", answer["reason"], "the opening prompt's own words were taken for the operator's")
+        answer, _ = self.stop(state, said="please stop after this section")
+        self.assertEqual(answer["decision"], "continue")
+        self.assertIn("mentions stopping", answer["reason"])
+
+    def test_no_progress_ends_stalled_through_both_limits_and_progress_keeps_going(self):
+        state = self.run_state(signature="one")
+        world = World(signature="one")
+        answers = []
+        for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS):
+            answer, state = self.stop(state, self.env(world))
+            answers.append(answer)
+        self.assertTrue(all(answers[:-1]), "the session was let go before the stall was called")
+        self.assertIsNone(answers[-1])
+        self.assertEqual(state["status"], "stalled")
+        self.assertIsNone(self.stop(state, self.env(world))[0], "a stalled run was sent on")
+        state = self.run_state(signature="zero")
+        for n in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
+            world.sig = f"sig-{n}"  # a commit or a change to the tree each time
+            answer, state = self.stop(state, self.env(world))
+            self.assertEqual(answer["decision"], "continue")
+        self.assertTrue(state["active"])
+
+    def test_through_the_cli_malformed_input_answers_nothing_and_is_recorded(self):
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8"}
+        script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "hook", "--runner", "antigravity"]
+        done = subprocess.run(script, env=env, input="{not json", capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, ""))
+        self.assertIn("antigravity", json.dumps(guard.hook_failures(self.path)))
+        done = subprocess.run(script, env=env, input=json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, ""), "a Stop with no active run was answered")
+
+    def test_start_and_end_through_the_cli(self):
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "PYTHONIOENCODING": "utf-8"}
+        script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
+        cli = lambda *args: subprocess.run([*script, *args], env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        done = cli("start", "--session", self.SESSION, "--runner", "antigravity", "--owner-pid", str(os.getpid()))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        data = json.loads(cli("status", "--json").stdout)
+        self.assertEqual((data["state"], data["runner"]), ("active", "antigravity"))
+        self.assertEqual(cli("end", "--session", self.SESSION, "--reason", "agy exited (1)").stdout.strip(), "ended")
+        self.assertEqual(json.loads(cli("status", "--json").stdout)["state"], "ended")
+        self.assertEqual(cli("end", "--session", self.SESSION).stdout.strip(), "ended", "a second end changed the record")
+
+    def test_the_workspace_hook_is_wired(self):
+        hooks = json.loads((guard.ROOT / ".agents" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        stops = [h for entry in hooks["Stop"] for h in entry["hooks"]]
+        self.assertEqual([h["command"] for h in stops], ["python scripts/run-guard.py hook --runner antigravity"])
+        self.assertGreater(stops[0]["timeout"], 0)
 
 
 if __name__ == "__main__":

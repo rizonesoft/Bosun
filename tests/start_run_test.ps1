@@ -59,8 +59,8 @@ try {
   # The Antigravity run: every permission auto-approved, on Gemini 4 Carbon, and the goal as its opening prompt.
   $env:Path = Join-Path $env:SystemRoot 'System32'
   try { $out = (& $pwsh -NoProfile -File $script -Agent antigravity -DryRun) -join "`n" } finally { $env:Path = $path }
-  Check ($LASTEXITCODE -eq 0 -and $out -match 'agy --dangerously-skip-permissions --effort medium --model gemini-4-carbon-medium --prompt-interactive "Finish the Bosun') 'Antigravity starts with every prompt off, at medium effort, on Gemini 4 Carbon, with the goal'
-  Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -notmatch 'heartbeat takes') 'its goal keeps the finish line and waits in-session, since no guard holds it'
+  Check ($LASTEXITCODE -eq 0 -and $out -match 'agy --dangerously-skip-permissions --effort medium --model gemini-4-carbon-medium --settings \{"maxStopHookContinuations": 500\} --prompt-interactive "Finish the Bosun' -and $out -match 'run-guard\.py start --session [0-9a-f-]{36} --runner antigravity --owner-pid') 'Antigravity starts with every prompt off, at medium effort, on Gemini 4 Carbon, its Stop hook ceiling raised, with the goal, after claiming the guard'
+  Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -match 'run-guard\.py halt --ground operator' -and $out -notmatch 'heartbeat takes') 'its goal keeps the finish line, waits in-session (Antigravity has no heartbeat) and names the halt'
 
   # A real start against a fake claude, a test registry key and a state file of its own: nothing real is started.
   $fake = Join-Path $work 'fake'
@@ -133,6 +133,79 @@ Start-Sleep 120
     $env:Path = $path
     Remove-Item Env:RUN_GUARD_STATE
     Remove-Item -LiteralPath $envKey -Recurse -Force
+  }
+
+  # The Antigravity run against a fake agy and a state file of its own (D00 T03 §19): the guard is claimed for this
+  # window's process before agy starts, agy gets the run's id, and the run ends when agy returns, however it returns,
+  # or when the window's process ends.
+  $agyHome = Join-Path $work 'fake-agy'
+  New-Item -ItemType Directory -Force $agyHome | Out-Null
+  $agySeen = Join-Path $agyHome 'seen.json'
+  Set-Content (Join-Path $agyHome 'fake_agy.py') @"
+import json, os, sys, time
+seen = {'args': sys.argv[1:], 'session': os.environ.get('BOSUN_RUN_SESSION'), 'pid': os.getpid()}
+with open(r'$agySeen', 'w', encoding='utf-8') as out:
+    json.dump(seen, out)
+time.sleep(float(os.environ.get('FAKE_AGY_SLEEP') or 0))
+sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
+"@ -Encoding ascii
+  $pythonExe = (Get-Command python -CommandType Application | Select-Object -First 1).Source
+  Set-Content (Join-Path $agyHome 'agy.cmd') "@`"$pythonExe`" `"%~dp0fake_agy.py`" %*" -Encoding ascii
+  # The real agy is an .exe, and PowerShell hands an .exe the JSON settings exactly as written (a batch file, as the
+  # fake is, would strip its quotes): proved here on python.exe, along the same call the script makes.
+  $roundTrip = & $pythonExe -c 'import sys, json; print(json.dumps(sys.argv[1:]))' @('--settings', '{"maxStopHookContinuations": 500}') | ConvertFrom-Json
+  Check ((@($roundTrip) -join '|') -eq '--settings|{"maxStopHookContinuations": 500}') "the settings reach an .exe intact ($(@($roundTrip) -join ' '))"
+  $agyState = Join-Path $work 'agy-state.json'
+  $guardCli = Join-Path $repo 'scripts\run-guard.py'
+  function AgyState { if (Test-Path $agyState) { Get-Content $agyState -Raw | ConvertFrom-Json } }
+  $env:RUN_GUARD_STATE = $agyState
+  $env:Path = "$agyHome;$path"
+  try {
+    foreach ($exit in 0, 1) {
+      Remove-Item -LiteralPath $agySeen -ErrorAction Ignore
+      $env:FAKE_AGY_EXIT = "$exit"
+      $out = (& $pwsh -NoProfile -File $script -Agent antigravity) -join "`n"
+      $code = $LASTEXITCODE
+      $seen = if (Test-Path $agySeen) { Get-Content $agySeen -Raw | ConvertFrom-Json }
+      $saved = AgyState
+      Check ($seen -and $seen.session -eq $saved.session_id -and $saved.runner -eq 'antigravity' -and $saved.owner_pid -gt 0) "agy gets the run's id in BOSUN_RUN_SESSION, and the guard was claimed for the window's process (exit $exit)"
+      Check (@($seen.args) -contains '--settings') "agy gets its settings (exit $exit)"
+      Check ($code -eq $exit -and $saved.status -eq 'ended' -and -not $saved.active -and $saved.why -match "agy returned \(exit $exit\)") "when agy returns with $exit, the run is recorded ended though the window lives on ($($saved.status): $($saved.why))"
+    }
+    Remove-Item Env:FAKE_AGY_EXIT
+    # While a Claude Code run holds the tree, the Antigravity start is refused before agy runs.
+    $claudeSession = [guid]::NewGuid().ToString()
+    & $pythonExe $guardCli start --session $claudeSession | Out-Null
+    Remove-Item -LiteralPath $agySeen -ErrorAction Ignore
+    $out = (& $pwsh -NoProfile -File $script -Agent antigravity) -join "`n"
+    Check ($LASTEXITCODE -ne 0 -and -not (Test-Path $agySeen) -and (AgyState).session_id -eq $claudeSession) "a live Claude Code run refuses the Antigravity start before agy runs ($(($out -split "`n" | Select-Object -Last 1)))"
+    Remove-Item -LiteralPath $agyState -ErrorAction Ignore
+
+    # The window's process killed while agy runs: the run is recorded ended at the next look, and agy is gone with it.
+    Remove-Item -LiteralPath $agySeen -ErrorAction Ignore
+    $env:FAKE_AGY_SLEEP = '120'
+    $launcher = Start-Process $pwsh -NoNewWindow -PassThru -RedirectStandardOutput (Join-Path $agyHome 'out.txt') -ArgumentList '-NoProfile', '-File', "`"$script`"", '-Agent', 'antigravity'
+    $agyPid = 0
+    try {
+      foreach ($i in 1..150) { if (Test-Path $agySeen) { $agyPid = [int]((Get-Content $agySeen -Raw -ErrorAction Ignore | ConvertFrom-Json -ErrorAction Ignore).pid); if ($agyPid) { break } }; Start-Sleep -Milliseconds 200 }
+      $live = (& $pythonExe $guardCli status | Select-Object -First 1)
+      Check ($agyPid -and $live -eq 'active') "while agy runs, the Antigravity run is active ($live)"
+      Stop-Process -Id $launcher.Id -Force
+      foreach ($i in 1..50) { if (-not (Get-Process -Id $launcher.Id -ErrorAction Ignore)) { break }; Start-Sleep -Milliseconds 200 }
+      $after = (& $pythonExe $guardCli status | Select-Object -First 1)
+      $gone = $true
+      foreach ($i in 1..50) { if ($agyPid -and (Get-Process -Id $agyPid -ErrorAction Ignore)) { $gone = $false; Start-Sleep -Milliseconds 200 } else { $gone = $true; break } }
+      Check ($after -eq 'ended' -and $gone) "when the window's process is killed, the run is recorded ended and agy ends with it ($after)"
+      Remove-Item Env:FAKE_AGY_SLEEP
+      Remove-Item -LiteralPath $agySeen -ErrorAction Ignore
+      $out = (& $pwsh -NoProfile -File $script -Agent antigravity) -join "`n"
+      Check ($LASTEXITCODE -eq 0 -and (Test-Path $agySeen) -and (AgyState).status -eq 'ended') 'a new start then succeeds'
+    } finally {
+      foreach ($id in @($launcher.Id, $agyPid) | Where-Object { $_ }) { Stop-Process -Id $id -Force -ErrorAction Ignore }
+    }
+  } finally {
+    Remove-Item Env:FAKE_AGY_EXIT, Env:FAKE_AGY_SLEEP, Env:RUN_GUARD_STATE -ErrorAction Ignore
+    $env:Path = $path
   }
 
   # The one-time import from the vault, against a fake `op`: the token lands in the given key and is never printed.

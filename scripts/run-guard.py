@@ -4,8 +4,12 @@
 Nothing here restarts or resumes a run: a run starts only when the operator starts it, and ends with its session.
 
   hook                       one Claude Code hook event on stdin (.claude/settings.json)
+  hook --runner antigravity  one Antigravity Stop hook event on stdin (.agents/hooks.json), for the run whose id the
+                             launcher put in BOSUN_RUN_SESSION
   status                     prints "active" or why not, then the detail; a run whose session is gone is recorded as ended
-  start --session <id>       switch the run on for a session the operator is about to start (scripts/start-run.ps1)
+  start --session <id>       switch the run on for a session the operator is about to start (scripts/start-run.ps1);
+                             --runner antigravity --owner-pid <pid> for one that lives while that process does
+  end --session <id>         record that session's run ended, as the launcher does once the CLI it started returns
   wait --reason R            hold the active run until a time, as review-dispatch.py does for a reviewer
   halt --ground G --reason R record a halt (data-loss, credentials, shared-infrastructure, wrong-calculation, operator)
   uninstall                  remove the scheduled task an older version installed ("<folder> run watchdog")
@@ -44,8 +48,9 @@ def uninstall() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("hook", "uninstall"):
-        commands.add_parser(name)
+    hook = commands.add_parser("hook")
+    hook.add_argument("--runner", choices=guard.RUNNERS, default="claude")
+    commands.add_parser("uninstall")
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true", help="print only the JSON")
     wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
@@ -55,11 +60,29 @@ def main() -> int:
     wait.add_argument("--detail", help="what is wrong and how to recover, shown by status")
     start = commands.add_parser("start")
     start.add_argument("--session", required=True)
+    start.add_argument("--runner", choices=guard.RUNNERS, default="claude")
+    start.add_argument("--owner-pid", type=int, help="for --runner antigravity: the process the run lives as long as")
+    end = commands.add_parser("end")
+    end.add_argument("--session", required=True)
+    end.add_argument("--reason", default="")
     stop = commands.add_parser("halt")
     stop.add_argument("--ground", required=True, choices=guard.GROUNDS)
     stop.add_argument("--reason", required=True)
     args = parser.parse_args()
 
+    if args.command == "hook" and args.runner == "antigravity":
+        import os
+
+        try:
+            output = guard.hook_antigravity(sys.stdin.buffer.read().decode("utf-8", "replace"), os.environ.get("BOSUN_RUN_SESSION", ""))
+        except Exception as error:  # fail open and print nothing: Antigravity reads only a decision, and none is given
+            guard.log(f"antigravity hook failed open: {error!r}")
+            guard.record_hook_failure(f"antigravity: {error!r}")
+            return 0
+        guard.clear_hook_failures()
+        if output:
+            say(output)
+        return 0
     if args.command == "hook":
         try:
             output = guard.hook(sys.stdin.buffer.read().decode("utf-8", "replace"))
@@ -89,7 +112,7 @@ def main() -> int:
             if unreadable is None:
                 state["last_error"] = f"{guard.stamp()} whether the session is still running couldn't be told: {error!r}"
         word = "unreadable" if unreadable else ("waiting" if guard.waiting(state) else "active") if state.get("active") else (state.get("status") or "inactive")
-        detail = {k: state.get(k) for k in ("session_id", "why", "started", "ended", "yields", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
+        detail = {k: state.get(k) for k in ("session_id", "runner", "why", "started", "ended", "yields", "last_error", "heartbeat_at", "last_api_failure", "wait_reason", "wait_detail") if state.get(k) is not None}
         if guard.waiting(state):
             detail["wait_until"] = guard.stamp(state["wait_until"])
         data = {"state": word, **detail, **guard.health(state)}
@@ -134,12 +157,27 @@ def main() -> int:
         guard.log(f"wait: {args.reason} until {guard.stamp(until)}")
         say(f"waiting until {guard.stamp(until)}")
         return 0
+    if args.command == "end":
+        with guard.locked():
+            state = guard.load()
+            if guard.end(state, args.session, args.reason):
+                guard.save(state)
+                guard.log(f"end: {state.get('why')}")
+        say(state.get("status") or ("active" if state.get("active") else "inactive"))
+        return 0
     with guard.locked():
         state = guard.load()
         if args.command == "start":
+            started = None
+            if args.owner_pid:
+                try:
+                    started = guard.process_started(args.owner_pid)
+                except OSError as error:
+                    say(str(error))
+                    return 1
             try:
-                guard.start(state, args.session, guard.REAL)
-            except ValueError as error:
+                guard.start(state, args.session, guard.REAL, runner=args.runner, owner_pid=args.owner_pid, owner_started=started)
+            except (ValueError, OSError) as error:
                 say(str(error))
                 return 1
         else:

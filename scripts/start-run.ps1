@@ -19,6 +19,12 @@
 # watchdog and no hidden session. While the window is open the guard's hooks keep the session working (the Stop hook
 # sends it back, and its own in-session heartbeat wakes it).
 #
+# An Antigravity run is held the same way through Antigravity's own Stop hook (.agents/hooks.json): the guard is told
+# the run lives as long as this window's process does, `agy` gets the run's id in BOSUN_RUN_SESSION, and the run is
+# recorded ended once `agy` returns, since the window (-NoExit) outlives it. Antigravity has no heartbeat, so its goal
+# tells it to wait in the session, and Antigravity's own limit on Stop hook continuations is raised for the session
+# (maxStopHookContinuations) so that the guard's stall rule, not that limit, ends a run that stopped progressing.
+#
 # The session gets its id here, so the guard can be told about it before it starts. Nothing is checked first, so a
 # start is never blocked: `pwsh scripts/campaign-preflight.ps1` is there to run when a start misbehaves. The goal is a
 # Claude Code /goal, which is checked after every turn; the guard decides when the plan has no row left to run.
@@ -109,28 +115,42 @@ function Join-WindowJob {
 }
 
 if ($antigravity) {
-  # Antigravity has no /goal and the run guard cannot hold it yet (D00 T03 §19), so the goal is the opening prompt
-  # and the session waits for reviews and CI itself instead of ending the turn.
+  # Antigravity has no /goal, so the goal is the opening prompt. It has no heartbeat either, so the session waits for
+  # reviews and CI inside itself instead of ending the turn, and its Stop hook (.agents/hooks.json) tells it so.
   $prompt = ($Goal -replace '\s*While `python scripts/run-guard\.py status` prints waiting.*$', '') +
-    ' Nothing holds this session open between turns, so never end a turn while a ready row exists: when a review or a CI gate is in flight, wait for it in this session, then continue.'
-  $agyArgs = @('--dangerously-skip-permissions', '--effort', $Effort) + $(if ($AgyModel) { '--model', $AgyModel }) + @('--prompt-interactive', $prompt)
+    ' Nothing wakes this session once a turn ends, so never end a turn while a ready row exists: when a review or a CI gate is in flight, wait for it in this session, then continue.' +
+    ' If the operator asks to stop or pause, run `python scripts/run-guard.py halt --ground operator --reason <their words>`, then end the turn.'
+  $settings = '{"maxStopHookContinuations": 500}'
+  $agyArgs = @('--dangerously-skip-permissions', '--effort', $Effort) + $(if ($AgyModel) { '--model', $AgyModel }) + @('--settings', $settings, '--prompt-interactive', $prompt)
+  $session = [guid]::NewGuid().ToString()
   if ($DryRun) {
     "in $repo"
+    "python scripts/run-guard.py start --session $session --runner antigravity --owner-pid <this window's process>"
     "agy $($agyArgs[0..($agyArgs.Count - 2)] -join ' ') `"$prompt`""
     exit 0
   }
   $agy = (Get-Command agy -ErrorAction Ignore | Select-Object -First 1).Source
-  if (-not $agy) { 'agy is not on PATH: install the Antigravity CLI, then start again'; exit 1 }
   $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  if (-not $agy) { 'agy is not on PATH: install the Antigravity CLI, then start again'; exit 1 }
+  if (-not $python) { 'python is not on PATH: install Python 3, then start again'; exit 1 }
   Set-Location -LiteralPath $repo
-  # Two writers on one tree is the worse failure: a run the guard holds for Claude Code keeps the tree.
-  if ($python) {
-    $guard = (& $python (Join-Path $PSScriptRoot 'run-guard.py') status 2>$null | Select-Object -First 1)
-    if ($guard -in 'active', 'waiting') { "a Claude Code run is live here (run guard: $guard): stop it first, then start again"; exit 1 }
-  }
   Join-WindowJob
-  & $agy @agyArgs
-  exit $LASTEXITCODE
+  # Refused, with the reason, when a live session already owns the run: two writers on one tree is the worse failure.
+  $guardScript = Join-Path $PSScriptRoot 'run-guard.py'
+  & $python $guardScript start --session $session --runner antigravity --owner-pid $PID
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
+  $env:BOSUN_RUN_SESSION = $session
+  $code = 1
+  try {
+    & $agy @agyArgs
+    $code = $LASTEXITCODE
+  } catch {
+    "agy could not start: $($_.Exception.Message)"
+  } finally {
+    # The window outlives agy (-NoExit): its run ends here, unless it already ended (a halt, the plan done).
+    & $python $guardScript end --session $session --reason "agy returned (exit $code); nothing resumes a run: start it again from its shortcut" | Out-Null
+  }
+  exit $code
 }
 
 $session = [guid]::NewGuid().ToString()
