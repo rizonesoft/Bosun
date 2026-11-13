@@ -722,6 +722,8 @@ Filed from `D00 T03 §10`'s completion review (`docs/reviews/00-workspace/D00-T0
 
 ## 19. Run guard holds an Antigravity run
 
+> **Started:** 2026-11-13T00:19:06Z
+
 Filed 2026-11-12 on the owner's request for a desktop shortcut that runs the plan unattended in the Antigravity CLI. `pwsh scripts/start-run.ps1 -Agent antigravity` and its shortcut "Bosun unattended run (Antigravity)" exist (commit after `9c11bcf`): `agy --dangerously-skip-permissions --effort medium --prompt-interactive <goal>` (medium on the owner's word, 2026-11-12), refused while the guard holds a Claude Code run. Measured on this machine the same day: `--mode auto` is not offered to this account, and the default model `gemini-4-carbon` offers efforts low, medium and high. Nothing holds an Antigravity session open between turns or resumes it after a crash: `scripts/run-guard.py` hooks only Claude Code's Stop and session events and its watchdog resumes only `claude`. This section builds the guard here. **Corrected 2026-11-12:** this said the guard Conclave-SDK plans for its kit could be taken with `forge.py update`; the owner decided the same day that Bosun imports nothing from the SDK.
 
 **Corrected 2026-11-13:** checked against the tree and the installed CLI before the build. The owner's rule of 2026-11-12 removed the watchdog and every resume, so nothing here continues a stalled session or uses `agy --continue` or `--conversation`: the guard holds a live Antigravity session inside its window, as it does Claude Code's, and nothing more. What `agy` 1.5.7 offers, with sources:

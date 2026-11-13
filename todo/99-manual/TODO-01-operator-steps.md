@@ -157,6 +157,7 @@ Filed 2026-11-13 from `D00 T03 §19`, which proves the guard's hold of an Antigr
 
 - [ ] Close any Claude Code run, then start "Bosun Carbon campaign" from the desktop. Done when: `python scripts/run-guard.py status` prints `active` with runner `antigravity`.
 - [ ] Watch one section through with no input: the Stop hook sends the session on while rows remain and while a review or CI gate is in flight. Done when: the session shipped or parked one ready row, recorded in the phase run file, or the blocker is recorded with its fix and filed through `add-todo`.
+- [ ] Confirm `agy` took the launcher's `--settings '{"maxStopHookContinuations": 500}'`: the session went on past Antigravity's default number of consecutive Stop continuations without the turn ending by itself. Done when: the phase run file records it, or records that `agy` refused or ignored the key, filed through `add-todo`.
 - [ ] Close its window. Done when: `python scripts/run-guard.py status` prints `ended` and no `agy` process from it is left.
 - [ ] Commit: `manual: first Carbon campaign run`
 
