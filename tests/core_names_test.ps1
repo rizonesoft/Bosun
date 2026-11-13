@@ -19,7 +19,7 @@ Check ($LASTEXITCODE -eq 0) '--list exits 0'
 $implemented = @($list | Where-Object { $_ -like '* implemented' } | ForEach-Object { ($_ -split ' ')[0] })
 $reserved = @($list | Where-Object { $_ -like '* reserved' } | ForEach-Object { ($_ -split ' ')[0] })
 Check ($implemented.Count -ge 1) "some groups are implemented ($($implemented -join ', '))"
-foreach ($name in 'records', 'status_json', 'report_json', 'config', 'pressure') {
+foreach ($name in 'records', 'jobs', 'status_json', 'report_json', 'config', 'pressure') {
   Check ($reserved -contains $name -or $implemented -contains $name) "$name is a known group"
 }
 

@@ -79,21 +79,26 @@ A mutex can't name its owner. Holders and waiters publish a small record beside 
 
 The Queue page and the overlap analysis both need to know what ran when. One file per day, kept as long as the memory logs.
 
+**Corrected 2026-11-13:** checked against the tree before the build. The log's pruning is `prune_logs` in `src/app.cpp` (the section named `src/logger_main.cpp`, which is only the logger's windowless entry point), and it reads a file's date only from a `.csv` name (`file_date`), so a `.jsonl` file would never go. A WSL job is run by `wsl/bosun` while `bosun.exe acquire` holds its slot, and the section named no writer for it: `acquire` writes its line, as it writes its record (`D01 T01 §1`), learning the exit code from the shim over the pipe they already share. A run inside a slot (`BOSUN_SLOT`) writes no line, as it writes no record: the outer job's line covers it.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Append on job end in `src/app.cpp`. Done when: each finished job adds one line.
-2. Prune with the existing retention. Done when: files older than 14 days go.
+1. Define the line in `src/core.hpp`. Done when: `test_core.exe jobs` covers the contract.
+2. Append on job end in `src/app.cpp`, from both `run` and `acquire`. Done when: each finished job adds one line, a crashed command included.
+3. Prune with the existing retention. Done when: job logs older than 14 days go.
 
-- [ ] Append JSON lines to `%LOCALAPPDATA%\Bosun\logs\jobs-YYYY-MM-DD.jsonl` with command, repo, side, slot, waited, ran, exit code and whether it timed out into the queue. Done when: a job that crashes still leaves a line, written by the waiting parent. Cheaper substitute: only recording successes.
-- [ ] Prune old job logs in `src/logger_main.cpp`. Done when: a test with an old file sees it removed.
-- [ ] Add a concurrency case to `tests/queue_test.ps1`. Done when: six parallel jobs give six parseable lines.
+- [ ] Define the line in `src/core.hpp` (`dm::JobLine`, `dm::job_line_json`, `dm::parse_job_line`): `schema_version` 1, `started_at` and `ended_at` (UTC, `YYYY-MM-DDTHH:MM:SSZ`), `pid` (the bosun process), `command`, `repo` (or `null`), `side` (`"windows"` or `"wsl"`), `ns`, `slot` (the slot held, or `null` for a job that ran without one), `waited_s` and `ran_s` (seconds, one decimal), `exit_code` (integer, or `null` when the WSL shim went away without reporting one) and `timed_out_into_queue` (true when the wait ran out and the job ran without a slot), escaped with `dm::json_escape`. Done when: `test_core.exe jobs` round-trips a line with quotes and non-ASCII text in its command, one with no repo, no slot and no exit code, and refuses a truncated line. Cheaper substitute: CSV, which a command holding a comma breaks.
+- [ ] Append one line per finished job to `%LOCALAPPDATA%\Bosun\logs\jobs-YYYY-MM-DD.jsonl` (the UTC date the job ended) in `src/app.cpp`, from `cmd_run` after its command ends, whatever its exit code (a crash, a command that couldn't start, the write budget stopping it), as one `WriteFile` to a handle opened for appending, so lines from jobs ending at once never interleave; a nested run writes none. A line that can't be written prints one diagnostic and changes neither the exit code nor the slot. Done when: `tests/queue_test.ps1` finds one line with the right fields for a job that exits 0, one that exits 37, one whose command can't start (127), one stopped at its write budget (74), and one that timed out into the queue. Cheaper substitute: only recording successes.
+- [ ] Write a WSL job's line from `cmd_acquire`: the shim sends `exit <code>` down the pipe once its command has ended, and `acquire` writes the line with that code, or with `exit_code` `null` when the pipe closes with no code (the shim was killed). Done when: `tests/queue_test.ps1 -Wsl` finds a top-level WSL job's line with side `wsl`, its command and its exit code, and one with no exit code after the shim is killed.
+- [ ] Prune job logs with the memory logs in `prune_logs` in `src/app.cpp`, reading the date from a `.jsonl` name too. Done when: `tests/queue_test.ps1`, with a job log dated 20 days ago and one from today in the test's own home, sees the old one removed and today's kept by `bosun log --once`.
+- [ ] Prove concurrent appends: six jobs ending at once each leave one whole line. Done when: `tests/queue_test.ps1` runs six parallel jobs and parses six lines, every one with its own pid.
 - [ ] Commit: `core: job history log`
 
-**Test checkpoint:** `pwsh tests\queue_test.ps1` exits 0, and fails if the append is removed.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `build\Release\test_core.exe jobs` and `pwsh tests\queue_test.ps1` exit 0 (CI runs both), and `pwsh tests\queue_test.ps1 -Wsl` exits 0 here; each fails if the append is removed.
 
 ## 3. status --json
 

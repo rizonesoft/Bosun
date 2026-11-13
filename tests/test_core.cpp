@@ -211,6 +211,7 @@ static const Group groups[] = {
     {"rows", rows, nullptr},
     {"aggregate", aggregate, nullptr},
     {"records", records, nullptr},
+    {"jobs", nullptr, "D01 T01"},
     {"status_json", nullptr, "D01 T01"},
     {"report_json", nullptr, "D01 T01"},
     {"config", nullptr, "D01 T01"},
