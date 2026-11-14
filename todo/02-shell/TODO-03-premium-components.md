@@ -122,7 +122,8 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 - [ ] Create `src/Bosun.Panel/Theme/Glyphs.cs` mapping each page and shared action to a `PackIconLucideKind`, matching the mockup's choices. Done when: `tests/Bosun.Panel.Tests/GlyphTests.cs` proves every rail row has a glyph and each one is a defined kind. Cheaper substitute: glyph names typed into each view.
 - [ ] Fail a `PackIconLucide` used outside the map in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a direct kind in a view fails the test.
 - [ ] Add the rail marker in `MainWindow.xaml`, animated with `Motion.Normal`. Done when: it lands on the selected row after keyboard and mouse navigation, and jumps at once with motion off. Cheaper substitute: a static highlight on the selected row.
-- [ ] Add `CountBadge` to the rail row template in `src/Bosun.Panel/Theme/Controls.xaml`. Done when: a zero count shows nothing and a count of 3 renders.
+- [ ] Draw each rail row's glyph from `Glyphs.cs` in the rail row template of `src/Bosun.Panel/Shell/MainWindow.xaml` (**Added 2026-11-15** from `D02 T01 §4`, whose `NavList` style shows the row's content and leaves the glyph to this map): 16 px, `B.TextDim`, and `B.Accent` on the selected row. Done when: the off-screen render of the rail shows a glyph on every row. Cheaper substitute: a row of words only.
+- [ ] Add `CountBadge` to the rail row template in `src/Bosun.Panel/Shell/MainWindow.xaml` (**Corrected 2026-11-15:** this said `Theme/Controls.xaml`; the row template is built by `D02 T02 §4` in the window, and `Controls.xaml` holds the row's style). Done when: a zero count shows nothing and a count of 3 renders.
 - [ ] Set each rail row's automation name to include its count in words. Done when: a UI Automation test reads "Queue, 3 waiting". Cheaper substitute: a badge only sighted users can read.
 - [ ] Commit: `shell: Lucide icon map, rail marker and badges`
 
