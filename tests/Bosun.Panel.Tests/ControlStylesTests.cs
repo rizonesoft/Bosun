@@ -399,7 +399,7 @@ public partial class ControlStylesTests
 
     [Theory]
     [MemberData(nameof(Themes))]
-    public void A_check_box_ticks_in_the_accent_its_words_are_its_target_and_space_toggles_it(string theme)
+    public void A_check_box_ticks_in_the_accent_its_words_are_its_target_and_it_toggles(string theme)
     {
         CheckBox check = null!;
         Live(theme, () => check = new CheckBox { Content = "Start with Windows", HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, ToolTip = "Set by policy" }, page =>
@@ -419,7 +419,10 @@ public partial class ControlStylesTests
             var gap = box.TranslatePoint(new Point(box.ActualWidth + 4, box.ActualHeight / 2), check);
             Assert.Same(Part<Border>(check, "row"), check.InputHitTest(gap));
 
-            Press(check, Key.Space);
+            // Toggled as a screen reader toggles it. Not by a Space key raised here: a button asks the real mouse
+            // whether its left button is up before it lets Space click, so that test failed whenever a person was
+            // using the mouse (it did, on 2026-11-15). The real key is pressed in the shown window, in D02 T02 §10.
+            Pattern<IToggleProvider>(check, PatternInterface.Toggle).Toggle();
             PageRenderer.Settle(page);
             Assert.True(check.IsChecked);
             Assert.Equal(Visibility.Visible, tick.Visibility);
@@ -445,7 +448,7 @@ public partial class ControlStylesTests
 
     [Theory]
     [MemberData(nameof(Themes))]
-    public void A_combo_box_shows_its_placeholder_until_something_is_selected_and_the_keyboard_selects(string theme)
+    public void A_combo_box_shows_its_placeholder_until_something_is_selected_and_then_the_selection(string theme)
     {
         ComboBox combo = null!;
         Live(theme, () => combo = new ComboBox { Tag = "Choose a side", ItemsSource = new[] { "Windows", "WSL" }, Width = 160, VerticalAlignment = VerticalAlignment.Top, ToolTip = "No WSL here" }, page =>
@@ -455,16 +458,24 @@ public partial class ControlStylesTests
             Assert.Equal(Token(theme, "TextMute"), Paint(placeholder.Foreground));
             Assert.Equal(32, combo.ActualHeight);
 
-            Press(combo, Key.Down);
+            // Selected as a binding selects. Not by a Down key raised here: the combo box reads the real keyboard's
+            // Alt key with it, and Alt+Down opens the list, a window of its own, whenever a person is switching
+            // windows. The real keys are pressed in the shown window, in D02 T02 §10.
+            combo.SelectedIndex = 0;
             PageRenderer.Settle(page);
-            Assert.Equal(0, combo.SelectedIndex);
             Assert.Equal(["Windows"], PageRenderer.TextsOf(combo));
             Assert.Equal(Visibility.Collapsed, placeholder.Visibility);
 
-            Press(combo, Key.Down);
+            combo.SelectedIndex = 1;
             PageRenderer.Settle(page);
             Assert.Equal(["WSL"], PageRenderer.TextsOf(combo));
-            Assert.False(combo.IsDropDownOpen, "the keys select with the list closed");
+
+            combo.SelectedIndex = -1;
+            PageRenderer.Settle(page);
+            Assert.Equal(["Choose a side"], PageRenderer.TextsOf(combo));
+            combo.SelectedIndex = 1;
+            PageRenderer.Settle(page);
+            Assert.False(combo.IsDropDownOpen);
 
             // The list a person opens: in the theme's colours, scrolling when it is long. Opening it is a window of
             // its own, proved with a real one in D02 T02 §10.
