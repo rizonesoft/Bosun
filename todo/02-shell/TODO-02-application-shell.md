@@ -50,7 +50,7 @@ title: "TODO-02 -- The application shell"
 | 5 | §5 | Settings store and theme switching | §4 | [ ] |
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
-| 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [ ] |
+| 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
 
 ## 1. Startup, single instance and crash handling
@@ -260,11 +260,14 @@ A surface section has to be provable in an unattended run with no visible deskto
 - [x] Add `scripts/render-pages.ps1` to write all renders: it first removes the renders and index a previous run left (so nothing old can be read as current), builds the test project and stops with the build's exit code when that fails, runs the render test, and prints the folder and the count of files written only when `index.json` is there, exiting with the test's code. Done when: `tests/render_pages_test.ps1` plants an old PNG and index, runs the script against a project that doesn't build, and reads a nonzero exit, no index and no old PNG; the review prompt can name the folder (`docs/review-round-prompt.md` and `docs/completion-review-prompt.md` say that a `Surface: yes` section's renders are in `build/renders/`, written by `pwsh scripts/render-pages.ps1`), renders stay out of Git (`git status --short build/renders` is empty after a run), and `tests/render_pages_test.ps1` runs the script and reads the four sample files and the index.
 - [x] Port `scripts/capture-window.ps1` for attended checks, from `D:\Resolute\scripts\capture-window.ps1`: every rule kept (no input sent, exit 3 when the target isn't in the foreground or is covered, only what it started is stopped, the PNG and its sidecar written as one verified pair, `-Verify`, `-SelfTest`), with Resolute's section references, example paths and names replaced by Bosun's, and three corrections to what it started: its own processes are the one it launched and that one's descendants (by parent process id and start time), never a process that merely has the same name and appeared meanwhile; they are known from the moment of the launch, so a launch that never shows a window is stopped too; and they are stopped as a tree (`taskkill /T /F`). Done when: it fails closed when the target isn't in the foreground, with exit 3 (the self-test's covered-window rule; the capture of a real window is proved in a desktop session by `D02 T02 §10`); the self-test, with console children started without a window, launches a program that never shows a window and reads exit 1 with that program and a child it started both gone, while a process of the same name started before, and one started independently during the wait, are both still running; `pwsh scripts/capture-window.ps1 -SelfTest` prints `self-test: all pass`; `tests/capture_window_test.ps1` runs that self-test in the gate; and `git grep -n -i resolute scripts/capture-window.ps1` finds nothing.
 - [x] Say in `AGENTS.md` how a surface is looked at: `pwsh scripts/render-pages.ps1` for the unattended renders, `pwsh scripts/capture-window.ps1` for an attended capture of the real window. Done when: both commands are there with one line each.
-- [ ] Commit: `tests: off-screen page renders`
+- [x] Commit: `tests: off-screen page renders`
 
 > **Deferred:** capturing a real window (the PNG decodes at the window's size, `-Verify` accepts the pair, a covered or background target is refused with exit 3) needs a desktop session -> XREF: D02 T02 §10
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*PageRenderer*"` exits 0, and fails if the change is reverted; `pwsh tests/render_pages_test.ps1` and `pwsh tests/capture_window_test.ps1` each print `all passed`.
+
+> **Verified:** 2026-11-14 | §9 | dc66a7839b9d43d10059a530816c128368c6274c
+> **Review:** `docs/reviews/d02-t02-s9.json`
 
 ## 10. End-to-end smoke through UI Automation
 

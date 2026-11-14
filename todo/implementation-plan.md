@@ -71,7 +71,7 @@ Sections: 23 | Checklist items: 151
 | [x]    | D02 T01 §3  | Tray state icons and the icon drift gate    | none            | 7     |
 | [x]    | D02 T02 §3  | Process runner                              | none            | 9     |
 | [ ]    | D02 T02 §8  | Pollers that stop when nothing is looking   | none            | 4     |
-| [ ]    | D02 T02 §9  | Off-screen page rendering for review        | none            | 9     |
+| [x]    | D02 T02 §9  | Off-screen page rendering for review        | none            | 9     |
 | [ ]    | D02 T01 §4  | Control templates                           | none            | 5     |
 | [ ]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 4     |
 | [ ]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 4     |
@@ -143,6 +143,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 43/88 verified sections, 6 ready to run now.
+Progress: 44/88 verified sections, 6 ready to run now.
 
-Checklist: 448/675 items completed (includes Commit items).
+Checklist: 449/675 items completed (includes Commit items).

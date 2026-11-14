@@ -1,0 +1,89 @@
+{
+  "ref": "D02 T02 \u00a79",
+  "title": "Off-screen page rendering for review",
+  "implementation_sha": "dc66a7839b9d43d10059a530816c128368c6274c",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s9.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s9.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-class \"*PageRenderer*\" -> total 18, failed 0, succeeded 18",
+    "pwsh tests/render_pages_test.ps1 -> all passed",
+    "pwsh tests/capture_window_test.ps1 -> all passed (42 PASS)",
+    "reverted: the blocked-view test held 30 s and failed without Sta.TryRun; render_pages_test failed 2 checks without the Owns and index fixes; the helper self-test left its grandchild running on the snapshot code",
+    "full gate, CI on dc66a78 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43622371709, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43622371985"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s9.md",
+    "verdict": "completed",
+    "candidate": "d934ef4898ec418dd36dd41cd112c2c3cfdeaf13",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "round 2 returned one P3 (the self-test ignored BOSUN_SCRATCH), fixed in d934ef4; nothing left over",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s9.md",
+    "candidate": "26e79a63d4f71cd1a7d13c0ef872ce152b233f46",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "26e79a63d4f71cd1a7d13c0ef872ce152b233f46",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
