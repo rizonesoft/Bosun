@@ -78,3 +78,7 @@ Re-run `python scripts/todo-graph.py query next`. If it names a row, start `proc
 - Do not claim a phase complete while its table has `[ ]` rows.
 - Do not treat a named phase as the whole plan. Chaining is this skill's job, and only this skill's.
 - Do not end the turn on the audit table.
+
+## Codex campaign runtime
+
+The Codex launcher admits this run with `BOSUN_RUN_SESSION` and a live owner process. Keep that launch identity for the run guard; use the native Codex thread id only for Codex itself. The Stop hook in `.codex/hooks.json` invokes `run-guard.py hook --runner codex`. Codex has no Claude heartbeat: wait for reviews, CI and timed holds inside this session, then continue. Do not create CronCreate jobs or end the turn to wait for one. An operator stop calls `python scripts/run-guard.py halt --ground operator --reason <words>` before ending. All existing plan, review, stall and closeout requirements still apply.
