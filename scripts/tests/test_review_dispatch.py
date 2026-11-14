@@ -1663,7 +1663,7 @@ class RepairCycles(unittest.TestCase):
 class Settled(Harness):
     """D00 T01 §2: the writer's settled lines reach every pass's reviewer, and each pass records its duration."""
 
-    PIN = MultiCli.PIN  # claude -> astra via codex (prompt on stdin), codex -> gemini via agy (prompt by file or -p)
+    PIN = MultiCli.PIN  # the two writers, claude and gemini, each reviewed by astra through codex (prompt on stdin)
     SETTLED_LINE = "- Settled: the 33-round cap stays, owner decision 2026-11-08"
 
     def setUp(self):
@@ -1687,7 +1687,7 @@ class Settled(Harness):
         path.write_text(path.read_text(encoding="utf-8") + "\n" + "\n".join(notes) + "\n", encoding="utf-8")
 
     def test_every_pass_on_both_routes_carries_the_writers_settled_lines(self):
-        for writer in ("claude", "codex"):
+        for writer in ("claude", "gemini"):
             for kind in ("plan", "round", "completion"):
                 with self.subTest(writer=writer, kind=kind):
                     self.log.unlink(missing_ok=True)
@@ -1703,7 +1703,7 @@ class Settled(Harness):
                                                     *extra, "--record", str(record))
                     self.assertEqual(result.returncode, 0, result.stderr)
                     (call,) = self.calls()
-                    self.assertEqual(call["cli"], "codex" if writer == "claude" else "agy")
+                    self.assertEqual(call["cli"], "codex")
                     prompt = self.received(call)
                     self.assertIn("## Settled items (from the section's findings files", prompt)
                     for line in (self.SETTLED_LINE, "- Filed: D00 T01 §8 (worktrees)",
