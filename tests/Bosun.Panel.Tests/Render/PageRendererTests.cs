@@ -259,6 +259,12 @@ public class PageRendererTests
     private static readonly string[] SampleFiles =
         ["index.json", "sample.empty.dark.png", "sample.empty.light.png", "sample.normal.dark.png", "sample.normal.light.png"];
 
+    /// <summary>
+    /// The tests' own view, in its states: what the tests of the folder's rules draw, so they hold whatever views the
+    /// panel has registered since (the run over the whole catalogue is the test below).
+    /// </summary>
+    private static readonly IReadOnlyList<RenderCase> Samples = [.. RenderCatalog.Cases.Where(view => view.View == "sample")];
+
     [Fact]
     public void Every_registered_view_is_written_in_each_state_and_theme_with_an_index()
     {
@@ -299,7 +305,7 @@ public class PageRendererTests
         File.WriteAllText(Path.Combine(folder.Path, "removed-view.normal.dark.png"), "a render of a view that is gone");
         File.WriteAllText(Path.Combine(folder.Path, "notes.txt"), "a reviewer's notes");
 
-        RenderCatalog.WriteAll(RenderCatalog.Cases, folder.Path);
+        RenderCatalog.WriteAll(Samples, folder.Path);
 
         Assert.Equal([.. SampleFiles.Append("notes.txt").Order(StringComparer.Ordinal)], folder.Names());
         Assert.Equal("a reviewer's notes", File.ReadAllText(Path.Combine(folder.Path, "notes.txt")));
@@ -334,20 +340,20 @@ public class PageRendererTests
     public void A_picture_that_cant_be_written_fails_the_run_naming_it_and_leaves_no_index()
     {
         using var folder = new Scratch();
-        RenderCatalog.WriteAll(RenderCatalog.Cases, folder.Path);
+        RenderCatalog.WriteAll(Samples, folder.Path);
         Assert.Equal(SampleFiles, folder.Names());
 
         var held = Path.Combine(folder.Path, "sample.empty.light.png");
         // Held open by something else, as a viewer holds a picture: it can be neither cleared nor replaced.
         using (new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.None))
         {
-            var refusal = Assert.ThrowsAny<Exception>(() => RenderCatalog.WriteAll(RenderCatalog.Cases, folder.Path));
+            var refusal = Assert.ThrowsAny<Exception>(() => RenderCatalog.WriteAll(Samples, folder.Path));
             Assert.Contains("sample.empty.light.png", refusal.Message);
             Assert.DoesNotContain("index.json", folder.Names());
             Assert.DoesNotContain(folder.Names(), name => name.EndsWith(".tmp", StringComparison.Ordinal));
         }
 
-        RenderCatalog.WriteAll(RenderCatalog.Cases, folder.Path); // released: the next run is whole again
+        RenderCatalog.WriteAll(Samples, folder.Path); // released: the next run is whole again
         Assert.Equal(SampleFiles, folder.Names());
     }
 

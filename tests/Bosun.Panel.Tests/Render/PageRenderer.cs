@@ -86,22 +86,8 @@ public static class PageRenderer
         }
         if (element is Window) throw new RenderException($"{view.Name}: a Window can't be drawn without being shown; register its content");
 
-        ResourceDictionary colours;
-        using (var stream = File.OpenRead(TestPaths.GeneratedTheme(theme + ".xaml"))) colours = (ResourceDictionary)XamlReader.Load(stream);
-
-        // The page sits where it sits in the app: on the theme's base colour, at the size asked for.
-        var page = new Border { Width = width, Height = height, Child = element };
-        page.Resources.MergedDictionaries.Add(colours);
-        page.SetResourceReference(Border.BackgroundProperty, "B.Base");
-
-        var parameters = new HwndSourceParameters("Bosun render: " + view.Name)
-        {
-            WindowStyle = WS_POPUP, // and never WS_VISIBLE: this window is not shown
-            ExtendedWindowStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            Width = 1,
-            Height = 1,
-        };
-        using var source = new HwndSource(parameters) { SizeToContent = SizeToContent.WidthAndHeight, RootVisual = page };
+        var page = Page(element, theme, width, height);
+        using var source = Hidden("Bosun render: " + view.Name, page);
 
         Idle();
         if (view.Ready is { } ready)
@@ -146,6 +132,85 @@ public static class PageRenderer
         using var png = new MemoryStream();
         encoder.Save(png);
         return new Rendered(png.ToArray(), texts);
+    }
+
+    /// <summary>The panel's control styles, as the application merges them: the compiled Theme/Controls.xaml.</summary>
+    public static ResourceDictionary Controls() =>
+        (ResourceDictionary)Application.LoadComponent(new Uri("/Bosun.Panel;component/Theme/Controls.xaml", UriKind.Relative));
+
+    /// <summary>
+    /// The page a view sits in, as the application gives it one (D02 T01 §4): the named theme with the control styles
+    /// merged after it, as App.xaml merges them, on the theme's base colour, with the font, size and text colour a
+    /// window gives its content, at the size asked for.
+    /// </summary>
+    public static Border Page(FrameworkElement element, string theme, int width, int height)
+    {
+        ResourceDictionary colours;
+        using (var stream = File.OpenRead(TestPaths.GeneratedTheme(theme + ".xaml"))) colours = (ResourceDictionary)XamlReader.Load(stream);
+        var controls = Controls();
+
+        var page = new Border { Width = width, Height = height, Child = element };
+        page.Resources.MergedDictionaries.Add(colours);
+        page.Resources.MergedDictionaries.Add(controls);
+        page.SetResourceReference(Border.BackgroundProperty, "B.Base");
+        System.Windows.Documents.TextElement.SetFontFamily(page, (FontFamily)controls["F.Ui"]);
+        page.SetResourceReference(System.Windows.Documents.TextElement.FontSizeProperty, "T.Body");
+        page.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "B.Text");
+        return page;
+    }
+
+    /// <summary>A presentation source that is never shown, holding <paramref name="root"/>: Loaded fires and bindings run, and nothing appears.</summary>
+    private static HwndSource Hidden(string name, Visual root)
+    {
+        var parameters = new HwndSourceParameters(name)
+        {
+            WindowStyle = WS_POPUP, // and never WS_VISIBLE: this window is not shown
+            ExtendedWindowStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            Width = 1,
+            Height = 1,
+        };
+        return new HwndSource(parameters) { SizeToContent = SizeToContent.WidthAndHeight, RootVisual = root };
+    }
+
+    /// <summary>
+    /// For a test of a control rather than a picture: puts <paramref name="create"/>'s element in a page of the
+    /// theme, in a source that is never shown, lays it out and hands the page to <paramref name="read"/>, all on one
+    /// STA thread. The control is live: its templates are applied and its triggers run.
+    /// </summary>
+    public static T InPage<T>(string theme, Func<FrameworkElement> create, Func<Border, T> read, int width = 480, int height = 320) => Sta.Run(() =>
+    {
+        var page = Page(create(), theme, width, height);
+        using var source = Hidden("Bosun control test", page);
+        Settle(page);
+        return read(page);
+    });
+
+    /// <summary>Lets queued work run and lays the page out again: what a test calls after it changes a control.</summary>
+    public static void Settle(Border page)
+    {
+        Idle();
+        page.Measure(new Size(page.Width, page.Height));
+        page.Arrange(new Rect(0, 0, page.Width, page.Height));
+        page.UpdateLayout();
+        Idle();
+    }
+
+    /// <summary>The page's pixels as 0xAARRGGBB, row by row, drawn at 96 DPI.</summary>
+    public static uint[] Pixels(Border page)
+    {
+        var bitmap = new RenderTargetBitmap((int)page.Width, (int)page.Height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(page);
+        var pixels = new uint[(int)page.Width * (int)page.Height];
+        bitmap.CopyPixels(pixels, (int)page.Width * 4, 0);
+        return pixels;
+    }
+
+    /// <summary>Every text a reader of <paramref name="node"/> would see, in tree order.</summary>
+    public static IReadOnlyList<string> TextsOf(DependencyObject node)
+    {
+        var found = new List<string>();
+        Texts(node, found);
+        return found;
     }
 
     /// <summary>Lets everything queued on this thread's dispatcher run: layout, bindings, templates, Loaded.</summary>

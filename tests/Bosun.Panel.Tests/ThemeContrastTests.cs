@@ -40,6 +40,17 @@ public class ThemeContrastTests
     }
 
     [Fact]
+    public void The_close_buttons_glyph_reads_on_its_danger_hover()
+    {
+        // Btn.Chrome draws B.Base on B.Danger under the pointer (D02 T01 §4): a danger moved toward the base loses it.
+        var dark = Theme("Dark.xaml");
+        dark["Danger"] = "#5A2A26";
+        Assert.Contains(ThemeContrast.Failures(dark), f => f.StartsWith("Base ", StringComparison.Ordinal) && f.Contains(" on Danger #5A2A26 ", StringComparison.Ordinal));
+        foreach (var file in new[] { "Dark.xaml", "Light.xaml" })
+            Assert.DoesNotContain(ThemeContrast.Failures(Theme(file)), f => f.Contains(" on Danger ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void An_alpha_only_change_fails_because_text_is_composited_over_its_surface()
     {
         var dark = Theme("Dark.xaml");

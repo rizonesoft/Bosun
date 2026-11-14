@@ -44,7 +44,7 @@
     "DangerSoft": "#12C2281C",
     "InfoSoft": "#121F5FBF"
   },
-  "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999},
+  "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999, "Mark": 4},
   "elevation": {
     "Card": {"Blur": 20, "Depth": 6, "OpacityDark": 0.22, "OpacityLight": 0.07},
     "Overlay": {"Blur": 44, "Depth": 16, "OpacityDark": 0.42, "OpacityLight": 0.18}

@@ -92,7 +92,7 @@ A dark rounded tile with a mint prompt chevron and two bars, mint and amber: the
 Added 2026-11-07 from the owner's request for Lucide menu icons, softer rounding, premium components and a Mica title bar (`D02 T03`). The finish never outranks §1: status keeps its word, every target stays 32 px or more, and a hidden page animates and polls nothing. The whole panel stays within the 150 MB and 1% CPU idle budget.
 
 - Backdrop: Mica through `DWMWA_SYSTEMBACKDROP_TYPE` on Windows 11 build 22621 or later. Solid `Base` on older Windows, with system transparency off, or in high contrast. A change to any of these applies live, without a restart. There is no live blur inside the window.
-- Rounding: cards 12, controls 8, sheet 12, overlays 14, pills fully round.
+- Rounding: cards 12, controls 8, sheet 12, overlays 14, pills fully round, and a mark inside a control (the check box's square) 4, since 8 on a 16 px square is a circle, which reads as a radio button. The mark was added 2026-11-15 (`D02 T01 §4`).
 - Elevation: cards use a border and at most the `Card` shadow, cached rather than redrawn. Only the palette and toasts use the `Overlay` shadow.
 - Motion: fast 120 ms for hover, normal 220 ms for the rail marker, page changes and overlays, slow 400 ms for values changing. With Windows animation effects off, every change applies at once and no pulse runs.
 - Glyphs: Lucide, through one icon map. A glyph beside a word is decorative. An icon-only control keeps its automation name and tooltip.

@@ -2,6 +2,14 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
-    <ResourceDictionary Source="Foundation.xaml" />
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Foundation.xaml" />
+        <!-- The dark theme until the settings choose one: D02 T02 §5 swaps this dictionary for Light.xaml, live. -->
+        <ResourceDictionary Source="Theme/Generated/Dark.xaml" />
+        <!-- After the theme, whose keys it names. -->
+        <ResourceDictionary Source="Theme/Controls.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
   </Application.Resources>
 </Application>

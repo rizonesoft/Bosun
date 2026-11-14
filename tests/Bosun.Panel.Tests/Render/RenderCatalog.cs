@@ -18,6 +18,9 @@ public static partial class RenderCatalog
     [
         new("sample", "normal", () => new SampleView(new SampleData("Queue", ["build Bosun", "test Recto", "build Steward"], null))) { Shows = "test Recto" },
         new("sample", "empty", () => new SampleView(new SampleData("Queue", [], "Nothing here yet"))) { Shows = "Nothing here yet" },
+        // The control styles of Theme/Controls.xaml (D02 T01 §4), each in its states, and a table.
+        new("controls", "gallery", ControlsGallery.Gallery) { Shows = "Stop job" },
+        new("controls", "table", ControlsGallery.Table) { Shows = "Memory (MB)" },
     ];
 
     [GeneratedRegex("^[a-z0-9-]+$")]

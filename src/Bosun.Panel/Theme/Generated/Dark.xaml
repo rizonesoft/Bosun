@@ -54,6 +54,7 @@
     <CornerRadius x:Key="R.Sheet">12</CornerRadius>
     <CornerRadius x:Key="R.Overlay">14</CornerRadius>
     <CornerRadius x:Key="R.Pill">999</CornerRadius>
+    <CornerRadius x:Key="R.Mark">4</CornerRadius>
 
     <!-- Spacing -->
     <sys:Double x:Key="S.XS">4</sys:Double>

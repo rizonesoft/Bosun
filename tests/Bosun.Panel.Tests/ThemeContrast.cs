@@ -48,6 +48,7 @@ static class ThemeContrast
             foreach (var surface in Surfaces)
                 Check(text, surface);
         Check("OnAccent", "Accent");  // Btn.Primary's label
+        Check("Base", "Danger");      // the close button's glyph while the pointer is on it (Btn.Chrome, D02 T01 §4)
         // TextMute exists to sit below TextDim, and TextDim below Text: raising one for contrast must not collapse them.
         if (Colour("Text") is { } t && Colour("TextDim") is { } d && Colour("TextMute") is { } m && Colour("Base") is { } b && b.A >= 1)
         {
