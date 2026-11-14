@@ -1,6 +1,6 @@
 # Review round prompt
 
-Copy this into a scratch file, fill in the placeholders, delete the lines that do not apply, and pass it to `scripts/review-dispatch.py --prompt` (add `--surface` when the section has `Surface: yes`). The prompt does not pick the lenses or the effort: the pin's `[schedule]` in `.conclave/reviewers.toml` does. The dispatcher counts the rounds already in the `--record` file, sets the reasoning effort and appends a `## Lenses for this pass` block naming this round's lenses, so the same prompt file serves every round. The lens list below is the fallback for a pin without a schedule.
+Copy this into a scratch file, fill in the placeholders, delete the lines that do not apply, and pass it to `scripts/review-dispatch.py --prompt` (add `--surface` when the section has `Surface: yes`). The pin's `[schedule]` in `.conclave/reviewers.toml` picks the lenses and any effort override; without an override, the reviewer keeps its pinned effort. The dispatcher counts the rounds already in the `--record` file, applies an effort override only when the schedule supplies one and appends a `## Lenses for this pass` block naming this round's lenses, so the same prompt file serves every round. The lens list below is the fallback for a pin without a schedule.
 
 ---
 

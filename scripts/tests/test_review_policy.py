@@ -29,6 +29,15 @@ def policy():
     }
 
 
+def historical_pin():
+    """Keep effort-variant lineage tests independent of the live reviewer selection."""
+    pin = d.load_pin()
+    pin['reviewers']['carbon'] = dict(cli='agy', model='gemini-4-carbon-medium',
+        models_by_effort=dict(low='gemini-4-carbon-low', medium='gemini-4-carbon-medium'))
+    pin['schedule'] = {**policy(), 'max_low_rounds': 32, 'max_repair_cycles': 33}
+    return pin
+
+
 def entry(kind='round', clean=False):
     review = 'HIGHEST: none\nOVERALL: approve' if clean else 'HIGHEST: P2\nOVERALL: needs-attention'
     if kind == 'plan':
@@ -90,7 +99,7 @@ class FiledLeftovers(unittest.TestCase):
 
     def verdict_ok(self, name, verdict, clean_last=True):
         dispatch = fixtures.tg.review_dispatch()
-        pin = dispatch.load_pin()
+        pin = historical_pin()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / name
             plan = entry('plan')
@@ -137,7 +146,7 @@ class CurrentPolicy(unittest.TestCase):
             d.record_policy(d.load_pin(), None)
 
     def test_failed_medium_attempt_replays_at_medium(self):
-        pin = d.load_pin()
+        pin = historical_pin()
         found = dict(plans=[], rounds=[], completions=[])
         for index, kind in enumerate(('plan', 'round', 'round')):
             e = entry(kind, clean=True)
@@ -154,7 +163,7 @@ class CurrentPolicy(unittest.TestCase):
     def test_missing_terminal_completion_refuses_without_traceback(self):
         import test_todo_graph as fixtures
         dispatch = fixtures.tg.review_dispatch()
-        pin = dispatch.load_pin()
+        pin = historical_pin()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round'):
@@ -174,7 +183,7 @@ class CurrentPolicy(unittest.TestCase):
                     fixtures.tg.schedule_ok(Path(folder), data, 'D00 T01 §1', False)
 
     def test_record_roundtrip_and_order_replay(self):
-        pin = d.load_pin()
+        pin = historical_pin()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round', 'completion'):
@@ -216,9 +225,9 @@ class CurrentPolicy(unittest.TestCase):
             path = t.root / t.PLAN
             path.write_text('')
             policy_sha = t.head()
-            e = entry('plan')
+            e = dict(entry('plan'), model='gemini-pro-orchestrator')
             e.update(policy=policy_sha, attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
-                     failover=[], effort='medium', lenses=['plan'])
+                     failover=[], effort=None, lenses=['plan'])
             d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
             for todo in (t.root / 'todo').rglob('TODO-01-*.md'):
                 todo.write_text(todo.read_text().replace(fixtures.STARTED.strip(), '> **Started:** 2026-11-06T00:00:01Z')
@@ -234,14 +243,14 @@ class CurrentPolicy(unittest.TestCase):
             fixtures.tg.graph(t.root)
             # A receipt cannot hide a failed terminal execution or a different model.
             text = path.read_text(encoding='utf-8')
-            path.write_text(text.replace('Attempt model: gemini-4-carbon-medium',
+            path.write_text(text.replace('Attempt model: gemini-pro-orchestrator',
                                          'Attempt model: gemini-4-carbon-low'), encoding='utf-8')
             with self.assertRaises(fixtures.tg.Refused):
                 fixtures.tg.graph(t.root)
         finally:
             t.tearDown()
 
-    def filed_through_stamp(self, repairs, verdict='filed'):
+    def filed_through_stamp(self, repairs, verdict='filed', writer='codex'):
         """A real current-policy cycle after `repairs` repairs: committed live pin, real repair lines, dispatcher
         records, completion gaps filed to the open D00 T01 §2, then the real stamp. Returns (fixture, receipt)."""
         t = fixtures.Stamp('runTest')
@@ -258,9 +267,13 @@ class CurrentPolicy(unittest.TestCase):
                else 'docs/reviews/00-workspace/D00-T01-s1.md')
         path = t.root / rel
         path.write_text('', encoding='utf-8')  # this cycle's own records only, under the live pin
-        e = entry('plan')
-        e.update(policy=policy_sha, attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
-                 failover=[], effort='medium', lenses=['plan'])
+        pin = d.load_pin()
+        name = pin['routes'][writer][0]
+        reviewer = pin['reviewers'][name]
+        e = dict(entry('plan'), writer=writer, writer_model='gpt-6' if writer == 'codex' else 'claude-opus-5-5',
+                 reviewer=name, cli=reviewer['cli'], model=reviewer['model'])
+        e.update(policy=policy_sha, attempt_reviewer=name, attempt_model=e['model'], attempt_cli=e['cli'],
+                 failover=[], effort=reviewer.get('effort'), lenses=['plan'])
         d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
         todo.write_text((before + '> **Started:** 2026-11-06T00:00:01Z' + after).replace('- [ ] Work.', '- [x] Work.'),
                         encoding='utf-8')
@@ -278,6 +291,18 @@ class CurrentPolicy(unittest.TestCase):
         receipt = t.stamp('D00 T01 §1', candidate, [{'round': 1, 'report': rel, 'verdict': 'clean'}], ['real gate'],
                           '2026-11-06', plan=rel, completion={'report': rel, 'verdict': verdict})
         return t, receipt
+
+    def test_astra_default_effort_stamps_and_rejects_wrong_effort(self):
+        t, receipt = self.filed_through_stamp(0, writer='claude')
+        try:
+            data = json.loads((t.root / receipt).read_text())
+            self.assertEqual(data['plan']['effort'], 'medium')
+            path = t.root / data['plan']['report']
+            path.write_text(path.read_text().replace('- Effort: medium', '- Effort: low'))
+            with self.assertRaises(fixtures.tg.Refused):
+                fixtures.tg.schedule_ok(t.root, data, 'D00 T01 §1', False)
+        finally:
+            t.tearDown()
 
     def test_a_third_cycle_files_and_stamps_through_the_real_path(self):
         t, receipt = None, None
@@ -372,7 +397,7 @@ class CurrentPolicy(unittest.TestCase):
         self.assertFalse(d.clean('HIGHEST: P1\nHIGHEST: none\nOVERALL: approve'))
 
     def test_variants_and_recorded_missing_execution(self):
-        pin = d.load_pin()
+        pin = historical_pin()
         self.assertEqual(pin['routes']['codex'], ['carbon'])
         for writer in ('claude', 'gemini'):
             self.assertEqual(pin['routes'][writer], ['astra'])
@@ -384,7 +409,7 @@ class CurrentPolicy(unittest.TestCase):
         self.assertIsNone(result['reviewer'])
 
     def test_invocation_selects_low_variant_and_records_simulated_result(self):
-        pin = d.load_pin()
+        pin = historical_pin()
         seen = []
         def run(argv, stdin, timeout, watched, stderr_path=None):
             seen.append(argv)
@@ -396,6 +421,61 @@ class CurrentPolicy(unittest.TestCase):
         self.assertEqual(seen[0][seen[0].index('--model')+1], 'gemini-4-carbon-low')
         self.assertEqual(result['model'], 'gemini-4-carbon-low')
         self.assertEqual(result['execution'], 'returned')
+
+
+class OrchestratorPin(unittest.TestCase):
+    def test_live_invocations_keep_model_effort_and_lenses(self):
+        pin = d.load_pin()
+        for writer in ('codex', 'claude', 'gemini'):
+            for kind, prior in [('plan', []), ('round', []), ('round', [entry()]),
+                                ('completion', [])]:
+                with self.subTest(writer=writer, kind=kind, followup=bool(prior)):
+                    step = d.scheduled(pin['schedule'], kind, prior, False)
+                    seen = []
+                    def run(argv, stdin, timeout, watched, stderr_path=None):
+                        seen.append((argv, stdin))
+                        target = watched[0] if writer == 'codex' else watched[1]
+                        target.write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
+                        return 0, None
+                    with patch.object(d, 'find_cli', side_effect=lambda cli: cli + '.exe'), \
+                            patch.object(d, 'run', side_effect=run):
+                        result = d.review(pin, writer, ROOT / 'docs/plan-review-prompt.md', 1, step)
+                    self.assertEqual(result['execution'], 'returned')
+                    self.assertEqual(result['lenses'], step['lenses'])
+                    argv, stdin = seen[0]
+                    if writer == 'codex':
+                        self.assertEqual(result['model'], 'gemini-pro-orchestrator')
+                        self.assertIsNone(result['effort'])
+                        self.assertEqual(argv[argv.index('--model') + 1], 'gemini-pro-orchestrator')
+                        self.assertNotIn('--effort', argv)
+                        self.assertNotIn('medium reasoning effort', argv[-1])
+                        self.assertNotIn('low reasoning effort', argv[-1])
+                    else:
+                        self.assertEqual(result['model'], 'gpt-6-astra')
+                        self.assertEqual(result['effort'], 'medium')
+                        self.assertIn('model_reasoning_effort=medium', argv)
+
+    def test_orchestrator_refuses_scheduled_overrides(self):
+        text = (ROOT / '.conclave/reviewers.toml').read_text()
+        with self.assertRaises(d.Refused):
+            d.load_pin(data=text.replace('[schedule.plan]', '[schedule.plan]\neffort = "medium"').encode())
+
+    def test_no_override_escalates_p1_followups_for_both_reviewers(self):
+        schedule = d.load_pin()['schedule']
+        for effort in (None, 'medium'):
+            prior = [entry(), dict(entry(), effort=effort, review='HIGHEST: P1\nOVERALL: needs-attention')]
+            step = d.scheduled(schedule, 'round', prior, False)
+            self.assertTrue(step['escalated'])
+            self.assertEqual(step['lenses'], ['adversarial'])
+            self.assertIsNone(step['effort'])
+
+    def test_no_override_keeps_followup_lenses_and_cap(self):
+        pin = d.load_pin()
+        self.assertEqual(d.schedule_cap(pin['schedule']), 33)
+        for i, lens in enumerate(n for n in pin['schedule']['rotation']['lenses'] if n != 'design'):
+            step = d.scheduled(pin['schedule'], 'round', [entry()] * (i + 1), False)
+            self.assertEqual(step['lenses'], [lens])
+            self.assertIsNone(step['effort'])
 
 
 class ClaudeNeverReviews(unittest.TestCase):

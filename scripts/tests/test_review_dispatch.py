@@ -1572,19 +1572,18 @@ class RepositoryPin(unittest.TestCase):
         with open(REPO_PIN, "rb") as handle:
             pin = tomllib.load(handle)
         self.assertEqual(pin["reviewers"]["carbon"], {
-            "cli": "agy", "model": "gemini-4-carbon-medium",
-            "models_by_effort": {"low": "gemini-4-carbon-low", "medium": "gemini-4-carbon-medium"}})
+            "cli": "agy", "model": "gemini-pro-orchestrator"})
         self.assertEqual(pin["reviewers"]["astra"], {"cli": "codex", "model": "gpt-6-astra", "effort": "medium"})
         self.assertEqual(pin["routes"], {"claude": ["astra"], "codex": ["carbon"],
                                        "gemini": ["astra"]})
         schedule = pin["schedule"]
         self.assertEqual(schedule["completion_order"], "last")
         self.assertEqual(schedule["max_low_rounds"], 32)
-        self.assertEqual(schedule["plan"], {"effort": "medium", "lenses": ["plan"]})
-        self.assertEqual(schedule["completion"], {"effort": "medium"})
-        self.assertEqual(schedule["rounds"], [{"effort": "medium", "lenses": ["adversarial"]}])
-        self.assertEqual(schedule["escalation"], {"effort": "low", "lenses": ["adversarial"]})
-        self.assertEqual(schedule["rotation"]["effort"], "low")
+        self.assertEqual(schedule["plan"], {"lenses": ["plan"]})
+        self.assertEqual(schedule["completion"], {})
+        self.assertEqual(schedule["rounds"], [{"lenses": ["adversarial"]}])
+        self.assertEqual(schedule["escalation"], {"lenses": ["adversarial"]})
+        self.assertNotIn("effort", schedule["rotation"])
 
     def test_the_pins_severity_stop_is_the_stamps_cutoff(self):
         # The dispatcher reports severity_stop from the pin and `stamp` re-checks it against SEVERITY_CUTOFF_ROUND: the

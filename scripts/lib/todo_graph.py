@@ -477,7 +477,12 @@ def schedule_ok(root, data, ref, surface):
 
     def check(where, recorded, expected):
         got = (recorded["effort"], list(recorded["lenses"] or []))
-        want = (expected["effort"], expected["lenses"])
+        effort = expected["effort"]
+        if effort is None and schedule.get("completion_order") == "last":
+            route = policy["routes"].get(recorded.get("writer"))
+            if route:
+                effort = policy["reviewers"][route[0]].get("effort")
+        want = (effort, expected["lenses"])
         position = f" (position {expected['position']}{', escalated' if expected['escalated'] else ''})" \
             if expected["position"] else ""
         require(got == want, f"{where} ran at {got[0]} with lenses {got[1]}; the schedule expects {want[0]} with "
