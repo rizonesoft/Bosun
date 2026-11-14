@@ -471,6 +471,9 @@ public partial class ControlStylesTests
             var popup = Part<Popup>(combo, "PART_Popup");
             var drop = Part<Border>(combo, "Drop");
             Assert.Same(drop, popup.Child);
+            // It opens at once: WPF's own popup animations run for a fixed time whatever the Windows animation
+            // setting says (design/SPEC.md §19, Motion), so none is used.
+            Assert.Equal(PopupAnimation.None, popup.PopupAnimation);
             Assert.Equal(Token(theme, "Raised"), Paint(drop.Background));
             Assert.Equal(Token(theme, "Line"), Paint(drop.BorderBrush));
             Assert.IsType<ItemsPresenter>(Part<ScrollViewer>(combo, "DropScroll").Content);
@@ -571,6 +574,48 @@ public partial class ControlStylesTests
             var cellRight = cells[2].TranslatePoint(new Point(cells[2].ActualWidth - cells[2].Padding.Right, 0), grid).X;
             var textRight = megabytes.TranslatePoint(new Point(megabytes.ActualWidth, 0), grid).X;
             Assert.Equal(cellRight, textRight, 1.0);
+        }, width: 900, height: 400);
+    }
+
+    [Fact]
+    public void No_popup_in_the_styles_animates_by_itself()
+    {
+        // Every popup, the ones added later too: a PopupAnimation is motion outside the one gate (D02 T03 §1).
+        XNamespace p = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        static IEnumerable<string> Animated(string xaml, XNamespace p) => XDocument.Parse(xaml).Descendants(p + "Popup")
+            .Select(popup => (string?)popup.Attribute("PopupAnimation") ?? "None").Where(animation => animation != "None");
+        var text = ControlsText();
+        Assert.NotEmpty(XDocument.Parse(text).Descendants(p + "Popup"));
+        Assert.Empty(Animated(text, p));
+        Assert.Equal(["Fade"], Animated(text.Replace("PopupAnimation=\"None\"", "PopupAnimation=\"Fade\"", StringComparison.Ordinal), p));
+    }
+
+    [Theory]
+    [MemberData(nameof(Themes))]
+    public void A_sorted_column_says_so_with_an_arrow_that_turns_with_the_order(string theme)
+    {
+        DataGrid grid = null!;
+        Live(theme, () => grid = ControlsGallery.Grid(ControlsGallery.Rows), page =>
+        {
+            var column = grid.Columns[2];
+            var header = Under<DataGridColumnHeader>(grid).Single(h => ReferenceEquals(h.Column, column));
+            var arrow = Part<System.Windows.Shapes.Path>(header, "sort");
+            Assert.Equal(Visibility.Collapsed, arrow.Visibility);
+
+            column.SortDirection = System.ComponentModel.ListSortDirection.Ascending;
+            PageRenderer.Settle(page);
+            Assert.Equal(Visibility.Visible, arrow.Visibility);
+            Assert.Equal(Token(theme, "TextMute"), Paint(arrow.Stroke));
+            var up = arrow.Data.ToString(CultureInfo.InvariantCulture);
+
+            column.SortDirection = System.ComponentModel.ListSortDirection.Descending;
+            PageRenderer.Settle(page);
+            Assert.Equal(Visibility.Visible, arrow.Visibility);
+            Assert.NotEqual(up, arrow.Data.ToString(CultureInfo.InvariantCulture));
+
+            // The header still carries the parts the grid resizes a column by.
+            Assert.IsType<Thumb>(header.Template.FindName("PART_RightHeaderGripper", header));
+            Assert.IsType<Thumb>(header.Template.FindName("PART_LeftHeaderGripper", header));
         }, width: 900, height: 400);
     }
 

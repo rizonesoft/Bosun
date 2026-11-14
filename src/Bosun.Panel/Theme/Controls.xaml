@@ -614,8 +614,11 @@
                                    Foreground="{DynamicResource B.TextMute}" Margin="11,0,30,0"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
 
+                        <!-- No PopupAnimation: WPF's fade is a fixed 150 ms that ignores the Windows animation
+                             setting, and motion here has one gate (Theme/Motion.cs, D02 T03 §1). The list opens
+                             at once. -->
                         <Popup x:Name="PART_Popup" AllowsTransparency="True" Placement="Bottom"
-                               IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
+                               IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="None">
                             <Border x:Name="Drop" Background="{DynamicResource B.Raised}"
                                     BorderBrush="{DynamicResource B.Line}" BorderThickness="1"
                                     CornerRadius="{DynamicResource R.Control}"
