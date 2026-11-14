@@ -28,12 +28,13 @@
     capture.
 
     IT STOPS ONLY WHAT IT STARTED, AND ALL OF IT. What is its own is the
-    process it launched and that process's descendants, followed by parent
-    process id and start time from the moment of the launch: never a process
-    that merely has the same name, whether it was running before or appeared
-    meanwhile. A launcher that hands over to a child and exits is followed to
-    that child. What it started is stopped as a tree, on every way out, also
-    when no window ever appeared.
+    process it launched and every descendant of it, held in a Windows job
+    object from before the launched program's first instruction: never a
+    process that merely has the same name, whether it was running before or
+    appeared meanwhile. A launcher that hands over to a child and exits is
+    followed to that child, also through a helper that has already gone.
+    What it started is stopped as one job, on every way out, also when no
+    window ever appeared.
 
 .PARAMETER Path
     Executable to launch. One of -Path or -WindowTitle is required.
@@ -545,9 +546,14 @@ function Invoke-SelfTest {
     Check 'the first frame read refuses a gone or unreadable target naming it and the step, and yields a readable one''s frame' ($firstGone.Refusal -like "*target window 77 ('Launcher', pid 7) is gone (it no longer exists)*" -and $firstBlind.Refusal -like "*target window 77 ('Launcher', pid 7) could not be read: its compositor state*" -and ($firstHere.Frame -join ',') -eq '100,100,900,700' -and -not $firstHere.ContainsKey('Refusal'))
     # The real inspection, of a handle no window has: it is told the window existed and was shown when it was first
     # asked, so its compositor read fails as it does on a window that closes part way through being read.
-    $bogus = [IntPtr]0x7FFF0FF0
-    $script:asked = 0
+    # Which handle that is has to be asked: a fixed number can be a real window's on the day (0x7FFF0FF0 was one on
+    # 2026-11-14, so its compositor read succeeded and this check failed), so the first number Windows says no
+    # window has is taken.
     $savedExists = [ZOrder]::Exists; $savedShown = [ZOrder]::Shown
+    $bogus = [IntPtr]0x7FFF0FF0
+    for ($tries = 0; $savedExists.Invoke($bogus) -and $tries -lt 4096; $tries++) { $bogus = [IntPtr]($bogus.ToInt64() - 2) }
+    Check "a handle no window has was found for the next check ($bogus)" (-not $savedExists.Invoke($bogus))
+    $script:asked = 0
     try {
         [ZOrder]::Shown = [Func[IntPtr, bool]] { param($h) $true }
         [ZOrder]::Exists = [Func[IntPtr, bool]] { param($h) $script:asked++; $script:asked -eq 1 }
@@ -639,6 +645,28 @@ Start-Sleep -Seconds 90
         Check 'a process of the same name that was running before is left alone' (Test-Alive $bystanders[0].Id)
         Check 'and so is one of the same name that someone else started meanwhile' (Test-Alive $bystanders[1].Id)
         Check 'nothing was written for a capture that never happened' (-not (Test-Path -LiteralPath (Join-Path $ownDir 'shot.png')) -and -not (Test-Path -LiteralPath (Join-Path $ownDir 'shot.txt')))
+
+        # A helper that starts a program and is gone at once (a second cmd running `start`, which lives for a few milliseconds): what
+        # it started has no living parent to be followed by, and is stopped all the same (the completion review:
+        # snapshots of parent ids lost it). The launcher goes too, so the grandchild is the only one left.
+        $grandPid = Join-Path $ownDir 'grand.txt'
+        Set-Content -LiteralPath (Join-Path $ownDir 'grand.ps1') -Encoding utf8 @"
+Set-Content -LiteralPath '$grandPid' -Value `$PID
+Start-Sleep -Seconds 90
+"@
+        Set-Content -LiteralPath (Join-Path $ownDir 'helper.cmd') -Encoding ascii "@`"$env:ComSpec`" /d /c start `"`" /b `"$shell`" -NoProfile -File `"$(Join-Path $ownDir 'grand.ps1')`""
+        $run = Start-Quiet @('-NoProfile', '-File', $PSCommandPath, '-Path', $env:ComSpec, "-LaunchArgs:/d /c `"$(Join-Path $ownDir 'helper.cmd')`"",
+            '-NoNewWindow', '-WaitSeconds', '6', '-Out', (Join-Path $ownDir 'shot.png'))
+        $said = $run.StandardOutput.ReadToEnd() + $run.StandardError.ReadToEnd()
+        $exited = $run.WaitForExit(60000)
+        $grand = @(if (Test-Path -LiteralPath $grandPid) { [int](Get-Content -LiteralPath $grandPid -Raw).Trim() })
+        $started += $grand
+        Start-Sleep -Milliseconds 500
+        Check 'a launch through a helper that exits at once is refused with exit 1 when no window appears' ($exited -and $run.ExitCode -eq 1 -and $said -like '*no window appeared*')
+        if (-not ($exited -and $run.ExitCode -eq 1)) { Write-Host "  the capture exited $($run.ExitCode) saying: $said" }
+        Check 'the program the helper started ran' ($grand.Count -eq 1)
+        Check 'and is stopped, though the helper that started it had gone' ($grand.Count -eq 1 -and -not (Test-Alive $grand[0]))
+        Check 'the bystanders are still running' ((Test-Alive $bystanders[0].Id) -and (Test-Alive $bystanders[1].Id))
 
         # The process list can't be read after the launch: the capture fails, and what it launched is stopped all the
         # same (as a tree, so the child goes with it), and the pair is free for the next capture.
@@ -755,61 +783,144 @@ function Get-Matching {
     return $all
 }
 
-# What this invocation started: the process it launched and that process's
-# descendants, each as its id and start time (an id alone can be reused by
-# another process). Read by parent process id from the moment of the launch
-# and again through the wait, so a launcher that hands over to a child and
-# exits is followed to that child, and a process that only has the same name
-# is never one of them.
-$script:ours = [System.Collections.Generic.Dictionary[int, datetime]]::new()
+# What this invocation started: the process it launched and every descendant
+# of it. The launch is made inside a Windows job object (the process is
+# created suspended, put in the job, then let run), so a descendant belongs to
+# the job from its first instruction and stays in it when the process that
+# started it has gone: a launcher that hands over through a helper that exits
+# at once is still followed to what the helper started (the completion review
+# of D02 T02 §9: snapshots of parent process ids missed a grandchild whose
+# parent lived between two of them). A process that only has the same name is
+# never in the job.
+if (-not ('OwnedLaunch' -as [type])) {
+    Add-Type @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OwnedLaunch {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFO {
+        public int cb; public string lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId; }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool CreateProcessW(string application, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref STARTUPINFO startup, out PROCESS_INFORMATION information);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateProcess(IntPtr process, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, int length, IntPtr returnLength);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+
+    public static IntPtr CreateJob() {
+        IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        return job;
+    }
+
+    // Starts commandLine suspended, puts it in the job, then lets it run: nothing it starts can be outside the job.
+    public static int Start(IntPtr job, string commandLine, string directory, bool newConsole) {
+        const uint CREATE_SUSPENDED = 0x4, CREATE_NEW_CONSOLE = 0x10, CREATE_UNICODE_ENVIRONMENT = 0x400;
+        STARTUPINFO startup = new STARTUPINFO();
+        startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+        PROCESS_INFORMATION made;
+        uint flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | (newConsole ? CREATE_NEW_CONSOLE : 0);
+        if (!CreateProcessW(null, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero, directory, ref startup, out made))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            if (!AssignProcessToJobObject(job, made.hProcess)) {
+                int error = Marshal.GetLastWin32Error();
+                TerminateProcess(made.hProcess, 1);   // never ran: it was still suspended
+                throw new Win32Exception(error);
+            }
+            if (ResumeThread(made.hThread) == 0xFFFFFFFF) {
+                int error = Marshal.GetLastWin32Error();
+                TerminateJobObject(job, 1);
+                throw new Win32Exception(error);
+            }
+            return made.dwProcessId;
+        } finally { CloseHandle(made.hThread); CloseHandle(made.hProcess); }
+    }
+
+    // The ids of every process in the job that is still running.
+    public static int[] Ids(IntPtr job) {
+        const int JobObjectBasicProcessIdList = 3, ERROR_MORE_DATA = 234;
+        for (int room = 64; ; ) {
+            int size = 8 + IntPtr.Size * room;
+            IntPtr buffer = Marshal.AllocHGlobal(size);
+            try {
+                if (QueryInformationJobObject(job, JobObjectBasicProcessIdList, buffer, size, IntPtr.Zero)) {
+                    int listed = Marshal.ReadInt32(buffer, 4);
+                    int[] ids = new int[listed];
+                    for (int i = 0; i < listed; i++) ids[i] = (int)Marshal.ReadIntPtr(buffer, 8 + IntPtr.Size * i);
+                    return ids;
+                }
+                int error = Marshal.GetLastWin32Error();
+                if (error != ERROR_MORE_DATA) throw new Win32Exception(error);
+                room = Marshal.ReadInt32(buffer, 0) + 16;
+            } finally { Marshal.FreeHGlobal(buffer); }
+        }
+    }
+
+    // Ends every process in the job, whoever started it and whether or not that one is still there.
+    public static void Stop(IntPtr job) {
+        if (!TerminateJobObject(job, 1)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+}
+'@
+}
+$script:job = [IntPtr]::Zero
 $target = $null
 
-function Update-Ours {
-    if ($script:ours.Count -eq 0) { return }
-    # The drill's failure starts four seconds after the launch, so the launched program has had time to start.
-    if ($DrillProcessListFails -and ((Get-Date) - $script:launchedAt).TotalSeconds -ge 4) { throw 'drill: the process list is unavailable' }
-    # If the process list can't be read, what this launch started is unknown: that stops the capture, by the error.
-    $all = @(Get-CimInstance Win32_Process -Property ProcessId, ParentProcessId, CreationDate)
-    do {
-        $added = $false
-        foreach ($p in $all) {
-            $id = [int]$p.ProcessId; $parent = [int]$p.ParentProcessId
-            if ($null -eq $p.CreationDate -or $script:ours.ContainsKey($id) -or -not $script:ours.ContainsKey($parent)) { continue }
-            # A child starts after its parent: an older process with that parent id belongs to an earlier owner of the id.
-            if ($p.CreationDate -ge $script:ours[$parent].AddSeconds(-1)) { $script:ours[$id] = $p.CreationDate; $added = $true }
-        }
-    } while ($added)
-}
-
 function Get-Ours {
-    # The processes this invocation started that are still running.
-    foreach ($id in @($script:ours.Keys)) {
+    # The processes this invocation started that are still running, read from the job.
+    if ($script:job -eq [IntPtr]::Zero) { return }
+    # The drill's failure starts four seconds after the launch, so the launched program has had time to start.
+    if ($DrillProcessListFails -and ((Get-Date) - $script:launchedAt).TotalSeconds -ge 4) { throw 'the process list could not be read (drill: the job could not be queried)' }
+    # If the job can't be read, what this launch started is unknown: that stops the capture, by the error.
+    try { $ids = [OwnedLaunch]::Ids($script:job) } catch { throw "the process list could not be read ($($_.Exception.Message))" }
+    foreach ($id in $ids) {
         $p = Get-Process -Id $id -ErrorAction SilentlyContinue
-        if ($p -and -not $p.HasExited -and [math]::Abs(($p.StartTime - $script:ours[$id]).TotalSeconds) -lt 2) { $p }
+        if ($p -and -not $p.HasExited) { $p }
     }
 }
 
 function Stop-Ours {
-    # Everything this invocation started, as a tree, and nothing else. Safe to call on every way out.
-    if ($KeepOpen) { return }
-    # Looking for more descendants can fail (the process list unreadable); what is already known is stopped all the
-    # same, each as a tree, and the failure is said.
-    try { Update-Ours } catch { Write-Host "capture-window: the process list could not be read ($($_.Exception.Message)); stopping what is already known to be this launch's" -ForegroundColor Yellow }
-    foreach ($p in @(Get-Ours)) { & taskkill.exe /T /F /PID $p.Id 2>&1 | Out-Null }
+    # Everything this invocation started, and nothing else. Safe to call on every way out. Ending the job needs no
+    # list of what is in it, so it works when that list can't be read.
+    if ($KeepOpen -or $script:job -eq [IntPtr]::Zero) { return }
+    [OwnedLaunch]::Stop($script:job)
 }
 
 if ($Path) {
-    $startArgs = @{ FilePath = $Path; PassThru = $true }
-    if ($WorkingDirectory) { $startArgs['WorkingDirectory'] = $WorkingDirectory }
-    if ($LaunchArgs) { $startArgs['ArgumentList'] = $LaunchArgs }
-    if ($NoNewWindow) { $startArgs['NoNewWindow'] = $true }
-    $launched = Start-Process @startArgs
-    # Ours from this moment, window or no window.
-    $script:ours[$launched.Id] = $launched.StartTime
+    # The program as Windows would find it: a path, or a name on PATH.
+    $program = Get-Command -Name $Path -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $program) {
+        Write-Host "capture-window: $Path is not a program that can be launched" -ForegroundColor Red
+        Exit-Capture 1
+    }
+    $commandLine = '"' + $program.Source + '"' + $(if ($LaunchArgs) { ' ' + $LaunchArgs })
+    $directory = if ($WorkingDirectory) { (Resolve-Path -LiteralPath $WorkingDirectory).ProviderPath } else { (Get-Location -PSProvider FileSystem).ProviderPath }
+    $script:job = [OwnedLaunch]::CreateJob()
+    try {
+        # Ours from this moment, window or no window.
+        $null = [OwnedLaunch]::Start($script:job, $commandLine, $directory, -not $NoNewWindow)
+    } catch {
+        $script:job = [IntPtr]::Zero
+        $why = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+        Write-Host "capture-window: $Path could not be launched: $why" -ForegroundColor Red
+        Write-Host "  A program that asks for administrator rights is started by the operator: attach to it with -WindowTitle or -ProcessId." -ForegroundColor Yellow
+        Exit-Capture 1
+    }
     $script:launchedAt = Get-Date
 
+    # Reading the job through the wait is how a job that can't be read stops the capture before a window is chosen.
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
-    do { Start-Sleep -Milliseconds 250; Update-Ours } while ((Get-Date) -lt $deadline)
+    do { Start-Sleep -Milliseconds 250; $null = @(Get-Ours) } while ((Get-Date) -lt $deadline)
 
     # The window to capture is one of ours: the launched process, or the child it handed over to.
     $target = Get-Ours | Where-Object { $_.Refresh(); $_.MainWindowHandle -ne 0 } |
@@ -936,7 +1047,7 @@ $monX = 0; $monY = 0
 [void][Win32Capture]::GetDpiForMonitor($monitor, 0, [ref]$monX, [ref]$monY)
 $dpiAware = ($windowDpi -eq $monX)
 
-$sourcePath = if ($script:ours.Count) { $target.Path } elseif ($Path) { (Resolve-Path $Path).Path } else { $target.Path }
+$sourcePath = if ($script:job -ne [IntPtr]::Zero) { $target.Path } elseif ($Path) { (Resolve-Path $Path).Path } else { $target.Path }
 $sidecar = [System.IO.Path]::ChangeExtension($Out, '.txt')
 # The appearance the capture shows (the light-by-dark matrix),
 # read from the setting apps follow; unknown when the value is absent.
@@ -955,7 +1066,7 @@ $sidecarLines = @(
     "describes     : $Describes"
     "window title  : $($target.MainWindowTitle)"
     "target process: $($target.Id) $(if ($target.Path) { $target.Path } else { '(path unavailable)' })"
-    "attached      : $(if ($script:ours.Count) { 'started by this invocation' } else { 'attached to a process the caller started and owns' })"
+    "attached      : $(if ($script:job -ne [IntPtr]::Zero) { 'started by this invocation' } else { 'attached to a process the caller started and owns' })"
     "source binary : $sourcePath"
     "file version  : $(if ($sourcePath -and (Test-Path $sourcePath)) { (Get-Item $sourcePath).VersionInfo.FileVersion } else { 'unknown' })"
     "size          : $width x $height px"
@@ -996,7 +1107,7 @@ Exit-Capture 0
 } finally {
     # An error or Ctrl+C after the launch takes no exit path above: what was started is stopped here too.
     try {
-        if ((Get-Variable ours -Scope Script -ErrorAction Ignore) -and $script:ours.Count) { Stop-Ours }
+        if ((Get-Variable job -Scope Script -ErrorAction Ignore) -and $script:job -ne [IntPtr]::Zero) { Stop-Ours }
     } finally {
         # Released whatever the cleanup above did.
         if ($script:PairLock) { $script:PairLock.ReleaseMutex(); $script:PairLock.Dispose(); $script:PairLock = $null }

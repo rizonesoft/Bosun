@@ -27,6 +27,13 @@ public sealed record RenderCase(string View, string State, Func<FrameworkElement
     /// <summary>How long <see cref="Ready"/> may take before the render fails.</summary>
     public TimeSpan ReadyLimit { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long making, laying out and drawing the view may take on top of <see cref="ReadyLimit"/>. A view that
+    /// blocks its own thread (a wait inside <c>Loaded</c>, a <see cref="Ready"/> that waits before it returns) stops
+    /// the clock <see cref="ReadyLimit"/> is counted on, so the whole render is also timed from outside that thread.
+    /// </summary>
+    public TimeSpan DrawLimit { get; init; } = TimeSpan.FromSeconds(30);
+
     public string Name => $"{View}.{State}";
 }
 
@@ -52,8 +59,13 @@ public static class PageRenderer
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_NOACTIVATE = 0x08000000;
 
-    public static Rendered Render(RenderCase view, string theme, int width = Width, int height = Height) =>
-        Sta.Run(() => RenderOnThisThread(view, theme, width, height));
+    public static Rendered Render(RenderCase view, string theme, int width = Width, int height = Height)
+    {
+        // Timed from here, outside the thread that draws: a view that blocks that thread stops every clock on it.
+        var limit = view.ReadyLimit + view.DrawLimit;
+        if (Sta.TryRun(() => RenderOnThisThread(view, theme, width, height), limit, out var drawn)) return drawn;
+        throw new RenderException(FormattableString.Invariant($"{view.Name}: the view held its thread for more than {limit.TotalSeconds:0.###} s (making it, loading it or drawing it never came back), so no picture was taken"));
+    }
 
     private static Rendered RenderOnThisThread(RenderCase view, string theme, int width, int height)
     {

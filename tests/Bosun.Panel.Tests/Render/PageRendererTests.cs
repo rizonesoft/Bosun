@@ -152,6 +152,44 @@ public class PageRendererTests
         Assert.Contains("probe.throws: the view's Ready failed: no such loader", Refused(throws));
     }
 
+    [Fact]
+    public void A_view_that_blocks_its_own_thread_is_given_up_at_its_limit_and_named()
+    {
+        // A view that waits inside Loaded, or a Ready that waits before it returns its task, holds the very thread
+        // the readiness limit is counted on, so that limit never comes (the completion review of D02 T02 §9: an
+        // unattended run hung here). The render is given up from outside the thread. The gate bounds what the test
+        // itself leaves behind: it opens when the test ends, or after 30 s at the latest.
+        using var gate = new ManualResetEventSlim();
+        try
+        {
+            var loading = new RenderCase("probe", "blocked", () =>
+            {
+                var view = new TextBlock { Text = "x" };
+                view.Loaded += (_, _) => gate.Wait(TimeSpan.FromSeconds(30));
+                return view;
+            })
+            { ReadyLimit = TimeSpan.FromMilliseconds(100), DrawLimit = TimeSpan.FromMilliseconds(400) };
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Contains("probe.blocked: the view held its thread for more than 0.5 s", Refused(loading));
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"given up at its limit, not after {clock.Elapsed}");
+
+            var ready = new RenderCase("probe", "blocked-ready", () => new TextBlock { Text = "x" })
+            {
+                Ready = _ => { gate.Wait(TimeSpan.FromSeconds(30)); return Task.CompletedTask; },
+                ReadyLimit = TimeSpan.FromMilliseconds(100),
+                DrawLimit = TimeSpan.FromMilliseconds(400),
+            };
+            Assert.Contains("probe.blocked-ready: the view held its thread for more than 0.5 s", Refused(ready));
+        }
+        finally
+        {
+            gate.Set();
+        }
+
+        // And a view that is merely slow, inside its limits, is drawn.
+        Assert.Equal(["arrived late"], PageRenderer.Render(new RenderCase("probe", "late", () => new LateView(200)) { Ready = view => ((LateView)view).Filled, Shows = "arrived late" }, "Dark", 600, 200).Texts);
+    }
+
     // ---- what can't be a picture ----
 
     [Fact]
@@ -233,7 +271,9 @@ public class PageRendererTests
 
             Assert.Equal(RenderCatalog.Cases.Count * 2, written.Count);
             var expected = RenderCatalog.Cases.SelectMany(view => new[] { $"{view.Name}.dark.png", $"{view.Name}.light.png" }).Append("index.json").Order(StringComparer.Ordinal);
-            Assert.Equal(expected, Directory.GetFiles(folder).Select(Path.GetFileName).Where(name => name == "index.json" || name!.EndsWith(".png", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+            // Of the catalogue's own files: a picture somebody else put there (a screenshot.png) is not a render, and
+            // must not fail the run that Clear was careful to leave it through (the completion review).
+            Assert.Equal(expected, Directory.GetFiles(folder).Select(Path.GetFileName).Where(name => RenderCatalog.Owns(name!)).Order(StringComparer.Ordinal));
 
             using var index = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "index.json")));
             Assert.Matches("^([0-9a-f]{40}|unknown)$", index.RootElement.GetProperty("commit").GetString());

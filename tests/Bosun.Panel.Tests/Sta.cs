@@ -13,13 +13,25 @@ static class Sta
     /// </summary>
     public static T Run<T>(Func<T> work)
     {
-        T result = default!;
+        TryRun(work, Timeout.InfiniteTimeSpan, out var result);
+        return result;
+    }
+
+    /// <summary>
+    /// As <see cref="Run{T}(Func{T})"/>, but gives up after <paramref name="limit"/>: false when the work had not
+    /// ended by then. Work that blocks its own thread can't be stopped from outside, so that thread is left behind
+    /// (a background thread, which never holds the process open) and the caller carries on.
+    /// </summary>
+    public static bool TryRun<T>(Func<T> work, TimeSpan limit, out T result)
+    {
+        result = default!;
+        T made = default!;
         ExceptionDispatchInfo? failure = null;
         var thread = new Thread(() =>
         {
             try
             {
-                result = work();
+                made = work();
             }
             catch (Exception e)
             {
@@ -33,9 +45,10 @@ static class Sta
         { IsBackground = true, Name = "bosun test STA" };
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        thread.Join();
+        if (!thread.Join(limit)) return false;
         failure?.Throw();
-        return result;
+        result = made;
+        return true;
     }
 
     public static void Run(Action work) => Run(() =>

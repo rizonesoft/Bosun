@@ -41,10 +41,18 @@ try {
   Check "and the earlier run is left whole ($(Names $out))" ((Names $out) -eq 'index.json,queue.normal.dark.png')
 
   # The real project: the sample view in two states and two themes, and the index naming them.
+  # A picture that isn't a render (a reviewer's own screenshot) and their notes sit beside them, and are left alone:
+  # they neither fail the run nor go (the completion review: the run failed on any other PNG in the folder).
   $out = Join-Path $work 'real'
+  New-Item -ItemType Directory -Path $out | Out-Null
+  Set-Content -LiteralPath (Join-Path $out 'screenshot.png') 'a reviewer''s own picture'
+  Set-Content -LiteralPath (Join-Path $out 'notes.txt') 'a reviewer''s notes'
   $text = (& pwsh -NoProfile -File $script -Out $out 2>&1 | Out-String)
   $code = $LASTEXITCODE
   Check "the real catalogue is written (exit $code)" ($code -eq 0 -and $text -match "render-pages: \d+ pictures in ")
+  if ($code -ne 0) { $text }
+  Check 'a picture and notes that are not renders are still there, as they were' ((Get-Content -LiteralPath (Join-Path $out 'screenshot.png') -Raw -ErrorAction Ignore) -match 'own picture' -and (Get-Content -LiteralPath (Join-Path $out 'notes.txt') -Raw -ErrorAction Ignore) -match 'notes')
+  Remove-Item -LiteralPath (Join-Path $out 'screenshot.png'), (Join-Path $out 'notes.txt') -Force
   $names = Names $out
   foreach ($file in 'sample.normal.dark.png', 'sample.normal.light.png', 'sample.empty.dark.png', 'sample.empty.light.png', 'index.json') {
     Check "$file is there" ((",$names,").Contains(",$file,"))
@@ -55,6 +63,27 @@ try {
   Check 'each picture is a PNG of 1360 x 860' (-not (@($index.renders | Where-Object { $_.width -ne 1360 -or $_.height -ne 860 })) -and -not ($pngs | Where-Object {
     $bytes = [IO.File]::ReadAllBytes((Join-Path $out $_)); -not ($bytes.Length -gt 1000 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47) }))
   Check 'the index says which commit the pictures are of' ($index.commit -match '^([0-9a-f]{40}|unknown)$')
+
+  # A render test that fails after its index was written (a check that reads the finished folder): the run fails, and
+  # the index goes, so the failed run can't be read as a current one. A stand-in `dotnet`, first on the path, builds
+  # nothing, writes an index as the test would have, and fails.
+  $out = Join-Path $work 'late'
+  $fake = Join-Path $work 'fake-dotnet'
+  New-Item -ItemType Directory -Path $out, $fake | Out-Null
+  Set-Content -LiteralPath (Join-Path $fake 'dotnet.cmd') -Encoding ascii @'
+@echo off
+if "%1"=="build" exit /b 0
+echo {"renders":[]}> "%BOSUN_RENDER_DIR%\index.json"
+exit /b 3
+'@
+  $path = $env:PATH
+  $env:PATH = "$fake;$path"
+  try {
+    $text = (& pwsh -NoProfile -File $script -Out $out 2>&1 | Out-String)
+    $code = $LASTEXITCODE
+  } finally { $env:PATH = $path }
+  Check "a render test that fails after writing its index fails the run with its exit code ($code)" ($code -eq 3 -and $text -match 'the render test failed')
+  Check "and leaves no index ($(Names $out))" ((Names $out) -eq '')
 
   # Renders stay out of Git: the default folder is under build/, which is ignored.
   $ignored = (& git -C $repo check-ignore 'build/renders/sample.normal.dark.png' | Out-String).Trim()

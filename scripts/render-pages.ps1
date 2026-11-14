@@ -10,7 +10,8 @@
 #
 # What an earlier run left is removed before anything is built, and the index is written last, only when every
 # picture was drawn: so a folder with an index.json is one whole, current run, and after a build that fails or a
-# view that can't be drawn there is no index and no old picture to mistake for a new one.
+# view that can't be drawn there is no index and no old picture to mistake for a new one. A picture or a file that is
+# not a render (a reviewer's screenshot.png, their notes) is left where it is and changes nothing.
 #
 # Exit 0 when every picture was written; the build's or the test's own exit code when it failed; 1 when the test
 # passed but left no index.
@@ -46,7 +47,17 @@ try {
   & dotnet test --project $Project --no-build --filter-method '*Every_registered_view_is_written_in_each_state_and_theme_with_an_index'
   $code = $LASTEXITCODE
 } finally { $env:BOSUN_RENDER_DIR = $before }
-if ($code -ne 0) { "render-pages: the render test failed (exit $code); $Out holds no index, so nothing in it is a current run"; exit $code }
+if ($code -ne 0) {
+  # The test can fail after its index was written (a check that reads the finished folder): a failed run leaves none.
+  foreach ($name in 'index.json', 'index.json.tmp') {
+    $left = Join-Path $Out $name
+    if (-not (Test-Path -LiteralPath $left)) { continue }
+    try { Remove-Item -LiteralPath $left -Force }
+    catch { "render-pages: the render test failed (exit $code) and $left can't be removed ($($_.Exception.Message)): it is NOT a current run; close what holds it and run again"; exit $code }
+  }
+  "render-pages: the render test failed (exit $code); $Out holds no index, so nothing in it is a current run"
+  exit $code
+}
 if (-not (Test-Path -LiteralPath $index -PathType Leaf)) { "render-pages: the test passed but wrote no $index"; exit 1 }
 
 $renders = @((Get-Content -LiteralPath $index -Raw | ConvertFrom-Json).renders)

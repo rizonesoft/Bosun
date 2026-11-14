@@ -28,6 +28,12 @@ public static partial class RenderCatalog
 
     private const string Index = "index.json";
 
+    /// <summary>
+    /// Whether a file in the renders folder is this catalogue's own: a render (or one half written) or the index.
+    /// Anything else there, another picture included, is somebody else's: never removed, and never counted.
+    /// </summary>
+    public static bool Owns(string fileName) => fileName is Index or Index + ".tmp" || OwnedFile().IsMatch(fileName);
+
     /// <summary>What is wrong with a catalogue before anything is drawn: one line per problem, none when it is sound.</summary>
     public static IReadOnlyList<string> Problems(IReadOnlyList<RenderCase> cases)
     {
@@ -54,7 +60,7 @@ public static partial class RenderCatalog
         File.Delete(Path.Combine(folder, Index));
         File.Delete(Path.Combine(folder, Index + ".tmp"));
         foreach (var file in Directory.GetFiles(folder))
-            if (OwnedFile().IsMatch(Path.GetFileName(file))) File.Delete(file);
+            if (Owns(Path.GetFileName(file))) File.Delete(file);
     }
 
     /// <summary>
