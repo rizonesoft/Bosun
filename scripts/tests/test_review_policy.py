@@ -32,6 +32,7 @@ def policy():
 def historical_pin():
     """Keep effort-variant lineage tests independent of the live reviewer selection."""
     pin = d.load_pin()
+    pin['routes']['codex'] = ['carbon']
     pin['reviewers']['carbon'] = dict(cli='agy', model='gemini-4-carbon-medium',
         models_by_effort=dict(low='gemini-4-carbon-low', medium='gemini-4-carbon-medium'))
     pin['schedule'] = {**policy(), 'max_low_rounds': 32, 'max_repair_cycles': 33}
@@ -225,9 +226,9 @@ class CurrentPolicy(unittest.TestCase):
             path = t.root / t.PLAN
             path.write_text('')
             policy_sha = t.head()
-            e = dict(entry('plan'), model='gemini-pro-orchestrator')
-            e.update(policy=policy_sha, attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy',
-                     failover=[], effort=None, lenses=['plan'])
+            e = dict(entry('plan'), writer='claude', writer_model='claude-opus-5-5', reviewer='astra', cli='codex', model='gpt-6-astra')
+            e.update(policy=policy_sha, attempt_reviewer='astra', attempt_model=e['model'], attempt_cli='codex',
+                     failover=[], effort='medium', lenses=['plan'])
             d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
             for todo in (t.root / 'todo').rglob('TODO-01-*.md'):
                 todo.write_text(todo.read_text().replace(fixtures.STARTED.strip(), '> **Started:** 2026-11-06T00:00:01Z')
@@ -243,14 +244,14 @@ class CurrentPolicy(unittest.TestCase):
             fixtures.tg.graph(t.root)
             # A receipt cannot hide a failed terminal execution or a different model.
             text = path.read_text(encoding='utf-8')
-            path.write_text(text.replace('Attempt model: gemini-pro-orchestrator',
+            path.write_text(text.replace('Attempt model: gpt-6-astra',
                                          'Attempt model: gemini-4-carbon-low'), encoding='utf-8')
             with self.assertRaises(fixtures.tg.Refused):
                 fixtures.tg.graph(t.root)
         finally:
             t.tearDown()
 
-    def filed_through_stamp(self, repairs, verdict='filed', writer='codex'):
+    def filed_through_stamp(self, repairs, verdict='filed', writer='claude'):
         """A real current-policy cycle after `repairs` repairs: committed live pin, real repair lines, dispatcher
         records, completion gaps filed to the open D00 T01 §2, then the real stamp. Returns (fixture, receipt)."""
         t = fixtures.Stamp('runTest')
@@ -396,113 +397,53 @@ class CurrentPolicy(unittest.TestCase):
         self.assertFalse(d.clean('OVERALL: approve'))
         self.assertFalse(d.clean('HIGHEST: P1\nHIGHEST: none\nOVERALL: approve'))
 
-    def test_variants_and_recorded_missing_execution(self):
-        pin = historical_pin()
-        self.assertEqual(pin['routes']['codex'], ['carbon'])
-        for writer in ('claude', 'gemini'):
-            self.assertEqual(pin['routes'][writer], ['astra'])
-        with patch.object(d, 'find_cli', return_value=None):
-            result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1,
-                              dict(effort='low', lenses=[], position=2, escalated=False))
-        self.assertEqual(result['attempt_model'], 'gemini-4-carbon-low')
-        self.assertEqual(result['execution'], 'missing')
-        self.assertIsNone(result['reviewer'])
-
-    def test_invocation_selects_low_variant_and_records_simulated_result(self):
-        pin = historical_pin()
-        seen = []
-        def run(argv, stdin, timeout, watched, stderr_path=None):
-            seen.append(argv)
-            watched[0].write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
-            return 0, None
-        with patch.object(d, 'find_cli', return_value='agy.exe'), patch.object(d, 'run', side_effect=run):
-            result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1,
-                              dict(effort='low', lenses=[], position=2, escalated=False))
-        self.assertEqual(seen[0][seen[0].index('--model')+1], 'gemini-4-carbon-low')
-        self.assertEqual(result['model'], 'gemini-4-carbon-low')
-        self.assertEqual(result['execution'], 'returned')
+    def test_retired_variant_review_is_refused_even_if_cli_missing(self):
+        with patch.object(d, 'find_cli', return_value=None) as find:
+            with self.assertRaises(d.Refused):
+                d.review(historical_pin(), 'codex', ROOT / 'docs/plan-review-prompt.md', 1,
+                         dict(effort='low', lenses=[], position=2, escalated=False))
+        find.assert_not_called()
 
 
-class OrchestratorPin(unittest.TestCase):
-    def test_live_invocations_keep_model_effort_and_lenses(self):
+class WriterReviewerRoles(unittest.TestCase):
+    def test_only_two_writers_and_codex_reviewer(self):
         pin = d.load_pin()
-        for writer in ('codex', 'claude', 'gemini'):
-            for kind, prior in [('plan', []), ('round', []), ('round', [entry()]),
-                                ('completion', [])]:
-                with self.subTest(writer=writer, kind=kind, followup=bool(prior)):
-                    step = d.scheduled(pin['schedule'], kind, prior, False)
-                    seen = []
-                    def run(argv, stdin, timeout, watched, stderr_path=None):
-                        seen.append((argv, stdin))
-                        target = watched[0] if writer == 'codex' else watched[1]
-                        target.write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
-                        return 0, None
-                    with patch.object(d, 'find_cli', side_effect=lambda cli: cli + '.exe'), \
-                            patch.object(d, 'run', side_effect=run):
-                        result = d.review(pin, writer, ROOT / 'docs/plan-review-prompt.md', 1, step)
-                    self.assertEqual(result['execution'], 'returned')
-                    self.assertEqual(result['lenses'], step['lenses'])
-                    argv, stdin = seen[0]
-                    if writer == 'codex':
-                        self.assertEqual(result['model'], 'gemini-pro-orchestrator')
-                        self.assertIsNone(result['effort'])
-                        self.assertEqual(argv[argv.index('--model') + 1], 'gemini-pro-orchestrator')
-                        self.assertNotIn('--effort', argv)
-                        self.assertNotIn('medium reasoning effort', argv[-1])
-                        self.assertNotIn('low reasoning effort', argv[-1])
-                    else:
-                        self.assertEqual(result['model'], 'gpt-6-astra')
-                        self.assertEqual(result['effort'], step['effort'])
-                        self.assertIn('model_reasoning_effort=' + step['effort'], argv)
+        self.assertEqual(d.WRITERS, ('claude', 'gemini'))
+        self.assertEqual(pin['routes'], {'claude': ['astra'], 'gemini': ['astra']})
+        self.assertEqual({r['cli'] for r in pin['reviewers'].values()}, {'codex'})
 
-    def test_only_orchestrator_may_omit_effort_variants_with_scheduled_effort(self):
-        text = (ROOT / '.conclave/reviewers.toml').read_text(encoding='utf-8')
-        d.load_pin(data=text.encode())
-        with self.assertRaises(d.Refused):
-            d.load_pin(data=text.replace('gemini-pro-orchestrator', 'gemini-other').encode())
-
-    def test_agy_session_permissions_are_exact_read_only_commands(self):
+    def test_both_writers_keep_medium_initial_and_low_followups(self):
         pin = d.load_pin()
-        seen = []
-        def run(argv, stdin, timeout, watched, stderr_path=None):
-            settings = json.loads(Path(argv[argv.index('--settings') + 1]).read_text())
-            seen.append(settings)
-            self.assertIn('--sandbox', argv)
-            self.assertEqual(argv[argv.index('--mode') + 1], 'plan')
-            self.assertNotIn('--dangerously-skip-permissions', argv)
-            watched[0].write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
-            return 0, None
-        with patch.object(d, 'find_cli', return_value='agy.exe'), patch.object(d, 'run', side_effect=run):
-            result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1)
-        self.assertEqual(result['execution'], 'returned')
-        allowed = seen[0]['permissions']['allow']
-        self.assertIn('command(git show --no-ext-diff --no-textconv HEAD)', allowed)
-        commands_allowed = [rule for rule in allowed if rule.startswith('command(')]
-        self.assertTrue(all(rule.startswith('command(git ') and '*' not in rule for rule in commands_allowed))
-        reads = [rule for rule in allowed if rule.startswith('read_file(')]
-        self.assertEqual(len(reads), 2)
-        self.assertIn('read_file(' + ROOT.as_posix() + '/**)', reads)
-        self.assertEqual(sum(rule.endswith('/prompt.md)') for rule in reads), 1)
-        commands = d.review_commands('a' * 40 + '; delete everything')
-        self.assertIn('git show --no-ext-diff --no-textconv ' + 'a' * 40, commands)
-        self.assertFalse(any('delete' in cmd or ';' in cmd for cmd in commands))
-
-    def test_effort_exception_keeps_p1_followup_escalation(self):
-        schedule = d.load_pin()['schedule']
-        for effort in (None, 'low'):
-            prior = [entry(), dict(entry(), effort=effort, review='HIGHEST: P1\nOVERALL: needs-attention')]
-            step = d.scheduled(schedule, 'round', prior, False)
-            self.assertTrue(step['escalated'])
-            self.assertEqual(step['lenses'], ['adversarial'])
-            self.assertEqual(step['effort'], 'low')
-
-    def test_no_override_keeps_followup_lenses_and_cap(self):
-        pin = d.load_pin()
+        for writer in d.WRITERS:
+            for kind, prior in [('plan', []), ('round', []), ('round', [entry()]), ('completion', [])]:
+                step = d.scheduled(pin['schedule'], kind, prior, False)
+                def run(argv, stdin, timeout, watched, stderr_path=None):
+                    self.assertIn('model_reasoning_effort=' + step['effort'], argv)
+                    watched[1].write_text('HIGHEST: none\nOVERALL: approve')
+                    return 0, None
+                with patch.object(d, 'find_cli', return_value='codex.exe'), patch.object(d, 'run', side_effect=run):
+                    result = d.review(pin, writer, ROOT / 'docs/plan-review-prompt.md', 1, step)
+                self.assertEqual(result['execution'], 'returned')
+                self.assertEqual(result['model'], 'gpt-6-astra')
+                self.assertEqual(result['effort'], 'low' if prior else 'medium')
+                self.assertEqual(result['lenses'], step['lenses'])
         self.assertEqual(d.schedule_cap(pin['schedule']), 33)
-        for i, lens in enumerate(n for n in pin['schedule']['rotation']['lenses'] if n != 'design'):
-            step = d.scheduled(pin['schedule'], 'round', [entry()] * (i + 1), False)
-            self.assertEqual(step['lenses'], [lens])
-            self.assertEqual(step['effort'], 'low')
+
+    def test_historical_codex_route_remains_readable(self):
+        old = (ROOT / '.conclave/reviewers.toml').read_text()
+        old = old.replace('[routes]', '[reviewers.carbon]\ncli = \"agy\"\nmodel = \"gemini-pro-orchestrator\"\n\n[routes]\ncodex = [\"carbon\"]')
+        pin = d.load_pin(data=old.encode())
+        self.assertEqual(pin['routes']['codex'], ['carbon'])
+        self.assertEqual(pin['reviewers']['carbon']['model'], 'gemini-pro-orchestrator')
+
+    def test_retired_agy_reviewer_cannot_launch_from_old_policy(self):
+        pin = historical_pin()
+        pin['routes']['claude'] = ['carbon']
+        with patch.object(d, 'find_cli') as find, patch.object(d, 'run') as run:
+            with self.assertRaisesRegex(d.Refused, 'Codex is the only reviewer'):
+                d.review(pin, 'claude', ROOT / 'docs/plan-review-prompt.md', 1)
+        find.assert_not_called()
+        run.assert_not_called()
 
 
 class ClaudeNeverReviews(unittest.TestCase):

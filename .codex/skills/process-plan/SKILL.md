@@ -3,6 +3,8 @@ name: process-plan
 description: Front door in Codex for todo/implementation-plan.md. Audit the plan, then run process-phase on the first phase with a ready row, then the next ready phase after each closeout or park. Use when the user says process the plan. The argument --audit is audit only. A named phase is one phase and does not chain.
 ---
 
+Codex is reviewer only. Campaign execution belongs to Claude or Antigravity; this reference does not authorize Codex to start a campaign.
+
 # Process the Implementation Plan
 
 The only front door for `todo/implementation-plan.md` when the user did not name a single phase. The file is a generated projection of the 100% complete development plan (small, single-responsibility sections and granular five-part micro-steps): processing it is not "pick a row and improvise", and it is not "tick the boxes" (boxes flip only through `stamp`).
@@ -78,7 +80,3 @@ Re-run `python scripts/todo-graph.py query next`. If it names a row, start `proc
 - Do not claim a phase complete while its table has `[ ]` rows.
 - Do not treat a named phase as the whole plan. Chaining is this skill's job, and only this skill's.
 - Do not end the turn on the audit table.
-
-## Codex campaign runtime
-
-The Codex launcher admits this run with `BOSUN_RUN_SESSION` and a live owner process. Keep that launch identity for the run guard; use the native Codex thread id only for Codex itself. The Stop hook in `.codex/hooks.json` invokes `run-guard.py hook --runner codex`. Codex has no Claude heartbeat: wait for reviews, CI and timed holds inside this session, then continue. Do not create CronCreate jobs or end the turn to wait for one. An operator stop calls `python scripts/run-guard.py halt --ground operator --reason <words>` before ending. All existing plan, review, stall and closeout requirements still apply.

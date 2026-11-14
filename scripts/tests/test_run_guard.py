@@ -36,26 +36,11 @@ def active(**extra):
     return {"active": True, "status": "active", "session_id": "me", **extra}
 
 
-class CodexRuns(unittest.TestCase):
-    def test_codex_uses_the_launcher_lifetime_and_excludes_other_writers(self):
-        env = guard.replace(World().env(), process_alive=lambda pid, started: (pid, started) == (42, 7))
-        state = {}
-        guard.start(state, "launch", env, runner="codex", owner_pid=42, owner_started=7)
-        self.assertTrue(guard.run_alive(state, env))
+class WriterRoles(unittest.TestCase):
+    def test_codex_cannot_start_a_campaign(self):
+        self.assertEqual(guard.RUNNERS, ('claude', 'antigravity'))
         with self.assertRaises(ValueError):
-            guard.start(state, "second", env)
-        self.assertFalse(guard.run_alive(state, guard.replace(env, process_alive=lambda *_: False)))
-
-    def test_codex_stop_blocks_ready_work_without_requesting_a_claude_timer(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "state.json"
-            guard.save(active(runner="codex"), path)
-            out = guard.hook_codex(json.dumps({"hook_event_name": "Stop", "session_id": "native-thread"}),
-                                   "me", World().env(), path)
-            result = json.loads(out)
-            self.assertEqual(result["decision"], "block")
-            self.assertNotIn("CronCreate", result["reason"])
-            self.assertIn("D01 T02", result["reason"])
+            guard.start({}, 'reviewer', World().env(), runner='codex', owner_pid=42, owner_started=7)
 
 
 class Prompts(unittest.TestCase):

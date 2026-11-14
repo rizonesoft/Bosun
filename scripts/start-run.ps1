@@ -47,12 +47,11 @@ param(
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$IconDir = (Join-Path $env:LOCALAPPDATA 'Bosun'),
   [string]$Model = 'opus',
-  [ValidateSet('claude', 'antigravity', 'codex')]
+  [ValidateSet('claude', 'antigravity')]
   [string]$Agent = 'claude',
   [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
   [string]$Effort = 'medium',
   [string]$AgyModel = 'gemini-pro-orchestrator',
-  [string]$CodexModel = '',
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and this session''s own heartbeat takes the run up again.'
 )
@@ -64,9 +63,7 @@ $launchers = @(
   @{ Agent = 'claude'; Name = 'Bosun Claude campaign'; Icon = 'bosun-campaign-claude.ico'; Fill = '#D97757'; Mark = 'claude.svg'
      Description = 'Start the unattended Bosun campaign in Claude Code' },
   @{ Agent = 'antigravity'; Name = 'Bosun Carbon campaign'; Icon = 'bosun-campaign-carbon.ico'; Fill = '#4C8DF6'; Mark = 'gemini.svg'
-     Description = 'Start the unattended Bosun campaign in Google Antigravity on Orchestrator (Carbon)' },
-  @{ Agent = 'codex'; Name = 'Bosun Codex campaign'; Icon = 'bosun-campaign-codex.ico'; Fill = '#10A37F'; Mark = 'codex.svg'
-     Description = 'Start the unattended Bosun campaign with Codex as writer' }
+     Description = 'Start the unattended Bosun campaign in Google Antigravity on Orchestrator (Carbon)' }
 )
 
 $antigravity = $Agent -eq 'antigravity'
@@ -124,8 +121,8 @@ if ($InstallShortcut) {
     }
   }
   if ($failed) { 'the earlier shortcuts are kept until both are written: fix what is named above, then run this again'; exit 1 }
-  # The names this file, and a hand-made copy, gave the same two launchers before 2026-11-12.
-  foreach ($old in 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk') {
+  # Remove superseded names and the retired Codex writer shortcut after both writer shortcuts are saved.
+  foreach ($old in 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk', 'Bosun Codex campaign.lnk') {
     $path = Join-Path $ShortcutDir $old
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path; "removed the earlier shortcut: $path" }
   }
@@ -139,7 +136,7 @@ function Join-WindowJob {
   $Host.UI.RawUI.WindowTitle = ($launchers | Where-Object Agent -EQ $Agent).Name
 }
 
-if ($antigravity -or $Agent -eq 'codex') {
+if ($antigravity) {
   # Antigravity runs under /goal and has no heartbeat, so the session waits for reviews, local gates and CI inside
   # itself instead of ending the turn, and its Stop hook (.agents/hooks.json) tells it so.
   $goalText = ($Goal -replace '\s*While `python scripts/run-guard\.py status` prints waiting.*$', '') +
@@ -148,21 +145,14 @@ if ($antigravity -or $Agent -eq 'codex') {
   $prompt = if ($goalText.StartsWith('/goal ')) { $goalText } else { "/goal $goalText" }
   $agyEffort = if ($AgyModel -match '^(gemini-pro-orchestrator|Orchestrator\b)') { @() } else { @('--effort', $Effort) }
   $agyArgs = @('--dangerously-skip-permissions') + $agyEffort + $(if ($AgyModel) { '--model', $AgyModel }) + @('--prompt-interactive', $prompt)
-  $cliName = if ($Agent -eq 'codex') { 'codex' } else { 'agy' }
-  if ($Agent -eq 'codex') {
-    $prompt = $goalText + ' Use your Codex process-plan skill and the existing BOSUN_RUN_SESSION guard. Set this as your session goal. Review with writer codex.'
-    $agyArgs = @('--dangerously-bypass-approvals-and-sandbox', '-c', "model_reasoning_effort=$Effort")
-    if ($CodexModel) { $agyArgs += @('--model', $CodexModel) }
-    $agyArgs += $prompt
-  }
   $session = [guid]::NewGuid().ToString()
   if ($DryRun) {
     "in $repo"
-    "python scripts/run-guard.py start --session $session --runner $Agent --owner-pid <this window's process>"
-    "$cliName $($agyArgs[0..($agyArgs.Count - 2)] -join ' ') `"$prompt`""
+    "python scripts/run-guard.py start --session $session --runner antigravity --owner-pid <this window's process>"
+    "agy $($agyArgs[0..($agyArgs.Count - 2)] -join ' ') `"$prompt`""
     exit 0
   }
-  $agy = (Get-Command $cliName -ErrorAction Ignore | Select-Object -First 1).Source
+  $agy = (Get-Command agy -ErrorAction Ignore | Select-Object -First 1).Source
   $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
   if (-not $agy) { 'agy is not on PATH: install the Antigravity CLI, then start again'; exit 1 }
   if (-not $python) { 'python is not on PATH: install Python 3, then start again'; exit 1 }
@@ -170,7 +160,7 @@ if ($antigravity -or $Agent -eq 'codex') {
   Join-WindowJob
   # Refused, with the reason, when a live session already owns the run: two writers on one tree is the worse failure.
   $guardScript = Join-Path $PSScriptRoot 'run-guard.py'
-  & $python $guardScript start --session $session --runner $Agent --owner-pid $PID
+  & $python $guardScript start --session $session --runner antigravity --owner-pid $PID
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
   $env:BOSUN_RUN_SESSION = $session
   $code = 1

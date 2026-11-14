@@ -27,11 +27,10 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = ROOT / ".conclave" / "reviewers.toml"
-WRITERS = ("claude", "codex", "gemini")
+WRITERS = ("claude", "gemini")
 CLIS = ("codex", "agy", "claude")
-# Operator rule 2026-11-06: Claude writes and never reviews. Past pins naming it stay readable so their receipts replay,
-# but the live pin may not name it and no review ever launches it.
-NEVER_REVIEWS = frozenset({"claude"})
+# Only Codex reviews. Historical pins remain readable, but retired reviewers never launch.
+NEVER_REVIEWS = frozenset({"claude", "agy"})
 # A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
 FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
 WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google"}
@@ -134,14 +133,13 @@ def load_pin(path=PIN, data=None):
     if live:
         for name, entry in reviewers.items():
             if entry["cli"] in NEVER_REVIEWS:
-                raise Refused(f"reviewer {name!r} uses the {entry['cli']} CLI; Claude is never a reviewer")
+                raise Refused(f"reviewer {name!r} uses the {entry['cli']} CLI; Claude is never a reviewer; Codex is the only reviewer")
     routes = pin["routes"]
-    # A committed pin replayed for a shipped section may route a writer since retired (two were removed on
-    # 2026-11-12): it was checked when it was committed, so its retired routes are dropped, never refused. The live pin
-    # routes only current writers.
+    # Preserve known writer families in historical pins for receipt replay. Unknown retired routes are dropped.
+    # The live pin routes only current writers.
     if not live and isinstance(routes, dict):
-        routes = pin["routes"] = {writer: chain for writer, chain in routes.items() if writer in WRITERS}
-    if not isinstance(routes, dict) or set(routes) - set(WRITERS):
+        routes = pin["routes"] = {writer: chain for writer, chain in routes.items() if writer in WRITER_FAMILY}
+    if not isinstance(routes, dict) or set(routes) - set(WRITERS if live else WRITER_FAMILY):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
     for writer, chain in routes.items():
         if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
@@ -657,7 +655,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
     reviewer = pin["reviewers"][name]
     # A replayed lineage hands back its original pin, which load_pin lets through, so this gate covers it too.
     if reviewer["cli"] in NEVER_REVIEWS:
-        raise Refused(f"reviewer {name!r} uses the {reviewer['cli']} CLI; Claude is never a reviewer")
+        raise Refused(f"reviewer {name!r} uses the {reviewer['cli']} CLI; Claude is never a reviewer; Codex is the only reviewer")
     effort = effective_effort(reviewer, plan.get("effort") if plan else None)
     if reviewer["cli"] == "agy":
         variants = reviewer.get("models_by_effort")

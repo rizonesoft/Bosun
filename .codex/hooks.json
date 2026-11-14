@@ -1,1 +1,1 @@
-{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"python3 scripts/run-guard.py hook --runner codex","commandWindows":"python scripts/run-guard.py hook --runner codex","timeout":60}]}]}}
+{"hooks":{}}

@@ -1,5 +1,5 @@
-# Codex uses Orchestrator (Carbon) through agy; other writers retain Astra.
-# Medium initial/completion reviews and low follow-ups; Orchestrator takes no effort override.
+# Claude and Antigravity write; Codex Astra alone reviews.
+# Medium initial/completion reviews and low follow-ups.
 schema_version = 1
 
 [reviewers.astra]
@@ -7,13 +7,8 @@ cli = "codex"
 model = "gpt-6-astra"
 effort = "medium"
 
-[reviewers.carbon]
-cli = "agy"
-model = "gemini-pro-orchestrator"
-
 [routes]
 claude = ["astra"]
-codex = ["carbon"]
 gemini = ["astra"]
 
 [schedule]

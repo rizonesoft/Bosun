@@ -17,7 +17,7 @@ try {
   New-Item -ItemType Directory -Force (Join-Path $icons 'marks') | Out-Null
   Set-Content (Join-Path $icons 'marks\claude.svg') '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>' -Encoding ascii
   Set-Content (Join-Path $icons 'marks\gemini.svg') '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>' -Encoding ascii
-  $earlier = 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk'
+  $earlier = 'Bosun unattended run.lnk', 'Bosun unattended run (Antigravity).lnk', 'Bosun Carbon unattended run.lnk', 'Bosun Codex campaign.lnk'
   foreach ($name in $earlier) { Set-Content -LiteralPath (Join-Path $work $name) -Value 'an earlier shortcut' }
   $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $work -IconDir $icons) -join "`n"
   $link = Join-Path $work 'Bosun Claude campaign.lnk'

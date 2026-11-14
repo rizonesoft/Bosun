@@ -70,15 +70,14 @@ def main() -> int:
     stop.add_argument("--reason", required=True)
     args = parser.parse_args()
 
-    if args.command == "hook" and args.runner in guard.UNTIMED_RUNNERS:
+    if args.command == "hook" and args.runner == "antigravity":
         import os
 
         try:
-            handler = guard.hook_codex if args.runner == "codex" else guard.hook_antigravity
-            output = handler(sys.stdin.buffer.read().decode("utf-8", "replace"), os.environ.get("BOSUN_RUN_SESSION", ""))
+            output = guard.hook_antigravity(sys.stdin.buffer.read().decode("utf-8", "replace"), os.environ.get("BOSUN_RUN_SESSION", ""))
         except Exception as error:  # fail open and print nothing: Antigravity reads only a decision, and none is given
-            guard.log(f"{args.runner} hook failed open: {error!r}")
-            guard.record_hook_failure(f"{args.runner}: {error!r}")
+            guard.log(f"antigravity hook failed open: {error!r}")
+            guard.record_hook_failure(f"antigravity: {error!r}")
             return 0
         guard.clear_hook_failures()
         if output:

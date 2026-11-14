@@ -360,7 +360,7 @@ class Dispatch(Harness):
             with self.subTest(writer):
                 result, _ = self.dispatch("--writer", writer, "--prompt", str(self.prompt))
                 self.assertEqual(result.returncode, 2)
-                self.assertIn(f"the reviewer pin has no route for writer {writer!r}", result.stderr)
+                self.assertIn("invalid choice" if writer == "codex" else f"the reviewer pin has no route for writer {writer!r}", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_rounds_are_numbered_and_appended(self):
@@ -426,7 +426,7 @@ class Dispatch(Harness):
                  good.replace('claude = ["sol"]', 'claude = []'): "route 'claude' must list exactly one reviewer",
                  good + 'opus = ["sol"]\n': "[routes] may only name the writers " + ", ".join(module.WRITERS),
                  good + 'codex = ["sol"]\n':
-                     "route 'codex' names sol, of the writer's own family; a review comes from a different family",
+                     "[routes] may only name the writers " + ", ".join(module.WRITERS),
                  good.replace('effort = "xhigh"', 'effort = "xhigh"\nsandbox = "workspace-write"'):
                      "reviewer 'sol' has unknown keys: sandbox"}
         for text, message in cases.items():
@@ -1467,7 +1467,7 @@ class Schedule(Harness):
 
 
 class MultiCli(Harness):
-    """The Antigravity reviewer beside Astra: each writer family is reviewed by another family, read-only."""
+    """Both writers use Codex; retired reviewer routes are rejected."""
 
     PIN = textwrap.dedent('''    schema_version = 1
 
@@ -1476,13 +1476,8 @@ class MultiCli(Harness):
         model = "gpt-6-astra"
         effort = "medium"
 
-        [reviewers.gemini]
-        cli = "agy"
-        model = "gemini-4-carbon-high"
-
         [routes]
         claude = ["astra"]
-        codex = ["gemini"]
         gemini = ["astra"]
     ''')
 
@@ -1490,25 +1485,18 @@ class MultiCli(Harness):
         super().setUp()
         (self.repo / ".conclave/reviewers.toml").write_text(self.PIN, encoding="utf-8")
 
-    def test_gemini_runs_in_plan_mode_with_the_prompt_as_the_p_value(self):
-        result, summary = self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((summary["reviewer"], summary["model"], summary["effort"]), ("gemini", "gemini-4-carbon-high", None))
-        self.assertIn("(agy)", summary["review"])
-        (call,) = self.calls()
-        self.assertEqual(call["cli"], "agy")
-        self.assertIn("--sandbox", call["argv"])
-        self.assertEqual(call["argv"][call["argv"].index("--mode") + 1], "plan")
-        if os.name == "nt":
-            # The fake is a .cmd shim on Windows, so the prompt must arrive by file, never as argument text.
-            self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-            delivered = call["from_file"]
-        else:
-            self.assertTrue(call["argv"][-1].startswith("-p="))
-            delivered = call["argv"][-1][3:]
-        original, instructions = delivered.split("\n\nUse native file-reading/search tools", 1)
-        self.assertEqual(original, self.prompt.read_text())
-        self.assertIn("git show --no-ext-diff --no-textconv HEAD", instructions)
+    def test_codex_writer_is_refused_without_launching(self):
+        result, _ = self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.calls(), [])
+
+    def test_agy_reviewer_is_refused_without_launching(self):
+        pin = self.repo / ".conclave/reviewers.toml"
+        pin.write_text(self.PIN.replace('cli = "codex"', 'cli = "agy"').replace('effort = "medium"', ''))
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Codex is the only reviewer", result.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_astra_reviews_gemini_work(self):
         result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
@@ -1516,15 +1504,6 @@ class MultiCli(Harness):
         self.assertEqual(summary["reviewer"], "astra")
         (call,) = self.calls()
         self.assertEqual(call["cli"], "codex")
-
-    def test_a_large_prompt_reaches_gemini_by_file(self):
-        self.prompt.write_text("x" * 150_000, encoding="utf-8")
-        self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
-        (call,) = self.calls()
-        self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-        original, instructions = call["from_file"].split("\n\nUse native file-reading/search tools", 1)
-        self.assertEqual(original, "x" * 150_000)
-        self.assertIn("git show --no-ext-diff --no-textconv HEAD", instructions)
 
     def test_a_windows_shim_never_gets_prompt_text_in_its_arguments(self):
         reviewer = {"cli": "agy", "model": "gemini-4-carbon-high"}
@@ -1567,7 +1546,7 @@ class RepositoryPin(unittest.TestCase):
         text = REPO_PIN.read_text(encoding="utf-8").replace('gemini = ["astra"]', 'gemini = ["astra"]\nretired = ["astra"]')
         pin = module.load_pin(REPO_PIN, data=text.encode("utf-8"))
         self.assertNotIn("retired", pin["routes"])
-        self.assertEqual(pin["routes"]["codex"], ["carbon"])
+        self.assertEqual(pin["routes"]["claude"], ["astra"])
         with tempfile.TemporaryDirectory() as folder:
             live = Path(folder) / "reviewers.toml"
             live.write_text(text, encoding="utf-8")
@@ -1577,10 +1556,9 @@ class RepositoryPin(unittest.TestCase):
     def test_the_repository_pin_is_one_reviewer_per_writer_on_the_schedule(self):
         with open(REPO_PIN, "rb") as handle:
             pin = tomllib.load(handle)
-        self.assertEqual(pin["reviewers"]["carbon"], {
-            "cli": "agy", "model": "gemini-pro-orchestrator"})
+        self.assertEqual(set(pin["reviewers"]), {"astra"})
         self.assertEqual(pin["reviewers"]["astra"], {"cli": "codex", "model": "gpt-6-astra", "effort": "medium"})
-        self.assertEqual(pin["routes"], {"claude": ["astra"], "codex": ["carbon"],
+        self.assertEqual(pin["routes"], {"claude": ["astra"],
                                        "gemini": ["astra"]})
         schedule = pin["schedule"]
         self.assertEqual(schedule["completion_order"], "last")

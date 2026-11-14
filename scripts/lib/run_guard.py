@@ -322,7 +322,7 @@ def send_back(left: list[str] | None, state: dict) -> str:
     rows = "the next ready row" if not left else f"{len(left)} runnable rows, first {left[0]}"
     if left and left[0] in FINISH_STEPS:
         rows = f"one finishing step: {FINISH_STEPS[left[0]]}"
-    heartbeat = "" if heartbeat_current(state) or state.get("runner") in UNTIMED_RUNNERS else "The heartbeat is not armed or is about to expire: create it again with CronCreate if this session is interactive, deleting any old one. "
+    heartbeat = "" if heartbeat_current(state) or state.get("runner") == "antigravity" else "The heartbeat is not armed or is about to expire: create it again with CronCreate if this session is interactive, deleting any old one. "
     return heartbeat + (
         f"Unattended run is active: {rows}. Do not stop or report: continue process-plan now. A section that cannot be "
         "stamped is recorded and passed over, not a reason to end the run. Halting needs data loss, credentials, shared "
@@ -546,15 +546,14 @@ def on_stop_failure(state: dict, data: dict, now: float | None = None) -> None:
         set_wait(state, "overloaded", now + OVERLOADED_WAIT, f"Anthropic's API reported {error}; the run looks again in 5 minutes")
 
 
-RUNNERS = ("claude", "antigravity", "codex")
-UNTIMED_RUNNERS = ("antigravity", "codex")
+RUNNERS = ("claude", "antigravity")
 OWNER_KEYS = ("runner", "owner_pid", "owner_started")
 
 
 def run_alive(state: dict, env: Env) -> bool:
     """Whether the active run's session still runs: a Claude Code session from Claude Code's own record of it, an
     Antigravity session from its launcher's window process, which `agy` lives inside. Raises when it can't tell."""
-    if state.get("runner") in UNTIMED_RUNNERS:
+    if state.get("runner") == "antigravity":
         return env.process_alive(int(state.get("owner_pid") or 0), state.get("owner_started"))
     return env.alive(state["session_id"])
 
@@ -566,12 +565,12 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
     judged; an Antigravity run is judged by its owner process (`owner_pid`, which started at `owner_started`)."""
     if runner not in RUNNERS:
         raise ValueError(f"runner must be one of: {', '.join(RUNNERS)}")
-    if runner in UNTIMED_RUNNERS and (not owner_pid or owner_started is None):
-        raise ValueError("an untimed run needs its owner process (--owner-pid), and that process must be running")
+    if runner == "antigravity" and (not owner_pid or owner_started is None):
+        raise ValueError("an Antigravity run needs its owner process (--owner-pid), and that process must be running")
     owner = state.get("session_id")
     now = time.time() if now is None else now
     # A Claude Code session claimed a moment ago may not be running yet: inside its grace it holds the run as if it were.
-    claimed = state.get("runner") not in UNTIMED_RUNNERS and now - state.get("started_at", 0) < START_GRACE
+    claimed = state.get("runner") != "antigravity" and now - state.get("started_at", 0) < START_GRACE
     if state.get("active") and owner not in (None, session) and (claimed or run_alive(state, env)):
         who = f"the {state.get('runner', 'claude')} session {owner}"
         raise ValueError(f"{who} owns the active run and is alive or about to start; never run two writers on one tree")
@@ -581,7 +580,7 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
     for key in OWNER_KEYS:
         state.pop(key, None)
     state.update(session_id=session, started_at=now)
-    if runner in UNTIMED_RUNNERS:
+    if runner == "antigravity":
         state.update(runner=runner, owner_pid=int(owner_pid), owner_started=owner_started)
 
 
@@ -619,7 +618,7 @@ def close_if_gone(state: dict, env: Env, now: float | None = None) -> bool:
         return False
     now = time.time() if now is None else now
     # An Antigravity run's owner process is running from the start, so it has no grace to wait out.
-    grace = state.get("runner") not in UNTIMED_RUNNERS and now - state.get("started_at", 0) < START_GRACE
+    grace = state.get("runner") != "antigravity" and now - state.get("started_at", 0) < START_GRACE
     if grace or run_alive(state, env):
         return False
     end_run(state, "ended", f"session {owner} is gone ({GONE}); nothing resumes a run: `process plan` in a new session starts one")
@@ -732,20 +731,8 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
 
 def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path = STATE) -> str:
     """One Antigravity hook event. Returns what the hook prints: `{"decision": "continue", "reason": ...}` or nothing."""
-    return hook_without_timer(antigravity_event(raw, session), session, "continue", env, path)
-
-
-def hook_codex(raw: str, session: str, env: Env | None = None, path: Path = STATE) -> str:
-    """Bind a Codex Stop event to the run admitted by its launcher."""
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        raise ValueError("Codex hook input must be an object")
-    data.update(session_id=session, termination="NO_TOOL_CALL")
-    return hook_without_timer(data, session, "block", env, path)
-
-
-def hook_without_timer(data: dict, session: str, decision: str, env: Env | None, path: Path) -> str:
     env = REAL if env is None else env
+    data = antigravity_event(raw, session)
     if data["hook_event_name"] != "Stop":
         return ""
     peek = load(path)
@@ -758,8 +745,8 @@ def hook_without_timer(data: dict, session: str, decision: str, env: Env | None,
         reason = on_antigravity_stop(state, data, env)
         if json.dumps(state, sort_keys=True) != before:
             save_retrying(state, path)
-            log(f"{state.get('runner', 'untimed')} Stop: {state.get('status')} {state.get('why', '')}".rstrip(), path)
-    return json.dumps({"decision": decision, "reason": reason}) if reason else ""
+            log(f"antigravity Stop: {state.get('status')} {state.get('why', '')}".rstrip(), path)
+    return json.dumps({"decision": "continue", "reason": reason}) if reason else ""
 
 
 # The world, on this machine.
