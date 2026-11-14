@@ -2,7 +2,7 @@
 schema_version: 1
 id: brand-and-theme
 domain: 02-shell
-status: active
+status: done
 title: "TODO-01 -- Brand and theme"
 ---
 
@@ -42,7 +42,7 @@ title: "TODO-01 -- Brand and theme"
 | 2 | §2 | Contrast and stray colour tests | §1 | [x] |
 | 3 | §5 | App icon ICO from the masters | -- | [x] |
 | 4 | §3 | Tray state icons and the icon drift gate | §1, §5 | [x] |
-| 5 | §4 | Control templates | §2, D02 T02 §9 | [ ] |
+| 5 | §4 | Control templates | §2, D02 T02 §9 | [x] |
 
 ## 1. Generate the theme from tokens
 
@@ -200,9 +200,12 @@ Stock WPF chrome breaks a dark theme piece by piece. Steward's templates are pro
 - [x] Register a `controls` view in `tests/Bosun.Panel.Tests/Render/RenderCatalog.cs` with the states `gallery` (every style above, each in its states: a row of buttons with one disabled, the tabs, a field and a read-only one, check boxes on and off, a combo box with and without a selection, the rail list with a selected row, the log list) and `table` (a `DataGrid` of names and numbers). Done when: `pwsh scripts/render-pages.ps1` writes `controls.gallery` and `controls.table` in both themes, a test finds each control in the gallery carrying its `Controls.xaml` style, and the pictures have been looked at. Cheaper substitute: a table drawn with stock chrome, white headers on a dark page.
 - [x] Settle the completion review's gap (`docs/reviews/02-shell/D02-T01-s4.md`) in `src/Bosun.Panel/Theme/Controls.xaml` (**Added 2026-11-15**): the combo box's drop-down has no `PopupAnimation`, since WPF's fade runs for a fixed 150 ms whatever the Windows animation setting says (`design/SPEC.md` §19, Motion), so it opens at once. Done when: `ControlStylesTests` reads `PopupAnimation.None` on the template's popup, and fails any `Popup` in the file that names another, on a copy. Cheaper substitute: motion that ignores the system setting.
 - [x] Prove the column header's sort arrow in `ControlStylesTests` (**Added 2026-11-15** from the completion review's suggestion). Done when: a column sorted ascending shows the arrow, sorted descending shows it turned, and the header keeps its two resize grips.
-- [ ] Commit: `theme: control templates`
+- [x] Commit: `theme: control templates`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*ControlStyles*" --filter-class "*TabStripStyle*"` exits 0, and fails if the change is reverted; `python scripts/build-theme.py --check` exits 0.
+
+> **Verified:** 2026-11-15 | §4 | 54c11c752747a57e22fd788d8b3f21492db4c7c3
+> **Review:** `docs/reviews/d02-t01-s4.json`
 
 ## 5. App icon ICO from the masters
 
