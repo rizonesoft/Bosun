@@ -1345,7 +1345,7 @@ class Schedule(Harness):
         summary, (call,) = self.round()
         self.assertEqual((summary["position"], summary["escalated"], self.effort_of(call), summary["lenses"]),
                          (5, True, "medium", ["adversarial"]))
-        self.assertIn("escalated after a low-effort round found a P1", call["stdin"])
+        self.assertIn("escalated after a follow-up round found a P1", call["stdin"])
         summary, (call,) = self.round()
         self.assertEqual((summary["escalated"], self.effort_of(call)), (False, "low"),
                          "a medium escalation that finds a P1 does not escalate again")
