@@ -1502,9 +1502,13 @@ class MultiCli(Harness):
         if os.name == "nt":
             # The fake is a .cmd shim on Windows, so the prompt must arrive by file, never as argument text.
             self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-            self.assertEqual(call["from_file"], self.prompt.read_text())
+            delivered = call["from_file"]
         else:
-            self.assertEqual(call["argv"][-1], "-p=" + self.prompt.read_text())
+            self.assertTrue(call["argv"][-1].startswith("-p="))
+            delivered = call["argv"][-1][3:]
+        original, instructions = delivered.split("\n\nUse native file-reading/search tools", 1)
+        self.assertEqual(original, self.prompt.read_text())
+        self.assertIn("git show --no-ext-diff --no-textconv HEAD", instructions)
 
     def test_astra_reviews_gemini_work(self):
         result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
@@ -1518,7 +1522,9 @@ class MultiCli(Harness):
         self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
         (call,) = self.calls()
         self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-        self.assertEqual(call["from_file"], "x" * 150_000)
+        original, instructions = call["from_file"].split("\n\nUse native file-reading/search tools", 1)
+        self.assertEqual(original, "x" * 150_000)
+        self.assertIn("git show --no-ext-diff --no-textconv HEAD", instructions)
 
     def test_a_windows_shim_never_gets_prompt_text_in_its_arguments(self):
         reviewer = {"cli": "agy", "model": "gemini-4-carbon-high"}
