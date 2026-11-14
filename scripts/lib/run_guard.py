@@ -657,8 +657,13 @@ def antigravity_event(raw: str, session: str) -> dict:
         "session_id": session,
         "conversation": data.get("conversationId"),
         # As the owner's Isotone adapter reads it: a turn with no reason given ended for having no tool call left. The
-        # names come short (NO_TOOL_CALL) or in full (TERMINATION_REASON_NO_TOOL_CALL); both read the same here.
-        "termination": str(data.get("terminationReason") or "NO_TOOL_CALL").removeprefix("TERMINATION_REASON_"),
+        # names come short (NO_TOOL_CALL) or prefixed (EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL or
+        # TERMINATION_REASON_NO_TOOL_CALL); all three read the same here.
+        "termination": (
+            str(data.get("terminationReason") or "NO_TOOL_CALL")
+            .removeprefix("EXECUTOR_TERMINATION_REASON_")
+            .removeprefix("TERMINATION_REASON_")
+        ),
         "last_user_input": str(data.get("lastUserInput") or ""),
     }
 

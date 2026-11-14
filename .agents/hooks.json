@@ -1,15 +1,10 @@
 {
-  "hooks": {
+  "run-guard": {
     "Stop": [
       {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python scripts/run-guard.py hook --runner antigravity",
-            "timeout": 60
-          }
-        ]
+        "type": "command",
+        "command": "python ../scripts/run-guard.py hook --runner antigravity",
+        "timeout": 60
       }
     ]
   }

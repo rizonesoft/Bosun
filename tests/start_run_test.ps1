@@ -31,7 +31,7 @@ try {
   Check ($read.Arguments -match '-NoExit' -and $read.Arguments.TrimEnd().EndsWith("`"$script`"")) 'the Claude shortcut runs this checkout''s own start script and keeps the window'
   Check ($carbon.Arguments -match '-NoExit' -and $carbon.Arguments.EndsWith("`"$script`" -Agent antigravity")) 'the Carbon shortcut starts the same script with -Agent antigravity'
   Check ((Split-Path $read.TargetPath -Leaf) -match '^pwsh') 'it runs PowerShell 7'
-  Check ($read.Description -eq 'Start the unattended Bosun campaign in Claude Code' -and $carbon.Description -match 'Google Antigravity on Gemini 4 Carbon$') 'each says which runner it starts'
+  Check ($read.Description -eq 'Start the unattended Bosun campaign in Claude Code' -and $carbon.Description -match 'Google Antigravity on Orchestrator \(Carbon\)$') 'each says which runner it starts'
   # Each carries its own badged icon, rendered for this PC outside the repository (needs scripts/requirements-icons.txt).
   $claudeIcon = Join-Path $icons 'bosun-campaign-claude.ico'
   $carbonIcon = Join-Path $icons 'bosun-campaign-carbon.ico'
@@ -88,11 +88,17 @@ try {
   Check ($out -match '100% complete' -and $out -match 'query next') 'the goal names the finish line'
   Check ($out -notmatch 'guard resumes' -and $out -match 'own heartbeat takes the run up again') 'the goal promises no resume: the session''s own heartbeat carries a wait'
 
-  # The Antigravity run: every permission auto-approved, on Gemini 4 Carbon, and the goal as its opening prompt.
+  # The Antigravity run: every permission auto-approved, on Orchestrator (Carbon), and /goal as its opening prompt.
   $env:Path = Join-Path $env:SystemRoot 'System32'
-  try { $out = (& $pwsh -NoProfile -File $script -Agent antigravity -DryRun) -join "`n" } finally { $env:Path = $path }
-  Check ($LASTEXITCODE -eq 0 -and $out -match 'agy --dangerously-skip-permissions --effort medium --model gemini-4-carbon-medium --settings \{"maxStopHookContinuations": 500\} --prompt-interactive "Finish the Bosun' -and $out -match 'run-guard\.py start --session [0-9a-f-]{36} --runner antigravity --owner-pid') 'Antigravity starts with every prompt off, at medium effort, on Gemini 4 Carbon, its Stop hook ceiling raised, with the goal, after claiming the guard'
-  Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -match 'run-guard\.py halt --ground operator' -and $out -notmatch 'heartbeat takes') 'its goal keeps the finish line, waits in-session (Antigravity has no heartbeat) and names the halt'
+  try {
+    $out = (& $pwsh -NoProfile -File $script -Agent antigravity -DryRun) -join "`n"
+    $agyCode = $LASTEXITCODE
+    $agyNonOrch = (& $pwsh -NoProfile -File $script -Agent antigravity -AgyModel gemini-4-carbon -Effort high -DryRun) -join "`n"
+    $agyNonOrchCode = $LASTEXITCODE
+  } finally { $env:Path = $path }
+  Check ($agyCode -eq 0 -and $out -match 'agy --dangerously-skip-permissions --model gemini-pro-orchestrator --prompt-interactive "/goal Finish the Bosun' -and $out -notmatch '--settings|maxStopHookContinuations' -and $out -match 'run-guard\.py start --session [0-9a-f-]{36} --runner antigravity --owner-pid') 'Antigravity starts with every prompt off, on Orchestrator (Carbon) with no --effort flag, under /goal, with no --settings, after claiming the guard'
+  Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -match 'run-guard\.py halt --ground operator' -and $out -match 'ends this goal' -and $out -notmatch 'heartbeat takes') 'its goal keeps the finish line, waits in-session (Antigravity has no heartbeat) and names the halt'
+  Check ($agyNonOrchCode -eq 0 -and $agyNonOrch -match 'agy --dangerously-skip-permissions --effort high --model gemini-4-carbon --prompt-interactive "/goal ' -and $agyNonOrch -notmatch '--settings|maxStopHookContinuations') 'a non-orchestrator model receives --effort and still passes no --settings'
 
   # A real start against a fake claude, a test registry key and a state file of its own: nothing real is started.
   $fake = Join-Path $work 'fake'
@@ -183,10 +189,24 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
 "@ -Encoding ascii
   $pythonExe = (Get-Command python -CommandType Application | Select-Object -First 1).Source
   Set-Content (Join-Path $agyHome 'agy.cmd') "@`"$pythonExe`" `"%~dp0fake_agy.py`" %*" -Encoding ascii
-  # The real agy is an .exe, and PowerShell hands an .exe the JSON settings exactly as written (a batch file, as the
-  # fake is, would strip its quotes): proved here on python.exe, along the same call the script makes.
-  $roundTrip = & $pythonExe -c 'import sys, json; print(json.dumps(sys.argv[1:]))' @('--settings', '{"maxStopHookContinuations": 500}') | ConvertFrom-Json
-  Check ((@($roundTrip) -join '|') -eq '--settings|{"maxStopHookContinuations": 500}') "the settings reach an .exe intact ($(@($roundTrip) -join ' '))"
+  # Verify every CLI flag emitted for Antigravity is accepted by the installed agy binary (or the known flag set on CI).
+  $emittedFlags = @(
+    foreach ($text in $out, $agyNonOrch) {
+      $cmdLine = ($text -split "`n" | Where-Object { $_ -like 'agy *' } | Select-Object -Last 1)
+      $head = ($cmdLine -split ' "/goal ', 2)[0]
+      [regex]::Matches($head, '(?<= )--[a-z-]+') | ForEach-Object { $_.Value }
+    }
+  ) | Select-Object -Unique
+  $realAgy = Get-Command agy -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+  if ($realAgy) {
+    $agyHelp = (& $realAgy.Source --help 2>&1) -join "`n"
+    $unknownFlags = @($emittedFlags | Where-Object { $agyHelp -notmatch "(?m)^\s*$([regex]::Escape($_))\b" })
+    Check ($LASTEXITCODE -eq 0 -and $emittedFlags.Count -ge 3 -and -not $unknownFlags -and $emittedFlags -notcontains '--settings') "every Antigravity CLI flag appears in agy --help ($($emittedFlags -join ' '))"
+  } else {
+    $knownFlags = @('--dangerously-skip-permissions', '--model', '--effort', '--prompt-interactive')
+    $unknownFlags = @($emittedFlags | Where-Object { $_ -notin $knownFlags })
+    Check ($emittedFlags.Count -ge 3 -and -not $unknownFlags -and $emittedFlags -notcontains '--settings') "every Antigravity CLI flag is in the known agy set ($($emittedFlags -join ' '))"
+  }
   $agyState = Join-Path $work 'agy-state.json'
   $guardCli = Join-Path $repo 'scripts\run-guard.py'
   function AgyState { if (Test-Path $agyState) { Get-Content $agyState -Raw | ConvertFrom-Json } }
@@ -201,7 +221,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       $seen = if (Test-Path $agySeen) { Get-Content $agySeen -Raw | ConvertFrom-Json }
       $saved = AgyState
       Check ($seen -and $seen.session -eq $saved.session_id -and $saved.runner -eq 'antigravity' -and $saved.owner_pid -gt 0) "agy gets the run's id in BOSUN_RUN_SESSION, and the guard was claimed for the window's process (exit $exit)"
-      Check (@($seen.args) -contains '--settings') "agy gets its settings (exit $exit)"
+      Check (@($seen.args) -notcontains '--settings' -and (@($seen.args) -join ' ') -notmatch 'maxStopHookContinuations' -and @($seen.args)[-1] -like '/goal Finish the Bosun*') "agy gets its /goal prompt with no unknown --settings (exit $exit)"
       Check ($code -eq $exit -and $saved.status -eq 'ended' -and -not $saved.active -and $saved.why -match "agy returned \(exit $exit\)") "when agy returns with $exit, the run is recorded ended though the window lives on ($($saved.status): $($saved.why))"
     }
     Remove-Item Env:FAKE_AGY_EXIT

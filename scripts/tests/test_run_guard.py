@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1148,12 +1149,16 @@ class AntigravityRuns(unittest.TestCase):
         self.assertEqual((answer, state["active"]), (None, True), "a chained step ended the run")
 
     def test_a_turn_antigravity_ended_itself_is_recorded_not_left_active(self):
+        answer, state = self.stop(self.run_state(), termination="EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL")
+        self.assertEqual(answer["decision"], "continue")
+        self.assertTrue(state["active"])
         answer, state = self.stop(self.run_state(), termination="USER_CANCELED", said="stop")
         self.assertIsNone(answer)
         self.assertEqual((state["active"], state["status"]), (False, "stopped"))
         self.assertIn("the operator cancelled the turn", state["why"])
         self.assertIn("start it again from its shortcut", state["why"])
-        for termination in ("ERROR", "TERMINATION_REASON_MAX_INVOCATIONS", "MAX_FORCED_INVOCATIONS", "MAX_TOKEN_BUDGET_EXCEEDED"):
+        for termination in ("ERROR", "TERMINATION_REASON_MAX_INVOCATIONS", "EXECUTOR_TERMINATION_REASON_MAX_INVOCATIONS",
+                            "MAX_FORCED_INVOCATIONS", "MAX_TOKEN_BUDGET_EXCEEDED"):
             answer, state = self.stop(self.run_state(), termination=termination)
             self.assertIsNone(answer)
             self.assertEqual((state["active"], state["status"]), (False, "ended"), termination)
@@ -1214,10 +1219,42 @@ class AntigravityRuns(unittest.TestCase):
         self.assertEqual(cli("end", "--session", self.SESSION).stdout.strip(), "ended", "a second end changed the record")
 
     def test_the_workspace_hook_is_wired(self):
-        hooks = json.loads((guard.ROOT / ".agents" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-        stops = [h for entry in hooks["Stop"] for h in entry["hooks"]]
-        self.assertEqual([h["command"] for h in stops], ["python scripts/run-guard.py hook --runner antigravity"])
+        doc = json.loads((guard.ROOT / ".agents" / "hooks.json").read_text(encoding="utf-8"))
+        self.assertNotIn("hooks", doc, "Claude Code's outer 'hooks' wrapper causes agy to skip .agents/hooks.json")
+        stops = doc["run-guard"]["Stop"]
+        self.assertIsInstance(stops, list)
+        self.assertEqual(len(stops), 1)
+        self.assertEqual(stops[0]["type"], "command")
+        self.assertEqual(stops[0]["command"], "python ../scripts/run-guard.py hook --runner antigravity")
+        self.assertNotIn("matcher", stops[0])
         self.assertGreater(stops[0]["timeout"], 0)
+        # Prove the command resolves ../scripts/run-guard.py from .agents/, where agy executes workspace hooks.
+        state = {"active": True, "status": "active", "session_id": self.SESSION, "runner": "antigravity",
+                 "owner_pid": os.getpid(), "owner_started": guard.process_started(os.getpid()),
+                 "started_at": time.time(), "wait_reason": "reviewer-unavailable", "wait_until": time.time() + 300}
+        guard.save(state, self.path)
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build"),
+               "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8"}
+        cmd = stops[0]["command"] if shutil.which("python") else stops[0]["command"].replace("python ", f'"{sys.executable}" ', 1)
+        done = subprocess.run(cmd, shell=True, cwd=guard.ROOT / ".agents", env=env,
+                              input=json.dumps({"hookEventName": "Stop", "terminationReason": "EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL"}),
+                              capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["decision"], "continue")
+        agy_exe = shutil.which("agy")
+        if agy_exe:
+            repo = Path(self.folder.name) / "repo"
+            (repo / ".agents").mkdir(parents=True)
+            (repo / "scripts").mkdir(parents=True)
+            (repo / ".agents" / "hooks.json").write_text((guard.ROOT / ".agents" / "hooks.json").read_text(encoding="utf-8"), encoding="utf-8")
+            (repo / ".agents" / "plugin.json").write_text(json.dumps({"name": "bosun-test", "version": "0.1.0", "description": "test"}), encoding="utf-8")
+            (repo / "scripts" / "run-guard.py").write_text("", encoding="utf-8")
+            validated = subprocess.run([agy_exe, "plugin", "validate", str(repo / ".agents"), "--json"],
+                                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+            self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
+            report = json.loads(validated.stdout)
+            self.assertEqual(report["components"]["hooks"], 1)
+            self.assertEqual([f for f in report.get("findings", []) if f.get("file") == "hooks.json"], [])
 
 
 class LocalGates(unittest.TestCase):

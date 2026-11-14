@@ -3,10 +3,10 @@
 #
 #   pwsh scripts/start-run.ps1                    start the campaign in Claude Code, in this window, at medium effort
 #                                                 (the owner's choice, 2026-11-12), whatever the user's own default is
-#   pwsh scripts/start-run.ps1 -Agent antigravity the same campaign in Google Antigravity on Gemini 4 Carbon (agy):
-#                                                 every permission auto-approved, medium effort (the owner's choice,
-#                                                 2026-11-12), the goal as its opening prompt (auto mode is not
-#                                                 offered to this account); -AgyModel names another model
+#   pwsh scripts/start-run.ps1 -Agent antigravity the same campaign in Google Antigravity on Orchestrator (Carbon)
+#                                                 (agy): every permission auto-approved, the goal as its opening prompt
+#                                                 (auto mode is not offered to this account); -AgyModel names another
+#                                                 model (non-orchestrator models also receive -Effort)
 #   pwsh scripts/start-run.ps1 -Effort high       start either runner at another effort
 #   pwsh scripts/start-run.ps1 -InstallShortcut   write both desktop shortcuts for this checkout, "Bosun Claude
 #                                                 campaign" and "Bosun Carbon campaign", each running one line above
@@ -19,15 +19,14 @@
 # watchdog and no hidden session. While the window is open the guard's hooks keep the session working (the Stop hook
 # sends it back, and its own in-session heartbeat wakes it).
 #
-# An Antigravity run is held the same way through Antigravity's own Stop hook (.agents/hooks.json): the guard is told
-# the run lives as long as this window's process does, `agy` gets the run's id in BOSUN_RUN_SESSION, and the run is
-# recorded ended once `agy` returns, since the window (-NoExit) outlives it. Antigravity has no heartbeat, so its goal
-# tells it to wait in the session, and Antigravity's own limit on Stop hook continuations is raised for the session
-# (maxStopHookContinuations) so that the guard's stall rule, not that limit, ends a run that stopped progressing.
+# An Antigravity run uses Antigravity's /goal (which has no continuation ceiling) together with its Stop hook
+# (.agents/hooks.json): the guard is told the run lives as long as this window's process does, `agy` gets the run's
+# id in BOSUN_RUN_SESSION, and the run is recorded ended once `agy` returns, since the window (-NoExit) outlives it.
+# Antigravity has no heartbeat, so its goal tells it to wait in the session instead of ending the turn.
 #
 # The session gets its id here, so the guard can be told about it before it starts. Nothing is checked first, so a
 # start is never blocked: `pwsh scripts/campaign-preflight.ps1` is there to run when a start misbehaves. The goal is a
-# Claude Code /goal, which is checked after every turn; the guard decides when the plan has no row left to run.
+# /goal prompt for the runner; the guard decides when the plan has no row left to run.
 #
 # The model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never needs editing
 # when a new one ships.
@@ -52,7 +51,7 @@ param(
   [string]$Agent = 'claude',
   [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
   [string]$Effort = 'medium',
-  [string]$AgyModel = 'gemini-4-carbon-medium',
+  [string]$AgyModel = 'gemini-pro-orchestrator',
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and this session''s own heartbeat takes the run up again.'
 )
@@ -64,7 +63,7 @@ $launchers = @(
   @{ Agent = 'claude'; Name = 'Bosun Claude campaign'; Icon = 'bosun-campaign-claude.ico'; Fill = '#D97757'; Mark = 'claude.svg'
      Description = 'Start the unattended Bosun campaign in Claude Code' },
   @{ Agent = 'antigravity'; Name = 'Bosun Carbon campaign'; Icon = 'bosun-campaign-carbon.ico'; Fill = '#4C8DF6'; Mark = 'gemini.svg'
-     Description = 'Start the unattended Bosun campaign in Google Antigravity on Gemini 4 Carbon' }
+     Description = 'Start the unattended Bosun campaign in Google Antigravity on Orchestrator (Carbon)' }
 )
 
 $antigravity = $Agent -eq 'antigravity'
@@ -138,13 +137,14 @@ function Join-WindowJob {
 }
 
 if ($antigravity) {
-  # Antigravity has no /goal, so the goal is the opening prompt. It has no heartbeat either, so the session waits for
-  # reviews and CI inside itself instead of ending the turn, and its Stop hook (.agents/hooks.json) tells it so.
-  $prompt = ($Goal -replace '\s*While `python scripts/run-guard\.py status` prints waiting.*$', '') +
-    ' Nothing wakes this session once a turn ends, so never end a turn while a ready row exists: when a review or a CI gate is in flight, wait for it in this session, then continue.' +
-    ' If the operator asks to stop or pause, run `python scripts/run-guard.py halt --ground operator --reason <their words>`, then end the turn.'
-  $settings = '{"maxStopHookContinuations": 500}'
-  $agyArgs = @('--dangerously-skip-permissions', '--effort', $Effort) + $(if ($AgyModel) { '--model', $AgyModel }) + @('--settings', $settings, '--prompt-interactive', $prompt)
+  # Antigravity runs under /goal and has no heartbeat, so the session waits for reviews, local gates and CI inside
+  # itself instead of ending the turn, and its Stop hook (.agents/hooks.json) tells it so.
+  $goalText = ($Goal -replace '\s*While `python scripts/run-guard\.py status` prints waiting.*$', '') +
+    ' Nothing wakes this session once a turn ends, so never end a turn while a ready row exists: when a review, a local gate or a CI gate is in flight, wait for it in this session, then continue.' +
+    ' If the operator asks to stop or pause, run `python scripts/run-guard.py halt --ground operator --reason <their words>`, then end the turn; a `python scripts/run-guard.py status` of `halted`, `stalled`, `parked` or `complete` also ends this goal.'
+  $prompt = if ($goalText.StartsWith('/goal ')) { $goalText } else { "/goal $goalText" }
+  $agyEffort = if ($AgyModel -match '^(gemini-pro-orchestrator|Orchestrator\b)') { @() } else { @('--effort', $Effort) }
+  $agyArgs = @('--dangerously-skip-permissions') + $agyEffort + $(if ($AgyModel) { '--model', $AgyModel }) + @('--prompt-interactive', $prompt)
   $session = [guid]::NewGuid().ToString()
   if ($DryRun) {
     "in $repo"

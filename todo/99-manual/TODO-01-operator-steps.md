@@ -146,6 +146,8 @@ The run proves these against disposable targets, as the owner chose. This is the
 
 Filed 2026-11-13 from `D00 T03 §19`, which proves the guard's hold of an Antigravity session against a fake `agy`. The real one can't run on the repository's tree while a Claude Code run holds it, since two writers on one tree is the worse failure, so it is the owner's first start of the Carbon shortcut.
 
+**Corrected 2026-11-14:** starting "Bosun Carbon campaign" on `agy` 1.5.9 exited 1 with `Error: --settings: unknown setting "maxStopHookContinuations"`, and `agy plugin validate` skipped `.agents/hooks.json` because it used Claude Code's nested `hooks`/`matcher` wrapper and a repo-root path instead of Antigravity's flat `<name>.Stop` list relative to `.agents/`. Fixed in `scripts/start-run.ps1` (starts `gemini-pro-orchestrator` under `/goal` with no `--settings`), `.agents/hooks.json` (`python ../scripts/run-guard.py hook --runner antigravity`), and `scripts/lib/run_guard.py` (`EXECUTOR_TERMINATION_REASON_` prefix).
+
 **Phase:** 99
 **Needs:** operator,attended
 **Surface:** no
@@ -157,7 +159,7 @@ Filed 2026-11-13 from `D00 T03 §19`, which proves the guard's hold of an Antigr
 
 - [ ] Close any Claude Code run, then start "Bosun Carbon campaign" from the desktop. Done when: `python scripts/run-guard.py status` prints `active` with runner `antigravity`.
 - [ ] Watch one section through with no input: the Stop hook sends the session on while rows remain and while a review or CI gate is in flight. Done when: the session shipped or parked one ready row, recorded in the phase run file, or the blocker is recorded with its fix and filed through `add-todo`.
-- [ ] Confirm `agy` took the launcher's `--settings '{"maxStopHookContinuations": 500}'`: the session went on past Antigravity's default number of consecutive Stop continuations without the turn ending by itself. Done when: the phase run file records it, or records that `agy` refused or ignored the key, filed through `add-todo`.
+- [ ] Confirm `agy` opened on Orchestrator (Carbon) with `/goal` active and `.agents/hooks.json` loaded: `python scripts/run-guard.py status --json` keeps `hook_failures` empty across at least one end-of-turn `Stop` continuation. Done when: the phase run file records it, or records any fault with its fix and files it through `add-todo`.
 - [ ] Close its window. Done when: `python scripts/run-guard.py status` prints `ended` and no `agy` process from it is left.
 - [ ] Commit: `manual: first Carbon campaign run`
 
