@@ -477,7 +477,12 @@ class OrchestratorPin(unittest.TestCase):
         self.assertEqual(result['execution'], 'returned')
         allowed = seen[0]['permissions']['allow']
         self.assertIn('command(git show --no-ext-diff --no-textconv HEAD)', allowed)
-        self.assertTrue(all(rule.startswith('command(git ') and '*' not in rule for rule in allowed))
+        commands_allowed = [rule for rule in allowed if rule.startswith('command(')]
+        self.assertTrue(all(rule.startswith('command(git ') and '*' not in rule for rule in commands_allowed))
+        reads = [rule for rule in allowed if rule.startswith('read_file(')]
+        self.assertEqual(len(reads), 2)
+        self.assertIn('read_file(' + ROOT.as_posix() + '/**)', reads)
+        self.assertEqual(sum(rule.endswith('/prompt.md)') for rule in reads), 1)
         commands = d.review_commands('a' * 40 + '; delete everything')
         self.assertIn('git show --no-ext-diff --no-textconv ' + 'a' * 40, commands)
         self.assertFalse(any('delete' in cmd or ';' in cmd for cmd in commands))

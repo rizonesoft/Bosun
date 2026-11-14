@@ -695,7 +695,9 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
         if reviewer["cli"] == "agy":
             commands = review_commands(prompt)
             (tmp / "review-settings.json").write_text(json.dumps({
-                "permissions": {"allow": [f"command({cmd})" for cmd in commands]}
+                "permissions": {"allow": [f"command({cmd})" for cmd in commands] + [
+                    f"read_file({(tmp / 'prompt.md').as_posix()})",
+                    f"read_file({ROOT.as_posix()}/**)"]}
             }), encoding="utf-8")
             prompt += ("\n\nUse native file-reading/search tools for source files. If Git inspection is needed, "
                        "the following exact read-only commands are pre-approved for this session. "
