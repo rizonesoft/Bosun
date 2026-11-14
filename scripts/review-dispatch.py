@@ -156,10 +156,11 @@ def load_pin(path=PIN, data=None):
         if pin["schedule"].get("completion_order") == "last":
             for chain in routes.values():
                 entry = reviewers[chain[0]]
-                if entry["cli"] == "agy" and "models_by_effort" not in entry and any(
+                if (entry["cli"] == "agy" and "models_by_effort" not in entry
+                        and entry["model"] != "gemini-pro-orchestrator" and any(
                         step.get("effort") for step in [pin["schedule"]["plan"],
                         pin["schedule"]["completion"], pin["schedule"]["rotation"],
-                        pin["schedule"]["escalation"], *pin["schedule"]["rounds"]]):
+                        pin["schedule"]["escalation"], *pin["schedule"]["rounds"]])):
                     raise Refused("current-policy Antigravity requires low and medium model variants")
     return pin
 
@@ -385,7 +386,8 @@ def scheduled(schedule, kind, rounds, surface):
     position = len(returned) + 1
     last = returned[-1] if returned else None
     followup = last is not None and (last.get("effort") == "low" or
-        (schedule["rotation"].get("effort") is None and len(returned) > len(schedule["rounds"])))
+        ((last.get("effort") is None or schedule["rotation"].get("effort") is None)
+         and len(returned) > len(schedule["rounds"])))
     if followup and highest(last.get("review")) == "P1":
         step, escalated = schedule["escalation"], True
     elif position <= len(schedule["rounds"]):
@@ -531,6 +533,21 @@ def fully_qualified(directory):
     return drive.startswith(("\\\\", "//")) or (len(drive) == 2 and rest[:1] in ("\\", "/"))
 
 
+def effective_effort(reviewer, scheduled_effort):
+    """Resolve the executed effort, including models with no effort control."""
+    if reviewer["cli"] == "agy" and not reviewer.get("models_by_effort"):
+        return None
+    return scheduled_effort or reviewer.get("effort")
+
+
+def review_commands(prompt):
+    """Exact, read-only Git commands; never accept shell syntax from the prompt."""
+    revisions = ["HEAD", *sorted(set(re.findall(r"\b[0-9a-f]{40}\b", prompt)))]
+    return ["git status --short", "git diff --no-ext-diff --no-textconv",
+            "git diff --no-ext-diff --no-textconv --cached", "git log -5 --oneline", *[
+                f"git show --no-ext-diff --no-textconv {revision}" for revision in revisions]]
+
+
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout, effort=None):
     """The argv and stdin for one read-only review. The model comes only from the pin, and the effort from the pin's
     reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none)."""
@@ -545,7 +562,7 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     if shim or len(prompt.encode()) > ARGV_PROMPT_LIMIT or len(prompt) > ARGV_PROMPT_LIMIT:
         text = f"Follow the review instructions in the file {prompt_path} exactly. Do not modify any file."
     return [executable, "--model", model, "--mode", "plan", "--sandbox", "--print-timeout", f"{timeout}s",
-            f"-p={text}"], None
+            "--settings", str(output_path.parent / "review-settings.json"), f"-p={text}"], None
 
 
 def kill_tree(process):
@@ -641,7 +658,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
     # A replayed lineage hands back its original pin, which load_pin lets through, so this gate covers it too.
     if reviewer["cli"] in NEVER_REVIEWS:
         raise Refused(f"reviewer {name!r} uses the {reviewer['cli']} CLI; Claude is never a reviewer")
-    effort = (plan.get("effort") if plan else None) or reviewer.get("effort")
+    effort = effective_effort(reviewer, plan.get("effort") if plan else None)
     if reviewer["cli"] == "agy":
         variants = reviewer.get("models_by_effort")
         if variants and effort:
@@ -675,8 +692,17 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
     tmp = Path(tempfile.mkdtemp())
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
+        if reviewer["cli"] == "agy":
+            commands = review_commands(prompt)
+            (tmp / "review-settings.json").write_text(json.dumps({
+                "permissions": {"allow": [f"command({cmd})" for cmd in commands]}
+            }), encoding="utf-8")
+            prompt += ("\n\nUse native file-reading/search tools for source files. If Git inspection is needed, "
+                       "the following exact read-only commands are pre-approved for this session. "
+                       "Run each as written, without shell wrappers, pipes or extra arguments:\n"
+                       + "\n".join(f"- `{cmd}`" for cmd in commands) + "\n")
         prompt_file = Path(prompt_path).resolve()
-        if lenses or settled:
+        if lenses or settled or reviewer["cli"] == "agy":
             # The pointer an Antigravity shim gets must name the prompt with its scheduled lenses and settled items.
             prompt_file = tmp / "prompt.md"
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")

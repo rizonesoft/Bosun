@@ -452,22 +452,44 @@ class OrchestratorPin(unittest.TestCase):
                         self.assertNotIn('low reasoning effort', argv[-1])
                     else:
                         self.assertEqual(result['model'], 'gpt-6-astra')
-                        self.assertEqual(result['effort'], 'medium')
-                        self.assertIn('model_reasoning_effort=medium', argv)
+                        self.assertEqual(result['effort'], step['effort'])
+                        self.assertIn('model_reasoning_effort=' + step['effort'], argv)
 
-    def test_orchestrator_refuses_scheduled_overrides(self):
-        text = (ROOT / '.conclave/reviewers.toml').read_text()
+    def test_only_orchestrator_may_omit_effort_variants_with_scheduled_effort(self):
+        text = (ROOT / '.conclave/reviewers.toml').read_text(encoding='utf-8')
+        d.load_pin(data=text.encode())
         with self.assertRaises(d.Refused):
-            d.load_pin(data=text.replace('[schedule.plan]', '[schedule.plan]\neffort = "medium"').encode())
+            d.load_pin(data=text.replace('gemini-pro-orchestrator', 'gemini-other').encode())
 
-    def test_no_override_escalates_p1_followups_for_both_reviewers(self):
+    def test_agy_session_permissions_are_exact_read_only_commands(self):
+        pin = d.load_pin()
+        seen = []
+        def run(argv, stdin, timeout, watched, stderr_path=None):
+            settings = json.loads(Path(argv[argv.index('--settings') + 1]).read_text())
+            seen.append(settings)
+            self.assertIn('--sandbox', argv)
+            self.assertEqual(argv[argv.index('--mode') + 1], 'plan')
+            self.assertNotIn('--dangerously-skip-permissions', argv)
+            watched[0].write_text('HIGHEST: none\nOVERALL: approve', encoding='utf-8')
+            return 0, None
+        with patch.object(d, 'find_cli', return_value='agy.exe'), patch.object(d, 'run', side_effect=run):
+            result = d.review(pin, 'codex', ROOT / 'docs/plan-review-prompt.md', 1)
+        self.assertEqual(result['execution'], 'returned')
+        allowed = seen[0]['permissions']['allow']
+        self.assertIn('command(git show --no-ext-diff --no-textconv HEAD)', allowed)
+        self.assertTrue(all(rule.startswith('command(git ') and '*' not in rule for rule in allowed))
+        commands = d.review_commands('a' * 40 + '; delete everything')
+        self.assertIn('git show --no-ext-diff --no-textconv ' + 'a' * 40, commands)
+        self.assertFalse(any('delete' in cmd or ';' in cmd for cmd in commands))
+
+    def test_effort_exception_keeps_p1_followup_escalation(self):
         schedule = d.load_pin()['schedule']
-        for effort in (None, 'medium'):
+        for effort in (None, 'low'):
             prior = [entry(), dict(entry(), effort=effort, review='HIGHEST: P1\nOVERALL: needs-attention')]
             step = d.scheduled(schedule, 'round', prior, False)
             self.assertTrue(step['escalated'])
             self.assertEqual(step['lenses'], ['adversarial'])
-            self.assertIsNone(step['effort'])
+            self.assertEqual(step['effort'], 'low')
 
     def test_no_override_keeps_followup_lenses_and_cap(self):
         pin = d.load_pin()
@@ -475,7 +497,7 @@ class OrchestratorPin(unittest.TestCase):
         for i, lens in enumerate(n for n in pin['schedule']['rotation']['lenses'] if n != 'design'):
             step = d.scheduled(pin['schedule'], 'round', [entry()] * (i + 1), False)
             self.assertEqual(step['lenses'], [lens])
-            self.assertIsNone(step['effort'])
+            self.assertEqual(step['effort'], 'low')
 
 
 class ClaudeNeverReviews(unittest.TestCase):

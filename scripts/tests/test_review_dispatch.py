@@ -1579,11 +1579,11 @@ class RepositoryPin(unittest.TestCase):
         schedule = pin["schedule"]
         self.assertEqual(schedule["completion_order"], "last")
         self.assertEqual(schedule["max_low_rounds"], 32)
-        self.assertEqual(schedule["plan"], {"lenses": ["plan"]})
-        self.assertEqual(schedule["completion"], {})
-        self.assertEqual(schedule["rounds"], [{"lenses": ["adversarial"]}])
-        self.assertEqual(schedule["escalation"], {"lenses": ["adversarial"]})
-        self.assertNotIn("effort", schedule["rotation"])
+        self.assertEqual(schedule["plan"], {"effort": "medium", "lenses": ["plan"]})
+        self.assertEqual(schedule["completion"], {"effort": "medium"})
+        self.assertEqual(schedule["rounds"], [{"effort": "medium", "lenses": ["adversarial"]}])
+        self.assertEqual(schedule["escalation"], {"effort": "low", "lenses": ["adversarial"]})
+        self.assertEqual(schedule["rotation"]["effort"], "low")
 
     def test_the_pins_severity_stop_is_the_stamps_cutoff(self):
         # The dispatcher reports severity_stop from the pin and `stamp` re-checks it against SEVERITY_CUTOFF_ROUND: the

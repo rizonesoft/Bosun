@@ -1,5 +1,5 @@
 # Codex uses Orchestrator (Carbon) through agy; other writers retain Astra.
-# No scheduled effort overrides: Orchestrator takes none; Astra uses its medium pin.
+# Medium initial/completion reviews and low follow-ups; Orchestrator takes no effort override.
 schema_version = 1
 
 [reviewers.astra]
@@ -23,15 +23,20 @@ max_repair_cycles = 33
 severity_stop_after = 0
 
 [schedule.plan]
+effort = "medium"
 lenses = ["plan"]
 
 [[schedule.rounds]]
+effort = "medium"
 lenses = ["adversarial"]
 
 [schedule.rotation]
+effort = "low"
 lenses = ["consistency", "quality", "integration", "source-defect", "design", "optimization", "record", "plan-delivery"]
 
 [schedule.escalation]
+effort = "low"
 lenses = ["adversarial"]
 
 [schedule.completion]
+effort = "medium"

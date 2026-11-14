@@ -478,10 +478,10 @@ def schedule_ok(root, data, ref, surface):
     def check(where, recorded, expected):
         got = (recorded["effort"], list(recorded["lenses"] or []))
         effort = expected["effort"]
-        if effort is None and schedule.get("completion_order") == "last":
+        if schedule.get("completion_order") == "last":
             route = policy["routes"].get(recorded.get("writer"))
             if route:
-                effort = policy["reviewers"][route[0]].get("effort")
+                effort = dispatch.effective_effort(policy["reviewers"][route[0]], effort)
         want = (effort, expected["lenses"])
         position = f" (position {expected['position']}{', escalated' if expected['escalated'] else ''})" \
             if expected["position"] else ""
