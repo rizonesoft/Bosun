@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a72",
+  "title": "View model base and accessibility helpers",
+  "implementation_sha": "22644fd9ed0b501819b5f4f207b2e21af60a88e6",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-namespace \"*Helpers*\" -> passed within the whole solution: total: 275, failed: 0",
+    "CI full gate on 22644fd -> build.yml: green (https://github.com/rizonetech/Bosun/actions/runs/43663010824)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s2.md",
+    "verdict": "complete",
+    "candidate": "22644fd9ed0b501819b5f4f207b2e21af60a88e6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s2.md",
+    "candidate": "1537b8ab67be3ef1b234be9c9cb315adeb647222",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "1537b8ab67be3ef1b234be9c9cb315adeb647222",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
