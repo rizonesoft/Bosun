@@ -263,6 +263,7 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 - [ ] Show a disabled action with its reason, and refuse to run it. Done when: a test with a disabled action shows the page's reason.
 - [ ] Restore focus to the prior element on Esc. Done when: a UI Automation test reads the focused element before and after.
 - [ ] Refuse navigation from the palette while the page has unsaved edits, through `SelectionGuard`. Done when: a test sees the Save or Discard offer from `design/SPEC.md` §1.
+- [ ] Register the Settings page's Save and Discard in the palette (**Added 2026-11-15** from the plan review of `D02 T02 §5`, which builds them as buttons before the palette exists). Done when: a test finds both in the palette on the Settings page, each disabled with its reason while there is nothing to save, and each running the same save and discard as the buttons, with one line in the Activity log. Cheaper substitute: an action the keyboard can't reach from Ctrl+K.
 - [ ] Commit: `shell: command palette`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~CommandPalette` exits 0, and fails if a danger command skips its confirmation.
