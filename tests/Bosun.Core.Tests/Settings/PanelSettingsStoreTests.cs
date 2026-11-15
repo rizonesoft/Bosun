@@ -186,6 +186,66 @@ public class PanelSettingsStoreTests
         Assert.Equal("not json at all", File.ReadAllText(scratch.Settings));
     }
 
+    [Fact]
+    public void A_file_far_larger_than_settings_are_is_never_read_whole_and_is_kept_as_bad()
+    {
+        // Round 1: the whole file was read, and copied again to parse, before anything looked at its size.
+        using var scratch = new Scratch();
+        var huge = "{\"schema_version\": 1, \"theme\": \"Dark\", \"padding\": \"" + new string('x', 8 * 1024 * 1024) + "\"}";
+        File.WriteAllText(scratch.Settings, huge);
+        var files = new Counting();
+
+        var store = new PanelSettingsStore(scratch.Settings, files);
+
+        Assert.Equal((SettingsState.Restored, PanelSettings.Defaults), (store.State, store.Current));
+        Assert.Contains("it is larger than 64 KB", store.Notice);
+        Assert.Equal(PanelSettingsStore.MaxFileBytes + 1, files.MostRead); // one byte past the limit, never the eight megabytes
+        Assert.Equal(huge.Length, new FileInfo(store.BadPath).Length);     // kept whole, moved not copied
+
+        // A file of exactly the limit is still read; valid settings padded to it load.
+        var pad = PanelSettingsStore.MaxFileBytes - "{\"schema_version\": 1, \"theme\": \"Light\", \"padding\": \"\"}".Length;
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"theme\": \"Light\", \"padding\": \"" + new string('x', pad) + "\"}");
+        Assert.Equal(PanelSettingsStore.MaxFileBytes, new FileInfo(scratch.Settings).Length);
+        store.Reload();
+        Assert.Equal((SettingsState.Loaded, ThemeChoice.Light), (store.State, store.Current.Theme));
+    }
+
+    private sealed class Counting : PanelSettingsFiles
+    {
+        public int MostRead;
+
+        public override byte[] Read(string path, int limit)
+        {
+            var bytes = base.Read(path, limit);
+            MostRead = Math.Max(MostRead, bytes.Length);
+            return bytes;
+        }
+    }
+
+    [Fact]
+    public void A_reload_that_reads_different_settings_tells_the_listeners_and_one_that_reads_the_same_does_not()
+    {
+        // Round 1: a file that was held and then released was read by Retry, and nothing that follows the settings
+        // (the theme) was told.
+        using var scratch = new Scratch();
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"theme\": \"Dark\"}");
+        PanelSettingsStore store;
+        var told = new List<PanelSettings>();
+        using (new FileStream(scratch.Settings, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            store = new PanelSettingsStore(scratch.Settings);
+            store.Changed += told.Add;
+            store.Reload(); // still held: still the defaults, nothing to tell
+            Assert.Empty(told);
+        }
+
+        store.Reload();
+        Assert.Equal(ThemeChoice.Dark, Assert.Single(told).Theme);
+
+        store.Reload(); // the same again
+        Assert.Single(told);
+    }
+
     // ---- saving ----
 
     /// <summary>The store's hands on the disk, with one of them made to fail.</summary>
@@ -199,8 +259,8 @@ public class PanelSettingsStoreTests
             base.Write(path, bytes);
         }
 
-        public override byte[] Read(string path) =>
-            ReadBackDifferent && path.EndsWith(".tmp", StringComparison.Ordinal) ? [.. base.Read(path), (byte)'x'] : base.Read(path);
+        public override byte[] Read(string path, int limit) =>
+            ReadBackDifferent && path.EndsWith(".tmp", StringComparison.Ordinal) ? [.. base.Read(path, limit), (byte)'x'] : base.Read(path, limit);
 
         public override void Replace(string from, string to)
         {

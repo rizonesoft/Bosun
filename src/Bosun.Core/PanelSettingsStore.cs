@@ -38,7 +38,17 @@ public class PanelSettingsFiles
 {
     public virtual bool Exists(string path) => File.Exists(path);
 
-    public virtual byte[] Read(string path) => File.ReadAllBytes(path);
+    /// <summary>
+    /// Reads at most <paramref name="limit"/> bytes and one more: a caller that gets more than its limit knows the
+    /// file is too big without the whole of it ever being in memory.
+    /// </summary>
+    public virtual byte[] Read(string path, int limit)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var buffer = new byte[(int)Math.Min(stream.Length, (long)limit + 1)];
+        stream.ReadExactly(buffer);
+        return buffer;
+    }
 
     /// <summary>Writes a new file, through to the disk, making its folder if it is not there.</summary>
     public virtual void Write(string path, byte[] bytes)
@@ -69,6 +79,12 @@ public class PanelSettingsFiles
 public sealed class PanelSettingsStore
 {
     public const int SchemaVersion = 1;
+
+    /// <summary>
+    /// The most a settings file can be. The real one is a few hundred bytes; a file is somebody else's input, and one
+    /// of a gigabyte must not be read into memory before the panel has a window.
+    /// </summary>
+    public const int MaxFileBytes = 64 * 1024;
 
     private readonly PanelSettingsFiles _files;
 
@@ -108,7 +124,7 @@ public sealed class PanelSettingsStore
                 Set(PanelSettings.Defaults, SettingsState.Defaults, null);
                 return;
             }
-            bytes = _files.Read(FilePath);
+            bytes = _files.Read(FilePath, MaxFileBytes);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -116,7 +132,9 @@ public sealed class PanelSettingsStore
             return;
         }
 
-        if (TryParse(bytes, out var settings, out var fault))
+        var fault = "";
+        if (bytes.Length > MaxFileBytes) fault = $"it is larger than {MaxFileBytes / 1024} KB";
+        else if (TryParse(bytes, out var settings, out fault))
         {
             Set(settings, SettingsState.Loaded, null);
             return;
@@ -137,9 +155,13 @@ public sealed class PanelSettingsStore
 
     private void Set(PanelSettings settings, SettingsState state, string? notice)
     {
+        var changed = settings != Current;
         Current = settings;
         State = state;
         Notice = notice;
+        // A reload that reads different settings (a file that was held and is now released) is a change like a save:
+        // what follows the settings, the theme first of all, is told.
+        if (changed) Changed?.Invoke(settings);
     }
 
     /// <summary>
@@ -161,7 +183,7 @@ public sealed class PanelSettingsStore
         {
             _files.Write(TemporaryPath, bytes);
             // Checked before anything is replaced: until the new file is known good, the old one is untouched.
-            if (!_files.Read(TemporaryPath).AsSpan().SequenceEqual(bytes))
+            if (!_files.Read(TemporaryPath, MaxFileBytes).AsSpan().SequenceEqual(bytes))
                 throw new IOException("the new settings did not read back as they were written");
             _files.Replace(TemporaryPath, FilePath);
         }
@@ -171,8 +193,7 @@ public sealed class PanelSettingsStore
             return SaveOutcome.Failed($"{Path.GetFileName(FilePath)} could not be saved: {e.Message}");
         }
 
-        Set(settings, SettingsState.Loaded, null);
-        Changed?.Invoke(settings);
+        Set(settings, SettingsState.Loaded, null); // tells the listeners
         return SaveOutcome.Done;
     }
 
@@ -218,7 +239,7 @@ public sealed class PanelSettingsStore
         {
             // The byte order mark an editor may have added is not part of the JSON.
             var text = bytes.StartsWith(Encoding.UTF8.Preamble) ? bytes[Encoding.UTF8.Preamble.Length..] : bytes;
-            document = JsonDocument.Parse(text.ToArray());
+            document = JsonDocument.Parse(text.ToArray()); // at most MaxFileBytes: the read is bounded
         }
         catch (JsonException)
         {

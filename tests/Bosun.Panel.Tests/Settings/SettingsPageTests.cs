@@ -228,10 +228,16 @@ public class SettingsPageTests
             Assert.Equal(PageState.Failed, f.Page.State);
             Assert.Equal(LogSeverity.Fail, f.Log.Entries[0].Severity);
 
+            var applied = new List<ThemeChoice>();
+            f.Store.Changed += settings => applied.Add(settings.Theme); // as the theme service listens
+
             f.Files.FailRead = null; // released
             f.Page.Retry.Execute(null);
             Assert.True(StartupSupport.Pump(() => f.Page.State == PageState.Data));
             Assert.Equal(ThemeChoice.Dark, f.Page.SelectedTheme.Value);
+            // Round 1: the page showed the recovered theme and the panel went on drawing the default one.
+            Assert.Equal([ThemeChoice.Dark], applied);
+            Assert.False(f.Page.HasUnsavedEdits);
             Assert.Equal("{\"schema_version\": 1, \"theme\": \"Dark\"}", System.Text.Encoding.UTF8.GetString(f.Files.Files[SettingsFixture.FilePath])); // never written over
         });
     }

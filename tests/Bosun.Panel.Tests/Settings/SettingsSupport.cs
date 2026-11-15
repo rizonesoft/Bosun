@@ -20,8 +20,8 @@ public sealed class MemoryFiles : PanelSettingsFiles
 
     public override bool Exists(string path) => Files.ContainsKey(path);
 
-    public override byte[] Read(string path) =>
-        FailRead is not null ? throw FailRead : Files.TryGetValue(path, out var bytes) ? bytes : throw new FileNotFoundException("no such file", path);
+    public override byte[] Read(string path, int limit) =>
+        FailRead is not null ? throw FailRead : Files.TryGetValue(path, out var bytes) ? bytes[..(int)Math.Min(bytes.Length, (long)limit + 1)] : throw new FileNotFoundException("no such file", path);
 
     public override void Write(string path, byte[] bytes)
     {
