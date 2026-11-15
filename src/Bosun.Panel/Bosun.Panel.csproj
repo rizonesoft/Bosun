@@ -11,4 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Bosun.Core\Bosun.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The tests reach the helpers' test seams (LiveRegion.Raising, SelectionGuard.Target). -->
+    <InternalsVisibleTo Include="Bosun.Panel.Tests" />
+  </ItemGroup>
 </Project>
