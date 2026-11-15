@@ -48,7 +48,7 @@ title: "TODO-02 -- The application shell"
 | 3 | §3 | Process runner | D00 T02 §1 | [x] |
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [x] |
 | 5 | §5 | Settings store and theme switching | §4 | [x] |
-| 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
+| 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [x] |
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
@@ -362,6 +362,9 @@ The panel's most common state is closed. The tray is what makes it useful while 
 - [x] Commit: `shell: tray and notifications`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-namespace "*Tray*"` exits 0, and fails if the change is reverted.
+
+> **Verified:** 2026-11-15 | §7 | 2653051ecf4ee439aba6da83cce2c80c8232e804
+> **Review:** `docs/reviews/d02-t02-s7.json`
 
 ## 8. Pollers that stop when nothing is looking
 

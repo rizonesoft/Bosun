@@ -1,0 +1,91 @@
+{
+  "ref": "D02 T02 \u00a77",
+  "title": "Tray icon and notifications",
+  "implementation_sha": "2653051ecf4ee439aba6da83cce2c80c8232e804",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-shell/D02-T02-s7.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-namespace \"*Tray*\" -> passed within the whole solution: total: 456, failed: 0",
+    "pwsh scripts/render-pages.ps1 -> 30 pictures, exit 0",
+    "CI full gate on 2653051 -> build.yml: green at 2653051ecf4e (https://github.com/rizonetech/Bosun/actions/runs/43684561569)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s7.md",
+    "verdict": "completed",
+    "candidate": "ccc5e1c95f807fdf5ff32b2bc19e4d00079c04a7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s7.md",
+    "candidate": "688a463c77222cbcb889748349897f7180e25821",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "688a463c77222cbcb889748349897f7180e25821",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

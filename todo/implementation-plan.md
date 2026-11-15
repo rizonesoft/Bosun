@@ -77,7 +77,7 @@ Sections: 23 | Checklist items: 229
 | [x]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 7     |
 | [x]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 23    |
 | [x]    | D02 T02 §5  | Settings store and theme switching          | none            | 16    |
-| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 12    |
+| [x]    | D02 T02 §7  | Tray icon and notifications                 | none            | 12    |
 | [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 9     |
 | [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none            | 8     |
 | [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | display-session | 9     |
@@ -143,6 +143,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 49/88 verified sections, 8 ready to run now.
+Progress: 50/88 verified sections, 7 ready to run now.
 
 Checklist: 548/756 items completed (includes Commit items).
