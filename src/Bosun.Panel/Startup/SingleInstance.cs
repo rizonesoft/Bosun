@@ -189,14 +189,9 @@ public sealed class SingleInstance : IDisposable
         Interlocked.Exchange(ref _mutex, null)?.Dispose();
         if (_stop.IsCancellationRequested) return;
         _stop.Cancel();
-        try
-        {
-            Interlocked.Exchange(ref _listening, null)?.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (AggregateException)
-        {
-            // The listener ended on the cancellation above.
-        }
+        // Waited for, never observed: WaitAny returns when the listener has ended or the time is up, and throws for
+        // neither, so giving the instance up can't fail on what the listener was doing.
+        if (Interlocked.Exchange(ref _listening, null) is { } listening) Task.WaitAny([listening], TimeSpan.FromSeconds(2));
         _stop.Dispose();
     }
 
