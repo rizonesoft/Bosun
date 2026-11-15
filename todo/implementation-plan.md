@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 203
+Sections: 23 | Checklist items: 206
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -75,10 +75,10 @@ Sections: 23 | Checklist items: 203
 | [x]    | D02 T01 §4  | Control templates                           | none            | 25    |
 | [x]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 16    |
 | [x]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 7     |
-| [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 20    |
+| [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 21    |
 | [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 6     |
-| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 5     |
-| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 7     |
+| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 6     |
+| [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 8     |
 | [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none            | 8     |
 | [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | display-session | 9     |
 | [ ]    | D02 T03 §3  | Lucide icon map and rail marker             | display-session | 8     |
@@ -145,4 +145,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 47/88 verified sections, 6 ready to run now.
 
-Checklist: 497/727 items completed (includes Commit items).
+Checklist: 497/730 items completed (includes Commit items).
