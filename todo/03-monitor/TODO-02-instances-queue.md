@@ -104,6 +104,7 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 - [ ] Show each waiter's reason, derived from status JSON. Done when: a memory-gated job says it needs 6 GB and how much is free.
 - [ ] Show job history from `jobs-*.jsonl`. Done when: the last 200 appear, newest first, with exit codes.
 - [ ] Add the limits form through `bosun config set`. Done when: a bad value shows beside its field and the file doesn't change, and a saved slot count governs a real job. Cheaper substitute: the panel writing `config.json` directly.
+- [ ] Give the tray's Queue line its words through `IQueueSummary` (`src/Bosun.Panel/Tray/IQueueSummary.cs`) (**Added 2026-11-15** from `D02 T02 §7`, whose menu shows "Queue: Not available" until the queue can be read). Done when: a test with one job running and two waiting reads the line as that in words, and an unreadable queue reads Not available with the reason in the Activity pane. Cheaper substitute: a count of 0 for a queue that could not be read.
 - [ ] Commit: `queue: page and limits`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.

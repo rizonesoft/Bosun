@@ -155,6 +155,7 @@ This is what opens first. It only assembles other pages' state, so it is built a
 - [ ] Build the empty state. Done when: with nothing pending, it says "Nothing needs you."
 - [ ] Build the Needs you table with state word, what, where and Open in `Views/OverviewView.xaml`. Done when: Open goes to the owning page.
 - [ ] Feed rail count badges from `INeedsYouSource` by page in `src/Bosun.Panel/Shell/MainViewModel.cs`. Done when: a fake row on Queue shows a count of 1 on that rail row.
+- [ ] Give the tray what needs the operator through `INeedsYouSource` (`src/Bosun.Panel/Tray/INeedsYouSource.cs`), from the Needs you table (**Added 2026-11-15** from `D02 T02 §7`, whose tray shows the Needs you state from this source and is tested with its own). Done when: a test with two rows in the table reads the tray's Needs you state and its tooltip saying two things need you, and with none reads Normal.
 - [ ] Commit: `overview: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
