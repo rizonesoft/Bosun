@@ -21,7 +21,34 @@ public static partial class RenderCatalog
         // The control styles of Theme/Controls.xaml (D02 T01 §4), each in its states, and a table.
         new("controls", "gallery", ControlsGallery.Gallery) { Shows = "Stop job" },
         new("controls", "table", ControlsGallery.Table) { Shows = "Memory (MB)" },
+        // The shell (D02 T02 §4): the whole frame as the panel starts, a page in each of its four states, and the
+        // question asked when a page with unsaved changes is being left.
+        new("shell", "overview", () => new Bosun.Panel.Shell.ShellView { DataContext = Shell.Shells.Panel() }) { Shows = "Panel ready" },
+        new("page", "loading", () => Framed(new Shell.TestPage().Loading())) { Shows = "Loading" },
+        new("page", "data", () => Framed(new Shell.TestPage().Data())) { Shows = "two slots, one waiting" },
+        new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
+        new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },
+        new("dialog", "leave", LeaveQuestion) { Shows = "Save your changes to Queue?" },
     ];
+
+    /// <summary>A page in the frame every page is drawn in, with the margin the shell gives it.</summary>
+    private static FrameworkElement Framed(Shell.TestPage page)
+    {
+        var frame = new Bosun.Panel.Shell.PageFrame { DataContext = page, Margin = new Thickness(26, 22, 26, 12) };
+        Shell.TestPage.AddTemplate(frame);
+        return frame;
+    }
+
+    /// <summary>The shell with a page that has unsaved changes, asked about as it is being left.</summary>
+    private static FrameworkElement LeaveQuestion()
+    {
+        var (shell, first, _, _) = Shell.Shells.WithTestPages();
+        first.Edits = "slots 3";
+        var view = new Bosun.Panel.Shell.ShellView { DataContext = shell };
+        Shell.TestPage.AddTemplate(view);
+        _ = shell.LeaveAsync(); // the question is up; nobody answers it in a picture
+        return view;
+    }
 
     [GeneratedRegex("^[a-z0-9-]+$")]
     private static partial Regex Name();

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using Bosun.Panel.Shell;
 using Bosun.Panel.Startup;
 
 namespace Bosun.Panel;
@@ -12,6 +13,7 @@ public partial class App : Application
 {
     private const string Title = "Bosun Panel";
     private readonly PanelStartup _startup;
+    private IWindowSurface? _window;
 
     public App()
     {
@@ -42,18 +44,19 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    /// <summary>The first window. There is none yet: the shell's window is made here when it exists (D02 T02 §4).</summary>
-    private static void MakeWindow()
-    {
-    }
+    /// <summary>The first window: the shell in its window, shown (D02 T02 §4).</summary>
+    private void MakeWindow() =>
+        _window = WindowStart.Open(WindowStart.NewShell(Dispatcher), shell =>
+        {
+            var window = new MainWindow(shell);
+            MainWindow = window;
+            return window;
+        });
 
     /// <summary>A later launch asked for the panel: its window is restored if minimised, shown if hidden, and activated.</summary>
     private void BringForward()
     {
-        if (MainWindow is not { } window) return;
-        if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
-        window.Show();
-        window.Activate();
+        if (_window is not null) WindowActivation.BringForward(_window);
     }
 
     private static void Restart()

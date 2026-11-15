@@ -179,6 +179,8 @@ public static class PageRenderer
     /// </summary>
     public static T InPage<T>(string theme, Func<FrameworkElement> create, Func<Border, T> read, int width = 480, int height = 320) => Sta.Run(() =>
     {
+        // Awaits inside the control come back to this thread's dispatcher, as in the app.
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         var page = Page(create(), theme, width, height);
         using var source = Hidden("Bosun control test", page);
         Settle(page);

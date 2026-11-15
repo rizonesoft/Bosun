@@ -24,6 +24,9 @@ public sealed record LogEntry(DateTime At, LogSeverity Severity, string Message)
         LogSeverity.Warn => "WARN",
         _ => "INFO",
     };
+
+    /// <summary>The line as it reads, word first: what a screen reader says for it.</summary>
+    public override string ToString() => $"{Tag} {Time} {Message}";
 }
 
 /// <summary>

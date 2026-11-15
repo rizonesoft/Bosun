@@ -1,0 +1,17 @@
+<!-- The panel's window (D02 T02 §4, design/SPEC.md §1): its own chrome around ShellView. The top 44 px drag the
+     window, a 6 px border resizes it, and it is never smaller than 960 by 600. Windows draws no caption of its own:
+     the three buttons are ShellView's, and the maximise button answers the snap layouts through SnapLayoutHook. -->
+<Window x:Class="Bosun.Panel.Shell.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:Bosun.Panel.Shell"
+        Title="Bosun Panel" Width="1360" Height="860" MinWidth="960" MinHeight="600"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource B.Base}"
+        FontFamily="{DynamicResource F.Ui}" FontSize="{DynamicResource T.Body}" Foreground="{DynamicResource B.Text}"
+        UseLayoutRounding="True">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="44" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0"
+                      UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+    <shell:ShellView x:Name="Shell"/>
+</Window>

@@ -8,7 +8,8 @@
      There is no implicit TextBlock style on purpose: one in the application's resources reaches the text inside every
      control template and overrides the control's own Foreground. Text takes its font and colour from the window. -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:shell="clr-namespace:Bosun.Panel.Shell">
 
     <!-- Segoe UI Variable is the Windows 11 face; Segoe UI stands in where it is missing. -->
     <FontFamily x:Key="F.Ui">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -194,6 +195,20 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <!-- Its own template: the stock list paints the system's control colour behind itself when it is disabled,
+             a light box on a dark page. -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+                            <ItemsPresenter/>
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
         <Setter Property="ItemContainerStyle">
             <Setter.Value>
@@ -255,6 +270,20 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <!-- Its own template: the stock list paints the system's control colour behind itself when it is disabled,
+             a light box on a dark page. -->
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+                            <ItemsPresenter/>
+                        </ScrollViewer>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
         <Setter Property="ItemContainerStyle">
             <Setter.Value>
@@ -273,6 +302,27 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- A line of the activity log (D02 T02 §4, design/SPEC.md §1): the word first, then the time and the message.
+         The word says the state; its colour only repeats it. Found by the line's type, wherever one is shown. -->
+    <DataTemplate DataType="{x:Type shell:LogEntry}">
+        <DockPanel>
+            <TextBlock x:Name="word" DockPanel.Dock="Left" Text="{Binding Tag}" Style="{StaticResource T.Mono}"
+                       FontWeight="Bold" Width="44"/>
+            <TextBlock x:Name="time" DockPanel.Dock="Left" Text="{Binding Time}" Style="{StaticResource T.Mono}"
+                       Foreground="{DynamicResource B.TextMute}" Width="72"/>
+            <TextBlock x:Name="message" Text="{Binding Message}" Style="{StaticResource T.Mono}"
+                       Foreground="{DynamicResource B.Text}" TextWrapping="Wrap"/>
+        </DockPanel>
+        <DataTemplate.Triggers>
+            <DataTrigger Binding="{Binding Severity}" Value="Warn">
+                <Setter TargetName="word" Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Severity}" Value="Fail">
+                <Setter TargetName="word" Property="Foreground" Value="{DynamicResource B.Danger}"/>
+            </DataTrigger>
+        </DataTemplate.Triggers>
+    </DataTemplate>
 
     <!-- Scroll bars. The stock one is light chrome with stepper buttons, the loudest thing on a dark page. -->
     <Style x:Key="ScrollThumb" TargetType="Thumb">

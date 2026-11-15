@@ -7,9 +7,15 @@
     <InvariantGlobalization>false</InvariantGlobalization>
     <!-- asInvoker and per-monitor DPI v2 (D02 T02 §1): embedded in Bosun.Panel.exe. -->
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The program's icon (design/SPEC.md §18), generated from the masters by scripts/build-icons.py. -->
+    <ApplicationIcon>..\..\resources\bosun.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Bosun.Core\Bosun.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The same icon inside the panel, for its window and the title bar. -->
+    <Resource Include="..\..\resources\bosun.ico" Link="Resources\bosun.ico" />
   </ItemGroup>
   <ItemGroup>
     <!-- The tests reach the helpers' test seams (LiveRegion.Raising, SelectionGuard.Target). -->
