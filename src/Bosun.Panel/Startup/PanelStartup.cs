@@ -32,8 +32,8 @@ public sealed record StartupHost
     /// <summary>The value of <see cref="InstanceName.Variable"/>; null when it is not set.</summary>
     public string? InstanceVariable { get; init; }
 
-    /// <summary>The panel's data folder (<see cref="PanelPaths.Data()"/>).</summary>
-    public required string DataFolder { get; init; }
+    /// <summary>The value of <see cref="PanelPaths.Variable"/>; null when it is not set.</summary>
+    public string? DataVariable { get; init; }
 
     /// <summary>How long a later launch waits for the first to acknowledge, per try.</summary>
     public TimeSpan AnswerWithin { get; init; } = SingleInstance.DefaultAnswerWithin;
@@ -45,22 +45,30 @@ public sealed record StartupHost
 /// is the panel or a request to the one already running, and disposing it gives the instance up.
 ///
 /// Exit codes: 0 when the launch was handed to the running panel, 1 after a crash on the UI thread, 2 when
-/// <c>BOSUN_PANEL_INSTANCE</c> can't be a name, 3 when a panel is running but does not answer.
+/// <c>BOSUN_PANEL_INSTANCE</c> can't be a name, 3 when a panel is running but does not answer, 4 when
+/// <c>BOSUN_PANEL_DATA</c> can't be a folder's path.
 /// </summary>
 public sealed class PanelStartup : IDisposable
 {
-    public const int ExitForwarded = 0, ExitCrashed = 1, ExitBadInstanceName = 2, ExitNotAnswering = 3;
+    public const int ExitForwarded = 0, ExitCrashed = 1, ExitBadInstanceName = 2, ExitNotAnswering = 3, ExitBadDataFolder = 4;
 
     private readonly StartupHost _host;
     private readonly CrashHandlers _handlers;
+    private readonly string _dataRefusal;
     private SingleInstance? _instance;
 
     public PanelStartup(StartupHost host)
     {
         _host = host;
-        // First, before anything else can throw.
-        _handlers = CrashHandlers.Attach(host.Dispatcher, PanelPaths.Crash(host.DataFolder), OnUiCrash, host.Exit);
+        // Nothing here can throw: a data folder variable that can't be a path is kept as a refusal for Begin to
+        // tell, with the default folder in its place, so the crash handlers are attached whatever the environment holds.
+        PanelPaths.TryData(host.DataVariable, out var data, out _dataRefusal);
+        DataFolder = data;
+        _handlers = CrashHandlers.Attach(host.Dispatcher, PanelPaths.Crash(data), OnUiCrash, host.Exit);
     }
+
+    /// <summary>The panel's data folder: the variable's, or the default one.</summary>
+    public string DataFolder { get; }
 
     /// <summary>What this launch turned out to be; null before <see cref="Begin"/>, or when the instance name was refused.</summary>
     public InstanceRole? Role => _instance?.Role;
@@ -71,6 +79,12 @@ public sealed class PanelStartup : IDisposable
     /// </summary>
     public bool Begin()
     {
+        if (_dataRefusal.Length > 0)
+        {
+            _host.Tell(_dataRefusal);
+            _host.Exit(ExitBadDataFolder);
+            return false;
+        }
         if (!InstanceName.TryResolve(_host.InstanceVariable, out var name, out var refusal))
         {
             _host.Tell(refusal);

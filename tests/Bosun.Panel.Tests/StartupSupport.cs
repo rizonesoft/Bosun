@@ -69,10 +69,10 @@ sealed class RecordingHost
     /// <summary>What a restart does, after it is counted.</summary>
     public Action OnRestart { get; set; } = () => { };
 
-    public StartupHost Host(string? instanceVariable, string dataFolder, TimeSpan? answerWithin = null) => new()
+    public StartupHost Host(string? instanceVariable, string? dataVariable, TimeSpan? answerWithin = null) => new()
     {
         Dispatcher = Dispatcher.CurrentDispatcher,
-        DataFolder = dataFolder,
+        DataVariable = dataVariable,
         InstanceVariable = instanceVariable,
         AnswerWithin = answerWithin ?? TimeSpan.FromSeconds(5),
         MakeWindow = () => WindowsMade++,

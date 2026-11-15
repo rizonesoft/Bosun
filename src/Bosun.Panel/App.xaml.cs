@@ -19,7 +19,7 @@ public partial class App : Application
         _startup = new PanelStartup(new StartupHost
         {
             Dispatcher = Dispatcher,
-            DataFolder = PanelPaths.Data(),
+            DataVariable = Environment.GetEnvironmentVariable(PanelPaths.Variable),
             InstanceVariable = Environment.GetEnvironmentVariable(InstanceName.Variable),
             MakeWindow = MakeWindow,
             BringForward = BringForward,

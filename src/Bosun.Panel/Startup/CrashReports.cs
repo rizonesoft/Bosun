@@ -129,10 +129,22 @@ public static partial class CrashReports
         ?? typeof(CrashReports).Assembly.GetName().Version?.ToString()
         ?? "unknown";
 
-    /// <summary>Keeps the newest <see cref="Keep"/> reports; what is not a report of ours is left where it is.</summary>
+    /// <summary>How old a half-written report must be before it is taken for abandoned: a write takes milliseconds.</summary>
+    public static readonly TimeSpan AbandonedAfter = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Keeps the newest <see cref="Keep"/> reports, and removes a half-written one (<c>.tmp</c>) that a process left
+    /// when it was ended in the middle of a write, once it is old enough not to be another panel's write in progress.
+    /// What is not a report of ours is left where it is.
+    /// </summary>
     private static void Prune(string folder)
     {
-        var reports = new DirectoryInfo(folder).GetFiles()
+        var files = new DirectoryInfo(folder).GetFiles();
+        var cutoff = DateTime.UtcNow - AbandonedAfter;
+        foreach (var abandoned in files.Where(file => file.Name.EndsWith(".tmp", StringComparison.Ordinal) && Owns(file.Name) && file.LastWriteTimeUtc < cutoff))
+            TryDelete(abandoned.FullName);
+
+        var reports = files
             .Where(file => ReportName().IsMatch(file.Name))
             .OrderByDescending(file => file.LastWriteTimeUtc)
             .ThenByDescending(file => long.TryParse(ReportName().Match(file.Name).Groups[1].Value, out var n) ? n : 0)

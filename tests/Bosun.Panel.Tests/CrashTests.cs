@@ -163,6 +163,27 @@ public class CrashTests
         Assert.Equal("named like a report, but not one", File.ReadAllText(folder.File("crash-notes.txt")));
     }
 
+    [Fact]
+    public void A_half_written_report_left_by_an_interrupted_write_is_removed_once_it_is_old_and_a_fresh_one_is_left()
+    {
+        // The completion review: a process ended between writing the temporary file and moving it into place left a
+        // .tmp that nothing ever removed, outside the 20 the folder keeps.
+        using var folder = new TempFolder();
+        var abandoned = folder.File("crash-20260101-000000-4242-1.txt.tmp");
+        var inProgress = folder.File("crash-20260101-000000-4242-2.txt.tmp");
+        var someoneElses = folder.File("notes.tmp");
+        foreach (var file in new[] { abandoned, inProgress, someoneElses }) File.WriteAllText(file, "half a report");
+        File.SetLastWriteTimeUtc(abandoned, DateTime.UtcNow - CrashReports.AbandonedAfter - TimeSpan.FromMinutes(1));
+        File.SetLastWriteTimeUtc(someoneElses, DateTime.UtcNow.AddDays(-30));
+
+        var report = CrashReports.Write(folder.Path, new InvalidOperationException("the next crash"), CrashHandlers.OtherThread);
+
+        Assert.True(report.Saved, report.Failure);
+        Assert.False(File.Exists(abandoned), "the abandoned half-written report is gone");
+        Assert.True(File.Exists(inProgress), "a write that may be another panel's, in progress, is left alone");
+        Assert.True(File.Exists(someoneElses), "a .tmp that is not a report's is not ours to remove");
+    }
+
     // ---- the handlers ----
 
     [Fact]
@@ -336,6 +357,32 @@ public class CrashTests
         Assert.Equal([1], host.Exits);
         Assert.Single(host.Asked);
         Assert.Single(Reports(PanelPaths.Crash(data.Path))); // the failed restart is not a second crash
+    }
+
+    [Theory]
+    [InlineData("   ")]
+    [InlineData("C:\\data\0folder")]
+    public void A_data_folder_variable_that_cant_be_a_path_is_said_so_and_the_launch_exits_4_with_the_handlers_attached(string variable)
+    {
+        // The completion review: the application read the variable before its crash handlers existed, and a value
+        // that can't be a path threw there, ending the start with no word from Bosun.
+        Assert.False(PanelPaths.TryData(variable, out var fallback, out var refusal));
+        Assert.Equal(PanelPaths.Default(), fallback);
+        Assert.Contains(PanelPaths.Variable, refusal, StringComparison.Ordinal);
+        Assert.Equal(PanelPaths.Default(), PanelPaths.Data(variable)); // and the plain read never throws
+
+        var host = new RecordingHost();
+        Sta.Run(() =>
+        {
+            using var startup = new PanelStartup(host.Host(StartupSupport.Name(), variable));
+            Assert.Equal(PanelPaths.Default(), startup.DataFolder);
+            Assert.False(startup.Begin());
+            Assert.Null(startup.Role); // no instance was taken
+        });
+        Assert.Equal([PanelStartup.ExitBadDataFolder], host.Exits);
+        Assert.Equal(4, host.Exits[0]);
+        Assert.Equal(refusal, Assert.Single(host.Told));
+        Assert.Equal(0, host.WindowsMade);
     }
 
     [Fact]

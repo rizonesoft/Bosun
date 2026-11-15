@@ -22,7 +22,7 @@ static class Program
         using var startup = new PanelStartup(new StartupHost
         {
             Dispatcher = Dispatcher.CurrentDispatcher,
-            DataFolder = PanelPaths.Data(),
+            DataVariable = Environment.GetEnvironmentVariable(PanelPaths.Variable),
             InstanceVariable = Environment.GetEnvironmentVariable(InstanceName.Variable),
             MakeWindow = () => { },
             BringForward = () => { },
