@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The program the panel's startup tests start (tests/Bosun.Panel.Tests/StartupTests.cs): a process that begins
+       the panel's own startup wiring and then dies as a real panel could, which a test can't do to itself. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Bosun.Panel\Bosun.Panel.csproj" />
+  </ItemGroup>
+</Project>

@@ -5,6 +5,8 @@
     <UseWPF>true</UseWPF>
     <!-- Culture-aware bindings (dates, numbers, sizes) need ICU, so the panel never runs invariant. -->
     <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- asInvoker and per-monitor DPI v2 (D02 T02 §1): embedded in Bosun.Panel.exe. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Bosun.Core\Bosun.Core.csproj" />

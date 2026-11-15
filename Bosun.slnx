@@ -5,6 +5,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Bosun.Core.Tests/Bosun.Core.Tests.csproj" />
+    <Project Path="tests/Bosun.Panel.TestChild/Bosun.Panel.TestChild.csproj" />
     <Project Path="tests/Bosun.Panel.Tests/Bosun.Panel.Tests.csproj" />
     <Project Path="tests/Bosun.TestChild/Bosun.TestChild.csproj" />
   </Folder>

@@ -11,5 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Bosun.Panel\Bosun.Panel.csproj" />
+    <!-- Built before the tests, which start it as a process; nothing of it is referenced. -->
+    <ProjectReference Include="..\Bosun.Panel.TestChild\Bosun.Panel.TestChild.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
