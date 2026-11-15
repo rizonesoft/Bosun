@@ -100,14 +100,22 @@ public class ThemeServiceTests
             Assert.Equal([Environment.CurrentManagedThreadId], swappedOn); // swapped here, on the UI thread
             Assert.Equal(light, Paint(drawn.Background));
 
-            // A fixed choice does not follow.
+            // A fixed choice does not follow. Windows is light here and the panel is told to be dark: Windows going
+            // dark and then light again must leave it dark both times (round 3: one flip, to dark, proved nothing,
+            // since following Windows would have given dark too).
             theme.Apply(ThemeChoice.Dark);
             PageRenderer.Settle(page);
-            var again = Task.Run(windows.Flip);
-            StartupSupport.Pump(() => false, TimeSpan.FromMilliseconds(200));
-            Assert.True(again.IsCompleted);
-            Assert.Equal(ThemeService.Dark, theme.Effective);
-            Assert.Equal(dark, Paint(drawn.Background));
+            Assert.True(windows.IsLight);
+            foreach (var windowsIsLight in new[] { false, true })
+            {
+                var again = Task.Run(windows.Flip);
+                StartupSupport.Pump(() => false, TimeSpan.FromMilliseconds(200));
+                Assert.True(again.IsCompleted);
+                Assert.Equal(windowsIsLight, windows.IsLight);
+                Assert.Equal(ThemeService.Dark, theme.Effective);
+                Assert.Equal(dark, Paint(drawn.Background));
+            }
+            Assert.Single(swappedOn); // and nothing was swapped for either
 
             // Back to following: it takes what Windows is now.
             theme.Apply(ThemeChoice.FollowWindows);
