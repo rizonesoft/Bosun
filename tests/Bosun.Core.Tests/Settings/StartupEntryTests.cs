@@ -94,6 +94,33 @@ public class StartupEntryTests
     }
 
     [Fact]
+    public void A_value_that_starts_another_copy_is_read_as_that_and_turning_it_on_points_it_here()
+    {
+        // The completion review: any value at all read as on, so after the panel moved the page said on while
+        // Windows started the old path, or nothing.
+        var key = new FakeRunKey();
+        var entry = new StartupEntry(key, Program);
+        const string old = "\"D:\\Old\\Bosun.Panel.exe\" --tray";
+        key.Values[StartupEntry.Name] = old;
+
+        var read = entry.Read();
+        Assert.Equal((StartupState.OtherProgram, old), (read.State, read.Reason));
+        Assert.True(read.Chosen); // the person did choose to start with Windows
+
+        key.ApprovedBy[StartupEntry.Name] = false; // turned off by Windows as well: still the other program first
+        Assert.Equal(StartupState.OtherProgram, entry.Read().State);
+        key.ApprovedBy.Clear();
+
+        Assert.True(entry.Set(true).Succeeded); // the repair: the same switch, written for this copy
+        Assert.Equal(entry.Command, key.Values[StartupEntry.Name]);
+        Assert.Equal(StartupState.On, entry.Read().State);
+
+        // The same path in another case, or with a space after it, is this copy.
+        key.Values[StartupEntry.Name] = entry.Command.ToUpperInvariant() + " ";
+        Assert.Equal(StartupState.On, entry.Read().State);
+    }
+
+    [Fact]
     public void A_registry_that_cant_be_read_is_unavailable_with_the_reason_and_one_that_cant_be_written_says_why()
     {
         var key = new FakeRunKey { FailRead = new UnauthorizedAccessException("the key is locked by policy") };

@@ -36,11 +36,11 @@ public sealed record SaveOutcome(bool Succeeded, string? Reason)
 /// </summary>
 public class PanelSettingsFiles
 {
-    public virtual bool Exists(string path) => File.Exists(path);
-
     /// <summary>
     /// Reads at most <paramref name="limit"/> bytes and one more: a caller that gets more than its limit knows the
-    /// file is too big without the whole of it ever being in memory.
+    /// file is too big without the whole of it ever being in memory. A file that is not there is
+    /// <see cref="FileNotFoundException"/> or <see cref="DirectoryNotFoundException"/>, and nothing else is: asking
+    /// first whether it exists would answer no for a file that is there and may not be looked at.
     /// </summary>
     public virtual byte[] Read(string path, int limit)
     {
@@ -119,12 +119,14 @@ public sealed class PanelSettingsStore
         byte[] bytes;
         try
         {
-            if (!_files.Exists(FilePath))
-            {
-                Set(PanelSettings.Defaults, SettingsState.Defaults, null);
-                return;
-            }
             bytes = _files.Read(FilePath, MaxFileBytes);
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Read, not asked about: only these two say the file is not there. A folder that may not be looked into
+            // is refused below, as unavailable, and never taken for a first run.
+            Set(PanelSettings.Defaults, SettingsState.Defaults, null);
+            return;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

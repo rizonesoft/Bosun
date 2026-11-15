@@ -14,6 +14,12 @@ public enum StartupState
     /// </summary>
     DisabledByWindows,
 
+    /// <summary>
+    /// The Run value is there and starts something else: another copy of the panel, at a path it was moved or
+    /// updated away from. Windows would start that, or nothing. <see cref="StartupRead.Reason"/> holds the value.
+    /// </summary>
+    OtherProgram,
+
     /// <summary>The registry could not be read; <see cref="StartupRead.Reason"/> says why.</summary>
     Unavailable,
 }
@@ -21,8 +27,8 @@ public enum StartupState
 /// <summary>What reading the start-up entry gave.</summary>
 public sealed record StartupRead(StartupState State, string? Reason = null)
 {
-    /// <summary>The Run value is there: what the person chose, whatever Windows then did with it.</summary>
-    public bool Chosen => State is StartupState.On or StartupState.DisabledByWindows;
+    /// <summary>The Run value is there: what the person chose, whatever became of it since.</summary>
+    public bool Chosen => State is StartupState.On or StartupState.DisabledByWindows or StartupState.OtherProgram;
 }
 
 /// <summary>
@@ -63,7 +69,9 @@ public sealed class StartupEntry(IRunKey key, string programPath)
     {
         try
         {
-            if (key.Read(Name) is null) return new StartupRead(StartupState.Off);
+            if (key.Read(Name) is not { } value) return new StartupRead(StartupState.Off);
+            // What Windows would start, not merely that there is a value: paths differ only by case on Windows.
+            if (!string.Equals(value.Trim(), Command, StringComparison.OrdinalIgnoreCase)) return new StartupRead(StartupState.OtherProgram, value);
             return new StartupRead(key.Approved(Name) == false ? StartupState.DisabledByWindows : StartupState.On);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or SecurityException)

@@ -366,6 +366,88 @@ public class SettingsPageTests
         });
     }
 
+    [Fact]
+    public void A_start_up_entry_that_cant_be_read_on_return_is_said_so_with_read_again_and_edits_and_warnings_are_kept()
+    {
+        // The completion review: a read that failed on the way back was ignored, the switch went on as if current,
+        // and Discard then wiped the warning that Windows had the entry off.
+        OnUi(() =>
+        {
+            var f = new SettingsFixture();
+            var shell = f.Shell();
+            shell.Show(shell.Sections.Single(section => section.Key == "settings"));
+            f.Page.SelectedTheme = f.Option(ThemeChoice.Dark); // an edit, not saved
+            Assert.Null(f.Page.StartupNote);
+
+            f.Key.FailRead = new UnauthorizedAccessException("the key is locked by policy");
+            shell.WindowActivated();
+
+            Assert.Equal(PageState.Data, f.Page.State); // the page and its edit stay
+            Assert.Equal("The Windows start-up entry could not be read: the key is locked by policy The switch shows what was last read.", f.Page.StartupNote);
+            Assert.Equal("Read again", f.Page.StartupActionName);
+            Assert.Equal(ThemeChoice.Dark, f.Page.SelectedTheme.Value);
+            Assert.True(f.Page.HasUnsavedEdits);
+
+            f.Page.Discard(); // discarding invents no value and hides no warning
+            Assert.Contains("could not be read", f.Page.StartupNote);
+            Assert.False(f.Page.StartWithWindows);
+            Assert.False(f.Page.HasUnsavedEdits);
+
+            f.Page.StartupAction!.Execute(null); // still locked: said in the pane, and the line stays
+            Assert.True(StartupSupport.Pump(() => f.Log.Entries.Any(entry => entry.Severity == LogSeverity.Fail)));
+            Assert.Contains("could not be read", f.Page.StartupNote);
+
+            f.Key.FailRead = null; // unlocked, and the entry is in fact on
+            f.Key.Values[StartupEntry.Name] = f.Startup.Command;
+            f.Page.StartupAction!.Execute(null);
+            Assert.True(StartupSupport.Pump(() => f.Page.StartupNote is null), "Read again did not recover");
+            Assert.True(f.Page.StartWithWindows);
+            Assert.Null(f.Page.StartupAction);
+            Assert.False(f.Page.HasUnsavedEdits);
+        });
+    }
+
+    [Fact]
+    public void An_entry_that_starts_another_copy_is_said_so_and_use_this_copy_repairs_it()
+    {
+        // The completion review: any value read as on, so after the panel moved the page said on while Windows
+        // started the old path, and the unchanged switch gave Save nothing to do.
+        OnUi(() =>
+        {
+            var f = new SettingsFixture();
+            const string old = "\"D:\\Old\\Bosun.Panel.exe\" --tray";
+            f.Key.Values[StartupEntry.Name] = old;
+            f.Open();
+
+            Assert.True(f.Page.StartWithWindows); // the person did choose it
+            Assert.False(f.Page.HasUnsavedEdits);
+            Assert.Equal($"Start with Windows is on for another copy of Bosun Panel ({old}). Windows would start that one, or nothing if it is gone.", f.Page.StartupNote);
+            Assert.Equal("Use this copy", f.Page.StartupActionName);
+
+            f.Page.StartupAction!.Execute(null);
+            Assert.True(StartupSupport.Pump(() => f.Page.StartupNote is null), "the repair did nothing");
+            Assert.Equal(f.Startup.Command, f.Key.Values[StartupEntry.Name]);
+            Assert.True(f.Page.StartWithWindows);
+            Assert.Equal((LogSeverity.Info, "Point Start with Windows at this copy"), (f.Log.Entries.Single().Severity, f.Log.Entries.Single().Message));
+
+            // A repair the registry refuses says why, and the line stays.
+            f.Key.Values[StartupEntry.Name] = old;
+            f.Page.Discard();
+            f.Key.FailWrite = new UnauthorizedAccessException("the key is locked by policy");
+            f.Page.StartupAction!.Execute(null);
+            Assert.True(StartupSupport.Pump(() => f.Log.Entries.Count == 2));
+            Assert.Equal(LogSeverity.Fail, f.Log.Entries[1].Severity);
+            Assert.Contains("another copy", f.Page.StartupNote);
+
+            // Turning it off is the other way out, through Save.
+            f.Key.FailWrite = null;
+            f.Page.StartWithWindows = false;
+            Assert.True(f.Page.SaveAsync().Result.Succeeded);
+            Assert.Empty(f.Key.Values);
+            Assert.Null(f.Page.StartupNote);
+        });
+    }
+
     // ---- the page, drawn ----
 
     private static void Invoke(Button button) => ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(button).GetPattern(PatternInterface.Invoke)).Invoke();
@@ -449,8 +531,8 @@ public class SettingsPageTests
             Assert.Contains("panel.json.bad", view.Notice.Text);
             Assert.True(view.StartupOff.IsVisible);
             Assert.Contains("turned off in its start-up settings", view.StartupNote.Text);
-            Assert.Equal("Open Startup settings", view.OpenStartupSettings.Content);
-            Invoke(view.OpenStartupSettings);
+            Assert.Equal("Open Startup settings", view.StartupAction.Content);
+            Invoke(view.StartupAction);
             Assert.True(StartupSupport.Pump(() => f.StartupSettingsOpened == 1), "the action never ran");
 
             // Half saved: the line says what took and what did not.

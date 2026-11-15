@@ -32,7 +32,8 @@
                   IsChecked="{Binding StartWithWindows, Mode=TwoWay}" HorizontalAlignment="Left"
                   ToolTip="Starts Bosun Panel in the tray when you sign in to Windows."/>
 
-        <!-- Windows has the entry turned off itself: said in words, with the supported way back. -->
+        <!-- The entry is not simply on or off (Windows has it turned off, it starts another copy, or it could not be
+             read again): said in words, with the way out. -->
         <StackPanel x:Name="StartupOff" Margin="0,6,0,0">
             <StackPanel.Style>
                 <Style TargetType="StackPanel">
@@ -45,8 +46,9 @@
             </StackPanel.Style>
             <TextBlock x:Name="StartupNote" Text="{Binding StartupNote}" Foreground="{DynamicResource B.Warn}"
                        TextWrapping="Wrap" a:LiveRegion.Announce="True"/>
-            <Button x:Name="OpenStartupSettings" Content="Open Startup settings" Style="{DynamicResource Btn}"
-                    Command="{Binding OpenStartupSettings}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+            <!-- The way out of what the line says: Windows' own settings, this copy in place of another, or reading again. -->
+            <Button x:Name="StartupAction" Content="{Binding StartupActionName}" Style="{DynamicResource Btn}"
+                    Command="{Binding StartupAction}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,22,0,0">

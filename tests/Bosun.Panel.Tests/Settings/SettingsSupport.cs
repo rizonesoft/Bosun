@@ -18,8 +18,6 @@ public sealed class MemoryFiles : PanelSettingsFiles
     /// <summary>When set, every read fails with it: a file held by another program.</summary>
     public Exception? FailRead { get; set; }
 
-    public override bool Exists(string path) => Files.ContainsKey(path);
-
     public override byte[] Read(string path, int limit) =>
         FailRead is not null ? throw FailRead : Files.TryGetValue(path, out var bytes) ? bytes[..(int)Math.Min(bytes.Length, (long)limit + 1)] : throw new FileNotFoundException("no such file", path);
 

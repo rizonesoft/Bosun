@@ -246,6 +246,38 @@ public class PanelSettingsStoreTests
         Assert.Single(told);
     }
 
+    private sealed class Denied : PanelSettingsFiles
+    {
+        public bool Deny = true;
+
+        public override byte[] Read(string path, int limit) => Deny ? throw new UnauthorizedAccessException("Access to the path is denied.") : base.Read(path, limit);
+    }
+
+    [Fact]
+    public void A_settings_path_that_may_not_be_looked_at_is_unavailable_and_not_taken_for_a_first_run()
+    {
+        // The completion review: the store asked whether the file existed, and Windows answers no for a file in a
+        // folder that may not be looked into, so the defaults loaded in silence and a save was allowed over it.
+        using var scratch = new Scratch();
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"theme\": \"Dark\"}");
+        var files = new Denied();
+
+        var store = new PanelSettingsStore(scratch.Settings, files);
+
+        Assert.Equal(SettingsState.Unavailable, store.State);
+        Assert.Equal("panel.json could not be read: Access to the path is denied.", store.Notice);
+        Assert.False(store.Save(Chosen).Succeeded);
+        Assert.Equal("{\"schema_version\": 1, \"theme\": \"Dark\"}", File.ReadAllText(scratch.Settings));
+
+        files.Deny = false;
+        store.Reload();
+        Assert.Equal((SettingsState.Loaded, ThemeChoice.Dark), (store.State, store.Current.Theme));
+
+        // And a file, or its folder, that really is not there is still a first run.
+        Assert.Equal(SettingsState.Defaults, new PanelSettingsStore(scratch.File("none.json")).State);
+        Assert.Equal(SettingsState.Defaults, new PanelSettingsStore(Path.Combine(scratch.File("no-such-folder"), "panel.json")).State);
+    }
+
     // ---- saving ----
 
     /// <summary>The store's hands on the disk, with one of them made to fail.</summary>

@@ -25,7 +25,9 @@ public sealed class SettingsPage : PageBase
 {
     private readonly PanelSettingsStore _store;
     private readonly StartupEntry _startup;
-    private readonly AsyncCommand _save, _discard;
+    private readonly AsyncCommand _save, _discard, _repair, _readAgain;
+    private ICommand? _startupAction;
+    private string? _startupActionName;
     private ThemeChoice _storedTheme;
     private bool _storedStart;
     private ThemeOption _selectedTheme;
@@ -48,6 +50,17 @@ public sealed class SettingsPage : PageBase
         {
             openStartupSettings();
             return Task.FromResult(ActionOutcome.Done);
+        });
+        _repair = log.Command("Point Start with Windows at this copy", () =>
+        {
+            var outcome = _startup.Set(true);
+            ReadStartupAgain();
+            return Task.FromResult(outcome.Succeeded ? ActionOutcome.Done : ActionOutcome.Failed(outcome.Reason ?? "The start-up entry was not changed."));
+        });
+        _readAgain = log.Command("Read the Windows start-up entry again", () =>
+        {
+            var read = ReadStartupAgain();
+            return Task.FromResult(read.State == StartupState.Unavailable ? ActionOutcome.Failed(read.Reason ?? "It could not be read.") : ActionOutcome.Done);
         });
         Retry = log.Command("Read settings again", () =>
         {
@@ -92,11 +105,27 @@ public sealed class SettingsPage : PageBase
         private set => Set(ref _notice, value);
     }
 
-    /// <summary>Said when Windows has the start-up entry turned off: the Run value is there, and Windows is not acting on it.</summary>
+    /// <summary>
+    /// Said when the start-up entry is not simply on or off: Windows has it turned off, it starts another copy of
+    /// the panel, or it could not be read again. <see cref="StartupAction"/> is the way out of each.
+    /// </summary>
     public string? StartupNote
     {
         get => _startupNote;
         private set => Set(ref _startupNote, value);
+    }
+
+    /// <summary>What to do about <see cref="StartupNote"/>, and the words on its button.</summary>
+    public ICommand? StartupAction
+    {
+        get => _startupAction;
+        private set => Set(ref _startupAction, value);
+    }
+
+    public string? StartupActionName
+    {
+        get => _startupActionName;
+        private set => Set(ref _startupActionName, value);
     }
 
     /// <summary>What the last save did.</summary>
@@ -156,12 +185,32 @@ public sealed class SettingsPage : PageBase
         StartWithWindows = _storedStart;
     }
 
+    /// <summary>
+    /// What was read of the start-up entry becomes what is stored, and what the page says about it. An entry that
+    /// could not be read changes nothing that is stored: the switch goes on showing what was last read, and says so.
+    /// </summary>
     private void TakeStart(StartupRead start)
     {
+        switch (start.State)
+        {
+            case StartupState.Unavailable:
+                StartupNote = $"{start.Reason} The switch shows what was last read.";
+                (StartupAction, StartupActionName) = (_readAgain, "Read again");
+                return;
+            case StartupState.DisabledByWindows:
+                StartupNote = "Windows has Bosun Panel turned off in its start-up settings, so it will not start at sign-in until it is turned on there.";
+                (StartupAction, StartupActionName) = (OpenStartupSettings, "Open Startup settings");
+                break;
+            case StartupState.OtherProgram:
+                StartupNote = $"Start with Windows is on for another copy of Bosun Panel ({start.Reason}). Windows would start that one, or nothing if it is gone.";
+                (StartupAction, StartupActionName) = (_repair, "Use this copy");
+                break;
+            default:
+                StartupNote = null;
+                (StartupAction, StartupActionName) = (null, null);
+                break;
+        }
         _storedStart = start.Chosen;
-        StartupNote = start.State == StartupState.DisabledByWindows
-            ? "Windows has Bosun Panel turned off in its start-up settings, so it will not start at sign-in until it is turned on there."
-            : null;
     }
 
     protected override void Shown() => ReadStartupAgain();
@@ -173,15 +222,15 @@ public sealed class SettingsPage : PageBase
     /// person to Windows to turn it on. So it is read again whenever the page comes on screen or the person comes
     /// back to the window. What the person has changed on the page and not saved is kept.
     /// </summary>
-    private void ReadStartupAgain()
+    private StartupRead ReadStartupAgain()
     {
-        if (State != PageState.Data) return;
         var start = _startup.Read();
-        if (start.State == StartupState.Unavailable) return; // what was last read stands; Save and Retry say why if it matters
+        if (State != PageState.Data) return start;
         var edited = _startWithWindows != _storedStart;
-        TakeStart(start);
+        TakeStart(start); // an entry that can't be read now is said so, with Read again, and nothing stored changes
         if (!edited) StartWithWindows = _storedStart;
         Edited();
+        return start;
     }
 
     public override Task<ActionOutcome> SaveAsync()
@@ -233,9 +282,9 @@ public sealed class SettingsPage : PageBase
     public override void Discard()
     {
         if (State != PageState.Data) return;
-        var start = _startup.Read();
-        // A Run key that can't be read now keeps what was last read: discarding must not invent a value.
-        Take(_store.Current.Theme, start.State == StartupState.Unavailable ? new StartupRead(_storedStart ? StartupState.On : StartupState.Off) : start);
+        // A Run key that can't be read now keeps what was last read, and says so: discarding invents no value and
+        // hides no warning.
+        Take(_store.Current.Theme, _startup.Read());
         Status = null;
         SaveFailure = null; // the edits a save could not keep are gone, and so is what there was to say about them
         Edited();
