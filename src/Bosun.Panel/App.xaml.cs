@@ -1,7 +1,10 @@
 using System.Diagnostics;
 using System.Windows;
+using Bosun.Core;
+using Bosun.Panel.Settings;
 using Bosun.Panel.Shell;
 using Bosun.Panel.Startup;
+using Bosun.Panel.Theme;
 
 namespace Bosun.Panel;
 
@@ -14,6 +17,7 @@ public partial class App : Application
     private const string Title = "Bosun Panel";
     private readonly PanelStartup _startup;
     private IWindowSurface? _window;
+    private WindowsTheme? _windowsTheme;
 
     public App()
     {
@@ -40,18 +44,37 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _windowsTheme?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
     }
 
     /// <summary>The first window: the shell in its window, shown (D02 T02 §4).</summary>
-    private void MakeWindow() =>
-        _window = WindowStart.Open(WindowStart.NewShell(Dispatcher), shell =>
+    private void MakeWindow()
+    {
+        var settings = new PanelSettingsStore(System.IO.Path.Combine(_startup.DataFolder, "panel.json"));
+
+        // The stored theme first, so the window is never drawn in one theme and then another (D02 T02 §5).
+        _windowsTheme = new WindowsTheme();
+        var theme = new ThemeService(Resources.MergedDictionaries, _windowsTheme, Dispatcher);
+        theme.Apply(settings.Current.Theme);
+        settings.Changed += saved => theme.Apply(saved.Theme);
+        _windowsTheme.Listen();
+
+        var startup = new StartupEntry(new RegistryRunKey(), Environment.ProcessPath ?? "Bosun.Panel.exe");
+        _window = WindowStart.Open(WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings), shell =>
         {
             var window = new MainWindow(shell);
             MainWindow = window;
             return window;
         });
+    }
+
+    /// <summary>Windows' own start-up settings: where an entry Windows has turned off is turned back on.</summary>
+    private static void OpenStartupSettings()
+    {
+        using var opened = Process.Start(new ProcessStartInfo("ms-settings:startupapps") { UseShellExecute = true });
+    }
 
     /// <summary>A later launch asked for the panel: its window is restored if minimised, shown if hidden, and activated.</summary>
     private void BringForward()

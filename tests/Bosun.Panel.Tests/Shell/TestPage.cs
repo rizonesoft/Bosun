@@ -110,7 +110,7 @@ public static class Shells
         return new ActivityLog(new UiLogSink(Dispatcher.CurrentDispatcher, () => new DateTime(2026, 11, 15, 9, 10, 0, DateTimeKind.Local).AddMinutes(second++)));
     }
 
-    /// <summary>The panel's own shell, as it starts: the seven placeholders, with a line of each kind in the pane.</summary>
+    /// <summary>The panel's rail with every page a placeholder, and a line of each kind in the pane: the frame itself.</summary>
     public static ShellViewModel Panel()
     {
         var log = Log();

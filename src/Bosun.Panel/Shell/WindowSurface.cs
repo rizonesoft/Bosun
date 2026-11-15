@@ -52,12 +52,22 @@ public static class WindowStart
         return window;
     }
 
-    /// <summary>The shell a panel starts with: the rail's sections and an activity log on this thread, saying it is ready.</summary>
-    public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher)
+    /// <summary>
+    /// The shell a panel starts with: an activity log on this thread, the rail's sections with the pages that are
+    /// built over the panel's own settings and start-up entry, and the Activity pane at the height that was saved.
+    /// Settings that could not be read say so in the Activity pane from the start.
+    /// </summary>
+    public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
+        Bosun.Core.StartupEntry startup, Action openStartupSettings)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
-        var shell = new ShellViewModel(Sections.All(), log);
+        var pages = new Dictionary<string, PageBase>
+        {
+            ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings),
+        };
+        var shell = new ShellViewModel(Sections.All(pages), log, settings);
         log.Info("Panel ready");
+        if (settings.Notice is { } notice) log.Warn(notice);
         return shell;
     }
 }

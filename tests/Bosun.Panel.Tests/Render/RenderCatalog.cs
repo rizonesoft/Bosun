@@ -29,6 +29,22 @@ public static partial class RenderCatalog
         new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
         new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },
         new("dialog", "leave", LeaveQuestion) { Shows = "Save your changes to Queue?" },
+        // The Settings page (D02 T02 §5): as it opens, after a damaged file was moved aside, when the file can't be
+        // read at all, and after a save that only half took.
+        new("settings", "general", () => Settings(_ => { })) { Shows = "Start with Windows, in the tray" },
+        new("settings", "restored", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath, "not json at all"))) { Shows = "panel.json.bad" },
+        new("settings", "unavailable", () => Settings(f =>
+        {
+            f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath, "{}");
+            f.Files.FailRead = new IOException("The process cannot access the file because it is being used by another process.");
+        })) { Shows = "panel.json could not be read" },
+        new("settings", "half-saved", () => Settings(_ => { }, f =>
+        {
+            f.Page.SelectedTheme = f.Option(Bosun.Core.ThemeChoice.Dark);
+            f.Page.StartWithWindows = true;
+            f.Key.FailWrite = new UnauthorizedAccessException("Access to the registry key is denied.");
+            _ = f.Page.SaveAsync();
+        })) { Shows = "Not saved: Start with Windows could not be turned on" },
     ];
 
     /// <summary>A page in the frame every page is drawn in, with the margin the shell gives it.</summary>
@@ -37,6 +53,16 @@ public static partial class RenderCatalog
         var frame = new Bosun.Panel.Shell.PageFrame { DataContext = page, Margin = new Thickness(26, 22, 26, 12) };
         Shell.TestPage.AddTemplate(frame);
         return frame;
+    }
+
+    /// <summary>The Settings page in the frame, over settings that are only memory, arranged before and after it opens.</summary>
+    private static FrameworkElement Settings(Action<Bosun.Panel.Tests.Settings.SettingsFixture> before, Action<Bosun.Panel.Tests.Settings.SettingsFixture>? after = null)
+    {
+        var fixture = new Bosun.Panel.Tests.Settings.SettingsFixture();
+        before(fixture);
+        fixture.Open();
+        after?.Invoke(fixture);
+        return new Bosun.Panel.Shell.PageFrame { DataContext = fixture.Page, Margin = new Thickness(26, 22, 26, 12) };
     }
 
     /// <summary>The shell with a page that has unsaved changes, asked about as it is being left.</summary>

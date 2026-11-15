@@ -61,7 +61,7 @@ public partial class WindowTests
     {
         Sta.Run(() =>
         {
-            var shell = WindowStart.NewShell(System.Windows.Threading.Dispatcher.CurrentDispatcher);
+            var shell = new Settings.SettingsFixture().Shell(); // WindowStart.NewShell, over settings that are only memory
             Assert.Equal(7, shell.Sections.Count);
             Assert.Equal("Panel ready", Assert.Single(shell.Activity).Message);
 

@@ -22,7 +22,15 @@ public static class Sections
         new("about", "About", App, "Version, runtime, log folders and licence.", "D07 T01 §1"),
     ];
 
-    /// <summary>The rail's sections, each with a page of its own: made fresh, so two shells never share a page.</summary>
-    public static IReadOnlyList<Section> All() =>
-        [.. Rows.Select(row => new Section(row.Key, row.Title, row.Group, new PlaceholderPage(row.Title, row.Summary, row.Owner)))];
+    /// <summary>
+    /// The rail's sections, each with a page of its own: made fresh, so two shells never share a page. A page that
+    /// has been built is given by its row's key; every other row opens its placeholder.
+    /// </summary>
+    public static IReadOnlyList<Section> All(IReadOnlyDictionary<string, PageBase>? built = null)
+    {
+        if (built is not null && built.Keys.FirstOrDefault(key => Rows.All(row => row.Key != key)) is { } stray)
+            throw new ArgumentException($"'{stray}' is not a row of the rail", nameof(built));
+        return [.. Rows.Select(row => new Section(row.Key, row.Title, row.Group,
+            built is not null && built.TryGetValue(row.Key, out var page) ? page : new PlaceholderPage(row.Title, row.Summary, row.Owner)))];
+    }
 }

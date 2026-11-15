@@ -33,12 +33,16 @@ public sealed class ShellViewModel : Observable
     private TaskCompletionSource<LeaveChoice>? _answer;
     private bool _leaving;
     private double _activityHeight = DefaultActivityHeight;
+    private readonly Bosun.Core.PanelSettingsStore? _settings;
 
-    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log)
+    /// <param name="settings">Where the Activity pane's height is kept between runs; null keeps it for this run only.</param>
+    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null)
     {
         if (sections.Count == 0) throw new ArgumentException("the rail needs at least one section", nameof(sections));
         Sections = sections;
         Log = log;
+        _settings = settings;
+        if (settings is not null) _activityHeight = Math.Clamp(settings.Current.ActivityPaneHeight, MinActivityHeight, MaxActivityHeight);
         AskToLeave = AskInTheShell;
         _selected = sections[0];
         _selected.Page.Show();
@@ -60,7 +64,15 @@ public sealed class ShellViewModel : Observable
     public double ActivityHeight
     {
         get => _activityHeight;
-        set => Set(ref _activityHeight, Math.Clamp(value, MinActivityHeight, MaxActivityHeight));
+        set
+        {
+            if (!Set(ref _activityHeight, Math.Clamp(value, MinActivityHeight, MaxActivityHeight)) || _settings is null) return;
+            // Only the height of the latest stored settings: a theme saved since is kept. The pane stays where the
+            // person put it whether or not the save took.
+            var height = _activityHeight;
+            var saved = _settings.Update(current => current with { ActivityPaneHeight = height });
+            if (!saved.Succeeded) Log.Warn($"The Activity pane's height was not saved: {saved.Reason}");
+        }
     }
 
     /// <summary>
