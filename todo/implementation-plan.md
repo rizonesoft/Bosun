@@ -73,7 +73,7 @@ Sections: 23 | Checklist items: 190
 | [ ]    | D02 T02 §8  | Pollers that stop when nothing is looking   | none            | 4     |
 | [x]    | D02 T02 §9  | Off-screen page rendering for review        | none            | 9     |
 | [x]    | D02 T01 §4  | Control templates                           | none            | 25    |
-| [ ]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 16    |
+| [x]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 16    |
 | [ ]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 4     |
 | [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 13    |
 | [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 5     |
@@ -143,6 +143,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 45/88 verified sections, 6 ready to run now.
+Progress: 46/88 verified sections, 6 ready to run now.
 
-Checklist: 489/714 items completed (includes Commit items).
+Checklist: 490/714 items completed (includes Commit items).

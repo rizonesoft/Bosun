@@ -43,7 +43,7 @@ title: "TODO-02 -- The application shell"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Startup, single instance and crash handling | D02 T01 §4 | [ ] |
+| 1 | §1 | Startup, single instance and crash handling | D02 T01 §4 | [x] |
 | 2 | §2 | View model base and accessibility helpers | §1 | [ ] |
 | 3 | §3 | Process runner | D00 T02 §1 | [x] |
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [ ] |
@@ -100,9 +100,12 @@ Steward has neither single-instance nor crash handling, which the review of its 
 - [x] Create `src/Bosun.Panel/app.manifest` with per-monitor v2 DPI awareness, `asInvoker`, Windows 10 and 11 as supported and the version 6 common controls, citing `D:\Steward\src\Steward.Console\app.manifest:27-28`, and name it as `ApplicationManifest` in `src/Bosun.Panel/Bosun.Panel.csproj`. Done when: a test reads `asInvoker` (and no `requireAdministrator`) and `permonitorv2` from the file, and reads the same two from the manifest resource inside the built `Bosun.Panel.exe`. Cheaper substitute: copying `requireAdministrator`.
 - [x] Settle round 1 (`docs/reviews/02-shell/D02-T02-s1.md`) in `SingleInstance.cs` and `PanelStartup.cs` (**Added 2026-11-15**): the activation callback is given to `SingleInstance.Start`, before anything is listened for, and a first without one acknowledges nothing (the listener used to acknowledge a request it had nobody to give to); and bringing the window forward is posted with `BeginInvoke`, so an exception in it reaches the UI thread's crash handler and the launch is not acknowledged (`InvokeAsync` kept it in a task nothing reported). Done when: `StartupTests` reads `NotAnswering` from a first started with no callback, and, with a host whose bring-forward throws, a crash report from the UI thread, one notice, one exit of 1 and a launch that was not `Forwarded`.
 - [x] Settle the completion review's two gaps (`docs/reviews/02-shell/D02-T02-s1.md`) in `PanelPaths.cs`, `PanelStartup.cs` and `CrashReports.cs` (**Added 2026-11-15**): a `BOSUN_PANEL_DATA` that can't be a folder's path no longer throws before the crash handlers exist (`PanelPaths.TryData`; `PanelStartup` attaches the handlers on the default folder, then tells the person and exits 4); and a half-written report (`.tmp`) left by a process that was ended in the middle of a write is removed by the next write once it is an hour old, a fresher one being left as another panel's write in progress. Done when: `CrashTests` reads the notice naming the variable, exit 4 and no instance taken for a value of spaces and for one holding a character a path can't; and finds an old abandoned `.tmp` gone after a write, with a fresh one and a `.tmp` that is not a report's both still there. Cheaper substitute: a start that dies without a word.
-- [ ] Commit: `shell: single instance and crash reports`
+- [x] Commit: `shell: single instance and crash reports`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*Startup*" --filter-class "*Crash*"` exits 0, and fails if the change is reverted.
+
+> **Verified:** 2026-11-15 | §1 | 2edc1ff8d37dc3c2708ef6852c762de29206ea5f
+> **Review:** `docs/reviews/d02-t02-s1.json`
 
 ## 2. View model base and accessibility helpers
 

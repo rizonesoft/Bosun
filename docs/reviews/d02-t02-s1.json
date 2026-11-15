@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a71",
+  "title": "Startup, single instance and crash handling",
+  "implementation_sha": "2edc1ff8d37dc3c2708ef6852c762de29206ea5f",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-class \"*Startup*\" --filter-class \"*Crash*\" -> passed within the whole solution: total: 241, failed: 0",
+    "CI full gate on 2edc1ff -> build.yml: green at 2edc1ff8d37d (https://github.com/rizonetech/Bosun/actions/runs/43659988182)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s1.md",
+    "verdict": "completed",
+    "candidate": "338e760fb495c1b60bd1bb15ba6dfe71da101052",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s1.md",
+    "candidate": "0abdcc784a5d54a1d0524a8a2ad0e0afa3a5febb",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "0abdcc784a5d54a1d0524a8a2ad0e0afa3a5febb",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
