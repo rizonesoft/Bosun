@@ -287,6 +287,85 @@ public class SettingsPageTests
         });
     }
 
+    [Fact]
+    public void An_entry_turned_back_on_in_windows_is_read_again_when_the_person_comes_back_and_unsaved_edits_are_kept()
+    {
+        // Round 2: the page sent the person to Windows' settings and never looked again.
+        OnUi(() =>
+        {
+            var f = new SettingsFixture();
+            f.Key.Values[StartupEntry.Name] = "\"C:\\Program Files\\Bosun\\Bosun.Panel.exe\" --tray";
+            f.Key.ApprovedBy[StartupEntry.Name] = false;
+            var shell = f.Shell();
+            shell.Show(shell.Sections.Single(section => section.Key == "settings"));
+            Assert.NotNull(f.Page.StartupNote);
+
+            f.Page.SelectedTheme = f.Option(ThemeChoice.Dark); // an edit, not saved
+            f.Key.ApprovedBy[StartupEntry.Name] = true;        // turned on in Windows' own settings
+            shell.WindowActivated();                           // and back to the panel
+
+            Assert.Null(f.Page.StartupNote);
+            Assert.True(f.Page.StartWithWindows);
+            Assert.Equal(ThemeChoice.Dark, f.Page.SelectedTheme.Value); // the unsaved edit is still there
+            Assert.True(f.Page.HasUnsavedEdits);
+
+            // Removed altogether elsewhere while the page is away: read when the page comes back on screen.
+            f.Page.Discard();
+            shell.Show(shell.Sections[0]);
+            f.Key.Values.Clear();
+            shell.Show(shell.Sections.Single(section => section.Key == "settings"));
+            Assert.False(f.Page.StartWithWindows);
+            Assert.False(f.Page.HasUnsavedEdits);
+
+            // A switch the person has changed and not saved is theirs: a read does not undo it.
+            f.Page.StartWithWindows = true;
+            shell.WindowActivated();
+            Assert.True(f.Page.StartWithWindows);
+            Assert.True(f.Page.HasUnsavedEdits);
+
+            // Another page on screen is not told about the Settings page's world.
+            shell.AskToLeave = _ => Task.FromResult(LeaveChoice.Discard);
+            Assert.True(shell.GoToAsync(shell.Sections[0]).Result);
+            f.Key.Values[StartupEntry.Name] = f.Startup.Command;
+            shell.WindowActivated();
+            Assert.False(f.Page.StartWithWindows); // not on screen: read when it next is
+        });
+    }
+
+    [Fact]
+    public void A_not_saved_line_from_leaving_is_cleared_by_a_later_save_that_works_and_by_discard()
+    {
+        // Round 2: the frame went on saying "Not saved" after the page's own Save had saved everything.
+        OnUi(() =>
+        {
+            var f = new SettingsFixture();
+            var shell = f.Shell();
+            shell.Show(shell.Sections.Single(section => section.Key == "settings"));
+
+            void FailOnTheWayOut()
+            {
+                f.Page.SelectedTheme = f.Option(f.Page.SelectedTheme.Value == ThemeChoice.Dark ? ThemeChoice.Light : ThemeChoice.Dark);
+                f.Files.FailWrite = new IOException("the file is being used by another process");
+                var leaving = shell.GoToAsync(shell.Sections[0]);
+                shell.Answer(LeaveChoice.Save);
+                Assert.True(StartupSupport.Pump(() => leaving.IsCompleted));
+                Assert.False(leaving.Result);
+                Assert.StartsWith("Not saved: ", f.Page.SaveFailure);
+                f.Files.FailWrite = null;
+            }
+
+            FailOnTheWayOut();
+            Assert.True(f.Page.SaveAsync().Result.Succeeded); // the page's own Save, once the file is free
+            Assert.Null(f.Page.SaveFailure);
+            Assert.False(f.Page.HasUnsavedEdits);
+
+            FailOnTheWayOut();
+            f.Page.Discard(); // or the page's own Discard
+            Assert.Null(f.Page.SaveFailure);
+            Assert.False(f.Page.HasUnsavedEdits);
+        });
+    }
+
     // ---- the page, drawn ----
 
     private static void Invoke(Button button) => ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(button).GetPattern(PatternInterface.Invoke)).Invoke();

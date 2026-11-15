@@ -164,6 +164,26 @@ public sealed class SettingsPage : PageBase
             : null;
     }
 
+    protected override void Shown() => ReadStartupAgain();
+
+    protected override void CameBack() => ReadStartupAgain();
+
+    /// <summary>
+    /// The start-up entry can change behind the page's back: it is Windows' own setting, and the page sends the
+    /// person to Windows to turn it on. So it is read again whenever the page comes on screen or the person comes
+    /// back to the window. What the person has changed on the page and not saved is kept.
+    /// </summary>
+    private void ReadStartupAgain()
+    {
+        if (State != PageState.Data) return;
+        var start = _startup.Read();
+        if (start.State == StartupState.Unavailable) return; // what was last read stands; Save and Retry say why if it matters
+        var edited = _startWithWindows != _storedStart;
+        TakeStart(start);
+        if (!edited) StartWithWindows = _storedStart;
+        Edited();
+    }
+
     public override Task<ActionOutcome> SaveAsync()
     {
         var saved = new List<string>();
@@ -199,6 +219,8 @@ public sealed class SettingsPage : PageBase
         var done = saved.Count == 0 ? null : "Saved and read back: " + string.Join(", ", saved) + ".";
         if (failed.Count == 0)
         {
+            // Whatever an earlier save, asked for on the way out of the page, could not do has now been done.
+            SaveFailure = null;
             Status = done ?? "Nothing to save.";
             return Task.FromResult(saved.Count == 0 ? ActionOutcome.Done : ActionOutcome.DoneWith(string.Join(", ", saved)));
         }
@@ -215,6 +237,7 @@ public sealed class SettingsPage : PageBase
         // A Run key that can't be read now keeps what was last read: discarding must not invent a value.
         Take(_store.Current.Theme, start.State == StartupState.Unavailable ? new StartupRead(_storedStart ? StartupState.On : StartupState.Off) : start);
         Status = null;
+        SaveFailure = null; // the edits a save could not keep are gone, and so is what there was to say about them
         Edited();
     }
 }

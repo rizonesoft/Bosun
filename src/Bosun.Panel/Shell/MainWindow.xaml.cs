@@ -59,6 +59,13 @@ public partial class MainWindow : Window, IWindowSurface
         ShowState();
     }
 
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        // Back from another window (Windows' own settings, say): the page on screen reads again what it shows of them.
+        (DataContext as ShellViewModel)?.WindowActivated();
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);

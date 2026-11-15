@@ -90,6 +90,9 @@ public sealed class ShellViewModel : Observable
         _selected.Page.Show();
     }
 
+    /// <summary>The window came to the front again: the page on screen is told, so it shows the world as it is now.</summary>
+    public void WindowActivated() => Page.ComeBack();
+
     /// <summary>Goes to a section from code (a page's Open, the palette): asks about unsaved edits first; false when the person stayed.</summary>
     public async Task<bool> GoToAsync(Section section)
     {

@@ -153,6 +153,20 @@ public abstract class PageBase(string title, string summary) : Observable
     {
     }
 
+    /// <summary>The shell says the person has come back to the panel's window while this page is on screen.</summary>
+    internal void ComeBack()
+    {
+        if (IsShown) CameBack();
+    }
+
+    /// <summary>
+    /// The person came back to the window with this page on screen: what the page shows of the world outside the
+    /// panel (a Windows setting it sent them to change) may be different now.
+    /// </summary>
+    protected virtual void CameBack()
+    {
+    }
+
     /// <summary>The page has left the screen: it stops what it only does while looked at.</summary>
     protected virtual void Hidden()
     {
