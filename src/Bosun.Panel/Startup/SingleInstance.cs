@@ -27,8 +27,10 @@ public enum InstanceRole
 /// The first is whoever created the mutex, never whoever owns it: a panel that crashed holds no handle, so it never
 /// blocks the next one and nothing waits on an abandoned mutex.
 ///
-/// A request is acknowledged: the first answers only after <see cref="Activated"/> has completed, which its owner
-/// completes on the UI thread. A first panel whose UI is hung therefore reads as not answering, not as forwarded.
+/// A request is acknowledged: the first answers only after the task of its <c>activated</c> callback has completed,
+/// which its owner completes on the UI thread. A first panel whose UI is hung therefore reads as not answering, not
+/// as forwarded. The callback is given when the instance is started, before anything is listened for, so no request
+/// can be acknowledged that nobody took.
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
@@ -48,22 +50,19 @@ public sealed class SingleInstance : IDisposable
     private Mutex? _mutex;
     private Task? _listening;
 
-    private SingleInstance(InstanceRole role, string pipe, TimeSpan answerWithin, Mutex? mutex)
+    private readonly Func<Task>? _activated;
+
+    private SingleInstance(InstanceRole role, string pipe, TimeSpan answerWithin, Mutex? mutex, Func<Task>? activated)
     {
         Role = role;
         _pipe = pipe;
         _answerWithin = answerWithin;
         _mutex = mutex;
+        _activated = activated;
         if (role == InstanceRole.First) _listening = Task.Run(() => ListenAsync(_stop.Token));
     }
 
     public InstanceRole Role { get; }
-
-    /// <summary>
-    /// What the first does when a later launch asks it to come forward. The task completes when the request has been
-    /// taken (on the UI thread, by the panel); only then is the later launch told it was heard.
-    /// </summary>
-    public Func<Task>? Activated { get; set; }
 
     /// <summary>The name of the mutex for an instance name: local to the logon session.</summary>
     public static string MutexName(string name) => @"Local\Bosun.Panel." + name;
@@ -75,19 +74,23 @@ public sealed class SingleInstance : IDisposable
     /// Becomes the first instance of <paramref name="name"/>, or asks the one there is to come forward. When that one
     /// does not acknowledge within <paramref name="answerWithin"/>, one more try is made to be the first (it may have
     /// been on its way out), and after that the answer is <see cref="InstanceRole.NotAnswering"/>.
+    ///
+    /// <paramref name="activated"/> is what the first does when a later launch asks it to come forward: its task
+    /// completes when the request has been taken (on the UI thread, by the panel), and only then is the later launch
+    /// told it was heard. A first started without one acknowledges nothing.
     /// </summary>
-    public static SingleInstance Start(string name, TimeSpan? answerWithin = null)
+    public static SingleInstance Start(string name, TimeSpan? answerWithin = null, Func<Task>? activated = null)
     {
         var within = answerWithin ?? DefaultAnswerWithin;
         var pipe = PipeName(name);
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var mutex = new Mutex(initiallyOwned: false, MutexName(name), out var created);
-            if (created) return new SingleInstance(InstanceRole.First, pipe, within, mutex);
+            if (created) return new SingleInstance(InstanceRole.First, pipe, within, mutex, activated);
             mutex.Dispose();
-            if (Forward(pipe, within)) return new SingleInstance(InstanceRole.Forwarded, pipe, within, null);
+            if (Forward(pipe, within)) return new SingleInstance(InstanceRole.Forwarded, pipe, within, null, null);
         }
-        return new SingleInstance(InstanceRole.NotAnswering, pipe, within, null);
+        return new SingleInstance(InstanceRole.NotAnswering, pipe, within, null, null);
     }
 
     /// <summary>Asks the first instance to come forward; true when it acknowledged in time.</summary>
@@ -138,8 +141,9 @@ public sealed class SingleInstance : IDisposable
 
                 // Taken by the panel, on its UI thread, before the launch is told so. A UI that never takes it is
                 // given up on after the time a launch waits, so one hung request can't hold the listener for ever.
-                var taken = Activated?.Invoke() ?? Task.CompletedTask;
-                await taken.WaitAsync(_answerWithin + RequestWithin, stop).ConfigureAwait(false);
+                // With nobody to take it, it is not acknowledged: the launch reads that as not answering.
+                if (_activated is null) continue;
+                await _activated().WaitAsync(_answerWithin + RequestWithin, stop).ConfigureAwait(false);
 
                 using var reply = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 reply.CancelAfter(RequestWithin);
@@ -157,8 +161,10 @@ public sealed class SingleInstance : IDisposable
             }
             catch (Exception) when (!stop.IsCancellationRequested)
             {
-                // What the panel's own Activated threw is the panel's to report (its crash handlers see it on the UI
-                // thread); the listener outlives it, or one bad activation would end single-instance for the session.
+                // The panel could not take the request (its callback threw, or its task failed). That failure is the
+                // panel's to report where it happened: PanelStartup lets it reach the UI thread's crash handler. Here
+                // the launch is simply not acknowledged, and the listener outlives it, or one bad activation would
+                // end single-instance for the session.
             }
         }
     }

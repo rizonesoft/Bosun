@@ -32,10 +32,9 @@ public class StartupTests
     {
         var name = StartupSupport.Name();
         var activations = new int[1];
-        using (var first = SingleInstance.Start(name))
+        using (var first = SingleInstance.Start(name, activated: Counting(activations)))
         {
             Assert.Equal(InstanceRole.First, first.Role);
-            first.Activated = Counting(activations);
 
             using var second = SingleInstance.Start(name);
             Assert.Equal(InstanceRole.Forwarded, second.Role);
@@ -54,13 +53,12 @@ public class StartupTests
     public void A_first_whose_ui_never_takes_the_request_is_not_answering_not_forwarded()
     {
         var name = StartupSupport.Name();
-        using var first = SingleInstance.Start(name);
         var asked = 0;
-        first.Activated = () =>
+        using var first = SingleInstance.Start(name, activated: () =>
         {
             Interlocked.Increment(ref asked);
             return new TaskCompletionSource().Task; // the UI thread is hung: the request is never taken
-        };
+        });
 
         var clock = Stopwatch.StartNew();
         using var second = SingleInstance.Start(name, TimeSpan.FromMilliseconds(300));
@@ -74,13 +72,12 @@ public class StartupTests
     public async Task A_first_that_exits_while_a_second_is_waiting_is_taken_over()
     {
         var name = StartupSupport.Name();
-        var first = SingleInstance.Start(name);
         var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        first.Activated = () =>
+        var first = SingleInstance.Start(name, activated: () =>
         {
             reached.TrySetResult();
             return new TaskCompletionSource().Task;
-        };
+        });
 
         var waiting = Task.Run(() => SingleInstance.Start(name, TimeSpan.FromSeconds(8)), TestContext.Current.CancellationToken);
         await reached.Task.WaitAsync(TimeSpan.FromSeconds(8), TestContext.Current.CancellationToken);
@@ -88,6 +85,21 @@ public class StartupTests
 
         using var second = await waiting.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
         Assert.Equal(InstanceRole.First, second.Role);
+    }
+
+    [Fact]
+    public void A_first_with_nobody_to_take_a_request_acknowledges_none()
+    {
+        // Round 1: the listener runs from the moment the instance exists, and it used to acknowledge a request it had
+        // nobody to give to, so a launch could exit 0 having brought nothing forward. The callback is given with the
+        // start now; a first without one never says it was heard.
+        var name = StartupSupport.Name();
+        using var first = SingleInstance.Start(name);
+        Assert.Equal(InstanceRole.First, first.Role);
+
+        using var second = SingleInstance.Start(name, TimeSpan.FromMilliseconds(300));
+        Assert.Equal(InstanceRole.NotAnswering, second.Role);
+        Assert.Equal("", Raw(name, Encoding.ASCII.GetBytes(SingleInstance.Request + "\n")));
     }
 
     [Fact]
@@ -133,8 +145,7 @@ public class StartupTests
     {
         var name = StartupSupport.Name();
         var activations = new int[1];
-        using var first = SingleInstance.Start(name);
-        first.Activated = Counting(activations);
+        using var first = SingleInstance.Start(name, activated: Counting(activations));
 
         void StillListening(int expected)
         {
@@ -218,13 +229,49 @@ public class StartupTests
     }
 
     [Fact]
+    public void A_window_that_cant_be_brought_forward_is_a_crash_on_the_ui_thread_and_the_launch_is_not_told_it_was_heard()
+    {
+        // Round 1: the exception used to stay in a task nobody reported. It reaches the crash handler now.
+        using var data = new TempFolder();
+        var name = StartupSupport.Name();
+        Sta.Run(() =>
+        {
+            var host = new RecordingHost();
+            var stock = host.Host(name, data.Path);
+            using var startup = new PanelStartup(stock with { BringForward = () => throw new InvalidOperationException("the window is gone") });
+            Assert.True(startup.Begin());
+
+            var later = Task.Run(() =>
+            {
+                using var launch = SingleInstance.Start(name, TimeSpan.FromMilliseconds(500));
+                return launch.Role;
+            });
+            Assert.True(StartupSupport.Pump(() => later.IsCompleted && host.Exits.Count > 0), "the crash was never handled");
+
+            Assert.NotEqual(InstanceRole.Forwarded, later.Result);
+            Assert.Equal([1], host.Exits);
+            // The launch asks twice (its second try), so the window fails twice: each is reported, and the person is
+            // asked once and the panel exits once, not once per exception.
+            var reports = Directory.GetFiles(PanelPaths.Crash(data.Path));
+            Assert.InRange(reports.Length, 1, 2);
+            Assert.All(reports, report =>
+            {
+                var text = File.ReadAllText(report);
+                Assert.Contains("Caught by: UI thread", text, StringComparison.Ordinal);
+                Assert.Contains("the window is gone", text, StringComparison.Ordinal);
+            });
+            var question = Assert.Single(host.Asked);
+            Assert.Contains(reports, report => question.Contains(report, StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
     public void A_later_launch_is_handed_on_and_exits_0_without_a_notice_or_a_window()
     {
         using var data = new TempFolder();
         var name = StartupSupport.Name();
         var activations = new int[1];
-        using var running = SingleInstance.Start(name);
-        running.Activated = Counting(activations);
+        using var running = SingleInstance.Start(name, activated: Counting(activations));
 
         Sta.Run(() =>
         {
@@ -290,8 +337,7 @@ public class StartupTests
         using var data = new TempFolder();
         var name = StartupSupport.Name();
         var activations = new int[1];
-        using var running = SingleInstance.Start(name);
-        running.Activated = Counting(activations);
+        using var running = SingleInstance.Start(name, activated: Counting(activations));
 
         // The runner ends the process, and everything it started, if it is still there at the limit.
         var request = new ProcessRequest(StartupSupport.Built("Bosun.Panel", "Bosun.Panel.exe"), [])

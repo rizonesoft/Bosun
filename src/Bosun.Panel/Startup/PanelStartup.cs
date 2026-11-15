@@ -78,7 +78,9 @@ public sealed class PanelStartup : IDisposable
             return false;
         }
 
-        _instance = SingleInstance.Start(name, _host.AnswerWithin);
+        // The callback goes in with the start: the instance listens from the moment it exists, and a request
+        // acknowledged before anyone could take it would be a launch that did nothing and said it had.
+        _instance = SingleInstance.Start(name, _host.AnswerWithin, BringForwardOnTheUiThread);
         switch (_instance.Role)
         {
             case InstanceRole.Forwarded:
@@ -90,10 +92,33 @@ public sealed class PanelStartup : IDisposable
                 return false;
         }
 
-        // Taken on the UI thread: the later launch is told it was heard only once the window has been brought forward.
-        _instance.Activated = () => _host.Dispatcher.InvokeAsync(_host.BringForward).Task;
         _host.MakeWindow();
         return true;
+    }
+
+    /// <summary>
+    /// A later launch asked for the panel. The window is brought forward on the UI thread, and the launch is told it
+    /// was heard only once that is done. If bringing it forward throws, the launch is not acknowledged and the
+    /// exception goes on to the UI thread's crash handler, as any other on that thread does: it is posted with
+    /// BeginInvoke, since InvokeAsync would keep the exception in its task, where nothing reports it.
+    /// </summary>
+    private Task BringForwardOnTheUiThread()
+    {
+        var taken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _host.Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                _host.BringForward();
+            }
+            catch (Exception e)
+            {
+                taken.TrySetException(e);
+                throw;
+            }
+            taken.TrySetResult();
+        });
+        return taken.Task;
     }
 
     /// <summary>The words of the crash notice: the report's path, or that none could be saved and why, and the question.</summary>
