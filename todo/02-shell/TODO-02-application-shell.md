@@ -47,7 +47,7 @@ title: "TODO-02 -- The application shell"
 | 2 | §2 | View model base and accessibility helpers | §1 | [x] |
 | 3 | §3 | Process runner | D00 T02 §1 | [x] |
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [x] |
-| 5 | §5 | Settings store and theme switching | §4 | [ ] |
+| 5 | §5 | Settings store and theme switching | §4 | [x] |
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
@@ -306,9 +306,12 @@ Settings live in one atomic file. Theme is the first consumer.
 - [x] Settle round 1 (`docs/reviews/02-shell/D02-T02-s5.md`) in `src/Bosun.Core/PanelSettingsStore.cs` (**Added 2026-11-15**): a settings file is read to at most 64 KB and one byte, and one larger is kept as `.bad` like any other that is not settings, since the whole of a hostile file was read, and copied to parse, before the panel had a window; and a reload that reads different settings raises `Changed`, since Retry showed a recovered theme the panel was not drawing. Done when: a test with an 8 MB file reads at most 64 KB and one byte of it, finds it kept whole as `.bad` with the defaults and the reason, and a file of exactly 64 KB still loading; and a file held, then released and reloaded, tells the listeners once, with the Settings page's Retry applying the recovered theme.
 - [x] Settle round 2 (`docs/reviews/02-shell/D02-T02-s5.md`) in `src/Bosun.Panel/Settings/SettingsPage.cs`, `Shell/PageBase.cs` and `Shell/MainWindow.xaml.cs` (**Added 2026-11-15**): the start-up entry is read again when the page comes on screen and when the person comes back to the window (the shell tells the page on screen), keeping what they have changed and not saved, since the page sent them to Windows' settings and went on saying the entry was off; and the frame's Not saved line is cleared by the page's own Save when it saves everything, and by Discard. Done when: `SettingsPageTests` turns the entry on in Windows' record, says the window was activated and reads the line gone with an unsaved theme kept; and fails a save on the way out, then saves, and then discards, and reads the Not saved line gone each time.
 - [x] Settle the completion review's three gaps (`docs/reviews/02-shell/D02-T02-s5.md`) in `src/Bosun.Core/PanelSettingsStore.cs`, `StartupEntry.cs` and `src/Bosun.Panel/Settings/SettingsPage.cs` (**Added 2026-11-15**): the store reads the file and takes only not-found for a first run, since asking whether it exists answers no for a file that may not be looked at; a start-up entry that can't be read on the way back is said so on the page, with Read again, the switch showing what was last read and the edits and warnings kept, through Discard too; and a Run value that starts another copy of the panel is read as that, said so, and repaired by Use this copy. Done when: a test with a file seam that refuses the read reads unavailable and a refused save; `SettingsPageTests` fails the Run key's read on return and reads the line, the kept edit, Discard keeping the line, and Read again recovering; and reads a value for an old path as another copy, repaired to this one with one INFO line. Cheaper substitute: a switch that says on while Windows starts something else.
-- [ ] Commit: `shell: settings store and live theme`
+- [x] Commit: `shell: settings store and live theme`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-namespace "*Settings*"` exits 0, and fails if the change is reverted; `pwsh scripts/render-pages.ps1` exits 0.
+
+> **Verified:** 2026-11-15 | §5 | e3655841eab737834aaeeab0d5106d035cb0293d
+> **Review:** `docs/reviews/d02-t02-s5.json`
 
 ## 7. Tray icon and notifications
 

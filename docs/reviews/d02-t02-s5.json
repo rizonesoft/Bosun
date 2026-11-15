@@ -1,0 +1,92 @@
+{
+  "ref": "D02 T02 \u00a75",
+  "title": "Settings store and theme switching",
+  "implementation_sha": "e3655841eab737834aaeeab0d5106d035cb0293d",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-shell/D02-T02-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-namespace \"*Settings*\" -> passed within the whole solution: total: 390, failed: 0",
+    "pwsh scripts/render-pages.ps1 -> 28 pictures, exit 0",
+    "CI full gate on e365584 -> build.yml: green at e3655841eab7 (https://github.com/rizonetech/Bosun/actions/runs/43678916998)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s5.md",
+    "verdict": "completed",
+    "candidate": "2c9e02b197c15bd90d63b46859829057c32204be",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 returned one P3 (a test that would pass with its guard removed), which was true and is fixed in 2c9e02b; nothing is left to file.",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s5.md",
+    "candidate": "fea27d3067a2994f4e7ca93833159e0ec2efa67f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "fea27d3067a2994f4e7ca93833159e0ec2efa67f",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
