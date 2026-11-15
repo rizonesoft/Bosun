@@ -91,6 +91,8 @@ public class TrayViewModelTests
             f.Icon.Choose(TrayViewModel.Pause).Wait(); // the same line is now Resume
             Assert.Null(f.Notifier.PausedUntil);
             Assert.Equal("Pause notifications for 1 hour", tray.Menu()[2].Text);
+            // Review round 2: both are actions, and every action is a line in the Activity pane (design/SPEC.md §1).
+            Assert.Equal(["Pause notifications until 10:10", "Resume notifications"], f.Lines(LogSeverity.Info));
 
             Assert.Empty(f.Exits);
             f.Icon.Choose(TrayViewModel.Exit).Wait();

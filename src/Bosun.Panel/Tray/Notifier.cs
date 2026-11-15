@@ -34,10 +34,20 @@ public sealed class Notifier(PanelSettingsStore settings, ActivityLog log, Func<
     /// <summary>When the pause ends; null when notifications are not paused, or the pause has run out.</summary>
     public DateTime? PausedUntil => _pausedUntil is { } until && until > _clock() ? until : null;
 
-    /// <summary>Pauses notifications for an hour from now.</summary>
-    public void PauseForAnHour() => _pausedUntil = _clock() + PauseLength;
+    /// <summary>Pauses notifications for an hour from now. An action like any other: it is a line in the Activity pane.</summary>
+    public void PauseForAnHour()
+    {
+        var until = _clock() + PauseLength;
+        _pausedUntil = until;
+        log.Info(string.Create(CultureInfo.InvariantCulture, $"Pause notifications until {until:HH:mm}"));
+    }
 
-    public void Resume() => _pausedUntil = null;
+    /// <summary>Ends the pause, and says so in the Activity pane.</summary>
+    public void Resume()
+    {
+        _pausedUntil = null;
+        log.Info("Resume notifications");
+    }
 
     /// <summary>Whether a type is turned on in Settings.</summary>
     public bool IsOn(NotificationType type) => type switch
