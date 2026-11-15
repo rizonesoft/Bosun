@@ -220,6 +220,26 @@ public class RefreshTests
         });
     }
 
+    [Fact]
+    public void A_refresh_asked_for_and_then_stopped_by_hiding_the_page_is_not_said_to_have_failed()
+    {
+        // Review round 1: the command took a stopped run for a failed one and wrote a FAIL line for going to
+        // another page while a refresh was under way.
+        OnUi(() =>
+        {
+            var b = new Bench(); // load 0 under way
+            b.Queue.RefreshNow!.Execute(null); // joins it
+            b.Shell.WindowHidden();
+            b.End(0, "read after the window was hidden");
+
+            Assert.True(StartupSupport.Pump(() => b.Lines(LogSeverity.Info).Count == 1));
+            Assert.Equal(["Refresh Queue: stopped, the page is not on screen"], b.Lines(LogSeverity.Info));
+            Assert.Empty(b.Lines(LogSeverity.Fail));
+            Assert.Empty(b.Lines(LogSeverity.Warn));
+            Assert.NotEqual(PageState.Failed, b.Queue.State);
+        });
+    }
+
     // ---- failing, and working again ----
 
     [Fact]

@@ -120,6 +120,8 @@ public abstract class PageBase(string title, string summary) : Observable
         var command = log.Command($"Refresh {Title}", async () =>
         {
             var outcome = await refresh.RunNowAsync();
+            // Stopped because the page left the screen: the tool did not fail, and the line does not say it did.
+            if (outcome == RefreshOutcome.Stale || outcome == RefreshOutcome.NotStarted) return ActionOutcome.DoneWith("stopped, the page is not on screen");
             return outcome.Succeeded ? ActionOutcome.Done : ActionOutcome.Failed(outcome.Message ?? "It did not refresh.");
         });
         refresh.Finished += outcome =>
