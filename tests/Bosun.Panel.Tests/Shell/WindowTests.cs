@@ -161,6 +161,7 @@ public partial class WindowTests
             window.Close();
             Assert.True(StartupSupport.Pump(() => window.Closed == 1), "Discard did not close the window");
             Assert.Equal((1, null), (first.DiscardCount, first.Edits));
+            Assert.Equal("Discard changes to Queue", shell.Activity.Single(entry => entry.Severity == LogSeverity.Info).Message);
         });
     }
 

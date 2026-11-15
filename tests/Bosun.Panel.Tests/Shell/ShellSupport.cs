@@ -74,6 +74,14 @@ static class ShellSupport
 
     public static Color? Paint(object? brush) => (brush as SolidColorBrush)?.Color;
 
+    /// <summary>The nearest element of a type at or above what a hit test gave; null when there is none.</summary>
+    public static T? Ancestor<T>(IInputElement? hit) where T : DependencyObject
+    {
+        for (var node = hit as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is T found) return found;
+        return null;
+    }
+
     /// <summary>Presses a button as UI Automation does, which is how a screen reader does.</summary>
     public static void Invoke(Button button) =>
         ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(button).GetPattern(PatternInterface.Invoke)).Invoke();
@@ -131,7 +139,8 @@ static class ShellSupport
     }
 
     /// <summary>Draws a shell view over a shell in a page that is never shown, at the size the renders use, and runs the test there.</summary>
-    public static void InShell(ShellViewModel? shell, Action<ShellView, ShellViewModel, System.Windows.Controls.Border> test, string theme = "Dark", Func<ShellViewModel>? make = null)
+    public static void InShell(ShellViewModel? shell, Action<ShellView, ShellViewModel, System.Windows.Controls.Border> test, string theme = "Dark", Func<ShellViewModel>? make = null,
+        int width = PageRenderer.Width, int height = PageRenderer.Height)
     {
         ShellView view = null!;
         ShellViewModel model = null!;
@@ -145,6 +154,6 @@ static class ShellSupport
         {
             test(view, model, page);
             return true;
-        }, PageRenderer.Width, PageRenderer.Height);
+        }, width, height);
     }
 }

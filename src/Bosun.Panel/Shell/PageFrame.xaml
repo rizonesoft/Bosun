@@ -34,18 +34,22 @@
         </Grid>
 
         <!-- Why a save asked for on the way out did not happen: said aloud, and kept until one does. -->
-        <TextBlock x:Name="SaveFailure" Grid.Row="1" Text="{Binding SaveFailure}" Foreground="{DynamicResource B.Danger}"
-                   TextWrapping="Wrap" Margin="0,0,0,12" a:LiveRegion.Announce="True">
-            <TextBlock.Style>
-                <Style TargetType="TextBlock">
+        <!-- A long reason scrolls in a few lines of its own, so it never pushes the page out of sight. -->
+        <ScrollViewer x:Name="SaveFailureScroll" Grid.Row="1" MaxHeight="64" Margin="0,0,0,12"
+                      VerticalScrollBarVisibility="Auto" FocusVisualStyle="{DynamicResource FocusRing.Inside}"
+                      AutomationProperties.Name="Why the page was not saved">
+            <ScrollViewer.Style>
+                <Style TargetType="ScrollViewer">
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding SaveFailure}" Value="{x:Null}">
                             <Setter Property="Visibility" Value="Collapsed"/>
                         </DataTrigger>
                     </Style.Triggers>
                 </Style>
-            </TextBlock.Style>
-        </TextBlock>
+            </ScrollViewer.Style>
+            <TextBlock x:Name="SaveFailure" Text="{Binding SaveFailure}" Foreground="{DynamicResource B.Danger}"
+                       TextWrapping="Wrap" a:LiveRegion.Announce="True"/>
+        </ScrollViewer>
 
         <!-- Data: the page itself, through the DataTemplate for its type. -->
         <ContentControl x:Name="Data" Grid.Row="2" Content="{Binding}" Focusable="False">
@@ -94,6 +98,8 @@
         </StackPanel>
 
         <!-- Failed: the tool's own message, quoted, and Retry. -->
+        <!-- The message scrolls in whatever height is left once the heading and Retry have theirs (PageFrame.xaml.cs
+             sets its limit), so however long the tool's message is, Retry stays where it can be reached. -->
         <StackPanel x:Name="Failed" Grid.Row="2" MaxWidth="720" HorizontalAlignment="Left">
             <StackPanel.Style>
                 <Style TargetType="StackPanel">
@@ -107,11 +113,17 @@
             </StackPanel.Style>
             <TextBlock x:Name="FailedHeading" Text="This did not work" FontSize="{DynamicResource T.Subtitle}"
                        FontWeight="SemiBold" Foreground="{DynamicResource B.Danger}"/>
-            <TextBlock x:Name="FailureMessage" Text="{Binding FailureMessage}" Style="{DynamicResource T.Mono}"
-                       Foreground="{DynamicResource B.Text}" Margin="0,6,0,0" TextWrapping="Wrap"
-                       a:LiveRegion.Announce="True"/>
+            <ScrollViewer x:Name="FailureScroll" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto"
+                          FocusVisualStyle="{DynamicResource FocusRing.Inside}"
+                          AutomationProperties.Name="What the tool said">
+                <TextBlock x:Name="FailureMessage" Text="{Binding FailureMessage}" Style="{DynamicResource T.Mono}"
+                           Foreground="{DynamicResource B.Text}" TextWrapping="Wrap" a:LiveRegion.Announce="True"/>
+            </ScrollViewer>
             <Button x:Name="Retry" Content="Retry" Command="{Binding Retry}" Style="{DynamicResource Btn}"
                     HorizontalAlignment="Left" Margin="0,14,0,0"/>
         </StackPanel>
+
+        <!-- Nothing drawn: its size is the height the states have, which the failed state's message is held to. -->
+        <Border x:Name="StateArea" Grid.Row="2" IsHitTestVisible="False"/>
     </Grid>
 </UserControl>

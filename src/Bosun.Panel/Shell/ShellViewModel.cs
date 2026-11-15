@@ -143,6 +143,8 @@ public sealed class ShellViewModel : Observable
                 case LeaveChoice.Discard:
                     page.Discard();
                     page.SaveFailure = null;
+                    // An action like any other: the line says which page's changes went, never what they were.
+                    Log.Info($"Discard changes to {page.Title}");
                     return true;
                 case LeaveChoice.Save:
                     ActionOutcome outcome;

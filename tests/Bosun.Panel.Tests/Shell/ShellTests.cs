@@ -236,6 +236,105 @@ public class ShellTests
         });
     }
 
+    [Fact]
+    public void The_splitter_is_a_32_px_target_that_leaves_the_pane_where_it_was()
+    {
+        // The completion review: an 8 px splitter is under the 32 px every target has (design/SPEC.md §1).
+        ShellSupport.InShell(null, (view, _, host) =>
+        {
+            Assert.Equal(32, view.PaneSplitter.ActualHeight);
+            Assert.Equal(132, view.PaneHeight); // the pane and the page keep their sizes: the target reaches over both
+            var paneTop = PageRenderer.Height - 132;
+            var top = view.PaneSplitter.TranslatePoint(new Point(0, 0), view).Y;
+            Assert.Equal(paneTop - 8 - 12, top);
+
+            // The whole 32 px takes the pointer: 14 px either side of the middle is still the splitter.
+            var middle = top + 16;
+            foreach (var y in new[] { middle - 14, middle, middle + 14 })
+                Assert.Same(view.PaneSplitter, ShellSupport.Ancestor<System.Windows.Controls.GridSplitter>(view.InputHitTest(new Point(600, y))));
+            Assert.Null(ShellSupport.Ancestor<System.Windows.Controls.GridSplitter>(view.InputHitTest(new Point(600, middle - 20))));
+            Assert.Null(ShellSupport.Ancestor<System.Windows.Controls.GridSplitter>(view.InputHitTest(new Point(600, middle + 20))));
+        });
+    }
+
+    // ---- a page with less room than it needs ----
+
+    [Fact]
+    public void A_long_failure_at_the_smallest_window_with_the_largest_pane_still_has_retry_within_reach()
+    {
+        // The completion review: the failed state was a stack that grew with the tool's message, in a page that did
+        // not scroll, so a long diagnostic pushed Retry out of the window.
+        TestPage first = null!;
+        var diagnostic = string.Join("\n", Enumerable.Range(1, 200).Select(n => $"bosun: line {n} of a long diagnostic from the tool"));
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            shell.ActivityHeight = ShellViewModel.MaxActivityHeight;
+            first.SaveFailure = "Not saved: " + string.Join(" ", Enumerable.Repeat("the disk is full and the reason is long.", 60));
+            first.Failed(diagnostic, shell.Log);
+            PageRenderer.Settle(host);
+            Assert.Equal(400, view.PaneHeight);
+
+            var frame = view.PageHost;
+            var retry = ShellSupport.Under<Button>(frame).Single(b => b.IsVisible);
+            Assert.Equal("Retry", retry.Content);
+
+            // The message scrolls in the room it has, never taller than the frame; the save's reason in its few lines.
+            Assert.True(frame.FailureScroll.ScrollableHeight > 0, "the long message does not scroll");
+            Assert.True(frame.FailureScroll.ActualHeight >= PageFrame.MinMessageHeight);
+            Assert.True(frame.FailureScroll.ActualHeight < frame.ActualHeight);
+            Assert.True(frame.SaveFailureScroll.ActualHeight <= 64);
+            Assert.True(frame.SaveFailureScroll.ScrollableHeight > 0);
+
+            // Retry is inside the frame, and the frame is inside a page that scrolls when it has too little room.
+            var inFrame = retry.TranslatePoint(new Point(0, retry.ActualHeight), frame).Y;
+            Assert.True(inFrame <= frame.ActualHeight, $"Retry ends at {inFrame}, past the frame's {frame.ActualHeight}");
+            Assert.True(view.PageScroll.ScrollableHeight > 0, "the page has less room than it needs and does not scroll");
+            Assert.Equal(320, frame.ActualHeight); // the least a page is given: room for a save's reason, a failure and Retry
+
+            retry.BringIntoView(); // what moving the keyboard to it does
+            PageRenderer.Settle(host);
+            var top = retry.TranslatePoint(new Point(0, 0), view.PageScroll).Y;
+            Assert.InRange(top, 0, view.PageScroll.ActualHeight - retry.ActualHeight);
+            ShellSupport.Invoke(retry);
+            Assert.True(StartupSupport.Pump(() => first.RetryCount == 1), "Retry could not be pressed");
+        }, make: () =>
+        {
+            (var shell, first, _, _) = Shells.WithTestPages();
+            return shell;
+        }, width: 960, height: 600);
+    }
+
+    [Fact]
+    public void With_room_to_spare_the_page_fills_it_and_does_not_scroll_and_a_long_message_still_leaves_retry_in_view()
+    {
+        TestPage first = null!;
+        var diagnostic = string.Join("\n", Enumerable.Range(1, 200).Select(n => $"bosun: line {n} of a long diagnostic from the tool"));
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            var frame = view.PageHost;
+            Assert.Equal(0, view.PageScroll.ScrollableHeight);
+            Assert.Equal(view.PageScroll.ViewportHeight, frame.ActualHeight); // a page's own table gets a real height
+
+            first.Failed(diagnostic, shell.Log);
+            PageRenderer.Settle(host);
+            Assert.Equal(0, view.PageScroll.ScrollableHeight);
+            Assert.True(frame.FailureScroll.ScrollableHeight > 0);
+            var retry = ShellSupport.Under<Button>(frame).Single(b => b.IsVisible);
+            var bottom = retry.TranslatePoint(new Point(0, retry.ActualHeight), view.PageScroll).Y;
+            Assert.InRange(bottom, 0, view.PageScroll.ActualHeight); // in view with no scrolling at all
+
+            // A short message takes only the room it needs: Retry sits under it, not at the bottom of the page.
+            first.Failed("bosun: no such file", shell.Log);
+            PageRenderer.Settle(host);
+            Assert.Equal(0, frame.FailureScroll.ScrollableHeight);
+            Assert.True(retry.TranslatePoint(new Point(0, 0), frame).Y < 200);
+        }, make: () =>
+        {
+            (var shell, first, _, _) = Shells.WithTestPages();
+            return shell;
+        });
+    }
+
     // ---- leaving a page with unsaved edits ----
 
     /// <summary>The three ways the rail's selection moves: a click, a key, and UI Automation's select.</summary>
@@ -341,6 +440,11 @@ public class ShellTests
             PageRenderer.Settle(host);
             Assert.Equal((1, null, null), (view.Rail.SelectedIndex, first.Edits, first.Saved));
             Assert.Equal((1, 0), (first.DiscardCount, first.SaveCount));
+            // The completion review: Discard is an action, and every action writes its line. One line, naming the
+            // page, and not a word of what was discarded.
+            var line = Assert.Single(shell.Activity);
+            Assert.Equal((LogSeverity.Info, "Discard changes to Queue"), (line.Severity, line.Message));
+            Assert.DoesNotContain("slots 3", line.ToString(), StringComparison.Ordinal);
 
             // Back to the first page, which now has nothing unsaved: no question, by any way.
             view.Rail.SelectedIndex = 0;
