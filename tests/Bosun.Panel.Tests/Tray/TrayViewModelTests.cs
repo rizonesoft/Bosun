@@ -28,7 +28,8 @@ public class TrayViewModelTests
             var changes = 0;
             tray.Changed += () => changes++;
 
-            Assert.Equal((TrayState.Normal, "Bosun Panel"), (tray.State, tray.Tooltip));
+            // The completion review: Normal says its state in words too, as the other two do (design/SPEC.md §17).
+            Assert.Equal((TrayState.Normal, "Bosun Panel: normal"), (tray.State, tray.Tooltip));
 
             f.Needs.Count = 1; // the source says so, and the tray follows
             Assert.Equal(1, changes);
@@ -43,7 +44,7 @@ public class TrayViewModelTests
             tray.Pressure = true; // said again: nothing changed
             Assert.Equal(4, changes);
             tray.Pressure = false;
-            Assert.Equal((TrayState.Normal, "Bosun Panel", 5), (tray.State, tray.Tooltip, changes));
+            Assert.Equal((TrayState.Normal, "Bosun Panel: normal", 5), (tray.State, tray.Tooltip, changes));
         });
     }
 

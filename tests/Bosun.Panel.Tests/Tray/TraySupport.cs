@@ -16,6 +16,12 @@ public sealed class FakeTrayIcon : ITrayIcon
     /// <summary>Windows refuses to show a notification.</summary>
     public bool FailNotify { get; set; }
 
+    /// <summary>Windows says each notification it accepts is on screen. False: accepted, and never shown.</summary>
+    public bool ConfirmsDisplay { get; set; } = true;
+
+    /// <summary>Windows refuses a change of the icon.</summary>
+    public bool RefuseUpdate { get; set; }
+
     public bool Installed { get; private set; }
 
     public bool IsInstalled => Installed;
@@ -32,6 +38,8 @@ public sealed class FakeTrayIcon : ITrayIcon
 
     public event Action? Opened;
 
+    public event Action? NotificationShown;
+
     public Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
 
     public bool Install(TrayState state, string tooltip)
@@ -41,16 +49,19 @@ public sealed class FakeTrayIcon : ITrayIcon
         return true;
     }
 
-    public void Update(TrayState state, string tooltip)
+    public bool Update(TrayState state, string tooltip)
     {
         Updates++;
+        if (RefuseUpdate) return false;
         (State, Tooltip) = (state, tooltip);
+        return true;
     }
 
     public bool Notify(string title, string text)
     {
         if (FailNotify || !Installed) return false;
         Notifications.Add((title, text));
+        if (ConfirmsDisplay) NotificationShown?.Invoke();
         return true;
     }
 
@@ -75,6 +86,8 @@ public sealed class FakeTrayShell : ITrayShell
     public bool RefuseAdd { get; set; }
 
     public bool RefuseNotify { get; set; }
+
+    public bool RefuseModify { get; set; }
 
     /// <summary>The line the person chooses when a menu is shown; null dismisses it.</summary>
     public int? Chooses { get; set; }
@@ -108,6 +121,7 @@ public sealed class FakeTrayShell : ITrayShell
     public bool Modify(TrayState state, string tooltip)
     {
         Calls.Add("modify");
+        if (RefuseModify) return false;
         (State, Tooltip) = (state, tooltip);
         return true;
     }
@@ -125,6 +139,8 @@ public sealed class FakeTrayShell : ITrayShell
         Calls.Add("delete");
         Installed = false;
     }
+
+    public void ReturnFocus() => Calls.Add("focus");
 
     public int? TrackMenu(IReadOnlyList<(int Id, string Text)> items)
     {

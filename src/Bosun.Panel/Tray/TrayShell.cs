@@ -32,6 +32,9 @@ public interface ITrayShell : IDisposable
     /// <summary>Removes the icon.</summary>
     void Delete();
 
+    /// <summary>Gives the keyboard focus back to the notification area, as Windows asks after a menu is cancelled.</summary>
+    void ReturnFocus();
+
     /// <summary>Shows a popup menu at the pointer and waits for it. The id of the line chosen, or null when it was dismissed.</summary>
     int? TrackMenu(IReadOnlyList<(int Id, string Text)> items);
 }
@@ -99,7 +102,7 @@ public sealed class NativeMenu : IDisposable
 public sealed class Win32TrayShell : ITrayShell
 {
     private const int WM_APP_TRAY = 0x8001, IconId = 1;
-    private const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETVERSION = 4;
+    private const int NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2, NIM_SETFOCUS = 3, NIM_SETVERSION = 4;
     private const int NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
     private const int NIIF_INFO = 0x1, NOTIFYICON_VERSION_4 = 4;
     private const uint TPM_RIGHTBUTTON = 0x2, TPM_NONOTIFY = 0x80, TPM_RETURNCMD = 0x100;
@@ -198,6 +201,12 @@ public sealed class Win32TrayShell : ITrayShell
     {
         var data = Data(0);
         Shell_NotifyIconW(NIM_DELETE, ref data);
+    }
+
+    public void ReturnFocus()
+    {
+        var data = Data(0);
+        Shell_NotifyIconW(NIM_SETFOCUS, ref data);
     }
 
     public int? TrackMenu(IReadOnlyList<(int Id, string Text)> items)

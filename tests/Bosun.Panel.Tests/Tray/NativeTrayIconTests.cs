@@ -74,6 +74,8 @@ public class NativeTrayIconTests
     [InlineData(0x8001, NativeTrayIcon.NIN_KEYSELECT, TrayEvent.Open)]
     [InlineData(0x8001, NativeTrayIcon.WM_LBUTTONDBLCLK, TrayEvent.Open)]
     [InlineData(0x8001, NativeTrayIcon.WM_CONTEXTMENU, TrayEvent.Menu)]
+    [InlineData(0x8001, NativeTrayIcon.NIN_BALLOONSHOW, TrayEvent.NotificationShown)]
+    [InlineData(0x8001, NativeTrayIcon.NIN_BALLOONUSERCLICK, TrayEvent.Open)]
     [InlineData(0x8001, 0x0200, TrayEvent.None)]
     [InlineData(0x8002, NativeTrayIcon.NIN_SELECT, TrayEvent.None)]
     [InlineData(0xC123, 0, TrayEvent.TaskbarCreated)]
@@ -123,6 +125,63 @@ public class NativeTrayIconTests
             ran.Add(id);
             return Task.CompletedTask;
         }
+    }
+
+    [Fact]
+    public void A_menu_that_is_cancelled_gives_the_focus_back_to_the_notification_area_and_one_that_is_used_does_not()
+    {
+        // The completion review: after Escape the keyboard's focus was left on a window nobody can see.
+        var (icon, shell) = Made();
+        icon.Menu = () => [new TrayMenuItem("open", "Open", () => Task.CompletedTask)];
+        icon.Install(TrayState.Normal, "Bosun Panel");
+
+        shell.Chooses = 1;
+        shell.Send(FakeTrayShell.Callback, NativeTrayIcon.WM_CONTEXTMENU);
+        Assert.Equal(["add", "menu"], shell.Calls);
+
+        shell.Chooses = null;
+        shell.Send(FakeTrayShell.Callback, NativeTrayIcon.WM_CONTEXTMENU);
+        Assert.Equal(["add", "menu", "menu", "focus"], shell.Calls);
+    }
+
+    [Fact]
+    public void A_change_windows_refuses_is_reported_and_tried_again_at_the_next_change_or_message()
+    {
+        // The completion review: the new state was remembered before Windows took it, so the same state asked for
+        // again was skipped, and the icon could show Normal under pressure for as long as the panel ran.
+        var (icon, shell) = Made();
+        icon.Install(TrayState.Normal, "Bosun Panel");
+
+        shell.RefuseModify = true;
+        Assert.False(icon.Update(TrayState.Pressure, "Bosun Panel: memory pressure"));
+        Assert.Equal(TrayState.Normal, shell.State);
+        Assert.False(icon.Update(TrayState.Pressure, "Bosun Panel: memory pressure")); // the same again is not skipped
+        Assert.Equal(["add", "modify", "modify"], shell.Calls);
+
+        shell.RefuseModify = false;
+        shell.Send(FakeTrayShell.Callback, 0x0200); // the pointer passes over the icon: it is alive, and is tried again
+        Assert.Equal((TrayState.Pressure, "Bosun Panel: memory pressure"), (shell.State, shell.Tooltip));
+
+        Assert.True(icon.Update(TrayState.Pressure, "Bosun Panel: memory pressure")); // and now there is nothing to tell
+        Assert.Equal(["add", "modify", "modify", "modify"], shell.Calls);
+    }
+
+    [Fact]
+    public void Windows_saying_a_notification_is_on_screen_is_passed_on_and_a_click_on_one_asks_for_the_panel()
+    {
+        var (icon, shell) = Made();
+        var (shown, opened) = (0, 0);
+        icon.NotificationShown += () => shown++;
+        icon.Opened += () => opened++;
+        icon.Install(TrayState.Normal, "Bosun Panel");
+
+        Assert.True(icon.Notify("Memory pressure", "4 GB free"));
+        Assert.Equal(0, shown); // accepted is not shown
+
+        shell.Send(FakeTrayShell.Callback, NativeTrayIcon.NIN_BALLOONSHOW);
+        Assert.Equal((1, 0), (shown, opened));
+        shell.Send(FakeTrayShell.Callback, NativeTrayIcon.NIN_BALLOONUSERCLICK);
+        Assert.Equal((1, 1), (shown, opened));
     }
 
     [Fact]

@@ -70,6 +70,9 @@ public sealed class TrayViewModel
         _ => "tray-normal.ico",
     };
 
+    /// <summary>The Normal state in words: the tooltip says the icon's state whichever it is (design/SPEC.md §17).</summary>
+    public const string NormalTooltip = "Bosun Panel: normal";
+
     /// <summary>The state in words: what the icon's overlay means, never left to its colour.</summary>
     public string Tooltip
     {
@@ -81,7 +84,7 @@ public sealed class TrayViewModel
                 (true, null) => "Bosun Panel: memory pressure",
                 (true, not null) => $"Bosun Panel: memory pressure, and {needs}",
                 (false, not null) => $"Bosun Panel: {needs}",
-                _ => "Bosun Panel",
+                _ => NormalTooltip,
             };
         }
     }

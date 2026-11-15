@@ -15,11 +15,23 @@ public interface ITrayIcon : INotificationSink, IDisposable
     /// </summary>
     bool IsInstalled { get; }
 
-    /// <summary>Changes the icon and its tooltip.</summary>
-    void Update(TrayState state, string tooltip);
+    /// <summary>
+    /// Changes the icon and its tooltip. False when Windows refused the change: the icon may show an older state,
+    /// and the change is tried again.
+    /// </summary>
+    bool Update(TrayState state, string tooltip);
 
-    /// <summary>Raised when the person asks for the panel: a click, a double click, or the keyboard on the icon.</summary>
+    /// <summary>
+    /// Raised when the person asks for the panel: a click, a double click, or the keyboard on the icon, or a click
+    /// on one of its notifications.
+    /// </summary>
     event Action? Opened;
+
+    /// <summary>
+    /// Raised when Windows says a notification is on screen. Windows can accept one and never show it (a queue, do
+    /// not disturb), so this, not <see cref="INotificationSink.Notify"/>'s answer, is what says it was seen.
+    /// </summary>
+    event Action? NotificationShown;
 
     /// <summary>Gives the menu as it reads now; asked each time the menu is opened. The chosen line is run.</summary>
     Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
@@ -35,6 +47,9 @@ public enum TrayEvent
 
     /// <summary>The person asked for the menu: a right click, or the menu key.</summary>
     Menu,
+
+    /// <summary>A notification from the icon is on screen.</summary>
+    NotificationShown,
 
     /// <summary>Windows' taskbar started again: every icon is gone and must be added again.</summary>
     TaskbarCreated,
@@ -52,12 +67,14 @@ public sealed class NativeTrayIcon : ITrayIcon
     public const int MaxTooltip = 127;
 
     // What Windows sends in the low word of lParam with version 4 of the icon's messages.
-    public const int WM_CONTEXTMENU = 0x007B, WM_LBUTTONDBLCLK = 0x0203, NIN_SELECT = 0x0400, NIN_KEYSELECT = 0x0401;
+    public const int WM_CONTEXTMENU = 0x007B, WM_LBUTTONDBLCLK = 0x0203, NIN_SELECT = 0x0400, NIN_KEYSELECT = 0x0401,
+        NIN_BALLOONSHOW = 0x0402, NIN_BALLOONUSERCLICK = 0x0405;
 
     private readonly ITrayShell _shell;
     private bool _installed, _wanted;
     private TrayState _state;
     private string _tooltip = "";
+    private (TrayState State, string Tooltip)? _delivered; // what Windows last took; null when it has taken nothing
 
     public NativeTrayIcon(ITrayShell shell)
     {
@@ -66,6 +83,8 @@ public sealed class NativeTrayIcon : ITrayIcon
     }
 
     public event Action? Opened;
+
+    public event Action? NotificationShown;
 
     public Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
 
@@ -76,15 +95,26 @@ public sealed class NativeTrayIcon : ITrayIcon
         (_state, _tooltip) = (state, Cut(tooltip));
         _installed = _shell.Add(_state, _tooltip);
         _wanted = _installed; // a refused icon is not asked for again: the panel goes on without a tray
+        _delivered = _installed ? (_state, _tooltip) : null;
         return _installed;
     }
 
-    public void Update(TrayState state, string tooltip)
+    public bool Update(TrayState state, string tooltip)
     {
-        var cut = Cut(tooltip);
-        if (state == _state && cut == _tooltip) return;
-        (_state, _tooltip) = (state, cut);
-        if (_installed) _shell.Modify(_state, _tooltip);
+        (_state, _tooltip) = (state, Cut(tooltip));
+        return Deliver();
+    }
+
+    /// <summary>
+    /// Tells Windows the state and words it does not have yet. What is wanted and what Windows took are kept apart:
+    /// a change it refused is not taken for shown, and is tried again at the next change or message from the icon.
+    /// </summary>
+    private bool Deliver()
+    {
+        if (!_installed || _delivered == (_state, _tooltip)) return true;
+        if (!_shell.Modify(_state, _tooltip)) return false;
+        _delivered = (_state, _tooltip);
+        return true;
     }
 
     public bool Notify(string title, string text) => _installed && _shell.Notify(title, text);
@@ -96,14 +126,17 @@ public sealed class NativeTrayIcon : ITrayIcon
         if (message != callbackMessage) return TrayEvent.None;
         return (unchecked((int)lParam.ToInt64()) & 0xFFFF) switch
         {
-            NIN_SELECT or NIN_KEYSELECT or WM_LBUTTONDBLCLK => TrayEvent.Open,
+            // A click on a notification asks for the panel too: it is the way from the alert to what it is about.
+            NIN_SELECT or NIN_KEYSELECT or WM_LBUTTONDBLCLK or NIN_BALLOONUSERCLICK => TrayEvent.Open,
             WM_CONTEXTMENU => TrayEvent.Menu,
+            NIN_BALLOONSHOW => TrayEvent.NotificationShown,
             _ => TrayEvent.None,
         };
     }
 
     private void OnMessage(int message, IntPtr lParam)
     {
+        Deliver(); // the icon is alive and talking: a change Windows refused earlier is tried again
         switch (Decode(message, lParam, _shell.CallbackMessage, _shell.TaskbarCreatedMessage))
         {
             case TrayEvent.Open:
@@ -112,12 +145,16 @@ public sealed class NativeTrayIcon : ITrayIcon
             case TrayEvent.Menu:
                 ShowMenu();
                 break;
+            case TrayEvent.NotificationShown:
+                NotificationShown?.Invoke();
+                break;
             case TrayEvent.TaskbarCreated:
                 // The taskbar that held the icon is gone, and the icon with it: it is put back as it stood. If it
                 // can't be, the panel is asked for, so it is never left running where nobody can reach it; the next
                 // restart of the taskbar tries again.
                 if (!_wanted) break;
                 _installed = _shell.Add(_state, _tooltip);
+                _delivered = _installed ? (_state, _tooltip) : null;
                 if (!_installed) Opened?.Invoke();
                 break;
         }
@@ -129,6 +166,8 @@ public sealed class NativeTrayIcon : ITrayIcon
         // The menu's commands are numbered from 1: Windows gives 0 for a menu that was dismissed.
         var chosen = _shell.TrackMenu([.. items.Select((item, index) => (index + 1, item.Text))]);
         if (chosen is >= 1 && chosen <= items.Count) _ = items[chosen.Value - 1].Run();
+        // Cancelled (Escape, a click away): the focus goes back to the notification area, where the keyboard left it.
+        else _shell.ReturnFocus();
     }
 
     /// <summary>A tooltip no longer than Windows keeps, cut at a word with an ellipsis when it is.</summary>

@@ -23,7 +23,7 @@ public sealed class TrayController : IDisposable
     private readonly PanelSettingsStore _settings;
     private readonly Action<int> _exit;
     private IWindowSurface? _window;
-    private bool _saidThisRun, _exiting, _disposed;
+    private bool _saidThisRun, _awaitingNotice, _updateRefused, _exiting, _disposed;
 
     public TrayController(ShellViewModel shell, ITrayIcon icon, Notifier notifier, PanelSettingsStore settings, Action<int> exit,
         INeedsYouSource? needs = null, IQueueSummary? queue = null)
@@ -58,6 +58,7 @@ public sealed class TrayController : IDisposable
         _window = window;
         _icon.Menu = Tray.Menu;
         _icon.Opened += Open;
+        _icon.NotificationShown += NoticeWasShown;
         if (_icon.Install(Tray.State, Tray.Tooltip))
         {
             _notifier.Sink = _icon;
@@ -71,7 +72,11 @@ public sealed class TrayController : IDisposable
 
     private void ShowState()
     {
-        if (!_disposed) _icon.Update(Tray.State, Tray.Tooltip);
+        if (_disposed) return;
+        var taken = _icon.Update(Tray.State, Tray.Tooltip);
+        // Said once for each time it starts failing: the icon tries again by itself.
+        if (!taken && !_updateRefused) _shell.Log.Warn($"Windows did not change the tray icon, so it may show an older state. It should say: {Tray.Tooltip}");
+        _updateRefused = !taken;
     }
 
     /// <summary>Brings the window forward, shown if it was hidden, with its page.</summary>
@@ -120,17 +125,31 @@ public sealed class TrayController : IDisposable
         return true;
     }
 
-    /// <summary>Said the first time ever, and whatever the notification settings say: it explains what the close just did.</summary>
+    /// <summary>
+    /// Said the first time ever, and whatever the notification settings say: it explains what the close just did.
+    /// Windows can accept a notification and never show it, so it is marked said for good only when Windows says it
+    /// is on screen (<see cref="NoticeWasShown"/>). Accepted and not shown, it is not repeated in this run, and is
+    /// said again in the next.
+    /// </summary>
     private void SayStillRunning()
     {
         if (_saidThisRun || _settings.Current.TrayNoticeSaid) return;
+        _awaitingNotice = true;
         if (!_notifier.Explain(StillRunningTitle, StillRunningText))
         {
             // Not said, so not marked said: the next close tries again.
+            _awaitingNotice = false;
             _shell.Log.Warn($"{StillRunningTitle}: {StillRunningText} (Windows did not show this as a notification.)");
             return;
         }
         _saidThisRun = true;
+    }
+
+    /// <summary>Windows put a notification on screen: if the tray notice was the one waiting, it has now been seen.</summary>
+    private void NoticeWasShown()
+    {
+        if (!_awaitingNotice) return;
+        _awaitingNotice = false;
         var saved = _settings.Update(current => current with { TrayNoticeSaid = true });
         if (!saved.Succeeded) _shell.Log.Warn($"That the tray notice was shown could not be saved, so it will be shown once more: {saved.Reason}");
     }
@@ -167,6 +186,7 @@ public sealed class TrayController : IDisposable
         _disposed = true;
         _notifier.Sink = null;
         _icon.Opened -= Open;
+        _icon.NotificationShown -= NoticeWasShown;
         _icon.Dispose();
     }
 }

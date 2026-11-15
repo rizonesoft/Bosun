@@ -24,7 +24,7 @@ public class TrayControllerTests
         {
             var f = new TrayFixture().Start();
             Assert.True(f.Controller.HasTray);
-            Assert.Equal((true, TrayState.Normal, "Bosun Panel"), (f.Icon.Installed, f.Icon.State, f.Icon.Tooltip));
+            Assert.Equal((true, TrayState.Normal, "Bosun Panel: normal"), (f.Icon.Installed, f.Icon.State, f.Icon.Tooltip));
             Assert.True(f.Window.IsVisible);
             Assert.Equal((true, 1, 0), (f.Overview.IsShown, f.Overview.ShownCount, f.Overview.HiddenCount));
 
@@ -219,6 +219,74 @@ public class TrayControllerTests
         });
     }
 
+    [Fact]
+    public void A_notice_windows_accepted_and_never_showed_is_not_marked_said_and_is_said_again_in_the_next_run()
+    {
+        // The completion review: the flag was saved when Windows accepted the notification. Windows can queue or
+        // suppress one (do not disturb), and the explanation was then lost for good without ever being seen.
+        OnUi(() =>
+        {
+            var f = new TrayFixture();
+            f.Icon.ConfirmsDisplay = false;
+            f.Start();
+
+            Assert.True(f.Controller.TakeClose());
+            Assert.Single(f.Icon.Notifications);       // handed to Windows
+            Assert.False(f.Store.Current.TrayNoticeSaid); // and not yet seen
+            Assert.Empty(f.Lines(LogSeverity.Warn));
+
+            f.Controller.Open();
+            Assert.True(f.Controller.TakeClose());
+            Assert.Single(f.Icon.Notifications); // not handed over twice in one run
+
+            var next = new TrayFixture(f.Files).Start(); // the next run says it again, and this time it is seen
+            Assert.True(next.Controller.TakeClose());
+            Assert.Single(next.Icon.Notifications);
+            Assert.True(next.Store.Current.TrayNoticeSaid);
+
+            var last = new TrayFixture(f.Files).Start();
+            Assert.True(last.Controller.TakeClose());
+            Assert.Empty(last.Icon.Notifications);
+        });
+    }
+
+    [Fact]
+    public void A_notification_shown_with_no_notice_waiting_marks_nothing()
+    {
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start();
+            Assert.True(f.Notifier.Raise(NotificationType.MemoryPressure, "Memory pressure", "4 GB free")); // shown, and not the notice
+            Assert.False(f.Store.Current.TrayNoticeSaid);
+        });
+    }
+
+    [Fact]
+    public void A_change_of_the_icon_that_windows_refuses_is_said_once_and_the_state_is_not_taken_for_shown()
+    {
+        // The completion review: a refused update was cached as delivered, so a Pressure icon could stay Normal.
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start();
+            f.Icon.RefuseUpdate = true;
+
+            f.Controller.Tray.Pressure = true;
+            Assert.Equal(TrayState.Normal, f.Icon.State); // Windows still shows the old state
+            Assert.Equal(["Windows did not change the tray icon, so it may show an older state. It should say: Bosun Panel: memory pressure"], f.Lines(LogSeverity.Warn));
+
+            f.Needs.Count = 1; // still refused: not said a second time
+            Assert.Single(f.Lines(LogSeverity.Warn));
+
+            f.Icon.RefuseUpdate = false;
+            f.Needs.Count = 2;
+            Assert.Equal((TrayState.Pressure, "Bosun Panel: memory pressure, and 2 things need you"), (f.Icon.State, f.Icon.Tooltip));
+
+            f.Icon.RefuseUpdate = true; // and a new failure is a new line
+            f.Controller.Tray.Pressure = false;
+            Assert.Equal(2, f.Lines(LogSeverity.Warn).Count);
+        });
+    }
+
     // ---- Exit ----
 
     [Fact]
@@ -405,7 +473,7 @@ public class TrayControllerTests
             window.Closing = () => !f.Controller.TakeClose() && new ExitGuard(f.Shell, window).MayCloseNow(); // as MainWindow.OnClosing asks
 
             f.Start(inTray: true);
-            Assert.Equal((true, TrayState.Normal, "Bosun Panel"), (windows.Installed, windows.State, windows.Tooltip));
+            Assert.Equal((true, TrayState.Normal, "Bosun Panel: normal"), (windows.Installed, windows.State, windows.Tooltip));
             Assert.False(window.IsVisible);
 
             windows.Send(FakeTrayShell.Callback, NativeTrayIcon.NIN_SELECT); // a click on the real icon

@@ -264,6 +264,7 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 - [ ] Restore focus to the prior element on Esc. Done when: a UI Automation test reads the focused element before and after.
 - [ ] Refuse navigation from the palette while the page has unsaved edits, through `SelectionGuard`. Done when: a test sees the Save or Discard offer from `design/SPEC.md` §1.
 - [ ] Register the Settings page's Save and Discard in the palette (**Added 2026-11-15** from the plan review of `D02 T02 §5`, which builds them as buttons before the palette exists). Done when: a test finds both in the palette on the Settings page, each disabled with its reason while there is nothing to save, and each running the same save and discard as the buttons, with one line in the Activity log. Cheaper substitute: an action the keyboard can't reach from Ctrl+K.
+- [ ] Register the tray's Pause notifications for 1 hour, Resume notifications and Exit as commands in the palette (**Added 2026-11-15** from the completion review of `D02 T02 §7`, whose menu is the only way to them). Done when: a test finds each by typing its name, runs it, and reads the same result as the tray's menu line: the pause set with its Activity line, the pause ended, and Exit going through the question about unsaved edits. Cheaper substitute: commands only a mouse on the tray can reach.
 - [ ] Commit: `shell: command palette`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~CommandPalette` exits 0, and fails if a danger command skips its confirmation.
