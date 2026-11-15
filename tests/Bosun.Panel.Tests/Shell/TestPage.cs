@@ -87,6 +87,25 @@ public sealed class TestPage(string title = "Queue", string summary = "Who holds
         return this;
     }
 
+    /// <summary>What the page's refresh reads: the body to show. A test ends each call as it chooses.</summary>
+    public Func<CancellationToken, Task<string>> OnLoad { get; set; } = _ => Task.FromResult("fresh");
+
+    /// <summary>Gives the page a refresh, as a real page does in its constructor: each run shows what was read.</summary>
+    public TestPage Polling(Bosun.Core.RefreshScheduler scheduler, ActivityLog log, TimeSpan? interval = null)
+    {
+        RefreshEvery(scheduler, log, interval ?? Bosun.Core.RefreshScheduler.Fast, async token =>
+        {
+            var read = await OnLoad(token);
+            return () =>
+            {
+                Body = read;
+                Raise(nameof(Body));
+                ShowData();
+            };
+        });
+        return this;
+    }
+
     /// <summary>The failed state with no Retry set: what a page must not do.</summary>
     public void FailedWithoutRetry() => ShowFailed("no retry");
 

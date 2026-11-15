@@ -20,6 +20,7 @@ public partial class App : Application
     private IWindowSurface? _window;
     private WindowsTheme? _windowsTheme;
     private TrayController? _tray;
+    private RefreshScheduler? _refreshes;
 
     public App()
     {
@@ -50,7 +51,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _tray?.Dispose(); // however the panel ends, no icon is left in the tray
+        _refreshes?.Dispose(); // however the panel ends, nothing goes on reading a tool
+        _tray?.Dispose();      // and no icon is left in the tray
         _windowsTheme?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
@@ -69,8 +71,12 @@ public partial class App : Application
         _windowsTheme.Listen();
 
         var startup = new StartupEntry(new RegistryRunKey(), Environment.ProcessPath ?? "Bosun.Panel.exe");
-        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings);
-        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown);
+        // Started for the tray, by Windows at sign-in: no window, and so no page on screen, until it is asked for.
+        var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());
+        // The one owner of every refresh (D02 T02 §8), ticked on this thread, and only while something is active.
+        var refreshes = _refreshes = new RefreshScheduler(driver: new DispatcherRefreshDriver(Dispatcher));
+        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray);
+        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes);
         _window = WindowStart.Open(made, shell =>
         {
             var window = new MainWindow(shell) { TakeClose = tray.TakeClose };
@@ -78,7 +84,7 @@ public partial class App : Application
             window.Closed += (_, _) => Shutdown();
             MainWindow = window;
             return window;
-        }, window => tray.Start(window, TrayController.StartsInTray(Environment.GetCommandLineArgs())));
+        }, window => tray.Start(window, inTray));
     }
 
     /// <summary>Windows' own start-up settings: where an entry Windows has turned off is turned back on.</summary>

@@ -209,7 +209,8 @@ public sealed class TrayFixture
 
     /// <param name="files">The settings of an earlier run, to start a new one over them.</param>
     /// <param name="icon">The icon to use in place of the fixture's own: the real class over a tray shell of the tests' own.</param>
-    public TrayFixture(MemoryFiles? files = null, ITrayIcon? icon = null)
+    /// <param name="refreshes">The panel's refresh scheduler, which Exit stops (D02 T02 §8).</param>
+    public TrayFixture(MemoryFiles? files = null, ITrayIcon? icon = null, RefreshScheduler? refreshes = null)
     {
         Files = files ?? new MemoryFiles();
         Store = new PanelSettingsStore(SettingsFixture.FilePath, Files);
@@ -220,7 +221,7 @@ public sealed class TrayFixture
             new Section("settings", "Settings", Sections.App, Settings),
         ], Log, Store);
         Notifier = new Notifier(Store, Log, () => Now);
-        Controller = new TrayController(Shell, icon ?? Icon, Notifier, Store, Exits.Add, Needs, QueueWords);
+        Controller = new TrayController(Shell, icon ?? Icon, Notifier, Store, Exits.Add, Needs, QueueWords, refreshes);
     }
 
     public TrayFixture Start(bool inTray = false)

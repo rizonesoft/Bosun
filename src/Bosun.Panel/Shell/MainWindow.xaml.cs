@@ -86,6 +86,8 @@ public partial class MainWindow : Window, IWindowSurface
 
     private void ShowState()
     {
+        // A minimised window shows no page: the page on screen stops refreshing, and starts again when it is back.
+        if (DataContext is ShellViewModel shell && (IsVisible || IsMinimised)) WindowActivation.TellShell(shell, this);
         Shell.SetMaximised(IsMaximised);
         // A maximised window with its own chrome hangs over the screen's edges by its resize border: the content is
         // brought back inside by that much, or the title bar's top and the buttons' right edge are cut off.

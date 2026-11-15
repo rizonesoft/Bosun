@@ -28,6 +28,8 @@ public static partial class RenderCatalog
         new("page", "data", () => Framed(new Shell.TestPage().Data())) { Shows = "two slots, one waiting" },
         new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
         new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },
+        // A page that has a refresh: the Refresh button in its header (D02 T02 §8).
+        new("page", "refresh", () => Framed(new Shell.TestPage().Data().Polling(new Bosun.Core.RefreshScheduler(), Shell.Shells.Log()))) { Shows = "Refresh" },
         new("dialog", "leave", LeaveQuestion) { Shows = "Save your changes to Queue?" },
         // The Settings page (D02 T02 §5): as it opens, after a damaged file was moved aside, when the file can't be
         // read at all, and after a save that only half took.

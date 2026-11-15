@@ -37,8 +37,23 @@
                 <TextBlock x:Name="PageSummary" Text="{Binding Summary}" Foreground="{DynamicResource B.TextDim}"
                            Margin="0,3,0,0" TextWrapping="Wrap"/>
             </StackPanel>
-            <ContentControl x:Name="PageActions" Grid.Column="1" Content="{Binding Actions}" Focusable="False"
-                            VerticalAlignment="Top" Margin="12,0,0,0"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
+                <!-- Refresh, for a page that has a refresh (D02 T02 §8): one run now, joined to a poll under way. -->
+                <Border x:Name="RefreshHolder">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RefreshNow}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <Button x:Name="Refresh" Content="Refresh" Command="{Binding RefreshNow}" Style="{DynamicResource Btn}"
+                            AutomationProperties.Name="Refresh" ToolTip="Reads this page's data again now"/>
+                </Border>
+                <ContentControl x:Name="PageActions" Content="{Binding Actions}" Focusable="False" Margin="8,0,0,0"/>
+            </StackPanel>
         </Grid>
 
         <!-- Why a save asked for on the way out did not happen: said aloud, and kept until one does. -->

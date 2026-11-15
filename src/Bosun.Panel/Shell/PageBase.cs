@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows.Input;
+using Bosun.Core;
 using Bosun.Panel.Mvvm;
 
 namespace Bosun.Panel.Shell;
@@ -29,8 +31,10 @@ public abstract class PageBase(string title, string summary) : Observable
     private PageState _state = PageState.Loading;
     private string? _emptyReason, _emptyAction, _failureMessage, _saveFailure;
     private bool _isShown;
-    private ICommand? _retry;
+    private ICommand? _retry, _refreshNow;
     private object? _actions;
+    private Refresh? _refresh;
+    private bool _refreshFailing;
 
     public string Title { get; } = string.IsNullOrWhiteSpace(title) ? throw new ArgumentException("a page needs a title", nameof(title)) : title;
 
@@ -80,6 +84,68 @@ public abstract class PageBase(string title, string summary) : Observable
         get => _actions;
         protected set => Set(ref _actions, value);
     }
+
+    // ---- refreshing while on screen ----
+
+    /// <summary>
+    /// Runs the page's refresh now: the header's Refresh button, and Retry in the failed state. Null for a page that
+    /// has no refresh, which has no button.
+    /// </summary>
+    public ICommand? RefreshNow
+    {
+        get => _refreshNow;
+        private set => Set(ref _refreshNow, value);
+    }
+
+    /// <summary>
+    /// Gives the page a refresh (D02 T02 §8, design/SPEC.md §1): it runs when the page comes on screen and then
+    /// every <paramref name="interval"/>, and stops when the page leaves the screen, the window hidden or minimised
+    /// included. A hidden page polls nothing.
+    ///
+    /// <paramref name="load"/> reads the tool and touches nothing of the page: it returns what to show, which is
+    /// applied here, on the UI thread, and only for a run that was not stopped, so a run that ends after the page
+    /// was hidden can't put old data on it. What it throws is the page's failed state, with its message and Retry;
+    /// the next refresh that works takes the page out of it. The Activity pane says once when it starts failing,
+    /// and once when it works again.
+    /// </summary>
+    protected void RefreshEvery(RefreshScheduler scheduler, ActivityLog log, TimeSpan interval, Func<CancellationToken, Task<Action>> load)
+    {
+        if (_refresh is not null) throw new InvalidOperationException("a page has one refresh");
+        Action? show = null;
+        var refresh = scheduler.Register(Title, interval, async token =>
+        {
+            show = null;
+            show = await load(token);
+        });
+        var command = log.Command($"Refresh {Title}", async () =>
+        {
+            var outcome = await refresh.RunNowAsync();
+            return outcome.Succeeded ? ActionOutcome.Done : ActionOutcome.Failed(outcome.Message ?? "It did not refresh.");
+        });
+        refresh.Finished += outcome =>
+        {
+            if (outcome.Succeeded)
+            {
+                show?.Invoke();
+                if (!_refreshFailing) return;
+                _refreshFailing = false;
+                log.Info($"{Title} is refreshing again");
+                return;
+            }
+            ShowFailed(outcome.Message ?? "It did not refresh.");
+            if (_refreshFailing) return;
+            _refreshFailing = true;
+            log.Warn($"{Title} could not be refreshed: {outcome.Message} Trying again in {InWords(outcome.NextIn)}, and less often while it keeps failing.");
+        };
+        RefreshNow = command;
+        Retry ??= command;
+        _refresh = refresh;
+        if (IsShown) refresh.Start();
+    }
+
+    private static string InWords(TimeSpan wait) => wait.TotalSeconds < 120
+        ? string.Create(CultureInfo.InvariantCulture, $"{wait.TotalSeconds:0} s")
+        : string.Create(CultureInfo.InvariantCulture, $"{wait.TotalMinutes:0} min");
 
     protected void ShowLoading() => State = PageState.Loading;
 
@@ -138,6 +204,7 @@ public abstract class PageBase(string title, string summary) : Observable
         if (IsShown) return;
         IsShown = true;
         Shown();
+        _refresh?.Start();
     }
 
     /// <summary>The shell says the page has left the screen. Once per hiding.</summary>
@@ -145,6 +212,7 @@ public abstract class PageBase(string title, string summary) : Observable
     {
         if (!IsShown) return;
         IsShown = false;
+        _refresh?.Stop();
         Hidden();
     }
 

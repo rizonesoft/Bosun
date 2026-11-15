@@ -42,6 +42,16 @@ public static class WindowActivation
         if (!window.IsVisible) window.Show();
         window.Activate();
     }
+
+    /// <summary>
+    /// Tells the shell whether its window is on screen (D02 T02 §8): a window that is minimised, or not shown, shows
+    /// no page, so the page stops what it only does while looked at; back on screen, the page is shown again.
+    /// </summary>
+    public static void TellShell(ShellViewModel shell, IWindowSurface window)
+    {
+        if (window.IsMinimised || !window.IsVisible) shell.WindowHidden();
+        else shell.WindowShown();
+    }
 }
 
 /// <summary>Making the panel's first window and putting it on screen.</summary>
@@ -64,15 +74,16 @@ public static class WindowStart
     /// built over the panel's own settings and start-up entry, and the Activity pane at the height that was saved.
     /// Settings that could not be read say so in the Activity pane from the start.
     /// </summary>
+    /// <param name="windowShown">False when the panel is started for the tray: no page is on screen yet.</param>
     public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
-        Bosun.Core.StartupEntry startup, Action openStartupSettings)
+        Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
         var pages = new Dictionary<string, PageBase>
         {
             ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings),
         };
-        var shell = new ShellViewModel(Sections.All(pages), log, settings);
+        var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
         log.Info("Panel ready");
         if (settings.Notice is { } notice) log.Warn(notice);
         return shell;

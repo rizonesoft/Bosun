@@ -37,7 +37,11 @@ public sealed class ShellViewModel : Observable
     private readonly Bosun.Core.PanelSettingsStore? _settings;
 
     /// <param name="settings">Where the Activity pane's height is kept between runs; null keeps it for this run only.</param>
-    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null)
+    /// <param name="windowShown">
+    /// False for a panel started for the tray (D02 T02 §7, §8): its window is hidden, so its first page is not on
+    /// screen, and reads nothing, until <see cref="WindowShown"/>.
+    /// </param>
+    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null, bool windowShown = true)
     {
         if (sections.Count == 0) throw new ArgumentException("the rail needs at least one section", nameof(sections));
         Sections = sections;
@@ -46,7 +50,8 @@ public sealed class ShellViewModel : Observable
         if (settings is not null) _activityHeight = Math.Clamp(settings.Current.ActivityPaneHeight, MinActivityHeight, MaxActivityHeight);
         AskToLeave = AskInTheShell;
         _selected = sections[0];
-        _selected.Page.Show();
+        _windowShown = windowShown;
+        if (windowShown) _selected.Page.Show();
     }
 
     public IReadOnlyList<Section> Sections { get; }
@@ -84,7 +89,7 @@ public sealed class ShellViewModel : Observable
     {
         if (ReferenceEquals(section, _selected)) return;
         if (!Sections.Contains(section)) throw new ArgumentException("not a section of this shell", nameof(section));
-        _selected.Page.Hide();
+        _selected.Page.Hide(); // once per hiding: nothing, in a hidden window
         _selected = section;
         Raise(nameof(Selected));
         Raise(nameof(Page));

@@ -22,12 +22,14 @@ public sealed class TrayController : IDisposable
     private readonly Notifier _notifier;
     private readonly PanelSettingsStore _settings;
     private readonly Action<int> _exit;
+    private readonly RefreshScheduler? _refreshes;
     private IWindowSurface? _window;
     private bool _saidThisRun, _awaitingNotice, _updateRefused, _exiting, _disposed;
 
     public TrayController(ShellViewModel shell, ITrayIcon icon, Notifier notifier, PanelSettingsStore settings, Action<int> exit,
-        INeedsYouSource? needs = null, IQueueSummary? queue = null)
+        INeedsYouSource? needs = null, IQueueSummary? queue = null, RefreshScheduler? refreshes = null)
     {
+        _refreshes = refreshes;
         _shell = shell;
         _icon = icon;
         _notifier = notifier;
@@ -175,6 +177,8 @@ public sealed class TrayController : IDisposable
         }
         if (!may) return;
         _exiting = true;
+        // Only now that the exit is agreed: every refresh is stopped, and nothing reads a tool for a panel that has gone.
+        _refreshes?.Stop();
         Dispose();
         _exit(0);
     }

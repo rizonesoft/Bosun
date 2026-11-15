@@ -13,10 +13,12 @@ public class TrayRulesTests
         var make = app[app.IndexOf("private void MakeWindow()", StringComparison.Ordinal)..];
         make = make[..make.IndexOf("/// <summary>", StringComparison.Ordinal)];
 
-        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown)", make, StringComparison.Ordinal);
+        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes)", make, StringComparison.Ordinal);
         Assert.Contains("TakeClose = tray.TakeClose", make, StringComparison.Ordinal);                 // the window's close asks the tray first
         Assert.Contains("window.Closed += (_, _) => Shutdown();", make, StringComparison.Ordinal);     // and a window that really closed ends the panel
-        Assert.Contains("window => tray.Start(window, TrayController.StartsInTray(Environment.GetCommandLineArgs()))", make, StringComparison.Ordinal);
+        Assert.Contains("var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());", make, StringComparison.Ordinal);
+        Assert.Contains("windowShown: !inTray", make, StringComparison.Ordinal); // no page is on screen in a window that is not
+        Assert.Contains("window => tray.Start(window, inTray)", make, StringComparison.Ordinal);
 
         // Closing the window no longer ends the application by itself.
         Assert.Contains("ShutdownMode = ShutdownMode.OnExplicitShutdown;", app, StringComparison.Ordinal);
