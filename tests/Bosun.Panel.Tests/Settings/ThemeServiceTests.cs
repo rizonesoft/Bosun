@@ -106,6 +106,7 @@ public class ThemeServiceTests
             theme.Apply(ThemeChoice.Dark);
             PageRenderer.Settle(page);
             Assert.True(windows.IsLight);
+            var swapsSoFar = swappedOn.Count; // following to light, then the choice of dark
             foreach (var windowsIsLight in new[] { false, true })
             {
                 var again = Task.Run(windows.Flip);
@@ -115,7 +116,7 @@ public class ThemeServiceTests
                 Assert.Equal(ThemeService.Dark, theme.Effective);
                 Assert.Equal(dark, Paint(drawn.Background));
             }
-            Assert.Single(swappedOn); // and nothing was swapped for either
+            Assert.Equal(swapsSoFar, swappedOn.Count); // and nothing was swapped for either
 
             // Back to following: it takes what Windows is now.
             theme.Apply(ThemeChoice.FollowWindows);
