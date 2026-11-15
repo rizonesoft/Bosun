@@ -211,6 +211,21 @@ public sealed class PanelSettingsStore
         }
     }
 
+    /// <summary>A true or false setting: its default when the key is missing, a fault when it is anything but true or false.</summary>
+    private static bool TryBoolean(JsonElement root, string key, bool missing, out bool value, out string fault)
+    {
+        value = missing;
+        fault = "";
+        if (!root.TryGetProperty(key, out var found)) return true;
+        if (found.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            value = found.GetBoolean();
+            return true;
+        }
+        fault = $"its {key} is not true or false";
+        return false;
+    }
+
     /// <summary>The settings as the file holds them: UTF-8 JSON with a `schema_version`.</summary>
     public static byte[] Serialize(PanelSettings settings)
     {
@@ -221,6 +236,8 @@ public sealed class PanelSettingsStore
             json.WriteNumber("schema_version", SchemaVersion);
             json.WriteString("theme", settings.Theme.ToString());
             json.WriteNumber("activity_pane_height", settings.ActivityPaneHeight);
+            json.WriteBoolean("notify_memory_pressure", settings.NotifyMemoryPressure);
+            json.WriteBoolean("tray_notice_said", settings.TrayNoticeSaid);
             json.WriteEndObject();
         }
         buffer.WriteByte((byte)'\n');
@@ -289,7 +306,10 @@ public sealed class PanelSettingsStore
                 }
             }
 
-            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height };
+            if (!TryBoolean(root, "notify_memory_pressure", PanelSettings.Defaults.NotifyMemoryPressure, out var notify, out fault)) return false;
+            if (!TryBoolean(root, "tray_notice_said", PanelSettings.Defaults.TrayNoticeSaid, out var said, out fault)) return false;
+
+            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, NotifyMemoryPressure = notify, TrayNoticeSaid = said };
             return true;
         }
     }

@@ -32,6 +32,7 @@ public sealed class ShellViewModel : Observable
     private LeaveQuestion? _asking;
     private TaskCompletionSource<LeaveChoice>? _answer;
     private bool _leaving;
+    private bool _windowShown = true;
     private double _activityHeight = DefaultActivityHeight;
     private readonly Bosun.Core.PanelSettingsStore? _settings;
 
@@ -87,6 +88,26 @@ public sealed class ShellViewModel : Observable
         _selected = section;
         Raise(nameof(Selected));
         Raise(nameof(Page));
+        // In a hidden window no page is on screen: the one selected is shown when the window is.
+        if (_windowShown) _selected.Page.Show();
+    }
+
+    /// <summary>
+    /// The window went off screen, to the tray (D02 T02 §7): the page selected is hidden with it, so it reads
+    /// nothing while nobody is looking (design/SPEC.md §1).
+    /// </summary>
+    public void WindowHidden()
+    {
+        if (!_windowShown) return;
+        _windowShown = false;
+        _selected.Page.Hide();
+    }
+
+    /// <summary>The window is on screen again: the page selected is shown again.</summary>
+    public void WindowShown()
+    {
+        if (_windowShown) return;
+        _windowShown = true;
         _selected.Page.Show();
     }
 

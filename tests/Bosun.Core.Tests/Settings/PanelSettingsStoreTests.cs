@@ -89,6 +89,8 @@ public class PanelSettingsStoreTests
     [InlineData("{\"schema_version\": 1, \"theme\": 3}", "its theme is not FollowWindows, Dark or Light")]
     [InlineData("{\"schema_version\": 1, \"theme\": \"7\"}", "its theme is not FollowWindows, Dark or Light")]
     [InlineData("{\"schema_version\": 1, \"activity_pane_height\": \"tall\"}", "its activity_pane_height is not a number")]
+    [InlineData("{\"schema_version\": 1, \"notify_memory_pressure\": \"no\"}", "its notify_memory_pressure is not true or false")]
+    [InlineData("{\"schema_version\": 1, \"tray_notice_said\": 1}", "its tray_notice_said is not true or false")]
     [InlineData("", "it is not JSON")]
     public void A_file_that_is_not_settings_is_kept_as_bad_and_the_defaults_load_with_the_reason(string content, string reason)
     {
@@ -375,6 +377,26 @@ public class PanelSettingsStoreTests
         files.FailReplace = files.FailDelete = false;
         Assert.True(store.Save(Chosen).Succeeded); // the left-over temporary file is written over
         Assert.Equal(["panel.json"], Directory.GetFiles(scratch.Path).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void The_notification_and_tray_settings_are_saved_and_read_back_and_a_file_from_before_them_takes_their_defaults()
+    {
+        // D02 T02 §7: memory pressure notifications, on unless turned off, and whether the tray notice was said.
+        using var scratch = new Scratch();
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"theme\": \"Dark\"}"); // written before either setting existed
+        var store = new PanelSettingsStore(scratch.Settings);
+        Assert.Equal((true, false), (store.Current.NotifyMemoryPressure, store.Current.TrayNoticeSaid));
+        Assert.Equal((true, false), (PanelSettings.Defaults.NotifyMemoryPressure, PanelSettings.Defaults.TrayNoticeSaid));
+
+        Assert.True(store.Update(current => current with { NotifyMemoryPressure = false }).Succeeded);
+        Assert.True(store.Update(current => current with { TrayNoticeSaid = true }).Succeeded);
+
+        var read = new PanelSettingsStore(scratch.Settings).Current;
+        Assert.Equal((false, true, ThemeChoice.Dark), (read.NotifyMemoryPressure, read.TrayNoticeSaid, read.Theme)); // and the theme saved before is still there
+        var text = File.ReadAllText(scratch.Settings);
+        Assert.Contains("\"notify_memory_pressure\": false", text);
+        Assert.Contains("\"tray_notice_said\": true", text);
     }
 
     // ---- the current settings ----

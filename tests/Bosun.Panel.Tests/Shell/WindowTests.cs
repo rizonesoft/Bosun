@@ -377,7 +377,9 @@ public partial class ShellRulesTests
         Assert.Contains("WindowStart.Open(", make, StringComparison.Ordinal);
         Assert.Contains("new MainWindow(", make, StringComparison.Ordinal);
         Assert.Contains("MakeWindow = MakeWindow", app, StringComparison.Ordinal); // and startup is handed it
-        Assert.Contains("WindowActivation.BringForward(", app, StringComparison.Ordinal);
+        // A later launch goes through the tray's Open (D02 T02 §7), which brings the window forward and shows its page.
+        Assert.Contains("private void BringForward() => _tray?.Open();", app, StringComparison.Ordinal);
+        Assert.Contains("WindowActivation.BringForward(_window);", File.ReadAllText(Path.Combine(TestPaths.Panel(), "Tray", "TrayController.cs")), StringComparison.Ordinal);
     }
 
     [GeneratedRegex(@"^D(\d\d) T(\d\d) §(\d+)$")]

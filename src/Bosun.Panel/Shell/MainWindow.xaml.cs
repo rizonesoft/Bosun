@@ -34,6 +34,12 @@ public partial class MainWindow : Window, IWindowSurface
         StateChanged += (_, _) => ShowState();
     }
 
+    /// <summary>
+    /// Asked first as the window closes: true when the tray took the close and hid the window (D02 T02 §7). Null,
+    /// or false, and the close is the window's own, through the question about unsaved edits.
+    /// </summary>
+    public Func<bool>? TakeClose { get; set; }
+
     /// <summary>The view inside the window.</summary>
     public ShellView View => Shell;
 
@@ -69,6 +75,11 @@ public partial class MainWindow : Window, IWindowSurface
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
+        if (!e.Cancel && TakeClose?.Invoke() == true)
+        {
+            e.Cancel = true; // hidden, not closed: the panel carries on in the tray
+            return;
+        }
         // Held back while the person is asked about unsaved edits; the guard closes the window again if they agree.
         if (!e.Cancel && !_exit.MayCloseNow()) e.Cancel = true;
     }

@@ -1,5 +1,5 @@
-<!-- The Settings page's content (D02 T02 §5, design/SPEC.md §15, General): the theme, Start with Windows, Save and
-     Discard, and a line saying what the last save did. Drawn in the page frame through the implicit DataTemplate
+<!-- The Settings page's content (D02 T02 §5 and §7, design/SPEC.md §15, General): the theme, Start with Windows,
+     notifications by type, Save and Discard, and a line saying what the last save did. Drawn in the page frame through the implicit DataTemplate
      for SettingsPage (PageFrame.xaml), which is its DataContext. Every resource is named with DynamicResource. -->
 <UserControl x:Class="Bosun.Panel.Settings.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -50,6 +50,12 @@
             <Button x:Name="StartupAction" Content="{Binding StartupActionName}" Style="{DynamicResource Btn}"
                     Command="{Binding StartupAction}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         </StackPanel>
+
+        <TextBlock Text="Notifications" Style="{DynamicResource T.SectionLabel}" AutomationProperties.HeadingLevel="Level2"
+                   Margin="0,24,0,0"/>
+        <CheckBox x:Name="NotifyMemoryPressure" Content="Notify me about memory pressure" Margin="0,8,0,0"
+                  IsChecked="{Binding NotifyMemoryPressure, Mode=TwoWay}" HorizontalAlignment="Left"
+                  ToolTip="Shows a Windows notification when memory runs short. It is written to the Activity pane either way."/>
 
         <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
             <Button x:Name="Save" Content="Save" Style="{DynamicResource Btn.Primary}" Command="{Binding Save}"

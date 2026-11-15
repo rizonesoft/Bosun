@@ -32,6 +32,12 @@ public sealed class FakeWindow : IWindowSurface
         IsVisible = true;
     }
 
+    public void Hide()
+    {
+        Calls.Add("hide");
+        IsVisible = false;
+    }
+
     public void Restore()
     {
         Calls.Add("restore");

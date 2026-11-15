@@ -15,6 +15,9 @@ public interface IWindowSurface
 
     void Show();
 
+    /// <summary>Off the screen and the taskbar, and still there: what closing does while the panel lives in the tray.</summary>
+    void Hide();
+
     /// <summary>Back from minimised to the size it had.</summary>
     void Restore();
 
@@ -44,11 +47,15 @@ public static class WindowActivation
 /// <summary>Making the panel's first window and putting it on screen.</summary>
 public static class WindowStart
 {
-    /// <summary>Makes the window around a shell and shows it.</summary>
-    public static IWindowSurface Open(ShellViewModel shell, Func<ShellViewModel, IWindowSurface> make)
+    /// <summary>
+    /// Makes the window around a shell and puts it on screen. With a tray, <paramref name="show"/> is the tray's
+    /// start, which shows the window or, started for the tray, leaves it hidden until it is asked for (D02 T02 §7).
+    /// </summary>
+    public static IWindowSurface Open(ShellViewModel shell, Func<ShellViewModel, IWindowSurface> make, Action<IWindowSurface>? show = null)
     {
         var window = make(shell);
-        window.Show();
+        if (show is null) window.Show();
+        else show(window);
         return window;
     }
 

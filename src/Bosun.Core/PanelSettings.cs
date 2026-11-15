@@ -27,6 +27,18 @@ public sealed record PanelSettings
     public ThemeChoice Theme { get; init; } = ThemeChoice.FollowWindows;
 
     /// <summary>
+    /// Whether memory pressure raises a notification (design/SPEC.md §15 and §17: notifications on or off by type,
+    /// and memory pressure is the one type). Read by the notifier (src/Bosun.Panel/Tray/Notifier.cs). On by default.
+    /// </summary>
+    public bool NotifyMemoryPressure { get; init; } = true;
+
+    /// <summary>
+    /// Whether the panel has said, the first time its window was closed, that it is still running in the tray
+    /// (design/SPEC.md §17). Read by the tray controller, so it is said once ever.
+    /// </summary>
+    public bool TrayNoticeSaid { get; init; }
+
+    /// <summary>
     /// The Activity pane's height, read by the shell. Always within its limits: a height outside them is brought
     /// inside, and one that is not a number is the default.
     /// </summary>

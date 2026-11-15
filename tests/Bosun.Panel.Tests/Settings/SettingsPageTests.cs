@@ -467,7 +467,7 @@ public class SettingsPageTests
         }, host =>
         {
             var view = ShellSupport.Under<SettingsView>(frame).Single(); // through the frame's implicit template for the page
-            Assert.Equal(["Settings", "How the panel starts, looks and notifies.", "General", "Theme", "Follow Windows", "Start with Windows, in the tray", "Save", "Discard"], PageRenderer.TextsOf(frame));
+            Assert.Equal(["Settings", "How the panel starts, looks and notifies.", "General", "Theme", "Follow Windows", "Start with Windows, in the tray", "Notifications", "Notify me about memory pressure", "Save", "Discard"], PageRenderer.TextsOf(frame));
 
             Assert.Equal("Theme", AutomationProperties.GetName(view.ThemeBox));
             Assert.Equal(f.Option(ThemeChoice.FollowWindows), view.ThemeBox.SelectedItem);
@@ -506,6 +506,76 @@ public class SettingsPageTests
             PageRenderer.Settle(host);
             Assert.Equal(f.Option(ThemeChoice.Dark), view.ThemeBox.SelectedItem);
             Assert.Equal("Discard settings changes", f.Log.Entries[1].Message);
+            return true;
+        }, 900, 600);
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
+    public void Memory_pressure_notifications_are_edited_saved_obeyed_turned_back_on_discarded_and_kept_when_the_write_fails(string theme)
+    {
+        // D02 T02 §7: the setting through the real page and its view, with the notifier that reads it.
+        SettingsFixture f = null!;
+        PageFrame frame = null!;
+        PageRenderer.InPage(theme, () =>
+        {
+            f = new SettingsFixture().Open();
+            frame = new PageFrame { DataContext = f.Page };
+            return frame;
+        }, host =>
+        {
+            var view = ShellSupport.Under<SettingsView>(frame).Single();
+            var box = view.NotifyMemoryPressure;
+            var tray = new Bosun.Panel.Tests.Tray.FakeTrayIcon();
+            tray.Install(Bosun.Panel.Tray.TrayState.Normal, "Bosun Panel");
+            var notifier = new Bosun.Panel.Tray.Notifier(f.Store, f.Log) { Sink = tray };
+            bool Raise() => notifier.Raise(Bosun.Panel.Tray.NotificationType.MemoryPressure, "Memory pressure", "4 GB free");
+            void Toggle() => ((IToggleProvider)UIElementAutomationPeer.CreatePeerForElement(box).GetPattern(PatternInterface.Toggle)).Toggle();
+            void Press(Button button, Func<bool> until)
+            {
+                PageRenderer.Settle(host);
+                Invoke(button);
+                Assert.True(StartupSupport.Pump(until), $"{button.Name} did not end");
+                PageRenderer.Settle(host);
+            }
+
+            Assert.True(box.IsVisible);
+            Assert.Equal("Notify me about memory pressure", box.Content);
+            Assert.True(box.IsChecked); // on until turned off
+            Assert.True(Raise());
+
+            Toggle(); // an edit, and nothing stored yet
+            Assert.Equal((false, true, true), (f.Page.NotifyMemoryPressure, f.Page.HasUnsavedEdits, f.OnDisk().NotifyMemoryPressure));
+            Assert.True(Raise());
+
+            Press(view.Save, () => f.Page.Status is not null);
+            Assert.Equal("Saved and read back: memory pressure notifications off.", view.Status.Text);
+            Assert.Equal((false, false), (f.OnDisk().NotifyMemoryPressure, f.Page.HasUnsavedEdits));
+            Assert.False(box.IsChecked);
+            Assert.False(Raise()); // obeyed at once
+            Assert.Equal(2, tray.Notifications.Count);
+
+            Toggle(); // back on, in the same run
+            Press(view.Save, () => f.Page.Status == "Saved and read back: memory pressure notifications on.");
+            Assert.True(f.OnDisk().NotifyMemoryPressure);
+            Assert.True(Raise());
+            Assert.Equal(3, tray.Notifications.Count);
+
+            Toggle(); // changed and then discarded: back to what is stored
+            Assert.True(f.Page.HasUnsavedEdits);
+            Press(view.Discard, () => !f.Page.HasUnsavedEdits);
+            Assert.True(box.IsChecked);
+            Assert.True(f.Page.NotifyMemoryPressure);
+
+            Toggle(); // a write that fails keeps the edit, with why
+            f.Files.FailWrite = new IOException("There is not enough space on the disk.");
+            Press(view.Save, () => f.Page.Status is { } status && status.StartsWith("Not saved:", StringComparison.Ordinal));
+            Assert.Contains("There is not enough space on the disk.", view.Status.Text);
+            Assert.False(box.IsChecked);
+            Assert.Equal((false, true, true), (f.Page.NotifyMemoryPressure, f.Page.HasUnsavedEdits, f.OnDisk().NotifyMemoryPressure));
+            Assert.True(view.Save.IsEnabled);
+            Assert.True(Raise()); // what is stored is what is obeyed
             return true;
         }, 900, 600);
     }

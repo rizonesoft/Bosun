@@ -13,8 +13,8 @@ public sealed record ThemeOption(ThemeChoice Value, string Name)
 
 /// <summary>
 /// The Settings page (D02 T02 §5, design/SPEC.md §15, General). Each setting on it has the code that reads it: the
-/// theme (the theme service, through the store) and Start with Windows (the Run value itself). The others of §15 are
-/// added by the sections that build their readers.
+/// theme (the theme service, through the store), Start with Windows (the Run value itself) and memory pressure
+/// notifications (the notifier, D02 T02 §7). The others of §15 are added by the sections that build their readers.
 ///
 /// What the person has on the page and what is stored are kept apart: the difference is the page's unsaved edits.
 /// Save writes to two places, the settings file and the registry, and one can take while the other does not: what
@@ -29,9 +29,9 @@ public sealed class SettingsPage : PageBase
     private ICommand? _startupAction;
     private string? _startupActionName;
     private ThemeChoice _storedTheme;
-    private bool _storedStart;
+    private bool _storedStart, _storedNotify;
     private ThemeOption _selectedTheme;
-    private bool _startWithWindows;
+    private bool _startWithWindows, _notifyMemoryPressure;
     private string? _notice, _startupNote, _status;
 
     public SettingsPage(PanelSettingsStore store, StartupEntry startup, ActivityLog log, Action openStartupSettings)
@@ -98,6 +98,16 @@ public sealed class SettingsPage : PageBase
         }
     }
 
+    /// <summary>Memory pressure notifications, on or off, as the person has it on the page (design/SPEC.md §15, §17).</summary>
+    public bool NotifyMemoryPressure
+    {
+        get => _notifyMemoryPressure;
+        set
+        {
+            if (Set(ref _notifyMemoryPressure, value)) Edited();
+        }
+    }
+
     /// <summary>Why the settings are not the file's own: it was moved aside, and the defaults are in use.</summary>
     public string? Notice
     {
@@ -142,7 +152,7 @@ public sealed class SettingsPage : PageBase
     /// <summary>Opens Windows' own start-up settings, the supported way to turn an entry back on.</summary>
     public ICommand OpenStartupSettings { get; }
 
-    public override bool HasUnsavedEdits => State == PageState.Data && (_selectedTheme.Value != _storedTheme || _startWithWindows != _storedStart);
+    public override bool HasUnsavedEdits => State == PageState.Data && (_selectedTheme.Value != _storedTheme || _startWithWindows != _storedStart || _notifyMemoryPressure != _storedNotify);
 
     private void Edited()
     {
@@ -171,17 +181,19 @@ public sealed class SettingsPage : PageBase
             return;
         }
         Notice = _store.State == SettingsState.Restored ? _store.Notice : null;
-        Take(_store.Current.Theme, start);
+        Take(_store.Current, start);
         ShowData();
         Edited();
     }
 
     /// <summary>What is stored becomes what the page shows.</summary>
-    private void Take(ThemeChoice theme, StartupRead start)
+    private void Take(PanelSettings settings, StartupRead start)
     {
-        _storedTheme = theme;
+        _storedTheme = settings.Theme;
+        _storedNotify = settings.NotifyMemoryPressure;
         TakeStart(start);
-        SelectedTheme = ThemeOptions.First(option => option.Value == theme);
+        SelectedTheme = ThemeOptions.First(option => option.Value == settings.Theme);
+        NotifyMemoryPressure = _storedNotify;
         StartWithWindows = _storedStart;
     }
 
@@ -252,6 +264,18 @@ public sealed class SettingsPage : PageBase
             else failed.Add(outcome.Reason ?? "The theme did not read back as it was saved.");
         }
 
+        if (_notifyMemoryPressure != _storedNotify)
+        {
+            var wanted = _notifyMemoryPressure;
+            var outcome = _store.Update(current => current with { NotifyMemoryPressure = wanted });
+            if (outcome.Succeeded && _store.Current.NotifyMemoryPressure == wanted)
+            {
+                _storedNotify = wanted;
+                saved.Add($"memory pressure notifications {(wanted ? "on" : "off")}");
+            }
+            else failed.Add(outcome.Reason ?? "The notification setting did not read back as it was saved.");
+        }
+
         if (_startWithWindows != _storedStart)
         {
             var outcome = _startup.Set(_startWithWindows);
@@ -284,7 +308,7 @@ public sealed class SettingsPage : PageBase
         if (State != PageState.Data) return;
         // A Run key that can't be read now keeps what was last read, and says so: discarding invents no value and
         // hides no warning.
-        Take(_store.Current.Theme, _startup.Read());
+        Take(_store.Current, _startup.Read());
         Status = null;
         SaveFailure = null; // the edits a save could not keep are gone, and so is what there was to say about them
         Edited();

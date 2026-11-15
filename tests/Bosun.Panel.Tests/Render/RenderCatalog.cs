@@ -32,6 +32,9 @@ public static partial class RenderCatalog
         // The Settings page (D02 T02 §5): as it opens, after a damaged file was moved aside, when the file can't be
         // read at all, and after a save that only half took.
         new("settings", "general", () => Settings(_ => { })) { Shows = "Start with Windows, in the tray" },
+        // With memory pressure notifications turned off (D02 T02 §7).
+        new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
+            "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
         new("settings", "restored", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath, "not json at all"))) { Shows = "panel.json.bad" },
         new("settings", "unavailable", () => Settings(f =>
         {

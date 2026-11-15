@@ -5,6 +5,7 @@ using Bosun.Panel.Settings;
 using Bosun.Panel.Shell;
 using Bosun.Panel.Startup;
 using Bosun.Panel.Theme;
+using Bosun.Panel.Tray;
 
 namespace Bosun.Panel;
 
@@ -18,9 +19,14 @@ public partial class App : Application
     private readonly PanelStartup _startup;
     private IWindowSurface? _window;
     private WindowsTheme? _windowsTheme;
+    private TrayController? _tray;
 
     public App()
     {
+        // The panel lives in the tray (D02 T02 §7): closing its window does not end it. It ends when it is told to,
+        // by the tray's Exit, by a window that really closed, or by startup.
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
         // Made here, in the constructor, so the crash handlers are attached before anything else can throw.
         _startup = new PanelStartup(new StartupHost
         {
@@ -44,12 +50,13 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _tray?.Dispose(); // however the panel ends, no icon is left in the tray
         _windowsTheme?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
     }
 
-    /// <summary>The first window: the shell in its window, shown (D02 T02 §4).</summary>
+    /// <summary>The first window: the shell in its window, shown, or left hidden when started for the tray (D02 T02 §4, §7).</summary>
     private void MakeWindow()
     {
         var settings = new PanelSettingsStore(System.IO.Path.Combine(_startup.DataFolder, "panel.json"));
@@ -62,12 +69,16 @@ public partial class App : Application
         _windowsTheme.Listen();
 
         var startup = new StartupEntry(new RegistryRunKey(), Environment.ProcessPath ?? "Bosun.Panel.exe");
-        _window = WindowStart.Open(WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings), shell =>
+        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings);
+        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown);
+        _window = WindowStart.Open(made, shell =>
         {
-            var window = new MainWindow(shell);
+            var window = new MainWindow(shell) { TakeClose = tray.TakeClose };
+            // A window that really closed (there is no tray to hide in) ends the panel.
+            window.Closed += (_, _) => Shutdown();
             MainWindow = window;
             return window;
-        });
+        }, window => tray.Start(window, TrayController.StartsInTray(Environment.GetCommandLineArgs())));
     }
 
     /// <summary>Windows' own start-up settings: where an entry Windows has turned off is turned back on.</summary>
@@ -77,10 +88,7 @@ public partial class App : Application
     }
 
     /// <summary>A later launch asked for the panel: its window is restored if minimised, shown if hidden, and activated.</summary>
-    private void BringForward()
-    {
-        if (_window is not null) WindowActivation.BringForward(_window);
-    }
+    private void BringForward() => _tray?.Open();
 
     private static void Restart()
     {
