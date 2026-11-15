@@ -406,6 +406,55 @@ public class ShellTests
     }
 
     [Fact]
+    public void While_a_save_is_running_nothing_gets_past_it_even_once_the_page_has_cleared_its_edits()
+    {
+        // Round 1: a page that clears its edits as its save begins looked clean to a second move, which went through
+        // and was then undone when the first one finished.
+        TestPage first = null!, second = null!, third = null!;
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            var saving = new TaskCompletionSource<ActionOutcome>();
+            first.Edits = "slots 3";
+            first.OnSave = () =>
+            {
+                first.Edits = null; // cleared at once; the save itself is still on its way
+                return saving.Task;
+            };
+            var window = new FakeWindow();
+            var exit = new ExitGuard(shell, window);
+
+            Assert.True(ShellSupport.Press(view.Rail, 1));
+            PageRenderer.Settle(host);
+            ShellSupport.Invoke(view.Leave.Save);
+            Assert.True(StartupSupport.Pump(() => first.SaveCount == 1), "the save never started");
+            Assert.True(shell.IsLeaving);
+            Assert.False(first.HasUnsavedEdits);
+
+            // By the rail, from code, and by closing the window: each is refused, and nothing is asked.
+            Assert.True(ShellSupport.Press(view.Rail, 2));
+            Assert.True(ShellSupport.KeyOn(view.Rail, 0, Key.End));
+            var fromCode = shell.GoToAsync(shell.Sections[2]);
+            Assert.True(fromCode.IsCompleted);
+            Assert.False(fromCode.Result);
+            Assert.False(exit.MayCloseNow());
+            PageRenderer.Settle(host);
+            Assert.Same(first, shell.Page);
+            Assert.False(shell.IsAsking);
+            Assert.Equal((0, 0), (window.Closed, third.ShownCount));
+
+            saving.SetResult(ActionOutcome.Done);
+            Assert.True(StartupSupport.Pump(() => ReferenceEquals(shell.Page, second)), "the move the save was for never went on");
+            PageRenderer.Settle(host);
+            Assert.Equal((1, 0), (view.Rail.SelectedIndex, third.ShownCount));
+            Assert.True(exit.MayCloseNow()); // and now that it is over, the window may close
+        }, make: () =>
+        {
+            (var shell, first, second, third) = Shells.WithTestPages();
+            return shell;
+        });
+    }
+
+    [Fact]
     public void A_move_from_code_asks_the_same_question()
     {
         Sta.Run(() =>

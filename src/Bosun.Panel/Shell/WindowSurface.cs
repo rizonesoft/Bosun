@@ -77,7 +77,11 @@ public sealed class ExitGuard(ShellViewModel shell, IWindowSurface window)
     /// </summary>
     public bool MayCloseNow()
     {
-        if (_agreed || !shell.Page.HasUnsavedEdits) return true;
+        if (_agreed) return true;
+        // While a move to another page is still being asked about or saved, the window stays: closing now would
+        // drop the save in the middle.
+        if (shell.IsLeaving) return false;
+        if (!shell.Page.HasUnsavedEdits) return true;
         _ = AskThenCloseAsync();
         return false;
     }

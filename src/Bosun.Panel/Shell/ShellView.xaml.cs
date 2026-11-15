@@ -91,7 +91,10 @@ public partial class ShellView : UserControl
     /// </summary>
     private bool MayGoTo(int index)
     {
-        if (_shell is null || !_shell.Page.HasUnsavedEdits) return true;
+        if (_shell is null) return true;
+        // A move while an earlier one is still being asked about or saved is refused, with nothing more asked.
+        if (_shell.IsLeaving) return false;
+        if (!_shell.Page.HasUnsavedEdits) return true;
         if (index >= 0 && index < Rail.Items.Count && Rail.Items[index] is Section target) _ = LeaveThenGoAsync(_shell, target);
         return false;
     }

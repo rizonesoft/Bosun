@@ -129,9 +129,12 @@ public sealed class ShellViewModel : Observable
     /// </summary>
     public async Task<bool> LeaveAsync()
     {
+        // First, whatever the page says now: while a question or a save for an earlier move is still under way, the
+        // page may already have cleared its edits, and a second move let through here would be undone when the first
+        // one finished.
+        if (_leaving) return false;
         var page = Page;
         if (!page.HasUnsavedEdits) return true;
-        if (_leaving) return false;
         _leaving = true;
         try
         {
