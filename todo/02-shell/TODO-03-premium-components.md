@@ -119,6 +119,7 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 1. Create `src/Bosun.Panel/Theme/Glyphs.cs`. Done when: every rail row and shared action resolves through it.
 2. Extend `src/Bosun.Panel/Shell/MainWindow.xaml`. Done when: the marker slides between rows and badges show.
 
+- [ ] Add the package `MahApps.Metro.IconPacks.Lucide` to `Directory.Packages.props` and `src/Bosun.Panel/Bosun.Panel.csproj` (**Added 2026-11-15** from `D02 T02 §2`, which held this with a test of `Section.Icon`; the map and its `GlyphTests` are here, so the package is too). Done when: the panel builds with it and `PackIconLucideKind` resolves in `Glyphs.cs`. Cheaper substitute: glyphs drawn from a font's characters.
 - [ ] Create `src/Bosun.Panel/Theme/Glyphs.cs` mapping each page and shared action to a `PackIconLucideKind`, matching the mockup's choices. Done when: `tests/Bosun.Panel.Tests/GlyphTests.cs` proves every rail row has a glyph and each one is a defined kind. Cheaper substitute: glyph names typed into each view.
 - [ ] Fail a `PackIconLucide` used outside the map in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a direct kind in a view fails the test.
 - [ ] Add the rail marker in `MainWindow.xaml`, animated with `Motion.Normal`. Done when: it lands on the selected row after keyboard and mouse navigation, and jumps at once with motion off. Cheaper substitute: a static highlight on the selected row.
