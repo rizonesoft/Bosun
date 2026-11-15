@@ -350,6 +350,48 @@ public class TrayControllerTests
         });
     }
 
+    [Fact]
+    public void An_icon_lost_when_the_taskbar_restarted_is_no_tray_so_the_close_is_the_windows_own_until_it_is_back()
+    {
+        // Review round 1: the controller remembered at its start that there was a tray. With the icon refused after
+        // a taskbar restart, closing the window hid it, and the panel ran with no window, no icon and no Exit.
+        OnUi(() =>
+        {
+            var windows = new FakeTrayShell();
+            var f = new TrayFixture(icon: new NativeTrayIcon(windows));
+            var window = f.Window;
+            window.Closing = () => !f.Controller.TakeClose() && new ExitGuard(f.Shell, window).MayCloseNow();
+            f.Start(inTray: true);
+            Assert.True(f.Controller.HasTray);
+            Assert.False(window.IsVisible);
+
+            windows.RefuseAdd = true;
+            windows.RestartTaskbar(); // the icon is gone and Windows will not take it back
+            Assert.False(f.Controller.HasTray);
+            Assert.True(window.IsVisible); // the panel came forward
+            Assert.True(f.Overview.IsShown);
+
+            f.Overview.Edits = "typed";
+            f.Answer(LeaveChoice.Stay);
+            window.Close(); // not hidden: asked, as a window with no tray is
+            Assert.Equal((true, 0), (window.IsVisible, window.Closed));
+            Assert.DoesNotContain("hide", window.Calls);
+
+            windows.RefuseAdd = false;
+            windows.RestartTaskbar(); // the taskbar takes the icon back: there is a tray again
+            Assert.True(f.Controller.HasTray);
+            window.Close();
+            Assert.Equal((false, 0), (window.IsVisible, window.Closed));
+
+            f.Controller.Open();
+            windows.RefuseAdd = true;
+            windows.RestartTaskbar();
+            f.Answer(LeaveChoice.Discard);
+            window.Close(); // and with none, a close the person agrees to is a real close
+            Assert.Equal(1, window.Closed);
+        });
+    }
+
     // ---- the whole of it, as the application drives it ----
 
     [Fact]

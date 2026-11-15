@@ -23,7 +23,7 @@ public sealed class TrayController : IDisposable
     private readonly PanelSettingsStore _settings;
     private readonly Action<int> _exit;
     private IWindowSurface? _window;
-    private bool _hasTray, _saidThisRun, _exiting, _disposed;
+    private bool _saidThisRun, _exiting, _disposed;
 
     public TrayController(ShellViewModel shell, ITrayIcon icon, Notifier notifier, PanelSettingsStore settings, Action<int> exit,
         INeedsYouSource? needs = null, IQueueSummary? queue = null)
@@ -39,8 +39,11 @@ public sealed class TrayController : IDisposable
     /// <summary>The tray's state and menu.</summary>
     public TrayViewModel Tray { get; }
 
-    /// <summary>Whether the panel has an icon in the tray.</summary>
-    public bool HasTray => _hasTray;
+    /// <summary>
+    /// Whether the panel has an icon in the tray now. Asked of the icon each time, never remembered from the start:
+    /// an icon lost when the taskbar restarted is no tray, and the window's close is then the window's own again.
+    /// </summary>
+    public bool HasTray => !_disposed && _icon.IsInstalled;
 
     /// <summary>Whether the panel was started for the tray: by Windows at sign-in, through the Run value (D02 T02 §5).</summary>
     public static bool StartsInTray(IEnumerable<string> arguments) =>
@@ -55,15 +58,14 @@ public sealed class TrayController : IDisposable
         _window = window;
         _icon.Menu = Tray.Menu;
         _icon.Opened += Open;
-        _hasTray = _icon.Install(Tray.State, Tray.Tooltip);
-        if (_hasTray)
+        if (_icon.Install(Tray.State, Tray.Tooltip))
         {
             _notifier.Sink = _icon;
             Tray.Changed += ShowState;
         }
         else _shell.Log.Warn("Windows did not add Bosun Panel's icon to the notification area, so closing the window exits the panel.");
 
-        if (_hasTray && inTray) _shell.WindowHidden();
+        if (HasTray && inTray) _shell.WindowHidden();
         else Open();
     }
 
@@ -111,7 +113,7 @@ public sealed class TrayController : IDisposable
     /// </summary>
     public bool TakeClose()
     {
-        if (!_hasTray || _exiting || _window is null) return false;
+        if (!HasTray || _exiting || _window is null) return false;
         _window.Hide();
         _shell.WindowHidden();
         SayStillRunning();
@@ -163,7 +165,6 @@ public sealed class TrayController : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _hasTray = false;
         _notifier.Sink = null;
         _icon.Opened -= Open;
         _icon.Dispose();

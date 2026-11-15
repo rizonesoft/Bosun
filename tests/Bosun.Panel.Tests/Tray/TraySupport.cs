@@ -18,6 +18,8 @@ public sealed class FakeTrayIcon : ITrayIcon
 
     public bool Installed { get; private set; }
 
+    public bool IsInstalled => Installed;
+
     public TrayState State { get; private set; }
 
     public string Tooltip { get; private set; } = "";

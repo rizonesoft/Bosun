@@ -9,6 +9,12 @@ public interface ITrayIcon : INotificationSink, IDisposable
     /// <summary>Puts the icon in the tray. False when Windows refuses it: there is then no tray.</summary>
     bool Install(TrayState state, string tooltip);
 
+    /// <summary>
+    /// Whether the icon is in the tray now. It can be lost after it was added: Windows' taskbar restarts, and may
+    /// refuse to take the icon back.
+    /// </summary>
+    bool IsInstalled { get; }
+
     /// <summary>Changes the icon and its tooltip.</summary>
     void Update(TrayState state, string tooltip);
 
@@ -63,7 +69,6 @@ public sealed class NativeTrayIcon : ITrayIcon
 
     public Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
 
-    /// <summary>Whether the icon is in the tray now.</summary>
     public bool IsInstalled => _installed;
 
     public bool Install(TrayState state, string tooltip)
