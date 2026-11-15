@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -60,13 +61,29 @@ public static class SelectionGuard
             puttingBack = true;
             try
             {
-                selector.SelectedIndex = at;
+                // The current value, not a local one: setting the property itself would replace a one-way binding
+                // on SelectedIndex, and the view model's later moves would no longer reach the list.
+                selector.SetCurrentValue(Selector.SelectedIndexProperty, at);
             }
             finally
             {
                 puttingBack = false;
             }
+            // A view model bound two-way made this move and still holds the refused value: WPF does not write back
+            // to a source while it is reading from it. Once that is over, it is told where the selection really is.
+            selector.Dispatcher.BeginInvoke(() => TellTheSource(selector));
         };
+    }
+
+    private static readonly DependencyProperty[] Selections = [Selector.SelectedIndexProperty, Selector.SelectedItemProperty, Selector.SelectedValueProperty];
+
+    private static void TellTheSource(Selector selector)
+    {
+        foreach (var property in Selections)
+        {
+            if (BindingOperations.GetBindingExpression(selector, property) is { ParentBinding.Mode: BindingMode.TwoWay or BindingMode.OneWayToSource or BindingMode.Default } bound)
+                bound.UpdateSource();
+        }
     }
 
     /// <summary>The index of the item container a click landed in, or null outside every item.</summary>

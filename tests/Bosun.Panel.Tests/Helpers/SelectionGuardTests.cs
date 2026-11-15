@@ -154,6 +154,47 @@ public class SelectionGuardTests
         });
     }
 
+    private sealed class Shown : Bosun.Panel.Mvvm.Observable
+    {
+        private int _index;
+
+        public int Index
+        {
+            get => _index;
+            set => Set(ref _index, value);
+        }
+    }
+
+    [Theory]
+    [InlineData(System.Windows.Data.BindingMode.OneWay)]
+    [InlineData(System.Windows.Data.BindingMode.TwoWay)]
+    public void A_refused_move_that_came_from_a_binding_leaves_the_binding_in_place(System.Windows.Data.BindingMode mode)
+    {
+        // Round 1: putting the selection back by setting the property replaced a one-way binding, and the view
+        // model's later moves no longer reached the list.
+        WithARail((rail, asked, answer, page) =>
+        {
+            var model = new Shown { Index = 1 };
+            rail.SetBinding(System.Windows.Controls.Primitives.Selector.SelectedIndexProperty, new System.Windows.Data.Binding(nameof(Shown.Index)) { Source = model, Mode = mode });
+            PageRenderer.Settle(page);
+            Assert.Equal(1, rail.SelectedIndex);
+
+            model.Index = 3; // the view model moves the selection; the page being left refuses
+            PageRenderer.Settle(page);
+            Assert.Equal([3], asked);
+            Assert.Equal(1, rail.SelectedIndex);
+            Assert.True(System.Windows.Data.BindingOperations.IsDataBound(rail, System.Windows.Controls.Primitives.Selector.SelectedIndexProperty), "the binding is still there");
+            // Two-way, the view model is told where the selection really is; one-way, it keeps what it asked for.
+            Assert.Equal(mode == System.Windows.Data.BindingMode.TwoWay ? 1 : 3, model.Index);
+
+            answer(true);
+            model.Index = 2; // and its next move still reaches the list
+            PageRenderer.Settle(page);
+            Assert.Equal(2, rail.SelectedIndex);
+            Assert.True(System.Windows.Data.BindingOperations.IsDataBound(rail, System.Windows.Controls.Primitives.Selector.SelectedIndexProperty));
+        });
+    }
+
     [Fact]
     public void A_move_the_guard_agreed_to_beforehand_is_not_asked_about_again_when_it_happens()
     {
