@@ -153,6 +153,7 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 - [ ] Create `SegmentedControl` in `src/Bosun.Panel/Controls/SegmentedControl.cs` on `ListBox`, with the selected indicator using `Motion.Fast`. Done when: a render shows the indicator on the selected item in both themes. Cheaper substitute: a row of toggle buttons with no exclusive selection.
 - [ ] Support Left, Right, Home and End in `SegmentedControl.cs`. Done when: a UI Automation test moves and reads selection by keyboard only.
 - [ ] Hold each segment at 32 px or more in `src/Bosun.Panel/Theme/Controls.xaml`. Done when: the style walk from `D02 T01 §4` asserts it.
+- [ ] Use the segmented control for the theme on the Settings page, `src/Bosun.Panel/Settings/SettingsView.xaml` (**Added 2026-11-15** from `D02 T02 §5`, which draws the three-way choice as a combo box until this control exists; `design/SPEC.md` §19). Done when: the off-screen render of the page shows the three choices side by side, and a test moves between them with the arrow keys and reads the selected one.
 - [ ] Commit: `controls: status pill and segmented control`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~StatusPill` exits 0, and fails if the empty word check is removed.

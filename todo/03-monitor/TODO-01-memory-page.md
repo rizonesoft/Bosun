@@ -128,6 +128,7 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 - [ ] Enter pressure below the floor and leave only 1 GB above it. Done when: a fake-clock test fires once across a noisy dip. Cheaper substitute: a toast on every sample.
 - [ ] Add the floor to Settings, default 2048 MB, with `PressureWatch` as its consumer. Done when: the setting reads back and drives the test.
 - [ ] Run the check while in the tray at 30 second intervals, with the tray state. Done when: the icon changes to Pressure and the words say so.
+- [ ] Add the Pressure alert threshold to the Settings page and to `PanelSettings` (**Added 2026-11-15** from `D02 T02 §5`, which builds each setting with the code that reads it; `design/SPEC.md` §15). Done when: a test changes the threshold on the page, reads it stored and read back, a value outside its range refused beside the field, and the alert raised at the new threshold with no restart. Cheaper substitute: a setting nothing reads.
 - [ ] Commit: `memory: pressure alerts`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~PressureWatch` exits 0, and fails if the change is reverted.

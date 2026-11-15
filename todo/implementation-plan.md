@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 208
+Sections: 23 | Checklist items: 218
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -76,13 +76,13 @@ Sections: 23 | Checklist items: 208
 | [x]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 16    |
 | [x]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 7     |
 | [x]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 23    |
-| [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 6     |
-| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 6     |
+| [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 13    |
+| [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 8     |
 | [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 8     |
 | [ ]    | D02 T03 §1  | Elevation and motion tokens                 | none            | 8     |
 | [ ]    | D02 T03 §2  | Mica backdrop with a solid fallback         | display-session | 9     |
 | [ ]    | D02 T03 §3  | Lucide icon map and rail marker             | display-session | 8     |
-| [ ]    | D02 T03 §4  | Status pill and segmented control           | display-session | 7     |
+| [ ]    | D02 T03 §4  | Status pill and segmented control           | display-session | 8     |
 | [ ]    | D02 T03 §5  | Gauge, sparkline and stacked bar            | display-session | 8     |
 | [ ]    | D02 T03 §6  | Queue slot visuals                          | none            | 3     |
 | [ ]    | D02 T03 §7  | Skeleton and page transitions               | none            | 10    |
@@ -91,14 +91,14 @@ Sections: 23 | Checklist items: 208
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 35
+Sections: 8 | Checklist items: 36
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1 | Memory readers                        | none  | 3     |
 | [ ]    | D03 T01 §2 | Memory page                           | none  | 4     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
-| [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 4     |
+| [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 5     |
 | [ ]    | D03 T02 §1 | Instance scanner                      | none  | 4     |
 | [ ]    | D03 T02 §2 | Instances page                        | none  | 4     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 4     |
@@ -145,4 +145,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 48/88 verified sections, 8 ready to run now.
 
-Checklist: 520/732 items completed (includes Commit items).
+Checklist: 520/743 items completed (includes Commit items).
