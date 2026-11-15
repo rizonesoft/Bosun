@@ -1,0 +1,90 @@
+{
+  "ref": "D02 T02 \u00a78",
+  "title": "Pollers that stop when nothing is looking",
+  "implementation_sha": "77c6baecdd34b339e2fcb70c4f0a2bcd503e254e",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s8.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-class \"*Refresh*\" -> passed within the whole solution: total: 484, failed: 0",
+    "pwsh scripts/render-pages.ps1 -> 32 pictures, exit 0",
+    "CI full gate on 77c6bae -> build.yml: green at 77c6baecdd34 (https://github.com/rizonetech/Bosun/actions/runs/43688387296)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s8.md",
+    "verdict": "filed",
+    "candidate": "77c6baecdd34b339e2fcb70c4f0a2bcd503e254e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D03 T01 \u00a72",
+      "D03 T02 \u00a72",
+      "D03 T02 \u00a73",
+      "D03 T01 \u00a74",
+      "D02 T03 \u00a78",
+      "D02 T03 \u00a76",
+      "D07 T01 \u00a75"
+    ]
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "Round 1 returned one P3 (a manual refresh stopped by hiding its page was logged as a failure), which was true and is fixed in 77c6bae; nothing is left to file.",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s8.md",
+    "candidate": "3781a09cb6852312e1620f1ba5198190a10165e5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3781a09cb6852312e1620f1ba5198190a10165e5",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -49,7 +49,7 @@ title: "TODO-02 -- The application shell"
 | 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [x] |
 | 5 | §5 | Settings store and theme switching | §4 | [x] |
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [x] |
-| 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
+| 7 | §8 | Pollers that stop when nothing is looking | §3 | [x] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
 
@@ -404,6 +404,9 @@ A monitor that burns CPU while hidden defeats itself. One scheduler owns all ref
 - [x] Commit: `core: refresh scheduler`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*Refresh*"` exits 0, and fails if the change is reverted.
+
+> **Verified:** 2026-11-15 | §8 | 77c6baecdd34b339e2fcb70c4f0a2bcd503e254e
+> **Review:** `docs/reviews/d02-t02-s8.json`
 
 ## 9. Off-screen page rendering for review
 
