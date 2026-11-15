@@ -46,7 +46,7 @@ title: "TODO-02 -- The application shell"
 | 1 | §1 | Startup, single instance and crash handling | D02 T01 §4 | [x] |
 | 2 | §2 | View model base and accessibility helpers | §1 | [x] |
 | 3 | §3 | Process runner | D00 T02 §1 | [x] |
-| 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [ ] |
+| 4 | §4 | Window chrome, rail and activity pane | §2, §3, §9 | [x] |
 | 5 | §5 | Settings store and theme switching | §4 | [ ] |
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [ ] |
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [ ] |
@@ -248,9 +248,12 @@ This is the frame every page sits in. Snap layouts need real hit testing, which 
 - [x] Register the shell in `tests/Bosun.Panel.Tests/Render/RenderCatalog.cs`: `shell.overview` (the whole frame with INFO, WARN and FAIL lines in the pane), `page.loading`, `page.empty`, `page.failed` and `page.data`, and `dialog.leave`. Done when: `pwsh scripts/render-pages.ps1` writes each in both themes, and the pictures have been looked at beside `design/mockups/control-panel.html`. Cheaper substitute: a frame nobody looked at.
 - [x] Settle round 1 (`docs/reviews/02-shell/D02-T02-s4.md`) in `ShellViewModel.cs`, `ShellView.xaml.cs` and `WindowSurface.cs` (**Added 2026-11-15**): while a question or a save for one move is under way, every other move is refused first, before the page is asked whether it has edits, since a page that clears its edits as its save begins looked clean to a second move. Done when: `ShellTests` starts a save that clears the page's edits at once and stays running, and reads a rail click, a rail key, a move from code and the window's close each refused with nothing asked, and the first move going on when the save ends.
 - [x] Settle the completion review's three gaps (`docs/reviews/02-shell/D02-T02-s4.md`) in `PageFrame.xaml`, `ShellView.xaml` and `ShellViewModel.cs` (**Added 2026-11-15**): a long tool message, or a long reason a save did not happen, scrolls in the room it has, the page keeps a least height of 320 px and scrolls when the window gives it less, so Retry is always within reach; Discard writes its INFO line, naming the page and not what was dropped; and the splitter's target is 32 px (`design/SPEC.md` §1), reaching over the page's margin and the pane's top without moving either. Done when: `ShellTests` draws the shell at 960 by 600 with the pane at 400 px and a 200-line failure, and reads the message and the page both scrolling, Retry inside the frame, in view once brought there, and pressed; reads one `Discard changes to Queue` line after a discard, by the rail and by the window's close; and reads the splitter 32 px high, taking the pointer across all of it, with the pane still 132 px. Cheaper substitute: a Retry button below the bottom of the window.
-- [ ] Commit: `shell: chrome, rail and activity pane`
+- [x] Commit: `shell: chrome, rail and activity pane`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-namespace "*Tests.Shell*"` exits 0, and fails if the change is reverted; `pwsh scripts/render-pages.ps1` exits 0.
+
+> **Verified:** 2026-11-15 | §4 | 2fe5c4de6c35e6971f2dcdc769d16e9f7e697981
+> **Review:** `docs/reviews/d02-t02-s4.json`
 
 ## 5. Settings store and theme switching
 

@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T02 \u00a74",
+  "title": "Window chrome, rail and activity pane",
+  "implementation_sha": "2fe5c4de6c35e6971f2dcdc769d16e9f7e697981",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s4.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --solution Bosun.slnx --filter-namespace \"*Tests.Shell*\" -> passed within the whole solution: total: 330, failed: 0",
+    "pwsh scripts/render-pages.ps1 -> 20 pictures, exit 0",
+    "CI full gate on 2fe5c4d -> build.yml: green at 2fe5c4de6c35 (https://github.com/rizonetech/Bosun/actions/runs/43671962644)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s4.md",
+    "verdict": "completed",
+    "candidate": "c97017ebc30b252982909918d0c36a3dd4fffc51",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "Round 1 returned one P3 (a move let through while a save was running), which was true and is fixed in c97017e with a test; nothing is left to file.",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s4.md",
+    "candidate": "f6260e739dd2147211d192bc1ed37a837a90c6e0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "f6260e739dd2147211d192bc1ed37a837a90c6e0",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

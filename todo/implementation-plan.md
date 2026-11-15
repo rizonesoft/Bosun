@@ -75,7 +75,7 @@ Sections: 23 | Checklist items: 208
 | [x]    | D02 T01 §4  | Control templates                           | none            | 25    |
 | [x]    | D02 T02 §1  | Startup, single instance and crash handling | none            | 16    |
 | [x]    | D02 T02 §2  | View model base and accessibility helpers   | none            | 7     |
-| [ ]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 23    |
+| [x]    | D02 T02 §4  | Window chrome, rail and activity pane       | none            | 23    |
 | [ ]    | D02 T02 §5  | Settings store and theme switching          | none            | 6     |
 | [ ]    | D02 T02 §7  | Tray icon and notifications                 | none            | 6     |
 | [ ]    | D02 T02 §10 | End-to-end smoke through UI Automation      | display-session | 8     |
@@ -143,6 +143,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 47/88 verified sections, 6 ready to run now.
+Progress: 48/88 verified sections, 8 ready to run now.
 
-Checklist: 519/732 items completed (includes Commit items).
+Checklist: 520/732 items completed (includes Commit items).
