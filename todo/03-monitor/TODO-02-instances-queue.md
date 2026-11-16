@@ -80,6 +80,7 @@ The direct answer to monitoring all the dev instances.
 - [ ] Build the table per `design/SPEC.md` §4. Done when: WSL down shows Windows rows and a notice.
 - [ ] Add Open folder and Open terminal here. Done when: a WSL row opens the right distro and path. Cheaper substitute: Windows paths passed to a WSL shell.
 - [ ] Show a build job's queue slot on its row in `Views/InstancesView.xaml`, from `bosun status --json`. Done when: a fixture job shows "Slot 1".
+- [ ] Give the Instances page the table skeleton (`LoadingShape = SkeletonShape.Table`), and with WSL stopped keep its last WSL rows on screen through `PageBase.ShowLastKnown("WSL is stopped", readAt)` (**Added 2026-11-16** from the completion review of `D02 T03 §7`, which built them on test pages). Done when: a fixture with WSL stopped reads "WSL is stopped. Showing what was read <age> ago." over the last rows, and a later refresh with WSL running clears it. Cheaper substitute: an empty WSL table, or old rows shown as current.
 - [ ] Commit: `instances: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.

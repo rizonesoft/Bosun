@@ -133,6 +133,31 @@ public class PageFrameTests
     }
 
     [Fact]
+    public void The_move_fades_from_nothing_and_rises_4_px_over_the_normal_length_with_the_design_s_easing()
+    {
+        // The completion review: a move that reached the right end by the wrong path passed.
+        WithGate(true, (view, shell, host, _) =>
+        {
+            var gate = (Motion)view.Resources[Motion.GateKey];
+            shell.Show(shell.Sections[1]);
+            var (fade, rise) = view.PageHost.LastMove ?? throw new Xunit.Sdk.XunitException("no move was started");
+            foreach (var (animation, from, to) in new[] { (fade, 0.0, 1.0), (rise, PageFrame.RiseBy, 0.0) })
+            {
+                Assert.Equal(gate.Normal, animation.Duration);
+                Assert.Equal(TimeSpan.FromMilliseconds(220), animation.Duration.TimeSpan);
+                Assert.Equal(2, animation.KeyFrames.Count);
+                var start = Assert.IsType<System.Windows.Media.Animation.DiscreteDoubleKeyFrame>(animation.KeyFrames[0]);
+                Assert.Equal((from, System.Windows.Media.Animation.KeyTime.FromPercent(0)), (start.Value, start.KeyTime));
+                var end = Assert.IsType<System.Windows.Media.Animation.SplineDoubleKeyFrame>(animation.KeyFrames[1]);
+                Assert.Equal((to, System.Windows.Media.Animation.KeyTime.FromTimeSpan(gate.Normal.TimeSpan)), (end.Value, end.KeyTime));
+                Assert.Equal((gate.Ease.ControlPoint1, gate.Ease.ControlPoint2), (end.KeySpline.ControlPoint1, end.KeySpline.ControlPoint2));
+                Assert.Equal((new Point(0.2, 0.8), new Point(0.2, 1)), (end.KeySpline.ControlPoint1, end.KeySpline.ControlPoint2));
+            }
+            Assert.Equal(4.0, PageFrame.RiseBy); // design/SPEC.md §19: rises 4 px
+        });
+    }
+
+    [Fact]
     public void A_change_of_the_same_page_s_state_or_data_does_not_move_it()
     {
         WithGate(true, (view, shell, host, _) =>

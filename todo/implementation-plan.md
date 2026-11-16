@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 238
+Sections: 24 | Checklist items: 244
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -88,31 +88,32 @@ Sections: 23 | Checklist items: 238
 | [ ]    | D02 T03 §7  | Skeleton and page transitions               | none            | 12    |
 | [ ]    | D02 T03 §8  | Command palette                             | display-session | 11    |
 | [ ]    | D02 T03 §9  | In-window toasts                            | display-session | 8     |
+| [ ]    | D02 T03 §10 | High contrast theme and renders             | none            | 6     |
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 38
+Sections: 8 | Checklist items: 40
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1 | Memory readers                        | none  | 3     |
-| [ ]    | D03 T01 §2 | Memory page                           | none  | 4     |
+| [ ]    | D03 T01 §2 | Memory page                           | none  | 5     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 5     |
 | [ ]    | D03 T02 §1 | Instance scanner                      | none  | 4     |
-| [ ]    | D03 T02 §2 | Instances page                        | none  | 4     |
+| [ ]    | D03 T02 §2 | Instances page                        | none  | 5     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 5     |
 | [ ]    | D03 T01 §5 | Overview page                         | none  | 7     |
 
 ### Phase 5: Machine
 
-Sections: 5 | Checklist items: 22
+Sections: 5 | Checklist items: 23
 
 | Status | Reference  | Deliverable                                     | Needs | Items |
 | ------ | ---------- | ----------------------------------------------- | ----- | ----- |
 | [ ]    | D05 T02 §1 | Diagnostics                                     | none  | 3     |
 | [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none  | 4     |
-| [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none  | 6     |
+| [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none  | 7     |
 | [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender       | none  | 3     |
 | [ ]    | D05 T02 §5 | Pressure monitor and background memory priority | none  | 6     |
 
@@ -143,6 +144,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 53/88 verified sections, 7 ready to run now.
+Progress: 53/89 verified sections, 7 ready to run now.
 
-Checklist: 587/765 items completed (includes Commit items).
+Checklist: 587/774 items completed (includes Commit items).

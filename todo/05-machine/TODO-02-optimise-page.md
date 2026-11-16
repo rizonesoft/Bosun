@@ -102,6 +102,7 @@ The first real items, chosen because they are the ones this machine has already 
 - [ ] Toggle Run key entries with a saved copy, tested against a disposable key under `HKCU\Software\Bosun\Test`. Done when: undo restores the exact value, and the real Run key is untouched by tests.
 - [ ] Add per-row Preview, Apply, Verify and Undo buttons in `Views/OptimiseView.xaml`. Done when: Apply is disabled until Preview has run, and a test walks all four against a disposable target. Cheaper substitute: one Apply button.
 - [ ] Show what a waiting row waits for and until when, in `Views/OptimiseView.xaml`. Done when: a fixture row reads its date in words.
+- [ ] Draw each finding value the Optimise page can't read (a counter, the WSL cap with WSL stopped) as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`). Done when: a test with WSL stopped shows the cap as "Not available" with its reason, never 0. Cheaper substitute: a blank cell.
 - [ ] Commit: `optimise: page, WSL cap, startup entries`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~OptimisePage` exits 0, and fails if the change is reverted.

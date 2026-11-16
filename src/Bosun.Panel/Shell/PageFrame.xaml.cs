@@ -63,6 +63,9 @@ public partial class PageFrame : UserControl
         set => Skeleton.Clock = value;
     }
 
+    /// <summary>The fade and the rise of the last page change started, for a test to hold to the design.</summary>
+    internal (DoubleAnimationUsingKeyFrames Fade, DoubleAnimationUsingKeyFrames Rise)? LastMove { get; private set; }
+
     /// <summary>Whether a page change is being drawn now.</summary>
     public bool IsMoving => Body.HasAnimatedProperties || Rise.HasAnimatedProperties;
 
@@ -132,6 +135,7 @@ public partial class PageFrame : UserControl
         {
             if (move == _move) Rise.BeginAnimation(TranslateTransform.YProperty, null);
         };
+        LastMove = (fade, rise);
         Body.BeginAnimation(OpacityProperty, fade);
         Rise.BeginAnimation(TranslateTransform.YProperty, rise);
     }

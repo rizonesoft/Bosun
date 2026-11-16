@@ -48,6 +48,7 @@ title: "TODO-03 -- Premium components"
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [ ] |
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
+| 10 | §10 | High contrast theme and renders | §1, §7 | [ ] |
 
 ## 1. Elevation and motion tokens
 
@@ -326,6 +327,33 @@ A short result where the operator is looking. The Activity pane stays the record
 - [ ] Commit: `shell: in-window toasts`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Toast` exits 0, and fails if `Toast.Show` stops writing the Activity line.
+
+## 10. High contrast theme and renders
+
+Filed 2026-11-16 by the completion review of `D02 T03 §7` (`docs/reviews/02-shell/D02-T03-s7.md`): this file's Outcome promises every component off screen in dark, light and high contrast, and no section built high contrast. Today `ThemeService` (`src/Bosun.Panel/Theme/ThemeService.cs`) knows only the two generated themes, and `PageRenderer.Themes` (`tests/Bosun.Panel.Tests/Render/PageRenderer.cs:56`) draws only Dark and Light. A person who turns on a Windows contrast theme gets the panel's own colours, which is what Windows' contrast themes exist to replace.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §1 (contrast, states) and §19 (the backdrop is solid in high contrast); Windows' own contrast themes for the colours.
+**Job:** a person who needs a contrast theme reads every page, state and control in the colours they chose.
+**Treatment:** the theme's keys (`B.*`, `C.*`) mapped to Windows' system colours (`SystemColors`: window, window text, highlight, highlight text, gray text, hot track, button face), with the soft tints, shadows and the skeleton's fills taken to the plain window colour and borders made visible. Cheaper substitute that fails: the dark theme with a stronger accent.
+**Chrome:** the generated theme slot `ThemeService` fills, and every view that draws through it.
+
+**Build order:**
+
+1. Add the high contrast dictionary. Done when: every key the generated theme holds has a value bound to a system colour.
+2. Switch to it in `ThemeService`. Done when: high contrast on draws it, off draws the chosen theme, live.
+3. Draw the renders in it. Done when: every registered view is a picture in high contrast too.
+
+- [ ] Add `src/Bosun.Panel/Theme/HighContrast.xaml` holding every `C.*` and `B.*` key of the generated themes, each a system colour (`{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}` and its kin), with the elevation shadows at no opacity, and the `R.*`, `S.*`, `T.*` and `Motion.*` keys from the generated theme. Done when: a test proves the dictionary holds exactly the generated theme's keys and every colour key resolves to a system colour. Cheaper substitute: a third generated palette of fixed colours.
+- [ ] Choose it in `ThemeService` while `SystemParameters.HighContrast` is true, whatever the person's theme choice, and go back to their choice when it turns off, from `SystemParameters.StaticPropertyChanged`. Done when: a test with the setting faked on, off and on again sees the dictionary swapped each time with no restart, and the person's stored choice is unchanged. Cheaper substitute: high contrast read once at start.
+- [ ] Say in the Settings page's theme line, while high contrast is on, that Windows' contrast theme is in use and the choice applies when it is off. Done when: a render of Settings in high contrast shows the line. Cheaper substitute: a theme box that seems to do nothing.
+- [ ] Add `HighContrast` to `PageRenderer.Themes` and `RenderCatalog`'s file names, drawing with the system colours of a fixed contrast theme so a picture is the same on every machine. Done when: `pwsh scripts/render-pages.ps1` writes every view in high contrast, and `render_pages_test.ps1` counts three themes. Cheaper substitute: renders only of the two own themes.
+- [ ] Check the skeleton, the `NotAvailable` and `Value` texts, the stale line and the focus ring in the high contrast renders against design/SPEC.md §1. Done when: each is visible and distinct in the pictures, a skeleton block's border differs from the window colour, and `ThemeContrastTests` passes the contrast theme's text on its window colour. Cheaper substitute: looking at one page.
+- [ ] Commit: `theme: high contrast`
+
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*HighContrastTests"` exits 0 and fails if `ThemeService` ignores `SystemParameters.HighContrast`; `pwsh scripts/render-pages.ps1` writes every view in three themes.
 
 ## Verification
 

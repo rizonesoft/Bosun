@@ -82,6 +82,7 @@ This is the question the whole project exists to answer.
 - [ ] Build the Windows used, WSL VM and Overlapping builds cards per `design/SPEC.md` §3. Done when: values match `bosun status --json` within a refresh. Cheaper substitute: mock numbers left in the view model.
 - [ ] Build the sortable by-repo table. Done when: sorting by peak puts the highest first, with tabular numbers.
 - [ ] Add a Side column to the by-repo table in `Views/MemoryView.xaml`. Done when: a fixture shows a Windows and a WSL repo with their words.
+- [ ] Give the Memory page the gauge skeleton (`LoadingShape = SkeletonShape.Gauge`) and draw each value it can't read as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`, which built them on test pages). Done when: a render of the page loading shows the gauge shape, and a test with an unreadable counter shows "Not available" with its reason, never 0. Cheaper substitute: a card skeleton, or a 0 for a counter that failed.
 - [ ] Commit: `memory: page with live cards and repo table`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryViewModel` exits 0, and fails if the change is reverted.
