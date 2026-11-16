@@ -240,6 +240,8 @@ These are drawn from data and stay cheap: they draw once per data change and hol
 
 The queue is what the panel exists to show. It gets visuals of its own, fed entirely by tool JSON.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. `bosun status --json` is already read and typed by `MemoryClient.StatusAsync` into `StatusDoc` (`src/Bosun.Core/Memory/MemoryDocs.cs`: `SlotDoc` with `busy` true, false or null and its `holder`, a `QueueRecordDoc` with `command`, `repo`, `side`, `phase` (`running`, `starting`, `waiting for guest memory` or null) and `running_s`; `waiters` oldest first with `waiting_for` (`slot` or `memory`), `min_avail_mb` and `waited_s`; `memory` with `available_mb` and `min_avail_mb`, the floor that holds slot 2). The controls take those documents and add no second model; the samples are a real `bosun status --json` captured from `build/Release/bosun.exe` and documents in its exact shape, read through `MemoryJson`, so a renamed field fails the test. A slot's states, each with its word: Free (`busy` false), Running, Starting and Waiting for guest memory (a holder's `phase`), Held (busy with no holder record, said as "holder not known"), and Not available (`busy` null); elapsed time in words ("45 s", "4 min", "1 h 12 min"), none when it can't be told. A held tile carries the mockup's 3 px moving bar on the motion gate's pulse duration, still with animation effects off, and stopped when hidden or unloaded. A waiter says why in words: a free slot, or memory, "slot 2 opens when 6.0 GB is free; 4.5 GB is free now", the available figure "not available" when unread. Each tile and each waiting line is one element a screen reader says in full; colours from the theme's tokens, and Windows' own in a contrast theme, checked in both palettes; every state a `RenderCatalog` case looked at in every theme. The tests go in `tests/Bosun.Panel.Tests/Controls/` and the checkpoint takes the test platform's filter form. The Queue page that places these (`D03 T02 §3`) owns reading the tool and its failure.
+
 **Phase:** 2
 **Needs:** none
 **Surface:** yes
@@ -253,11 +255,11 @@ The queue is what the panel exists to show. It gets visuals of its own, fed enti
 1. Create `src/Bosun.Panel/Controls/QueueSlotTile.cs`. Done when: free, holder and waiting states render from a sample of `bosun status --json`.
 2. Create `src/Bosun.Panel/Controls/WaitingRow.cs`. Done when: waiting jobs render in order with why.
 
-- [ ] Create `QueueSlotTile` in `src/Bosun.Panel/Controls/QueueSlotTile.cs` showing free or holder, command and elapsed time. Done when: `tests/Bosun.Panel.Tests/QueueVisualTests.cs` renders each state in both themes with its word. Cheaper substitute: colour showing busy or free.
-- [ ] Create `WaitingRow` in `src/Bosun.Panel/Controls/WaitingRow.cs` listing waiting jobs in order with why, including the memory floor for slot 2 in words. Done when: a test with a memory-held job shows the floor and the available figure.
+- [ ] Create `QueueSlotTile` in `src/Bosun.Panel/Controls/QueueSlotTile.cs` showing free or holder, command and elapsed time. Done when: `tests/Bosun.Panel.Tests/Controls/QueueVisualTests.cs` renders each state (Free, Running, Starting, Waiting for guest memory, Held, Not available) in Dark, Light and both contrast palettes with its word and glyph, a running holder's repo, command and elapsed time, its automation name the whole tile in words, a new document changing the tile in place, and the moving bar on the gate (moving, still with motion off, no clock hidden or unloaded). Cheaper substitute: colour showing busy or free.
+- [ ] Create `WaitingRow` in `src/Bosun.Panel/Controls/WaitingRow.cs` listing waiting jobs in order with why, including the memory floor for slot 2 in words. Done when: a test with a memory-held job shows the floor and the available figure in words, a slot-held job says it waits for a free slot, jobs keep the document's order with their waited time, an unread available figure says "not available" and never 0, no waiters say "Nothing waiting", and each line is said once by a screen reader.
 - [ ] Commit: `controls: queue slot visuals`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueVisual` exits 0, and fails if a slot state loses its word.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*QueueVisualTests"` exits 0, and fails if a slot state loses its word.
 
 ## 7. Skeleton and page transitions
 
