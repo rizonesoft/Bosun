@@ -123,6 +123,41 @@ public sealed class MemoryClientTests : IDisposable
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(snapshot.ToJsonString(), MemoryJson.Default.SnapshotDoc));
     }
 
+    [Fact]
+    public async Task A_null_inside_any_list_of_a_document_is_refused_as_invalid_never_handed_to_a_page()
+    {
+        // Round 1: nullable annotations don't reach a list's elements, so "repos":[null] read as a value that threw on use.
+        var token = TestContext.Current.CancellationToken;
+        var client = Snapshots(DateTimeOffset.UtcNow);
+        foreach (var list in new[] { "repos", "processes" })
+        {
+            var snapshot = JsonNode.Parse(File.ReadAllText(Fixture("snapshot-windows.json")))!.AsObject();
+            snapshot[list] = new JsonArray(null, snapshot[list]!.AsArray()[0]!.DeepClone());
+            Write("current-windows.json", snapshot.ToJsonString());
+            var read = await client.SnapshotAsync("windows", token);
+            Assert.Equal(ReadingProblem.Invalid, read.Problem);
+            Assert.Contains($"{list}[0] is null", read.Why);
+        }
+        foreach (var (file, list, expect) in new[]
+        {
+            ("status-busy.json", "waiters", new[] { "status", "--json" }),
+            ("report-7d.json", "series", new[] { "report", "--json", "--days", "7" }),
+            ("report-7d.json", "repos", new[] { "report", "--json", "--days", "7" }),
+        })
+        {
+            var doc = JsonNode.Parse(File.ReadAllText(Fixture(file)))!.AsObject();
+            doc[list]!.AsArray().Add(null);
+            var answer = Write($"null-{list}.json", doc.ToJsonString());
+            Reading<StatusDoc>? status = null;
+            Reading<ReportDoc>? report = null;
+            if (expect[0] == "status") status = await Fake(expect, answer).StatusAsync(token);
+            else report = await Fake(expect, answer).ReportAsync(7, token);
+            var (problem, why) = status is not null ? (status.Problem, status.Why) : (report!.Problem, report.Why);
+            Assert.Equal(ReadingProblem.Invalid, problem);
+            Assert.Contains($"{list}[", why);
+        }
+    }
+
     // ---- the reasons ----
 
     [Fact]

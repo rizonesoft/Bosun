@@ -7,8 +7,37 @@ namespace Bosun.Core.Memory;
 // always writes is required, a null where it writes a null: a document missing one is refused, never read with a
 // default standing for a value. A field a later writer adds is passed over.
 
+/// <summary>
+/// A document checks what the serializer can't: a null inside a list, which nullable annotations do not cover for
+/// elements (round 1 of D03 T01 §1: <c>"repos":[null]</c> read as a document whose first repo threw on use).
+/// </summary>
+public interface ICheckedDoc
+{
+    /// <summary>What is wrong with the document, or null when nothing is.</summary>
+    string? Fault();
+}
+
+internal static class Lists
+{
+    /// <summary>The first list of <paramref name="lists"/> holding a null, named, or null when none does.</summary>
+    public static string? NullIn(params (string Name, System.Collections.IEnumerable? List)[] lists)
+    {
+        foreach (var (name, list) in lists)
+        {
+            if (list is null) return $"{name} is missing";
+            var index = 0;
+            foreach (var item in list)
+            {
+                if (item is null) return $"{name}[{index}] is null";
+                index++;
+            }
+        }
+        return null;
+    }
+}
+
 /// <summary><c>bosun status --json</c>: the build slots, who holds and waits for them, and memory now.</summary>
-public sealed record StatusDoc
+public sealed record StatusDoc : ICheckedDoc
 {
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("ns")] public required string Ns { get; init; }
@@ -19,6 +48,8 @@ public sealed record StatusDoc
     [JsonPropertyName("guest")] public required GuestDoc? Guest { get; init; }
     [JsonPropertyName("logger")] public required LoggerDoc Logger { get; init; }
     [JsonPropertyName("records")] public required RecordsDoc Records { get; init; }
+
+    public string? Fault() => Lists.NullIn(("slots", Slots), ("waiters", Waiters));
 }
 
 /// <summary>One build slot: whether its lock is held (null when it couldn't be told), and the record of its holder.</summary>
@@ -84,7 +115,7 @@ public sealed record RecordsDoc
 }
 
 /// <summary><c>current-windows.json</c> or <c>current-wsl.json</c>: one side's live sample, replaced every interval.</summary>
-public sealed record SnapshotDoc
+public sealed record SnapshotDoc : ICheckedDoc
 {
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("side")] public required string Side { get; init; }
@@ -107,6 +138,8 @@ public sealed record SnapshotDoc
 
     /// <summary>A counter by name: its value, or null when it was not measured or this side does not write it.</summary>
     public long? Counter(string name) => Memory.TryGetValue(name, out var value) ? value : null;
+
+    public string? Fault() => Lists.NullIn(("repos", Repos), ("processes", Processes));
 }
 
 /// <summary>The Windows side's view of the WSL VM process.</summary>
@@ -129,7 +162,7 @@ public sealed record GroupDoc
 }
 
 /// <summary><c>bosun report --json --days N</c>: the logged history, its peaks, and a point a minute.</summary>
-public sealed record ReportDoc
+public sealed record ReportDoc : ICheckedDoc
 {
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("generated_at")] public required string GeneratedAt { get; init; }
@@ -146,6 +179,8 @@ public sealed record ReportDoc
     [JsonPropertyName("active_repos")] public required ReportActiveDoc ActiveRepos { get; init; }
     [JsonPropertyName("repos")] public required IReadOnlyList<RepoPeakDoc> Repos { get; init; }
     [JsonPropertyName("series")] public required IReadOnlyList<SeriesPointDoc> Series { get; init; }
+
+    public string? Fault() => Lists.NullIn(("windows.worst_repos", Windows?.WorstRepos), ("repos", Repos), ("series", Series));
 }
 
 /// <summary>Whether every log was read: an incomplete read is history with holes, which a page says.</summary>

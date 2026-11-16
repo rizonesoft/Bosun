@@ -85,6 +85,8 @@ public sealed class MemoryClient
         switch (result)
         {
             case JsonResult<T>.Ok ok:
+                if (ok.Value is ICheckedDoc checkedDoc && checkedDoc.Fault() is { } fault)
+                    return Reading<T>.Fail(ReadingProblem.Invalid, $"{command} wrote something that is not its document: {fault}");
                 return Reading<T>.Of(ok.Value, _clock.GetUtcNow());
             case JsonResult<T>.Unsupported unsupported:
                 return Reading<T>.Fail(ReadingProblem.Unsupported, $"{command} wrote schema version {unsupported.Found}, and this panel reads {unsupported.Supported}. Update the panel or the tool, so they match.");
@@ -140,6 +142,7 @@ public sealed class MemoryClient
             return Reading<SnapshotDoc>.Fail(ReadingProblem.Invalid, $"{file} is not a snapshot: {e.Message}");
         }
         if (doc is null) return Reading<SnapshotDoc>.Fail(ReadingProblem.Invalid, $"{file} reads as nothing.");
+        if (doc.Fault() is { } fault) return Reading<SnapshotDoc>.Fail(ReadingProblem.Invalid, $"{file} is not a snapshot: {fault}.");
         if (!DateTimeOffset.TryParseExact(doc.At, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at))
             return Reading<SnapshotDoc>.Fail(ReadingProblem.Invalid, $"{file}'s time '{doc.At}' is not a UTC time.");
 
