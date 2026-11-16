@@ -89,6 +89,7 @@ struct Options {
     // The WSL shim's own Linux process, kept in the holder's record so the instance scanners can join the job's two
     // halves (D03 T02 §1).
     std::optional<int64_t> guest_pid;
+    std::wstring guest_distro;  // and its distro: a Linux pid is unique only within one
     std::vector<std::wstring> command;
     // What a record says of the job (acquire takes them from the WSL shim; run works them out for itself).
     std::wstring repo, side, label;
@@ -129,6 +130,10 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; o.limit_flags["min_guest_mb"] = guest; }
         else if (a == L"--queued-at-ms") { if (!count(0, UINT64_MAX, guest)) return false; o.queued_at_ms = guest; }
         else if (a == L"--guest-pid") { if (!count(1, INT32_MAX, guest)) return false; o.guest_pid = static_cast<int64_t>(guest); }
+        else if (a == L"--guest-distro") {
+            if (!dm::distro_name_ok(narrow(v))) return false;
+            o.guest_distro = v;
+        }
         else if (a == L"--wsl-logger") {
             if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
             o.wsl_logger = v;
@@ -278,6 +283,7 @@ class Records {
         base_.session = own_session();
         base_.ns = narrow(o.ns);
         base_.guest_pid = o.guest_pid;
+        if (!o.guest_distro.empty()) base_.guest_distro = narrow(o.guest_distro);
         min_avail_mb_ = o.min_avail_mb;
         max_wait_s_ = o.max_wait_s;
         min_guest_mb_ = o.min_guest_mb;
@@ -1306,6 +1312,7 @@ int cmd_instances(const Options& o) {
         i.slot = h.slot;
         i.command = h.command;
         i.guest_pid = h.guest_pid;
+        i.guest_distro = h.guest_distro;
         i.started_at = h.command_started_at;
         if (h.side == "windows") i.private_mb = memory[h.pid];  // a WSL job's memory is WSL's to measure
         dm::instance_state(i, &h, nullptr, nullptr, std::nullopt);

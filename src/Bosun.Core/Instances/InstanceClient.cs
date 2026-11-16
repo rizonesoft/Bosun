@@ -23,57 +23,60 @@ public sealed record RepoGroup(string? Repo, string? Distro, IReadOnlyList<Insta
 
 /// <summary>
 /// Everything running, merged by repo (D03 T02 §1): the groups, what each side answered (a side that failed keeps the
-/// others' rows and says why), and a notice when WSL was not asked.
+/// others' rows and says why, and a stale distro its last word), and a notice when no distro has reported.
 /// </summary>
 public sealed record InstancesView(IReadOnlyList<RepoGroup> Groups, IReadOnlyList<SideReading> Sides, string? WslNotice);
 
 /// <summary>
-/// Reads every agent, editor and job (D03 T02 §1): <c>bosun instances --json</c> on Windows, and in each WSL distro that
-/// is running, <c>wsl.exe -d &lt;distro&gt; -- bosun instances --json</c>. A distro that isn't running is never started
-/// to be asked: <c>wsl.exe --list --running --quiet</c> says which run, and starts none.
+/// Reads every agent, editor and job (D03 T02 §1): <c>bosun instances --json</c> on Windows, and each WSL distro's own
+/// report, <c>instances-wsl-&lt;distro&gt;.json</c>, which its logger writes into the Windows log folder every sample.
+/// WSL is never asked through wsl.exe: that would start a distro the person had stopped (round 1). A report older than
+/// <see cref="StaleAfter"/> is that distro's last word, said, and its rows are not listed as running.
 /// </summary>
 public sealed partial class InstanceClient
 {
     /// <summary>The most of a document kept: a few hundred bytes an instance.</summary>
     public const int MaxDocumentBytes = 4 * 1024 * 1024;
 
+    /// <summary>A distro's report older than this is stale: three of its logger's 30 s intervals.</summary>
+    public static readonly TimeSpan StaleAfter = MemoryClient.StaleAfter;
+
     private readonly string? _bosun;
     private readonly string _notInstalled;
-    private readonly string? _wsl;
+    private readonly string _logs;
     private readonly ProcessRunner _runner;
     private readonly TimeProvider _clock;
     private readonly IReadOnlyDictionary<string, string?>? _environment;
 
     /// <param name="bosun">The tool, or null when it is not there (<paramref name="notInstalled"/> says why).</param>
-    /// <param name="wsl">wsl.exe, or null when WSL is not installed.</param>
-    /// <param name="environment">Variables added for every call.</param>
-    public InstanceClient(string? bosun, string notInstalled, string? wsl, ProcessRunner? runner = null, TimeProvider? clock = null,
+    /// <param name="logs">The log folder the WSL loggers write their reports to: <c>%LOCALAPPDATA%\Bosun\logs</c>.</param>
+    /// <param name="environment">Variables added for the tool's call.</param>
+    public InstanceClient(string? bosun, string notInstalled, string logs, ProcessRunner? runner = null, TimeProvider? clock = null,
         IReadOnlyDictionary<string, string?>? environment = null)
     {
         _bosun = bosun;
         _notInstalled = notInstalled;
-        _wsl = wsl;
+        _logs = logs ?? throw new ArgumentNullException(nameof(logs));
         _runner = runner ?? new ProcessRunner();
         _clock = clock ?? TimeProvider.System;
         _environment = environment;
     }
 
-    /// <summary>The client for this user: the tool <see cref="BosunTool.Locate"/> finds, and Windows' own wsl.exe.</summary>
+    /// <summary>The client for this user: the tool <see cref="BosunTool.Locate"/> finds, and the user's log folder.</summary>
     public static InstanceClient ForThisUser()
     {
         var bosun = BosunTool.Locate(out var why);
-        var wsl = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe");
-        return new InstanceClient(bosun, why, File.Exists(wsl) ? wsl : null);
+        var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bosun", "logs");
+        return new InstanceClient(bosun, why, logs);
     }
 
-    /// <summary>How long one side may take: it lists processes and reads a few small files.</summary>
+    /// <summary>How long the Windows scan may take: it lists processes and reads a few small files.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(20);
 
     public async Task<InstancesView> ReadAsync(CancellationToken cancellationToken = default)
     {
         var windows = WindowsAsync(cancellationToken);
-        var (distros, notice) = await RunningDistrosAsync(cancellationToken).ConfigureAwait(false);
-        var guests = await Task.WhenAll(distros.Select(d => GuestAsync(d, cancellationToken))).ConfigureAwait(false);
+        var (guests, notice) = await GuestsAsync(cancellationToken).ConfigureAwait(false);
         var sides = new List<SideReading> { await windows.ConfigureAwait(false) };
         sides.AddRange(guests);
         return new InstancesView(Merge(sides), sides, notice);
@@ -82,45 +85,66 @@ public sealed partial class InstanceClient
     private async Task<SideReading> WindowsAsync(CancellationToken cancellationToken)
     {
         if (_bosun is null) return new SideReading("windows", null, Reading<InstancesDoc>.Fail(ReadingProblem.NotInstalled, _notInstalled));
-        var reading = await CallAsync(_bosun, ["instances", "--json"], "bosun instances --json", "windows", cancellationToken).ConfigureAwait(false);
-        return new SideReading("windows", null, reading);
+        return new SideReading("windows", null, await CallAsync(_bosun, ["instances", "--json"], "bosun instances --json", cancellationToken).ConfigureAwait(false));
     }
 
-    private async Task<SideReading> GuestAsync(string distro, CancellationToken cancellationToken)
+    /// <summary>Each distro's report, by its file; none, with the notice a page shows beside the Windows rows.</summary>
+    private async Task<(IReadOnlyList<SideReading> Guests, string? Notice)> GuestsAsync(CancellationToken cancellationToken)
     {
-        var reading = await CallAsync(_wsl!, ["-d", distro, "--", "bosun", "instances", "--json"], $"bosun instances --json in WSL ({distro})", "wsl", cancellationToken)
-            .ConfigureAwait(false);
-        return new SideReading("wsl", distro, reading);
-    }
-
-    /// <summary>The distros running now, or none with the notice a page shows beside the Windows rows.</summary>
-    private async Task<(IReadOnlyList<string> Distros, string? Notice)> RunningDistrosAsync(CancellationToken cancellationToken)
-    {
-        if (_wsl is null) return ([], "WSL is not installed, so only Windows is listed.");
-        var environment = new Dictionary<string, string?>(_environment ?? new Dictionary<string, string?>()) { ["WSL_UTF8"] = "1" };
-        var request = new ProcessRequest(_wsl, ["--list", "--running", "--quiet"]) { Timeout = Timeout, MaxOutputBytes = 64 * 1024, Environment = environment };
-        var process = await _runner.RunAsync(request, cancellationToken).ConfigureAwait(false);
-        if (process.Outcome == ProcessOutcome.Cancelled) cancellationToken.ThrowIfCancellationRequested();
-        // wsl.exe writes UTF-16 unless WSL_UTF8 is set, and an older one ignores it: the NULs that leaves are dropped.
-        var names = process.StandardOutput.Replace("\0", "", StringComparison.Ordinal)
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(name => DistroName().IsMatch(name)).ToList();
-        if (process.Outcome != ProcessOutcome.Exited)
-            return ([], $"WSL could not be asked which distros run ({process.Reason ?? process.Outcome.ToString()}), so only Windows is listed.");
-        if (process.ExitCode != 0 || names.Count == 0)
+        string[] files;
+        try
         {
-            var said = (process.StandardOutput + " " + process.StandardError).Replace("\0", "", StringComparison.Ordinal).Trim();
-            return ([], said.Length == 0 || process.ExitCode == 0
-                ? "No WSL distro is running, so only Windows is listed. None is started just to be asked."
-                : $"No WSL distro is listed as running ({FirstWords(said)}), so only Windows is listed.");
+            files = Directory.Exists(_logs) ? Directory.GetFiles(_logs, "instances-wsl-*.json") : [];
         }
-        return (names, null);
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return ([], $"The WSL reports in {_logs} can't be listed ({e.Message}), so only Windows is listed.");
+        }
+        if (files.Length == 0)
+            return ([], $"No WSL distro has reported its instances to {_logs}, so only Windows is listed. Each distro's logger reports every 30 s once it runs (wsl/install.sh sets it up).");
+        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+        var guests = new List<SideReading>();
+        foreach (var file in files) guests.Add(await GuestAsync(file, cancellationToken).ConfigureAwait(false));
+        return (guests, null);
     }
 
-    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]
-    private static partial Regex DistroName();
+    private async Task<SideReading> GuestAsync(string file, CancellationToken cancellationToken)
+    {
+        var named = Path.GetFileNameWithoutExtension(file)["instances-wsl-".Length..];
+        var (text, problem, why) = await MemoryClient.ReadSharedTextAsync(file, MaxDocumentBytes, cancellationToken).ConfigureAwait(false);
+        if (text is null) return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(problem, why));
+        InstancesDoc? doc;
+        try
+        {
+            using var parsed = JsonDocument.Parse(text);
+            var root = parsed.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schema_version", out var version) || !version.TryGetInt64(out var found))
+                return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} has no schema_version."));
+            if (found != 1)
+                return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Unsupported,
+                    $"{file} is of schema version {found}, and this panel reads 1. Update the panel or the WSL tools, so they match."));
+            doc = root.Deserialize(InstanceJson.Default.InstancesDoc);
+        }
+        catch (JsonException e)
+        {
+            return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} is not an instances report: {e.Message}"));
+        }
+        if (doc is null) return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} reads as nothing."));
+        var distro = doc.Distro ?? named;
+        if (doc.Side != "wsl") return new SideReading("wsl", distro, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} is the {doc.Side} document, not a WSL one."));
+        if (doc.Fault() is { } fault) return new SideReading("wsl", distro, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} is not an instances report: {fault}."));
+        if (!DateTimeOffset.TryParseExact(doc.At, "yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var at))
+            return new SideReading("wsl", distro, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file}'s time '{doc.At}' is not a UTC time."));
+        var now = _clock.GetUtcNow();
+        var age = now > at ? now - at : TimeSpan.Zero;
+        if (age > StaleAfter)
+            return new SideReading("wsl", distro, Reading<InstancesDoc>.Stale(doc, now, age,
+                $"WSL ({distro}) last reported {MemoryClient.Words(age)} ago: it is stopped, or its logger is, so its instances aren't listed."));
+        return new SideReading("wsl", distro, Reading<InstancesDoc>.Of(doc, now, age));
+    }
 
-    private async Task<Reading<InstancesDoc>> CallAsync(string program, string[] arguments, string command, string side, CancellationToken cancellationToken)
+    private async Task<Reading<InstancesDoc>> CallAsync(string program, string[] arguments, string command, CancellationToken cancellationToken)
     {
         var request = new ProcessRequest(program, arguments) { MaxOutputBytes = MaxDocumentBytes, Timeout = Timeout, Environment = _environment };
         var result = await _runner.RunJsonAsync(request, InstanceJson.Default.InstancesDoc, 1, cancellationToken).ConfigureAwait(false);
@@ -128,7 +152,7 @@ public sealed partial class InstanceClient
         {
             case JsonResult<InstancesDoc>.Ok ok:
                 // The side first: a document from the wrong side is wrong as a whole, whatever its rows say.
-                if (ok.Value.Side != side) return Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{command} wrote the {ok.Value.Side} document, not the {side} one");
+                if (ok.Value.Side != "windows") return Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{command} wrote the {ok.Value.Side} document, not the windows one");
                 if (ok.Value.Fault() is { } fault) return Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{command} wrote something that is not its document: {fault}");
                 return Reading<InstancesDoc>.Of(ok.Value, _clock.GetUtcNow());
             case JsonResult<InstancesDoc>.Unsupported unsupported:
@@ -166,15 +190,16 @@ public sealed partial class InstanceClient
     {
         var rows = new List<InstanceRow>();
         foreach (var side in sides)
-            if (side.Reading.Value is { } doc)
+            if (side.Reading is { Value: { } doc, IsStale: false })
                 rows.AddRange(doc.Instances.Select(i => new InstanceRow(i, side.Side == "wsl" ? side.Distro ?? doc.Distro : null)));
 
-        // Pair each WSL holder in the Windows document with the distro's job whose pid is its guest_pid. With several
-        // distros running, the first that carries it is taken (a pid is unique within a distro only).
+        // Pair each WSL holder in the Windows document with the job of its own distro whose pid is its guest_pid: a
+        // Linux pid is unique only within one distro (round 1), so a holder that names no distro is never joined.
         var halves = rows.Where(r => r.Instance is { Side: "wsl", Kind: "job" } && r.Distro is not null).ToList();
         var holderOf = new Dictionary<InstanceRow, InstanceRow>(ReferenceEqualityComparer.Instance);
         foreach (var holder in rows.Where(r => r is { Distro: null, Instance: { Side: "wsl", Kind: "job", GuestPid: not null } }))
-            if (halves.FirstOrDefault(h => h.Instance.Pid == holder.Instance.GuestPid && !holderOf.ContainsKey(h)) is { } half)
+            if (holder.Instance.GuestDistro is { } its &&
+                halves.FirstOrDefault(h => h.Instance.Pid == holder.Instance.GuestPid && h.Distro == its && !holderOf.ContainsKey(h)) is { } half)
                 holderOf[half] = holder;
         var paired = new HashSet<InstanceRow>(holderOf.Values, ReferenceEqualityComparer.Instance);
         var merged = new List<InstanceRow>();

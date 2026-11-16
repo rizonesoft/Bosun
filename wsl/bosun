@@ -233,8 +233,11 @@ began_ms="$(now_ms)"
 # this script, before it could write the job's line (D01 T01 §2). It still ends when the pipe closes.
 detach=()
 command -v setsid >/dev/null && detach=(setsid)
-# --guest-pid names this shim's own process in the holder's record, so the instance scanners join the job's two halves.
-"${detach[@]}" "$EXE" acquire "${args[@]}" --queued-at-ms "$began_ms" --guest-pid "$$" <"$pipes/in" >"$pipes/out" &
+# --guest-pid and --guest-distro name this shim's own process in the holder's record, so the instance scanners join the
+# job's two halves (a Linux pid is unique only within one distro). A distro name bosun.exe wouldn't take is left out.
+guest=(--guest-pid "$$")
+[[ "${WSL_DISTRO_NAME:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && guest+=(--guest-distro "$WSL_DISTRO_NAME")
+"${detach[@]}" "$EXE" acquire "${args[@]}" --queued-at-ms "$began_ms" "${guest[@]}" <"$pipes/in" >"$pipes/out" &
 hold_pid=$!
 exec 3>"$pipes/in" 4<"$pipes/out"
 rm -rf "$pipes"

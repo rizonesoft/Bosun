@@ -909,15 +909,16 @@ static void instances() {
     job.slot = 0;
     job.command = std::string("make -j8");
     job.guest_pid = 4321;
+    job.guest_distro = std::string("Ubuntu");
     doc.instances = {a, job};
     doc.unreadable = 3;
     doc.problems = {{"sessions", "C:\\Users\\x\\.claude\\sessions can't be read: denied"}};
     CHECK(dm::instances_json(doc) ==
           R"j({"schema_version":1,"side":"windows","distro":null,"at":"2026-11-16T09:00:00Z","instances":[)j"
           R"j({"side":"windows","kind":"claude","name":"claude.exe","pid":30,"cwd":"D:\\a\"b","repo":"D:/a\"b","private_mb":400,)j"
-          R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null},)j"
+          R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null,"guest_distro":null},)j"
           R"j({"side":"wsl","kind":"job","name":"make","pid":40,"cwd":null,"repo":null,"private_mb":null,"started_at":null,"state":"unknown","evidence":null,)j"
-          R"j("slot":0,"command":"make -j8","guest_pid":4321}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
+          R"j("slot":0,"command":"make -j8","guest_pid":4321,"guest_distro":"Ubuntu"}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
 
     // A holder's record carries its WSL job's own process when the shim names it, and one without it still reads.
     dm::SlotRecord holder;
@@ -932,8 +933,13 @@ static void instances() {
     CHECK(dm::record_json(holder).find("guest_pid") == std::string::npos);
     CHECK(dm::parse_record(dm::record_json(holder)) && !dm::parse_record(dm::record_json(holder))->guest_pid);
     holder.guest_pid = 4321;
+    holder.guest_distro = std::string("Ubuntu-24.04");
     auto back = dm::parse_record(dm::record_json(holder));
-    CHECK(back && back->guest_pid == std::optional<int64_t>(4321));
+    CHECK(back && back->guest_pid == std::optional<int64_t>(4321) && back->guest_distro == std::optional<std::string>("Ubuntu-24.04"));
+    std::string foreign = dm::record_json(holder);
+    foreign.replace(foreign.find("Ubuntu-24.04"), 12, "a/b");
+    CHECK(!dm::parse_record(foreign));  // no distro is named so
+    CHECK(dm::distro_name_ok("Ubuntu") && !dm::distro_name_ok("") && !dm::distro_name_ok("..\\x") && !dm::distro_name_ok(std::string(65, 'a')));
     std::string bad = dm::record_json(holder);
     bad.replace(bad.find("4321"), 4, "\"x\"");
     CHECK(!dm::parse_record(bad));

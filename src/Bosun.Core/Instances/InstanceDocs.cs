@@ -34,6 +34,7 @@ public sealed record InstancesDoc : ICheckedDoc
             if (i.Kind != "job" && i.Side != Side) return $"instance {i.Pid} is a {i.Side} {i.Kind} in the {Side} document";
             if (i.Pid <= 0) return $"an instance has the pid {i.Pid}";
             if (i.PrivateMb < 0) return $"instance {i.Pid}'s memory is negative";
+            if (i.GuestDistro is { } g && !System.Text.RegularExpressions.Regex.IsMatch(g, "^[A-Za-z0-9._-]{1,64}$")) return $"instance {i.Pid} names the distro '{g}'";
         }
         foreach (var p in Problems)
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
@@ -57,6 +58,7 @@ public sealed record InstanceDoc
     [JsonPropertyName("slot")] public required int? Slot { get; init; }
     [JsonPropertyName("command")] public required string? Command { get; init; }
     [JsonPropertyName("guest_pid")] public required long? GuestPid { get; init; }
+    [JsonPropertyName("guest_distro")] public required string? GuestDistro { get; init; }
 }
 
 /// <summary>A source a scanner could not read (session records, review marks, the queue's records), and why.</summary>

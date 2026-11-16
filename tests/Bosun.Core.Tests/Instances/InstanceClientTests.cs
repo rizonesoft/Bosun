@@ -7,16 +7,22 @@ using Xunit;
 namespace Bosun.Core.Tests.Instances;
 
 /// <summary>
-/// The instance reader (D03 T02 §1): Windows' document and each running distro's merged by repo (a WSL repo under
-/// <c>/mnt/&lt;drive&gt;/</c> joining the Windows one, two distros' same path kept apart, a WSL job's two halves joined),
-/// a distro never started to be asked, a side that failed keeping the others' rows with its reason, and a document that
-/// isn't the shape refused with why. bosun.exe and wsl.exe are the test child's script mode, which logs every call.
+/// The instance reader (D03 T02 §1): Windows' document and each distro's own report merged by repo (a WSL repo under
+/// <c>/mnt/&lt;drive&gt;/</c> joining the Windows one, two distros' same path kept apart, a WSL job's two halves joined
+/// within its own distro only), WSL never asked through wsl.exe, a stale report its distro's last word, a side that
+/// failed keeping the others' rows with its reason, and a document that isn't the shape refused with why. bosun.exe is
+/// the test child's script mode, which logs every call.
 /// </summary>
 public sealed class InstanceClientTests : IDisposable
 {
     private readonly string _work = Path.Combine(Path.GetTempPath(), "bosun-instances-" + Guid.NewGuid().ToString("N")[..10]);
+    private readonly string _logs;
 
-    public InstanceClientTests() => Directory.CreateDirectory(_work);
+    public InstanceClientTests()
+    {
+        _logs = Path.Combine(_work, "logs");
+        Directory.CreateDirectory(_logs);
+    }
 
     public void Dispose()
     {
@@ -38,6 +44,14 @@ public sealed class InstanceClientTests : IDisposable
         return Path.Combine(mine.Parent!.Parent!.FullName, "Bosun.TestChild", mine.Name, "Bosun.TestChild.exe");
     }
 
+    private sealed class Clock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>25 s after the fixtures' WSL reports were written.</summary>
+    private static readonly DateTimeOffset Now = new(2026, 11, 16, 8, 1, 30, TimeSpan.Zero);
+
     private string Log => Path.Combine(_work, "calls.jsonl");
 
     private string Write(string name, string text)
@@ -47,52 +61,52 @@ public sealed class InstanceClientTests : IDisposable
         return path;
     }
 
+    /// <summary>A distro's report, as its logger leaves it in the log folder.</summary>
+    private void Report(string distro, string fixture) => File.Copy(Fixture(fixture), Path.Combine(_logs, $"instances-wsl-{distro}.json"), overwrite: true);
+
     private static object Answer(string? file = null, int exit = 0, string? stderr = null) => new Dictionary<string, object?> { ["answer"] = file, ["exit"] = exit, ["stderr"] = stderr };
 
-    private const string Windows = "instances --json";
-    private const string List = "--list --running --quiet";
-
-    private static string Guest(string distro) => $"-d {distro} -- bosun instances --json";
-
-    /// <summary>A client whose bosun.exe and wsl.exe are the fake, answering as <paramref name="script"/> says.</summary>
-    private InstanceClient Fake(Dictionary<string, object> script, bool wsl = true, string? bosun = "") =>
-        new(bosun is null ? null : Child(), "bosun.exe is not installed at C:\\x\\bosun.exe.", wsl ? Child() : null,
-            environment: new Dictionary<string, string?> { ["BOSUN_FAKE_SCRIPT"] = JsonSerializer.Serialize(script), ["BOSUN_FAKE_LOG"] = Log });
+    /// <summary>A client whose bosun.exe is the fake, answering <c>instances --json</c> with <paramref name="windows"/>.</summary>
+    private InstanceClient Fake(object windows, bool installed = true, DateTimeOffset? now = null) =>
+        new(installed ? Child() : null, "bosun.exe is not installed at C:\\x\\bosun.exe.", _logs, clock: new Clock(now ?? Now),
+            environment: new Dictionary<string, string?>
+            {
+                ["BOSUN_FAKE_SCRIPT"] = JsonSerializer.Serialize(new Dictionary<string, object> { ["instances --json"] = windows }),
+                ["BOSUN_FAKE_LOG"] = Log,
+            });
 
     private string[][] Calls() => File.Exists(Log) ? File.ReadAllLines(Log).Select(l => JsonSerializer.Deserialize<string[]>(l)!).ToArray() : [];
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task Every_running_distro_and_Windows_merge_by_repo_with_a_WSL_job_s_halves_joined()
+    public async Task Windows_and_every_distro_s_report_merge_by_repo_with_a_WSL_job_s_halves_joined_in_its_own_distro()
     {
-        var view = await Fake(new()
-        {
-            [Windows] = Answer(Fixture("windows.json")),
-            [List] = Answer(Write("running.txt", "Ubuntu\r\nDebian\r\n")),
-            [Guest("Ubuntu")] = Answer(Fixture("wsl-ubuntu.json")),
-            [Guest("Debian")] = Answer(Fixture("wsl-debian.json")),
-        }).ReadAsync(Token);
+        Report("Ubuntu", "wsl-ubuntu.json");
+        Report("Debian", "wsl-debian.json");
+        var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
 
         Assert.Null(view.WslNotice);
-        Assert.Equal(["Windows", "WSL (Ubuntu)", "WSL (Debian)"], view.Sides.Select(s => s.Name));
-        Assert.All(view.Sides, s => Assert.True(s.Reading.HasValue, s.Reading.Why));
+        Assert.Equal(["Windows", "WSL (Debian)", "WSL (Ubuntu)"], view.Sides.Select(s => s.Name));
+        Assert.All(view.Sides, s => Assert.True(s.Reading.HasValue && !s.Reading.IsStale, s.Reading.Why));
+        Assert.Equal([["instances", "--json"]], Calls()); // WSL is read from its reports, never asked through wsl.exe
 
         // D:/Bosun holds Windows' claude, codex and cmake job, Ubuntu's claude in /mnt/d/bosun (letter case aside), and the
-        // WSL job joined: memory and folder from Ubuntu, slot and state from the Windows holder.
+        // WSL job joined: memory and folder from Ubuntu's report, slot and state from the Windows holder.
         var bosun = Assert.Single(view.Groups, g => g.Repo == "D:/Bosun");
         Assert.Null(bosun.Distro);
-        Assert.Equal([("claude", 87544L), ("claude", 4024116L), ("codex", 6060L), ("job", 4321L), ("job", 9100L)],
-            bosun.Rows.Select(r => (r.Instance.Kind, r.Instance.Pid)).OrderBy(x => x.Kind).ThenBy(x => x.Pid));
-        var job = bosun.Rows.Single(r => r.Instance.Pid == 4321).Instance;
-        Assert.Equal((1, "working", 900L, "/mnt/d/bosun", "make -j8", 4321L), (job.Slot, job.State, job.PrivateMb, job.Cwd, job.Command, job.GuestPid));
-        Assert.Equal("Ubuntu", bosun.Rows.Single(r => r.Instance.Pid == 4321).Distro);
+        Assert.Equal([("claude", 4024116L), ("claude", 87544L), ("codex", 6060L), ("job", 4321L), ("job", 9100L)],
+            bosun.Rows.Select(r => (r.Instance.Kind, r.Instance.Pid)).OrderBy(x => x.Kind).ThenBy(x => x.Pid.ToString()));
+        var joined = bosun.Rows.Single(r => r.Instance.Pid == 4321);
+        Assert.Equal(("Ubuntu", 1, "working", 900L, "/mnt/d/bosun", "make -j8"),
+            (joined.Distro, joined.Instance.Slot, joined.Instance.State, joined.Instance.PrivateMb, joined.Instance.Cwd, joined.Instance.Command));
         Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200); // the holder is shown as its half
 
-        // The same Linux path in two distros is two repos, each with its distro.
+        // Round 1: Debian's own job with the same Linux pid, listed first, keeps its own state and gets no slot.
         var apps = view.Groups.Where(g => g.Repo == "/home/dev/projects/app").ToList();
         Assert.Equal(["Debian", "Ubuntu"], apps.Select(g => g.Distro).Order());
-        Assert.Equal("claude", Assert.Single(apps.Single(g => g.Distro == "Debian").Rows).Instance.Kind);
+        var cargo = apps.Single(g => g.Distro == "Debian").Rows.Single(r => r.Instance.Kind == "job").Instance;
+        Assert.Equal((4321L, (int?)null, "unknown", "cargo build"), (cargo.Pid, cargo.Slot, cargo.State, cargo.Command));
 
         // Outside any checkout: one group, last.
         var loose = view.Groups[^1];
@@ -100,63 +114,67 @@ public sealed class InstanceClientTests : IDisposable
         Assert.Equal([31500L, 3346257L], loose.Rows.Select(r => r.Instance.Pid).Order());
 
         // Each side's problems and unreadable count stay with its reading.
-        var ubuntu = view.Sides[1].Reading.Value!;
+        var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading.Value!;
         Assert.Equal(("sessions", 1L), (Assert.Single(ubuntu.Problems).Source, ubuntu.Unreadable));
     }
 
-    [Theory]
-    [InlineData("", 0)]                                         // an empty list
-    [InlineData("There are no running distributions.\r\n", 1)] // as wsl.exe says it, exiting 1
-    public async Task No_distro_running_starts_none_and_keeps_the_Windows_rows_with_a_notice(string listed, int exit)
+    [Fact]
+    public async Task A_holder_that_names_no_distro_is_never_joined()
     {
-        var view = await Fake(new() { [Windows] = Answer(Fixture("windows.json")), [List] = Answer(Write("running.txt", listed), exit) }).ReadAsync(Token);
-        Assert.Equal([["--list", "--running", "--quiet"], ["instances", "--json"]], Calls().OrderBy(c => c[0], StringComparer.Ordinal)); // no guest command
-        Assert.StartsWith("No WSL distro is", view.WslNotice);
-        Assert.Contains("only Windows is listed", view.WslNotice);
+        Report("Ubuntu", "wsl-ubuntu.json");
+        var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
+        doc["instances"]![3]!["guest_distro"] = null; // a record an older shim wrote
+        var view = await Fake(Answer(Write("old.json", doc.ToJsonString()))).ReadAsync(Token);
+        var rows = view.Groups.SelectMany(g => g.Rows).ToList();
+        Assert.Contains(rows, r => r.Instance.Pid == 9200 && r.Instance.Slot == 1);
+        Assert.Contains(rows, r => r.Instance is { Pid: 4321, Slot: null });
+    }
+
+    [Fact]
+    public async Task No_report_keeps_the_Windows_rows_with_a_notice()
+    {
+        var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
+        Assert.StartsWith($"No WSL distro has reported its instances to {_logs}, so only Windows is listed.", view.WslNotice);
         Assert.Equal(["Windows"], view.Sides.Select(s => s.Name));
         Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
     }
 
     [Fact]
-    public async Task WSL_not_installed_is_said_and_never_asked()
+    public async Task A_stale_report_is_its_distro_s_last_word_and_its_rows_are_not_listed_as_running()
     {
-        var view = await Fake(new() { [Windows] = Answer(Fixture("windows.json")) }, wsl: false).ReadAsync(Token);
-        Assert.Equal("WSL is not installed, so only Windows is listed.", view.WslNotice);
-        Assert.Equal([["instances", "--json"]], Calls());
+        Report("Ubuntu", "wsl-ubuntu.json");
+        Report("Debian", "wsl-debian.json");
+        var view = await Fake(Answer(Fixture("windows.json")), now: Now.AddMinutes(12)).ReadAsync(Token);
+        var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
+        Assert.True(ubuntu.IsStale);
+        Assert.Equal("WSL (Ubuntu) last reported 12 minutes ago: it is stopped, or its logger is, so its instances aren't listed.", ubuntu.Why);
+        Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Distro is not null);
+        Assert.Contains(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200); // the holder still shown, as Windows saw it
     }
 
     [Fact]
     public async Task A_side_that_fails_keeps_the_others_rows_and_says_why()
     {
-        var view = await Fake(new()
-        {
-            [Windows] = Answer(Fixture("windows.json")),
-            [List] = Answer(Write("running.txt", "Ubuntu\nDebian\n")),
-            [Guest("Ubuntu")] = Answer(exit: 127, stderr: "bash: bosun: command not found"),
-            [Guest("Debian")] = Answer(Fixture("wsl-debian.json")),
-        }).ReadAsync(Token);
+        Report("Debian", "wsl-debian.json");
+        File.WriteAllText(Path.Combine(_logs, "instances-wsl-Ubuntu.json"), "{not json");
+        var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
         var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
-        Assert.Equal(ReadingProblem.Failed, ubuntu.Problem);
-        Assert.Equal("bosun instances --json in WSL (Ubuntu) ended with exit code 127: bash: bosun: command not found", ubuntu.Why);
+        Assert.Equal(ReadingProblem.Invalid, ubuntu.Problem);
+        Assert.Contains("instances-wsl-Ubuntu.json is not an instances report", ubuntu.Why);
         Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
         Assert.Contains(view.Groups, g => g.Distro == "Debian");
-        // With Ubuntu's half missing, the WSL holder is still shown, as Windows saw it.
-        Assert.Contains(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200 && r.Instance.Slot == 1);
 
         // And the reverse: Windows failed, the distro's rows kept.
-        var reverse = await Fake(new()
-        {
-            [Windows] = Answer(exit: 2, stderr: "[bosun] the process list can't be taken"),
-            [List] = Answer(Write("one.txt", "Debian\n")),
-            [Guest("Debian")] = Answer(Fixture("wsl-debian.json")),
-        }).ReadAsync(Token);
+        var reverse = await Fake(Answer(exit: 2, stderr: "[bosun] the process list can't be taken")).ReadAsync(Token);
         Assert.Equal(ReadingProblem.Failed, reverse.Sides[0].Reading.Problem);
         Assert.Contains("the process list can't be taken", reverse.Sides[0].Reading.Why);
-        Assert.Equal("Debian", Assert.Single(reverse.Groups).Distro);
+        Assert.All(reverse.Groups, g => Assert.All(g.Rows, r => Assert.Equal("Debian", r.Distro)));
+        Assert.NotEmpty(reverse.Groups);
 
-        // No bosun.exe: said, and WSL still asked.
-        var missing = await Fake(new() { [List] = Answer(Write("none.txt", "")) }, bosun: null).ReadAsync(Token);
+        // No bosun.exe: said, and WSL still read.
+        var missing = await Fake(Answer(), installed: false).ReadAsync(Token);
         Assert.Equal((ReadingProblem.NotInstalled, "bosun.exe is not installed at C:\\x\\bosun.exe."), (missing.Sides[0].Reading.Problem, missing.Sides[0].Reading.Why));
+        Assert.Contains(missing.Groups, g => g.Distro == "Debian");
     }
 
     public static TheoryData<string, string> NotTheShape => new()
@@ -167,6 +185,7 @@ public sealed class InstanceClientTests : IDisposable
         { "side", "wrote the wsl document, not the windows one" },
         { "source", "names the source 'disk', which no scanner reads" },
         { "foreign", "is a wsl claude in the windows document" },
+        { "distro", "names the distro 'a/b'" },
         { "text", "is not its document" },
     };
 
@@ -184,9 +203,10 @@ public sealed class InstanceClientTests : IDisposable
             case "side": doc["side"] = "wsl"; break;
             case "source": doc["problems"] = new JsonArray(new JsonObject { ["source"] = "disk", ["why"] = "x" }); break;
             case "foreign": first["side"] = "wsl"; break;
+            case "distro": doc["instances"]![3]!["guest_distro"] = "a/b"; break;
         }
         var text = wrong == "text" ? "{not json" : doc.ToJsonString();
-        var view = await Fake(new() { [Windows] = Answer(Write("doc.json", text)) }, wsl: false).ReadAsync(Token);
+        var view = await Fake(Answer(Write("doc.json", text))).ReadAsync(Token);
         var reading = view.Sides[0].Reading;
         Assert.Equal(ReadingProblem.Invalid, reading.Problem);
         Assert.Contains(said, reading.Why);
@@ -194,11 +214,15 @@ public sealed class InstanceClientTests : IDisposable
     }
 
     [Fact]
-    public async Task Another_schema_version_is_unsupported()
+    public async Task Another_schema_version_is_unsupported_on_either_side()
     {
         var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
         doc["schema_version"] = 2;
-        var view = await Fake(new() { [Windows] = Answer(Write("v2.json", doc.ToJsonString())) }, wsl: false).ReadAsync(Token);
+        var guest = JsonNode.Parse(File.ReadAllText(Fixture("wsl-debian.json")))!.AsObject();
+        guest["schema_version"] = 2;
+        File.WriteAllText(Path.Combine(_logs, "instances-wsl-Debian.json"), guest.ToJsonString());
+        var view = await Fake(Answer(Write("v2.json", doc.ToJsonString()))).ReadAsync(Token);
         Assert.Equal(ReadingProblem.Unsupported, view.Sides[0].Reading.Problem);
+        Assert.Equal(ReadingProblem.Unsupported, view.Sides[1].Reading.Problem);
     }
 }

@@ -245,8 +245,15 @@ def parse_mark(text):
     pid, deadline = doc.get("pid"), doc.get("deadline")
     if not isinstance(pid, int) or isinstance(pid, bool) or pid < 0 or not isinstance(deadline, (int, float)) or isinstance(deadline, bool):
         return None
+    # A number past a float's range is no deadline any dispatcher wrote (round 1: it had stopped the whole scan).
+    try:
+        deadline = float(deadline)
+    except OverflowError:
+        return None
+    if deadline != deadline or deadline in (float("inf"), float("-inf")):
+        return None
     reviewer = doc.get("reviewer")
-    return {"pid": pid, "deadline": float(deadline), "reviewer": reviewer if isinstance(reviewer, str) else "a reviewer"}
+    return {"pid": pid, "deadline": deadline, "reviewer": reviewer if isinstance(reviewer, str) else "a reviewer"}
 
 
 def boot_time(proc):
@@ -325,13 +332,13 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
         state, evidence = instance_state(mark, sessions.get(pid), procs[pid][3])
         rows.append({"side": "wsl", "kind": instance_kind(procs[pid][0]), "name": utf8_text(procs[pid][0]), "pid": pid, "cwd": cwd,
                      "repo": repo, "private_mb": memory[pid], "started_at": started(pid), "state": state, "evidence": evidence,
-                     "slot": None, "command": None, "guest_pid": None})
+                     "slot": None, "command": None, "guest_pid": None, "guest_distro": None})
     for pid in sorted(jobs):
         cwd, repo = where(pid)
         command = shims[pid]
         rows.append({"side": "wsl", "kind": "job", "name": utf8_text(os.path.basename(command[0]) if command else "bosun"), "pid": pid,
                      "cwd": cwd, "repo": repo, "private_mb": memory[pid], "started_at": started(pid), "state": "unknown", "evidence": None,
-                     "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None})
+                     "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None, "guest_distro": None})
     rows.sort(key=lambda r: (r["repo"] is not None, r["repo"] or "", r["kind"], r["pid"]))
     return {"schema_version": 1, "side": "wsl", "distro": distro if distro is not None else os.environ.get("WSL_DISTRO_NAME"),
             "at": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -392,17 +399,17 @@ def snapshot_json(at, interval, memory, repos, processes, history_written=True):
     return json.dumps(doc, ensure_ascii=False, separators=(",", ":"))
 
 
-def write_snapshot(log_dir, text, replace=None, attempts=20):
-    """Replaces current-wsl.json through a temporary file in the same folder, so a reader sees the old snapshot or the
+def write_snapshot(log_dir, text, replace=None, attempts=20, name="current-wsl.json"):
+    """Replaces current-wsl.json (or `name`) through a temporary file in the same folder, so a reader sees the old one or the
     new one, never part of either. The replace is retried for up to a second on PermissionError (a Windows reader
     holding the file on /mnt/c); one that still fails keeps the previous snapshot, removes the temporary file, says so
     on stderr and returns, so the logger carries on and the next sample tries again. Returns True once it landed."""
     replace = replace or os.replace
-    path = os.path.join(log_dir, "current-wsl.json")
+    path = os.path.join(log_dir, name)
     temp = None
     try:
         # Inside the handled path (round 1): a full disk or no inodes left can refuse the temporary file itself.
-        fd, temp = tempfile.mkstemp(prefix=".current-wsl.", suffix=".tmp", dir=log_dir)
+        fd, temp = tempfile.mkstemp(prefix="." + name.rsplit(".", 1)[0] + ".", suffix=".tmp", dir=log_dir)
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
             f.flush()
@@ -502,6 +509,20 @@ def sample(log_dir, cache, interval=30):
         history_written = False
         print(f"[bosun] can't add this sample to {path} ({e}): history is being lost, though sampling goes on", file=sys.stderr)
     write_snapshot(log_dir, snapshot_json(ts + "Z", interval, memory, repo_rows, top, history_written))
+    write_instances(log_dir)
+
+
+def instances_file(distro):
+    """The file a distro's instances go to in the Windows log folder: one per distro, so two never write over each other.
+    A name wsl.exe wouldn't take (or none, outside WSL) is "default"."""
+    return f"instances-wsl-{distro if distro and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', distro) else 'default'}.json"
+
+
+def write_instances(log_dir, **scan):
+    """This distro's instances, beside its snapshot, every sample (D03 T02 §1, round 1): the panel reads this file rather
+    than asking wsl.exe, which would start a distro the person had stopped. Replaced whole, as the snapshot is."""
+    doc = instances(**scan)
+    return write_snapshot(log_dir, json.dumps(doc, separators=(",", ":"), ensure_ascii=False) + "\n", name=instances_file(doc["distro"]))
 
 
 def main(argv):

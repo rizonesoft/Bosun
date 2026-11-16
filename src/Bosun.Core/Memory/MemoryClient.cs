@@ -121,7 +121,7 @@ public sealed class MemoryClient
     {
         if (side is not ("windows" or "wsl")) throw new ArgumentException("a side is windows or wsl", nameof(side));
         var file = Path.Combine(_logs, $"current-{side}.json");
-        var (text, problem, why) = await ReadSnapshotTextAsync(file, cancellationToken).ConfigureAwait(false);
+        var (text, problem, why) = await ReadSharedTextAsync(file, MaxSnapshotBytes, cancellationToken).ConfigureAwait(false);
         if (text is null) return Reading<SnapshotDoc>.Fail(problem, why);
 
         SnapshotDoc? doc;
@@ -158,7 +158,7 @@ public sealed class MemoryClient
     /// replace is never blocked by this read), asked again for up to <see cref="HeldFor"/> while the file is held in
     /// that replace, and bounded before anything is read.
     /// </summary>
-    private async Task<(string? Text, ReadingProblem Problem, string Why)> ReadSnapshotTextAsync(string file, CancellationToken cancellationToken)
+    internal static async Task<(string? Text, ReadingProblem Problem, string Why)> ReadSharedTextAsync(string file, int maxBytes, CancellationToken cancellationToken)
     {
         var until = DateTime.UtcNow + HeldFor;
         while (true)
@@ -167,8 +167,8 @@ public sealed class MemoryClient
             try
             {
                 using var stream = OpenShared(file);
-                if (stream.Length > MaxSnapshotBytes)
-                    return (null, ReadingProblem.Invalid, $"{file} is {stream.Length:N0} bytes, more than the {MaxSnapshotBytes:N0} a snapshot may be, so it was not read.");
+                if (stream.Length > maxBytes)
+                    return (null, ReadingProblem.Invalid, $"{file} is {stream.Length:N0} bytes, more than the {maxBytes:N0} it may be, so it was not read.");
                 var bytes = new byte[stream.Length];
                 await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
                 return (Encoding.UTF8.GetString(bytes), default, "");

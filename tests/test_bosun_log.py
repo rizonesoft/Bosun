@@ -260,7 +260,7 @@ class Instances(unittest.TestCase):
         self.assertEqual((codex["repo"], codex["cwd"]), (None, self.outside))
         self.assertEqual((code["cwd"], code["repo"], doc["unreadable"]), (None, None, 1))
         self.assertTrue(all(r["state"] == "unknown" and r["evidence"] is None for r in rows.values()))  # no evidence at all
-        self.assertEqual(list(claude), ["side", "kind", "name", "pid", "cwd", "repo", "private_mb", "started_at", "state", "evidence", "slot", "command", "guest_pid"])
+        self.assertEqual(list(claude), ["side", "kind", "name", "pid", "cwd", "repo", "private_mb", "started_at", "state", "evidence", "slot", "command", "guest_pid", "guest_distro"])
 
     def test_state_from_session_records_and_review_marks(self):
         self.process(1, "init", 0, 1024, 1)
@@ -293,6 +293,32 @@ class Instances(unittest.TestCase):
         self.assertEqual(rows[71]["state"], "reviewing")  # a live mark over a busy session: the review wins
         self.assertEqual(doc["problems"], [{"source": "sessions", "why": os.path.join(self.home, ".claude", "sessions", "broken.json") + " is not a session record"}])
         self.assertEqual(len(doc["instances"]), 6)  # every instance is still listed beside the problem
+
+    def test_a_mark_past_a_float_s_range_is_a_problem_not_the_end_of_the_scan(self):
+        # Round 1: a deadline of 400 nines stopped `bosun instances` with OverflowError.
+        self.process(1, "init", 0, 1024, 1)
+        self.process(50, "python3", 1, 1024, 5000, cwd=self.repo)
+        self.process(51, "codex", 50, 1024, 5001, cwd=self.repo)
+        folder = os.path.join(self.repo, "build", "review-in-flight")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "bad.json"), "w") as f:
+            f.write('{"pid":50,"deadline":' + "9" * 400 + "}")
+        doc = self.scan()
+        self.assertEqual(self.rows(doc)[51]["state"], "unknown")
+        self.assertEqual([p["source"] for p in doc["problems"]], ["review-marks"])
+        self.assertIn("bad.json is not a review mark", doc["problems"][0]["why"])
+
+    def test_each_distro_writes_its_own_file_beside_the_snapshot(self):
+        # Round 1: the panel reads this file, never wsl.exe, which would start a distro the person had stopped.
+        self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)
+        logs = os.path.join(self.root, "logs")
+        os.makedirs(logs)
+        for distro in ("Ubuntu", "Debian", "no/such"):
+            self.assertTrue(dl.write_instances(logs, proc=self.proc, home=self.home, now=1700001000.0, distro=distro, ticks=100))
+        self.assertEqual(sorted(os.listdir(logs)), ["instances-wsl-Debian.json", "instances-wsl-Ubuntu.json", "instances-wsl-default.json"])
+        with open(os.path.join(logs, "instances-wsl-Ubuntu.json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual((doc["distro"], doc["instances"][0]["pid"]), ("Ubuntu", 10))
 
     def test_a_folder_that_cant_be_listed_is_a_problem(self):
         self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)

@@ -477,7 +477,17 @@ struct SlotRecord {
     // Added by D03 T02 §1: a WSL job's own Linux process (the shim's), so the instance scanners can join a holder to the
     // job tree WSL sees. Optional, so a record without it still reads; written only when known.
     std::optional<int64_t> guest_pid;
+    // And its distro (round 1 of D03 T02 §1): a Linux pid is unique only within one distro, so a join needs both.
+    std::optional<std::string> guest_distro;
 };
+
+// A WSL distro's name as wsl.exe takes it: letters, digits, '.', '_' and '-', at most 64, so it can name a file too.
+inline bool distro_name_ok(const std::string& name) {
+    if (name.empty() || name.size() > 64) return false;
+    for (unsigned char c : name)
+        if (!std::isalnum(c) && c != '.' && c != '_' && c != '-') return false;
+    return true;
+}
 
 
 // A record's fields, without the braces, so status --json can extend the object it embeds.
@@ -505,6 +515,7 @@ inline std::string record_fields(const SlotRecord& r) {
         o << ",\"min_guest_mb\":";
         count(r.min_guest_mb);
         if (r.guest_pid) o << ",\"guest_pid\":" << *r.guest_pid;  // D03 T02 §1: absent, never null, while unknown
+        if (r.guest_distro) o << ",\"guest_distro\":\"" << json_escape(*r.guest_distro) << "\"";
     } else {
         o << ",\"waiting_for\":";
         text(r.waiting_for);
@@ -779,6 +790,11 @@ inline std::optional<SlotRecord> parse_record(const std::string& text) {
         if (guest->second.kind != FlatValue::Integer || guest->second.negative || guest->second.magnitude == 0 || guest->second.magnitude > INT32_MAX)
             return std::nullopt;
         r.guest_pid = guest->second.number;
+    }
+    auto guest_distro = obj->find("guest_distro");
+    if (guest_distro != obj->end() && guest_distro->second.kind != FlatValue::Null) {
+        if (guest_distro->second.kind != FlatValue::String || !distro_name_ok(guest_distro->second.text)) return std::nullopt;
+        r.guest_distro = guest_distro->second.text;
     }
     if (!opt_stamp("acquired_at", r.acquired_at) || !opt_stamp("command_started_at", r.command_started_at) ||
         !opt_count("min_guest_mb", r.min_guest_mb) || !opt_count("min_avail_mb", r.min_avail_mb) || !opt_count("max_wait_s", r.max_wait_s))
@@ -1378,6 +1394,7 @@ struct Instance {
     std::optional<int> slot;
     std::optional<std::string> command;
     std::optional<int64_t> guest_pid;
+    std::optional<std::string> guest_distro;
 };
 
 // An instance's state, from the evidence in this order: the slot its job holds, a live review its process runs under,
@@ -1456,6 +1473,8 @@ inline std::string instances_json(const InstancesDoc& d) {
         text(i.command);
         o << ",\"guest_pid\":";
         count(i.guest_pid);
+        o << ",\"guest_distro\":";
+        text(i.guest_distro);
         o << "}";
     }
     o << "],\"unreadable\":" << d.unreadable << ",\"problems\":[";
