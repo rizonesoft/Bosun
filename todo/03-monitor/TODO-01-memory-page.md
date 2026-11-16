@@ -38,7 +38,7 @@ title: "TODO-01 -- Memory and overview"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [x] |
-| 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [ ] |
+| 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [x] |
 | 3 | §3 | History chart with a table equivalent | §2 | [ ] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
@@ -112,9 +112,12 @@ This is the question the whole project exists to answer.
 - [x] Build the sortable by-repo table. Done when: each of Private GB, Peak GB and Processes sorts numerically both ways (10 after 9), the chosen sort survives a refresh, and the figures are tabular.
 - [x] Add a Side column to the by-repo table in `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: a fixture shows a Windows and a WSL repo with their words.
 - [x] Give the Memory page the gauge skeleton (`LoadingShape = SkeletonShape.Gauge`) and draw each value it can't read as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`, which built them on test pages). Done when: a render of the page loading shows the gauge shape, and a test with an unreadable counter shows "Not available" with its reason, never 0. Cheaper substitute: a card skeleton, or a 0 for a counter that failed.
-- [ ] Commit: `memory: page with live cards and repo table`
+- [x] Commit: `memory: page with live cards and repo table`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPageTests"` exits 0, and fails if an unreadable counter is shown as 0.
+
+> **Verified:** 2026-11-16 | §2 | 96dbd7f526f0bc32bd20bdb8a24f037f3c1e2f0c
+> **Review:** `docs/reviews/d03-t01-s2.json`
 
 ## 3. History chart with a table equivalent
 
