@@ -214,6 +214,26 @@ public class CommandPaletteTests
     }
 
     [Fact]
+    public void A_page_change_under_it_closes_it_and_a_row_no_longer_offered_runs_nothing()
+    {
+        // Round 1: the tray's Open queue changed the page while the palette was open, and its old row still ran.
+        OnUi(() =>
+        {
+            var (shell, actions, memory) = WithActions();
+            shell.Palette.Open();
+            var stale = Row(shell.Palette, "Apply the change");
+            shell.Show(shell.Sections.Single(s => s.Title == "Memory"));                   // as the tray's Open does
+            Assert.False(shell.Palette.IsOpen);
+            shell.Palette.Open();
+            var ran = shell.Palette.RunAsync(stale);
+            Pump(TimeSpan.FromMilliseconds(50));
+            Assert.False(ran.Result);
+            Assert.Equal(0, actions.Applied);
+            Assert.Equal("Apply the change: it is no longer offered here", shell.Palette.Message);
+        });
+    }
+
+    [Fact]
     public void A_disabled_command_runs_nothing_says_why_and_follows_its_command_live()
     {
         OnUi(() =>

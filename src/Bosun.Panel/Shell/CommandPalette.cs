@@ -121,6 +121,7 @@ public sealed class CommandPalette : Observable
         Raise(nameof(Query));
         Message = null;
         if (Panel is { } panel) panel.Changed += Rebuild;
+        _shell.PropertyChanged += OnShellChanged;
         Rebuild();
         IsOpen = true;
         return true;
@@ -133,6 +134,7 @@ public sealed class CommandPalette : Observable
         IsOpen = false;
         Watch([]);
         if (Panel is { } panel) panel.Changed -= Rebuild;
+        _shell.PropertyChanged -= OnShellChanged;
         Closed?.Invoke();
     }
 
@@ -151,7 +153,13 @@ public sealed class CommandPalette : Observable
     /// </summary>
     public async Task<bool> RunAsync(PaletteRow row)
     {
-        var now = Build().FirstOrDefault(r => r.Name == row.Name && r.Group == row.Group) ?? row;
+        // Only what is offered now runs: a row from before the page changed (round 1 of D02 T03 §8) runs nothing.
+        if (Build().FirstOrDefault(r => r.Name == row.Name && r.Group == row.Group) is not { } now)
+        {
+            Message = $"{row.Name}: it is no longer offered here";
+            Rebuild();
+            return false;
+        }
         if (now.Reason is { } why)
         {
             Message = $"{now.Name}: {why}";
@@ -162,6 +170,12 @@ public sealed class CommandPalette : Observable
         await Dispatcher.Yield(DispatcherPriority.Background);
         await now.Run();
         return true;
+    }
+
+    /// <summary>The page changed under it (the tray's Open queue, a page's own Open): its rows were that page's, so it closes.</summary>
+    private void OnShellChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(ShellViewModel.Selected) or nameof(ShellViewModel.Page)) Close();
     }
 
     private void Rebuild()
