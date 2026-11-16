@@ -93,7 +93,7 @@ Sections: 25 | Checklist items: 253
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 49
+Sections: 8 | Checklist items: 50
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
@@ -101,7 +101,7 @@ Sections: 8 | Checklist items: 49
 | [ ]    | D03 T01 §2 | Memory page                           | none  | 5     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [x]    | D03 T01 §4 | Pressure alerts                       | none  | 6     |
-| [ ]    | D03 T02 §1 | Instance scanner                      | none  | 7     |
+| [ ]    | D03 T02 §1 | Instance scanner                      | none  | 8     |
 | [ ]    | D03 T02 §2 | Instances page                        | none  | 5     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 5     |
 | [ ]    | D03 T01 §5 | Overview page                         | none  | 7     |
@@ -147,4 +147,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 57/90 verified sections, 6 ready to run now.
 
-Checklist: 613/792 items completed (includes Commit items).
+Checklist: 613/793 items completed (includes Commit items).
