@@ -1,0 +1,58 @@
+<!-- The command palette (D02 T03 §8, design/SPEC.md §19 Command palette): a search field and ranked rows in a card
+     near the top of the window, over the dimmed shell. Its DataContext is the shell's CommandPalette. The search field
+     keeps the keyboard: typing filters, Up and Down move the selection, Enter runs it, Esc closes and gives the keyboard
+     back. A row that can't run says why under its name. A screen reader meets it as a dialog named Command palette. -->
+<UserControl x:Class="Bosun.Panel.Shell.CommandPaletteView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:shell="clr-namespace:Bosun.Panel.Shell"
+             xmlns:controls="clr-namespace:Bosun.Panel.Controls"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
+             xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             Focusable="False" AutomationProperties.Name="Command palette" AutomationProperties.IsDialog="True">
+    <Grid>
+        <Border x:Name="Scrim" Background="{DynamicResource B.Base}" Opacity="0.6" MouseLeftButtonDown="OnScrim"/>
+
+        <Border x:Name="Card" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,84,0,0" Width="560"
+                Background="{DynamicResource B.Raised}" BorderBrush="{DynamicResource B.LineStrong}" BorderThickness="1"
+                CornerRadius="{DynamicResource R.Overlay}" Effect="{DynamicResource Elevation.Overlay}"
+                KeyboardNavigation.TabNavigation="Cycle">
+            <StackPanel>
+                <Grid Margin="16,12,16,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <controls:Decorative VerticalAlignment="Center" Margin="0,0,10,0">
+                        <icons:PackIconLucide x:Name="SearchGlyph" Width="16" Height="16" Focusable="False" IsTabStop="False"
+                                              Foreground="{DynamicResource B.TextDim}"/>
+                    </controls:Decorative>
+                    <TextBox x:Name="Search" Grid.Column="1" Style="{DynamicResource PaletteSearch}"
+                             Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Search pages and commands" PreviewKeyDown="OnSearchKey"/>
+                </Grid>
+                <Border BorderBrush="{DynamicResource B.Line}" BorderThickness="0,1,0,0">
+                    <Grid>
+                        <ListBox x:Name="Results" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected, Mode=OneWay}"
+                                 Style="{DynamicResource PaletteList}" ItemContainerStyle="{DynamicResource PaletteRow}"
+                                 MaxHeight="360" Margin="6" Focusable="False" AutomationProperties.Name="Pages and commands"/>
+                        <TextBlock x:Name="Nothing" Text="Nothing matches" Margin="16,14" Foreground="{DynamicResource B.TextDim}"
+                                   Visibility="Collapsed"/>
+                    </Grid>
+                </Border>
+                <TextBlock x:Name="Message" Text="{Binding Message}" Margin="16,0,16,12" TextWrapping="Wrap"
+                           Foreground="{DynamicResource B.Warn}" AutomationProperties.LiveSetting="Assertive">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Message}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

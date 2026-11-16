@@ -52,9 +52,25 @@ public sealed class ShellViewModel : Observable
         _selected = sections[0];
         _windowShown = windowShown;
         if (windowShown) _selected.Page.Show();
+        Palette = new CommandPalette(this);
     }
 
     public IReadOnlyList<Section> Sections { get; }
+
+    /// <summary>The command palette, opened by Ctrl+K (D02 T03 §8).</summary>
+    public CommandPalette Palette { get; }
+
+    /// <summary>
+    /// F5 (D02 T03 §8): runs the page's own refresh, the header's Refresh button's command, when the page has one and
+    /// it may run; nothing while the palette is open or the question about unsaved edits is up.
+    /// </summary>
+    public bool RefreshPage()
+    {
+        if (IsAsking || IsLeaving || Palette.IsOpen) return false;
+        if (Page.RefreshNow is not { } refresh || !refresh.CanExecute(null)) return false;
+        refresh.Execute(null);
+        return true;
+    }
 
     public ActivityLog Log { get; }
 

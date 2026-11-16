@@ -54,6 +54,11 @@ public class GlyphTests
             [GlyphAction.SlotFree] = PackIconLucideKind.CircleDot,
             [GlyphAction.SlotHeld] = PackIconLucideKind.Terminal,
             [GlyphAction.SlotUnknown] = PackIconLucideKind.CircleDashed,
+            [GlyphAction.Save] = PackIconLucideKind.Save,
+            [GlyphAction.Discard] = PackIconLucideKind.Undo2,
+            [GlyphAction.Startup] = PackIconLucideKind.Power,
+            [GlyphAction.Exit] = PackIconLucideKind.LogOut,
+            [GlyphAction.Page] = PackIconLucideKind.ArrowRight,
         };
         Assert.Equal(Enum.GetValues<GlyphAction>().Order(), Glyphs.Actions.Keys.Order());
         Assert.Equal(expected.OrderBy(p => p.Key), Glyphs.Actions.OrderBy(p => p.Key));

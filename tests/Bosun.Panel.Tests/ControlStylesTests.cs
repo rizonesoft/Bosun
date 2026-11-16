@@ -712,6 +712,7 @@ public partial class ControlStylesTests
         ["controls:QueueSlotTile"] = "a slot's state drawn and said in words, never focused: the Queue page's actions are the targets",
         ["controls:WaitingRow"] = "the list of waiting jobs, read and never focused: each line is said in full",
         ["controls:WaitingLineView"] = "one waiting job, said in full, never focused",
+        ["PaletteList"] = "the palette's list never takes the keyboard: its search field keeps it, and each row is said in full",
         ["ToolTip"] = "a tooltip can't be pressed or focused",
         ["Value"] = "a value is read, not acted on: it is not focusable (D02 T03 §7)",
         ["ColumnGripper"] = "a part of the column header, which is the target",

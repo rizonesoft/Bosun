@@ -1533,4 +1533,94 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- The command palette (D02 T03 §8): its search field, a field a little taller; its list, which never takes the
+         keyboard (the search field keeps it); and its rows: glyph, name and group, and the reason under a row that can't
+         run. The selected row is the hover colour; a danger row's name the danger colour. In a contrast theme the
+         selected row is the highlight with its text, and every other line Windows' text. -->
+    <Style x:Key="PaletteSearch" TargetType="TextBox" BasedOn="{StaticResource Field}">
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Subtitle}"/>
+    </Style>
+
+    <Style x:Key="PaletteList" TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBox">
+                    <ScrollViewer Focusable="False" Padding="0">
+                        <ItemsPresenter/>
+                    </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="PaletteRow" TargetType="ListBoxItem">
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <Setter Property="AutomationProperties.Name" Value="{Binding Spoken}"/>
+        <Setter Property="AutomationProperties.ItemStatus" Value="{Binding Reason}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="bd" Background="Transparent" CornerRadius="{DynamicResource R.Control}" Padding="10,7">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <controls:Decorative VerticalAlignment="Top" Margin="0,2,10,0">
+                                <icons:PackIconLucide x:Name="glyph" Kind="{Binding Glyph}" Width="15" Height="15" Focusable="False" IsTabStop="False"
+                                                      Foreground="{DynamicResource B.TextDim}"/>
+                            </controls:Decorative>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="name" Text="{Binding Name}" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="reason" Text="{Binding Reason}" FontSize="{DynamicResource T.Caption}" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource B.TextDim}" Visibility="Collapsed"/>
+                            </StackPanel>
+                            <TextBlock x:Name="group" Grid.Column="2" Text="{Binding Group}" Margin="12,1,0,0" VerticalAlignment="Top"
+                                       FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.TextMute}"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Enabled}" Value="False">
+                            <Setter TargetName="reason" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="name" Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Danger}" Value="True">
+                            <Setter TargetName="name" Property="Foreground" Value="{DynamicResource B.Danger}"/>
+                            <Setter TargetName="glyph" Property="Foreground" Value="{DynamicResource B.Danger}"/>
+                        </DataTrigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Hover}"/>
+                        </Trigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="glyph" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="reason" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="group" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="name" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                                <Condition Property="IsSelected" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Accent}"/>
+                            <Setter TargetName="glyph" Property="Foreground" Value="{DynamicResource B.OnAccent}"/>
+                            <Setter TargetName="reason" Property="Foreground" Value="{DynamicResource B.OnAccent}"/>
+                            <Setter TargetName="group" Property="Foreground" Value="{DynamicResource B.OnAccent}"/>
+                            <Setter TargetName="name" Property="Foreground" Value="{DynamicResource B.OnAccent}"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

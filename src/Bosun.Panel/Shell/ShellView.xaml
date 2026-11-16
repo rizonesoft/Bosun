@@ -161,6 +161,9 @@
             </Grid>
         </Grid>
 
+        <!-- The command palette (D02 T03 §8), under the question about unsaved edits: it closes before that is asked. -->
+        <shell:CommandPaletteView x:Name="PaletteView" DataContext="{Binding Palette}"/>
+
         <shell:LeaveDialog x:Name="Leave">
             <shell:LeaveDialog.Style>
                 <Style TargetType="shell:LeaveDialog">

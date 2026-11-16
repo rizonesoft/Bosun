@@ -18,6 +18,11 @@ public enum GlyphAction
     SlotFree,
     SlotHeld,
     SlotUnknown,
+    Save,
+    Discard,
+    Startup,
+    Exit,
+    Page,
 }
 
 /// <summary>
@@ -57,6 +62,12 @@ public static class Glyphs
         [GlyphAction.SlotFree] = PackIconLucideKind.CircleDot,
         [GlyphAction.SlotHeld] = PackIconLucideKind.Terminal,
         [GlyphAction.SlotUnknown] = PackIconLucideKind.CircleDashed,
+        // The command palette's rows (D02 T03 §8): a page's own commands and the panel's.
+        [GlyphAction.Save] = PackIconLucideKind.Save,
+        [GlyphAction.Discard] = PackIconLucideKind.Undo2,
+        [GlyphAction.Startup] = PackIconLucideKind.Power,
+        [GlyphAction.Exit] = PackIconLucideKind.LogOut,
+        [GlyphAction.Page] = PackIconLucideKind.ArrowRight,
     };
 
     /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>

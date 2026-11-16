@@ -36,6 +36,14 @@ public sealed class TrayController : IDisposable
         _settings = settings;
         _exit = exit;
         Tray = new TrayViewModel(notifier, OpenAsync, OpenQueueAsync, ExitAsync, needs, queue);
+        // Its Pause or Resume and Exit, in the command palette too (D02 T03 §8): the menu's own lines.
+        shell.Palette.Panel = new TrayPaletteCommands(Tray);
+        // A pause running out changes the menu by itself: noticed on the panel's one scheduler, never a timer of its own.
+        _refreshes?.Register("Notification pause", RefreshScheduler.Fast, _ =>
+        {
+            Tray.NoticePause();
+            return Task.CompletedTask;
+        }).Start();
     }
 
     /// <summary>The tray's state and menu.</summary>

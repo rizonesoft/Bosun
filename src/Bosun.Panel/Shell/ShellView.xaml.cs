@@ -45,6 +45,10 @@ public partial class ShellView : UserControl
         };
 
         DataContextChanged += (_, _) => Bind(DataContext as ShellViewModel);
+        // Ctrl+K and F5 (D02 T03 §8), taken at the window as they come down to anything in it, a text field included, and
+        // with nothing focused at all (just opened, keys go to the window itself); the view itself when it has no window.
+        Loaded += (_, _) => KeysFrom(Window.GetWindow(this) as UIElement ?? this);
+        Unloaded += (_, _) => KeysFrom(null);
         PaneSplitter.DragCompleted += (_, _) => KeepPaneHeight();
         PaneSplitter.KeyUp += (_, _) => KeepPaneHeight();
         Activity.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnActivityScrolled));
@@ -84,6 +88,9 @@ public partial class ShellView : UserControl
         // The rail's rows under their group headings, in the shell's own order.
         var rows = new ListCollectionView(shell.Sections.ToList());
         rows.GroupDescriptions.Add(new PropertyGroupDescription(nameof(Section.Group)));
+        // A new view's current row is its first, and the rail selects it as it takes the rows: made current first, the
+        // shell's own page is what it selects, so a view bound to a shell on another page doesn't send it to the first.
+        rows.MoveCurrentTo(shell.Selected);
         Rail.ItemsSource = rows;
         Rail.SetCurrentValue(Selector.SelectedItemProperty, shell.Selected);
         PaneRow.Height = new GridLength(shell.ActivityHeight);
@@ -212,6 +219,32 @@ public partial class ShellView : UserControl
         catch (Exception e) when (e is System.IO.IOException or NotSupportedException or InvalidOperationException or System.IO.FileFormatException)
         {
             return null;
+        }
+    }
+
+    private UIElement? _keys;
+
+    private void KeysFrom(UIElement? from)
+    {
+        if (_keys is not null) _keys.PreviewKeyDown -= OnShortcut;
+        _keys = from;
+        if (from is not null) from.PreviewKeyDown += OnShortcut;
+    }
+
+    /// <summary>Ctrl+K opens the command palette and F5 refreshes the page, unless the question about unsaved edits is up.</summary>
+    private void OnShortcut(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (_shell is null) return;
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        var mods = System.Windows.Input.Keyboard.Modifiers;
+        if (key == System.Windows.Input.Key.K && mods == System.Windows.Input.ModifierKeys.Control)
+        {
+            e.Handled = true;
+            _shell.Palette.Open();
+        }
+        else if (key == System.Windows.Input.Key.F5 && mods == System.Windows.Input.ModifierKeys.None)
+        {
+            e.Handled = _shell.IsAsking || _shell.Palette.IsOpen || _shell.RefreshPage();
         }
     }
 }

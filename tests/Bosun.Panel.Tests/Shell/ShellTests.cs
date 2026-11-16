@@ -20,6 +20,24 @@ public class ShellTests
     // ---- the shell's state ----
 
     [Fact]
+    public void A_view_bound_to_a_shell_on_another_page_keeps_that_page()
+    {
+        // Found by the command palette's renders (D02 T03 §8): the rail took its rows with the first current, and that
+        // selection sent the shell to its first page before the view selected the shell's own.
+        var (shell, first, _, third) = Shells.WithTestPages();
+        shell.Show(shell.Sections[2]);
+        var shownBefore = first.ShownCount;
+        PageRenderer.InPage("Dark", () => new ShellView { DataContext = shell }, page =>
+        {
+            Assert.Equal("Settings", shell.Page.Title);
+            Assert.Same(shell.Sections[2], ShellSupport.Under<ListBox>(page).First(l => l.Name == "Rail").SelectedItem);
+            Assert.Equal(shownBefore, first.ShownCount);                                  // the first page was never shown on the way
+            Assert.True(third.IsShown);
+            return 0;
+        }, 1360, 860);
+    }
+
+    [Fact]
     public void Selecting_a_section_shows_its_page_and_hides_the_one_before_each_once_and_logs_nothing()
     {
         Sta.Run(() =>

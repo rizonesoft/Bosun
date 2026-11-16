@@ -132,9 +132,26 @@ public sealed class TrayViewModel
         return [new(Open, "Open", _open), new(Queue, queue, _openQueue), pause, new(Exit, "Exit", _exit)];
     }
 
-    private static Task Done(Action act)
+    private DateTime? _pauseSeen;
+
+    /// <summary>
+    /// Says the menu changed when the pause has run out (or begun) since last looked at (D02 T03 §8): its Resume line is
+    /// Pause again, and what shows it (the command palette) reads it again. Called on the panel's refresh scheduler.
+    /// </summary>
+    public void NoticePause()
+    {
+        var now = _notifier.PausedUntil;
+        if (now == _pauseSeen) return;
+        _pauseSeen = now;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Runs a menu line's change and says the menu changed, so what shows it (the palette) reads it again.</summary>
+    private Task Done(Action act)
     {
         act();
+        _pauseSeen = _notifier.PausedUntil;
+        Changed?.Invoke();
         return Task.CompletedTask;
     }
 }

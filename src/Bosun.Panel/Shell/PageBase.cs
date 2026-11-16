@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Bosun.Core;
 using Bosun.Panel.Controls;
 using Bosun.Panel.Mvvm;
+using Bosun.Panel.Theme;
 
 namespace Bosun.Panel.Shell;
 
@@ -130,6 +131,25 @@ public abstract class PageBase(string title, string summary) : Observable
         get => _refreshNow;
         private set => Set(ref _refreshNow, value);
     }
+
+    /// <summary>
+    /// What the command palette lists for this page while it is on screen (D02 T03 §8): Refresh when it has one, Retry
+    /// while it has failed, then the page's own <see cref="Commands"/>, each the command its button runs.
+    /// </summary>
+    public IReadOnlyList<PageCommand> PaletteCommands
+    {
+        get
+        {
+            var list = new List<PageCommand>();
+            if (RefreshNow is { } refresh) list.Add(new PageCommand("Refresh", GlyphAction.Refresh, refresh));
+            if (State == PageState.Failed && Retry is { } retry) list.Add(new PageCommand("Retry", GlyphAction.Refresh, retry));
+            list.AddRange(Commands);
+            return list;
+        }
+    }
+
+    /// <summary>The page's own actions as its buttons offer them now; none by default.</summary>
+    protected virtual IEnumerable<PageCommand> Commands => [];
 
     /// <summary>
     /// Gives the page a refresh (D02 T02 §8, design/SPEC.md §1): it runs when the page comes on screen and then

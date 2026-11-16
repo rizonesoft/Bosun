@@ -41,6 +41,10 @@ public static partial class RenderCatalog
         new("controls", "queue-waiting", QueueWaiting) { Shows = "Waiting for a free slot" },
         // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
         new("shell", "badges", Badged) { Shows = "12" },
+        // D02 T03 §8: the command palette over the shell, with results and its selection, a row that can't run with its
+        // reason (the Settings page's Save while nothing is edited), and nothing matching.
+        new("shell", "palette", () => Paletted("s")) { Shows = "There are no changes to save" },
+        new("shell", "palette-nothing", () => Paletted("zzz")) { Shows = "Nothing matches" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
         // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
         new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
@@ -208,6 +212,17 @@ public static partial class RenderCatalog
         });
         panel.Children.Add(new Bosun.Panel.Controls.WaitingRow { Status = Queue("{\"index\":0,\"busy\":false,\"holder\":null}", "", readable: false) });
         return panel;
+    }
+
+    /// <summary>The shell on the Settings page with the palette open and <paramref name="query"/> typed.</summary>
+    private static FrameworkElement Paletted(string query)
+    {
+        var settings = new Settings.SettingsFixture();
+        var shell = settings.Shell();
+        shell.Show(shell.Sections.Single(s => s.Key == "settings"));
+        shell.Palette.Open();
+        shell.Palette.Query = query;
+        return new Bosun.Panel.Shell.ShellView { DataContext = shell };
     }
 
     /// <summary>The Settings page's theme choice with Dark chosen, and a ring to place on it once it is laid out.</summary>

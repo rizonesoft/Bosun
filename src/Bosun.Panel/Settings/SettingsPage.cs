@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Bosun.Core;
 using Bosun.Panel.Mvvm;
 using Bosun.Panel.Shell;
+using Bosun.Panel.Theme;
 
 namespace Bosun.Panel.Settings;
 
@@ -208,6 +209,24 @@ public sealed class SettingsPage : PageBase
     }
 
     public ICommand Save => _save;
+
+    /// <summary>
+    /// The page's actions for the command palette (D02 T03 §8), each the command its button runs: Save and Discard,
+    /// with why they can't run while there is nothing to save, and the start-up action while one is offered.
+    /// </summary>
+    protected override IEnumerable<PageCommand> Commands
+    {
+        get
+        {
+            if (State != PageState.Data) yield break;
+            yield return new PageCommand("Save settings", GlyphAction.Save, _save)
+            {
+                Reason = () => PressureFloorError is { } error ? error : "There are no changes to save",
+            };
+            yield return new PageCommand("Discard settings changes", GlyphAction.Discard, _discard) { Reason = () => "There are no changes to discard" };
+            if (StartupAction is { } startup && StartupActionName is { } name) yield return new PageCommand(name, GlyphAction.Startup, startup);
+        }
+    }
 
     public ICommand DiscardChanges => _discard;
 
