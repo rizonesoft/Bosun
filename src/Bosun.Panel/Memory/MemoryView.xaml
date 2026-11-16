@@ -109,7 +109,7 @@
                                             ElementStyle="{DynamicResource Cell.Number}"/>
                         <DataGridTextColumn Header="Peak GB" Binding="{Binding Peak}" SortMemberPath="PeakGb" Width="1.4*"
                                             ElementStyle="{DynamicResource Cell.Number}"/>
-                        <DataGridTextColumn Header="Processes" Binding="{Binding Processes}" SortMemberPath="Processes" Width="*"
+                        <DataGridTextColumn Header="Processes" Binding="{Binding ProcessesNow}" SortMemberPath="Processes" Width="*"
                                             ElementStyle="{DynamicResource Cell.Number}"/>
                     </DataGrid.Columns>
                 </DataGrid>

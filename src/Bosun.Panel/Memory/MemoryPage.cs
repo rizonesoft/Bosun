@@ -19,9 +19,12 @@ public sealed record Metric(string Text)
 }
 
 /// <summary>One repo on one side, as the By repo table shows it: its folder's name, its whole path for the join and the tooltip.</summary>
-public sealed record RepoRow(string Repo, string Path, string Side, double PrivateGb, double? PeakGb, string Peak, long Processes)
+/// Its private memory and processes now are null when its side's snapshot could not be read: never measured, never 0.
+public sealed record RepoRow(string Repo, string Path, string Side, double? PrivateGb, double? PeakGb, string Peak, long? Processes)
 {
-    public string Private => PrivateGb.ToString("0.0", CultureInfo.InvariantCulture);
+    public string Private => PrivateGb?.ToString("0.0", CultureInfo.InvariantCulture) ?? "Not available";
+
+    public string ProcessesNow => Processes?.ToString(CultureInfo.InvariantCulture) ?? "Not available";
 }
 
 /// <summary>
@@ -173,7 +176,9 @@ public sealed class MemoryPage : PageBase
             var at = trimmed.LastIndexOfAny(['/', '\\']);
             return at >= 0 && at < trimmed.Length - 1 ? trimmed[(at + 1)..] : path;
         }
-        var peaks = report?.Repos.ToDictionary(r => (SideOf(r.Side), r.Repo), r => r.PeakPrivateMb) ?? [];
+        // One peak per side and repo, the highest: a history that holds a repo under both "win" and "windows" is one
+        // repo on one side (round 1: two such rows made ToDictionary throw, and the page stopped updating).
+        var peaks = (report?.Repos ?? []).GroupBy(r => (SideOf(r.Side), r.Repo)).ToDictionary(g => g.Key, g => g.Max(r => r.PeakPrivateMb));
         var rows = new List<RepoRow>();
         void Add(string side, IEnumerable<GroupDoc> groups)
         {
@@ -186,12 +191,17 @@ public sealed class MemoryPage : PageBase
         }
         Add("windows", windows.Repos);
         if (vmRunning && wsl is not null) Add("wsl", wsl.Repos);
-        // A repo with a peak in the last 24 hours but nothing running now is a row at 0.0, its peak said.
-        foreach (var r in report?.Repos ?? [])
+        // A repo with a peak in the last 24 hours that its side's snapshot does not list: nothing running now, a row at
+        // 0.0 with its peak. When that side's snapshot could not be read, what runs now was not measured: its current
+        // figures are Not available, never 0 (round 1).
+        foreach (var ((sideKey, path), mb) in peaks)
         {
-            var side = SideOf(r.Side) == "wsl" ? "WSL" : "Windows";
-            if ((side == "Windows" || vmRunning) && !rows.Any(x => x.Path == r.Repo && x.Side == side))
-                rows.Add(new RepoRow(Name(r.Repo), r.Repo, side, 0, GbOf(r.PeakPrivateMb), GbOf(r.PeakPrivateMb).ToString("0.0", CultureInfo.InvariantCulture), 0));
+            var side = sideKey == "wsl" ? "WSL" : "Windows";
+            if ((side == "Windows" || vmRunning) && !rows.Any(x => x.Path == path && x.Side == side))
+            {
+                var measured = side == "Windows" || wsl is not null;
+                rows.Add(new RepoRow(Name(path), path, side, measured ? 0 : null, GbOf(mb), GbOf(mb).ToString("0.0", CultureInfo.InvariantCulture), measured ? 0 : null));
+            }
         }
         Rows.Clear();
         foreach (var row in rows) Rows.Add(row);

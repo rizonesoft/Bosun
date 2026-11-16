@@ -191,6 +191,37 @@ public class MemoryPageTests
     }
 
     [Fact]
+    public void A_repo_known_only_from_history_on_an_unreadable_side_has_its_current_figures_Not_available()
+    {
+        // Round 1: WSL running, its snapshot unreadable, and a WSL repo in the history showed 0.0 GB and 0 processes.
+        var source = new Source { Wsl = Reading<SnapshotDoc>.Fail(ReadingProblem.Failed, "The WSL logger's file could not be read.") };
+        OnPage(source, (page, _, _, _) =>
+        {
+            var resolute = page.Rows.Single(r => r.Repo == "Resolute");
+            Assert.Equal(("WSL", "Not available", "Not available", "8.8"), (resolute.Side, resolute.Private, resolute.ProcessesNow, resolute.Peak));
+            var isotone = page.Rows.Single(r => r.Repo == "Isotone");                         // Windows was read: truly not running
+            Assert.Equal(("0.0", "0"), (isotone.Private, isotone.ProcessesNow));
+        });
+    }
+
+    [Fact]
+    public void A_repo_under_both_win_and_windows_in_the_history_is_one_row_with_its_highest_peak()
+    {
+        // Round 1: the two names for one side made the peaks throw, and the page stopped updating unseen.
+        var source = new Source
+        {
+            Report = Reading<ReportDoc>.Of(ReportOf(repos: """{"repo":"D:/Recto","side":"win","peak_private_mb":11674,"peak_rss_mb":1,"peak_processes":1},{"repo":"D:/Recto","side":"windows","peak_private_mb":12288,"peak_rss_mb":1,"peak_processes":1}"""), Now),
+        };
+        OnPage(source, (page, _, _, _) =>
+        {
+            Assert.Equal(PageState.Data, page.State);
+            var recto = page.Rows.Single(r => r.Repo == "Recto");
+            Assert.Equal("12.0", recto.Peak);
+            Assert.Equal("3 at once", ((Metric)page.Overlap!).Text);
+        });
+    }
+
+    [Fact]
     public void A_Windows_snapshot_that_cant_be_read_fails_the_page_and_one_gone_stale_shows_its_age()
     {
         var source = new Source { Windows = Reading<SnapshotDoc>.Fail(ReadingProblem.Missing, "The Windows logger has written nothing yet.") };
