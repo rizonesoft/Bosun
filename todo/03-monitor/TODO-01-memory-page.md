@@ -40,7 +40,7 @@ title: "TODO-01 -- Memory and overview"
 | 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [x] |
 | 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [ ] |
 | 3 | §3 | History chart with a table equivalent | §2 | [ ] |
-| 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [ ] |
+| 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
 
 ## 1. Memory readers
@@ -168,9 +168,12 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 - [x] Add the Pressure alert threshold to the Settings page (`src/Bosun.Panel/Settings/SettingsPage.cs`, `SettingsView.xaml`, design/SPEC.md §15), with Save, Discard and the read-back the page's other settings have. Done when: a test changes it on the page, saves, reads it stored; a value outside 512 to 65536, a blank, a word and a number too large for a whole number are each refused beside the field, with Save refused on the page and in the question asked on leaving it; Discard puts back the stored value; a save that fails keeps the edit, says why, and the check goes on with the floor last saved; and `RenderCatalog` draws the field in its normal and error states in every theme (**Added 2026-11-16** from the plan review). Cheaper substitute: a setting nothing reads.
 - [x] Run the check in the panel, `PressureCheck` in `src/Bosun.Panel/Tray/PressureCheck.cs`, registered with the `RefreshScheduler` at 30 s from `App.MakeWindow` after `TrayController.Start` has given the notifier its sink, whether the window is shown or in the tray: it reads the snapshot, gives `PressureWatch` the sample and the stored floor, sets `TrayViewModel.Pressure`, raises one `MemoryPressure` notification as an episode starts (the notifier honouring its setting and pause) and writes the start and the end to the Activity pane. Done when: a test with a fake snapshot and clock sees the icon go to Pressure with the words, one notification across the dip and one more for a second episode, each start and end written, and a floor saved meanwhile used at the next check with no restart; and a test through the application's start (`WindowStart` and `TrayController` as `App.MakeWindow` wires them), window shown and in the tray, with a snapshot already low, sees the notification raised, the check going on while the window is hidden, and stopped at exit (**Added 2026-11-16** from the plan review). Cheaper substitute: a check only while the Memory page is open.
 - [x] Say in the tray when the check can't decide (`TrayViewModel`): a snapshot missing, unreadable, invalid, of another schema, or fresh with `available_mb` null gives the tooltip `memory check unavailable` with its reason, and a stale one `memory check stale`, not a healthy state (taken from `todo/findings.md`). Done when: a test sees each, before an episode and during one (the Pressure state kept, no notification raised or repeated), and a fresh readable snapshot afterwards gives the plain state again (**Added 2026-11-16** from the plan review). Cheaper substitute: a false pressure flag that looks healthy.
-- [ ] Commit: `memory: pressure alerts`
+- [x] Commit: `memory: pressure alerts`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*PressureWatchTests" --filter-class "*PressureCheckTests"` exits 0, and fails if the hysteresis is removed or the floor is not read at each check; `pwsh scripts/render-pages.ps1` draws the threshold field's normal and error states.
+
+> **Verified:** 2026-11-16 | §4 | 6e8e08b21ebcfbfbf27630ff4dcb22ff2f7ca9b5
+> **Review:** `docs/reviews/d03-t01-s4.json`
 
 ## 5. Overview page
 

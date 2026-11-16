@@ -1,0 +1,85 @@
+{
+  "ref": "D03 T01 \u00a74",
+  "title": "Pressure alerts",
+  "implementation_sha": "6e8e08b21ebcfbfbf27630ff4dcb22ff2f7ca9b5",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T01-s4.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*PressureCheckTests\" --filter-class \"*ThresholdTests\" -> 22 of 22 at 363f918; the panel suite after the completion fixes -> total: 489, succeeded: 489",
+    "PressureWatchTests (Bosun.Core.Tests) -> 4 of 4; the core suite -> 110 of 110",
+    "with the hysteresis removed, the threshold read once, or the refused notice not tried again -> each fails its test",
+    "CI full gate at bbaf765 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43819887532, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43819887744"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T01-s4.md",
+    "verdict": "filed",
+    "candidate": "bbaf76557a033e01444733762030d24208f9acab",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D02 T03 \u00a78"
+    ]
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "round 1 returned only a P3 (a threshold typed with leading zeros stayed an edit), fixed in bbaf765 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T01-s4.md",
+    "candidate": "92cc18f6cccf011fda1440f5aeb8516e36ddeebe",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "92cc18f6cccf011fda1440f5aeb8516e36ddeebe",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
