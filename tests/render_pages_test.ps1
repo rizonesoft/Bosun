@@ -54,7 +54,8 @@ try {
   Check 'a picture and notes that are not renders are still there, as they were' ((Get-Content -LiteralPath (Join-Path $out 'screenshot.png') -Raw -ErrorAction Ignore) -match 'own picture' -and (Get-Content -LiteralPath (Join-Path $out 'notes.txt') -Raw -ErrorAction Ignore) -match 'notes')
   Remove-Item -LiteralPath (Join-Path $out 'screenshot.png'), (Join-Path $out 'notes.txt') -Force
   $names = Names $out
-  foreach ($file in 'sample.normal.dark.png', 'sample.normal.light.png', 'sample.empty.dark.png', 'sample.empty.light.png', 'index.json') {
+  # Three themes: the panel's two, and Windows' contrast colours (D02 T03 §10).
+  foreach ($file in 'sample.normal.dark.png', 'sample.normal.light.png', 'sample.normal.highcontrast.png', 'sample.empty.dark.png', 'sample.empty.light.png', 'sample.empty.highcontrast.png', 'index.json') {
     Check "$file is there" ((",$names,").Contains(",$file,"))
   }
   $index = Get-Content -LiteralPath (Join-Path $out 'index.json') -Raw | ConvertFrom-Json

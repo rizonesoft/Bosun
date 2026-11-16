@@ -34,7 +34,7 @@ if (Test-Path -LiteralPath $Out -PathType Container) {
     try { Remove-Item -LiteralPath $old -Force }
     catch { "render-pages: $old can't be removed ($($_.Exception.Message)), so nothing was changed; close what holds it and run again"; exit 1 }
   }
-  Get-ChildItem -LiteralPath $Out -File | Where-Object { $_.Name -cmatch '^[a-z0-9-]+\.[a-z0-9-]+\.(dark|light)\.png(\.tmp)?$' } |
+  Get-ChildItem -LiteralPath $Out -File | Where-Object { $_.Name -cmatch '^[a-z0-9-]+\.[a-z0-9-]+\.(dark|light|highcontrast)\.png(\.tmp)?$' } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 }
 

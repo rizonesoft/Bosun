@@ -76,12 +76,12 @@ public static class WindowStart
     /// </summary>
     /// <param name="windowShown">False when the panel is started for the tray: no page is on screen yet.</param>
     public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
-        Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true)
+        Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true, Bosun.Panel.Theme.ThemeService? theme = null)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
         var pages = new Dictionary<string, PageBase>
         {
-            ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings),
+            ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings, theme),
         };
         var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
         log.Info("Panel ready");

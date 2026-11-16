@@ -19,6 +19,7 @@ public partial class App : Application
     private readonly PanelStartup _startup;
     private IWindowSurface? _window;
     private WindowsTheme? _windowsTheme;
+    private WindowsHighContrast? _contrast;
     private TrayController? _tray;
     private RefreshScheduler? _refreshes;
     private Motion? _motion;
@@ -56,6 +57,7 @@ public partial class App : Application
         _motion?.Dispose();    // and nothing goes on listening for Windows' animation setting
         _tray?.Dispose();      // and no icon is left in the tray
         _windowsTheme?.Dispose();
+        _contrast?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
     }
@@ -67,10 +69,13 @@ public partial class App : Application
 
         // The stored theme first, so the window is never drawn in one theme and then another (D02 T02 §5).
         _windowsTheme = new WindowsTheme();
-        var theme = new ThemeService(Resources.MergedDictionaries, _windowsTheme, Dispatcher);
+        // Windows' contrast themes win over the stored choice while one is on (D02 T03 §10).
+        _contrast = new WindowsHighContrast();
+        var theme = new ThemeService(Resources.MergedDictionaries, _windowsTheme, Dispatcher, contrast: _contrast);
         theme.Apply(settings.Current.Theme);
         settings.Changed += saved => theme.Apply(saved.Theme);
         _windowsTheme.Listen();
+        _contrast.Listen();
         // The one motion gate (D02 T03 §1, §7), over the theme just applied: every animation takes its length from it,
         // and none runs while Windows' animation effects are off.
         _motion = Motion.Install(Resources, new WindowsAnimation());
@@ -80,7 +85,7 @@ public partial class App : Application
         var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());
         // The one owner of every refresh (D02 T02 §8), ticked on this thread, and only while something is active.
         var refreshes = _refreshes = new RefreshScheduler(driver: new DispatcherRefreshDriver(Dispatcher));
-        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray);
+        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme);
         var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes);
         _window = WindowStart.Open(made, shell =>
         {
@@ -88,6 +93,9 @@ public partial class App : Application
             // A window that really closed (there is no tray to hide in) ends the panel.
             window.Closed += (_, _) => Shutdown();
             MainWindow = window;
+            // The templates' contrast mode follows the theme, on the window and so on everything in it.
+            HighContrastMode.SetIsOn(window, theme.IsHighContrast);
+            theme.EffectiveChanged += () => HighContrastMode.SetIsOn(window, theme.IsHighContrast);
             return window;
         }, window => tray.Start(window, inTray));
     }

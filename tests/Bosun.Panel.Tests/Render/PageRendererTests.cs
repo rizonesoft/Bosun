@@ -257,7 +257,8 @@ public class PageRendererTests
     }
 
     private static readonly string[] SampleFiles =
-        ["index.json", "sample.empty.dark.png", "sample.empty.light.png", "sample.normal.dark.png", "sample.normal.light.png"];
+        ["index.json", "sample.empty.dark.png", "sample.empty.highcontrast.png", "sample.empty.light.png",
+         "sample.normal.dark.png", "sample.normal.highcontrast.png", "sample.normal.light.png"];
 
     /// <summary>
     /// The tests' own view, in its states: what the tests of the folder's rules draw, so they hold whatever views the
@@ -275,8 +276,9 @@ public class PageRendererTests
         {
             var written = RenderCatalog.WriteAll(RenderCatalog.Cases, folder);
 
-            Assert.Equal(RenderCatalog.Cases.Count * 2, written.Count);
-            var expected = RenderCatalog.Cases.SelectMany(view => new[] { $"{view.Name}.dark.png", $"{view.Name}.light.png" }).Append("index.json").Order(StringComparer.Ordinal);
+            Assert.Equal(RenderCatalog.Cases.Count * PageRenderer.Themes.Count, written.Count);
+            Assert.Equal(3, PageRenderer.Themes.Count); // Dark, Light and Windows' contrast colours (D02 T03 §10)
+            var expected = RenderCatalog.Cases.SelectMany(view => new[] { $"{view.Name}.dark.png", $"{view.Name}.light.png", $"{view.Name}.highcontrast.png" }).Append("index.json").Order(StringComparer.Ordinal);
             // Of the catalogue's own files: a picture somebody else put there (a screenshot.png) is not a render, and
             // must not fail the run that Clear was careful to leave it through (the completion review).
             Assert.Equal(expected, Directory.GetFiles(folder).Select(Path.GetFileName).Where(name => RenderCatalog.Owns(name!)).Order(StringComparer.Ordinal));

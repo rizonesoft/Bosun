@@ -27,6 +27,19 @@
         <ComboBox x:Name="ThemeBox" ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
                   DisplayMemberPath="Name" Width="220" HorizontalAlignment="Left" AutomationProperties.Name="Theme"
                   ToolTip="Follow Windows, or always dark or light. Applies when saved, with no restart."/>
+        <!-- While Windows draws in a contrast theme (D02 T03 §10): why the choice above changes nothing yet. -->
+        <TextBlock x:Name="ThemeNote" Text="{Binding ThemeNote}" Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"
+                   Margin="0,6,0,0" a:LiveRegion.Announce="True">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ThemeNote}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
 
         <CheckBox x:Name="StartWithWindows" Content="Start with Windows, in the tray" Margin="0,14,0,0"
                   IsChecked="{Binding StartWithWindows, Mode=TwoWay}" HorizontalAlignment="Left"

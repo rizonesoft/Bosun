@@ -204,7 +204,8 @@ public partial class ControlStylesTests
             Assert.Equal(Token(theme, "Hover"), ColourOf(close, hover.Setters, Border.BackgroundProperty, "bd"));
             Assert.Equal(Token(theme, "Text"), ColourOf(close, hover.Setters, Control.ForegroundProperty));
 
-            var danger = close.Template.Triggers.OfType<MultiTrigger>().Single();
+            // The danger hover: the one multi-trigger on the Tag (beside it is the contrast theme's, D02 T03 §10).
+            var danger = close.Template.Triggers.OfType<MultiTrigger>().Single(t => t.Conditions.Any(c => c.Property == FrameworkElement.TagProperty));
             Assert.Contains(danger.Conditions, c => c.Property == FrameworkElement.TagProperty && Equals(c.Value, "danger"));
             Assert.Contains(danger.Conditions, c => c.Property == UIElement.IsMouseOverProperty && Equals(c.Value, true));
             Assert.Equal(Token(theme, "Danger"), ColourOf(close, danger.Setters, Border.BackgroundProperty, "bd"));
@@ -803,7 +804,9 @@ public partial class ControlStylesTests
             var line = xaml.AsSpan(0, use.Index).Count('\n') + 1;
             if (how == "DynamicResource")
             {
-                if (!dark.Contains(key) || !light.Contains(key)) problems.Add($"line {line}: {key} is not a key of both generated themes");
+                // A key of both generated themes, or one the contrast colours alone hold for the contrast triggers (D02 T03 §10).
+                if ((!dark.Contains(key) || !light.Contains(key)) && !Bosun.Panel.Theme.HighContrastTheme.OwnKeys.Contains(key))
+                    problems.Add($"line {line}: {key} is not a key of both generated themes");
             }
             else if (dark.Contains(key) || light.Contains(key))
                 problems.Add($"line {line}: {key} is a theme key named with StaticResource, which a theme swap would not repaint");

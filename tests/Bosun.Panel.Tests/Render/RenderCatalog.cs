@@ -32,6 +32,10 @@ public static partial class RenderCatalog
         // Data no longer current, with how old it is (a page reading WSL, with WSL stopped), and values that can't be read.
         new("page", "stale", Stale) { Shows = "WSL is stopped. Showing what was read 12 minutes ago." },
         new("value", "not-available", NotAvailableValues) { Shows = "It could not be read." },
+        // What a contrast theme changes beyond colour (D02 T03 §10): the focus ring, a drop-down's highlighted and
+        // selected items, and the Settings page saying why its theme choice waits.
+        new("controls", "states", States) { Shows = "Highlighted" },
+        new("settings", "contrast", SettingsInContrast) { Shows = "Windows' contrast theme is in use" },
         new("page", "data", () => Framed(new Shell.TestPage().Data())) { Shows = "two slots, one waiting" },
         new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
         new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },
@@ -98,6 +102,49 @@ public static partial class RenderCatalog
         return panel;
     }
 
+    /// <summary>A control with the focus ring drawn round it, and a drop-down's list as it opens: one item highlighted, one selected.</summary>
+    private static FrameworkElement States()
+    {
+        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(26, 22, 26, 12) };
+        var focused = new System.Windows.Controls.Control { Width = 160, Height = 32, Margin = new Thickness(4, 4, 4, 24), HorizontalAlignment = HorizontalAlignment.Left };
+        focused.SetResourceReference(FrameworkElement.StyleProperty, "FocusRing");
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "Focus ring", Margin = new Thickness(0, 0, 0, 6) });
+        panel.Children.Add(focused);
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = "A drop-down's list", Margin = new Thickness(0, 0, 0, 6) });
+        var list = new System.Windows.Controls.StackPanel { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+        var drop = new System.Windows.Controls.Border { Child = list, BorderThickness = new Thickness(1), Padding = new Thickness(0, 4, 0, 4), HorizontalAlignment = HorizontalAlignment.Left };
+        drop.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "B.Raised");
+        drop.SetResourceReference(System.Windows.Controls.Border.BorderBrushProperty, "B.Line");
+        drop.SetResourceReference(System.Windows.Controls.Border.CornerRadiusProperty, "R.Control");
+        list.Children.Add(new DropItem("Follow Windows"));
+        list.Children.Add(new DropItem("Highlighted", highlighted: true));
+        list.Children.Add(new DropItem("Selected") { IsSelected = true });
+        panel.Children.Add(drop);
+        return panel;
+    }
+
+    /// <summary>A drop-down's item drawn outside a drop-down, so a picture can show the pointer's highlight on it.</summary>
+    private sealed class DropItem : System.Windows.Controls.ComboBoxItem
+    {
+        public DropItem(string words, bool highlighted = false)
+        {
+            Content = words;
+            IsHighlighted = highlighted;
+            SetResourceReference(StyleProperty, typeof(System.Windows.Controls.ComboBoxItem));
+        }
+    }
+
+    /// <summary>The Settings page while Windows draws in a contrast theme: the line under the theme box says why the choice waits.</summary>
+    private static FrameworkElement SettingsInContrast()
+    {
+        var fixture = new Bosun.Panel.Tests.Settings.SettingsFixture().Open();
+        var theme = new Bosun.Panel.Theme.ThemeService(new List<ResourceDictionary>(), new Bosun.Panel.Tests.Settings.FakeWindowsTheme(),
+            System.Windows.Threading.Dispatcher.CurrentDispatcher, _ => new ResourceDictionary(), new Helpers.ContrastOn());
+        theme.Apply(Bosun.Core.ThemeChoice.Dark);
+        var page = new Bosun.Panel.Settings.SettingsPage(fixture.Store, fixture.Startup, fixture.Log, () => { }, theme);
+        return new Bosun.Panel.Shell.PageFrame { DataContext = page, Margin = new Thickness(26, 22, 26, 12) };
+    }
+
     /// <summary>The Settings page in the frame, over settings that are only memory, arranged before and after it opens.</summary>
     private static FrameworkElement Settings(Action<Bosun.Panel.Tests.Settings.SettingsFixture> before, Action<Bosun.Panel.Tests.Settings.SettingsFixture>? after = null)
     {
@@ -122,7 +169,7 @@ public static partial class RenderCatalog
     [GeneratedRegex("^[a-z0-9-]+$")]
     private static partial Regex Name();
 
-    [GeneratedRegex(@"^[a-z0-9-]+\.[a-z0-9-]+\.(dark|light)\.png(\.tmp)?$")]
+    [GeneratedRegex(@"^[a-z0-9-]+\.[a-z0-9-]+\.(dark|light|highcontrast)\.png(\.tmp)?$")]
     private static partial Regex OwnedFile();
 
     private const string Index = "index.json";

@@ -34,9 +34,17 @@ public sealed class SettingsPage : PageBase
     private bool _startWithWindows, _notifyMemoryPressure;
     private string? _notice, _startupNote, _status;
 
-    public SettingsPage(PanelSettingsStore store, StartupEntry startup, ActivityLog log, Action openStartupSettings)
+    public SettingsPage(PanelSettingsStore store, StartupEntry startup, ActivityLog log, Action openStartupSettings, Bosun.Panel.Theme.ThemeService? theme = null)
         : base("Settings", "How the panel starts, looks and notifies.")
     {
+        // While Windows draws in a contrast theme, the choice here waits for it to be turned off (D02 T03 §10): said
+        // under the theme box, and kept in step as contrast comes and goes.
+        if (theme is not null)
+        {
+            void Say() => ThemeNote = theme.IsHighContrast ? ContrastNote : null;
+            theme.EffectiveChanged += Say;
+            Say();
+        }
         _store = store;
         _startup = startup;
         _selectedTheme = ThemeOptions[0];
@@ -77,6 +85,18 @@ public sealed class SettingsPage : PageBase
         new(ThemeChoice.Dark, "Dark"),
         new(ThemeChoice.Light, "Light"),
     ];
+
+    /// <summary>Said under the theme box while Windows draws in a contrast theme.</summary>
+    public const string ContrastNote = "Windows' contrast theme is in use, so the panel draws in its colours. The theme chosen here applies when it is turned off.";
+
+    private string? _themeNote;
+
+    /// <summary><see cref="ContrastNote"/> while a contrast theme is in force; null otherwise.</summary>
+    public string? ThemeNote
+    {
+        get => _themeNote;
+        private set => Set(ref _themeNote, value);
+    }
 
     /// <summary>The theme as the person has it on the page.</summary>
     public ThemeOption SelectedTheme

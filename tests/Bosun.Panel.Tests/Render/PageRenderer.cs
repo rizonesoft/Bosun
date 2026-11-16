@@ -53,7 +53,8 @@ public static class PageRenderer
 {
     public const int Width = 1360;
     public const int Height = 860;
-    public static readonly IReadOnlyList<string> Themes = ["Dark", "Light"];
+    /// <summary>The panel's two themes, and Windows' contrast colours over Dark (D02 T03 §10), in Night sky.</summary>
+    public static readonly IReadOnlyList<string> Themes = ["Dark", "Light", "HighContrast"];
 
     private const int WS_POPUP = unchecked((int)0x80000000);
     private const int WS_EX_TOOLWINDOW = 0x00000080;
@@ -143,14 +144,22 @@ public static class PageRenderer
     /// merged after it, as App.xaml merges them, on the theme's base colour, with the font, size and text colour a
     /// window gives its content, at the size asked for.
     /// </summary>
-    public static Border Page(FrameworkElement element, string theme, int width, int height)
+    public static Border Page(FrameworkElement element, string theme, int width, int height, Bosun.Panel.Theme.SystemPalette? palette = null)
     {
+        // A contrast theme is Windows' colours over the generated Dark theme, as ThemeService merges them, in a fixed
+        // palette so the picture is the same on every machine (Night sky unless a test names another).
+        var contrast = theme == "HighContrast";
         ResourceDictionary colours;
-        using (var stream = File.OpenRead(TestPaths.GeneratedTheme(theme + ".xaml"))) colours = (ResourceDictionary)XamlReader.Load(stream);
+        using (var stream = File.OpenRead(TestPaths.GeneratedTheme((contrast ? "Dark" : theme) + ".xaml"))) colours = (ResourceDictionary)XamlReader.Load(stream);
         var controls = Controls();
 
         var page = new Border { Width = width, Height = height, Child = element };
         page.Resources.MergedDictionaries.Add(colours);
+        if (contrast)
+        {
+            page.Resources.MergedDictionaries.Add(Bosun.Panel.Theme.HighContrastTheme.Build(palette ?? Helpers.ContrastPalettes.NightSky, colours));
+            Bosun.Panel.Theme.HighContrastMode.SetIsOn(page, true);
+        }
         page.Resources.MergedDictionaries.Add(controls);
         page.SetResourceReference(Border.BackgroundProperty, "B.Base");
         System.Windows.Documents.TextElement.SetFontFamily(page, (FontFamily)controls["F.Ui"]);
@@ -177,11 +186,12 @@ public static class PageRenderer
     /// theme, in a source that is never shown, lays it out and hands the page to <paramref name="read"/>, all on one
     /// STA thread. The control is live: its templates are applied and its triggers run.
     /// </summary>
-    public static T InPage<T>(string theme, Func<FrameworkElement> create, Func<Border, T> read, int width = 480, int height = 320) => Sta.Run(() =>
+    public static T InPage<T>(string theme, Func<FrameworkElement> create, Func<Border, T> read, int width = 480, int height = 320,
+        Bosun.Panel.Theme.SystemPalette? palette = null) => Sta.Run(() =>
     {
         // Awaits inside the control come back to this thread's dispatcher, as in the app.
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
-        var page = Page(create(), theme, width, height);
+        var page = Page(create(), theme, width, height, palette);
         using var source = Hidden("Bosun control test", page);
         Settle(page);
         return read(page);
