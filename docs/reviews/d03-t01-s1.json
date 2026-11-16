@@ -1,0 +1,87 @@
+{
+  "ref": "D03 T01 \u00a71",
+  "title": "Memory readers",
+  "implementation_sha": "b68f48c5eb35ca6c2b63c9948d7321930b11d410",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T01-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Core.Tests --filter-class \"*MemoryClientTests\" -> total: 12, succeeded: 12",
+    "with the stale rule, the command schema refusal, the snapshot schema refusal or the null check removed -> each fails its test",
+    "dotnet test --project tests/Bosun.Core.Tests -> total: 105, succeeded: 105",
+    "CI full gate at b68f48c -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43813425041, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43813424749"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T01-s1.md",
+    "verdict": "complete",
+    "candidate": "b68f48c5eb35ca6c2b63c9948d7321930b11d410",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T01-s1.md",
+    "candidate": "e496470e64348c6b34558235ee8e20ea051a4c8a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "e496470e64348c6b34558235ee8e20ea051a4c8a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

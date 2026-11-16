@@ -97,7 +97,7 @@ Sections: 8 | Checklist items: 45
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
-| [ ]    | D03 T01 §1 | Memory readers                        | none  | 8     |
+| [x]    | D03 T01 §1 | Memory readers                        | none  | 8     |
 | [ ]    | D03 T01 §2 | Memory page                           | none  | 5     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 5     |
@@ -145,6 +145,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 55/90 verified sections, 7 ready to run now.
+Progress: 56/90 verified sections, 7 ready to run now.
 
-Checklist: 606/788 items completed (includes Commit items).
+Checklist: 607/788 items completed (includes Commit items).

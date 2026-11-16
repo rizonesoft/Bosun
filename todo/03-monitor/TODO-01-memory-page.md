@@ -37,7 +37,7 @@ title: "TODO-01 -- Memory and overview"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [ ] |
+| 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [x] |
 | 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [ ] |
 | 3 | §3 | History chart with a table equivalent | §2 | [ ] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [ ] |
@@ -76,9 +76,12 @@ Typed access to the core contract, with schema refusal, so pages only deal in va
 - [x] Read `bosun status --json` (1 MB kept) and `bosun report --json --days N` (16 MB kept) through `ProcessRunner.RunJsonAsync` in `MemoryClient`. Done when: through the fake, each fixture gives its typed document, 1, 7 and 14 days each send their own arguments, a 14-day report of a record a minute reads whole, one printing `schema_version` 2 gets `Unsupported`, one exiting 1 gets `Failed` with its stderr, one that can't start and one past its timeout each get `Failed` with why, and a cancelled call throws to its caller. Cheaper substitute: running `cmd /c bosun` and parsing text.
 - [x] Read `current-windows.json` and `current-wsl.json` in `MemoryClient`, shared for delete, asked again while held, bounded to 1 MB, and refused by their own `schema_version`. Done when: a test reads each fixture; a file held with no sharing at all for 300 ms is read once it is let go, and one held for 2 s is `Unreadable`; a file denied to the reader is `Unreadable`; the file replaced by a rename while the client holds it open is replaced (the logger's replace is never blocked); a 2 MB file, malformed JSON and a missing `schema_version` are each `Invalid`, `schema_version` 2 is `Unsupported`, and a missing file is `Missing`; a cancelled read throws to its caller. Cheaper substitute: `File.ReadAllText`.
 - [x] Mark a snapshot older than 90 seconds as stale, per side, from the client's clock. Done when: with WSL stopped (its snapshot 10 minutes old) a test reads WSL stale with its age and its values kept, and Windows live. Cheaper substitute: showing 0 GB.
-- [ ] Commit: `memory: typed readers`
+- [x] Commit: `memory: typed readers`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*MemoryClientTests"` exits 0, and fails if the stale rule, the command's schema refusal or the snapshot's schema refusal is removed, each on its own.
+
+> **Verified:** 2026-11-16 | §1 | b68f48c5eb35ca6c2b63c9948d7321930b11d410
+> **Review:** `docs/reviews/d03-t01-s1.json`
 
 ## 2. Memory page
 
