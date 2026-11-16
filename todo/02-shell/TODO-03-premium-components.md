@@ -93,6 +93,8 @@ The generator owns these like every other token, so no view carries a shadow or 
 
 Windows composes Mica outside the process, so it costs the panel almost nothing, but it only exists on some systems and must be dropped live when the operator turns transparency off or enters high contrast.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. The title bar, the rail and the rounded sheet are `ShellView.xaml`'s (`D02 T02 §4`), not `MainWindow.xaml`'s, which holds only the `WindowChrome`; the sheet itself shipped there in `ad5b0bf` with `R.Sheet` and the rail outside it, and reads as one surface today only because the chrome behind it is `Base` too, so its item is ticked and what is left of it is the chrome going clear under Mica. A test never writes the person's own `EnableTransparency`: the setting is read through a seam, and the live switch is proved by sending the real window `WM_SETTINGCHANGE` with the seam flipped. High contrast comes from `WindowsHighContrast` (`D02 T03 §10`'s, already live), and the theme from `ThemeService`. The tests go in `tests/Bosun.Panel.Tests/Shell/`, and the checkpoint is in the test platform's own filter form.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -106,17 +108,17 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 1. Create `src/Bosun.Panel/Shell/BackdropPolicy.cs`. Done when: its table test passes for each combination.
 2. Create `src/Bosun.Panel/Shell/Backdrop.cs`. Done when: the running window shows Mica on this machine and solid `Base` with transparency off.
 
-- [ ] Add `BackdropPolicy.Choose` in `src/Bosun.Panel/Shell/BackdropPolicy.cs`, taking the build number, transparency and high contrast. Done when: `tests/Bosun.Panel.Tests/BackdropPolicyTests.cs` gets Mica only at build 22621 or later with transparency on and high contrast off.
+- [ ] Add `BackdropPolicy.Choose` in `src/Bosun.Panel/Shell/BackdropPolicy.cs`, taking the build number, transparency and high contrast. Done when: `tests/Bosun.Panel.Tests/Shell/BackdropPolicyTests.cs` gets Mica only at build 22621 or later with transparency on and high contrast off.
 - [ ] Read `EnableTransparency` under `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize` in `src/Bosun.Panel/Shell/Backdrop.cs`. Done when: a missing value reads as on, matching Windows, in a test seam. Cheaper substitute: assuming transparency is always on.
 - [ ] Set `DWMWA_SYSTEMBACKDROP_TYPE` to `DWMSBT_MAINWINDOW` in `src/Bosun.Panel/Shell/Backdrop.cs`, with the frame extended and the `HwndSource` background transparent. Done when: `DwmGetWindowAttribute` reads back the value on this machine. Cheaper substitute: an image of a wallpaper behind the window.
 - [ ] Set `DWMWA_USE_IMMERSIVE_DARK_MODE` from the active theme in `Backdrop.cs`. Done when: read-back follows a live theme change in both directions.
-- [ ] Draw solid `Base` under the title bar and rail when the policy says solid, in `src/Bosun.Panel/Shell/MainWindow.xaml`. Done when: off-screen renders with the policy forced solid show no transparent pixel. Cheaper substitute: leaving the window transparent, which paints black or stale pixels.
-- [ ] Reapply the policy on `WM_SETTINGCHANGE` and `SystemParameters.StaticPropertyChanged` in `Backdrop.cs`. Done when: a test writes `EnableTransparency` and restores it, and the window switches with no restart.
-- [ ] Add the rounded sheet with `Radius.Sheet` in `MainWindow.xaml`. Done when: the off-screen render in both themes shows the top-left corner rounded and the rail outside the sheet.
+- [ ] Draw solid `Base` under the title bar and rail when the policy says solid, and nothing (the window clear, for Mica) when it says Mica, through `ShellView`'s background in `src/Bosun.Panel/Shell/ShellView.xaml`, the sheet staying solid `Base` in both. Done when: off-screen renders with the policy forced solid show no transparent pixel. Cheaper substitute: leaving the window transparent, which paints black or stale pixels.
+- [ ] Reapply the policy on `WM_SETTINGCHANGE` and `SystemParameters.StaticPropertyChanged` in `Backdrop.cs`, and on `WindowsHighContrast`'s change. Done when: a test flips the transparency seam and sends the real window `WM_SETTINGCHANGE`, and the window switches with no restart, both ways; and high contrast turning on makes it solid. Cheaper substitute: writing the person's own registry value, which a crash would leave changed.
+- [x] Add the rounded sheet with `Radius.Sheet` in `MainWindow.xaml`. Done when: the off-screen render in both themes shows the top-left corner rounded and the rail outside the sheet. (Shipped by `D02 T02 §4` in `ShellView.xaml`, `ad5b0bf`: `Border x:Name="Sheet"`, `CornerRadius="{DynamicResource R.Sheet}"`, in the rail's right column.)
 - [ ] Log a failed DWM call as one WARN line in the Activity pane, and fall back to solid in `Backdrop.cs`. Done when: a test seam returning a failure HRESULT leaves the window solid with one WARN line. Cheaper substitute: ignoring the HRESULT.
 - [ ] Commit: `shell: Mica backdrop with a solid fallback`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Backdrop` exits 0, and fails if the high contrast rule is removed from `BackdropPolicy.Choose`.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Backdrop*"` exits 0, and fails if the high contrast rule is removed from `BackdropPolicy.Choose`.
 
 ## 3. Lucide icon map and rail marker
 
