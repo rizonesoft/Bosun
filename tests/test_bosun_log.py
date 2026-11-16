@@ -257,6 +257,7 @@ class Instances(unittest.TestCase):
         self.assertEqual((claude["kind"], claude["repo"], claude["cwd"], claude["private_mb"]), ("claude", self.repo, os.path.join(self.repo, "src"), 400))
         self.assertEqual(claude["started_at"], "2023-11-14T22:14:10Z")  # boot at 1700000000, plus 5000 ticks of 100 a second
         self.assertEqual((job["kind"], job["name"], job["command"], job["private_mb"], job["repo"]), ("job", "make", "make -j8 'a b'", 2 + 900 + 1, self.repo))
+        self.assertIsNone(job["started_at"])  # its command's start is its holder's record's to say, never the shim's (round 5)
         self.assertEqual((codex["repo"], codex["cwd"]), (None, self.outside))
         self.assertEqual((code["cwd"], code["repo"], doc["unreadable"]), (None, None, 1))
         self.assertTrue(all(r["state"] == "unknown" and r["evidence"] is None for r in rows.values()))  # no evidence at all

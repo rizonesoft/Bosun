@@ -102,11 +102,11 @@ public sealed class InstanceClientTests : IDisposable
             (joined.Distro, joined.Instance.Slot, joined.Instance.State, joined.Instance.PrivateMb, joined.Instance.Cwd, joined.Instance.Command));
         Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200); // the holder is shown as its half
 
-        // Round 1: Debian's own job with the same Linux pid, listed first, keeps its own state and gets no slot.
+        // Round 1: Debian's own job with the same Linux pid, listed first, is never joined to Ubuntu's holder; and
+        // round 5: holding no slot, it is a waiter, the Queue page's, so not listed here.
         var apps = view.Groups.Where(g => g.Repo == "/home/dev/projects/app").ToList();
         Assert.Equal(["Debian", "Ubuntu"], apps.Select(g => g.Distro).Order());
-        var cargo = apps.Single(g => g.Distro == "Debian").Rows.Single(r => r.Instance.Kind == "job").Instance;
-        Assert.Equal((4321L, (int?)null, "unknown", "cargo build"), (cargo.Pid, cargo.Slot, cargo.State, cargo.Command));
+        Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Command == "cargo build");
 
         // Outside any checkout: one group, last.
         var loose = view.Groups[^1];
@@ -126,8 +126,26 @@ public sealed class InstanceClientTests : IDisposable
         doc["instances"]![3]!["guest_distro"] = null; // a record an older shim wrote
         var view = await Fake(Answer(Write("old.json", doc.ToJsonString()))).ReadAsync(Token);
         var rows = view.Groups.SelectMany(g => g.Rows).ToList();
-        Assert.Contains(rows, r => r.Instance.Pid == 9200 && r.Instance.Slot == 1);
-        Assert.Contains(rows, r => r.Instance is { Pid: 4321, Slot: null });
+        Assert.Contains(rows, r => r.Instance.Pid == 9200 && r.Instance.Slot == 1);  // the holder, as Windows saw it
+        Assert.DoesNotContain(rows, r => r.Instance.Pid == 4321);                     // its half, unjoined, isn't listed
+    }
+
+    [Fact]
+    public async Task A_WSL_holder_s_command_start_is_its_record_s_and_null_until_it_starts()
+    {
+        // Round 5: a holder waiting for guest memory had the shim's start as its uptime. The half here carries one, as an
+        // older scanner wrote it, so the merge can't take it.
+        var guest = JsonNode.Parse(File.ReadAllText(Fixture("wsl-ubuntu.json")))!.AsObject();
+        guest["instances"]![2]!["started_at"] = "2026-11-16T07:59:59Z";
+        File.WriteAllText(Path.Combine(_logs, "instances-wsl-Ubuntu.json"), guest.ToJsonString());
+        var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
+        var holder = doc["instances"]![3]!.AsObject();
+        holder["started_at"] = null;
+        holder["state"] = "idle";
+        holder["evidence"] = "holds slot 1; its command has not started (waiting for guest memory)";
+        var view = await Fake(Answer(Write("waiting.json", doc.ToJsonString()))).ReadAsync(Token);
+        var joined = view.Groups.SelectMany(g => g.Rows).Single(r => r.Instance.Pid == 4321).Instance;
+        Assert.Equal(("idle", (string?)null, 1), (joined.State, joined.StartedAt, joined.Slot));
     }
 
     [Fact]

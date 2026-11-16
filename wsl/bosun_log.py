@@ -83,7 +83,8 @@ def attribute(procs, own_repo):
 # --- Instances (D03 T02 §1) -------------------------------------------------------------------------------------------
 # This side's agents, editors and jobs, by the rules of src/core.hpp (dm::instance_kind, instance_roots, owned_memory,
 # instance_state), written in the same document as `bosun.exe instances --json`. The queue's slots are Windows', so a
-# job here has no slot of its own: the panel joins it to its holder by the shim's pid (`guest_pid`).
+# shim here is only a job's Linux half: whether it holds a slot, and when its command started, are its holder's record's
+# to say (round 5). The panel lists it once joined to that holder by the shim's pid and distro, and never alone.
 
 
 def instance_kind(name):
@@ -336,8 +337,9 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
     for pid in sorted(jobs):
         cwd, repo = where(pid)
         command = shims[pid]
+        # No start: the shim's own is not its command's, which waits for a slot and for guest memory first (round 5).
         rows.append({"side": "wsl", "kind": "job", "name": utf8_text(os.path.basename(command[0]) if command else "bosun"), "pid": pid,
-                     "cwd": cwd, "repo": repo, "private_mb": memory[pid], "started_at": started(pid), "state": "unknown", "evidence": None,
+                     "cwd": cwd, "repo": repo, "private_mb": memory[pid], "started_at": None, "state": "unknown", "evidence": None,
                      "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None, "guest_distro": None})
     rows.sort(key=lambda r: (r["repo"] is not None, r["repo"] or "", r["kind"], r["pid"]))
     return {"schema_version": 1, "side": "wsl", "distro": distro if distro is not None else os.environ.get("WSL_DISTRO_NAME"),

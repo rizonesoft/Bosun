@@ -210,6 +210,9 @@ public sealed partial class InstanceClient
             if (paired.Contains(row)) continue; // shown as its WSL half, joined
             if (!holderOf.TryGetValue(row, out var holder))
             {
+                // A WSL job no holder names is a shim still waiting for a slot (the Queue page's), or one whose holder
+                // couldn't be read: not a running job (round 5).
+                if (row.Instance is { Side: "wsl", Kind: "job" } && row.Distro is not null) continue;
                 merged.Add(row);
                 continue;
             }
@@ -222,7 +225,7 @@ public sealed partial class InstanceClient
                     Evidence = holder.Instance.Evidence,
                     Command = holder.Instance.Command ?? row.Instance.Command,
                     GuestPid = holder.Instance.GuestPid,
-                    StartedAt = holder.Instance.StartedAt ?? row.Instance.StartedAt,
+                    StartedAt = holder.Instance.StartedAt, // its command's start, null until it has started (round 5)
                     Repo = row.Instance.Repo ?? holder.Instance.Repo,
                 },
             });
