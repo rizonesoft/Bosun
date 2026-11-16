@@ -45,7 +45,7 @@ title: "TODO-03 -- Premium components"
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
 | 6 | §6 | Queue slot visuals | §5 | [ ] |
-| 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [ ] |
+| 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [ ] |
@@ -265,9 +265,12 @@ Every page has a loading state under `design/SPEC.md` §1. A shared shape stops 
 - [x] Add an empty state slot to `PageFrame.xaml`, with each page giving why and what to do. Done when: a test proves a page can't declare empty with no text. **Shipped** by `D02 T02 §4`: `PageFrame.xaml` (`Empty`), `PageBase.ShowEmpty`, `PageTests.cs:49`.
 - [x] Add `NotAvailable` in `src/Bosun.Panel/Shell/NotAvailable.cs`, its template with its reason and the `Value` style to `src/Bosun.Panel/Theme/Controls.xaml`. Done when: a `NotAvailable` shows "Not available" and its reason, a null shows "Not available" and "It could not be read.", never 0 or nothing, and a blank reason is refused (**Corrected 2026-11-16** from the plan review: a null with no explanation broke design/SPEC.md §1). Cheaper substitute: a 0 or an empty cell.
 - [x] Show a stopped distro's last data with its age through `PageBase.ShowLastKnown` and a line in `PageFrame.xaml`. Done when: a test page with WSL stopped reads `WSL is stopped. Showing what was read 12 minutes ago.` over its data, reads a later age after its clock moves on and the next refresh, after it is hidden and shown again, and after the person comes back to the window, and `ShowData()` clears the line (**Added 2026-11-16** from the plan review). Cheaper substitute: old data shown as if current.
-- [ ] Commit: `shell: skeleton and page transitions`
+- [x] Commit: `shell: skeleton and page transitions`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*SkeletonTests" --filter-class "*PageFrameTests"` exits 0, and fails if the 150 ms delay is removed; `pwsh scripts/render-pages.ps1` draws the skeleton's three shapes in both themes.
+
+> **Verified:** 2026-11-16 | §7 | 6550fd8d70a8ab26dce5919689144a8eebea7549
+> **Review:** `docs/reviews/d02-t03-s7.json`
 
 ## 8. Command palette
 
