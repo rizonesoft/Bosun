@@ -240,9 +240,94 @@
         </Setter>
     </Style>
 
-    <!-- The rail. The style owns the row: hover, the selected row and its marker bar, the focus ring. What a row
-         shows (its title, glyph and count) is the row's own data template, shown through the ContentPresenter. -->
+    <!-- A rail row's count (D02 T03 §3, design/SPEC.md §19), as the mockup draws it: a small round pill in the
+         warning tint, its figures semibold. Its text takes the pill's colour, in a contrast theme the window's own. -->
+    <Style x:Key="CountBadge" TargetType="Border">
+        <Setter Property="MinWidth" Value="18"/>
+        <Setter Property="Height" Value="18"/>
+        <Setter Property="Padding" Value="5,0"/>
+        <Setter Property="CornerRadius" Value="{DynamicResource R.Pill}"/>
+        <Setter Property="Background" Value="{DynamicResource B.WarnSoft}"/>
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource B.Warn}"/>
+        <Setter Property="TextElement.FontSize" Value="{DynamicResource T.Caption}"/>
+        <Setter Property="TextElement.FontWeight" Value="SemiBold"/>
+        <Style.Triggers>
+            <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="TextElement.Foreground" Value="{DynamicResource B.Text}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- A rail row (the NavList's): keyed, so a rail can add to it (the shell's rows say their count, D02 T03 §3). -->
+    <Style x:Key="NavRow" TargetType="ListBoxItem">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="0,1"/>
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="bd" Background="Transparent" Padding="8,6"
+                            CornerRadius="{DynamicResource R.Control}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- Column 0 is where the list's one marker bar lands on the selected row (PART_Marker). -->
+                            <ContentPresenter Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Hover}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Raised}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.Accent}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                        <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="True"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Accent}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+                        </MultiTrigger>
+                        <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsEnabled" Value="False"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="bd" Property="Opacity" Value="1"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The rail. The style owns the row (hover, the selected row, the focus ring) and the one marker bar beside the
+         selected row, which slides between rows (D02 T03 §3, theme:RailMarker). What a row shows (its title, glyph and
+         count) is the row's own data template, shown through the ContentPresenter. -->
     <Style x:Key="NavList" TargetType="ListBox">
+        <Setter Property="theme:RailMarker.Slides" Value="True"/>
         <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
@@ -255,82 +340,29 @@
                 <ControlTemplate TargetType="ListBox">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}">
-                        <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
-                            <ItemsPresenter/>
-                        </ScrollViewer>
+                        <Grid>
+                            <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+                                <ItemsPresenter/>
+                            </ScrollViewer>
+                            <!-- A bar as well as a colour, so the selected page is told without hue: one bar for the
+                                 whole list, over the rows, placed and slid by theme:RailMarker. Seen, never hit or said. -->
+                            <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                                <Border x:Name="PART_Marker" Width="3" Visibility="Collapsed" Background="{DynamicResource B.Accent}"
+                                        CornerRadius="{DynamicResource R.Pill}"/>
+                            </Canvas>
+                        </Grid>
                     </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- In a contrast theme (D02 T03 §10) the selected row is filled with the highlight: the bar is its text colour. -->
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="PART_Marker" Property="Background" Value="{DynamicResource B.HighlightText}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-        <Setter Property="ItemContainerStyle">
-            <Setter.Value>
-                <Style TargetType="ListBoxItem">
-                    <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
-                    <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
-                    <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
-                    <Setter Property="Padding" Value="0"/>
-                    <Setter Property="Margin" Value="0,1"/>
-                    <Setter Property="MinHeight" Value="36"/>
-                    <Setter Property="Cursor" Value="Hand"/>
-                    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
-                    <Setter Property="Template">
-                        <Setter.Value>
-                            <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="bd" Background="Transparent" Padding="8,6"
-                                        CornerRadius="{DynamicResource R.Control}">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <!-- A bar as well as a colour, so the selected page is told without hue. -->
-                                        <Border x:Name="mark" Grid.Column="0" Background="Transparent" Margin="0,2"
-                                                CornerRadius="{DynamicResource R.Pill}"/>
-                                        <ContentPresenter Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                                    </Grid>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Hover}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
-                                    </Trigger>
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Raised}"/>
-                                        <Setter TargetName="mark" Property="Background" Value="{DynamicResource B.Accent}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource B.Accent}"/>
-                                        <Setter Property="FontWeight" Value="SemiBold"/>
-                                    </Trigger>
-                                    <Trigger Property="IsEnabled" Value="False">
-                                        <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
-                                        <Setter Property="Cursor" Value="Arrow"/>
-                                    </Trigger>
-                                    <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
-                                    <MultiTrigger>
-                                        <MultiTrigger.Conditions>
-                                            <Condition Property="IsSelected" Value="True"/>
-                                            <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
-                                        </MultiTrigger.Conditions>
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Accent}"/>
-                                        <Setter TargetName="mark" Property="Background" Value="{DynamicResource B.HighlightText}"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
-                                    </MultiTrigger>
-                                    <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
-                                    <MultiTrigger>
-                                        <MultiTrigger.Conditions>
-                                            <Condition Property="IsEnabled" Value="False"/>
-                                            <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
-                                        </MultiTrigger.Conditions>
-                                        <Setter TargetName="bd" Property="Opacity" Value="1"/>
-                                        <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
-                                    </MultiTrigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Setter.Value>
-                    </Setter>
-                </Style>
-            </Setter.Value>
-        </Setter>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource NavRow}"/>
     </Style>
 
     <!-- The activity log. A line is read, not acted on: the list takes the keyboard (to scroll), its lines do not.

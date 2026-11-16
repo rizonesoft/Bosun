@@ -10,9 +10,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:shell="clr-namespace:Bosun.Panel.Shell"
              xmlns:chrome="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+             xmlns:controls="clr-namespace:Bosun.Panel.Controls"
+             xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
              FontFamily="{DynamicResource F.Ui}" FontSize="{DynamicResource T.Body}"
              Foreground="{DynamicResource B.Text}" Background="{DynamicResource B.Base}"
              Focusable="False">
+    <UserControl.Resources>
+        <shell:PageGlyph x:Key="PageGlyph"/>
+    </UserControl.Resources>
     <Grid>
         <Grid x:Name="Body">
             <Grid.Style>
@@ -81,15 +86,31 @@
                         </GroupStyle>
                     </ListBox.GroupStyle>
                     <ListBox.ItemTemplate>
-                        <!-- A rail row: the page's title. The glyph before it and the count badge after it are
-                             D02 T03 §3's, which fills these two slots. -->
+                        <!-- A rail row (D02 T03 §3): the page's glyph, from the one icon map, in the row's own
+                             colour (dim, the accent when selected, the highlight's text in a contrast theme); its title;
+                             and its count badge while the page has something waiting. The glyph and the badge are
+                             decorative: the row's name says the title and the count, once (ShellView.RowStyle). -->
                         <DataTemplate DataType="{x:Type shell:Section}">
                             <DockPanel>
-                                <ContentControl x:Name="Glyph" DockPanel.Dock="Left" Focusable="False"/>
-                                <ContentControl x:Name="Badge" DockPanel.Dock="Right" Focusable="False"/>
+                                <controls:Decorative x:Name="Glyph" DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center">
+                                    <icons:PackIconLucide Kind="{Binding Key, Converter={StaticResource PageGlyph}}"
+                                                          Width="16" Height="16" Focusable="False" IsTabStop="False"
+                                                          Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
+                                </controls:Decorative>
+                                <controls:Decorative x:Name="Badge" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                    <Border Style="{DynamicResource CountBadge}">
+                                        <TextBlock Text="{Binding Page.Waiting}"/>
+                                    </Border>
+                                </controls:Decorative>
                                 <TextBlock x:Name="RowTitle" Text="{Binding Title}" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
+                            <DataTemplate.Triggers>
+                                <!-- A count only when the page has something waiting (design/SPEC.md §19). -->
+                                <DataTrigger Binding="{Binding Page.Waiting}" Value="0">
+                                    <Setter TargetName="Badge" Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

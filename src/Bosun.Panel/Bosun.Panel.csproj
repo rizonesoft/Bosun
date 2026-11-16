@@ -14,6 +14,10 @@
     <ProjectReference Include="..\Bosun.Core\Bosun.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Lucide glyphs, drawn as vectors (design/SPEC.md §19), named only through Theme/Glyphs.cs (D02 T03 §3). -->
+    <PackageReference Include="MahApps.Metro.IconPacks.Lucide" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- The same icon inside the panel, for its window and the title bar. -->
     <Resource Include="..\..\resources\bosun.ico" Link="Resources\bosun.ico" />
     <!-- The tray's three icons (D02 T02 §7), read by Win32TrayShell.LoadIcon as Bosun.Panel.Tray.tray-*.ico. -->

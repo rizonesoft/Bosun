@@ -4,6 +4,8 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The panel's glyphs (design/SPEC.md §19: Lucide, through one icon map, D02 T03 §3). -->
+    <PackageVersion Include="MahApps.Metro.IconPacks.Lucide" Version="6.2.1" />
     <PackageVersion Include="xunit.v3" Version="4.0.3" />
   </ItemGroup>
 </Project>

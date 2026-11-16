@@ -16,6 +16,18 @@ public class XamlRulesTests
     static List<Violation> Code(string line) => XamlRules.Violations("View.xaml.cs", "class V {\n    void M() {\n        " + line + "\n    }\n}\n");
 
     [Fact]
+    public void A_Lucide_kind_is_named_only_through_the_icon_map()
+    {
+        // D02 T03 §3: a kind written in a view or named in code elsewhere fails, by its file and line.
+        const string icons = "xmlns:icons=\"http://metro.mahapps.com/winfx/xaml/iconpacks\"";
+        var view = XamlRules.Violations("View.xaml", $"<Grid xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" {icons}>\n<icons:PackIconLucide Kind=\"Gauge\"/>\n</Grid>");
+        Assert.Equal("Lucide kind Gauge written in a view: name it through Theme/Glyphs.cs", Assert.Single(view).What);
+        Assert.Empty(XamlRules.Violations("View.xaml", $"<Grid xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" {icons}>\n<icons:PackIconLucide Kind=\"{{Binding Key, Converter={{StaticResource PageGlyph}}}}\"/>\n</Grid>"));
+        Assert.Equal("Lucide kind PackIconLucideKind.Gauge named in code: name it through Theme/Glyphs.cs", Assert.Single(Code("var k = PackIconLucideKind.Gauge;")).What);
+        Assert.Empty(XamlRules.Violations("Theme/Glyphs.cs", "class G { object k = PackIconLucideKind.Gauge; }"));
+    }
+
+    [Fact]
     public void The_panel_writes_no_colour_or_font_size_outside_the_generated_theme()
     {
         var (violations, read) = XamlRules.Scan(TestPaths.Panel());

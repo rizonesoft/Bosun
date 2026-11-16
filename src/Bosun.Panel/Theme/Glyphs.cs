@@ -1,0 +1,56 @@
+using MahApps.Metro.IconPacks;
+
+namespace Bosun.Panel.Theme;
+
+/// <summary>An action the panel shows a glyph for, wherever it appears.</summary>
+public enum GlyphAction
+{
+    Refresh,
+    OpenFolder,
+    OpenTerminal,
+    Pause,
+    Search,
+    StatusOk,
+    StatusWarn,
+    StatusFail,
+}
+
+/// <summary>
+/// The one icon map (D02 T03 §3, design/SPEC.md §19: Lucide, through one icon map): each rail row's glyph by its
+/// section's key, and each shared action's, as the mockup (design/mockups/control-panel.html) chose them. A view never
+/// names a Lucide kind itself (tests/Bosun.Panel.Tests/XamlRulesTests.cs), so every glyph stays consistent, and a kind
+/// the pack does not have fails a test rather than drawing nothing.
+/// </summary>
+public static class Glyphs
+{
+    /// <summary>The rail rows' glyphs, by section key (src/Bosun.Panel/Shell/Sections.cs).</summary>
+    public static IReadOnlyDictionary<string, PackIconLucideKind> Pages { get; } = new Dictionary<string, PackIconLucideKind>
+    {
+        ["overview"] = PackIconLucideKind.LayoutDashboard,
+        ["memory"] = PackIconLucideKind.MemoryStick,
+        ["instances"] = PackIconLucideKind.Terminal,
+        ["queue"] = PackIconLucideKind.ListOrdered,
+        ["optimise"] = PackIconLucideKind.Gauge,
+        ["settings"] = PackIconLucideKind.Settings,
+        ["about"] = PackIconLucideKind.Info,
+    };
+
+    /// <summary>The shared actions' glyphs.</summary>
+    public static IReadOnlyDictionary<GlyphAction, PackIconLucideKind> Actions { get; } = new Dictionary<GlyphAction, PackIconLucideKind>
+    {
+        [GlyphAction.Refresh] = PackIconLucideKind.RefreshCw,
+        [GlyphAction.OpenFolder] = PackIconLucideKind.FolderOpen,
+        [GlyphAction.OpenTerminal] = PackIconLucideKind.SquareTerminal,
+        [GlyphAction.Pause] = PackIconLucideKind.Pause,
+        [GlyphAction.Search] = PackIconLucideKind.Search,
+        [GlyphAction.StatusOk] = PackIconLucideKind.CircleCheck,
+        [GlyphAction.StatusWarn] = PackIconLucideKind.TriangleAlert,
+        [GlyphAction.StatusFail] = PackIconLucideKind.OctagonAlert,
+    };
+
+    /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>
+    public static PackIconLucideKind ForPage(string key) =>
+        Pages.TryGetValue(key, out var kind) ? kind : throw new KeyNotFoundException($"the rail row '{key}' has no glyph in Theme/Glyphs.cs");
+
+    public static PackIconLucideKind For(GlyphAction action) => Actions[action];
+}

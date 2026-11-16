@@ -223,10 +223,15 @@ public partial class ControlStylesTests
         Live(theme, () => rail = Styled<ListBox>("NavList", l => { l.ItemsSource = new[] { "Overview", "Memory", "Queue" }; l.SelectedIndex = 1; }), page =>
         {
             ListBoxItem Row(int index) => (ListBoxItem)rail.ItemContainerGenerator.ContainerFromIndex(index);
+            // The list's one marker bar (D02 T03 §3), beside the selected row: 8 in from its left, 8 down, its height
+            // less 16 (the row's own padding and a 2 px inset).
+            var marker = Part<Border>(rail, "PART_Marker");
+            double TopOf(int index) => Row(index).TranslatePoint(new Point(0, 0), rail).Y + 8;
 
-            Assert.Equal(Token(theme, "Accent"), Paint(Part<Border>(Row(1), "mark").Background));
-            Assert.Equal(3, Part<Border>(Row(1), "mark").ActualWidth);
-            Assert.True(Part<Border>(Row(1), "mark").ActualHeight > 8, "the marker is a bar, not a dot");
+            Assert.Equal(Token(theme, "Accent"), Paint(marker.Background));
+            Assert.Equal(3, marker.ActualWidth);
+            Assert.True(marker.ActualHeight > 8, "the marker is a bar, not a dot");
+            Assert.Equal(TopOf(1), Bosun.Panel.Theme.RailMarker.Position(rail)!.Value.Now, 1);
             Assert.Equal(Token(theme, "Raised"), Paint(Part<Border>(Row(1), "bd").Background));
             Assert.Equal(Token(theme, "Accent"), Paint(Row(1).Foreground));
             // The words are the row's content, drawn in the row's colour.
@@ -234,16 +239,14 @@ public partial class ControlStylesTests
 
             foreach (var other in new[] { 0, 2 })
             {
-                Assert.Equal(Colors.Transparent, Paint(Part<Border>(Row(other), "mark").Background));
                 Assert.Equal(Token(theme, "TextDim"), Paint(Row(other).Foreground));
                 Assert.True(Row(other).ActualHeight >= 32);
             }
 
-            // Selecting another row moves the marker.
+            // Selecting another row moves the marker (no motion gate here: at once).
             rail.SelectedIndex = 2;
             PageRenderer.Settle(page);
-            Assert.Equal(Token(theme, "Accent"), Paint(Part<Border>(Row(2), "mark").Background));
-            Assert.Equal(Colors.Transparent, Paint(Part<Border>(Row(1), "mark").Background));
+            Assert.Equal(TopOf(2), Bosun.Panel.Theme.RailMarker.Position(rail)!.Value.Now, 1);
         });
     }
 
@@ -701,6 +704,7 @@ public partial class ControlStylesTests
         ["ScrollThumb"] = "a part of the scroll bar",
         ["ScrollPage"] = "a part of the scroll bar",
         ["LogBox/ListBoxItem"] = "a log line is read, not acted on: it is not focusable",
+        ["CountBadge"] = "a rail row's count, drawn inside the row and never focused: the row is the target",
         ["ToolTip"] = "a tooltip can't be pressed or focused",
         ["Value"] = "a value is read, not acted on: it is not focusable (D02 T03 §7)",
         ["ColumnGripper"] = "a part of the column header, which is the target",
@@ -761,7 +765,7 @@ public partial class ControlStylesTests
 
         // The walk sees every style there is, the nested ones too.
         const string end = "</ResourceDictionary>";
-        Assert.Contains("NavList/ListBoxItem: no MinHeight or Height of 32 or more",
+        Assert.Contains("NavRow: no MinHeight or Height of 32 or more",
             TargetProblems(text.Replace("<Setter Property=\"MinHeight\" Value=\"36\"/>", "", StringComparison.Ordinal)));
 
         // A style added without either fails, whatever it is called: nothing is a target by being on a list.

@@ -141,6 +141,10 @@ static partial class XamlRules
         foreach (var element in doc.Descendants())
         {
             var name = element.Name.LocalName;
+            // A glyph names its kind only through the one icon map, Theme/Glyphs.cs (D02 T03 §3): a kind written in a view
+            // is a glyph the map can't keep consistent or check is in the pack.
+            if (name.StartsWith("PackIcon", StringComparison.Ordinal) && (string?)element.Attribute("Kind") is { } kind && IsLiteral(kind))
+                found.Add(new Violation(file, Line(element), $"Lucide kind {kind.Trim()} written in a view: name it through Theme/Glyphs.cs"));
             foreach (var attribute in element.Attributes())
             {
                 if (attribute.IsNamespaceDeclaration) continue;
@@ -177,6 +181,10 @@ static partial class XamlRules
         string Flat(Match m) => Regex.Replace(m.Value, @"\s+", " ").Trim();
         void Add(Match m, string what) => found.Add(new Violation(file, code.AsSpan(0, m.Index).Count('\n') + 1, what));
         foreach (Match m in HexColourString().Matches(code)) Add(m, $"colour {m.Value} written in a string: use a B.* or C.* resource");
+        // The icon map is the one place a Lucide kind is named in code (D02 T03 §3).
+        if (!file.EndsWith("Theme/Glyphs.cs", StringComparison.Ordinal))
+            foreach (Match m in Regex.Matches(code, @"PackIconLucideKind\s*\.\s*\w+"))
+                Add(m, $"Lucide kind {Flat(m)} named in code: name it through Theme/Glyphs.cs");
         foreach (Match m in ColourMade().Matches(code)) Add(m, $"colour made in code ({Flat(m)}): use a B.* or C.* resource");
         foreach (Match m in NamedColour().Matches(code))
             if (m.Groups[2].Value != "Transparent") Add(m, $"colour {Regex.Replace(m.Value, @"\s+", "")} written in code: use a B.* or C.* resource");

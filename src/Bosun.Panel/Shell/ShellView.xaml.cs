@@ -21,6 +21,18 @@ public partial class ShellView : UserControl
     private ShellViewModel? _shell;
     private bool _atNewest = true;
 
+    /// <summary>
+    /// The rail's row style with each row's name to a screen reader: its title and, while its page has something
+    /// waiting, the count in words ("Queue, 3 waiting"), following the page live.
+    /// </summary>
+    public static Style RowStyle(Style row)
+    {
+        var name = new MultiBinding { Converter = new RailRowName() };
+        name.Bindings.Add(new Binding(nameof(Section.Title)));
+        name.Bindings.Add(new Binding($"{nameof(Section.Page)}.{nameof(PageBase.Waiting)}"));
+        return new Style(typeof(ListBoxItem), row) { Setters = { new Setter(AutomationProperties.NameProperty, name) } };
+    }
+
     public ShellView()
     {
         InitializeComponent();
@@ -37,6 +49,13 @@ public partial class ShellView : UserControl
         PaneSplitter.KeyUp += (_, _) => KeepPaneHeight();
         Activity.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnActivityScrolled));
         Loaded += (_, _) => AppIcon.Source ??= IconFrame(20 * VisualTreeHelper.GetDpi(this).DpiScaleX);
+        // The rows say their count (D02 T03 §3): the rail's row style with the spoken name added, found once the view is
+        // in a tree that holds the theme's styles (off screen there is no application to find it in sooner).
+        Loaded += (_, _) =>
+        {
+            if (Rail.ItemContainerStyle?.Setters.OfType<Setter>().Any(s => s.Property == AutomationProperties.NameProperty) == true) return;
+            if (TryFindResource("NavRow") is Style row) Rail.ItemContainerStyle = RowStyle(row);
+        };
     }
 
     /// <summary>The window this view sits in: what the three window buttons act on. Null off screen, where they do nothing.</summary>

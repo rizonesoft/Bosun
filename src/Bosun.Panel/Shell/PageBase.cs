@@ -38,11 +38,23 @@ public abstract class PageBase(string title, string summary) : Observable
     private bool _refreshFailing;
     private string? _staleNote, _staleWhy;
     private DateTimeOffset _staleAt;
+    private int _waiting;
 
     public string Title { get; } = string.IsNullOrWhiteSpace(title) ? throw new ArgumentException("a page needs a title", nameof(title)) : title;
 
     /// <summary>The line under the title: what the page is for.</summary>
     public string Summary { get; } = summary ?? "";
+
+    /// <summary>
+    /// How many things on this page wait for the person (D02 T03 §3, design/SPEC.md §19: a rail row shows a count only
+    /// when its page has something waiting): its rail row's badge, and its spoken name, follow it. 0 by default; a page
+    /// sets its own (the queue its waiting jobs, D03 T02 §3). Never below 0.
+    /// </summary>
+    public int Waiting
+    {
+        get => _waiting;
+        set => Set(ref _waiting, Math.Max(0, value));
+    }
 
     public PageState State
     {

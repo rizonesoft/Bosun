@@ -91,7 +91,7 @@ public class ShellTests
             Assert.Equal(["Monitor", "Overview", "Memory", "Instances", "Queue", "Machine", "Optimise", "App", "Settings", "About"], texts);
             var accent = ((System.Windows.Media.SolidColorBrush)host.FindResource("B.Accent")).Color;
             Assert.Equal(accent, ShellSupport.Paint(ShellSupport.Row(view.Rail, 0).Foreground));
-            Assert.Equal(accent, ShellSupport.Paint(((Border)ShellSupport.Row(view.Rail, 0).Template.FindName("mark", ShellSupport.Row(view.Rail, 0))).Background));
+            Assert.Equal(accent, ShellSupport.Paint(((Border)view.Rail.Template.FindName("PART_Marker", view.Rail)).Background)); // the rail's one marker (D02 T03 §3)
             Assert.Equal("Pages", AutomationProperties.GetName(view.Rail));
 
             // The page, in the frame, and the title bar's words.
