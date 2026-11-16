@@ -362,6 +362,8 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 
 ## 9. In-window toasts
 
+> **Started:** 2026-11-16T17:51:16Z
+
 A short result where the operator is looking. The Activity pane stays the record, so a toast never holds the only copy of anything.
 
 **Corrected 2026-11-16:** checked against the tree before the plan review. A toast is the result of a panel action: every action made by `ActivityLog.Command` ends in `ActivityLog.Record` (`src/Bosun.Panel/Shell/ActivityLog.cs`), which now hands its result to the shell's `ToastHost.Show` when the window has one; `Show` writes the Activity line (INFO for done, FAIL with the reason) and then the toast, so no toast exists without its line. Other log lines (a page's own INFO or WARN) are not toasts. The host is the shell's (`ShellViewModel.Toasts`), drawn bottom right in `ShellView`. Each toast's 6 s runs on the shell's `TimeProvider` (the clock pattern of `PageBase.Clock`), never a `DispatcherTimer` of its own (the panel's rule, `RefreshRulesTests`), so a test drives it with a fake clock. Toasts appear at once, with no animation. While the window is hidden the toasts on screen are dropped (their lines are already in the Activity pane) and a result writes only its line. A toast's card is a `StatusPill` (Ok for done, Danger for FAIL), its words, and a Dismiss button named for a screen reader; the words are a `LiveRegion` line, announced once. The card takes the theme's tokens and Windows' colours in a contrast theme, checked in both palettes, and its states are `RenderCatalog` cases. Tests: `tests/Bosun.Panel.Tests/Shell/ToastTests.cs`, and the keyboard Dismiss in the end-to-end smoke on the test screen; the checkpoint takes the test platform's filter form.
