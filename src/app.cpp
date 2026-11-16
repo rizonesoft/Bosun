@@ -1314,7 +1314,17 @@ int cmd_instances(const Options& o) {
         i.guest_pid = h.guest_pid;
         i.guest_distro = h.guest_distro;
         i.started_at = h.command_started_at;
-        if (h.side == "windows") i.private_mb = memory[h.pid];  // a WSL job's memory is WSL's to measure
+        if (h.side == "windows") {
+            // A Windows job's folder is its `bosun run`'s, read as an agent's is (round 2); a WSL job's is WSL's to say.
+            i.private_mb = memory[h.pid];
+            std::wstring dir = process_cwd(static_cast<ULONG_PTR>(h.pid));
+            if (dir.empty()) {
+                ++doc.unreadable;
+            } else {
+                if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
+                i.cwd = narrow(dir);
+            }
+        }
         dm::instance_state(i, &h, nullptr, nullptr, std::nullopt);
         doc.instances.push_back(std::move(i));
     }

@@ -99,6 +99,7 @@ try {
   $row = Row (Scan) $job.Id
   Check ($row -and $row.kind -eq 'job' -and $row.slot -eq 0 -and $row.side -eq 'windows' -and $row.name -eq 'test_sleeper.exe') "a job holding a slot is listed with its slot and side ($($row.name))"
   Check ($row -and $row.command -like '*test_sleeper.exe*' -and $null -ne $row.private_mb -and $row.state -eq 'working' -and (Same-Path $row.repo $repo)) 'with its command, memory and repo, working'
+  Check ($row -and (Same-Path $row.cwd $repo)) "and the folder it runs in ($($row.cwd))"
 
   # Problems are said by source, and every instance is still listed beside them.
   Set-Content -LiteralPath (Join-Path $sessions 'broken.json') -Value '{not json'
