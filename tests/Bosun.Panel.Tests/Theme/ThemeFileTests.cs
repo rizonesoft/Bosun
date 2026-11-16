@@ -131,4 +131,28 @@ public sealed class ThemeFileTests : IDisposable
             Assert.EndsWith("; Windows' own contrast setting is used", fell.Line, StringComparison.Ordinal);
         }
     }
+
+    [Fact]
+    public void A_file_that_is_not_read_in_time_falls_back_without_holding_the_start()
+    {
+        // Round 1: a file on a share that had gone away held the start with no window and no tray.
+        var stalled = new ManualResetEventSlim();
+        try
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var chosen = PreviewContrast.Choose(@"\\gone\themes\hc2.theme", () => new Windows(), _ =>
+            {
+                stalled.Wait();
+                return ContrastPalettes.NightSky;
+            }, TimeSpan.FromMilliseconds(200));
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"the start waited {clock.Elapsed}");
+            Assert.IsType<Windows>(chosen.Contrast);
+            Assert.True(chosen.Failed);
+            Assert.Equal("Contrast preview not used (BOSUN_PANEL_CONTRAST): hc2.theme was not read within 0.2 s; Windows' own contrast setting is used", chosen.Line);
+        }
+        finally
+        {
+            stalled.Set();                                                                       // let the stalled read end
+        }
+    }
 }

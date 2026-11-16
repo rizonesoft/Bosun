@@ -100,22 +100,33 @@ public sealed class PreviewContrast(SystemPalette palette, string file) : IHighC
         remove { }
     }
 
+    /// <summary>How long start-up waits for the file: a stalled network share falls back rather than hold the window.</summary>
+    public static readonly TimeSpan ReadLimit = TimeSpan.FromSeconds(2);
+
     /// <summary>
-    /// The contrast source for the panel: the preview when <paramref name="variable"/> names a file it can read, else
-    /// Windows' own. What was chosen, or why a file was not used, is the line for the Activity pane.
+    /// The contrast source for the panel: the preview when <paramref name="variable"/> names a file it can read within
+    /// <see cref="ReadLimit"/>, else Windows' own. The file is read off the UI thread (round 1 of D02 T03 §11: a file on
+    /// a share that has gone away held the start with no window and no tray). What was chosen, or why a file was not
+    /// used, is the line for the Activity pane.
     /// </summary>
-    public static (IHighContrast Contrast, string? Line, bool Failed) Choose(string? variable, Func<IHighContrast> windows)
+    public static (IHighContrast Contrast, string? Line, bool Failed) Choose(string? variable, Func<IHighContrast> windows,
+        Func<string, SystemPalette>? read = null, TimeSpan? limit = null)
     {
         if (string.IsNullOrWhiteSpace(variable)) return (windows(), null, false);
+        var wait = limit ?? ReadLimit;
         try
         {
-            var palette = ThemeFile.Read(variable.Trim());
+            var reading = Task.Run(() => (read ?? ThemeFile.Read)(variable.Trim()));
+            if (!reading.Wait(wait))
+                return (windows(), string.Create(CultureInfo.InvariantCulture,
+                    $"Contrast preview not used ({Variable}): {Path.GetFileName(variable.Trim())} was not read within {wait.TotalSeconds:0.#} s; Windows' own contrast setting is used"), true);
+            var palette = reading.Result;
             var name = Path.GetFileName(variable.Trim());
             return (new PreviewContrast(palette, name), $"Contrast preview from {name} ({Variable}): the panel draws in its colours, whatever Windows is in", false);
         }
-        catch (Exception e) when (e is ThemeFileException or IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        catch (AggregateException all) when (all.InnerException is ThemeFileException or IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return (windows(), $"Contrast preview not used ({Variable}): {e.Message}; Windows' own contrast setting is used", true);
+            return (windows(), $"Contrast preview not used ({Variable}): {all.InnerException!.Message}; Windows' own contrast setting is used", true);
         }
     }
 }
