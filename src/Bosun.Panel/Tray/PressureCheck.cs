@@ -26,18 +26,28 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
     /// <summary>Whether an episode is under way.</summary>
     public bool InEpisode => _watch.InEpisode;
 
+    private string? _said;     // the full reason last written to the Activity pane: written once per change
+    private bool _owed;        // an episode whose notification Windows refused: tried again at each check while it lasts
+
     /// <summary>One check. On the UI thread: what it changes is the tray's.</summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         var reading = await read(cancellationToken);
         long? available = null;
-        if (!reading.HasValue) tray.CheckProblem = $"memory check unavailable: {reading.Why}";
-        else if (reading.IsStale) tray.CheckProblem = $"memory check stale: {reading.Why}";
-        else if (reading.Value!.Counter("available_mb") is not { } measured) tray.CheckProblem = "memory check unavailable: the logger did not measure available memory.";
-        else
+        string? problem = null, full = null;
+        if (!reading.HasValue) (problem, full) = ($"memory check unavailable: {Short(reading.Problem!.Value)}", reading.Why);
+        else if (reading.IsStale) (problem, full) = ($"memory check stale: {reading.Why}", reading.Why);
+        else if (reading.Value!.Counter("available_mb") is not { } measured)
+            (problem, full) = ("memory check unavailable: available memory not measured", "The logger's snapshot did not measure available memory.");
+        else available = measured;
+
+        // The tooltip holds 127 characters: it has the short reason first, and the Activity pane the whole of it, once.
+        tray.CheckProblem = problem;
+        if (full != _said)
         {
-            tray.CheckProblem = null;
-            available = measured;
+            if (full is not null) log.Warn($"The memory pressure check can't read memory: {full}");
+            else if (_said is not null) log.Info("The memory pressure check reads memory again.");
+            _said = full;
         }
 
         var floor = settings.Current.PressureFloorMb; // read at every check: a saved change applies with no restart
@@ -45,13 +55,32 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
         {
             case PressureChange.Started:
                 tray.Pressure = true;
-                notifier.Raise(NotificationType.MemoryPressure, Title,
-                    string.Create(CultureInfo.InvariantCulture, $"{available:N0} MB available, under the {floor:N0} MB alert threshold. Close what you can spare before Windows freezes."));
+                _owed = Notify(available!.Value, floor, quietly: false) == Delivery.Refused;
                 break;
             case PressureChange.Ended:
                 tray.Pressure = false;
+                _owed = false;
                 log.Info(string.Create(CultureInfo.InvariantCulture, $"Memory pressure ended: {available:N0} MB available, over the {floor:N0} MB alert threshold again."));
+                break;
+            default:
+                // Windows refused the episode's notification: tried again while the pressure lasts, quietly, until it is
+                // shown. Turned off or paused is the person's choice, and is not tried again.
+                if (_owed && _watch.InEpisode && available is { } now) _owed = Notify(now, floor, quietly: true) == Delivery.Refused;
                 break;
         }
     }
+
+    private Delivery Notify(long available, long floor, bool quietly) => notifier.Deliver(NotificationType.MemoryPressure, Title,
+        string.Create(CultureInfo.InvariantCulture, $"{available:N0} MB available, under the {floor:N0} MB alert threshold. Close what you can spare."), quietly);
+
+    /// <summary>What a problem is, short enough for the tray's tooltip; the reader's own words go to the Activity pane.</summary>
+    private static string Short(ReadingProblem problem) => problem switch
+    {
+        ReadingProblem.Missing => "the logger has not written its snapshot",
+        ReadingProblem.Unreadable => "the logger's snapshot can't be read",
+        ReadingProblem.Invalid => "the logger's snapshot is damaged",
+        ReadingProblem.Unsupported => "the logger's snapshot is of another version",
+        ReadingProblem.NotInstalled => "bosun is not installed",
+        _ => "the logger could not be read",
+    };
 }

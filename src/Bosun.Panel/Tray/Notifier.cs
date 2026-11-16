@@ -4,6 +4,21 @@ using Bosun.Panel.Shell;
 
 namespace Bosun.Panel.Tray;
 
+/// <summary>How a notification ended.</summary>
+public enum Delivery
+{
+    Shown,
+
+    /// <summary>The person turned this kind off.</summary>
+    Off,
+
+    /// <summary>The person paused notifications for an hour.</summary>
+    Paused,
+
+    /// <summary>Windows did not show it (no icon to raise it from, or the shell refused).</summary>
+    Refused,
+}
+
 /// <summary>The kinds of notification the panel raises (design/SPEC.md §17: memory pressure).</summary>
 public enum NotificationType
 {
@@ -60,15 +75,24 @@ public sealed class Notifier(PanelSettingsStore settings, ActivityLog log, Func<
     /// Raises a notification of a type. True when it was shown. Turned off, paused or unshowable, it is not shown,
     /// and the Activity pane's line says which.
     /// </summary>
-    public bool Raise(NotificationType type, string title, string text)
+    public bool Raise(NotificationType type, string title, string text) => Deliver(type, title, text) == Delivery.Shown;
+
+    /// <summary>
+    /// As <see cref="Raise"/>, saying which way it ended: shown, turned off, paused, or refused by Windows (the one a
+    /// caller may try again, D03 T01 §4). <paramref name="quietly"/> writes no line for a try that was refused again,
+    /// so a retry every check does not fill the Activity pane; a shown one is always written.
+    /// </summary>
+    public Delivery Deliver(NotificationType type, string title, string text, bool quietly = false)
     {
         string? why = null;
-        if (!IsOn(type)) why = $"{Name(type)} notifications are turned off";
-        else if (PausedUntil is { } until) why = string.Create(CultureInfo.InvariantCulture, $"notifications are paused until {until:HH:mm}");
-        else if (!Show(title, text)) why = "Windows did not show it";
+        var delivery = Delivery.Shown;
+        if (!IsOn(type)) (why, delivery) = ($"{Name(type)} notifications are turned off", Delivery.Off);
+        else if (PausedUntil is { } until) (why, delivery) = (string.Create(CultureInfo.InvariantCulture, $"notifications are paused until {until:HH:mm}"), Delivery.Paused);
+        else if (!Show(title, text)) (why, delivery) = ("Windows did not show it", Delivery.Refused);
 
-        log.Warn(why is null ? $"{title}: {text}" : $"{title}: {text} (not notified: {why})");
-        return why is null;
+        if (why is null) log.Warn($"{title}: {text}");
+        else if (!quietly) log.Warn($"{title}: {text} (not notified: {why})");
+        return delivery;
     }
 
     /// <summary>

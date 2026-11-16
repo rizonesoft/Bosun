@@ -72,9 +72,16 @@ sealed class PanelProcess : IDisposable
     private static PanelProcess Launch(string program, string[] arguments, string data, string instance, bool ownsFolder = true)
     {
         Directory.CreateDirectory(data);
+        // A local application data folder of the test's own, holding a fresh Windows snapshot with plenty of memory:
+        // the panel's memory check (D03 T01 §4) reads that, never this machine's own logger, so the tray says "normal".
+        var local = Path.Combine(data, "local");
+        Directory.CreateDirectory(Path.Combine(local, "Bosun", "logs"));
+        File.WriteAllText(Path.Combine(local, "Bosun", "logs", "current-windows.json"),
+            "{\"schema_version\":1,\"side\":\"windows\",\"at\":\"" + DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture)
+            + "\",\"interval_s\":30,\"memory\":{\"available_mb\":20000,\"total_mb\":32000},\"wsl_vm\":null,\"repos\":[],\"processes\":[],\"history_written\":true}");
         var request = new ProcessRequest(program, arguments)
         {
-            Environment = new Dictionary<string, string?> { ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance },
+            Environment = new Dictionary<string, string?> { ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance, ["LOCALAPPDATA"] = local },
             WorkingDirectory = data,
         };
         return new PanelProcess(ChildProcess.Start(request, new StartGate()), data, instance, program) { _ownsFolder = ownsFolder };

@@ -80,8 +80,11 @@ public sealed class TrayViewModel
 
     private int Needs => Math.Max(0, _needs?.Count ?? 0);
 
-    /// <summary>Pressure when there is pressure, the more urgent of the two; else Needs you when something does; else Normal.</summary>
-    public TrayState State => _pressure ? TrayState.Pressure : Needs > 0 ? TrayState.NeedsYou : TrayState.Normal;
+    /// <summary>
+    /// Pressure when there is pressure, the most urgent; else Needs you when something does, or when the memory check
+    /// can't read memory (a stopped logger needs the person: completion review of D03 T01 §4); else Normal.
+    /// </summary>
+    public TrayState State => _pressure ? TrayState.Pressure : Needs > 0 || _checkProblem is not null ? TrayState.NeedsYou : TrayState.Normal;
 
     /// <summary>The icon file for a state, as resources/ names it (D02 T01 §3).</summary>
     public static string IconFile(TrayState state) => state switch
@@ -108,7 +111,8 @@ public sealed class TrayViewModel
                 _ => NormalTooltip,
             };
             if (_checkProblem is null) return state;
-            var said = $"{state}; {_checkProblem}";
+            // Never "normal" beside a check that could not read memory: the problem is the state then.
+            var said = !_pressure && needs is null ? $"Bosun Panel: {_checkProblem}" : $"{state}; {_checkProblem}";
             return said.Length <= MaxTooltip ? said : said[..(MaxTooltip - 3)] + "...";
         }
     }

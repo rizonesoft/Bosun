@@ -25,8 +25,7 @@ public class TrayTests
 
         // The icon, with its tooltip, and the one Bosun Panel icon there is.
         var icon = Icon(panel);
-        // The state first, then how the memory check went (D03 T01 §4): a test's panel reads this machine's snapshot.
-        Assert.StartsWith(Tooltip, icon.Current.Name);
+        Assert.Equal(Tooltip, icon.Current.Name); // the test's own fresh snapshot: plenty of memory, read
 
         // The menu lists its four lines; Open shows the hidden window.
         var lines = OpenMenu(panel);

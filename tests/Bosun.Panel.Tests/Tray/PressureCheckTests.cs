@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using System.Windows.Threading;
 using Bosun.Core;
@@ -98,7 +99,7 @@ public class PressureCheckTests
         { "unreadable", "memory check unavailable: " },
         { "invalid", "memory check unavailable: " },
         { "unsupported", "memory check unavailable: " },
-        { "unmeasured", "memory check unavailable: the logger did not measure available memory." },
+        { "unmeasured", "memory check unavailable: available memory not measured" },
         { "stale", "memory check stale: " },
     };
 
@@ -122,10 +123,11 @@ public class PressureCheckTests
             Reading<SnapshotDoc> reading = Bad(kind);
             var (check, run) = Bench(f, () => reading);
 
-            run().GetAwaiter().GetResult(); // before an episode: not a healthy state
+            run().GetAwaiter().GetResult(); // before an episode: never a healthy state (completion review)
             Drain();
-            Assert.Equal(TrayState.Normal, f.Icon.State);
-            Assert.StartsWith($"Bosun Panel: normal; {said}", f.Icon.Tooltip);
+            Assert.Equal(TrayState.NeedsYou, f.Icon.State);
+            Assert.StartsWith($"Bosun Panel: {said}", f.Icon.Tooltip);
+            Assert.DoesNotContain("normal", f.Icon.Tooltip);
             Assert.Empty(f.Icon.Notifications);
 
             reading = Fresh(1000);
@@ -143,6 +145,85 @@ public class PressureCheckTests
             Drain();
             Assert.Equal("Bosun Panel: memory pressure", f.Icon.Tooltip);
             Assert.Single(f.Icon.Notifications);
+        });
+    }
+
+    [Fact]
+    public void The_real_reader_s_reason_reaches_the_tray_whole_and_the_Activity_pane_once_with_its_path()
+    {
+        // Completion review: the reader's words begin with the snapshot's full path, which a 127-character tooltip cut
+        // before the reason. The tray has the short reason first; the Activity pane has every word, once.
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start();
+            var logs = Path.Combine(Path.GetTempPath(), "bosun-a-folder-with-a-long-name-" + new string('x', 60), "logs");
+            var client = new MemoryClient(null, "", logs);
+            var readable = false;
+            var check = new PressureCheck(token => readable ? Task.FromResult(Fresh(9000)) : client.SnapshotAsync("windows", token), f.Store, f.Controller.Tray, f.Notifier, f.Log);
+            check.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+            check.RunAsync(CancellationToken.None).GetAwaiter().GetResult(); // the same again: not written again
+            Drain();
+            Assert.Equal("Bosun Panel: memory check unavailable: the logger has not written its snapshot", f.Icon.Tooltip);
+            var said = Assert.Single(f.Lines(LogSeverity.Warn), line => line.StartsWith("The memory pressure check can't read memory:", StringComparison.Ordinal));
+            Assert.Contains(Path.Combine(logs, "current-windows.json"), said);
+
+            readable = true; // the logger writes again: the plain state, and that said once
+            check.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+            check.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Drain();
+            Assert.Equal((TrayState.Normal, TrayViewModel.NormalTooltip), (f.Icon.State, f.Icon.Tooltip));
+            Assert.Single(f.Lines(LogSeverity.Info), line => line == "The memory pressure check reads memory again.");
+        });
+    }
+
+    [Fact]
+    public void A_notification_Windows_refused_is_tried_again_while_the_pressure_lasts_and_shown_once()
+    {
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start();
+            Reading<SnapshotDoc> reading = Fresh(1500);
+            var (_, run) = Bench(f, () => reading);
+            f.Icon.FailNotify = true; // Windows refuses it as the episode starts
+            run().GetAwaiter().GetResult();
+            Drain();
+            Assert.Empty(f.Icon.Notifications);
+            run().GetAwaiter().GetResult(); // refused again: tried, written once only
+            Drain();
+            Assert.Single(f.Lines(LogSeverity.Warn), line => line.Contains("(not notified: Windows did not show it)", StringComparison.Ordinal));
+            f.Icon.FailNotify = false;
+            run().GetAwaiter().GetResult(); // shown now
+            run().GetAwaiter().GetResult(); // and not again
+            Drain();
+            Assert.Single(f.Icon.Notifications);
+        });
+    }
+
+    [Fact]
+    public void A_notification_turned_off_or_paused_is_not_tried_again_when_that_ends()
+    {
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start();
+            Reading<SnapshotDoc> reading = Fresh(1500);
+            var (_, run) = Bench(f, () => reading);
+            f.Notifier.PauseForAnHour();
+            run().GetAwaiter().GetResult(); // paused as the episode starts: the person's choice
+            f.Notifier.Resume();
+            run().GetAwaiter().GetResult();
+            Drain();
+            Assert.Empty(f.Icon.Notifications);
+            Assert.Equal(TrayState.Pressure, f.Icon.State); // the tray still says it
+
+            reading = Fresh(9000);
+            run().GetAwaiter().GetResult(); // the episode ends
+            Assert.True(f.Store.Update(current => current with { NotifyMemoryPressure = false }).Succeeded);
+            reading = Fresh(1500);
+            run().GetAwaiter().GetResult(); // turned off as the next one starts
+            Assert.True(f.Store.Update(current => current with { NotifyMemoryPressure = true }).Succeeded);
+            run().GetAwaiter().GetResult();
+            Drain();
+            Assert.Empty(f.Icon.Notifications);
         });
     }
 
