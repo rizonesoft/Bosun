@@ -57,6 +57,15 @@ The generator owns these like every other token, so no view carries a shadow or 
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-16:** checked against the tree before the build. The tokens are in `design/tokens/colors.json` (`elevation.Card` and `elevation.Overlay` with `Blur`, `Depth`, `OpacityDark`, `OpacityLight`; `motion` with `FastMs` 120, `NormalMs` 220, `SlowMs` 400, `PulseMs` 2400 and `Ease` [0.2, 0.8, 0.2, 1]), and `scripts/build-theme.py` emits neither yet (its docstring says so). The decisions, each with what reversing it costs:
+
+- An elevation is a frozen `DropShadowEffect` per theme: `BlurRadius` from `Blur`, `ShadowDepth` from `Depth`, `Direction` 270 (straight down, as the mockup's `box-shadow` offsets), `Color` black (the mockup's `rgba(0,0,0,..)`), `Opacity` from `OpacityDark` or `OpacityLight`. Caching the drawn shadow (`BitmapCache`, design/SPEC.md §19) is the consumer's, the card and overlay sections. Reversal cost: one generator function.
+- Motion is emitted as `Duration` resources `Motion.Fast`, `Motion.Normal`, `Motion.Slow`, `Motion.Pulse` and a frozen `KeySpline` `Motion.Ease`, the same in both themes. `Motion.cs` is the one gate: it reads those design values from the resources and gives the duration to use, zero for each when Windows' animation effects are off, with `Animates` false so a pulse is not started at all (design/SPEC.md §19: "every change applies at once and no pulse runs"), and `Changed` when the setting changes. Animations are started from code through it, because a storyboard in a style is frozen and can't take a `DynamicResource`. Reversal cost: none.
+- `scripts/build-theme.py` refuses, exit 2 naming the token, a missing elevation or motion group or key, a non-number, an opacity outside 0 to 1, a duration outside 0 to 10000 ms, and an `Ease` that is not four numbers with both x values in 0 to 1 (a cubic Bézier's x must stay in its interval, or WPF's `KeySpline` throws).
+- The literal rule allows `0`: a `CornerRadius="0"` (the window's square corners on its `WindowChrome`, `src/Bosun.Panel/Shell/MainWindow.xaml:13`) or a zero `Duration` is no rounding and no motion, not a value a token owns. It reads XAML views and code alike, as the colour rule does: `BlurRadius = 8`, `new CornerRadius(8)` and `new Duration(...)` in code fail too.
+- The soft tints pass today, tightest light `Danger` on `Raised` at 4.52:1 (measured 2026-11-16).
+- The checkpoint named `dotnet test Bosun.slnx --filter FullyQualifiedName~Motion`, which the test platform here takes as `dotnet test --solution Bosun.slnx --filter-class "*MotionTests"`; the generator's refusals are proved by `scripts/tests/test_build_theme.py`.
+
 **Build order:**
 
 1. Extend `scripts/build-theme.py`. Done when: the generated theme holds the elevation and motion resources.
@@ -64,14 +73,14 @@ The generator owns these like every other token, so no view carries a shadow or 
 
 - [ ] Emit `elevation` from `design/tokens/colors.json` in `scripts/build-theme.py`, choosing `OpacityDark` or `OpacityLight` per theme. Done when: both generated files hold `Elevation.Card` and `Elevation.Overlay` with different opacity. Cheaper substitute: a shadow literal in a style.
 - [ ] Emit `motion` durations and the easing in `scripts/build-theme.py`. Done when: `Motion.Fast`, `Motion.Normal`, `Motion.Slow` and `Motion.Pulse` load in a WPF test. Cheaper substitute: durations typed into each storyboard.
-- [ ] Refuse a missing or non-numeric elevation or motion value in `scripts/build-theme.py`. Done when: a fixture exits 2 and names the token.
-- [ ] Create `src/Bosun.Panel/Theme/Motion.cs` reading `SystemParameters.ClientAreaAnimation`, and returning zero durations when it is off. Done when: `tests/Bosun.Panel.Tests/MotionTests.cs` passes with the setting faked both ways. Cheaper substitute: a panel-only animation setting that ignores Windows.
+- [ ] Refuse a missing or non-numeric elevation or motion value in `scripts/build-theme.py`, and an opacity, duration or easing out of its range. Done when: a fixture for each exits 2 and names the token, with nothing written, in `scripts/tests/test_build_theme.py`.
+- [ ] Create `src/Bosun.Panel/Theme/Motion.cs` reading `SystemParameters.ClientAreaAnimation`, and returning zero durations and `Animates` false when it is off. Done when: `tests/Bosun.Panel.Tests/MotionTests.cs` passes with the setting faked both ways, the durations read on being the generated theme's. Cheaper substitute: a panel-only animation setting that ignores Windows.
 - [ ] Update `Motion.cs` on `SystemParameters.StaticPropertyChanged`. Done when: a test raises the change and a new duration reads zero, with no restart.
 - [ ] Assert the soft status tints in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, compositing each `*Soft` over `Base`, `Surface` and `Raised`. Done when: each status word reads at 4.5:1 or better in both themes, and a stronger tint fails the test. Cheaper substitute: measuring the word on the plain surface only.
-- [ ] Extend `tests/Bosun.Panel.Tests/XamlRulesTests.cs` to fail a literal `Duration`, `BlurRadius` or `CornerRadius` in a view. Done when: a literal in a view fails it.
+- [ ] Extend `tests/Bosun.Panel.Tests/XamlRules.cs` and `XamlRulesTests.cs` to fail a literal non-zero `Duration`, `BlurRadius` or `CornerRadius` in a view or its code. Done when: a literal in a view, in a setter and in code each fails it, `0` and a resource pass, and the panel's own scan stays clean.
 - [ ] Commit: `theme: elevation and motion tokens`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Motion` exits 0, and fails if the zero-duration path is removed.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*MotionTests"` exits 0, and fails if the zero-duration path is removed; `python scripts/run-tests.py` passes `test_build_theme`.
 
 ## 2. Mica backdrop with a solid fallback
 
