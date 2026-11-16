@@ -145,3 +145,7 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`): update rows in place so the selected repo, focused cell and scroll survive refreshes, moving only when the repo goes (D03 T01 §2 completion review, 2026-11-16).
 - `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`): with 1,000 repo-side rows, apply a refresh under 50 ms at p95 (no repeated Any searches) (D03 T01 §2 completion review, 2026-11-16).
 - `tests/Bosun.Panel.E2E`: sort the Memory table's number columns both ways by keyboard alone, keeping focus over a refresh, and check its values unclipped at the least window size and 200% scaling (D03 T01 §2 completion review, 2026-11-16).
+- `src/Bosun.Panel/Controls/SeriesChart.cs`: read any dip's value and time with one pointer or keyboard action, and narrow an interval in two (D03 T01 §3 completion review, 2026-11-17).
+- `src/Bosun.Panel/Memory/MemoryPage.cs`: keep the last range and chart or table view over a restart (D03 T01 §3 completion review, 2026-11-17).
+- `src/Bosun.Panel/Memory/MemoryPage.cs` (`DrawHistory`): measure a cold 14-day read end to end (report, parse, bucket) against a two-second budget, UI stalls under 50 ms, a damaged log included (D03 T01 §3 completion review, 2026-11-17).
+- `src/Bosun.Panel/Controls/SeriesChart.cs`: intermediate ticks and keyboard point inspection, checked at the least window size and 200% scaling (D03 T01 §3 completion review, 2026-11-17).

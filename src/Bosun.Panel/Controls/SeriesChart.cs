@@ -22,6 +22,9 @@ public class SeriesChart : FrameworkElement
     public static readonly DependencyProperty FloorMbProperty = DependencyProperty.Register(
         nameof(FloorMb), typeof(long), typeof(SeriesChart), new FrameworkPropertyMetadata(2048L, FrameworkPropertyMetadataOptions.AffectsRender, OnSaid));
 
+    public static readonly DependencyProperty BucketProperty = DependencyProperty.Register(
+        nameof(Bucket), typeof(TimeSpan), typeof(SeriesChart), new FrameworkPropertyMetadata(TimeSpan.FromMinutes(5), FrameworkPropertyMetadataOptions.AffectsRender));
+
     public static readonly DependencyProperty RangeNameProperty = DependencyProperty.Register(
         nameof(RangeName), typeof(string), typeof(SeriesChart), new FrameworkPropertyMetadata("24 hours", OnSaid));
 
@@ -57,6 +60,9 @@ public class SeriesChart : FrameworkElement
 
     public string RangeName { get => (string)GetValue(RangeNameProperty); set => SetValue(RangeNameProperty, value); }
 
+    /// <summary>The range's bucket, so the x axis runs to the last bucket's end.</summary>
+    public TimeSpan Bucket { get => (TimeSpan)GetValue(BucketProperty); set => SetValue(BucketProperty, value); }
+
     public Brush? Line { get => (Brush?)GetValue(LineProperty); set => SetValue(LineProperty, value); }
 
     public Brush? Pressure { get => (Brush?)GetValue(PressureProperty); set => SetValue(PressureProperty, value); }
@@ -83,12 +89,18 @@ public class SeriesChart : FrameworkElement
         }
     }
 
-    /// <summary>The runs of measured points laid out in a box, the line breaking at every missing bucket.</summary>
-    public static IReadOnlyList<IReadOnlyList<Point>> Layout(IReadOnlyList<HistoryPoint> points, double width, double height, long topMb)
+    /// <summary>
+    /// The runs of measured points laid out in a box, the line breaking at every missing bucket. Each point is placed at
+    /// its own minute between the first bucket's start and the last bucket's end (completion review: a minimum at 14:59
+    /// had been drawn at its bucket's 14:00).
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<Point>> Layout(IReadOnlyList<HistoryPoint> points, double width, double height, long topMb, TimeSpan bucket)
     {
         var runs = new List<IReadOnlyList<Point>>();
         if (points.Count == 0 || topMb <= 0) return runs;
-        var step = points.Count > 1 ? width / (points.Count - 1) : 0;
+        var from = points[0].Start;
+        var span = (points[^1].Start + bucket - from).Ticks;
+        double X(DateTime at) => span <= 0 ? 0 : width * (at - from).Ticks / span;
         List<Point>? run = null;
         for (var i = 0; i < points.Count; i++)
         {
@@ -98,7 +110,7 @@ public class SeriesChart : FrameworkElement
                 continue;
             }
             if (run is null) runs.Add(run = []);
-            run.Add(new Point(i * step, height - height * mb / topMb));
+            run.Add(new Point(X(points[i].At), height - height * mb / topMb));
         }
         return runs;
     }
@@ -109,7 +121,7 @@ public class SeriesChart : FrameworkElement
         var plotHeight = Math.Max(0, ActualHeight - Inset);
         var top = Math.Max(FloorMb, points.Where(p => p.LowestMb is not null).Select(p => p.LowestMb!.Value).DefaultIfEmpty(0).Max());
         TopMb = top + top / 10;
-        Runs = Layout(points, ActualWidth, plotHeight, TopMb);
+        Runs = Layout(points, ActualWidth, plotHeight, TopMb, Bucket);
         if (Line is { } line)
         {
             var pen = new Pen(line, 1.7) { LineJoin = PenLineJoin.Round };

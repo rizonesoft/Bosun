@@ -36,7 +36,7 @@ public class MemoryHistoryTests
         source.HoldFortnight = new TaskCompletionSource();
         OnMemoryPage(source, (page, _, _, _) =>
         {
-            Assert.Equal(288, page.Points.Count);
+            Assert.Equal(289, page.Points.Count);
             Assert.Equal((long?)1536, History.Lowest(page.Points)!.LowestMb);                 // from the day report
             Assert.StartsWith("Lowest 1.5 GB at ", page.LowestSummary, StringComparison.Ordinal);
             page.Range = HistoryRange.Week;                                                    // the fortnight is still being read
@@ -44,7 +44,7 @@ public class MemoryHistoryTests
             Assert.Equal(MemoryPage.ReadingHistory, page.HistoryState);
             source.HoldFortnight!.SetResult();
             Settle();
-            Assert.Equal(336, page.Points.Count);
+            Assert.Equal(337, page.Points.Count);
             Assert.Equal((long?)900, History.Lowest(page.Points)!.LowestMb);                  // three days back, inside the week
             page.Range = HistoryRange.Day;
             Assert.Equal((long?)1536, History.Lowest(page.Points)!.LowestMb);
@@ -66,6 +66,16 @@ public class MemoryHistoryTests
             tick(Bosun.Core.RefreshScheduler.Slow + TimeSpan.FromSeconds(1));
             Assert.Equal((long?)4096, History.Lowest(page.Points)!.LowestMb);                  // the last points kept
             Assert.StartsWith("The history could not be read again: bosun report ran past 60 s. Showing the read from ", page.HistoryState, StringComparison.Ordinal);
+            Assert.EndsWith(" ago.", page.HistoryState, StringComparison.Ordinal);                             // its day and its age, never a bare time
+            Assert.True(page.HistoryFailed);
+            Assert.Contains(page.PaletteCommands, c => c.Name == "Retry reading the history");                // its own Retry, the cards still live
+            Assert.Equal(Bosun.Panel.Shell.PageState.Data, page.State);
+            source.Report = Day(Series((10, 4096)));
+            page.PaletteCommands.Single(c => c.Name == "Retry reading the history").Command.Execute(null);
+            Settle();
+            Assert.False(page.HistoryFailed);                                                                    // recovered
+            Assert.Equal("", page.HistoryState);
+            Assert.DoesNotContain(page.PaletteCommands, c => c.Name == "Retry reading the history");
         });
     }
 
@@ -137,6 +147,14 @@ public class MemoryHistoryTests
             Assert.Equal(memory.Points.Count, table.Items.Count);                                // the chart's own points
             Assert.Contains(table.Items.Cast<HistoryPoint>(), p => p.Lowest == "1.5 GB");
             Assert.Contains(table.Items.Cast<HistoryPoint>(), p => p.Lowest == "No sample");
+            // Sorted by value and by time, never by their words (completion review: "10.0 GB" before "2.0 GB").
+            Assert.Equal(["At", "LowestSort"], table.Columns.Select(c => c.SortMemberPath));
+            var rows = System.Windows.Data.CollectionViewSource.GetDefaultView(table.ItemsSource);
+            rows.SortDescriptions.Add(new System.ComponentModel.SortDescription("LowestSort", System.ComponentModel.ListSortDirection.Ascending));
+            var sorted = rows.Cast<HistoryPoint>().ToList();
+            Assert.Equal("1.5 GB", sorted[0].Lowest);
+            Assert.Equal("No sample", sorted[^1].Lowest);                                                    // a gap after every value
+            rows.SortDescriptions.Clear();
             return 0;
         }, 1360, 1100);
     }

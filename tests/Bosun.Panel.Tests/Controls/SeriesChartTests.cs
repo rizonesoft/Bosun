@@ -35,8 +35,8 @@ public class SeriesChartTests
             At(End.AddMinutes(-9), null),                                                                       // no Windows sample: not 0
         };
         var points = History.Buckets(series, HistoryRange.Day, End);
-        Assert.Equal(288, points.Count);                                                                        // 24 hours of 5 minutes
-        Assert.Equal(new DateTime(2026, 11, 15, 12, 5, 0, DateTimeKind.Utc), points[0].Start);
+        Assert.Equal(289, points.Count);                                                                        // 24 hours of 5 minutes, both ends held
+        Assert.Equal(new DateTime(2026, 11, 15, 12, 0, 0, DateTimeKind.Utc), points[0].Start);                // the range's first minute is in it
         Assert.Equal(End, points[^1].Start);
         var last = points[^2];                                                                                  // 11:55 to 12:00
         Assert.Equal((End.AddMinutes(-5), End.AddMinutes(-2), (long?)4000), (last.Start, last.LowestAt, last.LowestMb));
@@ -44,8 +44,18 @@ public class SeriesChartTests
         Assert.Equal(2, points.Count(p => p.LowestMb is not null));                                             // -3, -2 and -1 share one bucket
         Assert.Equal("No sample", points[0].Lowest);
         Assert.Equal((long?)4000, History.Lowest(points)!.LowestMb);
-        Assert.Equal(336, History.Buckets(series, HistoryRange.Week, End).Count);
-        Assert.Equal(336, History.Buckets(series, HistoryRange.Fortnight, End).Count);
+        Assert.Equal(337, History.Buckets(series, HistoryRange.Week, End).Count);
+        Assert.Equal(337, History.Buckets(series, HistoryRange.Fortnight, End).Count);
+    }
+
+    [Fact]
+    public void A_low_in_the_oldest_part_of_the_range_is_in_it_and_one_just_before_is_not()
+    {
+        // Completion review: the oldest part bucket was dropped, and a low there vanished.
+        var end = End.AddMinutes(2);
+        var points = History.Buckets([At(end.AddHours(-24).AddMinutes(1), 900), At(end.AddHours(-24).AddMinutes(-1), 100)], HistoryRange.Day, end);
+        Assert.Equal((long?)900, History.Lowest(points)!.LowestMb);                                            // 1 minute inside: kept
+        Assert.DoesNotContain(points, p => p.LowestMb == 100);                                                 // 1 minute before: not the range's
     }
 
     [Fact]
@@ -55,11 +65,24 @@ public class SeriesChartTests
         {
             new HistoryPoint(End, End, 4096), new HistoryPoint(End, End, 2048), new HistoryPoint(End, null, null), new HistoryPoint(End, End, 1024),
         };
-        var runs = SeriesChart.Layout(points, 300, 100, 4096);
+        var runs = SeriesChart.Layout(points, 300, 100, 4096, TimeSpan.FromMinutes(5));
         Assert.Equal(2, runs.Count);                                                                            // broken at the gap
-        Assert.Equal([new Point(0, 0), new Point(100, 50)], runs[0]);                                         // 4096 at the top, 2048 half way
-        Assert.Equal([new Point(300, 75)], runs[1]);                                                           // 1024 a quarter up, alone
-        Assert.Empty(SeriesChart.Layout([new HistoryPoint(End, null, null)], 300, 100, 4096));                 // nothing measured: no line
+        Assert.Equal([0.0, 50.0], runs[0].Select(p => p.Y));                                                   // 4096 at the top, 2048 half way
+        Assert.Equal([75.0], runs[1].Select(p => p.Y));                                                        // 1024 a quarter up, alone
+        Assert.Empty(SeriesChart.Layout([new HistoryPoint(End, null, null)], 300, 100, 4096, TimeSpan.FromMinutes(5)));
+    }
+
+    [Fact]
+    public void Each_point_is_drawn_and_listed_at_its_own_minute_not_its_buckets_start()
+    {
+        // Completion review: a fortnight's minimum at 14:59 had been drawn and listed at its bucket's 14:00.
+        var start = new DateTime(2026, 11, 16, 14, 0, 0, DateTimeKind.Utc);
+        var low = start.AddMinutes(59);
+        var points = new[] { new HistoryPoint(start, low, 1024), new HistoryPoint(start.AddHours(1), start.AddHours(1), 4096) };
+        var run = SeriesChart.Layout(points, 200, 100, 4096, TimeSpan.FromHours(1)).Single();
+        Assert.Equal(200 * 59.0 / 120, run[0].X, 6);                                                           // 59 of the 120 minutes along
+        Assert.Equal(100, run[1].X, 6);
+        Assert.Equal(low.ToLocalTime().ToString("ddd d MMM HH:mm", System.Globalization.CultureInfo.InvariantCulture), points[0].Time);
     }
 
     [Fact]
@@ -113,7 +136,7 @@ public class SeriesChartTests
             chart.Points = History.Buckets(series, HistoryRange.Fortnight, End);
             PageRenderer.Settle(page);
             clock.Stop();
-            Assert.Equal(336, chart.Runs.Single().Count);                                                       // drawn, not blank
+            Assert.Equal(337, chart.Runs.Single().Count);                                                       // drawn, not blank
             Assert.True(clock.ElapsedMilliseconds < 50, $"took {clock.ElapsedMilliseconds} ms");
             return 0;
         });

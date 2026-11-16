@@ -23,8 +23,14 @@ public sealed record HistoryRange(string Name, TimeSpan Length, TimeSpan Bucket)
 /// </summary>
 public sealed record HistoryPoint(DateTime Start, DateTime? LowestAt, long? LowestMb)
 {
-    /// <summary>The bucket's time in local time, as the table says it.</summary>
-    public string Time => Start.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
+    /// <summary>When the point is: its lowest minute, or the bucket's start when it has no sample.</summary>
+    public DateTime At => LowestAt ?? Start;
+
+    /// <summary>That time in local time, with its date, as the table says it.</summary>
+    public string Time => At.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>What the table sorts its Lowest column by: the value, a bucket with no sample after every value.</summary>
+    public long LowestSort => LowestMb ?? long.MaxValue;
 
     /// <summary>Its lowest available in GB, or "No sample" for a bucket the logger did not measure.</summary>
     public string Lowest => LowestMb is { } mb ? (mb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB" : "No sample";
@@ -42,17 +48,22 @@ public static class History
         DateTime.TryParseExact(minute, "yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at)
             ? at : null;
 
-    /// <summary>The buckets of <paramref name="range"/> ending at <paramref name="end"/> (UTC), oldest first.</summary>
+    /// <summary>
+    /// The buckets that cover the whole of <paramref name="range"/> ending at <paramref name="end"/> (UTC), oldest
+    /// first: from the bucket holding the range's first minute to the one holding its last, so a low anywhere in the
+    /// range is in a bucket (completion review: the oldest part bucket was dropped). A minute outside the range is not.
+    /// </summary>
     public static IReadOnlyList<HistoryPoint> Buckets(IEnumerable<SeriesPointDoc> series, HistoryRange range, DateTime end)
     {
         var ticks = range.Bucket.Ticks;
+        var from = end - range.Length;
+        var first = new DateTime(from.Ticks / ticks * ticks, DateTimeKind.Utc);
         var last = new DateTime(end.Ticks / ticks * ticks, DateTimeKind.Utc);
-        var count = (int)(range.Length.Ticks / ticks);
-        var first = last - TimeSpan.FromTicks(ticks * (count - 1));
+        var count = (int)((last - first).Ticks / ticks) + 1;
         var lows = new (DateTime? At, long? Mb)[count];
         foreach (var point in series)
         {
-            if (point.WinAvailableMb is not { } mb || MinuteOf(point.Minute) is not { } at || at < first || at >= last + range.Bucket) continue;
+            if (point.WinAvailableMb is not { } mb || MinuteOf(point.Minute) is not { } at || at < from || at > end) continue;
             var i = (int)((at - first).Ticks / ticks);
             if (lows[i].Mb is not { } low || mb < low) lows[i] = (at, mb);
         }

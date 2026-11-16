@@ -129,8 +129,16 @@ public sealed class MemoryPage : PageBase
     public ICommand ShowAsChart { get; }
 
     /// <summary>The page's own commands for Ctrl+K: whichever of Show as table and Show as chart the card offers now.</summary>
-    protected override IEnumerable<PageCommand> Commands =>
-        ShowTable ? [new PageCommand("Show the history as a chart", GlyphAction.Chart, ShowAsChart)] : [new PageCommand("Show the history as a table", GlyphAction.Table, ShowAsTable)];
+    protected override IEnumerable<PageCommand> Commands
+    {
+        get
+        {
+            // A history that failed while the live cards are fine leaves the page in its data state, so its Retry is
+            // the history card's own (completion review): the page's refresh, which reads all three again.
+            if (HistoryFailed && RefreshNow is { } retry) yield return new PageCommand("Retry reading the history", GlyphAction.Refresh, retry);
+            yield return ShowTable ? new PageCommand("Show the history as a chart", GlyphAction.Chart, ShowAsChart) : new PageCommand("Show the history as a table", GlyphAction.Table, ShowAsTable);
+        }
+    }
 
     /// <summary>Windows used: a <see cref="Metric"/> ("24.6 GB") or a <see cref="NotAvailable"/>.</summary>
     public object? WindowsUsed { get => _windowsUsed; private set => Set(ref _windowsUsed, value); }
@@ -214,6 +222,7 @@ public sealed class MemoryPage : PageBase
     private void DrawHistory()
     {
         var (latest, good) = _range == HistoryRange.Day ? (_report, _dayGood) : (_fortnight, _fortnightGood);
+        Raise(nameof(HistoryFailed));
         if (good?.Value is not { } doc)
         {
             Points = [];
@@ -227,11 +236,22 @@ public sealed class MemoryPage : PageBase
         LowestSummary = low is null ? "" : $"Lowest {low.Lowest} at {low.LowestAt!.Value.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)}";
         var notes = new List<string>();
         if (latest is { Value: null })
-            notes.Add($"The history could not be read again: {latest.Why} Showing the read from {good.ReadAt?.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) ?? "earlier"}.");
+            notes.Add($"The history could not be read again: {latest.Why} Showing the read from {ReadWhen(good.ReadAt)}.");
         if (low is null) notes.Add(NoHistory);
         if (!doc.Read.Complete) notes.Add($"The history is incomplete: {doc.Read.UnreadableFiles} files could not be read and {doc.Read.RejectedRows} rows were rejected.");
         HistoryState = string.Join(" ", notes);
     }
+
+    /// <summary>
+    /// When a kept read was taken, with its day and age ("Sun 16 Nov 21:40, 3 hours ago"), so yesterday's is never
+    /// taken for today's (completion review).
+    /// </summary>
+    private string ReadWhen(DateTimeOffset? at) => at is { } read
+        ? $"{read.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)}, {Age(Clock.GetUtcNow() - read)} ago"
+        : "earlier";
+
+    /// <summary>Whether the range shown failed its last read: its Retry shows, on the card and for Ctrl+K.</summary>
+    public bool HistoryFailed => (_range == HistoryRange.Day ? _report : _fortnight) is { Value: null };
 
     private sealed class Relay(Action run) : ICommand
     {
