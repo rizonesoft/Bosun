@@ -26,6 +26,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Two Windows jobs side by side: one after another the script tests took 14 of the one job's 18 minutes
+  # (2026-11-16). The build's own job takes the build-tool tests, the other the rest, balanced by that day's step
+  # times (about 10 and 11 minutes); two, not more, so the run costs few more minutes than one (the owner's choice).
   windows:
     name: Build and test on Windows
     runs-on: windows-latest
@@ -61,33 +64,16 @@ jobs:
         run: build\Release\test_core.exe
       - name: Core test names
         run: pwsh tests\core_names_test.ps1
-
-  # The script tests run in three jobs beside the one above: one after another they took 14 of its 18 minutes
-  # (2026-11-16). Each job builds what its tests read, and the groups are balanced by that day's step times.
-  scripts-build:
-    name: Script tests, the build and its tools
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          global-json-file: global.json
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - name: Icon generator packages
-        run: python -m pip install --disable-pip-version-check -r scripts/requirements-icons.txt
-      - name: Build
-        run: pwsh scripts\build.ps1
-      - name: Build the .NET solution
-        run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
-      - name: Build measurement test
-        run: pwsh tests\measure_build_test.ps1
+      - name: Instances test
+        run: pwsh tests\instances_test.ps1
+      - name: Start script test
+        run: pwsh tests\start_run_test.ps1
       - name: Build output test
         run: pwsh tests\bin_output_test.ps1
       - name: Build cache test
         run: pwsh tests\build_cache_test.ps1
+      - name: Build measurement test
+        run: pwsh tests\measure_build_test.ps1
       - name: Developer environment cache test
         run: pwsh tests\dev_env_test.ps1
       - name: Build script test
@@ -97,8 +83,8 @@ jobs:
       - name: Swap install test
         run: pwsh tests\swap_file_test.ps1
 
-  scripts-queue:
-    name: Script tests, the queue and the preflight
+  scripts:
+    name: Script tests on Windows
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -119,29 +105,6 @@ jobs:
         run: pwsh tests\preflight_test.ps1
       - name: Queue tests
         run: pwsh tests\queue_test.ps1 -SkipWsl
-      - name: Instances test
-        run: pwsh tests\instances_test.ps1
-
-  scripts-run:
-    name: Script tests, runs, gates and the panel's tools
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          global-json-file: global.json
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - name: Icon generator packages
-        run: python -m pip install --disable-pip-version-check -r scripts/requirements-icons.txt
-      - name: Build
-        run: pwsh scripts\build.ps1
-      - name: Build the .NET solution
-        run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
-      - name: Start script test
-        run: pwsh tests\start_run_test.ps1
       - name: Clone setup test
         run: pwsh tests\setup_clone_test.ps1
       - name: Campaign admin setup test
