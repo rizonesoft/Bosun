@@ -45,6 +45,8 @@ title: "TODO-01 -- Memory and overview"
 
 ## 1. Memory readers
 
+> **Started:** 2026-11-16T05:42:49Z
+
 Typed access to the core contract, with schema refusal, so pages only deal in values or a reason.
 
 **Phase:** 3
