@@ -352,6 +352,10 @@ public class MemoryPageTests
             var grid = ShellSupport.Under<DataGrid>(view).Single();
             Assert.Equal(["Repo", "Side", "Private GB", "Peak GB", "Processes"], grid.Columns.Select(c => (string)c.Header));
             Assert.Equal(4, grid.Items.Count);
+            // Round 2: the folder's name alone can't tell two repos apart; the whole path is its tooltip.
+            var recto = ShellSupport.Under<TextBlock>(grid).First(t => t.Text == "Recto");
+            Assert.Equal("D:/Recto", recto.ToolTip);
+            Assert.Equal("D:/Recto", System.Windows.Automation.AutomationProperties.GetHelpText(recto));
             return 0;
         }, 1360, 860);
     }

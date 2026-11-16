@@ -101,8 +101,15 @@
                 <DataGrid x:Name="ByRepo" ItemsSource="{Binding RowsView}" AutoGenerateColumns="False" IsReadOnly="True"
                           CanUserSortColumns="True" AutomationProperties.Name="By repo">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Repo" Binding="{Binding Repo}" SortMemberPath="Repo" Width="2*"
-                                            ElementStyle="{DynamicResource Cell.Text}"/>
+                        <!-- The folder's name, its whole path on hover and to a screen reader: two folders of one name stay apart. -->
+                        <DataGridTemplateColumn Header="Repo" SortMemberPath="Repo" Width="2*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Repo}" Style="{DynamicResource Cell.Text}" ToolTip="{Binding Path}"
+                                               AutomationProperties.HelpText="{Binding Path}"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*"
                                             ElementStyle="{DynamicResource Cell.Text}"/>
                         <DataGridTextColumn Header="Private GB" Binding="{Binding Private}" SortMemberPath="PrivateGb" Width="*"
