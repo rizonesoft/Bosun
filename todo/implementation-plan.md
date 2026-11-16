@@ -89,7 +89,7 @@ Sections: 26 | Checklist items: 261
 | [x]    | D02 T03 §8  | Command palette                                                | display-session | 11    |
 | [x]    | D02 T03 §9  | In-window toasts                                               | display-session | 8     |
 | [x]    | D02 T03 §10 | High contrast theme and renders                                | none            | 11    |
-| [ ]    | D02 T03 §11 | Contrast preview and its smoke on the shown window             | display-session | 4     |
+| [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window             | display-session | 4     |
 | [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen | display-session | 7     |
 
 ### Phase 3: Monitoring
@@ -147,6 +147,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 66/92 verified sections, 5 ready to run now.
+Progress: 67/92 verified sections, 4 ready to run now.
 
-Checklist: 687/806 items completed (includes Commit items).
+Checklist: 688/806 items completed (includes Commit items).

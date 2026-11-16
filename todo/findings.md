@@ -139,3 +139,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Shell/ToastCard.cs`: one keyboard action on a toast that shows its whole result, or selects its line in the Activity pane (D02 T03 §9 completion review, 2026-11-16).
 - `src/Bosun.Panel/Shell/ToastHost.cs` (`Dismiss`): keep the count of results not shown until the Activity pane is visited, with one action to reach them, rather than clearing it on any dismiss (D02 T03 §9 completion review, 2026-11-16).
 - `src/Bosun.Panel/Shell/ToastCard.cs`: where the owning page offers a safe Retry or the setting at fault, reach it from a failed toast in one press, its confirmation kept (D02 T03 §9 completion review, 2026-11-16).
+- `src/Bosun.Panel/Settings/SettingsView.xaml`: an optional in-app contrast preview selector, two actions to switch and one to restore, the desktop untouched (D02 T03 §11 completion review, 2026-11-16).
+- `tests/Bosun.Panel.E2E/ContrastTests.cs`: repeat the shown-window focus and selection checks with Desert (`hcwhite.theme`) and at 200% scaling, with no clipped label or lost focus indicator (D02 T03 §11 completion review, 2026-11-16).

@@ -2,7 +2,7 @@
 schema_version: 1
 id: premium-components
 domain: 02-shell
-status: active
+status: done
 title: "TODO-03 -- Premium components"
 ---
 
@@ -49,7 +49,7 @@ title: "TODO-03 -- Premium components"
 | 8 | §8 | Command palette | §3 | [x] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [x] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
-| 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
+| 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [x] |
 | 12 | §12 | Window placement remembered, and the smoke off the main screen | D02 T02 §4 | [x] |
 
 ## 1. Elevation and motion tokens
@@ -473,9 +473,12 @@ Filed 2026-11-16 by the completion review of `D02 T03 §10` (`docs/reviews/02-sh
 - [x] Add `SystemPalette.FromThemeFile(string path)` in `src/Bosun.Panel/Theme/HighContrastTheme.cs`, reading the `[Control Panel\Colors]` section's `Window`, `WindowText`, `Hilight`, `HilightText`, `GrayText`, `HotTrackingColor`, `ButtonFace` and `ButtonText`, bounded to 64 KB and refusing a missing or malformed value by name. Done when: `tests/Bosun.Panel.Tests/Theme/ThemeFileTests.cs` reads `hc2.theme` and `hcwhite.theme` copies as the palettes `tests/Bosun.Panel.Tests/Helpers/ContrastPalettes.cs` holds, and refuses, naming why, a copy over 64 KB, one missing each colour, one with a value that is not three numbers, and one with a number past 255. Cheaper substitute: colours typed into the panel.
 - [x] Add `PreviewContrast : IHighContrast` in `src/Bosun.Panel/Theme/ThemeService.cs`, always on with the file's palette, chosen by `App.MakeWindow` when `BOSUN_PANEL_CONTRAST` is set, and saying in the Activity pane that a preview is in force and from which file; a file that can't be read is said there and Windows' own setting used. Done when: a test of the choice sees each case (no variable, a good file, a missing, too large or damaged file falling back to Windows' setting with its Activity line), the Settings page says the preview's note, the stored theme is unchanged, and a started panel with the variable set draws its window in the file's window colour. Cheaper substitute: a hidden switch with no word of it.
 - [x] Add `ContrastTests` to `tests/Bosun.Panel.E2E`, starting the panel with `BOSUN_PANEL_CONTRAST` naming `hc2.theme`: a real Tab puts the focus ring on screen in the highlight colour, the chosen theme segment shows highlight text on the highlight, and the command palette opened by a real Ctrl+K shows its selected row the same, all read from the screen's pixels. Done when: both pass in a desktop session, and fail with the contrast setters removed from `Controls.xaml`. Cheaper substitute: the off-screen drawings of the parts.
-- [ ] Commit: `theme: contrast preview and its smoke`
+- [x] Commit: `theme: contrast preview and its smoke`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ContrastTests"` exits 0 in a desktop session, and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*HighContrastTests" --filter-class "*ThemeFileTests"` exits 0.
+
+> **Verified:** 2026-11-16 | §11 | 13ae0ec8ef5e7e3ddaeac68245e0b85c7aa5ce1b
+> **Review:** `docs/reviews/d02-t03-s11.json`
 
 ## 12. Window placement remembered, and the smoke off the main screen
 
