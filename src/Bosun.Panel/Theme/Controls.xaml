@@ -252,11 +252,13 @@
         <Setter Property="TextElement.FontSize" Value="{DynamicResource T.Caption}"/>
         <Setter Property="TextElement.FontWeight" Value="SemiBold"/>
         <Style.Triggers>
+            <!-- In a contrast theme, an outline in the row's own colour: the window's text, or on the selected row the
+                 highlight's text, never white on the highlight's fill (completion review of D02 T03 §3). -->
             <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
                 <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                <Setter Property="BorderBrush" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="TextElement.Foreground" Value="{DynamicResource B.Text}"/>
+                <Setter Property="TextElement.Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"/>
             </Trigger>
         </Style.Triggers>
     </Style>

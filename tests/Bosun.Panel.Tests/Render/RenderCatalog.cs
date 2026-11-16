@@ -27,6 +27,8 @@ public static partial class RenderCatalog
         // The backdrop (D02 T03 §2), on a clear host: Mica leaves the title bar and rail clear for Windows' backdrop,
         // the page's sheet still solid. Solid is the shell as it starts, drawn above as shell.overview.
         new("shell", "backdrop-mica", () => Backdropped(Bosun.Panel.Shell.BackdropKind.Mica)) { Shows = "Panel ready", ClearHost = true },
+        // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
+        new("shell", "badges", Badged) { Shows = "12" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
         // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
         new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
@@ -83,6 +85,15 @@ public static partial class RenderCatalog
         Shell.TestPage.AddTemplate(frame);
         page.Show();
         return frame;
+    }
+
+    /// <summary>The shell with counts waiting: Overview (selected) 12, Queue 3, Settings 1.</summary>
+    private static FrameworkElement Badged()
+    {
+        var shell = Shell.Shells.Panel();
+        foreach (var (key, count) in new[] { ("overview", 12), ("queue", 3), ("settings", 1) })
+            shell.Sections.Single(s => s.Key == key).Page.Waiting = count;
+        return new Bosun.Panel.Shell.ShellView { DataContext = shell };
     }
 
     /// <summary>The shell painted for a backdrop, as <see cref="Bosun.Panel.Shell.Backdrop.Paint"/> paints it in the window.</summary>

@@ -39,6 +39,28 @@ public class CountBadgeTests
     }
 
     [Fact]
+    public void In_a_contrast_theme_a_badge_is_its_rows_colour_never_white_on_the_highlight()
+    {
+        // Completion review: the selected row's badge read white on the highlight's fill.
+        PageRenderer.InPage("HighContrast", () => new ShellView { DataContext = Shells.Panel() }, page =>
+        {
+            var rail = ShellSupport.Under<ListBox>(page).First(l => l.Name == "Rail");
+            foreach (var section in rail.Items.Cast<Section>()) section.Page.Waiting = 4;
+            PageRenderer.Settle(page);
+            foreach (var index in new[] { 0, 1 }) // selected, and not
+            {
+                var row = ShellSupport.Row(rail, index);
+                var pill = ShellSupport.Under<Border>(ShellSupport.Under<Decorative>(row).Single(d => d.Name == "Badge")).First();
+                var text = ShellSupport.Under<TextBlock>(pill).Single();
+                var rowColour = ((System.Windows.Media.SolidColorBrush)row.Foreground).Color;
+                Assert.Equal(rowColour, ((System.Windows.Media.SolidColorBrush)text.Foreground).Color);
+                Assert.Equal(rowColour, ((System.Windows.Media.SolidColorBrush)pill.BorderBrush).Color);
+            }
+            return 0;
+        }, 1360, 860);
+    }
+
+    [Fact]
     public void The_row_name_reads_as_the_title_and_the_count_in_words() =>
         Assert.Equal(("Queue", "Queue, 1 waiting", "Queue, 12 waiting"), (RailRowName.Of("Queue", 0), RailRowName.Of("Queue", 1), RailRowName.Of("Queue", 12)));
 }

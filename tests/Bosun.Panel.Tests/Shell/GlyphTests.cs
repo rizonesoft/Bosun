@@ -101,6 +101,63 @@ public class GlyphTests
         }, 1360, 860, colours);
     }
 
+    sealed class FakeContrast(SystemPalette palette) : IHighContrast
+    {
+        public bool On { get; private set; }
+
+        public SystemPalette Palette { get; private set; } = palette;
+
+        public event Action? Changed;
+
+        public void Set(bool on, SystemPalette? palette = null)
+        {
+            On = on;
+            Palette = palette ?? Palette;
+            Changed?.Invoke();
+        }
+    }
+
+    static ResourceDictionary Generated(string theme)
+    {
+        using var stream = System.IO.File.OpenRead(TestPaths.GeneratedTheme(theme + ".xaml"));
+        return (ResourceDictionary)System.Windows.Markup.XamlReader.Load(stream);
+    }
+
+    [Fact]
+    public void The_selected_glyph_follows_live_theme_changes_into_and_out_of_both_contrast_palettes()
+    {
+        // Completion review: one shell, its theme changed live as the person or Windows changes it.
+        PageRenderer.InPage("Dark", () => new ShellView { DataContext = Shells.Panel() }, page =>
+        {
+            var contrast = new FakeContrast(Helpers.ContrastPalettes.NightSky);
+            var theme = new ThemeService(page.Resources.MergedDictionaries, new Settings.FakeWindowsTheme(), page.Dispatcher, Generated, contrast);
+            HighContrastMode.SetIsOn(page, theme.IsHighContrast);
+            theme.EffectiveChanged += () => HighContrastMode.SetIsOn(page, theme.IsHighContrast);
+            var rail = Rail(page);
+            Color Glyph()
+            {
+                PageRenderer.Settle(page);
+                return ((SolidColorBrush)GlyphOf(ShellSupport.Row(rail, 0)).Foreground).Color;
+            }
+
+            theme.Apply(Bosun.Core.ThemeChoice.Light);
+            Assert.Equal(Brush(page, "B.Accent"), Glyph());
+            theme.Apply(Bosun.Core.ThemeChoice.Dark);
+            Assert.Equal(Brush(page, "B.Accent"), Glyph());
+            contrast.Set(true); // Windows turns a contrast theme on: Night sky
+            Assert.True(StartupSupport.Pump(() => theme.IsHighContrast));
+            Assert.Equal(Brush(page, "B.HighlightText"), Glyph());
+            Assert.Equal(Color.FromRgb(43, 43, 43), Glyph()); // Night sky's highlight text
+            contrast.Set(true, Helpers.ContrastPalettes.Desert); // another contrast theme chosen
+            Assert.True(StartupSupport.Pump(() => Brush(page, "B.HighlightText") == Color.FromRgb(255, 245, 227)));
+            Assert.Equal(Color.FromRgb(255, 245, 227), Glyph()); // Desert's
+            contrast.Set(false); // and off again: the person's choice back
+            Assert.True(StartupSupport.Pump(() => !theme.IsHighContrast));
+            Assert.Equal(Brush(page, "B.Accent"), Glyph());
+            return 0;
+        }, 1360, 860);
+    }
+
     [Fact]
     public void The_glyph_is_decorative_never_a_stop_nor_said_on_its_own()
     {
