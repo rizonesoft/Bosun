@@ -46,7 +46,7 @@ title: "TODO-03 -- Premium components"
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [x] |
 | 6 | §6 | Queue slot visuals | §5 | [x] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
-| 8 | §8 | Command palette | §3 | [ ] |
+| 8 | §8 | Command palette | §3 | [x] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
 | 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
@@ -353,9 +353,12 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 - [x] Register the Settings page's Save and Discard in the palette (**Added 2026-11-15** from the plan review of `D02 T02 §5`, which builds them as buttons before the palette exists). Done when: a test finds both in the palette on the Settings page, each disabled with its reason while there is nothing to save, and each running the same save and discard as the buttons, with one line in the Activity log. Cheaper substitute: an action the keyboard can't reach from Ctrl+K.
 - [x] Register the tray's Pause notifications for 1 hour, Resume notifications and Exit as commands in the palette (**Added 2026-11-15** from the completion review of `D02 T02 §7`, whose menu is the only way to them). Done when: a test finds each by typing its name, runs it, and reads the same result as the tray's menu line: the pause set with its Activity line, the pause ended, and Exit going through the question about unsaved edits. Cheaper substitute: commands only a mouse on the tray can reach.
 - [x] Register the page's Refresh as a command in the palette, with F5 as its key (**Added 2026-11-15** from the plan and completion reviews of `D02 T02 §8`, which builds the header's Refresh button). Done when: a test finds Refresh for the page on screen, runs it from the palette and with F5, and reads the same command as the button's: one extra call, joined to a run under way, with its Activity line; and no entry, and no key, for a page that has no refresh. Cheaper substitute: a refresh only the mouse can reach.
-- [ ] Commit: `shell: command palette`
+- [x] Commit: `shell: command palette`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*CommandPaletteTests"`, `dotnet test --project tests/Bosun.Core.Tests --filter-class "*CommandIndexTests"` and, on the test screen, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*CommandPaletteE2ETests"` exit 0, and the first fails if a danger command skips its confirmation.
+
+> **Verified:** 2026-11-16 | §8 | eb3d63184b39857ff85cad9539df6c2e2b31acb8
+> **Review:** `docs/reviews/d02-t03-s8.json`
 
 ## 9. In-window toasts
 
