@@ -29,6 +29,21 @@ public class HarnessTests
     }
 
     [Fact]
+    public void A_folder_that_can_t_be_removed_is_said_with_its_path_and_why()
+    {
+        var started = PanelProcess.StartProgram(PanelProcess.TestChildExe, "sleep", "30000");
+        var locked = Path.Combine(started.DataFolder, "locked.txt");
+        using (var held = new FileStream(locked, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            started.Dispose();
+            Assert.NotNull(started.CleanupFailure);
+            Assert.Contains(started.DataFolder, started.CleanupFailure);
+            Assert.Contains("locked.txt", started.CleanupFailure); // Windows names the file it could not remove
+        }
+        Directory.Delete(started.DataFolder, recursive: true); // the test's own leftover, now that it is let go
+    }
+
+    [Fact]
     public void Input_is_refused_when_its_target_is_not_the_panel()
     {
         using var panel = PanelProcess.Start();

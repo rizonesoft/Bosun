@@ -24,7 +24,7 @@ public class TrayTests
         Assert.Null(Ui.TopLevel(panel.Id, "Bosun Panel")); // started in the tray: no window
 
         // The icon, with its tooltip, and the one Bosun Panel icon there is.
-        var icon = Icon();
+        var icon = Icon(panel);
         Assert.Equal(Tooltip, icon.Current.Name);
 
         // The menu lists its four lines; Open shows the hidden window.
@@ -34,7 +34,7 @@ public class TrayTests
         Assert.StartsWith("Queue: ", lines[1].Current.Name);
         Assert.Equal(Pause, lines[2].Current.Name);
         Assert.Equal("Exit", lines[3].Current.Name);
-        RealInput.ClickMenuLine(panel.Id, lines[0]);
+        Choose(panel, lines[0]);
         var window = Shown(panel);
 
         // The first close hides the window and raises the still-running notification, which Windows confirms showing.
@@ -42,26 +42,26 @@ public class TrayTests
         Ui.Until(() => Stored(panel, "tray_notice_said"), TimeSpan.FromSeconds(15), "Windows to show the still-running notification");
 
         // A click on the icon shows the hidden window.
-        RealInput.ClickIcon(Icon());
+        RealInput.ClickIcon(Icon(panel));
         window = Shown(panel);
         Hide(panel, window);
 
         // The Queue line shows the Queue page.
-        RealInput.ClickMenuLine(panel.Id, OpenMenu(panel)[1]);
+        Choose(panel, OpenMenu(panel)[1]);
         window = Shown(panel);
         RailTests.Settle(window, "Queue");
         Hide(panel, window);
 
         // Pause becomes Resume, and Resume becomes Pause again.
-        RealInput.ClickMenuLine(panel.Id, OpenMenu(panel)[2]);
+        Choose(panel, OpenMenu(panel)[2]);
         var paused = OpenMenu(panel)[2];
         Assert.StartsWith("Resume notifications (paused until ", paused.Current.Name);
-        RealInput.ClickMenuLine(panel.Id, paused);
+        Choose(panel, paused);
         var exit = OpenMenu(panel);
         Assert.Equal(Pause, exit[2].Current.Name);
 
         // Exit ends the panel and takes its icon away.
-        RealInput.ClickMenuLine(panel.Id, exit[3]);
+        Choose(panel, exit[3]);
         var ended = await Task.WhenAny(panel.Exited, Task.Delay(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken));
         Assert.True(ended == panel.Exited, "Exit ends the panel within 15 s");
         Assert.Equal(0, panel.ExitCode());
@@ -69,11 +69,17 @@ public class TrayTests
     }
 
     /// <summary>
-    /// This panel's icon. Every other Bosun Panel icon is pointed at first, which makes the notification area drop
-    /// one whose process has gone; one that stays belongs to another running panel, and the two can't be told apart.
+    /// This panel's icon, established before any input reaches the notification area. Two panels' icons say the same
+    /// thing, so the icon is this panel's only when no other Bosun Panel process runs: that is checked first, and the
+    /// test refuses, sending nothing, when one does. Any other Bosun Panel icon then belongs to a process that has gone,
+    /// and is pointed at, which makes the notification area drop it.
     /// </summary>
-    private static AutomationElement Icon()
+    internal static AutomationElement Icon(PanelProcess owner)
     {
+        var others = OtherPanels(owner.Id);
+        if (others.Count > 0)
+            throw new RealInputRefused($"another Bosun Panel is running (process {string.Join(", ", others)}), and its icon can't be told from this panel's: close it and run the smoke again");
+        if (!owner.Running) throw new RealInputRefused("the panel under test is not running, so no icon is its own");
         var icons = BosunIcons();
         if (icons.Count > 1)
         {
@@ -82,7 +88,7 @@ public class TrayTests
             icons = BosunIcons();
         }
         if (icons.Count != 1)
-            throw new Xunit.Sdk.XunitException($"the notification area holds {icons.Count} Bosun Panel icons, so this panel's can't be told from another's: close every other Bosun Panel and run the smoke again");
+            throw new RealInputRefused($"the notification area holds {icons.Count} Bosun Panel icons where the panel under test should have one");
         // A notification can lie over the icon for a while (the still-running one does, over the overflow): wait for it
         // to go rather than send the pointer to it.
         var icon = icons[0];
@@ -94,6 +100,48 @@ public class TrayTests
         return icon;
     }
 
+    /// <summary>
+    /// Clicks a line of the panel's menu once nothing lies over it: a notification can cover the menu's corner of the
+    /// screen for some seconds, and the click must land on the line, never on the notification.
+    /// </summary>
+    private static void Choose(PanelProcess panel, AutomationElement line)
+    {
+        Ui.Until(() =>
+        {
+            var (x, y) = Ui.Centre(line);
+            var under = Native.RootAt(x, y);
+            return Native.ClassOf(under) == "#32768" && Native.ProcessOf(under) == panel.Id;
+        }, TimeSpan.FromSeconds(30), $"nothing to lie over the menu line '{line.Current.Name}'");
+        RealInput.ClickMenuLine(panel.Id, line);
+    }
+
+    /// <summary>The running Bosun.Panel processes in this session other than <paramref name="mine"/>.</summary>
+    private static List<int> OtherPanels(int mine)
+    {
+        var session = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+        var found = new List<int>();
+        foreach (var process in System.Diagnostics.Process.GetProcessesByName("Bosun.Panel"))
+            using (process)
+                if (process.Id != mine && process.SessionId == session) found.Add(process.Id);
+        return found;
+    }
+
+    [Fact]
+    public void An_icon_is_refused_before_any_input_when_another_panel_runs()
+    {
+        // The other panel stands for the operator's own: it has an icon. The program under test has none.
+        using var other = PanelProcess.Start("--tray");
+        Ui.Until(() => Native.WindowsOf(other.Id).Any(w => Native.TitleOf(w) == "Bosun Panel tray"), Ui.Short, "the other panel's tray window");
+        using var owner = PanelProcess.StartProgram(PanelProcess.TestChildExe, "sleep", "30000");
+        var pointer = Native.Cursor();
+        var refused = Assert.Throws<RealInputRefused>(() => Icon(owner));
+        Assert.Contains($"process {other.Id}", refused.Message);
+        Assert.Equal((pointer.X, pointer.Y), (Native.Cursor().X, Native.Cursor().Y)); // nothing was pointed at
+        Assert.Null(AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
+            new PropertyCondition(AutomationElement.ProcessIdProperty, other.Id),
+            new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu)))); // and no menu opened
+    }
+
     /// <summary>Every Bosun Panel icon in the notification area, its overflow opened when the icons are hidden there.</summary>
     private static List<AutomationElement> BosunIcons()
     {
@@ -103,7 +151,11 @@ public class TrayTests
         var overflow = root.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.ClassNameProperty, "TopLevelWindowForOverflowXamlIsland"));
         if (overflow is null || !Native.IsWindowVisible(new IntPtr(overflow.Current.NativeWindowHandle)) || overflow.Current.IsOffscreen)
         {
-            if (taskbar.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, "Show Hidden Icons")) is { } chevron)
+            // The button that opens the overflow, found without its name, which is in the shell's language: the first
+            // of the tray's own buttons, the leftmost (class SystemTray.NormalButton, id SystemTrayIcon).
+            if (taskbar.FindFirst(TreeScope.Descendants, new AndCondition(
+                    new PropertyCondition(AutomationElement.ClassNameProperty, "SystemTray.NormalButton"),
+                    new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTrayIcon"))) is { } chevron)
             {
                 Ui.Invoke(chevron);
                 overflow = Ui.Until(() => root.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.ClassNameProperty, "TopLevelWindowForOverflowXamlIsland")) is { } open
@@ -122,7 +174,7 @@ public class TrayTests
     /// <summary>The icon's menu, opened with a right click, as its lines.</summary>
     private static List<AutomationElement> OpenMenu(PanelProcess panel)
     {
-        RealInput.RightClickIcon(Icon());
+        RealInput.RightClickIcon(Icon(panel));
         var menu = Ui.Until(() => AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, panel.Id),
             new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu))), Ui.Short, "the icon's menu");

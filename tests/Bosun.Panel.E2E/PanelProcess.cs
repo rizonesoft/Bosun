@@ -117,24 +117,35 @@ sealed class PanelProcess : IDisposable
         _disposed = true;
         if (Running) RemoveTrayIcon();
         _child.Dispose(); // the job's last handle: the panel and everything it started end here
-        if (_ownsFolder)
+        if (_ownsFolder) RemoveFolder();
+    }
+
+    /// <summary>Why the test's folder could not be removed, or null when it was (or was never this panel's to remove).</summary>
+    public string? CleanupFailure { get; private set; }
+
+    /// <summary>
+    /// Removes the test's folder, giving the ended process's handles two seconds to close. A folder that stays is
+    /// said, with its path and why, as a warning on the test's result: a green run never hides scratch it left.
+    /// </summary>
+    private void RemoveFolder()
+    {
+        Exception? last = null;
+        for (var tries = 0; tries < 20 && Directory.Exists(DataFolder); tries++)
         {
-            for (var tries = 0; tries < 20 && Directory.Exists(DataFolder); tries++)
+            try
             {
-                try
-                {
-                    Directory.Delete(DataFolder, recursive: true);
-                }
-                catch (IOException)
-                {
-                    Thread.Sleep(100); // the ended process's handles close a moment after it ends
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    Thread.Sleep(100);
-                }
+                Directory.Delete(DataFolder, recursive: true);
+                last = null;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                last = e;
+                Thread.Sleep(100); // the ended process's handles close a moment after it ends
             }
         }
+        if (!Directory.Exists(DataFolder)) return;
+        CleanupFailure = $"the test's folder {DataFolder} was left behind: {last?.Message ?? "it still exists"}";
+        Xunit.TestContext.Current.AddWarning(CleanupFailure);
     }
 
     /// <summary>

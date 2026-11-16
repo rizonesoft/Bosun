@@ -22,6 +22,10 @@ public class RailTests
         using var panel = PanelProcess.Start();
         var window = panel.Window();
         var rail = Ui.Get(window, "Rail");
+        // The rail has exactly these rows: a row added without an expectation here fails, by name.
+        var onRail = rail.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+            .Cast<AutomationElement>().Select(row => row.Current.Name).ToList();
+        Assert.Equal(Rows.Select(row => row.Title), onRail);
         foreach (var (title, state) in Rows)
         {
             var row = Row(rail, title);
