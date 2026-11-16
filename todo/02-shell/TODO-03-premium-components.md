@@ -364,6 +364,8 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 
 A short result where the operator is looking. The Activity pane stays the record, so a toast never holds the only copy of anything.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. A toast is the result of a panel action: every action made by `ActivityLog.Command` ends in `ActivityLog.Record` (`src/Bosun.Panel/Shell/ActivityLog.cs`), which now hands its result to the shell's `ToastHost.Show` when the window has one; `Show` writes the Activity line (INFO for done, FAIL with the reason) and then the toast, so no toast exists without its line. Other log lines (a page's own INFO or WARN) are not toasts. The host is the shell's (`ShellViewModel.Toasts`), drawn bottom right in `ShellView`. Each toast's 6 s runs on the shell's `TimeProvider` (the clock pattern of `PageBase.Clock`), never a `DispatcherTimer` of its own (the panel's rule, `RefreshRulesTests`), so a test drives it with a fake clock. Toasts appear at once, with no animation. While the window is hidden the toasts on screen are dropped (their lines are already in the Activity pane) and a result writes only its line. A toast's card is a `StatusPill` (Ok for done, Danger for FAIL), its words, and a Dismiss button named for a screen reader; the words are a `LiveRegion` line, announced once. The card takes the theme's tokens and Windows' colours in a contrast theme, checked in both palettes, and its states are `RenderCatalog` cases. Tests: `tests/Bosun.Panel.Tests/Shell/ToastTests.cs`, and the keyboard Dismiss in the end-to-end smoke on the test screen; the checkpoint takes the test platform's filter form.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -377,7 +379,7 @@ A short result where the operator is looking. The Activity pane stays the record
 1. Create `src/Bosun.Panel/Shell/ToastHost.cs`. Done when: the stack, timeout and cap work in a test.
 2. Wire `src/Bosun.Panel/Shell/ActivityLog.cs`. Done when: each toast has its Activity line.
 
-- [ ] Create `ToastHost` in `src/Bosun.Panel/Shell/ToastHost.cs`, holding at most 3 and dropping the oldest non-FAIL first. Done when: `tests/Bosun.Panel.Tests/ToastTests.cs` proves the cap with a fourth toast.
+- [ ] Create `ToastHost` in `src/Bosun.Panel/Shell/ToastHost.cs`, holding at most 3 and dropping the oldest non-FAIL first. Done when: `tests/Bosun.Panel.Tests/Shell/ToastTests.cs` proves the cap with a fourth toast.
 - [ ] Dismiss after 6 s unless hovered or focused. Done when: a fake clock test proves the timer pauses on both. Cheaper substitute: a toast that vanishes under the pointer.
 - [ ] Keep a FAIL toast until it is dismissed. Done when: a fake clock test shows it after 60 s.
 - [ ] Write the Activity line from the single `Toast.Show` path. Done when: a test proves one line per toast, starting with INFO, WARN or FAIL. Cheaper substitute: a toast with no record.
@@ -386,7 +388,7 @@ A short result where the operator is looking. The Activity pane stays the record
 - [ ] Hold no timer once the stack is empty or the window is hidden, and show pending toasts' Activity lines only when hidden. Done when: a test finds no running timer in both cases.
 - [ ] Commit: `shell: in-window toasts`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Toast` exits 0, and fails if `Toast.Show` stops writing the Activity line.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ToastTests"` and, on the test screen, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ToastE2ETests"` exit 0, and the first fails if `ToastHost.Show` stops writing the Activity line.
 
 ## 10. High contrast theme and renders
 
