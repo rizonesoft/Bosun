@@ -93,7 +93,7 @@ Sections: 25 | Checklist items: 253
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 50
+Sections: 9 | Checklist items: 55
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
@@ -105,6 +105,7 @@ Sections: 8 | Checklist items: 50
 | [ ]    | D03 T02 §2 | Instances page                        | none  | 5     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 5     |
 | [ ]    | D03 T01 §5 | Overview page                         | none  | 7     |
+| [ ]    | D03 T02 §4 | Editor windows by repo                | none  | 5     |
 
 ### Phase 5: Machine
 
@@ -145,6 +146,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 57/90 verified sections, 6 ready to run now.
+Progress: 57/91 verified sections, 6 ready to run now.
 
-Checklist: 620/793 items completed (includes Commit items).
+Checklist: 620/798 items completed (includes Commit items).

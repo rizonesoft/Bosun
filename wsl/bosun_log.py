@@ -96,8 +96,13 @@ def instance_kind(name):
     return ""
 
 
+class Unreadable(Exception):
+    """A process whose /proc files exist but can't be read: denied, or an I/O fault. Not one that went."""
+
+
 def read_proc(proc, pid):
-    """(name, ppid, private_kb, start_ticks) from /proc/<pid>, or None for a kernel thread or a process that went."""
+    """(name, ppid, private_kb, start_ticks) from /proc/<pid>, or None for a kernel thread or a process that went. A
+    process that is there and can't be read raises Unreadable (completion review: a denied /proc read as an empty scan)."""
     status = {}
     try:
         with open(f"{proc}/{pid}/status", encoding="utf-8", errors="replace") as f:
@@ -106,8 +111,10 @@ def read_proc(proc, pid):
                 status[key] = value.strip()
         with open(f"{proc}/{pid}/stat", encoding="utf-8", errors="replace") as f:
             stat = f.read()
-    except OSError:
-        return None
+    except (FileNotFoundError, ProcessLookupError):
+        return None  # it exited while this looked
+    except OSError as e:
+        raise Unreadable(e.strerror or str(e)) from e
     if "VmRSS" not in status:
         return None
     try:
@@ -273,10 +280,14 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
     home = home if home is not None else os.path.expanduser("~")
     now = time.time() if now is None else now
     ticks = ticks or os.sysconf("SC_CLK_TCK")
-    procs = {}
+    procs, denied, why = {}, 0, None
     for entry in os.listdir(proc):
         if entry.isdigit():
-            info = read_proc(proc, int(entry))
+            try:
+                info = read_proc(proc, int(entry))
+            except Unreadable as e:
+                denied, why = denied + 1, str(e)
+                continue
             if info is not None:
                 procs[int(entry)] = info
     parent = parents_of(procs)
@@ -303,8 +314,12 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
         return datetime.datetime.fromtimestamp(btime + start // ticks, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     problems = []
+    if denied:
+        # Said, so a scan that read nothing is never taken for one that found nothing; an agent among them, or memory a
+        # listed one's denied children hold, is missing from this document.
+        problems.append({"source": "processes", "why": f"{denied} of the processes in {proc} can't be read ({why}), so instances and memory may be missing"})
     sessions = {s[0]: s for s in read_json_files(os.path.join(home, ".claude", "sessions"), "sessions", problems, parse_session)}
-    cache, marks_by_repo, unreadable, rows = {}, {}, 0, []
+    cache, marks_by_repo, unreadable, rows = {}, {}, denied, []
 
     def where(pid):
         try:

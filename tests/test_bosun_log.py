@@ -321,6 +321,32 @@ class Instances(unittest.TestCase):
             doc = json.load(f)
         self.assertEqual((doc["distro"], doc["instances"][0]["pid"]), ("Ubuntu", 10))
 
+    def test_a_process_that_cant_be_read_is_said_never_an_empty_scan(self):
+        # Completion review: a denied /proc read was taken for a process that went, so a scan of nothing looked clean.
+        self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)
+        self.process(20, "codex", 0, 1024, 5001, cwd=self.repo)
+        real = dl.read_proc
+
+        def denied(proc, pid):
+            if pid == 20:
+                raise dl.Unreadable("Permission denied")
+            return real(proc, pid)
+
+        dl.read_proc = denied
+        try:
+            doc = self.scan()
+        finally:
+            dl.read_proc = real
+        self.assertEqual([r["pid"] for r in doc["instances"]], [10])
+        self.assertEqual((doc["unreadable"], [p["source"] for p in doc["problems"]]), (1, ["processes"]))
+        self.assertIn("1 of the processes", doc["problems"][0]["why"])
+
+    def test_a_process_that_went_while_read_is_skipped_quietly(self):
+        self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)
+        os.remove(os.path.join(self.proc, "10", "stat"))  # gone between the listing and the read
+        doc = self.scan()
+        self.assertEqual((doc["instances"], doc["unreadable"], doc["problems"]), ([], 0, []))
+
     def test_a_folder_that_cant_be_listed_is_a_problem(self):
         self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)
         sessions = os.path.join(self.home, ".claude", "sessions")

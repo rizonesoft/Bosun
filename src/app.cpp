@@ -1191,7 +1191,7 @@ int cmd_instances(const Options& o) {
         info.pid = static_cast<int64_t>(p.pid);
         info.ppid = static_cast<int64_t>(p.ppid);
         info.name = p.name;
-        info.private_mb = static_cast<int64_t>(p.private_bytes / (1024 * 1024));
+        info.private_kb = static_cast<int64_t>(p.private_bytes / 1024);
         info.start = process_start_of(p.pid);
         infos.push_back(std::move(info));
     }

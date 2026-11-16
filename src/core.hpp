@@ -1270,7 +1270,7 @@ inline std::string snapshot_json(const Snapshot& s) {
 struct ProcInfo {
     int64_t pid = 0, ppid = 0;
     std::string name;
-    std::optional<int64_t> private_mb;
+    std::optional<int64_t> private_kb;  // in KB, so a sum of many small processes isn't lost to rounding each one
     std::optional<uint64_t> start;
     std::optional<std::string> started_at, cwd, repo;
 };
@@ -1334,18 +1334,21 @@ inline std::set<int64_t> instance_roots(const std::vector<ProcInfo>& procs, cons
     return roots;
 }
 
-// Each root's memory: its own private memory and that of every descendant whose nearest root it is, so a job under an
-// agent counts in the job and never in the agent. Null when nothing it owns was measured.
+// Each root's memory in MB: its own private memory and that of every descendant whose nearest root it is, so a job under
+// an agent counts in the job and never in the agent. Summed in KB and rounded down once (completion review: twelve
+// helpers of 0.75 MB each had read 0 MB). Null when nothing it owns was measured.
 inline std::map<int64_t, std::optional<int64_t>> owned_memory(const std::vector<ProcInfo>& procs, const std::map<int64_t, int64_t>& parent,
                                                               const std::set<int64_t>& roots) {
-    std::map<int64_t, std::optional<int64_t>> mb;
-    for (int64_t r : roots) mb[r] = std::nullopt;
+    std::map<int64_t, std::optional<int64_t>> kb;
+    for (int64_t r : roots) kb[r] = std::nullopt;
     for (const auto& p : procs) {
         int64_t owner = first_root(p.pid, parent, roots);
-        if (!owner || !p.private_mb) continue;
-        auto& total = mb[owner];
-        total = std::min<int64_t>(total.value_or(0) + *p.private_mb, INT64_MAX / 2);
+        if (!owner || !p.private_kb) continue;
+        auto& total = kb[owner];
+        total = std::min<int64_t>(total.value_or(0) + *p.private_kb, INT64_MAX / 2);
     }
+    std::map<int64_t, std::optional<int64_t>> mb;
+    for (const auto& [root, total] : kb) mb[root] = total ? std::optional<int64_t>(*total / 1024) : std::nullopt;
     return mb;
 }
 

@@ -39,6 +39,7 @@ title: "TODO-02 -- Instances and queue"
 | 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [ ] |
 | 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [ ] |
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [ ] |
+| 4 | §4 | Editor windows by repo | §1 | [ ] |
 
 ## 1. Instance scanner
 
@@ -121,6 +122,27 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 - [ ] Commit: `queue: page and limits`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.
+
+## 4. Editor windows by repo
+
+An editor is one process tree however many windows it has open, and the scanner (§1) puts it in the repo of the folder it was launched from, so a VS Code with windows on three repos shows in none of them, or in the wrong one. Each window's folder is in the editor's own state, never in its processes. Filed 2026-11-16 by the completion review of `D03 T02 §1` (`docs/reviews/03-monitor/D03-T02-s1.md`, Part 1 item 2).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Find where each editor records its windows' folders. Done when: this section names the file and field for each, read from the installed versions.
+2. List an editor once per open folder. Done when: an editor with windows on two repos is in both.
+
+- [ ] Read where VS Code (`%APPDATA%\Code\User\globalStorage\storage.json`, `windowsState`), Antigravity and VS Code Server in WSL record each open window's folder, on this machine's installed versions, and write the file, field and version of each into this section. Done when: the three are named here with the version read, or one that keeps no such record is named with why. Cheaper substitute: the launch folder, which §1 already has.
+- [ ] Add `dm::editor_windows` to `src/core.hpp` (and its mirror in `wsl/bosun_log.py`), reading that state into one folder per open window, a remote or unsaved window kept as no folder. Done when: `tests/test_core.cpp` and `tests/test_bosun_log.py` read a fixture state of two windows on two repos, one empty window and a malformed file (a `problems` entry, never a crash).
+- [ ] List an editor in `cmd_instances` (`src/app.cpp`) and the WSL scanner once per window folder, each row its window's `cwd` and `repo`, its memory on the first row only so no memory is counted twice. Done when: `tests/instances_test.ps1` with a fixture state file for its editor copy finds it in both repos, launched from outside both.
+- [ ] Group an editor's rows by repo in `InstanceClient.Merge` (`src/Bosun.Core/Instances/InstanceClient.cs`), the same pid in two groups. Done when: `InstanceClientTests` shows one editor in two repo groups with its memory once.
+- [ ] Commit: `instances: an editor in every repo it has open`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` exits 0, as do `build/Release/test_core.exe instances` and `pwsh tests/instances_test.ps1`; it fails if an editor with windows on two repos is listed in only one.
 
 ## Verification
 

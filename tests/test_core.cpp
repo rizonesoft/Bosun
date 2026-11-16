@@ -786,7 +786,7 @@ static dm::ProcInfo proc(int64_t pid, int64_t ppid, const char* name, int64_t mb
     p.pid = pid;
     p.ppid = ppid;
     p.name = name;
-    p.private_mb = mb;
+    p.private_kb = mb * 1024;
     p.start = start;
     return p;
 }
@@ -840,8 +840,15 @@ static void instances() {
     CHECK(dm::instance_roots(blind, blind_parent) == (std::set<int64_t>{60, 61}));
     // Nothing measured is null, never zero.
     std::vector<dm::ProcInfo> unmeasured{proc(70, 0, "codex", 0)};
-    unmeasured[0].private_mb.reset();
+    unmeasured[0].private_kb.reset();
     CHECK(!dm::owned_memory(unmeasured, dm::parents_of(unmeasured), {70})[70]);
+    // Summed before rounding: twelve helpers of 0.75 MB are 9 MB, not twelve zeros.
+    std::vector<dm::ProcInfo> small{proc(90, 0, "Code.exe", 0)};
+    for (int64_t k = 0; k < 12; ++k) {
+        small.push_back(proc(91 + k, 90, "Code.exe", 0));
+        small.back().private_kb = 768;
+    }
+    CHECK(dm::owned_memory(small, dm::parents_of(small), {90})[90] == std::optional<int64_t>(9));
 
     // Session records: read for their flat fields, lists and objects skipped; anything else refused.
     auto rec = dm::parse_session_record(R"({"pid":87544,"sessionId":"x","procStart":"134392624419037465","peerFeatures":["a",{"b":"]}"}],"status":"busy"})");
