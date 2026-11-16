@@ -275,6 +275,17 @@ struct Report {
     std::optional<int64_t> max_commit_mb, commit_limit_mb, max_pages_in;
     std::optional<int64_t> wsl_min_avail_mb;
     std::optional<int64_t> wsl_max_swap_mb, wsl_max_psi_full_x100, wsl_max_oom_kills;
+    // The decision's evidence (D03 T01 §6), each counted over the Windows samples at the installed memory now, so a
+    // verdict never mixes a machine before and after an upgrade: minutes below the floor (not samples), the highest
+    // committed memory over its limit taken from one sample, the days with samples, the installed memory, and when it
+    // last changed (empty when it did not in the period, or was never logged).
+    int64_t low_minutes = 0, days_with_samples = 0;
+    std::optional<int64_t> peak_commit_permille, total_mb;
+    std::string capacity_since;
+    // WSL out-of-memory kills in the period, from the counter's increases in time order (a drop is a VM restart,
+    // counted from zero), from the last sample before the period when there is one; null with no sample in it.
+    std::optional<int64_t> wsl_oom_kills_in_period;
+    bool wsl_oom_baseline_known = false;
     std::map<std::string, int64_t> repo_peak_mb;                      // "side:repo"
     std::map<std::pair<std::string, std::string>, RepoPeak> repo_peaks;  // (side, repo)
     int64_t busiest_total_mb = 0, busiest_repo_count = 0;  // the minute with the most private memory in repos
@@ -292,10 +303,63 @@ inline void keep_max(std::optional<int64_t>& m, int64_t v) {
     if (!m || v > *m) m = v;
 }
 
+// The decision's evidence (D03 T01 §6), from the rows in time order whatever order their files were read in. Rows
+// before `since` serve only as the OOM counter's baseline.
+inline void decision_evidence(Report& r, const std::vector<Row>& rows, int64_t low_mb, const std::string& since) {
+    std::vector<const Row*> ordered;
+    ordered.reserve(rows.size());
+    for (const auto& row : rows) ordered.push_back(&row);
+    std::stable_sort(ordered.begin(), ordered.end(), [](const Row* a, const Row* b) { return a->ts < b->ts; });
+    auto in_period = [&](const Row& row) { return since.empty() || row.ts >= since; };
+    // The installed memory now, and when it last changed within the period.
+    std::optional<int64_t> previous_total;
+    for (const Row* row : ordered) {
+        if (!in_period(*row) || row->kind != "sys" || row->side != "win" || row->name != "total_mb") continue;
+        if (previous_total && *previous_total != row->private_mb) r.capacity_since = row->ts;
+        previous_total = row->private_mb;
+    }
+    r.total_mb = previous_total;
+    std::set<std::string> low_minutes, days;
+    std::map<std::string, std::pair<std::optional<int64_t>, std::optional<int64_t>>> commit_by_ts;
+    std::optional<int64_t> oom_last;
+    bool oom_in_period = false;
+    int64_t oom_kills = 0;
+    for (const Row* row : ordered) {
+        if (row->kind != "sys") continue;
+        if (row->side == "wsl" && row->name == "oom_kills") {
+            if (!in_period(*row)) {
+                oom_last = row->private_mb;  // the last before the period: the baseline
+                r.wsl_oom_baseline_known = true;
+                continue;
+            }
+            if (oom_last) oom_kills += row->private_mb >= *oom_last ? row->private_mb - *oom_last : row->private_mb;
+            oom_last = row->private_mb;
+            oom_in_period = true;
+            continue;
+        }
+        if (row->side != "win" || !in_period(*row) || (!r.capacity_since.empty() && row->ts < r.capacity_since)) continue;
+        if (row->name == "available_mb") {
+            days.insert(row->ts.substr(0, 10));
+            if (row->private_mb < low_mb) low_minutes.insert(row->ts.substr(0, 16));
+        } else if (row->name == "commit_mb") {
+            commit_by_ts[row->ts].first = row->private_mb;
+        } else if (row->name == "commit_limit_mb") {
+            commit_by_ts[row->ts].second = row->private_mb;
+        }
+    }
+    if (oom_in_period) r.wsl_oom_kills_in_period = oom_kills;
+    else r.wsl_oom_baseline_known = false;
+    r.low_minutes = static_cast<int64_t>(low_minutes.size());
+    r.days_with_samples = static_cast<int64_t>(days.size());
+    for (const auto& [ts, pair] : commit_by_ts)
+        if (pair.first && pair.second && *pair.second > 0) keep_max(r.peak_commit_permille, *pair.first * 1000 / *pair.second);
+}
+
 // low_mb marks a sample as memory pressure. Samples from both sides join on the minute. Only samples at or after
 // `since` (YYYY-MM-DDTHH:MM:SS, UTC, as the rows write it) count, for every figure alike; empty takes them all.
 inline Report aggregate(const std::vector<Row>& rows, int64_t low_mb = 2048, const std::string& since = {}) {
     Report r;
+    decision_evidence(r, rows, low_mb, since);
     std::map<std::string, std::map<std::string, int64_t>> minute_repos;
     std::map<std::string, int64_t> minute_avail;
     for (const auto& row : rows) {
@@ -398,12 +462,14 @@ inline std::string mb_or(const std::optional<int64_t>& v, const char* none = "no
     return v ? std::to_string(*v) : std::string(none);
 }
 
-inline std::string render(const Report& r) {
+inline std::string render(const Report& r, int64_t low_mb = 2048) {
     std::ostringstream o;
     if (!r.min_avail_mb) return "No samples yet. Is the logger running? Check with: bosun status\n";
     double pct = r.win_samples ? 100.0 * static_cast<double>(r.low_samples) / static_cast<double>(r.win_samples) : 0;
     o << "Times are UTC.\nWindows\n";
-    o << "  samples: " << r.win_samples << ", under 2 GB available: " << r.low_samples << " (" << static_cast<int>(pct + 0.5) << "%)\n";
+    char floor[32];
+    std::snprintf(floor, sizeof(floor), "%.1f", static_cast<double>(low_mb) / 1024.0);
+    o << "  samples: " << r.win_samples << ", under " << floor << " GB available: " << r.low_samples << " (" << static_cast<int>(pct + 0.5) << "%)\n";
     o << "  lowest available: " << *r.min_avail_mb << " MB at " << r.worst_minute << "\n";
     o << "  peak commit: " << mb_or(r.max_commit_mb) << " of " << mb_or(r.commit_limit_mb) << " MB\n";
     o << "  peak page-ins: " << mb_or(r.max_pages_in) << " per second\n";
@@ -1177,6 +1243,18 @@ inline std::string report_json(const Report& r, const BuildOverlap& b, const Rea
     json_count(o, r.commit_limit_mb);
     o << ",\"max_pages_in_per_sec\":";
     json_count(o, r.max_pages_in);
+    o << ",\"low_minutes\":" << r.low_minutes << ",\"days_with_samples\":" << r.days_with_samples << ",\"peak_commit_ratio\":";
+    if (r.peak_commit_permille) {
+        char ratio[32];
+        std::snprintf(ratio, sizeof(ratio), "%lld.%03lld", static_cast<long long>(*r.peak_commit_permille / 1000), static_cast<long long>(*r.peak_commit_permille % 1000));
+        o << ratio;
+    } else {
+        o << "null";
+    }
+    o << ",\"total_mb\":";
+    json_count(o, r.total_mb);
+    o << ",\"capacity_since\":";
+    json_text(o, r.capacity_since);
     o << "},\"wsl\":{\"samples\":" << r.wsl_samples << ",\"min_available_mb\":";
     json_count(o, r.wsl_min_avail_mb);
     o << ",\"max_swap_mb\":";
@@ -1185,6 +1263,9 @@ inline std::string report_json(const Report& r, const BuildOverlap& b, const Rea
     json_count(o, r.wsl_max_psi_full_x100);
     o << ",\"max_oom_kills\":";
     json_count(o, r.wsl_max_oom_kills);
+    o << ",\"oom_kills_in_period\":";
+    json_count(o, r.wsl_oom_kills_in_period);
+    o << ",\"oom_baseline_known\":" << (r.wsl_oom_baseline_known ? "true" : "false");
     o << "},\"builds\":{\"jobs\":" << b.jobs << ",\"max_overlap\":" << b.max_overlap << ",\"at\":";
     if (b.at) o << "\"" << utc_stamp(*b.at) << "\"";
     else o << "null";

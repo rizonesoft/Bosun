@@ -77,6 +77,8 @@ struct Options {
     uint64_t max_write_gb = env_num(L"BOSUN_MAX_WRITE_GB", 100, dm::kMaxWriteGb);
     std::wstring ns = L"Bosun";
     int days = 7;
+    int report_low_mb = 2048;  // bosun report --low-mb: the floor its pressure counts are against (D03 T01 §6)
+    std::string bad;           // why an option was refused, when one says more than "bad options"
     int interval_s = 30;
     bool once = false;
     bool json = false;
@@ -124,6 +126,12 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         else if (a == L"--max-wait") { if (!count(0, dm::kMaxQuantity, o.max_wait_s)) return false; o.limit_flags["max_wait_s"] = o.max_wait_s; }
         else if (a == L"--max-write-gb") { if (!count(0, dm::kMaxWriteGb, o.max_write_gb)) return false; }
         else if (a == L"--days") { if (!count(1, 3650, o.days)) return false; }
+        else if (a == L"--low-mb") {
+            if (!count(1, 65536, o.report_low_mb)) {
+                o.bad = "--low-mb takes a whole number of MB from 1 to 65536, not '" + narrow(v) + "'";
+                return false;
+            }
+        }
         else if (a == L"--interval") { if (!count(1, 86400, o.interval_s)) return false; }
         else if (a == L"--guest-avail-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_avail_mb = guest; }
         else if (a == L"--guest-total-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_total_mb = guest; }
@@ -1035,6 +1043,8 @@ void write_sample(PDH_HCOUNTER counter, std::unordered_map<std::wstring, std::st
         row("sys", "available_mb", 0, *avail, 0);
         row("sys", "commit_mb", 0, *commit, 0);
         row("sys", "commit_limit_mb", 0, *limit, 0);
+        // The installed memory, so the report can tell an upgrade within its period (D03 T01 §6).
+        row("sys", "total_mb", 0, *total, 0);
     }
     PDH_FMT_COUNTERVALUE value{};
     if (PdhGetFormattedCounterValue(counter, PDH_FMT_LARGE, nullptr, &value) == ERROR_SUCCESS) {
@@ -1379,7 +1389,8 @@ int cmd_report(const Options& o) {
     int64_t now = now_epoch_s();
     std::string since = dm::utc_stamp(now - int64_t{o.days} * 86400);  // YYYY-MM-DDTHH:MM:SSZ
     std::string since_row = since.substr(0, 19);                       // as the CSV rows write it
-    std::string since_date = since.substr(0, 10);
+    // The day before too: the WSL OOM counter's baseline is its last sample before the period (D03 T01 §6).
+    std::string since_date = dm::utc_stamp(now - int64_t{o.days} * 86400 - 86400).substr(0, 10);
     std::vector<dm::Row> rows;
     std::vector<dm::JobLine> jobs;
     dm::ReadStatus read;
@@ -1421,12 +1432,12 @@ int cmd_report(const Options& o) {
         }
     }
     if (ec) read.complete = false;  // a listing that failed part way ends the loop early
-    dm::Report report = dm::aggregate(rows, 2048, since_row);
+    dm::Report report = dm::aggregate(rows, o.report_low_mb, since_row);
     if (o.json) {
-        std::cout << dm::report_json(report, dm::build_overlap(jobs, now - int64_t{o.days} * 86400), read, dm::utc_stamp(now), since, o.days) << "\n";
+        std::cout << dm::report_json(report, dm::build_overlap(jobs, now - int64_t{o.days} * 86400), read, dm::utc_stamp(now), since, o.days, o.report_low_mb) << "\n";
         return 0;
     }
-    std::cout << dm::render(report);
+    std::cout << dm::render(report, o.report_low_mb);
     return 0;
 }
 
@@ -1703,7 +1714,7 @@ int bosun_main(const std::vector<std::wstring>& args) {
     Options o;
     try {
         if (!parse_options(rest, o)) {
-            std::cerr << "[bosun] bad options\n";
+            std::cerr << "[bosun] " << (o.bad.empty() ? std::string("bad options") : o.bad) << "\n";
             return 64;
         }
     } catch (const std::exception&) {

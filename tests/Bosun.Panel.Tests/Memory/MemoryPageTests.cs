@@ -38,8 +38,11 @@ public class MemoryPageTests
             return side == "windows" ? Windows : Wsl;
         }
 
-        public async Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default)
+        public long? LastFloor;
+
+        public async Task<Reading<ReportDoc>> ReportAsync(int days, long? lowMb = null, CancellationToken cancellationToken = default)
         {
+            if (days == 14) LastFloor = lowMb;
             if (days == 14)                                                                // the fortnight, for 7 and 14 days
             {
                 Fortnights++;
@@ -76,8 +79,11 @@ public class MemoryPageTests
         JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"wsl","at":"2026-11-16T09:00:00Z","interval_s":5,"memory":{"available_mb":6000,"total_mb":14336},"wsl_vm":null,"repos":[{{repos ?? Repos(("/home/me/Resolute", 4505, 22))}}],"processes":[],"history_written":true}""",
             MemoryJson.Default.SnapshotDoc)!;
 
-    internal static ReportDoc ReportOf(bool complete = true, string? repos = null, long overlap = 3, string series = "") =>
-        JsonSerializer.Deserialize($$$"""{"schema_version":1,"generated_at":"2026-11-16T09:00:00Z","since":"2026-11-15T09:00:00Z","days_requested":1,"days_covered":1,"first_sample":"2026-11-15T09:00:05","last_sample":"2026-11-16T08:59:55","low_mb":2048,"read":{"complete":{{{(complete ? "true" : "false")}}},"files":2,"unreadable_files":{{{(complete ? 0 : 1)}}},"rejected_rows":{{{(complete ? 0 : 7)}}}},"windows":{"samples":17000,"low_samples":3,"min_available_mb":1536,"worst_minute":"2026-11-16T07:20","worst_repos":[],"max_commit_mb":41000,"commit_limit_mb":65536,"max_pages_in_per_sec":40},"wsl":{"samples":17000,"min_available_mb":2000,"max_swap_mb":512,"max_psi_full_avg10_x100":0,"max_oom_kills":0},"builds":{"jobs":9,"max_overlap":{{{overlap}}},"at":"2026-11-16T07:20:00Z"},"active_repos":{"max":4,"minute":"2026-11-16T07:20","total_private_mb":20000},"series":[{{{series}}}],"repos":[{{{repos ?? """{"repo":"D:/Recto","side":"win","peak_private_mb":11674,"peak_rss_mb":9000,"peak_processes":30},{"repo":"/home/me/Resolute","side":"wsl","peak_private_mb":9011,"peak_rss_mb":8000,"peak_processes":40},{"repo":"D:/Isotone","side":"win","peak_private_mb":7168,"peak_rss_mb":6000,"peak_processes":12}"""}}}]}""",
+    /// <summary>The decision's evidence for a test report: 14 days at 32 GB, nothing pressing, by default.</summary>
+    internal const string Evidence = ""","low_minutes":0,"days_with_samples":14,"peak_commit_ratio":0.6,"total_mb":32768,"capacity_since":null""";
+
+    internal static ReportDoc ReportOf(bool complete = true, string? repos = null, long overlap = 3, string series = "", string evidence = Evidence, long lowMb = 2048) =>
+        JsonSerializer.Deserialize($$$"""{"schema_version":1,"generated_at":"2026-11-16T09:00:00Z","since":"2026-11-15T09:00:00Z","days_requested":1,"days_covered":1,"first_sample":"2026-11-15T09:00:05","last_sample":"2026-11-16T08:59:55","low_mb":{{{lowMb}}},"read":{"complete":{{{(complete ? "true" : "false")}}},"files":2,"unreadable_files":{{{(complete ? 0 : 1)}}},"rejected_rows":{{{(complete ? 0 : 7)}}}},"windows":{"samples":17000,"low_samples":3,"min_available_mb":1536,"worst_minute":"2026-11-16T07:20","worst_repos":[],"max_commit_mb":41000,"commit_limit_mb":65536,"max_pages_in_per_sec":40{{{evidence}}}},"wsl":{"samples":17000,"min_available_mb":2000,"max_swap_mb":512,"max_psi_full_avg10_x100":0,"max_oom_kills":0,"oom_kills_in_period":0,"oom_baseline_known":true},"builds":{"jobs":9,"max_overlap":{{{overlap}}},"at":"2026-11-16T07:20:00Z"},"active_repos":{"max":4,"minute":"2026-11-16T07:20","total_private_mb":20000},"series":[{{{series}}}],"repos":[{{{repos ?? """{"repo":"D:/Recto","side":"win","peak_private_mb":11674,"peak_rss_mb":9000,"peak_processes":30},{"repo":"/home/me/Resolute","side":"wsl","peak_private_mb":9011,"peak_rss_mb":8000,"peak_processes":40},{"repo":"D:/Isotone","side":"win","peak_private_mb":7168,"peak_rss_mb":6000,"peak_processes":12}"""}}}]}""",
             MemoryJson.Default.ReportDoc)!;
 
     static void Pump()

@@ -80,6 +80,24 @@ public static partial class RenderCatalog
         {
             Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
         }, "The history could not be read"),
+        // D03 T01 §6: the Decision card's verdicts (enough is in "data"), too few days, and a fortnight that can't be read.
+        MemoryCase("decision-more", new Memory.MemoryPageTests.Source
+        {
+            Report = HistoryReport(),
+            Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(
+                evidence: Memory.MemoryPageTests.Evidence.Replace("\"low_minutes\":0", "\"low_minutes\":42").Replace("\"peak_commit_ratio\":0.6", "\"peak_commit_ratio\":0.93")), Memory.MemoryPageTests.Now),
+        }, "More memory would help", tall: true),
+        MemoryCase("decision-not-yet", new Memory.MemoryPageTests.Source
+        {
+            Report = HistoryReport(),
+            Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(
+                evidence: Memory.MemoryPageTests.Evidence.Replace("\"days_with_samples\":14", "\"days_with_samples\":3")), Memory.MemoryPageTests.Now),
+        }, "Not yet: 3 of the 7 days", tall: true),
+        MemoryCase("decision-failed", new Memory.MemoryPageTests.Source
+        {
+            Report = HistoryReport(),
+            Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
+        }, "could not be read for the decision", tall: true),
         MemoryCase("unreadable", new Memory.MemoryPageTests.Source
         {
             Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.Snapshot(memory: "{\"available_mb\":null,\"total_mb\":32768,\"commit_mb\":null}"), Memory.MemoryPageTests.Now),
@@ -271,7 +289,7 @@ public static partial class RenderCatalog
         return Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(series: Memory.MemoryHistoryTests.Series(points)), Memory.MemoryPageTests.Now);
     }
 
-    private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows, Action<Bosun.Panel.Memory.MemoryPage>? then = null)
+    private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows, Action<Bosun.Panel.Memory.MemoryPage>? then = null, bool tall = false)
     {
         Func<FrameworkElement, Task>? ready = null;
         return new RenderCase("memory", name, () =>
@@ -279,7 +297,7 @@ public static partial class RenderCatalog
             var (view, isReady) = Memory.MemoryPageTests.Rendered(source, then);
             ready = isReady;
             return view;
-        }) { Shows = shows, Ready = view => ready!(view) };
+        }) { Shows = shows, Ready = view => ready!(view), Height = tall ? 1100 : PageRenderer.Height };  // tall: down to the Decision card
     }
 
     /// <summary>The shell on the Settings page with the palette open and <paramref name="query"/> typed.</summary>
@@ -486,7 +504,7 @@ public static partial class RenderCatalog
                 var name = $"{view.Name}.{theme.ToLowerInvariant()}.png";
                 try
                 {
-                    var drawn = PageRenderer.Render(view, theme);
+                    var drawn = PageRenderer.Render(view, theme, height: view.Height);
                     var (width, height, pixels) = PageRenderer.Decode(drawn.Png);
                     // Two states of one view that draw the same picture are one state: the factory ignored its state.
                     var same = pictures.Values.FirstOrDefault(other => other.View.View == view.View && other.Pixels.AsSpan().SequenceEqual(pixels));

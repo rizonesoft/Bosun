@@ -54,6 +54,9 @@ public sealed class MemoryPage : PageBase
     private IReadOnlyList<HistoryPoint> _points = [];
     private string _historyState = "Reading the history.", _lowestSummary = "";
     private bool _showTable;
+    private Bosun.Core.Refresh? _fortnightRead;
+    private Decision? _decision;
+    private string _decisionState = ReadingDecision;
     private long _floorMb = Bosun.Core.PanelSettings.DefaultPressureFloorMb;
     private object? _windowsUsed, _wslVm, _overlap;
     private string _windowsNote = "", _wslNote = "", _overlapNote = "", _historyNote = "", _wslAge = "", _tableNote = "", _peaksNote = "";
@@ -66,6 +69,11 @@ public sealed class MemoryPage : PageBase
             _floorMb = settings.Current.PressureFloorMb;
             var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
             settings.Changed += saved => dispatcher.BeginInvoke(() => FloorMb = saved.PressureFloorMb);
+            // The decision's minutes are counted against the floor: a new one reads the fortnight again at once (D03 T01 §6).
+            PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(FloorMb) && IsShown) _ = _fortnightRead?.RunNowAsync();
+            };
         }
         ShowAsTable = new Relay(() => ShowTable = true);
         ShowAsChart = new Relay(() => ShowTable = false);
@@ -76,7 +84,7 @@ public sealed class MemoryPage : PageBase
         RefreshEvery(scheduler, log, RefreshScheduler.Fast, ReadSnapshotsAsync);
         RefreshAlso(scheduler, "history", RefreshScheduler.Slow, ReadReportAsync);
         // The 7 and 14 days come from a fortnight's report, read less often: it reads every log of those days.
-        RefreshAlso(scheduler, "fortnight", FortnightEvery, ReadFortnightAsync);
+        _fortnightRead = RefreshAlso(scheduler, "fortnight", FortnightEvery, ReadFortnightAsync);
     }
 
     /// <summary>How often the fortnight's report is read while the page is shown.</summary>
@@ -136,6 +144,8 @@ public sealed class MemoryPage : PageBase
             // A history that failed while the live cards are fine leaves the page in its data state, so its Retry is
             // the history card's own (completion review): the page's refresh, which reads all three again.
             if (HistoryFailed && RefreshNow is { } retry) yield return new PageCommand("Retry reading the history", GlyphAction.Refresh, retry);
+            // The decision's own Retry, whatever range the chart shows (D03 T01 §6).
+            if (DecisionFailed && RefreshNow is { } again) yield return new PageCommand("Retry reading the decision's history", GlyphAction.Refresh, again);
             yield return ShowTable ? new PageCommand("Show the history as a chart", GlyphAction.Chart, ShowAsChart) : new PageCommand("Show the history as a table", GlyphAction.Table, ShowAsTable);
         }
     }
@@ -209,13 +219,51 @@ public sealed class MemoryPage : PageBase
 
     private async Task<Action> ReadFortnightAsync(CancellationToken token)
     {
-        var report = await _client.ReportAsync(14, token);
+        // The floor goes with the read, and a read taken at a floor since changed is dropped: the minutes, the line and
+        // the verdict always agree (D03 T01 §6).
+        var floor = FloorMb;
+        var report = await _client.ReportAsync(14, floor, token);
         return () =>
         {
+            // Read at a floor since changed: dropped, and read again at the new one, since a change saved while this
+            // read was under way joined it rather than starting another.
+            if (floor != FloorMb)
+            {
+                _ = _fortnightRead?.RunNowAsync();
+                return;
+            }
             _fortnight = report;
             if (report.Value is not null) _fortnightGood = report;
             DrawHistory();
+            DrawDecision();
         };
+    }
+
+    public const string ReadingDecision = "Reading the last 14 days for the decision.";
+
+    /// <summary>The Decision card's answer from the fortnight's report; null until one has been read.</summary>
+    public Decision? Decision { get => _decision; private set => Set(ref _decision, value); }
+
+    /// <summary>What the Decision card says about its data: reading, not read, or kept from earlier; empty when current.</summary>
+    public string DecisionState { get => _decisionState; private set => Set(ref _decisionState, value); }
+
+    /// <summary>Whether the fortnight's last read failed: the card's Retry shows, whatever range the chart shows.</summary>
+    public bool DecisionFailed => _fortnight is { Value: null };
+
+    /// <summary>The Decision card from the last fortnight read, with its own states, apart from the chart's range.</summary>
+    private void DrawDecision()
+    {
+        Raise(nameof(DecisionFailed));
+        if (_fortnightGood?.Value is not { } doc)
+        {
+            Decision = null;
+            DecisionState = _fortnight is null ? ReadingDecision : $"The last 14 days could not be read for the decision: {_fortnight.Why}";
+            return;
+        }
+        Decision = DecisionRule.Decide(doc);
+        DecisionState = _fortnight is { Value: null }
+            ? $"The last 14 days could not be read again: {_fortnight.Why} Showing the verdict from {ReadWhen(_fortnightGood.ReadAt)}."
+            : "";
     }
 
     /// <summary>The chart's points for the range shown, from its own report, and what it says about them.</summary>
@@ -268,7 +316,7 @@ public sealed class MemoryPage : PageBase
 
     private async Task<Action> ReadReportAsync(CancellationToken token)
     {
-        var report = await _client.ReportAsync(1, token);
+        var report = await _client.ReportAsync(1, null, token);
         return () =>
         {
             _report = report;

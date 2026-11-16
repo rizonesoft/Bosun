@@ -94,6 +94,7 @@
                 </DockPanel>
             </StackPanel>
         </Border>
+
         <UniformGrid Columns="3" Margin="0,0,0,16">
             <Border Style="{StaticResource MemoryCard}" Margin="0,0,8,0" AutomationProperties.Name="Windows used">
                 <StackPanel>
@@ -174,6 +175,42 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
+            </StackPanel>
+        </Border>
+
+        <!-- The 64 GB question (D03 T01 §6): a verdict only when the evidence supports one, and every figure it rests on
+             under it; its own states, apart from the chart's range. -->
+        <Border Style="{StaticResource MemoryCard}" Margin="0,16,0,0" AutomationProperties.Name="Decision">
+            <StackPanel>
+                <TextBlock Text="Decision" Style="{StaticResource CardTitle}" HorizontalAlignment="Left" AutomationProperties.HeadingLevel="Level2"/>
+                <TextBlock x:Name="DecisionState" Text="{Binding DecisionState}" Style="{StaticResource Warning}" Margin="0,8,0,0"/>
+                <Button x:Name="DecisionRetry" Content="Retry" Command="{Binding RefreshNow}" HorizontalAlignment="Left"
+                        Style="{DynamicResource Btn.Small}" Visibility="{Binding DecisionFailed, Converter={StaticResource WhenTable}}"
+                        AutomationProperties.Name="Retry reading the decision's history" Margin="0,0,0,8"/>
+                <TextBlock x:Name="Verdict" Text="{Binding Decision.Verdict}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,8,0,4">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Decision}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Decision.Kind}" Value="More">
+                                    <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Decision.Kind}" Value="Enough">
+                                    <Setter Property="Foreground" Value="{DynamicResource B.Ok}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+                <ItemsControl x:Name="Evidence" ItemsSource="{Binding Decision.Evidence}" Focusable="False" IsTabStop="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Style="{StaticResource Note}" Margin="0,1,0,1"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </StackPanel>
         </Border>
     </StackPanel>

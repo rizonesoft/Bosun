@@ -162,7 +162,7 @@ public sealed class MemoryClientTests : IDisposable
             Reading<StatusDoc>? status = null;
             Reading<ReportDoc>? report = null;
             if (expect[0] == "status") status = await Fake(expect, answer).StatusAsync(token);
-            else report = await Fake(expect, answer).ReportAsync(7, token);
+            else report = await Fake(expect, answer).ReportAsync(7, cancellationToken: token);
             var (problem, why) = status is not null ? (status.Problem, status.Why) : (report!.Problem, report.Why);
             Assert.Equal(ReadingProblem.Invalid, problem);
             Assert.Contains($"{list}[", why);
@@ -207,11 +207,11 @@ public sealed class MemoryClientTests : IDisposable
         Assert.Equal("Bosun", status.Value!.Ns);
         foreach (var days in new[] { 1, 7, 14 })
         {
-            var report = await Fake(["report", "--json", "--days", days.ToString()], Fixture("report-7d.json")).ReportAsync(days, TestContext.Current.CancellationToken);
+            var report = await Fake(["report", "--json", "--days", days.ToString()], Fixture("report-7d.json")).ReportAsync(days, cancellationToken: TestContext.Current.CancellationToken);
             Assert.True(report.HasValue, $"{days} days: {report.Why}");
         }
         // Asked with the wrong arguments, the fake says what it got, and the reading says so.
-        var wrong = await Fake(["report", "--json", "--days", "7"], Fixture("report-7d.json")).ReportAsync(14, TestContext.Current.CancellationToken);
+        var wrong = await Fake(["report", "--json", "--days", "7"], Fixture("report-7d.json")).ReportAsync(14, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Equal(ReadingProblem.Failed, wrong.Problem);
         Assert.Contains("\"14\"", wrong.Why);
     }
@@ -232,7 +232,7 @@ public sealed class MemoryClientTests : IDisposable
         report["days_requested"] = 14;
         var file = Write("report-14d.json", report.ToJsonString());
         Assert.True(new FileInfo(file).Length > 1024 * 1024, "the 14-day report is more than the runner's default 1 MB");
-        var read = await Fake(["report", "--json", "--days", "14"], file).ReportAsync(14, TestContext.Current.CancellationToken);
+        var read = await Fake(["report", "--json", "--days", "14"], file).ReportAsync(14, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(read.HasValue, read.Why);
         Assert.Equal(20160, read.Value!.Series.Count);
     }

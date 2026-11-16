@@ -66,6 +66,8 @@ jobs:
         run: pwsh tests\core_names_test.ps1
       - name: Instances test
         run: pwsh tests\instances_test.ps1
+      - name: Report floor test
+        run: pwsh tests\report_test.ps1
       - name: Start script test
         run: pwsh tests\start_run_test.ps1
       - name: Build output test

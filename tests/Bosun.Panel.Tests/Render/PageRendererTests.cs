@@ -292,9 +292,11 @@ public class PageRendererTests
             {
                 var file = row.GetProperty("file").GetString()!;
                 Assert.Equal(file, $"{row.GetProperty("view").GetString()}.{row.GetProperty("state").GetString()}.{row.GetProperty("theme").GetString()}.png");
-                Assert.Equal((PageRenderer.Width, PageRenderer.Height), (row.GetProperty("width").GetInt32(), row.GetProperty("height").GetInt32()));
+                // Each at its case's own height: the panel's, or taller for a page whose last card is below it.
+                var tall = RenderCatalog.Cases.Single(c => c.Name == $"{row.GetProperty("view").GetString()}.{row.GetProperty("state").GetString()}").Height;
+                Assert.Equal((PageRenderer.Width, tall), (row.GetProperty("width").GetInt32(), row.GetProperty("height").GetInt32()));
                 var (width, height, pixels) = PageRenderer.Decode(File.ReadAllBytes(Path.Combine(folder, file)));
-                Assert.Equal((PageRenderer.Width, PageRenderer.Height), (width, height));
+                Assert.Equal((PageRenderer.Width, tall), (width, height));
                 Assert.True(pixels.Distinct().Count() > 2, $"{file} is not blank");
             }
         }

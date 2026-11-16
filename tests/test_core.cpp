@@ -952,6 +952,77 @@ static void instances() {
     CHECK(!dm::parse_record(bad));
 }
 
+// The decision's evidence (D03 T01 §6): minutes below the floor, the commit ratio from one sample, days with Windows
+// samples, the installed memory and an upgrade within the period, and OOM kills in the period in time order.
+static void decision() {
+    // Minutes, not samples, below the floor given: two samples in one minute are one minute.
+    std::vector<dm::Row> low{
+        sys("2026-11-07T10:00:05", "win", "available_mb", 2900), sys("2026-11-07T10:00:35", "win", "available_mb", 2800),
+        sys("2026-11-07T10:01:05", "win", "available_mb", 5000), sys("2026-11-07T10:02:05", "win", "available_mb", 2000),
+    };
+    dm::Report r = dm::aggregate(low, 3000);
+    CHECK(r.low_minutes == 2);
+    CHECK(r.low_samples == 3);
+    CHECK(dm::aggregate(low, 2048).low_minutes == 1);
+
+    // The commit ratio from one sample: a limit that grew mid-period does not hide the earlier peak.
+    std::vector<dm::Row> commit{
+        sys("2026-11-07T10:00:05", "win", "commit_mb", 18000), sys("2026-11-07T10:00:05", "win", "commit_limit_mb", 20000),  // 0.900
+        sys("2026-11-07T11:00:05", "win", "commit_mb", 30000), sys("2026-11-07T11:00:05", "win", "commit_limit_mb", 60000),  // 0.500
+    };
+    dm::Report c = dm::aggregate(commit);
+    CHECK(c.peak_commit_permille == 900);  // two maxima would say 30000 of 60000, 0.5
+    CHECK(dm::report_json(c, dm::BuildOverlap{}, dm::ReadStatus{}, "t", "s", 7).find("\"peak_commit_ratio\":0.900") != std::string::npos);
+
+    // Days with Windows samples: seven days of WSL rows only are none.
+    std::vector<dm::Row> wsl_only;
+    for (int d = 1; d <= 7; ++d) wsl_only.push_back(sys(("2026-11-0" + std::to_string(d) + "T10:00:05").c_str(), "wsl", "mem_available_mb", 4000));
+    dm::Report w = dm::aggregate(wsl_only);
+    CHECK(w.days_with_samples == 0);
+    CHECK(w.dates.size() == 7);  // days_covered still counts them
+
+    // An upgrade within the period: the evidence counts only after it, and says when.
+    std::vector<dm::Row> upgrade{
+        sys("2026-11-01T10:00:05", "win", "total_mb", 32768), sys("2026-11-01T10:00:05", "win", "available_mb", 1000),
+        sys("2026-11-01T10:00:05", "win", "commit_mb", 31000), sys("2026-11-01T10:00:05", "win", "commit_limit_mb", 32000),
+        sys("2026-11-05T10:00:05", "win", "total_mb", 65536), sys("2026-11-05T10:00:05", "win", "available_mb", 40000),
+        sys("2026-11-06T10:00:05", "win", "total_mb", 65536), sys("2026-11-06T10:00:05", "win", "available_mb", 38000),
+    };
+    dm::Report u = dm::aggregate(upgrade, 2048);
+    CHECK(u.total_mb == 65536);
+    CHECK(u.capacity_since == "2026-11-05T10:00:05");
+    CHECK(u.low_minutes == 0);  // the 1000 MB minute was the old machine's
+    CHECK(u.days_with_samples == 2);
+    CHECK(!u.peak_commit_permille);
+    CHECK(dm::aggregate(low).capacity_since.empty());  // never logged: no change said
+    CHECK(!dm::aggregate(low).total_mb);
+
+    // OOM kills in the period, in time order, from the last sample before it.
+    auto oom = [](std::vector<std::pair<std::string, int64_t>> samples) {
+        std::vector<dm::Row> rows;
+        for (auto& [ts, n] : samples) rows.push_back(sys(ts.c_str(), "wsl", "oom_kills", n));
+        return dm::aggregate(rows, 2048, "2026-11-07T00:00:00");
+    };
+    auto unchanged = oom({{"2026-11-06T23:00:00", 5}, {"2026-11-07T01:00:00", 5}, {"2026-11-07T02:00:00", 5}});
+    CHECK(unchanged.wsl_oom_kills_in_period == 0);  // a positive counter that did not move: none in the period
+    CHECK(unchanged.wsl_oom_baseline_known);
+    CHECK(oom({{"2026-11-06T23:00:00", 5}, {"2026-11-07T01:00:00", 8}}).wsl_oom_kills_in_period == 3);
+    CHECK(oom({{"2026-11-06T23:00:00", 5}, {"2026-11-07T01:00:00", 6}, {"2026-11-07T02:00:00", 2}}).wsl_oom_kills_in_period == 3);  // 1, then a restart and 2
+    // Read out of order (files listed in any order): the same as in order.
+    CHECK(oom({{"2026-11-07T02:00:00", 9}, {"2026-11-06T23:00:00", 5}, {"2026-11-07T01:00:00", 7}}).wsl_oom_kills_in_period == 4);
+    // The period's edge between two samples: the one before is the baseline, not a kill in the period.
+    CHECK(oom({{"2026-11-06T23:59:59", 4}, {"2026-11-07T00:00:00", 4}}).wsl_oom_kills_in_period == 0);
+    auto none_before = oom({{"2026-11-07T01:00:00", 5}, {"2026-11-07T02:00:00", 7}});
+    CHECK(none_before.wsl_oom_kills_in_period == 2);  // counted from the first sample in the period
+    CHECK(!none_before.wsl_oom_baseline_known);
+    CHECK(!oom({{"2026-11-06T23:00:00", 5}}).wsl_oom_kills_in_period);  // no sample in the period: null
+    CHECK(!oom({}).wsl_oom_kills_in_period);
+
+    // The floor reaches the JSON and the text.
+    CHECK(dm::report_json(r, dm::BuildOverlap{}, dm::ReadStatus{}, "t", "s", 7, 3000).find("\"low_mb\":3000") != std::string::npos);
+    CHECK(dm::render(r, 3072).find("under 3.0 GB available: 3") != std::string::npos);
+}
+
 static const Group groups[] = {
     {"slots", slots, nullptr},
     {"write_budget", write_budget, nullptr},
@@ -960,6 +1031,7 @@ static const Group groups[] = {
     {"repos", repos, nullptr},
     {"rows", rows, nullptr},
     {"aggregate", aggregate, nullptr},
+    {"decision", decision, nullptr},
     {"records", records, nullptr},
     {"jobs", jobs, nullptr},
     {"options", options, nullptr},

@@ -214,7 +214,7 @@ public abstract class PageBase(string title, string summary) : Observable
     /// fails the page: <paramref name="load"/> returns how to show what it read, its own failure included, so a slow or
     /// failing source never holds back or replaces another.
     /// </summary>
-    protected void RefreshAlso(RefreshScheduler scheduler, string name, TimeSpan interval, Func<CancellationToken, Task<Action>> load)
+    protected Refresh RefreshAlso(RefreshScheduler scheduler, string name, TimeSpan interval, Func<CancellationToken, Task<Action>> load)
     {
         if (_refresh is null) throw new InvalidOperationException("RefreshAlso comes after RefreshEvery");
         if (_also.Count + 1 >= MaxRefreshes) throw new InvalidOperationException($"a page has at most {MaxRefreshes} refreshes");
@@ -230,6 +230,7 @@ public abstract class PageBase(string title, string summary) : Observable
         };
         _also.Add(also);
         if (IsShown) also.Start();
+        return also;
     }
 
     private static string InWords(TimeSpan wait) => wait.TotalSeconds < 120

@@ -202,6 +202,14 @@ public sealed record ReportWindowsDoc
     [JsonPropertyName("max_commit_mb")] public required long? MaxCommitMb { get; init; }
     [JsonPropertyName("commit_limit_mb")] public required long? CommitLimitMb { get; init; }
     [JsonPropertyName("max_pages_in_per_sec")] public required long? MaxPagesInPerSec { get; init; }
+
+    // The decision's evidence (D03 T01 §6), counted at the installed memory now. Absent from a report of an older
+    // bosun.exe, and so null: not known, never 0.
+    [JsonPropertyName("low_minutes")] public long? LowMinutes { get; init; }
+    [JsonPropertyName("days_with_samples")] public long? DaysWithSamples { get; init; }
+    [JsonPropertyName("peak_commit_ratio")] public double? PeakCommitRatio { get; init; }
+    [JsonPropertyName("total_mb")] public long? TotalMb { get; init; }
+    [JsonPropertyName("capacity_since")] public string? CapacitySince { get; init; }
 }
 
 public sealed record WorstRepoDoc
@@ -218,6 +226,12 @@ public sealed record ReportWslDoc
     [JsonPropertyName("max_swap_mb")] public required long? MaxSwapMb { get; init; }
     [JsonPropertyName("max_psi_full_avg10_x100")] public required long? MaxPsiFullAvg10X100 { get; init; }
     [JsonPropertyName("max_oom_kills")] public required long? MaxOomKills { get; init; }
+
+    /// <summary>Out-of-memory kills within the period (D03 T01 §6); null when none was sampled in it, or from an older bosun.exe.</summary>
+    [JsonPropertyName("oom_kills_in_period")] public long? OomKillsInPeriod { get; init; }
+
+    /// <summary>Whether the count starts from a sample before the period; false counts from the first sample in it.</summary>
+    [JsonPropertyName("oom_baseline_known")] public bool? OomBaselineKnown { get; init; }
 }
 
 public sealed record ReportBuildsDoc

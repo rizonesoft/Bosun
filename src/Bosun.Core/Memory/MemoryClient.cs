@@ -16,7 +16,8 @@ public interface IMemorySource
 {
     Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default);
 
-    Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default);
+    /// <summary>The last <paramref name="days"/> days' report, its pressure counted against <paramref name="lowMb"/> when given.</summary>
+    Task<Reading<ReportDoc>> ReportAsync(int days, long? lowMb = null, CancellationToken cancellationToken = default);
 }
 
 public sealed class MemoryClient : IMemorySource
@@ -87,12 +88,19 @@ public sealed class MemoryClient : IMemorySource
         CallAsync(["status", "--json"], MemoryJson.Default.StatusDoc, MaxStatusBytes, StatusTimeout, cancellationToken);
 
     /// <summary><c>bosun report --json --days N</c>, for 1 to 3650 days, as the tool takes.</summary>
-    public Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default)
+    public Task<Reading<ReportDoc>> ReportAsync(int days, long? lowMb = null, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(days, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(days, 3650);
-        return CallAsync(["report", "--json", "--days", days.ToString(CultureInfo.InvariantCulture)], MemoryJson.Default.ReportDoc, MaxReportBytes,
-            ReportTimeout, cancellationToken);
+        string[] arguments = ["report", "--json", "--days", days.ToString(CultureInfo.InvariantCulture)];
+        // The floor the pressure is counted against (D03 T01 §6): the stored threshold, so the verdict and the chart agree.
+        if (lowMb is { } floor)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(floor, 1);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(floor, 65536);
+            arguments = [.. arguments, "--low-mb", floor.ToString(CultureInfo.InvariantCulture)];
+        }
+        return CallAsync(arguments, MemoryJson.Default.ReportDoc, MaxReportBytes, ReportTimeout, cancellationToken);
     }
 
     private async Task<Reading<T>> CallAsync<T>(string[] arguments, JsonTypeInfo<T> type, int maxBytes, TimeSpan timeout, CancellationToken cancellationToken) where T : class
