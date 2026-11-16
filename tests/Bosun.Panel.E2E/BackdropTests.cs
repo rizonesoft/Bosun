@@ -102,7 +102,7 @@ public class BackdropTests
                 new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.ProcessIdProperty, panel.Id),
                 new System.Windows.Automation.PropertyCondition(System.Windows.Automation.AutomationElement.ControlTypeProperty, System.Windows.Automation.ControlType.Menu))),
             Ui.Short, $"the system menu {by} opens");
-        Native.Key(VK_ESCAPE);
+        RealInput.KeyToOwnMenu(panel.Id, VK_ESCAPE);
     }
 
     private const int WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;

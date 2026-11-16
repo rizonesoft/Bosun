@@ -110,6 +110,19 @@ static class RealInput
         Native.LeftUp(x, y);
     }
 
+    /// <summary>
+    /// A key to a menu the panel has open: sent only while nothing is held and the foreground is the panel's own (its
+    /// window or the menu), so it can't become another chord or land in another program (review of D02 T03 §2).
+    /// </summary>
+    public static void KeyToOwnMenu(int panelProcess, int virtualKey)
+    {
+        RequireNothingHeld("a key");
+        var foreground = Native.GetForegroundWindow();
+        if (Native.ProcessOf(foreground) != panelProcess)
+            throw new RealInputRefused($"a key was not sent: the foreground window is {Describe(foreground)}, not one of the panel's (process {panelProcess})");
+        Native.Key(virtualKey);
+    }
+
     /// <summary>Puts the pointer back where it was when the returned value is disposed.</summary>
     public static IDisposable KeepPointer()
     {
