@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T03 \u00a75",
+  "title": "Gauge, sparkline and stacked bar",
+  "implementation_sha": "e5de1ad8d2f9acdc98a55895f5fdbd6dce839fa7",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*GaugeTests\" --filter-class \"*SparklineTests\" --filter-class \"*StackedBarTests\" -> all pass; with a null value read as 0 the unreadable value test fails",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 627, succeeded: 627 (StackedBarTests 14 of 14 after the round 1 fixes)",
+    "CI full gate at e5de1ad -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43886758277, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43886758252"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s5.md",
+    "verdict": "complete",
+    "candidate": "e5de1ad8d2f9acdc98a55895f5fdbd6dce839fa7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "round 1 ended at P3; both P3 findings fixed in e5de1ad with regression tests",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s5.md",
+    "candidate": "f35c632bf04e89ccc163c492f961d196f98eeb5c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "f35c632bf04e89ccc163c492f961d196f98eeb5c",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

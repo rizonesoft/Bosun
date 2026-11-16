@@ -43,7 +43,7 @@ title: "TODO-03 -- Premium components"
 | 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [x] |
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [x] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [x] |
-| 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
+| 5 | §5 | Gauge, sparkline and stacked bar | §4 | [x] |
 | 6 | §6 | Queue slot visuals | §5 | [ ] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
 | 8 | §8 | Command palette | §3 | [ ] |
@@ -229,9 +229,12 @@ These are drawn from data and stay cheap: they draw once per data change and hol
 - [x] Set the `Sparkline` automation name to the latest value and direction in words, following new samples. Done when: a UI Automation test reads "12.4 GB, rising", then "11.0 GB, falling" and "11.0 GB, steady" as samples change, "11.0 GB" with one sample, "Not available" with none (drawing no line, and never the samples it had before), and the value again when samples return, and the sparkline (with too few samples to draw, and none) is a `RenderCatalog` case in every theme.
 - [x] Create `StackedBar` in `src/Bosun.Panel/Controls/StackedBar.cs` with a legend giving each value in words. Done when: `tests/Bosun.Panel.Tests/Controls/StackedBarTests.cs` proves each segment's width is its share of the bar less the gaps (3, 1 and 4 parts of a bar as 3:1:4), the widths and gaps sum to the bar's width, the gap's pixels are `B.Base` in every theme, replacing the shares changes the widths, legend and name together, and the legend holds every value, each segment's swatch beside its name and value so colour is never the only key; a zero share draws no segment but keeps its legend line; all-zero shares draw an empty bar with every legend line at 0 (not held to the full width); no shares at all read "Not available", never a previous bar, until shares return; and the bar (shares, one share, and all zero) is a `RenderCatalog` case in every theme, contrast included. Cheaper substitute: a bar with colour as the only key.
 - [x] Reject negative or non-finite samples in all three, showing "Not available" in place. Done when: a test with NaN and a negative value renders that text without an exception.
-- [ ] Commit: `controls: gauge, sparkline and stacked bar`
+- [x] Commit: `controls: gauge, sparkline and stacked bar`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*GaugeTests" --filter-class "*SparklineTests" --filter-class "*StackedBarTests"` exits 0, and fails if a null value draws as 0.
+
+> **Verified:** 2026-11-16 | §5 | e5de1ad8d2f9acdc98a55895f5fdbd6dce839fa7
+> **Review:** `docs/reviews/d02-t03-s5.json`
 
 ## 6. Queue slot visuals
 
