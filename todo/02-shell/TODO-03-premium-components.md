@@ -42,7 +42,7 @@ title: "TODO-03 -- Premium components"
 | 1 | §1 | Elevation and motion tokens | D02 T01 §1 | [x] |
 | 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [x] |
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [x] |
-| 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
+| 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [x] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
 | 6 | §6 | Queue slot visuals | §5 | [ ] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
@@ -190,9 +190,12 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 - [x] Support Left, Right, Home and End in `SegmentedControl.cs`. Done when: a UI Automation test moves and reads selection by keyboard only.
 - [x] Hold each segment at 32 px or more in `src/Bosun.Panel/Theme/Controls.xaml`. Done when: the style walk from `D02 T01 §4` asserts it.
 - [x] Use the segmented control for the theme on the Settings page, `src/Bosun.Panel/Settings/SettingsView.xaml`, and move the tests that named its combo box to it: `KeyboardTests`' closed combo box test (its own combo box elsewhere, or none, said), and `SettingsPageTests`' texts and name, keeping its binding, save and read-back, Discard and failure tests (plan review) (**Added 2026-11-15** from `D02 T02 §5`, which draws the three-way choice as a combo box until this control exists; `design/SPEC.md` §19). Done when: the off-screen render of the page shows the three choices side by side, and a test moves between them with the arrow keys and reads the selected one.
-- [ ] Commit: `controls: status pill and segmented control`
+- [x] Commit: `controls: status pill and segmented control`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*StatusPillTests" --filter-class "*SegmentedControlTests" --filter-class "*SettingsPageTests"` exits 0, as does `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*KeyboardTests" --filter-class "*SettingsKeyboardTests"`, and it fails if the empty word check is removed.
+
+> **Verified:** 2026-11-16 | §4 | 8ad338cd4bc337b38011ae055d98a01ac86720eb
+> **Review:** `docs/reviews/d02-t03-s4.json`
 
 ## 5. Gauge, sparkline and stacked bar
 

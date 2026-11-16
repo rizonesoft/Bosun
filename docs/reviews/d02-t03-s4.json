@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T03 \u00a74",
+  "title": "Status pill and segmented control",
+  "implementation_sha": "8ad338cd4bc337b38011ae055d98a01ac86720eb",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*StatusPillTests\" --filter-class \"*SegmentedControlTests\" --filter-class \"*SettingsPageTests\" -> all pass (18, 9 and the page tests); the empty word rule, disabled segments and the contrast ring each fail their test when taken out",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 575, succeeded: 575",
+    "dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*KeyboardTests\" -> 3 of 3 by real keys (Right, Left, Home, End on the theme choice)",
+    "CI full gate at 8ad338c -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43878529842, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43878529587"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s4.md",
+    "verdict": "completed",
+    "candidate": "80c67e79b6f9f81a8d6894c4ea67aead1f530ac8",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s4.md",
+    "candidate": "b16ed45c510c9f71be12b2641d03ebcf86023d70",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "b16ed45c510c9f71be12b2641d03ebcf86023d70",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
