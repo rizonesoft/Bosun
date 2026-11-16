@@ -157,6 +157,31 @@ public class RailMarkerTests
     }
 
     [Fact]
+    public void Hidden_it_lands_and_lets_the_gate_go_and_shown_again_it_takes_it_back()
+    {
+        // Review round 1: hidden (closed to the tray) or minimised, the marker listened on; it lets go now.
+        WithGate(true, (page, rail, _, windows, gate) =>
+        {
+            int Listeners() => (typeof(Motion).GetField("Changed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(gate) as Delegate)?
+                .GetInvocationList().Count(d => d.Target?.GetType().DeclaringType == typeof(RailMarker)) ?? 0;
+            rail.SelectedIndex = 3;
+            Assert.True(RailMarker.IsSliding(rail));
+            Assert.Equal(1, Listeners());
+            rail.Visibility = Visibility.Collapsed; // hidden mid-slide
+            PageRenderer.Settle(page);
+            Assert.False(RailMarker.IsSliding(rail));
+            Assert.Equal(0, Listeners());
+            windows.Set(false); // heard by nothing of the marker
+            windows.Set(true);
+            rail.Visibility = Visibility.Visible;
+            PageRenderer.Settle(page);
+            rail.SelectedIndex = 1;
+            Assert.True(RailMarker.IsSliding(rail)); // back: the gate is its again
+            Assert.Equal(1, Listeners());
+        });
+    }
+
+    [Fact]
     public void Unloaded_it_lands_and_holds_nothing_of_the_gate()
     {
         WithGate(true, (page, rail, _, windows, gate) =>

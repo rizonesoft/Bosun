@@ -50,6 +50,7 @@ public static class RailMarker
         private Motion? _gate;
         private Window? _window;
         private bool _hooked;
+        private bool _suspended; // hidden or minimised: no gate and no layout listened to until it is back
         private int _slide; // which slide is the current one: a slide replaced by another never lands the marker
 
         public Mover(ListBox list)
@@ -99,7 +100,7 @@ public static class RailMarker
         /// <summary>The application's motion gate, looked for until it is found: one installed after the rail loaded counts too.</summary>
         private Motion? Gate()
         {
-            if (!_hooked) return null; // unloaded: nothing is subscribed again
+            if (!_hooked || _suspended) return null; // unloaded, hidden or minimised: nothing is subscribed again
             if (_gate is null && _list.TryFindResource(Motion.GateKey) is Motion gate)
             {
                 _gate = gate;
@@ -111,11 +112,12 @@ public static class RailMarker
         private void Unhook()
         {
             if (!_hooked) return;
-            _hooked = false;
             Land();
             if (_gate is not null) _gate.Changed -= Land;
             if (_window is not null) _window.StateChanged -= OnWindowState;
-            _list.LayoutUpdated -= OnLayoutUpdated;
+            if (!_suspended) _list.LayoutUpdated -= OnLayoutUpdated;
+            _hooked = false;
+            _suspended = false;
             _gate = null;
             _window = null;
         }
@@ -125,14 +127,30 @@ public static class RailMarker
             if (ReferenceEquals(e.OriginalSource, _list)) Place(animate: true);
         }
 
-        private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
-        {
-            if (e.NewValue is false) Land();
-        }
+        private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => Rest(e.NewValue is false);
 
-        private void OnWindowState(object? sender, EventArgs e)
+        private void OnWindowState(object? sender, EventArgs e) => Rest(_window?.WindowState == WindowState.Minimized);
+
+        /// <summary>
+        /// Hidden or minimised, the marker lands and lets go of the gate and of every layout pass (review round 1); back,
+        /// it takes them again and is placed. It keeps only what tells it it is back: its visibility and its window's state.
+        /// </summary>
+        private void Rest(bool away)
         {
-            if (_window?.WindowState == WindowState.Minimized) Land();
+            if (!_hooked || away == _suspended) return;
+            if (away)
+            {
+                Land();
+                if (_gate is not null) _gate.Changed -= Land;
+                _gate = null;
+                _list.LayoutUpdated -= OnLayoutUpdated;
+                _suspended = true;
+                return;
+            }
+            _suspended = false;
+            Gate();
+            _list.LayoutUpdated += OnLayoutUpdated;
+            Place(animate: false);
         }
 
         /// <summary>A row that moved (a resize, a scroll, a theme with other measures) takes the marker with it, at once.</summary>
