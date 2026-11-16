@@ -215,7 +215,13 @@ public sealed class SettingsPage : PageBase
     public ICommand OpenStartupSettings { get; }
 
     public override bool HasUnsavedEdits => State == PageState.Data && (_selectedTheme.Value != _storedTheme || _startWithWindows != _storedStart || _notifyMemoryPressure != _storedNotify
-        || _floorText.Trim() != _storedFloor.ToString(CultureInfo.InvariantCulture));
+        || FloorEdited);
+
+    /// <summary>
+    /// Whether the threshold differs from what is stored, by its value (round 1: "04096" saved as 4096 stayed an edit
+    /// by its text). What can't be a threshold is always an edit: there is something on the page not stored.
+    /// </summary>
+    private bool FloorEdited => FloorFault(_floorText, out var typed) is not null || typed != _storedFloor;
 
     private void Edited()
     {
@@ -355,6 +361,7 @@ public sealed class SettingsPage : PageBase
             if (outcome.Succeeded && _store.Current.PressureFloorMb == floor)
             {
                 _storedFloor = floor;
+                PressureFloorText = floor.ToString(CultureInfo.InvariantCulture); // as stored: "04096" reads back as "4096"
                 saved.Add(string.Create(CultureInfo.InvariantCulture, $"pressure alert threshold {floor:N0} MB"));
             }
             else failed.Add(outcome.Reason ?? "The pressure alert threshold did not read back as it was saved.");

@@ -41,6 +41,21 @@ public class ThresholdTests
         });
     }
 
+    [Fact]
+    public void A_threshold_typed_with_leading_zeros_saves_as_its_value_and_is_no_longer_an_edit()
+    {
+        // Round 1: "04096" saved as 4096 stayed an edit by its text, and the page asked about it on leaving.
+        OnUi(() =>
+        {
+            var f = new SettingsFixture().Open();
+            f.Page.PressureFloorText = "02048";
+            Assert.False(f.Page.HasUnsavedEdits); // the stored value, typed another way: nothing to save
+            f.Page.PressureFloorText = "04096";
+            Assert.True(f.Page.SaveAsync().Result.Succeeded);
+            Assert.Equal((4096L, "4096", false), (f.OnDisk().PressureFloorMb, f.Page.PressureFloorText, f.Page.HasUnsavedEdits));
+        });
+    }
+
     [Theory]
     [InlineData("", "Enter the threshold in MB")]
     [InlineData("   ", "Enter the threshold in MB")]
