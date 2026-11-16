@@ -102,6 +102,9 @@ sealed class FirstShown : IDisposable
     private readonly WinEventProc _callback; // kept alive while the hook is
     private uint _threadId;
     private volatile int _process;
+    // Every panel window shown since the hook began, with its process: kept, so one shown before the process's id is
+    // known is still found (round 1: the child runs before Start returns).
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(int Process, Native.RECT Bounds)> _seen = new();
 
     public FirstShown()
     {
@@ -115,7 +118,16 @@ sealed class FirstShown : IDisposable
     public int Process { set => _process = value; }
 
     /// <summary>The bounds of the first window titled "Bosun Panel" the process showed, or null when it has shown none.</summary>
-    public Native.RECT? Bounds { get; private set; }
+    public Native.RECT? Bounds
+    {
+        get
+        {
+            var process = _process;
+            foreach (var (shown, bounds) in _seen)
+                if (shown == process) return bounds;
+            return null;
+        }
+    }
 
     private void Run()
     {
@@ -128,8 +140,8 @@ sealed class FirstShown : IDisposable
 
     private void OnEvent(IntPtr hook, uint e, IntPtr window, int objectId, int childId, uint thread, uint time)
     {
-        if (Bounds is not null || objectId != 0 || _process == 0 || Native.ProcessOf(window) != _process || Native.TitleOf(window) != "Bosun Panel") return;
-        Bounds = Native.Frame(window);
+        if (objectId != 0 || Native.TitleOf(window) != "Bosun Panel") return;
+        _seen.Enqueue((Native.ProcessOf(window), Native.Frame(window)));
     }
 
     public void Dispose()

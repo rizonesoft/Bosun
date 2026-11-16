@@ -120,11 +120,16 @@ public sealed class WindowPlacement
     }
 
     /// <summary>
-    /// Where a window that is on no screen now goes: centred on the main screen at its size, fitted to it; null when it
-    /// is on a screen and stays where it is.
+    /// Where a window whose title bar is on no screen now goes (its screen gone, or only its body left on another, so it
+    /// could not be moved by hand: round 1): centred on the main screen at its size, fitted to it; null when its title bar
+    /// is on a screen and it stays where it is.
     /// </summary>
-    public static Int32Rect? Recover(Int32Rect current, IReadOnlyList<ScreenArea> screens) =>
-        ScreenOf(current, screens) is null && screens.FirstOrDefault(s => s.Primary) is { } main ? Centred(main, (current.Width, current.Height)) : null;
+    public static Int32Rect? Recover(Int32Rect current, IReadOnlyList<ScreenArea> screens)
+    {
+        var dpi = ScreenOf(current, screens)?.Dpi ?? 96;
+        var strip = new Int32Rect(current.X, current.Y, current.Width, Math.Max(1, (int)Math.Round(TitleBar * dpi / 96.0)));
+        return ScreenOf(strip, screens) is null && screens.FirstOrDefault(s => s.Primary) is { } main ? Centred(main, (current.Width, current.Height)) : null;
+    }
 
     /// <summary>Whether a window restores maximised: maximised now, or minimised from maximised (Windows' own flag).</summary>
     public static bool RestoresMaximised(int showCmd, int flags) =>

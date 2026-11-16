@@ -71,6 +71,8 @@ public class WindowPlacementTests
     public void A_window_on_no_screen_comes_back_centred_on_the_main_one_and_one_on_a_screen_stays()
     {
         Assert.Equal(R(600, 266, 1360, 860), WindowPlacement.Recover(R(-6000, 100, 1360, 860), Both));
+        // Round 1: only its body left on a screen, its title bar above every one: it can't be moved by hand, so it comes back.
+        Assert.Equal(R(600, 266, 1360, 860), WindowPlacement.Recover(R(100, -700, 1360, 860), Both));
         Assert.Null(WindowPlacement.Recover(R(-3000, 200, 2040, 1290), Both));
     }
 
