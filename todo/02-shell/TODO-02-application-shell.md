@@ -456,11 +456,23 @@ One real launch proves the parts work together: the process starts, every page o
 **Needs:** display-session
 **Surface:** no
 
+**Corrected 2026-11-16:** checked against the tree before the build. The decisions, each with what reversing it costs:
+
+- The client is Windows' own managed UI Automation (`System.Windows.Automation`, in the desktop runtime the test project gets from `UseWPF`), not the FlaUI package the section named: `Directory.Packages.props` holds only `xunit.v3`, Bosun stays small (the tray took the same choice in `D02 T02 §7`), and every event the items name (`LiveRegionChanged`, focus, selection, expand and collapse) is in it. Reversal cost: one package and the helper that wraps it.
+- `tests/Bosun.Panel.E2E` is not in `Bosun.slnx`: the smoke presses real keys and moves the real pointer, so a full solution run on this machine (or anyone's) never starts it by accident. CI builds it with its own step in `.github/workflows/build.yml`, so it can't rot unbuilt, and does not run it. Reversal cost: one line in the solution.
+- Real input goes only where it is meant: a failure that already happened here is `scripts/capture-window.ps1`'s old `SendKeys`, whose keys went to an unrelated editor because `SetForegroundWindow` had silently failed. So every key and pointer event the smoke sends is sent by one helper, `RealInput`, only after Windows says the panel's window owns the foreground (and, for the pointer, that the window under the point is the panel's, or the notification area's when the icon is the target), and the test fails with that refusal instead of sending. The pointer is put back where it was. Reversal cost: none.
+- Each test starts its own panel with a fresh `BOSUN_PANEL_DATA` folder under the test's scratch folder and its own `BOSUN_PANEL_INSTANCE`, so it never meets the operator's running panel or settings, and holds it in a Windows job object made before the panel runs, which ends the panel and anything it started on teardown and on a timeout (the global rule that a child never outlives its test). The Run key is the real one, so the smoke never touches Start with Windows: the check box Space toggles is Notify me about memory pressure, and nothing is saved.
+- Which state a page is in is read from the page frame's own elements, whose `x:Name` is their automation id (`Data`, `Loading`, `EmptyReason`, `FailedHeading` in `src/Bosun.Panel/Shell/PageFrame.xaml`): a collapsed state is not in the tree. Every rail row but Settings is a placeholder today, so the smoke sees Empty on six pages and Data on Settings.
+- The checkpoint named `dotnet test tests/Bosun.Panel.E2E`, which the test platform here (`global.json`: Microsoft.Testing.Platform) takes as `dotnet test --project tests/Bosun.Panel.E2E`.
+
 **Build order:**
 
-1. Add `tests/Bosun.Panel.E2E` with FlaUI. Done when: it launches the panel and walks the rail.
+1. Add `tests/Bosun.Panel.E2E` with Windows' UI Automation client. Done when: it launches the panel and walks the rail.
 2. Assert names. Done when: each interactive control has an automation name.
 
+- [ ] Add `tests/Bosun.Panel.E2E/Bosun.Panel.E2E.csproj` (`net11.0-windows`, `UseWPF`, `xunit.v3`, a build reference to `src/Bosun.Panel`) and a `Build the end-to-end smoke` step in `.github/workflows/build.yml`. Done when: `dotnet build tests/Bosun.Panel.E2E` exits 0 here and the step is in the workflow, and `Bosun.slnx` does not list the project. Cheaper substitute: adding it to the solution, where every full test run would press keys.
+- [ ] Start each test's panel through `PanelProcess` in `tests/Bosun.Panel.E2E`, created suspended in a kill-on-close job object with its own data folder and instance name. Done when: after a test whose panel started a child, neither the panel nor the child is running, and the operator's panel (if one runs) is untouched. Cheaper substitute: `Process.Kill` on the panel alone.
+- [ ] Send every key and pointer event through `RealInput` in `tests/Bosun.Panel.E2E`, which refuses unless the panel's window owns the foreground and, for the pointer, is the window under the point. Done when: a test with a window of the test's own in front of the panel fails with the refusal, and that window received no key. Cheaper substitute: `SendInput` after a `SetForegroundWindow` nobody checked.
 - [ ] Launch `Bosun.Panel.exe` with a temporary settings folder and walk every rail row. Done when: each page reaches data, empty or failed, and none crashes. Cheaper substitute: testing only view models.
 - [ ] Walk the automation tree and fail on a nameless interactive control. Done when: removing one `AutomationProperties.Name` fails the test.
 - [ ] Capture the running panel's main window with `scripts/capture-window.ps1` (handed over by `D02 T02 §9`, which can only self-test it without a desktop). Done when: the PNG decodes at the window's size, `pwsh scripts/capture-window.ps1 -Verify <png>` accepts the pair, and with another window over the panel, and with the panel in the background, the capture is refused with exit 3 and writes nothing.
@@ -471,7 +483,7 @@ One real launch proves the parts work together: the process starts, every page o
 - [ ] See the tray icon, its menu and a notification in the smoke (**Added 2026-11-15** from `D02 T02 §7`, which proves the real icon only in what touches no screen). Done when: the panel's icon is in the notification area with its tooltip, its menu lists Open, the Queue line, Pause notifications for 1 hour and Exit, each chosen from the real menu does its work (Open shows the window, the Queue line shows the Queue page, Pause changes to Resume, Exit removes the icon and ends the process), a click on the icon shows the window, and closing the window the first time raises the still-running notification. Cheaper substitute: trusting calls to Windows nobody watched.
 - [ ] Commit: `tests: end-to-end smoke`
 
-**Test checkpoint:** `bosun run -- dotnet test tests/Bosun.Panel.E2E` exits 0 in a desktop session.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` exits 0 in a desktop session, and fails when one interactive control's `AutomationProperties.Name` is removed from `src/Bosun.Panel/Shell/ShellView.xaml`.
 
 ## Verification
 
