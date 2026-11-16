@@ -701,6 +701,7 @@ public partial class ControlStylesTests
         ["ScrollPage"] = "a part of the scroll bar",
         ["LogBox/ListBoxItem"] = "a log line is read, not acted on: it is not focusable",
         ["ToolTip"] = "a tooltip can't be pressed or focused",
+        ["Value"] = "a value is read, not acted on: it is not focusable (D02 T03 §7)",
         ["ColumnGripper"] = "a part of the column header, which is the target",
         ["DataGrid"] = "the table is as high as its rows; its headers, rows and cells are the targets",
     };

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Bosun.Core;
+using Bosun.Panel.Controls;
 using Bosun.Panel.Mvvm;
 
 namespace Bosun.Panel.Shell;
@@ -35,6 +36,8 @@ public abstract class PageBase(string title, string summary) : Observable
     private object? _actions;
     private Refresh? _refresh;
     private bool _refreshFailing;
+    private string? _staleNote, _staleWhy;
+    private DateTimeOffset _staleAt;
 
     public string Title { get; } = string.IsNullOrWhiteSpace(title) ? throw new ArgumentException("a page needs a title", nameof(title)) : title;
 
@@ -45,6 +48,25 @@ public abstract class PageBase(string title, string summary) : Observable
     {
         get => _state;
         private set => Set(ref _state, value);
+    }
+
+    /// <summary>
+    /// The shape of the page's data, which its loading state's skeleton takes (D02 T03 §7, design/SPEC.md §19): cards
+    /// unless the page says otherwise.
+    /// </summary>
+    public SkeletonShape LoadingShape { get; init; } = SkeletonShape.Card;
+
+    /// <summary>The page's clock, for the age of the data it shows. The system's own unless a test gives one.</summary>
+    public TimeProvider Clock { get; init; } = TimeProvider.System;
+
+    /// <summary>
+    /// Said over the data when it is not current (a tool that has stopped): what happened and how old the data is,
+    /// as <see cref="ShowLastKnown"/> set it; null when the data is current.
+    /// </summary>
+    public string? StaleNote
+    {
+        get => _staleNote;
+        private set => Set(ref _staleNote, value);
     }
 
     /// <summary>Why there is nothing to show, in the empty state.</summary>
@@ -151,7 +173,44 @@ public abstract class PageBase(string title, string summary) : Observable
 
     protected void ShowLoading() => State = PageState.Loading;
 
-    protected void ShowData() => State = PageState.Data;
+    /// <summary>The page shows its data, which is current: a stale line from <see cref="ShowLastKnown"/> goes.</summary>
+    protected void ShowData()
+    {
+        _staleWhy = null;
+        StaleNote = null;
+        State = PageState.Data;
+    }
+
+    /// <summary>
+    /// The page shows the last data it read, which is no longer current (WSL stopped, D02 T03 §7): the data stays, and
+    /// the frame says over it <c>&lt;why&gt;. Showing what was read &lt;age&gt; ago.</c> The age is worked out again on each
+    /// call (each refresh), when the page comes back on screen and when the person comes back to the window, with no
+    /// timer of its own, so a hidden page does nothing.
+    /// </summary>
+    protected void ShowLastKnown(string why, DateTimeOffset readAt)
+    {
+        if (string.IsNullOrWhiteSpace(why)) throw new ArgumentException("stale data says why it is not current", nameof(why));
+        _staleWhy = why.Trim().TrimEnd('.');
+        _staleAt = readAt;
+        SayAge();
+        State = PageState.Data;
+    }
+
+    private void SayAge()
+    {
+        if (_staleWhy is null) return;
+        StaleNote = $"{_staleWhy}. Showing what was read {Age(Clock.GetUtcNow() - _staleAt)} ago.";
+    }
+
+    /// <summary>An age in words: "less than a minute", "1 minute", "12 minutes", "2 hours", "3 days".</summary>
+    public static string Age(TimeSpan age)
+    {
+        static string Count(long n, string unit) => n == 1 ? $"1 {unit}" : string.Create(CultureInfo.InvariantCulture, $"{n} {unit}s");
+        if (age < TimeSpan.FromMinutes(1)) return "less than a minute";
+        if (age < TimeSpan.FromHours(1)) return Count((long)age.TotalMinutes, "minute");
+        if (age < TimeSpan.FromDays(1)) return Count((long)age.TotalHours, "hour");
+        return Count((long)age.TotalDays, "day");
+    }
 
     /// <summary>Nothing to show: it must say why, and what to do (design/SPEC.md §1).</summary>
     protected void ShowEmpty(string reason, string action)
@@ -205,6 +264,7 @@ public abstract class PageBase(string title, string summary) : Observable
     {
         if (IsShown) return;
         IsShown = true;
+        SayAge(); // back on screen: the stale line says the age as it is now
         Shown();
         _refresh?.Start();
     }
@@ -226,7 +286,9 @@ public abstract class PageBase(string title, string summary) : Observable
     /// <summary>The shell says the person has come back to the panel's window while this page is on screen.</summary>
     internal void ComeBack()
     {
-        if (IsShown) CameBack();
+        if (!IsShown) return;
+        SayAge();
+        CameBack();
     }
 
     /// <summary>

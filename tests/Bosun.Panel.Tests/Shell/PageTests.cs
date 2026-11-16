@@ -85,12 +85,15 @@ public class PageTests
         PageRenderer.InPage(theme, () =>
         {
             page = new TestPage("Queue", "Who holds the build slots.");
-            frame = new PageFrame { DataContext = page };
+            // The loading state is the skeleton, drawn at once here rather than after its 150 ms (D02 T03 §7), on a
+            // page on screen, which is the only page it is drawn for.
+            frame = new PageFrame { SkeletonDelay = TimeSpan.Zero, DataContext = page };
             TestPage.AddTemplate(frame);
+            page.Show();
             return frame;
         }, host =>
         {
-            const string loading = "Loading", body = "two slots, one waiting", reason = "Nothing is waiting.", action = "Start a build with bosun run to see it here.";
+            const string loading = "Loading Queue", body = "two slots, one waiting", reason = "Nothing is waiting.", action = "Start a build with bosun run to see it here.";
             const string heading = "This did not work", message = "bosun: the queue file is damaged at line 3", retry = "Retry";
             string[] header = ["Queue", "Who holds the build slots."];
 

@@ -32,6 +32,18 @@ static class Ui
 
     public static readonly TimeSpan Short = TimeSpan.FromSeconds(10);
 
+    /// <summary>Asks until true, for at most <paramref name="limit"/>: whether it became true, without failing the test.</summary>
+    public static bool Wait(Func<bool> probe, TimeSpan limit)
+    {
+        var end = DateTime.UtcNow + limit;
+        while (!probe())
+        {
+            if (DateTime.UtcNow > end) return false;
+            Thread.Sleep(50);
+        }
+        return true;
+    }
+
     /// <summary>A shown top-level window of a process, by its title.</summary>
     public static AutomationElement? TopLevel(int processId, string name) =>
         AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(

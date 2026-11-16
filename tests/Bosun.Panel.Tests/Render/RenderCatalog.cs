@@ -24,7 +24,14 @@ public static partial class RenderCatalog
         // The shell (D02 T02 §4): the whole frame as the panel starts, a page in each of its four states, and the
         // question asked when a page with unsaved changes is being left.
         new("shell", "overview", () => new Bosun.Panel.Shell.ShellView { DataContext = Shell.Shells.Panel() }) { Shows = "Panel ready" },
-        new("page", "loading", () => Framed(new Shell.TestPage().Loading())) { Shows = "Loading" },
+        new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
+        // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
+        new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
+        new("skeleton", "table", () => Loading(new Shell.TestPage("Instances", "Every dev instance on both sides.") { LoadingShape = Bosun.Panel.Controls.SkeletonShape.Table })) { Shows = "Loading Instances" },
+        new("skeleton", "gauge", () => Loading(new Shell.TestPage("Memory", "Live headroom.") { LoadingShape = Bosun.Panel.Controls.SkeletonShape.Gauge })) { Shows = "Loading Memory" },
+        // Data no longer current, with how old it is (a page reading WSL, with WSL stopped), and values that can't be read.
+        new("page", "stale", Stale) { Shows = "WSL is stopped. Showing what was read 12 minutes ago." },
+        new("value", "not-available", NotAvailableValues) { Shows = "It could not be read." },
         new("page", "data", () => Framed(new Shell.TestPage().Data())) { Shows = "two slots, one waiting" },
         new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
         new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },
@@ -58,6 +65,37 @@ public static partial class RenderCatalog
         var frame = new Bosun.Panel.Shell.PageFrame { DataContext = page, Margin = new Thickness(26, 22, 26, 12) };
         Shell.TestPage.AddTemplate(frame);
         return frame;
+    }
+
+    /// <summary>A page loading, on screen, in its frame, its skeleton drawn at once: a picture can't wait 150 ms.</summary>
+    private static FrameworkElement Loading(Shell.TestPage page)
+    {
+        var frame = new Bosun.Panel.Shell.PageFrame { SkeletonDelay = TimeSpan.Zero, DataContext = page.Loading(), Margin = new Thickness(26, 22, 26, 12) };
+        Shell.TestPage.AddTemplate(frame);
+        page.Show();
+        return frame;
+    }
+
+    /// <summary>A page showing the data it read 12 minutes ago, before WSL stopped, by a clock fixed for the picture.</summary>
+    private static FrameworkElement Stale()
+    {
+        var clock = new Helpers.ManualClock();
+        var page = new Shell.TestPage("Instances", "Every dev instance on both sides.") { Clock = clock, Body = "Ubuntu: 3 instances, last read 09:48" };
+        page.LastKnown("WSL is stopped", clock.GetUtcNow() - TimeSpan.FromMinutes(12));
+        return Framed(page);
+    }
+
+    /// <summary>Two values that can't be read: one with its reason, and a null, which says only that.</summary>
+    private static FrameworkElement NotAvailableValues()
+    {
+        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(26, 22, 26, 12) };
+        foreach (var value in new object?[] { new Bosun.Panel.Shell.NotAvailable("WSL is stopped, so its memory can't be read."), null })
+        {
+            var shown = new System.Windows.Controls.ContentControl { Content = value, Margin = new Thickness(0, 0, 0, 16) };
+            shown.SetResourceReference(FrameworkElement.StyleProperty, "Value");
+            panel.Children.Add(shown);
+        }
+        return panel;
     }
 
     /// <summary>The Settings page in the frame, over settings that are only memory, arranged before and after it opens.</summary>

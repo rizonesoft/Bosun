@@ -34,6 +34,9 @@ public sealed class WindowsAnimation : IWindowsAnimation, IDisposable
 
     public bool On => _on;
 
+    /// <summary>Whether it is listening for the setting's changes.</summary>
+    public bool Listening => _listening;
+
     public event Action? Changed;
 
     /// <summary>Starts listening for the setting's changes. <see cref="Dispose"/> stops it.</summary>
@@ -79,9 +82,29 @@ public sealed class Motion : IDisposable
 {
     public const string FastKey = "Motion.Fast", NormalKey = "Motion.Normal", SlowKey = "Motion.Slow", PulseKey = "Motion.Pulse", EaseKey = "Motion.Ease";
 
+    /// <summary>Where the application keeps its one gate, for the views that animate to find (D02 T03 §7).</summary>
+    public const string GateKey = "Motion.Gate";
+
     private static readonly Duration Instant = new(TimeSpan.Zero);
     private readonly ResourceDictionary _resources;
     private readonly IWindowsAnimation _windows;
+    private ResourceDictionary? _installedIn;
+    private WindowsAnimation? _owned;
+
+    /// <summary>
+    /// The application's gate (D02 T03 §7): listens to Windows' animation setting, and is put in
+    /// <paramref name="resources"/> under <see cref="GateKey"/>, where a view finds it. Disposing it stops the
+    /// listening and takes it out of the resources.
+    /// </summary>
+    public static Motion Install(ResourceDictionary resources, WindowsAnimation windows)
+    {
+        ArgumentNullException.ThrowIfNull(resources);
+        ArgumentNullException.ThrowIfNull(windows);
+        var gate = new Motion(resources, windows) { _installedIn = resources, _owned = windows };
+        windows.Listen();
+        resources[GateKey] = gate;
+        return gate;
+    }
 
     /// <param name="resources">Where the generated theme is merged: the application's resources.</param>
     /// <param name="windows">Windows' animation setting.</param>
@@ -123,5 +146,10 @@ public sealed class Motion : IDisposable
 
     private void OnWindowsChanged() => Changed?.Invoke();
 
-    public void Dispose() => _windows.Changed -= OnWindowsChanged;
+    public void Dispose()
+    {
+        _windows.Changed -= OnWindowsChanged;
+        _owned?.Dispose();
+        if (_installedIn is not null && ReferenceEquals(_installedIn[GateKey], this)) _installedIn.Remove(GateKey);
+    }
 }

@@ -21,6 +21,7 @@ public partial class App : Application
     private WindowsTheme? _windowsTheme;
     private TrayController? _tray;
     private RefreshScheduler? _refreshes;
+    private Motion? _motion;
 
     public App()
     {
@@ -52,6 +53,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _refreshes?.Dispose(); // however the panel ends, nothing goes on reading a tool
+        _motion?.Dispose();    // and nothing goes on listening for Windows' animation setting
         _tray?.Dispose();      // and no icon is left in the tray
         _windowsTheme?.Dispose();
         _startup.Dispose();
@@ -69,6 +71,9 @@ public partial class App : Application
         theme.Apply(settings.Current.Theme);
         settings.Changed += saved => theme.Apply(saved.Theme);
         _windowsTheme.Listen();
+        // The one motion gate (D02 T03 §1, §7), over the theme just applied: every animation takes its length from it,
+        // and none runs while Windows' animation effects are off.
+        _motion = Motion.Install(Resources, new WindowsAnimation());
 
         var startup = new StartupEntry(new RegistryRunKey(), Environment.ProcessPath ?? "Bosun.Panel.exe");
         // Started for the tray, by Windows at sign-in: no window, and so no page on screen, until it is asked for.

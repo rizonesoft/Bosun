@@ -106,6 +106,13 @@ public sealed class TestPage(string title = "Queue", string summary = "Who holds
         return this;
     }
 
+    /// <summary>The last data, no longer current, as a page reading WSL shows it when WSL has stopped (D02 T03 §7).</summary>
+    public TestPage LastKnown(string why, DateTimeOffset readAt)
+    {
+        ShowLastKnown(why, readAt);
+        return this;
+    }
+
     /// <summary>The failed state with no Retry set: what a page must not do.</summary>
     public void FailedWithoutRetry() => ShowFailed("no retry");
 

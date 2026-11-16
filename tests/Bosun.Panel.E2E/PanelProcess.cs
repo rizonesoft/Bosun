@@ -92,6 +92,10 @@ sealed class PanelProcess : IDisposable
     {
         var window = Window();
         var handle = new IntPtr(window.Current.NativeWindowHandle);
+        // No window owns the foreground while the desktop is locked or a secure screen is up: no test can take it then,
+        // and saying so beats a timeout that reads like a fault of the panel (found 2026-11-16, an idle machine locked).
+        if (Native.GetForegroundWindow() == IntPtr.Zero && !Ui.Wait(() => Native.GetForegroundWindow() != IntPtr.Zero, TimeSpan.FromSeconds(3)))
+            throw new InvalidOperationException("no window owns the foreground: the desktop is locked or a secure screen is up, so the smoke can't run; unlock it and run again");
         Ui.Until(() =>
         {
             if (Native.GetForegroundWindow() == handle) return true;
