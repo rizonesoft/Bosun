@@ -213,6 +213,24 @@ public sealed class InstanceClientTests : IDisposable
         Assert.Empty(view.Groups);
     }
 
+    [Theory]
+    [InlineData("{\"schema_version\":\"1\"}")]
+    [InlineData("{\"schema_version\":true}")]
+    [InlineData("{\"schema_version\":null}")]
+    [InlineData("{\"schema_version\":1.5}")]
+    [InlineData("[1]")]
+    public async Task A_report_whose_version_isn_t_a_whole_number_is_refused_and_the_rest_still_read(string text)
+    {
+        // Round 4: a string version threw out of the whole read.
+        File.WriteAllText(Path.Combine(_logs, "instances-wsl-Ubuntu.json"), text);
+        Report("Debian", "wsl-debian.json");
+        var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
+        var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
+        Assert.Equal((ReadingProblem.Invalid, true), (ubuntu.Problem, ubuntu.Why!.EndsWith("has no schema_version.", StringComparison.Ordinal)));
+        Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
+        Assert.Contains(view.Groups, g => g.Distro == "Debian");
+    }
+
     [Fact]
     public async Task Another_schema_version_is_unsupported_on_either_side()
     {

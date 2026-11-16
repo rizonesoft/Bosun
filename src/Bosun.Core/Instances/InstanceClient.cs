@@ -118,7 +118,9 @@ public sealed partial class InstanceClient
         {
             using var parsed = JsonDocument.Parse(text);
             var root = parsed.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schema_version", out var version) || !version.TryGetInt64(out var found))
+            // The kind before the number: TryGetInt64 throws on a string, a bool or null (round 4).
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("schema_version", out var version) ||
+                version.ValueKind != JsonValueKind.Number || !version.TryGetInt64(out var found))
                 return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Invalid, $"{file} has no schema_version."));
             if (found != 1)
                 return new SideReading("wsl", named, Reading<InstancesDoc>.Fail(ReadingProblem.Unsupported,
