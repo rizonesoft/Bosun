@@ -1,0 +1,86 @@
+{
+  "ref": "D02 T03 \u00a73",
+  "title": "Lucide icon map and rail marker",
+  "implementation_sha": "fcececdf13ebfe8bb2d39c40a39e1391213453b2",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s3.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*GlyphTests\" --filter-class \"*RailMarkerTests\" --filter-class \"*CountBadgeTests\" -> 8, 7 and 3 pass; a row left unmapped, a marker that always jumps, or a badge at 0 each fails them",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 544, succeeded: 544 (before the completion tests were added)",
+    "dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*RailInputTests\" --filter-class \"*RailTests\" --filter-class \"*KeyboardTests\" -> real click and Down arrow move page and marker; 6 of 6",
+    "CI full gate at fcececd -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43868431803, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43868431830"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s3.md",
+    "verdict": "filed",
+    "candidate": "a11a0d1e00f60dcf2d68473aed426702bb100ba1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D03 T02 \u00a73",
+      "D02 T03 \u00a78"
+    ]
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "round 1 returned only a P3 (a hidden rail marker kept its subscriptions), fixed in a11a0d1 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s3.md",
+    "candidate": "5f0ddcd9506b48f6c369f3d4708676ed84d565a8",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "5f0ddcd9506b48f6c369f3d4708676ed84d565a8",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

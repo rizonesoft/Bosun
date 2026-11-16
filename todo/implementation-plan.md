@@ -81,7 +81,7 @@ Sections: 26 | Checklist items: 261
 | [x]    | D02 T02 §10 | End-to-end smoke through UI Automation                         | display-session | 14    |
 | [x]    | D02 T03 §1  | Elevation and motion tokens                                    | none            | 8     |
 | [x]    | D02 T03 §2  | Mica backdrop with a solid fallback                            | display-session | 9     |
-| [ ]    | D02 T03 §3  | Lucide icon map and rail marker                                | display-session | 9     |
+| [x]    | D02 T03 §3  | Lucide icon map and rail marker                                | display-session | 9     |
 | [ ]    | D02 T03 §4  | Status pill and segmented control                              | display-session | 8     |
 | [ ]    | D02 T03 §5  | Gauge, sparkline and stacked bar                               | display-session | 8     |
 | [ ]    | D02 T03 §6  | Queue slot visuals                                             | none            | 3     |
@@ -147,6 +147,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 60/92 verified sections, 5 ready to run now.
+Progress: 61/92 verified sections, 5 ready to run now.
 
-Checklist: 645/806 items completed (includes Commit items).
+Checklist: 646/806 items completed (includes Commit items).

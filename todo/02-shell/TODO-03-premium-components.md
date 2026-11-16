@@ -41,7 +41,7 @@ title: "TODO-03 -- Premium components"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Elevation and motion tokens | D02 T01 §1 | [x] |
 | 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [x] |
-| 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [ ] |
+| 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [x] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
 | 6 | §6 | Queue slot visuals | §5 | [ ] |
@@ -155,9 +155,12 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 - [x] Add `PageBase.Waiting` (`src/Bosun.Panel/Shell/PageBase.cs`), 0 by default and raising its change, the count a rail row shows. Done when: a test page's count reaches its row live.
 - [x] Add `CountBadge` to the rail row template in `src/Bosun.Panel/Shell/ShellView.xaml` (**Corrected 2026-11-15:** this said `Theme/Controls.xaml`; the row template is built by `D02 T02 §4` in the shell's view, and `Controls.xaml` holds the row's style). Done when: a zero count shows nothing and a count of 3 renders.
 - [x] Set each rail row's automation name to its title and its count in words, the badge itself not announced again. Done when: a UI Automation test takes one row through 0, 3, 1 and 0, reading "Queue", "Queue, 3 waiting", "Queue, 1 waiting" and "Queue", with the badge showing 3, 1 and then gone. Cheaper substitute: a badge only sighted users can read.
-- [ ] Commit: `shell: Lucide icon map, rail marker and badges`
+- [x] Commit: `shell: Lucide icon map, rail marker and badges`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*GlyphTests" --filter-class "*RailMarkerTests" --filter-class "*CountBadgeTests"` exits 0, and fails with a rail row left unmapped, a marker that jumps with motion on, or a badge that stays at 0.
+
+> **Verified:** 2026-11-16 | §3 | fcececdf13ebfe8bb2d39c40a39e1391213453b2
+> **Review:** `docs/reviews/d02-t03-s3.json`
 
 ## 4. Status pill and segmented control
 
