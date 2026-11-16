@@ -44,13 +44,23 @@ public sealed class ActivityLog(UiLogSink sink)
     public AsyncCommand Command(string name, Func<Task<ActionOutcome>> action, Func<bool>? canExecute = null)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("a command's line needs the action's name", nameof(name));
-        return new AsyncCommand(async () => Record(name, await action()), thrown => Fail($"{name}: {thrown.Message}"), canExecute);
+        // A thrown failure ends as a returned one does, through Record: one line and one toast (D02 T03 §9).
+        return new AsyncCommand(async () => Record(name, await action()), thrown => Record(name, ActionOutcome.Failed(thrown.Message)), canExecute);
     }
 
-    /// <summary>Writes the line for an action that ended: INFO when done, FAIL with the reason when it failed.</summary>
+    /// <summary>The window's toasts, when it has them: each action's result is shown there too (D02 T03 §9).</summary>
+    public ToastHost? Toasts { get; set; }
+
+    /// <summary>
+    /// Writes the line for an action that ended, INFO when done and FAIL with the reason when it failed, then shows it
+    /// as a toast: the one path for both, so no toast is without its line.
+    /// </summary>
     public void Record(string name, ActionOutcome outcome)
     {
-        if (!outcome.Succeeded) Fail($"{name}: {outcome.Reason}");
-        else Info(outcome.Reason is null ? name : $"{name}: {outcome.Reason}");
+        var (severity, message) = outcome.Succeeded
+            ? (LogSeverity.Info, outcome.Reason is null ? name : $"{name}: {outcome.Reason}")
+            : (LogSeverity.Fail, $"{name}: {outcome.Reason}");
+        sink.Append(severity, message);
+        Toasts?.Show(severity, UiLogSink.OneLine(message));
     }
 }

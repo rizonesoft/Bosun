@@ -370,6 +370,8 @@ A short result where the operator is looking. The Activity pane stays the record
 
 **Corrected 2026-11-16 (plan review):** a command's thrown failure goes through the same path as a returned one: `ActivityLog.Command`'s failure callback calls `Record` with the failure, so done, failed and thrown each make exactly one line and one toast, proven through `ICommand.Execute`. The cap and FAILs agree: a new toast takes the place of the oldest toast that is not a FAIL; when all three shown are FAILs, a newcomer is not shown as a toast (its line is in the Activity pane) and the stack says how many more are there ("2 more in the Activity pane"), so no FAIL leaves before it is dismissed and the cap holds. Expiry is the shell's: a timer callback, which a real `TimeProvider` runs off the UI thread, is handed to the dispatcher and acts only if its toast is still the one it was set for (not dismissed, not dropped by hiding). A toast's 6 s pauses while the pointer is over its card or the keyboard is in it, each on its own, and runs on with the time it had left only when neither holds, proven through the card's own hover and focus. Hiding drops the stack; a result while hidden is logged and neither shown nor announced; showing again brings no old toast back. A card is at most 360 px wide and its words at most three lines, cut with an ellipsis, the whole result in its tooltip, its screen reader help text and the Activity line; its Dismiss sits on its first line, so every Dismiss stays reachable with three 2,000 character failures at the window's least size.
 
+**Corrected 2026-11-16 (while building):** the one path that writes a result's Activity line and shows its toast is `ActivityLog.Record`, which writes the line and then calls `ToastHost.Show`; the toast host itself writes nothing, so the checkpoint's mutation is the line leaving that path. Dismissing any toast clears the "more in the Activity pane" count, since the stack has room again. The keyboard in a card is proven end to end (`ToastE2ETests`), since an off-screen window takes no keyboard focus; the in-page tests hold a card by its pointer events.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -383,13 +385,13 @@ A short result where the operator is looking. The Activity pane stays the record
 1. Create `src/Bosun.Panel/Shell/ToastHost.cs`. Done when: the stack, timeout and cap work in a test.
 2. Wire `src/Bosun.Panel/Shell/ActivityLog.cs`. Done when: each toast has its Activity line.
 
-- [ ] Create `ToastHost` in `src/Bosun.Panel/Shell/ToastHost.cs`, holding at most 3 and dropping the oldest non-FAIL first. Done when: `tests/Bosun.Panel.Tests/Shell/ToastTests.cs` proves the cap with a fourth toast.
-- [ ] Dismiss after 6 s unless hovered or focused. Done when: a fake clock test proves the timer pauses on both. Cheaper substitute: a toast that vanishes under the pointer.
-- [ ] Keep a FAIL toast until it is dismissed. Done when: a fake clock test shows it after 60 s.
-- [ ] Write the Activity line from the single `Toast.Show` path. Done when: a test proves one line per toast, starting with INFO, WARN or FAIL. Cheaper substitute: a toast with no record.
-- [ ] Announce each toast through `LiveRegion`. Done when: a test sees one announcement per toast.
-- [ ] Make Dismiss reachable by keyboard with an automation name. Done when: a UI Automation test closes a toast by keyboard.
-- [ ] Hold no timer once the stack is empty or the window is hidden, and show pending toasts' Activity lines only when hidden. Done when: a test finds no running timer in both cases.
+- [x] Create `ToastHost` in `src/Bosun.Panel/Shell/ToastHost.cs`, holding at most 3 and dropping the oldest non-FAIL first. Done when: `tests/Bosun.Panel.Tests/Shell/ToastTests.cs` proves the cap with a fourth toast.
+- [x] Dismiss after 6 s unless hovered or focused. Done when: a fake clock test proves the timer pauses on both. Cheaper substitute: a toast that vanishes under the pointer.
+- [x] Keep a FAIL toast until it is dismissed. Done when: a fake clock test shows it after 60 s.
+- [x] Write the Activity line from the single `Toast.Show` path. Done when: a test proves one line per toast, starting with INFO, WARN or FAIL. Cheaper substitute: a toast with no record.
+- [x] Announce each toast through `LiveRegion`. Done when: a test sees one announcement per toast.
+- [x] Make Dismiss reachable by keyboard with an automation name. Done when: a UI Automation test closes a toast by keyboard.
+- [x] Hold no timer once the stack is empty or the window is hidden, and show pending toasts' Activity lines only when hidden. Done when: a test finds no running timer in both cases.
 - [ ] Commit: `shell: in-window toasts`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ToastTests"` and, on the test screen, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ToastE2ETests"` exit 0, and the first fails if `ToastHost.Show` stops writing the Activity line.

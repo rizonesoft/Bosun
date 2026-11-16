@@ -41,7 +41,8 @@ public sealed class ShellViewModel : Observable
     /// False for a panel started for the tray (D02 T02 §7, §8): its window is hidden, so its first page is not on
     /// screen, and reads nothing, until <see cref="WindowShown"/>.
     /// </param>
-    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null, bool windowShown = true)
+    public ShellViewModel(IReadOnlyList<Section> sections, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null, bool windowShown = true,
+        TimeProvider? clock = null)
     {
         if (sections.Count == 0) throw new ArgumentException("the rail needs at least one section", nameof(sections));
         Sections = sections;
@@ -53,7 +54,12 @@ public sealed class ShellViewModel : Observable
         _windowShown = windowShown;
         if (windowShown) _selected.Page.Show();
         Palette = new CommandPalette(this);
+        Toasts = new ToastHost(System.Windows.Threading.Dispatcher.CurrentDispatcher, clock, windowShown);
+        log.Toasts = Toasts;
     }
+
+    /// <summary>The window's toasts (D02 T03 §9): each action's result, bottom right, while the window is on screen.</summary>
+    public ToastHost Toasts { get; }
 
     public IReadOnlyList<Section> Sections { get; }
 
@@ -122,6 +128,7 @@ public sealed class ShellViewModel : Observable
         if (!_windowShown) return;
         _windowShown = false;
         Palette.Close();
+        Toasts.WindowShown = false;
         _selected.Page.Hide();
     }
 
@@ -130,6 +137,7 @@ public sealed class ShellViewModel : Observable
     {
         if (_windowShown) return;
         _windowShown = true;
+        Toasts.WindowShown = true;
         _selected.Page.Show();
     }
 

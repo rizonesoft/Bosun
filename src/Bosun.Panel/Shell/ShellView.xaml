@@ -162,6 +162,19 @@
         </Grid>
 
         <!-- The command palette (D02 T03 §8), under the question about unsaved edits: it closes before that is asked. -->
+        <!-- The toasts (D02 T03 §9): bottom right, newest last, and how many more are only in the Activity pane. -->
+        <StackPanel x:Name="ToastStack" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20">
+            <ItemsControl x:Name="Toasts" ItemsSource="{Binding Toasts.Shown}" Focusable="False" IsTabStop="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <shell:ToastCard Margin="0,8,0,0" Host="{Binding DataContext.Toasts, RelativeSource={RelativeSource AncestorType=shell:ShellView}}"/>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="ToastOverflow" Text="{Binding Toasts.OverflowText}" HorizontalAlignment="Right" Margin="0,6,4,0"
+                       Foreground="{DynamicResource B.TextDim}" FontSize="{DynamicResource T.Caption}"/>
+        </StackPanel>
+
         <shell:CommandPaletteView x:Name="PaletteView" DataContext="{Binding Palette}"/>
 
         <shell:LeaveDialog x:Name="Leave">

@@ -45,6 +45,9 @@ public static partial class RenderCatalog
         // reason (the Settings page's Save while nothing is edited), and nothing matching.
         new("shell", "palette", () => Paletted("s")) { Shows = "There are no changes to save" },
         new("shell", "palette-nothing", () => Paletted("zzz")) { Shows = "Nothing matches" },
+        // D02 T03 §9: a done toast and a long failure cut at three lines; then three failures with two more counted.
+        new("shell", "toasts", () => Toasted(false)) { Shows = "Save settings" },
+        new("shell", "toasts-full", () => Toasted(true)) { Shows = "2 more in the Activity pane" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
         // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
         new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
@@ -212,6 +215,24 @@ public static partial class RenderCatalog
         });
         panel.Children.Add(new Bosun.Panel.Controls.WaitingRow { Status = Queue("{\"index\":0,\"busy\":false,\"holder\":null}", "", readable: false) });
         return panel;
+    }
+
+    /// <summary>The shell with toasts: a done one and a long failure, or three failures and two more only logged.</summary>
+    private static FrameworkElement Toasted(bool full)
+    {
+        var shell = Shell.Shells.Panel();
+        var sink = Bosun.Panel.Shell.LogSeverity.Fail;
+        if (!full)
+        {
+            shell.Toasts.Show(Bosun.Panel.Shell.LogSeverity.Info, "Save settings");
+            shell.Toasts.Show(sink, "Save queue limits: bosun config set slots 9: slots must be between 1 and 8, and the file was left as it was, "
+                + "so the queue still runs 2 slots; change the value and save again, or read the Activity pane for what the tool said in full");
+        }
+        else
+        {
+            for (var i = 1; i <= 5; i++) shell.Toasts.Show(sink, $"Run the WSL logger: wsl.exe exited with code {i}");
+        }
+        return new Bosun.Panel.Shell.ShellView { DataContext = shell };
     }
 
     /// <summary>The shell on the Settings page with the palette open and <paramref name="query"/> typed.</summary>
