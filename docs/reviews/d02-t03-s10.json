@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T03 \u00a710",
+  "title": "High contrast theme and renders",
+  "implementation_sha": "fccc820872cb576e36924aef0b1d29d47bba6861",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s10.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*HighContrastTests\" -> 14 of 14 at 037e287, 20 of 20 after the completion fixes, Night sky and Desert",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 463, succeeded: 463",
+    "with ThemeService ignoring SystemParameters.HighContrast -> 3 fail; with one contrast setter removed (combo item, pressed wash) -> both palettes fail",
+    "render tests 18 of 18: 69 pictures, every view in Dark, Light and HighContrast",
+    "CI full gate at 037e287 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43804234048, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43804233928"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s10.md",
+    "verdict": "filed",
+    "candidate": "037e287a046a21cd46a8f41744472e302000e4a5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D02 T03 \u00a711"
+    ]
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s10.md",
+    "candidate": "14dba5680b60a40013a841d2e39e0626670d37cb",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "14dba5680b60a40013a841d2e39e0626670d37cb",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

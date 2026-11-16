@@ -48,7 +48,7 @@ title: "TODO-03 -- Premium components"
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
-| 10 | §10 | High contrast theme and renders | §1, §7 | [ ] |
+| 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
 | 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
 
 ## 1. Elevation and motion tokens
@@ -370,9 +370,12 @@ Filed 2026-11-16 by the completion review of `D02 T03 §7` (`docs/reviews/02-she
 - [x] Prove the live paths in `tests/Bosun.Panel.Tests/HighContrastTests.cs`: a control already on screen repaints in the contrast colours and back, the Settings line appears and goes as contrast turns on and off, saving another theme while contrast is on keeps contrast and gives the new theme when it turns off, a start with contrast already on draws contrast at once, and Follow Windows is followed again after. Done when: each passes, with Windows 11's Night sky and Desert palettes. Cheaper substitute: a test of the dictionary swap alone.
 - [x] Add `HighContrast` to `PageRenderer.Themes`, the renders' file name rule and `scripts/render-pages.ps1`, drawing with Windows 11's Night sky palette so a picture is the same on every machine. Done when: `pwsh scripts/render-pages.ps1` writes every view in high contrast, and `tests/render_pages_test.ps1` passes with three themes. Cheaper substitute: renders only of the two own themes.
 - [x] Check the skeleton, the `NotAvailable` and `Value` texts, the stale line, the focus ring and an open combo box in the high contrast renders against design/SPEC.md §1, adding render cases for a focused control and an open drop-down with a highlighted and a selected item. Done when: each is visible and distinct in the pictures, a skeleton block's border differs from the window colour, a test reads the focus ring's border in the highlight colour on a focused control, and `ThemeContrastTests` passes the contrast theme's text on its window colour in both palettes. Cheaper substitute: looking at one page.
-- [ ] Commit: `theme: high contrast`
+- [x] Commit: `theme: high contrast`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*HighContrastTests"` exits 0 and fails if `ThemeService` ignores `SystemParameters.HighContrast`; `pwsh scripts/render-pages.ps1` writes every view in three themes.
+
+> **Verified:** 2026-11-16 | §10 | fccc820872cb576e36924aef0b1d29d47bba6861
+> **Review:** `docs/reviews/d02-t03-s10.json`
 
 ## 11. Contrast preview and its smoke on the shown window
 
