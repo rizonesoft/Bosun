@@ -48,6 +48,9 @@ jobs:
         run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
       - name: .NET tests
         run: dotnet test --solution Bosun.slnx --no-build
+      # Built so it can't rot, never run here: the smoke presses real keys on a desktop (D02 T02 §10).
+      - name: Build the end-to-end smoke
+        run: dotnet build tests/Bosun.Panel.E2E -nologo -maxCpuCount:2
       - name: Language standard of every compile
         run: python scripts\native-std-check.py
       - name: Hardening of every built image

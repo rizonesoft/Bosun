@@ -373,6 +373,9 @@ public class ShellTests
                 Assert.True(view.Leave.IsVisible);
                 Assert.False(view.Body.IsEnabled); // nothing behind the question can be reached
                 Assert.Contains("Save your changes to Queue?", PageRenderer.TextsOf(view));
+                // A screen reader meets a dialog named for what it asks about (found nameless by D02 T02 §10's smoke).
+                var question = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(view.Leave);
+                Assert.Equal(("Unsaved changes", true), (question.GetName(), question.IsDialog()));
             }
             void Answered(Button button)
             {

@@ -5,5 +5,7 @@
   <ItemGroup>
     <!-- The tests reach the process runner's start, to make it slow. -->
     <InternalsVisibleTo Include="Bosun.Core.Tests" />
+    <!-- The end-to-end smoke starts each panel through ChildProcess, in a job object of its own. -->
+    <InternalsVisibleTo Include="Bosun.Panel.E2E" />
   </ItemGroup>
 </Project>

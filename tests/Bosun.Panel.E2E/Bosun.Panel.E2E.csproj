@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The end-to-end smoke (D02 T02 §10): starts the real Bosun.Panel.exe in a desktop session and drives it through
+       Windows' UI Automation and real input. It is not in Bosun.slnx, so a full solution run never presses keys on
+       anyone's desktop; CI builds it and does not run it. Run it with dotnet test and the project option naming this folder. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <!-- System.Windows.Automation, the client side of UI Automation, comes with the desktop runtime. -->
+    <UseWPF>true</UseWPF>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <IsPackable>false</IsPackable>
+    <!-- Screen pixels everywhere: UI Automation's rectangles, the pointer and the captures agree on every monitor. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Started as a process; built before the tests and never referenced. -->
+    <ProjectReference Include="..\..\src\Bosun.Panel\Bosun.Panel.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Bosun.TestChild\Bosun.TestChild.csproj" ReferenceOutputAssembly="false" />
+    <!-- The job-object start (ChildProcess) the panel's process runner uses, so a test's panel never outlives it. -->
+    <ProjectReference Include="..\..\src\Bosun.Core\Bosun.Core.csproj" />
+  </ItemGroup>
+</Project>
