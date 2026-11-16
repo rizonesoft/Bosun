@@ -42,6 +42,8 @@ title: "TODO-02 -- Instances and queue"
 
 ## 1. Instance scanner
 
+> **Started:** 2026-11-16T07:55:25Z
+
 Agents are recognised by what they are, not by a window title. On WSL the existing shim reports, rather than each `wsl.exe` call scanning.
 
 **Corrected 2026-11-16:** the section was three summary items and a checkpoint in a filter form the test platform refuses. Decomposed against the tree: the Windows logger already reads each process's working folder (`process_cwd`, `repo_for_dir` in `src/app.cpp`) and the WSL logger the same from `/proc` (`sample` in `wsl/bosun_log.py`); Claude Code's session records (`~/.claude/sessions/<pid>.json` on each side, `status` busy or idle, `procStart` the process's start as a FILETIME on Windows and `/proc/<pid>/stat` field 22 on Linux) are what `scripts/lib/run_guard.py` `session_records` reads; review marks are `build/review-in-flight/<pid>-<reviewer>.json` in a repo (`review_in_flight`); slot holders are the queue's records (`SlotRecord` in `src/core.hpp`). Defaults taken, each cheap to change later: the queue is one, kept on Windows, so only the Windows report lists jobs (both sides' holders, each with its side), and a WSL job's memory is null there, not measured from Windows; waiters are the Queue page's (`D03 T02 §3`), not instances; Antigravity's editor (`Antigravity.exe`) is listed beside VS Code as an editor of its own kind, since the Goal is every editor; an instance's memory is its own process and its descendants that are not themselves instances or jobs, so no memory is counted twice.
