@@ -31,25 +31,34 @@ public class DecisionCardTests
     public void A_new_threshold_reads_again_and_a_reading_at_the_old_one_is_dropped()
     {
         var settings = new SettingsFixture().Open();
-        var source = new Source { HoldFortnight = new TaskCompletionSource() };
+        // The pending request reads at 2048 and would say more memory; the one at the new floor says enough.
+        var old = Reading<ReportDoc>.Of(ReportOf(evidence: Evidence.Replace("\"low_minutes\":0", "\"low_minutes\":12"), lowMb: 2048), Now);
+        var source = new Source { Fortnight = old, HoldFortnight = new TaskCompletionSource() };
         OnMemoryPage(source, (page, _, _, _) =>
         {
             Assert.Equal(MemoryPage.ReadingDecision, page.DecisionState);
             Assert.Equal((long?)2048, source.LastFloor);                                        // pending at 2048
-            var saved = settings.Store.Update(s => s with { PressureFloorMb = 4096 });           // saved while it is pending
-            Assert.True(saved.Succeeded, saved.Reason);
-            Settle();
-            Assert.True(page.FloorMb == 4096, $"floor {page.FloorMb}, stored {settings.Store.Current.PressureFloorMb}");
-            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);
-            var held = source.HoldFortnight!;
-            source.HoldFortnight = null;
-            held.SetResult();                                                                    // the 2048 reading arrives late
-            Settle();
+            var first = source.HoldFortnight!;
+            Assert.True(settings.Store.Update(s => s with { PressureFloorMb = 4096 }).Succeeded); // saved while it is pending
             Settle();
             Assert.Equal(4096, page.FloorMb);
+
+            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);
+            var second = new TaskCompletionSource();
+            source.HoldFortnight = second;                                                       // the re-read stays pending
+            first.SetResult();                                                                   // the 2048 reading arrives late
+            Settle();
+            Settle();
             Assert.Equal((long?)4096, source.LastFloor);                                        // read again at the new one
-            Assert.NotNull(page.Decision);
-            Assert.Contains("0 minutes below the 4.0 GB pressure line", page.Decision!.Evidence); // the line, minutes and verdict agree
+            Assert.Null(page.Decision);                                                          // the old verdict never shows
+            Assert.NotEqual("", page.DecisionState);
+
+            source.HoldFortnight = null;
+            second.SetResult();
+            Settle();
+            Settle();
+            Assert.Equal("32.0 GB has been enough so far.", page.Decision!.Verdict);
+            Assert.Contains("0 minutes below the 4.0 GB pressure line", page.Decision.Evidence); // the line, minutes and verdict agree
         }, settings.Store);
     }
 
@@ -62,11 +71,11 @@ public class DecisionCardTests
         {
             Assert.Equal("32.0 GB has been enough so far.", page.Decision!.Verdict);           // read at 2048
             source.HoldFortnight = new TaskCompletionSource();                                   // the next read stays pending
+            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);                // what it will read at the new floor
             Assert.True(settings.Store.Update(s => s with { PressureFloorMb = 4096 }).Succeeded);
             Settle();
             Assert.Null(page.Decision);
             Assert.Equal("Reading the last 14 days again at the new 4.0 GB pressure line.", page.DecisionState);
-            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);
             var held = source.HoldFortnight;
             source.HoldFortnight = null;
             held.SetResult();

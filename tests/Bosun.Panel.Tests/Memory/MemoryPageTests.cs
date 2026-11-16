@@ -46,8 +46,9 @@ public class MemoryPageTests
             if (days == 14)                                                                // the fortnight, for 7 and 14 days
             {
                 Fortnights++;
+                var answer = Fortnight;                                                    // what this request reads, fixed when it is asked
                 if (HoldFortnight is { } held) await held.Task.WaitAsync(cancellationToken);
-                return Fortnight;
+                return answer;
             }
             Assert.Equal(1, days);                                                         // the last 24 hours
             Reports++;
