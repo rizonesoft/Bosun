@@ -39,7 +39,7 @@ title: "TODO-03 -- Premium components"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Elevation and motion tokens | D02 T01 §1 | [ ] |
+| 1 | §1 | Elevation and motion tokens | D02 T01 §1 | [x] |
 | 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [ ] |
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [ ] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
@@ -80,9 +80,12 @@ The generator owns these like every other token, so no view carries a shadow or 
 - [x] Update `Motion.cs` on `SystemParameters.StaticPropertyChanged` and raise `Changed`. Done when: a test turning the setting on, off and on again sees `Changed` raised once per change and every duration and `Animates` follow each time, with no restart (**Added 2026-11-16** from the plan review).
 - [x] Assert the soft status tints in `tests/Bosun.Panel.Tests/ThemeContrastTests.cs`, compositing each `*Soft` over `Base`, `Surface` and `Raised`. Done when: each status word reads at 4.5:1 or better in both themes, and a stronger tint fails the test. Cheaper substitute: measuring the word on the plain surface only.
 - [x] Extend `tests/Bosun.Panel.Tests/XamlRules.cs` and `XamlRulesTests.cs` to fail a literal non-zero `Duration`, `BlurRadius` or `CornerRadius` in a view or its code. Done when: a literal in a view, in a setter and in code each fails it, `0` and a resource pass, and the panel's own scan stays clean.
-- [ ] Commit: `theme: elevation and motion tokens`
+- [x] Commit: `theme: elevation and motion tokens`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*MotionTests"` exits 0, and fails if the zero-duration path is removed; `python scripts/run-tests.py` passes `test_build_theme`.
+
+> **Verified:** 2026-11-16 | §1 | 41c8c124d3bf3dcd0651165ca4ebb41606ba3e25
+> **Review:** `docs/reviews/d02-t03-s1.json`
 
 ## 2. Mica backdrop with a solid fallback
 
