@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 23 | Checklist items: 236
+Sections: 23 | Checklist items: 238
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -85,7 +85,7 @@ Sections: 23 | Checklist items: 236
 | [ ]    | D02 T03 §4  | Status pill and segmented control           | display-session | 8     |
 | [ ]    | D02 T03 §5  | Gauge, sparkline and stacked bar            | display-session | 8     |
 | [ ]    | D02 T03 §6  | Queue slot visuals                          | none            | 3     |
-| [ ]    | D02 T03 §7  | Skeleton and page transitions               | none            | 10    |
+| [ ]    | D02 T03 §7  | Skeleton and page transitions               | none            | 12    |
 | [ ]    | D02 T03 §8  | Command palette                             | display-session | 11    |
 | [ ]    | D02 T03 §9  | In-window toasts                            | display-session | 8     |
 
@@ -145,4 +145,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 53/88 verified sections, 7 ready to run now.
 
-Checklist: 578/763 items completed (includes Commit items).
+Checklist: 578/765 items completed (includes Commit items).
