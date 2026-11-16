@@ -142,18 +142,27 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-16:** checked against the tree before the build. Items 2 and 4 both added the threshold to Settings and are one item now; the notifier (`src/Bosun.Panel/Tray/Notifier.cs`, `NotificationType.MemoryPressure`, honouring the notification setting and the hour's pause), the tray's Pressure state with its icon and words (`TrayViewModel.Pressure`) and the scheduler (`RefreshScheduler.Register`) exist from `D02 T02 §7` and `§8`, waiting for this section's check. The finding filed for this section (`todo/findings.md`: a pressure flag that is false can't tell healthy memory from a check that failed or went stale) is taken here. The decisions, each with what reversing it costs:
+
+- The check reads Windows' available memory from `current-windows.json` through `MemoryClient.SnapshotAsync` (`D03 T01 §1`): the logger already samples every 30 s, so the tray check starts no process. A freeze is the host's, so the floor is Windows' available memory; WSL's own pressure is the Memory page's (`D03 T01 §2`). Reversal cost: one call.
+- An episode starts when a sample is below the floor and ends only when one is more than 1 GB above it (`PressureWatch.Hysteresis`), so a noisy dip around the floor is one episode and one notification. A missing, unreadable or stale snapshot decides nothing: the episode stands as it was, and the tray says the check is unavailable or stale, with the reason, in place of a healthy state.
+- The floor is `PanelSettings.PressureFloorMb`, 2048 MB by default, from 512 to 65536, stored as `pressure_floor_mb`; a value outside is refused beside the field. The check reads the stored value at each run, so a saved change takes effect at the next check with no restart.
+- The check is registered with the panel's `RefreshScheduler` at 30 s and started when the panel starts, window shown or in the tray (design/SPEC.md §1: in the tray, only the pressure check runs), and stopped with the scheduler at exit.
+- The checkpoint named `dotnet test Bosun.slnx --filter FullyQualifiedName~PressureWatch`, which the test platform here takes as `dotnet test --solution Bosun.slnx --filter-class "*PressureWatchTests"`.
+
 **Build order:**
 
 1. Create `src/Bosun.Core/Memory/PressureWatch.cs`. Done when: one notice per episode.
 2. Add the threshold setting. Done when: changing it changes behaviour.
 
-- [ ] Enter pressure below the floor and leave only 1 GB above it. Done when: a fake-clock test fires once across a noisy dip. Cheaper substitute: a toast on every sample.
-- [ ] Add the floor to Settings, default 2048 MB, with `PressureWatch` as its consumer. Done when: the setting reads back and drives the test.
-- [ ] Run the check while in the tray at 30 second intervals, with the tray state. Done when: the icon changes to Pressure and the words say so.
-- [ ] Add the Pressure alert threshold to the Settings page and to `PanelSettings` (**Added 2026-11-15** from `D02 T02 §5`, which builds each setting with the code that reads it; `design/SPEC.md` §15). Done when: a test changes the threshold on the page, reads it stored and read back, a value outside its range refused beside the field, and the alert raised at the new threshold with no restart. Cheaper substitute: a setting nothing reads.
+- [ ] Add `PressureWatch` in `src/Bosun.Core/Memory/PressureWatch.cs`, deciding from a sample of available memory and the floor whether an episode starts, goes on or ends, with the 1 GB hysteresis, and saying when a check could not decide. Done when: a test across a noisy dip around the floor sees one start and one end, a sample between the floor and 1 GB above it ending nothing, and an undecided check leaving the episode as it was. Cheaper substitute: a toast on every sample.
+- [ ] Add `PressureFloorMb` to `PanelSettings` (`src/Bosun.Core/PanelSettings.cs`) and `PanelSettingsStore`, default 2048, kept within 512 to 65536, stored as `pressure_floor_mb`. Done when: a test saves it, reads it back from the file, sees a file without it read as 2048 and one out of range refused or brought within its limits as the store does for the pane height. Cheaper substitute: a constant in the check.
+- [ ] Add the Pressure alert threshold to the Settings page (`src/Bosun.Panel/Settings/SettingsPage.cs`, `SettingsView.xaml`, design/SPEC.md §15), with Save, Discard and the read-back the page's other settings have. Done when: a test changes it on the page, saves, reads it stored, sees a value outside 512 to 65536 refused beside the field with nothing saved, and a render shows the field in both themes. Cheaper substitute: a setting nothing reads.
+- [ ] Run the check in the panel, `PressureCheck` in `src/Bosun.Panel/Tray/PressureCheck.cs`, registered with the `RefreshScheduler` at 30 s from `App.MakeWindow` whether the window is shown or in the tray: it reads the snapshot, gives `PressureWatch` the sample and the stored floor, sets `TrayViewModel.Pressure`, raises one `MemoryPressure` notification as an episode starts (the notifier honouring its setting and pause) and writes the start and the end to the Activity pane. Done when: a test with a fake snapshot and clock sees the icon go to Pressure with the words, one notification across the dip, the end written, and a floor saved meanwhile used at the next check with no restart. Cheaper substitute: a check only while the Memory page is open.
+- [ ] Say in the tray when the check can't decide (`TrayViewModel`): a missing, unreadable or stale snapshot gives the tooltip `memory check unavailable` or `memory check stale` with its reason, not a healthy state (taken from `todo/findings.md`). Done when: a test sees each, and a fresh snapshot afterwards gives the plain state again. Cheaper substitute: a false pressure flag that looks healthy.
 - [ ] Commit: `memory: pressure alerts`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~PressureWatch` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*PressureWatchTests" --filter-class "*PressureCheckTests"` exits 0, and fails if the hysteresis is removed or the floor is not read at each check.
 
 ## 5. Overview page
 
