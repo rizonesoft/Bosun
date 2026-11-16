@@ -199,6 +199,8 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 
 ## 5. Gauge, sparkline and stacked bar
 
+> **Started:** 2026-11-16T14:07:52Z
+
 These are drawn from data and stay cheap: they draw once per data change and hold no timer. An unreadable value must never look like zero.
 
 **Corrected 2026-11-16:** checked against the tree before the plan review, and given what the plan reviews of `D02 T03 §3` and `§4` asked of every surface section. The tests go in `tests/Bosun.Panel.Tests/Controls/` and the checkpoint is in the test platform's own filter form. Each control takes its colours from the theme's tokens (the gauge's arc and its state word the status roles `B.Ok`, `B.Warn`, `B.Danger`, its track `B.Line`; the sparkline `B.Accent`; the stacked bar's segments the theme's series colours), and in a contrast theme Windows' own (`B.Text`, `B.Accent` as the highlight, `B.GrayText` for an empty track), checked in both palettes. Each control is one element with a name a screen reader says in words; nothing inside is said again. Every state is a `RenderCatalog` case, looked at in every theme. Animation goes through the installed motion gate (`Motion`): it lands at once with animation effects off or turned off mid-change, and holds no clock when hidden or unloaded.
