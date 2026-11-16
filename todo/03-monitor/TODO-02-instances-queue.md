@@ -78,6 +78,8 @@ Agents are recognised by what they are, not by a window title. On WSL the existi
 
 ## 2. Instances page
 
+> **Started:** 2026-11-16T23:56:12Z
+
 The direct answer to monitoring all the dev instances.
 
 **Phase:** 3
