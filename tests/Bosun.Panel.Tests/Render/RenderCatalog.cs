@@ -30,6 +30,8 @@ public static partial class RenderCatalog
         // The status pill in each kind, and the segmented control with a choice and a disabled segment (D02 T03 §4).
         new("controls", "status-pills", StatusPills) { Shows = "Not available" },
         new("controls", "segmented", Segmented) { Shows = "Today" },
+        // The chosen segment with the keyboard on it: the inside focus ring over it, where WPF's adorner layer draws it.
+        new("controls", "segmented-focus", SegmentedFocus) { Shows = "Dark", Ready = PlaceRing },
         // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
         new("shell", "badges", Badged) { Shows = "12" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
@@ -112,6 +114,31 @@ public static partial class RenderCatalog
         });
         panel.Children.Add(new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 0 });
         return panel;
+    }
+
+    /// <summary>The Settings page's theme choice with Dark chosen, and a ring to place on it once it is laid out.</summary>
+    private static FrameworkElement SegmentedFocus()
+    {
+        var grid = new Grid { Margin = new Thickness(26), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+        grid.Children.Add(new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 1 });
+        var ring = new Control { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
+        ring.SetResourceReference(FrameworkElement.StyleProperty, "FocusRing.Inside");
+        grid.Children.Add(ring);
+        return grid;
+    }
+
+    /// <summary>Puts the ring over the chosen segment, at its bounds, as keyboard focus would.</summary>
+    private static Task PlaceRing(FrameworkElement view)
+    {
+        var grid = (Grid)view;
+        var control = (Bosun.Panel.Controls.SegmentedControl)grid.Children[0];
+        var ring = (Control)grid.Children[1];
+        grid.UpdateLayout();
+        var segment = (ListBoxItem)control.ItemContainerGenerator.ContainerFromIndex(control.SelectedIndex);
+        var at = segment.TranslatePoint(new Point(0, 0), grid);
+        ring.Margin = new Thickness(at.X, at.Y, 0, 0);
+        (ring.Width, ring.Height) = (segment.ActualWidth, segment.ActualHeight);
+        return Task.CompletedTask;
     }
 
     /// <summary>The shell with counts waiting: Overview (selected) 12, Queue 3, Settings 1.</summary>

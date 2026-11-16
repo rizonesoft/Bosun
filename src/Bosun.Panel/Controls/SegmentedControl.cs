@@ -17,21 +17,33 @@ public class SegmentedControl : ListBox
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        var to = e.Key switch
-        {
-            Key.Left => SelectedIndex - 1,
-            Key.Right => SelectedIndex + 1,
-            Key.Home => 0,
-            Key.End => Items.Count - 1,
-            _ => int.MinValue,
-        };
-        if (to == int.MinValue || Items.Count == 0)
+        if (e.Key is not (Key.Left or Key.Right or Key.Home or Key.End))
         {
             base.OnKeyDown(e);
             return;
         }
-        Select(Math.Clamp(to, 0, Items.Count - 1));
+        if (Target(e.Key) is { } to) Select(to);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// The segment a key goes to, skipping disabled ones, so the selection and the keyboard never part (completion
+    /// review: Right onto a disabled segment selected it while the focus, refused, stayed behind): Left and Right the
+    /// nearest enabled one that way, or none at the end; Home and End the first and the last enabled one.
+    /// </summary>
+    internal int? Target(Key key)
+    {
+        bool Enabled(int i) => (ItemContainerGenerator.ContainerFromIndex(i) as UIElement ?? Items[i] as UIElement)?.IsEnabled ?? true;
+        var enabled = Enumerable.Range(0, Items.Count).Where(Enabled).ToList();
+        if (enabled.Count == 0) return null;
+        return key switch
+        {
+            Key.Left => enabled.LastOrDefault(i => i < SelectedIndex, -1) is var left and >= 0 ? left : null,
+            Key.Right => enabled.FirstOrDefault(i => i > SelectedIndex, -1) is var right and >= 0 ? right : null,
+            Key.Home => enabled[0],
+            Key.End => enabled[^1],
+            _ => null,
+        };
     }
 
     /// <summary>Selects a segment and gives it the keyboard, as an arrow key does.</summary>

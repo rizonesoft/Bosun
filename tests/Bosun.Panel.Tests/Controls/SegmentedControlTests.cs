@@ -136,6 +136,53 @@ public class SegmentedControlTests
     }
 
     [Fact]
+    public void The_keys_skip_a_disabled_segment_so_selection_and_keyboard_never_part()
+    {
+        // Completion review: Right onto a disabled segment selected it while the focus, refused, stayed behind.
+        PageRenderer.InPage("Dark", () => new SegmentedControl
+        {
+            Items = { new ListBoxItem { Content = "A", IsEnabled = false }, new ListBoxItem { Content = "B" }, new ListBoxItem { Content = "C", IsEnabled = false },
+                new ListBoxItem { Content = "D" }, new ListBoxItem { Content = "E", IsEnabled = false } },
+            SelectedIndex = 1,
+        }, page =>
+        {
+            var c = ShellSupport.Under<SegmentedControl>(page).Single();
+            Assert.Equal((int?)3, c.Target(System.Windows.Input.Key.Right)); // over C, disabled, to D
+            Assert.Null(c.Target(System.Windows.Input.Key.Left));              // A is disabled: nowhere to go
+            Assert.Equal((int?)1, c.Target(System.Windows.Input.Key.Home));    // the first enabled, not A
+            Assert.Equal((int?)3, c.Target(System.Windows.Input.Key.End));     // the last enabled, not E
+            c.SelectedIndex = 3;
+            Assert.Null(c.Target(System.Windows.Input.Key.Right));             // E is disabled: stays on D
+            Assert.Equal((int?)1, c.Target(System.Windows.Input.Key.Left));    // over C, back to B
+            return 0;
+        });
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
+    [InlineData("HighContrast")]
+    public void The_inside_focus_ring_stays_seen_on_a_segment_filled_with_the_highlight(string theme)
+    {
+        // Completion review: in a contrast theme the ring and a chosen segment's fill are both the highlight.
+        PageRenderer.InPage(theme, () => new Grid(), page =>
+        {
+            var ring = new Control();
+            ring.SetResourceReference(FrameworkElement.StyleProperty, "FocusRing.Inside");
+            ((Grid)page.Child).Children.Add(ring);
+            PageRenderer.Settle(page);
+            var inner = (Border)ring.Template.FindName("inner", ring);
+            var outer = (Border)ring.Template.FindName("ring", ring);
+            Color Of(object b) => ((SolidColorBrush)b).Color;
+            Color Key(string key) => ((SolidColorBrush)page.FindResource(key)).Color;
+            Assert.Equal(Key("B.Accent"), Of(outer.BorderBrush));
+            if (theme == "HighContrast") Assert.Equal(Key("B.Base"), Of(inner.BorderBrush)); // the window's colour inside the highlight
+            else Assert.Equal(Colors.Transparent, Of(inner.BorderBrush));                   // the ring as it always was
+            return 0;
+        });
+    }
+
+    [Fact]
     public void Each_segment_is_a_32_px_target()
     {
         PageRenderer.InPage("Dark", Choices, page =>

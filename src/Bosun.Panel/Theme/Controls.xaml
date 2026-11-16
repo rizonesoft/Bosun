@@ -36,12 +36,23 @@
 
     <!-- The same outline drawn inside the control's bounds, for what sits against an edge that would clip a ring
          outside it: a row in a list, a table cell, a window button. -->
+    <!-- Inside the control, for rows and segments that fill their own bounds. In a contrast theme the accent is the
+         highlight, which also fills a selected rail row or segment: the ring would vanish exactly where it is needed,
+         so a 1 px line in the window's colour runs inside it there (completion review of D02 T03 §4). -->
     <Style x:Key="FocusRing.Inside">
         <Setter Property="Control.Template">
             <Setter.Value>
                 <ControlTemplate>
-                    <Border BorderThickness="2" BorderBrush="{DynamicResource B.Accent}"
-                            CornerRadius="{DynamicResource R.Mark}" SnapsToDevicePixels="True"/>
+                    <Border x:Name="ring" BorderThickness="2" BorderBrush="{DynamicResource B.Accent}"
+                            CornerRadius="{DynamicResource R.Mark}" SnapsToDevicePixels="True">
+                        <Border x:Name="inner" BorderThickness="1" BorderBrush="Transparent"
+                                CornerRadius="{DynamicResource R.Mark}" SnapsToDevicePixels="True"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="inner" Property="BorderBrush" Value="{DynamicResource B.Base}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
