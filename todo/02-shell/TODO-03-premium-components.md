@@ -51,6 +51,8 @@ title: "TODO-03 -- Premium components"
 
 ## 1. Elevation and motion tokens
 
+> **Started:** 2026-11-16T02:07:11Z
+
 The generator owns these like every other token, so no view carries a shadow or a duration of its own. Motion also has one gate, so honouring the system setting is not left to each animation.
 
 **Phase:** 2
