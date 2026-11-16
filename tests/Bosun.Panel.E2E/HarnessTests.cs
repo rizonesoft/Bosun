@@ -53,6 +53,33 @@ public class HarnessTests
         Assert.Equal((0, 0), cover.Heard());
     }
 
+    [Fact]
+    public void Input_is_refused_while_a_modifier_is_held()
+    {
+        using var panel = PanelProcess.Start();
+        var window = panel.Front();
+        var handle = new IntPtr(window.Current.NativeWindowHandle);
+        var (x, y) = Ui.Centre(Ui.Get(window, "Rail"));
+        var focused = Ui.Focused();
+
+        // Shift is held as a person would hold it (pressed on the panel, which owns the foreground): a Tab sent now
+        // would be Shift+Tab, and with Alt or Windows it would leave the panel altogether.
+        Assert.Equal(handle, Native.GetForegroundWindow());
+        Native.KeyDown(Native.VK_SHIFT);
+        try
+        {
+            var refused = Assert.Throws<RealInputRefused>(() => RealInput.Key(handle, Native.VK_TAB));
+            Assert.Contains("Shift is held down", refused.Message);
+            Assert.Throws<RealInputRefused>(() => RealInput.ClickOnWindow(handle, x, y));
+        }
+        finally
+        {
+            Native.KeyUp(Native.VK_SHIFT);
+        }
+        Assert.True(focused is null || Ui.Focused() is { } now && Automation.Compare(now, focused), "nothing reached the panel while Shift was held");
+        RealInput.Key(handle, Native.VK_TAB); // let go, input goes again
+    }
+
     private static int? FirstLine(string file)
     {
         try
@@ -122,22 +149,36 @@ sealed class Cover : IDisposable
         thread.SetApartmentState(ApartmentState.STA);
         thread.IsBackground = true;
         thread.Start();
-        ready.Wait(TimeSpan.FromSeconds(10));
-        var element = Ui.Until(() => Ui.TopLevel(Environment.ProcessId, "Bosun E2E cover"), Ui.Short, "the cover window");
-        made = new Cover(dispatcher!, element);
-        dispatcher!.Invoke(() =>
+        if (!ready.Wait(TimeSpan.FromSeconds(10)) || dispatcher is null)
         {
-            window!.PreviewKeyDown += (_, _) => Interlocked.Increment(ref made._keys);
-            window.PreviewMouseDown += (_, _) => Interlocked.Increment(ref made._clicks);
-        });
-        var handle = new IntPtr(element.Current.NativeWindowHandle);
-        if (!activate) return made;
-        Ui.Until(() =>
+            dispatcher?.InvokeShutdown(); // a window shown late still closes
+            throw new TimeoutException("the cover window was not shown within 10 s");
+        }
+        // From here the window exists: any way out but a return closes it, so a test that fails here leaves no
+        // always-on-top window over the desktop.
+        try
         {
-            element.SetFocus();
-            return Native.GetForegroundWindow() == handle;
-        }, Ui.Short, "the cover window to take the foreground");
-        return made;
+            var element = Ui.Until(() => Ui.TopLevel(Environment.ProcessId, "Bosun E2E cover"), Ui.Short, "the cover window");
+            made = new Cover(dispatcher, element);
+            dispatcher.Invoke(() =>
+            {
+                window!.PreviewKeyDown += (_, _) => Interlocked.Increment(ref made._keys);
+                window.PreviewMouseDown += (_, _) => Interlocked.Increment(ref made._clicks);
+            });
+            var handle = new IntPtr(element.Current.NativeWindowHandle);
+            if (activate)
+                Ui.Until(() =>
+                {
+                    element.SetFocus();
+                    return Native.GetForegroundWindow() == handle;
+                }, Ui.Short, "the cover window to take the foreground");
+            return made;
+        }
+        catch
+        {
+            dispatcher.InvokeShutdown();
+            throw;
+        }
     }
 
     /// <summary>The keys and clicks that reached the window.</summary>

@@ -7,6 +7,7 @@ namespace Bosun.Panel.E2E;
 static partial class Native
 {
     public const int WM_CLOSE = 0x0010, WM_NCHITTEST = 0x0084, HTMAXBUTTON = 9;
+    public const int VK_LBUTTON = 0x01, VK_RBUTTON = 0x02, VK_MBUTTON = 0x04, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
     public const int VK_TAB = 0x09, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_SPACE = 0x20, VK_DOWN = 0x28;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -65,6 +66,25 @@ static partial class Native
         press[1].u.ki.dwFlags = KEYEVENTF_KEYUP;
         Send(press);
     }
+
+    /// <summary>Presses one key and leaves it down; <see cref="KeyUp"/> lets it go.</summary>
+    public static void KeyDown(int virtualKey) => Send([KeyEvent(virtualKey, 0)]);
+
+    public static void KeyUp(int virtualKey) => Send([KeyEvent(virtualKey, KEYEVENTF_KEYUP)]);
+
+    private static INPUT KeyEvent(int virtualKey, int flags)
+    {
+        var input = new INPUT { type = INPUT_KEYBOARD };
+        input.u.ki.wVk = (ushort)virtualKey;
+        input.u.ki.dwFlags = flags;
+        return input;
+    }
+
+    /// <summary>Whether a key or mouse button is down now, on the real keyboard or as input already sent.</summary>
+    public static bool IsDown(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     /// <summary>Moves the pointer to a point in screen pixels.</summary>
     public static void MoveTo(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE)]);

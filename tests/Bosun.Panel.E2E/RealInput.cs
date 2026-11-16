@@ -12,7 +12,10 @@ sealed class RealInputRefused(string message) : Exception(message);
 /// <c>SetForegroundWindow</c> had silently failed. So a key needs the panel's window in the foreground; a point on the
 /// window needs the panel's window under it; a point on the notification area needs the taskbar or its overflow under
 /// it and the point inside a Bosun Panel icon; a point on a menu needs a popup menu of the panel's own process under it.
-/// Otherwise nothing is sent and the test fails with why.
+/// And nothing may be held down: a key sent while someone holds Alt or Windows is Alt+Tab or Task View, and a click
+/// with Ctrl or a button held is another gesture, so input waits a moment for held keys to be let go and is refused
+/// if they are not (the person's keys are never released for them). Otherwise nothing is sent and the test fails
+/// with why.
 /// </summary>
 static class RealInput
 {
@@ -84,6 +87,7 @@ static class RealInput
     /// <summary>A left click on a line of a popup menu that the panel's process opened.</summary>
     public static void ClickMenuLine(int panelProcess, AutomationElement line)
     {
+        RequireNothingHeld("a click");
         var (x, y) = Ui.Centre(line);
         var root = Native.RootAt(x, y);
         if (Native.ClassOf(root) != "#32768" || Native.ProcessOf(root) != panelProcess)
@@ -104,8 +108,28 @@ static class RealInput
         public void Dispose() => undo();
     }
 
+    private static readonly (int Key, string Name)[] Held =
+    [
+        (Native.VK_SHIFT, "Shift"), (Native.VK_CONTROL, "Ctrl"), (Native.VK_MENU, "Alt"), (Native.VK_LWIN, "Windows"), (Native.VK_RWIN, "Windows"),
+        (Native.VK_LBUTTON, "the left mouse button"), (Native.VK_RBUTTON, "the right mouse button"), (Native.VK_MBUTTON, "the middle mouse button"),
+    ];
+
+    /// <summary>Refuses while a modifier key or a mouse button is down, after giving it a second to be let go.</summary>
+    private static void RequireNothingHeld(string what)
+    {
+        var end = DateTime.UtcNow.AddSeconds(1);
+        while (true)
+        {
+            var down = Held.Where(h => Native.IsDown(h.Key)).Select(h => h.Name).Distinct().ToList();
+            if (down.Count == 0) return;
+            if (DateTime.UtcNow > end) throw new RealInputRefused($"{what} was not sent: {string.Join(" and ", down)} {(down.Count == 1 ? "is" : "are")} held down, which would change what it does");
+            Thread.Sleep(50);
+        }
+    }
+
     private static void RequireForeground(IntPtr panel, string what)
     {
+        RequireNothingHeld(what);
         var foreground = Native.GetForegroundWindow();
         if (foreground != panel)
             throw new RealInputRefused($"{what} was not sent: the foreground window is {Describe(foreground)}, not the panel's ({panel})");
@@ -120,6 +144,7 @@ static class RealInput
 
     private static (int X, int Y) RequireIcon(AutomationElement icon, string what)
     {
+        RequireNothingHeld(what);
         var (x, y) = Ui.Centre(icon);
         var name = icon.Current.Name;
         var box = icon.Current.BoundingRectangle;
