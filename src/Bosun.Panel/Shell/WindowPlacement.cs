@@ -37,15 +37,26 @@ public sealed class WindowPlacement
     public static WindowPlacement Attach(Window window, PanelSettingsStore store, ActivityLog log, Func<IReadOnlyList<ScreenArea>>? screens = null)
     {
         var placement = new WindowPlacement(window, store, log, screens ?? Screens);
-        if (store.Current.Window is { } place && Fit(place, placement._screens()) is { } bounds)
+        if (store.Current.Window is { } place)
         {
-            window.WindowStartupLocation = WindowStartupLocation.Manual; // the place is set below, before the window shows
+            // Placed by hand as the handle is made, against the screens there are then: a panel started in the tray can
+            // be opened long after its saved screen was unplugged (completion review), and is then centred on the main one.
+            window.WindowStartupLocation = WindowStartupLocation.Manual;
             if (place.Maximised) window.WindowState = WindowState.Maximized;
-            window.SourceInitialized += (_, _) => placement.Apply(bounds);
+            window.SourceInitialized += (_, _) => placement.Open(place);
         }
         window.IsVisibleChanged += placement.OnVisibleChanged;
         window.Closing += (_, _) => placement.Keep();
         return placement;
+    }
+
+    /// <summary>The stored place fitted to the screens now, or, when it fits none, the window centred on the main screen.</summary>
+    private void Open(WindowPlace place)
+    {
+        var screens = _screens();
+        if (Fit(place, screens) is { } bounds) Apply(bounds);
+        else if (screens.FirstOrDefault(s => s.Primary) is { } main)
+            Apply(Centred(main, ((int)Math.Round(_window.Width * main.Dpi / 96.0), (int)Math.Round(_window.Height * main.Dpi / 96.0))));
     }
 
     private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)

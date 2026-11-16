@@ -40,7 +40,7 @@ title: "TODO-03 -- Premium components"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Elevation and motion tokens | D02 T01 §1 | [x] |
-| 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [ ] |
+| 2 | §2 | Mica backdrop with a solid fallback | D02 T02 §4 | [x] |
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [ ] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [ ] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [ ] |
@@ -119,9 +119,12 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 - [x] Reapply the policy on `WM_SETTINGCHANGE` and `SystemParameters.StaticPropertyChanged` in `Backdrop.cs`, and on `WindowsHighContrast`'s change, which can arrive on a worker thread and is taken to the window's dispatcher; every hook and subscription is let go when the window closes (plan review, P2). Done when: a test flips the transparency seam and sends the real window `WM_SETTINGCHANGE`, and the window switches with no restart, both ways; a contrast change raised on a worker thread turns it solid, and off again returns it to Mica where it is eligible; and after the window closes a change reaches nothing. Cheaper substitute: writing the person's own registry value, which a crash would leave changed.
 - [x] Add the rounded sheet with `Radius.Sheet` in `MainWindow.xaml`. Done when: the off-screen render in both themes shows the top-left corner rounded and the rail outside the sheet. (Shipped by `D02 T02 §4` in `ShellView.xaml`, `ad5b0bf`: `Border x:Name="Sheet"`, `CornerRadius="{DynamicResource R.Sheet}"`, in the rail's right column.)
 - [x] Log a failed DWM call as one WARN line in the Activity pane, and fall back to solid in `Backdrop.cs`. Done when: a test seam returning a failure HRESULT leaves the window solid with one WARN line. Cheaper substitute: ignoring the HRESULT.
-- [ ] Commit: `shell: Mica backdrop with a solid fallback`
+- [x] Commit: `shell: Mica backdrop with a solid fallback`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Backdrop*"` exits 0, and fails if the high contrast rule is removed from `BackdropPolicy.Choose`.
+
+> **Verified:** 2026-11-16 | §2 | 1c3fa62dd4d7a0f025890caf22a7c3ac3aa06014
+> **Review:** `docs/reviews/d02-t03-s2.json`
 
 ## 3. Lucide icon map and rail marker
 

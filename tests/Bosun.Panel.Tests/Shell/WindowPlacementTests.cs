@@ -136,13 +136,41 @@ public class WindowPlacementTests
     }
 
     [Fact]
-    public void A_place_that_fits_no_screen_leaves_the_window_centred()
+    public void A_place_that_fits_no_screen_when_the_window_is_made_opens_centred_on_the_main_one()
     {
+        // As a panel started in the tray is: placed when it is first opened, against the screens there are then.
         Sta.Run(() =>
         {
-            var b = Attach(new WindowPlace(-60000, 0, 1360, 860, 96, false), WindowPlacement.Screens());
-            Assert.Equal(WindowStartupLocation.CenterScreen, b.Window.WindowStartupLocation);
+            var main = WindowPlacement.Screens().First(s => s.Primary);
+            var b = Attach(new WindowPlace(-60000, 0, 1360, 860, 96, false));
+            var size = ((int)Math.Round(1360 * main.Dpi / 96.0), (int)Math.Round(860 * main.Dpi / 96.0));
+            Assert.Equal(WindowPlacement.Centred(main, size), b.Frame);
             b.Window.Close();
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void A_place_whose_screen_went_after_the_panel_started_opens_centred_when_the_window_is_made()
+    {
+        // Screens read when the window is made, not when the placement was attached (completion review): the place is
+        // on a screen far to the left when the panel starts, and that screen is unplugged before the window is opened.
+        Sta.Run(() =>
+        {
+            var real = WindowPlacement.Screens();
+            var main = real.First(s => s.Primary);
+            var far = new ScreenArea(new Int32Rect(-60000, 0, 1920, 1080), new Int32Rect(-60000, 0, 1920, 1040), 96);
+            IReadOnlyList<ScreenArea> screens = [.. real, far];
+            var files = new MemoryFiles();
+            var store = new PanelSettingsStore(@"C:\panel-test\panel.json", files);
+            Assert.True(store.Update(c => c with { Window = new WindowPlace(-59000, 100, 1360, 860, 96, false) }).Succeeded);
+            var window = new Window { Width = 1360, Height = 860, ShowActivated = false };
+            WindowPlacement.Attach(window, store, new ActivityLog(new UiLogSink(Dispatcher.CurrentDispatcher)), () => screens);
+            screens = real; // unplugged meanwhile
+            new WindowInteropHelper(window).EnsureHandle();
+            var frame = GetWindowRect(new WindowInteropHelper(window).Handle, out var r) ? new Int32Rect(r.left, r.top, r.right - r.left, r.bottom - r.top) : default;
+            Assert.Equal(WindowPlacement.Centred(main, ((int)Math.Round(1360 * main.Dpi / 96.0), (int)Math.Round(860 * main.Dpi / 96.0))), frame);
+            window.Close();
             return 0;
         });
     }
