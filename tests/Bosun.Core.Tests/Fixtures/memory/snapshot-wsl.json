@@ -1,0 +1,1 @@
+{"schema_version":1,"side":"wsl","at":"2026-11-16T05:43:30Z","interval_s":30,"memory":{"available_mb":6832,"total_mb":16000,"swap_used_mb":512,"psi_full_avg10_x100":0,"oom_kills":0},"wsl_vm":null,"repos":[{"repo":"/home/person/conclave","processes":9,"private_mb":811,"rss_mb":702}],"processes":[{"name":"node","processes":4,"private_mb":620,"rss_mb":540}],"history_written":true}

@@ -12,6 +12,7 @@ using System.Text.Json;
 //   exit <code>                 exit with the code
 //   cwd                         print the current folder
 //   env <name>                  print the variable's value, or nothing when it isn't set
+//   (any, with BOSUN_FAKE_EXPECT) a fake bosun: see below
 //   tree <file> <ms>            start a grandchild (`beat <file>`), then sleep
 //   orphan <file>               start the same grandchild, wait until it has written, then exit: it is left with no parent
 //   beat <file>                 write this process's id as the file's first line, then a line every 100 ms
@@ -55,6 +56,28 @@ int Lines(string file)
     {
         return 0; // not written yet
     }
+}
+
+// A fake bosun (D03 T01 §1): with BOSUN_FAKE_EXPECT set (a JSON array), the child checks it was given exactly those
+// arguments, then sleeps BOSUN_FAKE_SLEEP_MS, writes BOSUN_FAKE_STDERR and the file BOSUN_FAKE_ANSWER, and exits
+// BOSUN_FAKE_EXIT (0). Other arguments: exit 64, naming the ones it got, so a caller that asked wrongly fails.
+if (Environment.GetEnvironmentVariable("BOSUN_FAKE_EXPECT") is { } expect)
+{
+    var wanted = JsonSerializer.Deserialize<string[]>(expect) ?? [];
+    if (!wanted.SequenceEqual(args))
+    {
+        Write(stderr, "fake bosun: expected " + expect + ", got " + JsonSerializer.Serialize(args));
+        return 64;
+    }
+    if (int.TryParse(Environment.GetEnvironmentVariable("BOSUN_FAKE_SLEEP_MS"), out var nap)) Thread.Sleep(nap);
+    if (Environment.GetEnvironmentVariable("BOSUN_FAKE_STDERR") is { Length: > 0 } said) Write(stderr, said);
+    if (Environment.GetEnvironmentVariable("BOSUN_FAKE_ANSWER") is { Length: > 0 } answer)
+    {
+        using var file = File.OpenRead(answer);
+        file.CopyTo(stdout);
+        stdout.Flush();
+    }
+    return int.TryParse(Environment.GetEnvironmentVariable("BOSUN_FAKE_EXIT"), out var code) ? code : 0;
 }
 
 if (args.Length == 0) return 64;
