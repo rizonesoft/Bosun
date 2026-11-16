@@ -27,13 +27,14 @@ public class MemoryPageTests
         public Reading<SnapshotDoc> Windows = Reading<SnapshotDoc>.Of(Snapshot(), Now);
         public Reading<SnapshotDoc> Wsl = Reading<SnapshotDoc>.Of(WslSnapshot(), Now);
         public Reading<ReportDoc> Report = Reading<ReportDoc>.Of(ReportOf(), Now);
-        public TaskCompletionSource? HoldReport;
+        public TaskCompletionSource? HoldReport, HoldSnapshots;
         public int Snapshots, Reports;
 
-        public Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default)
+        public async Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default)
         {
             if (side == "windows") Snapshots++;
-            return Task.FromResult(side == "windows" ? Windows : Wsl);
+            if (HoldSnapshots is { } hold) await hold.Task.WaitAsync(cancellationToken);
+            return side == "windows" ? Windows : Wsl;
         }
 
         public async Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default)
@@ -108,7 +109,7 @@ public class MemoryPageTests
         {
             Assert.Equal(PageState.Data, page.State);
             Assert.Equal(new Metric("24.0 GB"), page.WindowsUsed);                                       // total_mb 32768 less available_mb 8192
-            Assert.Equal("Committed 37.1 GB", page.WindowsNote);                            // commit_mb 38000
+            Assert.Equal("8.0 GB available of 32.0 GB; committed 37.1 GB", page.WindowsNote); // the room left; commit_mb 38000
             Assert.Equal(new Metric("11.8 GB"), page.WslVm);                                             // wsl_vm.private_mb 12083
             Assert.Equal("Cap 14.0 GB", page.WslNote);                                       // the WSL snapshot's total_mb 14336
             Assert.Equal(new Metric("3 at once"), page.Overlap);                                         // builds.max_overlap
@@ -172,7 +173,7 @@ public class MemoryPageTests
         OnPage(source, (page, _, _, tick) =>
         {
             Assert.Equal(new NotAvailable("The Windows logger did not measure total and available memory."), page.WindowsUsed);
-            Assert.Equal("Committed: not measured", page.WindowsNote);
+            Assert.Equal("Available: not measured; committed: not measured", page.WindowsNote);
             Assert.StartsWith("Cap: not available.", page.WslNote, StringComparison.Ordinal);
             Assert.Equal(new NotAvailable("bosun report ran past 60 s."), page.Overlap);
             Assert.Equal("Peaks not available: bosun report ran past 60 s.", page.PeaksNote);
@@ -331,6 +332,32 @@ public class MemoryPageTests
         }, 1360, 860);
     }
 
+    [Theory]
+    [InlineData(true, true, false, true, MemoryPage.NoRepos)]
+    [InlineData(true, true, true, true, MemoryPage.NoRepos)]
+    [InlineData(false, true, false, true, "No repo has processes running now. The last 24 hours' history could not be read, so earlier repos can't be listed.")]
+    [InlineData(false, false, false, true, "No repo has processes running now. The last 24 hours' history is still being read.")]
+    [InlineData(true, true, true, false, "No repo has processes running on Windows now; WSL's could not be read.")]
+    public void An_empty_table_says_only_what_the_reads_established(bool historyRead, bool historyTried, bool vmRunning, bool wslRead, string said) =>
+        Assert.Equal(said, MemoryPage.Empty(historyRead, historyTried, vmRunning, wslRead));
+
+    [Fact]
+    public void An_empty_table_with_the_history_unread_does_not_claim_none_ran()
+    {
+        var source = new Source
+        {
+            Windows = Reading<SnapshotDoc>.Of(Snapshot(repos: " "), Now),
+            Wsl = Reading<SnapshotDoc>.Of(WslSnapshot(" "), Now),
+            Report = Reading<ReportDoc>.Fail(ReadingProblem.Failed, "bosun report ran past 60 s."),
+        };
+        OnPage(source, (page, _, _, _) =>
+        {
+            Assert.Empty(page.Rows);
+            Assert.NotEqual(MemoryPage.NoRepos, page.TableNote);
+            Assert.Contains("could not be read", page.TableNote, StringComparison.Ordinal);
+        });
+    }
+
     [Fact]
     public void The_shell_draws_the_page_with_its_cards_and_table()
     {
@@ -348,7 +375,8 @@ public class MemoryPageTests
             PageRenderer.Settle(page);
             var view = ShellSupport.Under<MemoryView>(page).Single();
             var texts = PageRenderer.TextsOf(view);
-            foreach (var text in new[] { "Windows used", "24.0 GB", "WSL VM", "11.8 GB", "Overlapping builds", "3 at once", "By repo" }) Assert.Contains(text, texts);
+            foreach (var text in new[] { "Windows used", "24.0 GB", "8.0 GB available of 32.0 GB; committed 37.1 GB", "WSL VM", "11.8 GB", "Overlapping builds", "3 at once", "By repo" })
+                Assert.Contains(text, texts);
             var grid = ShellSupport.Under<DataGrid>(view).Single();
             Assert.Equal(["Repo", "Side", "Private GB", "Peak GB", "Processes"], grid.Columns.Select(c => (string)c.Header));
             Assert.Equal(4, grid.Items.Count);
@@ -370,7 +398,10 @@ public class MemoryPageTests
         shell.Show(shell.Sections.Single(s => s.Key == "memory"));
         return (new ShellView { DataContext = shell }, async _ =>
         {
-            for (var i = 0; i < 50 && (page.State == PageState.Loading || page.Overlap is null || page.Rows.Count == 0 && page.TableNote.Length == 0); i++)
+            var settles = source.HoldSnapshots is null;
+            // Held loading: the skeleton appears only after its delay (Skeleton.DefaultDelay), so a quick load never flashes.
+            if (!settles) await Task.Delay(Bosun.Panel.Controls.Skeleton.DefaultDelay + TimeSpan.FromMilliseconds(150));
+            for (var i = 0; i < 50 && settles && page.State != PageState.Failed && (page.State == PageState.Loading || page.Overlap is null || page.Rows.Count == 0 && page.TableNote.Length == 0); i++)
                 await Dispatcher.Yield(DispatcherPriority.Background);
         });
     }

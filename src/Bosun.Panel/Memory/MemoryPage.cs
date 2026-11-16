@@ -92,6 +92,20 @@ public sealed class MemoryPage : PageBase
     /// <summary>The rows as the table shows them: highest private memory first until another sort is chosen.</summary>
     public ICollectionView RowsView { get; }
 
+    /// <summary>
+    /// What an empty table can say: only what the reads established (completion review). With every source read it is
+    /// <see cref="NoRepos"/>; a WSL that runs but could not be read, or a history not yet or not read, is said instead
+    /// of claimed.
+    /// </summary>
+    public static string Empty(bool historyRead, bool historyTried, bool vmRunning, bool wslRead)
+    {
+        if (historyRead && (!vmRunning || wslRead)) return NoRepos;
+        var now = vmRunning && !wslRead ? "No repo has processes running on Windows now; WSL's could not be read." : "No repo has processes running now.";
+        var history = !historyRead ? historyTried ? " The last 24 hours' history could not be read, so earlier repos can't be listed."
+            : " The last 24 hours' history is still being read." : "";
+        return now + history;
+    }
+
     public static string Gb(long mb) => (mb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB";
 
     private static double GbOf(long mb) => Math.Round(mb / 1024.0, 1);
@@ -129,7 +143,9 @@ public sealed class MemoryPage : PageBase
         var total = windows.Counter("total_mb");
         var available = windows.Counter("available_mb");
         WindowsUsed = total is { } t && available is { } a && t >= a && a >= 0 ? new Metric(Gb(t - a)) : new NotAvailable("The Windows logger did not measure total and available memory.");
-        WindowsNote = windows.Counter("commit_mb") is { } commit ? $"Committed {Gb(commit)}" : "Committed: not measured";
+        // The room left, the page's own question (completion review): available of total under what is used.
+        var room = total is { } tt && available is { } aa && aa >= 0 ? $"{Gb(aa)} available of {Gb(tt)}" : "Available: not measured";
+        WindowsNote = room + "; " + (windows.Counter("commit_mb") is { } commit ? $"committed {Gb(commit)}" : "committed: not measured");
         HistoryNote = windows.HistoryWritten ? "" : "History is not being written: the logger could not save its samples, so the history has a gap.";
 
         var vmRunning = windows.WslVm is { Running: true };
@@ -205,6 +221,6 @@ public sealed class MemoryPage : PageBase
         }
         Rows.Clear();
         foreach (var row in rows) Rows.Add(row);
-        TableNote = Rows.Count == 0 ? NoRepos : "";
+        TableNote = Rows.Count == 0 ? Empty(report is not null, _report is not null, vmRunning, wsl is not null) : "";
     }
 }

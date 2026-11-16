@@ -79,6 +79,18 @@ public static partial class RenderCatalog
             Wsl = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "The WSL logger's file could not be read."),
             Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
         }, "Peaks not available"),
+        // The page's own states (completion review): loading (the gauge skeleton), an empty table, and Windows unread.
+        MemoryCase("loading", new Memory.MemoryPageTests.Source { HoldSnapshots = new TaskCompletionSource() }, "Memory"),
+        MemoryCase("empty", new Memory.MemoryPageTests.Source
+        {
+            Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.Snapshot(repos: " "), Memory.MemoryPageTests.Now),
+            Wsl = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.WslSnapshot(" "), Memory.MemoryPageTests.Now),
+            Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(repos: " "), Memory.MemoryPageTests.Now),
+        }, "No repo has processes running now"),
+        MemoryCase("failed", new Memory.MemoryPageTests.Source
+        {
+            Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Missing, "The Windows logger has written nothing yet."),
+        }, "The Windows logger has written nothing yet."),
         // With memory pressure notifications turned off (D02 T02 §7).
         new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
             "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
