@@ -88,18 +88,33 @@ The direct answer to monitoring all the dev instances.
 **Treatment:** grouped table with row actions. Cheaper substitute that fails: Task Manager's flat list.
 **Chrome:** the shell's page frame.
 
+**Corrected 2026-11-17** against the tree before building. Each correction says what the plan said before:
+
+- The page lives in `src/Bosun.Panel/Instances/` beside `Memory/`, as every page does (it said `Views/InstancesView.xaml`).
+- The queue slot comes from the instances document's own `slot`, already joined for WSL jobs by `InstanceClient.Merge` (it said "from `bosun status --json`", a second read for a field the page already has).
+- A distro's stale report keeps its rows on screen. `Merge` drops them (§1, so a page never lists them as running), so `Merge` gains a way to keep them for a page that says they are old. The notice is the client's own words ("WSL (Ubuntu) last reported 4 min ago: it is stopped, or its logger is"), since a stopped logger looks the same as a stopped distro (it said "WSL is stopped").
+- The checkpoint names the test classes the way this repository runs them (it said `--filter FullyQualifiedName~InstancesViewModel`, a class that would not exist).
+
 **Build order:**
 
-1. Create `Views/InstancesView.xaml`. Done when: rows group by repo.
-2. Add actions. Done when: each works.
+1. Read through a source the tests can fake, and keep a stale distro's rows when asked. Done when: `Merge` keeps them only when asked.
+2. Build `InstancesPage` (rows, groups, words, states) and `InstancesView.xaml` (the grouped table). Done when: rows group by repo with every column in words.
+3. Add Open folder and Open terminal through a launcher the tests can fake. Done when: each opens the right place on each side, and a failure is said.
+4. Register the page, render each state in every theme, and run the smoke. Done when: the renders are looked at and the rail opens the page.
 
-- [ ] Build the table per `design/SPEC.md` §4. Done when: WSL down shows Windows rows and a notice.
-- [ ] Add Open folder and Open terminal here. Done when: a WSL row opens the right distro and path. Cheaper substitute: Windows paths passed to a WSL shell.
-- [ ] Show a build job's queue slot on its row in `Views/InstancesView.xaml`, from `bosun status --json`. Done when: a fixture job shows "Slot 1".
-- [ ] Give the Instances page the table skeleton (`LoadingShape = SkeletonShape.Table`), and with WSL stopped keep its last WSL rows on screen through `PageBase.ShowLastKnown("WSL is stopped", readAt)` (**Added 2026-11-16** from the completion review of `D02 T03 §7`, which built them on test pages). Done when: a fixture with WSL stopped reads "WSL is stopped. Showing what was read <age> ago." over the last rows, and a later refresh with WSL running clears it. Cheaper substitute: an empty WSL table, or old rows shown as current.
+- [ ] Add `IInstanceSource` (`ReadAsync`) to `src/Bosun.Core/Instances/InstanceClient.cs`, implemented by `InstanceClient`, so the page reads through a seam its tests fake. Done when: the page takes `IInstanceSource` and `App.xaml.cs` passes one `InstanceClient.ForThisUser()`.
+- [ ] Give `InstanceClient.Merge` a `keepStale` parameter (default false) that keeps a stale distro's rows, and add `InstancesView.Merged(keepStale)` for the page. Done when: an `InstanceClientTests` case finds a stale distro's rows only with `keepStale: true`, its holder still joined. Cheaper substitute: rows rebuilt in the page by hand, unjoined.
+- [ ] Create `src/Bosun.Panel/Instances/InstancesPage.cs`: `InstanceLine` rows (instance name and kind, repo, side as "Windows" or "WSL (Ubuntu)", state in words "Working", "Reviewing", "Idle", "Unknown" with the evidence as its tooltip, GB from `private_mb` or "Not measured", uptime from `started_at` or "Not known"), grouped by repo through a `CollectionView` group description, instances outside any checkout under "Not in a repo". Done when: an `InstancesPageTests` case with a fixture of both sides reads each column's words and each group's rows.
+- [ ] Show a job's queue slot in its State cell ("Working, slot 1"; "Idle, slot 2: waiting for guest memory" from its evidence). Done when: a fixture job reads "Working, slot 1". Cheaper substitute: the slot in a column empty on every other row.
+- [ ] Give the page its states: `LoadingShape = SkeletonShape.Table`; nothing running says so; Windows unread with WSL rows read keeps the WSL rows and says why; nothing readable is `Failed` with the reasons; the client's WSL notice shows above the table beside the Windows rows. Done when: a test per state reads its words. Cheaper substitute: an empty table for a failure.
+- [ ] Keep a stale distro's last rows on screen through `PageBase.ShowLastKnown(<the client's why>, <that report's time>)`, cleared when it reports again (**Added 2026-11-16** from the completion review of `D02 T03 §7`). Done when: a fixture with a stale distro reads "WSL (Ubuntu) last reported ... Showing what was read <age> ago." over its rows, and a later fresh report clears it. Cheaper substitute: an empty WSL table, or old rows shown as current.
+- [ ] Create `src/Bosun.Panel/Instances/InstancesView.xaml(.cs)`: a `DataGrid` grouped by repo (group header: the repo's path and its count), columns Instance, Side, State, GB, Uptime, sortable, with an accessible name on the grid, each group and each action, and register its `DataTemplate` in the page frame. Done when: the view test finds the grid, its columns and its group headers on the drawn page. Cheaper substitute: an `ItemsControl` per repo that a screen reader reads as loose text.
+- [ ] Create `src/Bosun.Panel/Instances/Opener.cs`: `OpenCommands.Folder(line)` and `Terminal(line)` build each `ProcessStartInfo` (Windows: `explorer.exe <folder>`, `wt.exe -d <folder>`; WSL: `explorer.exe \\wsl.localhost\<distro>\<path>` or the Windows path of a `/mnt/<drive>/` folder, `wt.exe wsl.exe -d <distro> --cd <path>`; without Windows Terminal, `cmd.exe /k` in the folder, or `wsl.exe -d <distro> --cd <path>`), the folder the instance's `cwd`, else its repo. An `ILauncher` starts them. Done when: `OpenCommandsTests` reads each command for a Windows row, a WSL row in its own file system and one under `/mnt/c`, and none is built from a Windows path given to a WSL shell. Cheaper substitute: Windows paths passed to a WSL shell.
+- [ ] Add the row actions Open folder and Open terminal (row buttons named for their instance, and page commands for the selected row in Ctrl+K), disabled with "Its folder couldn't be read" when neither `cwd` nor repo is known; a launch that fails goes through `ActivityLog.Record` with why. Done when: a test runs each action through a fake `ILauncher`, and a failing one shows its toast.
+- [ ] Render the page in each state in every theme: data (both sides, a job with its slot), WSL notice, stale distro, Windows failed, empty, loading. Done when: the renders are in `RenderCatalog` and looked at.
 - [ ] Commit: `instances: page`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~InstancesViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests" --filter-class "*OpenCommandsTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` exit 0, and fail if the slot, the grouping or the WSL command is reverted.
 
 ## 3. Queue page
 
