@@ -101,7 +101,7 @@ Sections: 9 | Checklist items: 55
 | [ ]    | D03 T01 §2 | Memory page                           | none  | 5     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [x]    | D03 T01 §4 | Pressure alerts                       | none  | 6     |
-| [ ]    | D03 T02 §1 | Instance scanner                      | none  | 8     |
+| [x]    | D03 T02 §1 | Instance scanner                      | none  | 8     |
 | [ ]    | D03 T02 §2 | Instances page                        | none  | 5     |
 | [ ]    | D03 T02 §3 | Queue page                            | none  | 5     |
 | [ ]    | D03 T01 §5 | Overview page                         | none  | 7     |
@@ -146,6 +146,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 57/91 verified sections, 6 ready to run now.
+Progress: 58/91 verified sections, 6 ready to run now.
 
-Checklist: 620/798 items completed (includes Commit items).
+Checklist: 621/798 items completed (includes Commit items).

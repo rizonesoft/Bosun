@@ -1,0 +1,111 @@
+{
+  "ref": "D03 T02 \u00a71",
+  "title": "Instance scanner",
+  "implementation_sha": "743c5426035bfaa0e1b82c0ed18e7f158939df8b",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Core.Tests -> total: 130, succeeded: 130 (InstanceClientTests 20)",
+    "build/Release/test_core.exe -> every group ok, instances included",
+    "wsl -- python3 -B tests/test_bosun_log.py -> Ran 24 tests, OK",
+    "pwsh tests/instances_test.ps1 -> all passed; pwsh tests/queue_test.ps1 (with WSL) -> all passed",
+    "CI full gate at 743c542 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43839747827, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43839747879"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+    "verdict": "filed",
+    "candidate": "aad8bb6f6370b357de3b406abcde019aab5bec59",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D03 T02 \u00a74",
+      "D03 T02 \u00a72"
+    ]
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s1.md",
+    "candidate": "9d9ae74f69ba7763c784c13a1687f1fd3bc24f67",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "9d9ae74f69ba7763c784c13a1687f1fd3bc24f67",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
