@@ -164,6 +164,8 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 
 ## 4. Status pill and segmented control
 
+> **Started:** 2026-11-16T13:01:13Z
+
 These two appear on nearly every page. Status keeps its word, so a pill without one must not compile into a page.
 
 **Corrected 2026-11-16:** checked against the tree before the plan review. The icon map (`D02 T03 §3`) has the Ok, Warn and Fail status glyphs; Info and Neutral are added there, as the mockup draws them (`info`, `circle-dot`). "Throws in Debug, Unknown in Release" can't be proved by one build, and a missing word can't be a compile error in XAML: a `StatusPill` written in a view without a `Word` fails the XAML rules test (`tests/Bosun.Panel.Tests/XamlRules.cs`), which is how "must not compile into a page" is held, and at run time an empty or blank word always reads "Unknown". The theme choice the Settings page draws today is the `ThemeBox` combo box, whose tests name it. The tests go in `tests/Bosun.Panel.Tests/Controls/`, and the checkpoint is in the test platform's own filter form.
