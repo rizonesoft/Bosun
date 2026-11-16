@@ -268,7 +268,7 @@ public class ToastTests
                 PageRenderer.Settle(page);
                 var cards = ShellSupport.Under<ToastCard>(page).ToList();
                 Assert.Equal(2, cards.Count);
-                Assert.Equal(["Save settings", "Save queue limits: the file is read-only"], announced);  // once each
+                Assert.Equal(["Done: Save settings", "Failed: Save queue limits: the file is read-only"], announced); // once each, with the outcome
                 Assert.Equal(["Done", "Failed"], cards.Select(c => ShellSupport.Under<Bosun.Panel.Controls.StatusPill>(c).Single().ShownWord));
                 var dismiss = (Button)cards[1].Template.FindName("Dismiss", cards[1]);
                 Assert.Equal("Dismiss", AutomationProperties.GetName(dismiss));
@@ -283,6 +283,15 @@ public class ToastTests
                 PageRenderer.Settle(page);
                 Assert.Equal(["Save settings"], Words(shell.Toasts));
                 Assert.Equal(2, announced.Count);                                             // dismissing announces nothing
+
+                shell.Toasts.Show(LogSeverity.Fail, "f2");                                    // three FAILs fill the stack
+                shell.Toasts.Show(LogSeverity.Fail, "f3");
+                shell.Toasts.Show(LogSeverity.Fail, "f4");
+                shell.Toasts.Show(LogSeverity.Info, "Save settings again");                   // results past three FAILs: logged, counted
+                shell.Toasts.Show(LogSeverity.Fail, "f5");
+                PageRenderer.Settle(page);
+                PageRenderer.Settle(page);
+                Assert.Contains("2 more in the Activity pane", announced);                    // said, so it is not missed
             }
             finally
             {

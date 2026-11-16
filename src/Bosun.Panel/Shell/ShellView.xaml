@@ -171,8 +171,10 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            <!-- Announced as it changes: a result not shown as a toast is still said to be there (completion review). -->
             <TextBlock x:Name="ToastOverflow" Text="{Binding Toasts.OverflowText}" HorizontalAlignment="Right" Margin="0,6,4,0"
-                       Foreground="{DynamicResource B.TextDim}" FontSize="{DynamicResource T.Caption}"/>
+                       Foreground="{DynamicResource B.TextDim}" FontSize="{DynamicResource T.Caption}"
+                       xmlns:a="clr-namespace:Bosun.Panel.Accessibility" a:LiveRegion.Announce="True"/>
         </StackPanel>
 
         <shell:CommandPaletteView x:Name="PaletteView" DataContext="{Binding Palette}"/>

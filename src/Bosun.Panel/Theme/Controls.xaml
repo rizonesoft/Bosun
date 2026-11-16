@@ -1649,7 +1649,8 @@
                             </DockPanel>
                             <TextBlock x:Name="Words" Text="{Binding Message}" Margin="2,8,4,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                        LineHeight="19" LineStackingStrategy="BlockLineHeight" MaxHeight="57"
-                                       ToolTip="{Binding Message}" AutomationProperties.HelpText="{Binding Message}" a:LiveRegion.Announce="True"/>
+                                       ToolTip="{Binding Message}" AutomationProperties.HelpText="{Binding Message}"
+                                       AutomationProperties.Name="{Binding Spoken}" a:LiveRegion.Announce="True"/>
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
