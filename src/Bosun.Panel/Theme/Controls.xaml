@@ -1269,4 +1269,106 @@
         </Style.Triggers>
     </Style>
 
+    <!-- A radial gauge (D02 T03 §5): the arc of a value over its total in the state's colour (the accent when it has
+         none) on the empty track, the number large in the centre, the unit dim under it and the state word in the
+         state's colour. With no readable value: the empty track and "Not available". In a contrast theme the arc is the
+         highlight, the track Windows' gray and the word the text colour. -->
+    <Style TargetType="controls:RadialGauge">
+        <Setter Property="Width" Value="128"/>
+        <Setter Property="Height" Value="128"/>
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.Accent}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:RadialGauge">
+                    <Grid>
+                        <controls:GaugeArc x:Name="arc" Target="{TemplateBinding Fraction}" Thickness="10"
+                                           Track="{DynamicResource B.Hover}" Fill="{TemplateBinding Foreground}"/>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="14,6,14,0">
+                            <TextBlock x:Name="number" Text="{TemplateBinding ShownNumber}" HorizontalAlignment="Center" TextAlignment="Center"
+                                       FontFamily="{StaticResource F.Display}" FontSize="{DynamicResource T.Metric}" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource B.Text}" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="unit" Text="{TemplateBinding ShownUnit}" HorizontalAlignment="Center"
+                                       FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.TextDim}"/>
+                            <TextBlock x:Name="word" Text="{TemplateBinding ShownWord}" HorizontalAlignment="Center" Margin="0,2,0,0"
+                                       FontSize="{DynamicResource T.Caption}" FontWeight="SemiBold" Foreground="{TemplateBinding Foreground}"/>
+                        </StackPanel>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Fraction" Value="{x:Null}">
+                            <Setter TargetName="number" Property="FontSize" Value="{DynamicResource T.Body}"/>
+                            <Setter TargetName="number" Property="FontWeight" Value="Normal"/>
+                            <Setter TargetName="number" Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+                            <Setter TargetName="unit" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="word" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="arc" Property="Track" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="arc" Property="Fill" Value="{DynamicResource B.Accent}"/>
+                            <Setter TargetName="word" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="unit" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="State" Value="Ok">
+                <Setter Property="Foreground" Value="{DynamicResource B.Ok}"/>
+            </Trigger>
+            <Trigger Property="State" Value="Warn">
+                <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            </Trigger>
+            <Trigger Property="State" Value="Danger">
+                <Setter Property="Foreground" Value="{DynamicResource B.Danger}"/>
+            </Trigger>
+            <Trigger Property="State" Value="Info">
+                <Setter Property="Foreground" Value="{DynamicResource B.Info}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- A stacked bar (D02 T03 §5): the bar, then the legend under it, each line its swatch, name and value in words.
+         With no readable shares: the empty track and "Not available". In a contrast theme the empty track is Windows'
+         gray and the legend the text colour. -->
+    <Style TargetType="controls:StackedBar">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:StackedBar">
+                    <StackPanel>
+                        <controls:BarTrack x:Name="bar" Values="{TemplateBinding Shown}" Track="{DynamicResource B.Hover}" Margin="0,6,0,8"/>
+                        <ItemsControl x:Name="legend" ItemsSource="{TemplateBinding Legend}" Focusable="False" IsTabStop="False">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="controls:LegendLine">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,12,2">
+                                        <controls:Swatch Role="{Binding Role}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{Binding Text}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="none" Text="Not available" Visibility="Collapsed"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Available" Value="False">
+                            <Setter TargetName="legend" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="none" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="bar" Property="Track" Value="{DynamicResource B.GrayText}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

@@ -32,6 +32,10 @@ public static partial class RenderCatalog
         new("controls", "segmented", Segmented) { Shows = "Today" },
         // The chosen segment with the keyboard on it: the inside focus ring over it, where WPF's adorner layer draws it.
         new("controls", "segmented-focus", SegmentedFocus) { Shows = "Dark", Ready = PlaceRing },
+        // D02 T03 §5: the gauge in each state and with no value, sparklines with their words, stacked bars.
+        new("controls", "gauges", Gauges) { Shows = "Not available" },
+        new("controls", "sparklines", Sparklines) { Shows = "12.4 GB, rising" },
+        new("controls", "stacked-bars", StackedBars) { Shows = "Windows 12.8 GB" },
         // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
         new("shell", "badges", Badged) { Shows = "12" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
@@ -113,6 +117,46 @@ public static partial class RenderCatalog
             Margin = new Thickness(0, 0, 0, 16),
         });
         panel.Children.Add(new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 0 });
+        return panel;
+    }
+
+    /// <summary>Gauges of memory free in each state, a budget with no state, and one with nothing to read.</summary>
+    private static FrameworkElement Gauges()
+    {
+        var row = new WrapPanel { Margin = new Thickness(26) };
+        foreach (var (value, unit, word, state) in new (double?, string, string, Bosun.Panel.Controls.StatusKind)[]
+                 {
+                     (14.2, "GB free", "Safe", Bosun.Panel.Controls.StatusKind.Ok), (7.4, "GB free", "Tight", Bosun.Panel.Controls.StatusKind.Warn),
+                     (1.6, "GB free", "Critical", Bosun.Panel.Controls.StatusKind.Danger), (4.12, "of $20 today", "", Bosun.Panel.Controls.StatusKind.Neutral),
+                     (null, "GB free", "Safe", Bosun.Panel.Controls.StatusKind.Ok),
+                 })
+            row.Children.Add(new Bosun.Panel.Controls.RadialGauge { Value = value, Maximum = unit.StartsWith("of") ? 20 : 32, Unit = unit, Word = word, State = state, Margin = new Thickness(0, 0, 18, 18) });
+        return row;
+    }
+
+    /// <summary>Sparklines rising, falling, with one sample and with none, each with what a screen reader hears beside it.</summary>
+    private static FrameworkElement Sparklines()
+    {
+        var grid = new StackPanel { Margin = new Thickness(26), Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var samples in new double[][] { [9.8, 10.4, 10.1, 11.2, 11.9, 11.5, 12.4], [14.1, 13.2, 13.6, 12.0, 11.4, 11.0], [11.0], [] })
+        {
+            var spark = new Bosun.Panel.Controls.Sparkline { Samples = samples, Unit = "GB" };
+            grid.Children.Add(new TextBlock { Text = spark.SpokenName, Margin = new Thickness(0, 8, 0, 0) });
+            grid.Children.Add(spark);
+        }
+        return grid;
+    }
+
+    /// <summary>Stacked bars: memory by group, one share, all zero, and nothing to read.</summary>
+    private static FrameworkElement StackedBars()
+    {
+        var panel = new StackPanel { Margin = new Thickness(26), Width = 420, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var parts in new Bosun.Panel.Controls.BarPart[]?[]
+                 {
+                     [new("Windows", 12.8), new("WSL", 9.1), new("Codex", 2.7), new("Free", 7.4, Rest: true)], [new("Free", 32, Rest: true)],
+                     [new("Windows", 0), new("WSL", 0)], null,
+                 })
+            panel.Children.Add(new Bosun.Panel.Controls.StackedBar { Parts = parts, Unit = "GB", Margin = new Thickness(0, 0, 0, 14) });
         return panel;
     }
 
