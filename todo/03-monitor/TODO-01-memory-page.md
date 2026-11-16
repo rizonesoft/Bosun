@@ -42,6 +42,7 @@ title: "TODO-01 -- Memory and overview"
 | 3 | §3 | History chart with a table equivalent | §2 | [ ] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
+| 6 | §6 | Decision card and the report's evidence for it | §3 | [ ] |
 
 ## 1. Memory readers
 
@@ -125,6 +126,8 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 
 **Corrected 2026-11-16:** checked against the tree before the plan review. Paths: `src/Bosun.Panel/Controls/SeriesChart.cs` and `src/Bosun.Panel/Memory/MemoryView.xaml` (the Memory page of `§2`). The points are the report's `series` (`win_available_mb` by minute) from `bosun report --json`: the 24 hours from the page's day report (read every 30 s), 7 and 14 days from a 14-day report read every 5 minutes while the page is shown, a third read `PageBase` gains beside `RefreshAlso` (a page may hold up to three). The chart and its table draw the same points: the lowest available in each bucket (5 minutes for 24 hours, 30 minutes for 7 days, an hour for 14 days), so the table's rows are the chart's points, never 20,000 minutes. The pressure line is the stored threshold (`PanelSettings.PressureFloorMb`), moving when Settings saves a new one. The range is a `SegmentedControl` in the chart card's header, and Show as table switches the card between the chart and its table. The Decision card reads the 14-day report. There is no written rule for the 64 GB question, so the default taken, and recorded here, is: with fewer than 7 days logged (`days_covered`) it says how many and recommends nothing; with 7 or more it recommends more memory when Windows was below the pressure line for any minutes (`windows.low_samples`), when committed memory reached 90% of its limit (`max_commit_mb` against `commit_limit_mb`), or when WSL had out-of-memory kills (`wsl.max_oom_kills`), and otherwise says 32 GB has been enough so far, with each figure it rests on beside it. Changing that rule is a change to one function and its tests. Tests: `tests/Bosun.Panel.Tests/Controls/SeriesChartTests.cs` and `tests/Bosun.Panel.Tests/Memory/`; the checkpoint takes the test platform's filter form.
 
+**Corrected 2026-11-16 (plan review):** the Decision card moves to its own section, `§6`, with the evidence it needs added to the report first: the plan review found `windows.low_samples` counted against a fixed 2048 MB rather than the saved threshold, `wsl.max_oom_kills` a cumulative counter rather than kills in the period, committed memory and its limit maximised apart, and `days_covered` counting days with no Windows samples, so no honest verdict can rest on today's report. This section is the chart and its table. History has its own states, apart from the live cards: before the first report the chart card says it is reading the history; a report that can't be read says why with Retry, the last drawn points kept with their age; an incomplete read says so beside the chart; no Windows samples in the range says "No history in this range yet" with what to do (leave the logger running); switching range while a read is pending shows the new range's state, never the old range's points. The series is plotted against elapsed time: a bucket with no Windows sample is missing, the line breaks across it, and nothing joins two measured points over a gap; the y axis is GB available, the x axis the range's local time, the pressure line labelled with its value ("2.0 GB pressure line"), and each point is the lowest minute in its bucket, at that minute's time. Show as table and Show as chart are buttons, reachable by keyboard and listed for Ctrl+K (`PageBase.Commands`); the table's columns are Time and Lowest available, a missing bucket "No sample"; the chart's automation name says the range, the lowest point and its time, and the pressure line, and follows a range change. `PageBase` holds up to three refreshes, each started, stopped (cancelled, a late result dropped) and refreshed with the page and run by Refresh, Retry and the palette's Refresh, a slow report never holding the snapshots. Tests assert the bucket minima and range bounds against points worked out apart, the drawn line's points and the pressure line's place, the toggle and the automation name; render cases cover the chart, the table, a gap, no history and a failed report in every theme; removing a behaviour fails its test.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** yes
@@ -140,12 +143,12 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 
 - [ ] Draw with a `DrawingVisual` and no chart dependency. Done when: 14 days of minute data draws in under 50 ms, in a test. Cheaper substitute: adding a charting package.
 - [ ] Add Show as table, and an automation summary of the lowest point. Done when: a screen reader string names lowest value and time.
-- [ ] Build the Decision card from `report --json`, stating days logged. Done when: under 7 days says so and gives no recommendation. Cheaper substitute: recommending from too little data.
+- [ ] ~~Build the Decision card from `report --json`, stating days logged.~~ Struck 2026-11-16 by the plan review: the report holds no honest evidence for the verdict yet. -> XREF: D03 T01 §6
 - [ ] Add the 24 hours, 7 days and 14 days `SegmentedControl` to `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: each range changes the data, and the table shows the same points.
 - [ ] Draw the pressure line from `PanelSettings` in `src/Bosun.Panel/Controls/SeriesChart.cs`. Done when: a threshold change moves the line with no restart.
 - [ ] Commit: `memory: history chart and decision card`
 
-**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SeriesChartTests" --filter-class "*MemoryHistoryTests"` exits 0, and fails if the decision recommends from fewer than 7 days.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SeriesChartTests" --filter-class "*MemoryHistoryTests"` exits 0, and fails if a gap is drawn as a joined line.
 
 ## 4. Pressure alerts
 
@@ -214,6 +217,34 @@ This is what opens first. It only assembles other pages' state, so it is built a
 - [ ] Commit: `overview: page`
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
+
+
+## 6. Decision card and the report's evidence for it
+
+Filed 2026-11-16 by the plan review of `§3` (`docs/reviews/03-monitor/D03-T01-s3.md`), which found the report could not carry an honest answer to the 64 GB question. The card is the answer; the report first gains the evidence it needs, in the layer that owns it.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §3 (the Decision card), `README.md` (evidence before hardware).
+**Job:** decide whether more memory is justified, from measured peaks, never from too little data.
+**Treatment:** one card under the chart: a verdict only when the evidence supports one, and each figure it rests on beside it. Cheaper substitute that fails: a verdict from a fixed floor and cumulative counters.
+**Chrome:** the Memory page's cards (`§2`).
+
+**Build order:**
+
+1. Extend `dm::aggregate` and `report_json` in `src/core.hpp`, and `bosun report` in `src/app.cpp`. Done when: the report carries the evidence below, tested in `tests/test_core.cpp`.
+2. Build the card in `src/Bosun.Panel/Memory/`. Done when: every branch renders with its evidence.
+
+- [ ] Add `--low-mb N` to `bosun report` (`src/app.cpp`), the floor `low_samples` and a new `low_minutes` count against, default the stored threshold the panel passes (`PanelSettings.PressureFloorMb`), with `low_minutes` counting distinct minutes below it, not samples. Done when: a `tests/test_core.cpp` case with a 3000 MB floor and two samples in one minute counts one minute.
+- [ ] Add `windows.peak_commit_ratio` to the report, the highest committed over limit taken from the same sample, never from two maxima. Done when: a case whose limit grows mid-period finds the true peak ratio.
+- [ ] Add `wsl.oom_kills_in_period`, the counter's increases within the period, a drop read as a VM restart counting from zero, and null when no two samples bound the period. Done when: cases with an unchanged positive counter (0), an increase (its size) and a restart (the kills after it) pass.
+- [ ] Add `windows.days_with_samples`, the days that hold Windows memory samples, and `windows.total_mb`, the installed memory the samples report. Done when: seven days of only WSL rows count 0, and the total is read from the samples.
+- [ ] Build the Decision card in `src/Bosun.Panel/Memory/MemoryView.xaml` and its rule in one function of `MemoryPage.cs` (or a class of its own), from the 14-day report: under 7 days with Windows samples it says how many and gives no verdict; an incomplete read or a null figure it rests on is said and withholds the verdict that needs it; otherwise "More memory would help" when there were minutes below the line, commit reached 90% of its limit, or WSL had out-of-memory kills in the period, else "{total} has been enough so far", each figure beside it. Done when: a test per branch (too few days, incomplete, null counter, each of the three reasons, enough) reads the verdict and its evidence, and a machine of another capacity is named by its own total.
+- [ ] Render the card in each branch in every theme. Done when: the renders are in `RenderCatalog` and looked at.
+- [ ] Commit: `memory: decision card and its evidence`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DecisionTests"` exits 0, and fails if a verdict is given from fewer than 7 days of Windows samples; `build\Release\test_core.exe` passes the report's new cases.
 
 ## Verification
 
