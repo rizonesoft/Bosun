@@ -91,6 +91,8 @@ The generator owns these like every other token, so no view carries a shadow or 
 
 ## 2. Mica backdrop with a solid fallback
 
+> **Started:** 2026-11-16T09:49:32Z
+
 Windows composes Mica outside the process, so it costs the panel almost nothing, but it only exists on some systems and must be dropped live when the operator turns transparency off or enters high contrast.
 
 **Corrected 2026-11-16:** checked against the tree before the plan review. The title bar, the rail and the rounded sheet are `ShellView.xaml`'s (`D02 T02 §4`), not `MainWindow.xaml`'s, which holds only the `WindowChrome`; the sheet itself shipped there in `ad5b0bf` with `R.Sheet` and the rail outside it, and reads as one surface today only because the chrome behind it is `Base` too, so its item is ticked and what is left of it is the chrome going clear under Mica. A test never writes the person's own `EnableTransparency`: the setting is read through a seam, and the live switch is proved by sending the real window `WM_SETTINGCHANGE` with the seam flipped. High contrast comes from `WindowsHighContrast` (`D02 T03 §10`'s, already live), and the theme from `ThemeService`. The tests go in `tests/Bosun.Panel.Tests/Shell/`, and the checkpoint is in the test platform's own filter form.
