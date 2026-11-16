@@ -28,11 +28,25 @@ static class RealInput
         Native.Key(virtualKey);
     }
 
+    /// <summary>A key with a modifier held, to the panel's window only.</summary>
+    public static void Chord(IntPtr panel, int modifier, int virtualKey)
+    {
+        RequireForeground(panel, "a key");
+        Native.Chord(modifier, virtualKey);
+    }
+
     /// <summary>The pointer onto a point of the panel's window.</summary>
     public static void MoveOnWindow(IntPtr panel, int x, int y)
     {
         RequireWindowAt(panel, x, y, "the pointer");
         Native.MoveTo(x, y);
+    }
+
+    /// <summary>A right click on a point of the panel's window.</summary>
+    public static void RightClickOnWindow(IntPtr panel, int x, int y)
+    {
+        RequireWindowAt(panel, x, y, "a right click");
+        Native.RightClick(x, y);
     }
 
     /// <summary>A left click on a point of the panel's window.</summary>

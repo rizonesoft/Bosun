@@ -20,6 +20,7 @@ public partial class App : Application
     private IWindowSurface? _window;
     private WindowsTheme? _windowsTheme;
     private WindowsHighContrast? _contrast;
+    private Backdrop? _backdrop;
     private TrayController? _tray;
     private RefreshScheduler? _refreshes;
     private Motion? _motion;
@@ -58,6 +59,7 @@ public partial class App : Application
         _tray?.Dispose();      // and no icon is left in the tray
         _windowsTheme?.Dispose();
         _contrast?.Dispose();
+        _backdrop?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
     }
@@ -96,6 +98,9 @@ public partial class App : Application
             // The templates' contrast mode follows the theme, on the window and so on everything in it.
             HighContrastMode.SetIsOn(window, theme.IsHighContrast);
             theme.EffectiveChanged += () => HighContrastMode.SetIsOn(window, theme.IsHighContrast);
+            // Mica under the chrome where Windows has it and the person allows it, else solid (D02 T03 §2): attached as
+            // the handle is made, so a window started in the tray has it too, and let go when the window closes.
+            _backdrop = Backdrop.Attach(window, window.View, theme, _contrast, made.Log);
             return window;
         }, window =>
         {

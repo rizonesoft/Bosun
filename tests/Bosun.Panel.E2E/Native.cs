@@ -67,6 +67,10 @@ static partial class Native
         Send(press);
     }
 
+    /// <summary>A key with a modifier held (Alt+Space, Alt+F4), sent as one input so nothing comes between.</summary>
+    public static void Chord(int modifier, int virtualKey) =>
+        Send([KeyEvent(modifier, 0), KeyEvent(virtualKey, 0), KeyEvent(virtualKey, KEYEVENTF_KEYUP), KeyEvent(modifier, KEYEVENTF_KEYUP)]);
+
     /// <summary>Presses one key and leaves it down; <see cref="KeyUp"/> lets it go.</summary>
     public static void KeyDown(int virtualKey) => Send([KeyEvent(virtualKey, 0)]);
 

@@ -24,6 +24,12 @@ public sealed record RenderCase(string View, string State, Func<FrameworkElement
     /// </summary>
     public Func<FrameworkElement, Task>? Ready { get; init; }
 
+    /// <summary>
+    /// Drawn on a clear host rather than the theme's <c>Base</c>, so what the view itself leaves clear (the chrome under
+    /// Mica, D02 T03 §2) is clear in the picture, and what it paints is its own.
+    /// </summary>
+    public bool ClearHost { get; init; }
+
     /// <summary>How long <see cref="Ready"/> may take before the render fails.</summary>
     public TimeSpan ReadyLimit { get; init; } = TimeSpan.FromSeconds(5);
 
@@ -87,7 +93,7 @@ public static class PageRenderer
         }
         if (element is Window) throw new RenderException($"{view.Name}: a Window can't be drawn without being shown; register its content");
 
-        var page = Page(element, theme, width, height);
+        var page = Page(element, theme, width, height, clear: view.ClearHost);
         using var source = Hidden("Bosun render: " + view.Name, page);
 
         Idle();
@@ -144,7 +150,7 @@ public static class PageRenderer
     /// merged after it, as App.xaml merges them, on the theme's base colour, with the font, size and text colour a
     /// window gives its content, at the size asked for.
     /// </summary>
-    public static Border Page(FrameworkElement element, string theme, int width, int height, Bosun.Panel.Theme.SystemPalette? palette = null)
+    public static Border Page(FrameworkElement element, string theme, int width, int height, Bosun.Panel.Theme.SystemPalette? palette = null, bool clear = false)
     {
         // A contrast theme is Windows' colours over the generated Dark theme, as ThemeService merges them, in a fixed
         // palette so the picture is the same on every machine (Night sky unless a test names another).
@@ -161,7 +167,8 @@ public static class PageRenderer
             Bosun.Panel.Theme.HighContrastMode.SetIsOn(page, true);
         }
         page.Resources.MergedDictionaries.Add(controls);
-        page.SetResourceReference(Border.BackgroundProperty, "B.Base");
+        if (clear) page.Background = Brushes.Transparent;
+        else page.SetResourceReference(Border.BackgroundProperty, "B.Base");
         System.Windows.Documents.TextElement.SetFontFamily(page, (FontFamily)controls["F.Ui"]);
         page.SetResourceReference(System.Windows.Documents.TextElement.FontSizeProperty, "T.Body");
         page.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "B.Text");

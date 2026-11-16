@@ -24,6 +24,9 @@ public static partial class RenderCatalog
         // The shell (D02 T02 §4): the whole frame as the panel starts, a page in each of its four states, and the
         // question asked when a page with unsaved changes is being left.
         new("shell", "overview", () => new Bosun.Panel.Shell.ShellView { DataContext = Shell.Shells.Panel() }) { Shows = "Panel ready" },
+        // The backdrop (D02 T03 §2), on a clear host: Mica leaves the title bar and rail clear for Windows' backdrop,
+        // the page's sheet still solid. Solid is the shell as it starts, drawn above as shell.overview.
+        new("shell", "backdrop-mica", () => Backdropped(Bosun.Panel.Shell.BackdropKind.Mica)) { Shows = "Panel ready", ClearHost = true },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
         // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
         new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
@@ -83,6 +86,14 @@ public static partial class RenderCatalog
     }
 
     /// <summary>A page showing the data it read 12 minutes ago, before WSL stopped, by a clock fixed for the picture.</summary>
+    /// <summary>The shell painted for a backdrop, as <see cref="Bosun.Panel.Shell.Backdrop.Paint"/> paints it in the window.</summary>
+    private static FrameworkElement Backdropped(Bosun.Panel.Shell.BackdropKind kind)
+    {
+        var shell = new Bosun.Panel.Shell.ShellView { DataContext = Shell.Shells.Panel() };
+        Bosun.Panel.Shell.Backdrop.Paint(null, shell, kind);
+        return shell;
+    }
+
     private static FrameworkElement Stale()
     {
         var clock = new Helpers.ManualClock();
