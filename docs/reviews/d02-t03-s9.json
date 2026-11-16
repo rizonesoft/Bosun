@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T03 \u00a79",
+  "title": "In-window toasts",
+  "implementation_sha": "4a7111a5b8a9c4c80e41d1f6f9aac386511f0901",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s9.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*ToastTests\" -> 9 of 9; with Record's line skipped when there are toasts, 2 fail",
+    "dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*ToastE2ETests\" -> 1 of 1 on the test screen (real Tab to Dismiss, held 7.5 s by focus, real Space)",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 686, succeeded: 686",
+    "CI full gate at 4a7111a -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43928984982, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43928985096"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s9.md",
+    "verdict": "completed",
+    "candidate": "5a26ab7db2244770eaa9447900223d7f3fd9ae45",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s9.md",
+    "candidate": "df3e012f71ddb461608d81ad1633de033c8fa0d3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "df3e012f71ddb461608d81ad1633de033c8fa0d3",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

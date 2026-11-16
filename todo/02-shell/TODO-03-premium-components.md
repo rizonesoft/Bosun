@@ -47,7 +47,7 @@ title: "TODO-03 -- Premium components"
 | 6 | §6 | Queue slot visuals | §5 | [x] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
 | 8 | §8 | Command palette | §3 | [x] |
-| 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
+| 9 | §9 | In-window toasts | §4, D02 T02 §4 | [x] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
 | 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
 | 12 | §12 | Window placement remembered, and the smoke off the main screen | D02 T02 §4 | [x] |
@@ -392,9 +392,12 @@ A short result where the operator is looking. The Activity pane stays the record
 - [x] Announce each toast through `LiveRegion`. Done when: a test sees one announcement per toast.
 - [x] Make Dismiss reachable by keyboard with an automation name. Done when: a UI Automation test closes a toast by keyboard.
 - [x] Hold no timer once the stack is empty or the window is hidden, and show pending toasts' Activity lines only when hidden. Done when: a test finds no running timer in both cases.
-- [ ] Commit: `shell: in-window toasts`
+- [x] Commit: `shell: in-window toasts`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ToastTests"` and, on the test screen, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ToastE2ETests"` exit 0, and the first fails if `ToastHost.Show` stops writing the Activity line.
+
+> **Verified:** 2026-11-16 | §9 | 4a7111a5b8a9c4c80e41d1f6f9aac386511f0901
+> **Review:** `docs/reviews/d02-t03-s9.json`
 
 ## 10. High contrast theme and renders
 
