@@ -59,6 +59,9 @@ public class GlyphTests
             [GlyphAction.Startup] = PackIconLucideKind.Power,
             [GlyphAction.Exit] = PackIconLucideKind.LogOut,
             [GlyphAction.Page] = PackIconLucideKind.ArrowRight,
+            [GlyphAction.WindowsMemory] = PackIconLucideKind.Cpu,
+            [GlyphAction.WslMemory] = PackIconLucideKind.Layers,
+            [GlyphAction.Builds] = PackIconLucideKind.ListOrdered,
         };
         Assert.Equal(Enum.GetValues<GlyphAction>().Order(), Glyphs.Actions.Keys.Order());
         Assert.Equal(expected.OrderBy(p => p.Key), Glyphs.Actions.OrderBy(p => p.Key));

@@ -71,6 +71,14 @@ public static partial class RenderCatalog
         // The Settings page (D02 T02 §5): as it opens, after a damaged file was moved aside, when the file can't be
         // read at all, and after a save that only half took.
         new("settings", "general", () => Settings(_ => { })) { Shows = "Start with Windows, in the tray" },
+        // D03 T01 §2: the Memory page with live data, and with WSL and the report unreadable and a counter unmeasured.
+        MemoryCase("data", new Memory.MemoryPageTests.Source(), "Overlapping builds"),
+        MemoryCase("unreadable", new Memory.MemoryPageTests.Source
+        {
+            Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.Snapshot(memory: "{\"available_mb\":null,\"total_mb\":32768,\"commit_mb\":null}"), Memory.MemoryPageTests.Now),
+            Wsl = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "The WSL logger's file could not be read."),
+            Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
+        }, "Peaks not available"),
         // With memory pressure notifications turned off (D02 T02 §7).
         new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
             "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
@@ -233,6 +241,17 @@ public static partial class RenderCatalog
             for (var i = 1; i <= 5; i++) shell.Toasts.Show(sink, $"Run the WSL logger: wsl.exe exited with code {i}");
         }
         return new Bosun.Panel.Shell.ShellView { DataContext = shell };
+    }
+
+    private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows)
+    {
+        Func<FrameworkElement, Task>? ready = null;
+        return new RenderCase("memory", name, () =>
+        {
+            var (view, isReady) = Memory.MemoryPageTests.Rendered(source);
+            ready = isReady;
+            return view;
+        }) { Shows = shows, Ready = view => ready!(view) };
     }
 
     /// <summary>The shell on the Settings page with the palette open and <paramref name="query"/> typed.</summary>

@@ -76,13 +76,16 @@ public static class WindowStart
     /// </summary>
     /// <param name="windowShown">False when the panel is started for the tray: no page is on screen yet.</param>
     public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
-        Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true, Bosun.Panel.Theme.ThemeService? theme = null)
+        Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true, Bosun.Panel.Theme.ThemeService? theme = null,
+        Bosun.Core.RefreshScheduler? refreshes = null, Bosun.Core.Memory.MemoryClient? memory = null)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
         var pages = new Dictionary<string, PageBase>
         {
             ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings, theme),
         };
+        // The Memory page reads on the panel's one scheduler (D03 T01 §2); without them its row keeps its placeholder.
+        if (refreshes is not null && memory is not null) pages["memory"] = new Bosun.Panel.Memory.MemoryPage(memory, refreshes, log);
         var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
         log.Info("Panel ready");
         if (settings.Notice is { } notice) log.Warn(notice);

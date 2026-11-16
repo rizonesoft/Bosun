@@ -89,7 +89,10 @@ public partial class App : Application
         var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());
         // The one owner of every refresh (D02 T02 §8), ticked on this thread, and only while something is active.
         var refreshes = _refreshes = new RefreshScheduler(driver: new DispatcherRefreshDriver(Dispatcher));
-        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme);
+        // One reader of the memory documents, for the Memory page and the tray's pressure check (D03 T01 §2, §4).
+        var memory = Bosun.Core.Memory.MemoryClient.ForThisUser();
+        var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme,
+            refreshes: refreshes, memory: memory);
         // The preview said where the person will look: in force from which file, or why its file was not used.
         if (previewLine is not null)
         {
@@ -116,7 +119,6 @@ public partial class App : Application
         {
             tray.Start(window, inTray);
             // After the tray, so a pressure already present at launch has somewhere to be said (D03 T01 §4).
-            var memory = Bosun.Core.Memory.MemoryClient.ForThisUser();
             tray.StartPressureCheck(token => memory.SnapshotAsync("windows", token));
         });
     }

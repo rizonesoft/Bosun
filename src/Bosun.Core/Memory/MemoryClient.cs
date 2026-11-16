@@ -11,7 +11,15 @@ namespace Bosun.Core.Memory;
 /// document, or why there is none. A page deals only in values or a reason; a cancelled call throws to its caller,
 /// which has stopped asking.
 /// </summary>
-public sealed class MemoryClient
+/// <summary>What the Memory page reads (D03 T01 §2): a side's live snapshot and the last days' report.</summary>
+public interface IMemorySource
+{
+    Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default);
+
+    Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default);
+}
+
+public sealed class MemoryClient : IMemorySource
 {
     /// <summary>Each side's snapshot older than this is stale: three of the logger's 30 s intervals.</summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(90);

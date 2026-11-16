@@ -9,6 +9,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:a="clr-namespace:Bosun.Panel.Accessibility"
              xmlns:settings="clr-namespace:Bosun.Panel.Settings"
+             xmlns:memory="clr-namespace:Bosun.Panel.Memory"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
              Focusable="False">
     <UserControl.Resources>
@@ -16,6 +17,9 @@
              frame in one place and never draws a header or a state of its own. -->
         <DataTemplate DataType="{x:Type settings:SettingsPage}">
             <settings:SettingsView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type memory:MemoryPage}">
+            <memory:MemoryView/>
         </DataTemplate>
     </UserControl.Resources>
     <!-- Everything the frame draws moves together when the page changes: it fades in and rises 4 px (D02 T03 §7). -->

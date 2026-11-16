@@ -23,6 +23,9 @@ public enum GlyphAction
     Startup,
     Exit,
     Page,
+    WindowsMemory,
+    WslMemory,
+    Builds,
 }
 
 /// <summary>
@@ -68,6 +71,10 @@ public static class Glyphs
         [GlyphAction.Startup] = PackIconLucideKind.Power,
         [GlyphAction.Exit] = PackIconLucideKind.LogOut,
         [GlyphAction.Page] = PackIconLucideKind.ArrowRight,
+        // The Memory page's cards (D03 T01 §2), as the mockup draws them.
+        [GlyphAction.WindowsMemory] = PackIconLucideKind.Cpu,
+        [GlyphAction.WslMemory] = PackIconLucideKind.Layers,
+        [GlyphAction.Builds] = PackIconLucideKind.ListOrdered,
     };
 
     /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>
@@ -75,4 +82,11 @@ public static class Glyphs
         Pages.TryGetValue(key, out var kind) ? kind : throw new KeyNotFoundException($"the rail row '{key}' has no glyph in Theme/Glyphs.cs");
 
     public static PackIconLucideKind For(GlyphAction action) => Actions[action];
+
+    /// <summary>The Memory page's card glyphs, for a view to name with x:Static.</summary>
+    public static PackIconLucideKind WindowsMemory => Actions[GlyphAction.WindowsMemory];
+
+    public static PackIconLucideKind WslMemory => Actions[GlyphAction.WslMemory];
+
+    public static PackIconLucideKind Builds => Actions[GlyphAction.Builds];
 }
