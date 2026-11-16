@@ -84,8 +84,10 @@ try {
   # A codex under a live review's dispatcher, in its repo, is reviewing; once the deadline has passed, unknown.
   # cmd /c takes the whole command in one pair of outer quotes.
   $dispatcher = Start-Detached "$env:SystemRoot\System32\cmd.exe" "/c `"$(Q (Join-Path $bin 'codex.exe')) $(Q (Join-Path $work 'r.txt')) 60000`"" $repo
-  $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($dispatcher.Id)").Count -gt 0 }
+  # Its codex.exe, not just any child: cmd's first child can be its console host (found on CI, 2026-11-16).
+  $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($dispatcher.Id) AND Name='codex.exe'").Count -gt 0 }
   $reviewer = (Get-CimInstance Win32_Process -Filter "ParentProcessId=$($dispatcher.Id) AND Name='codex.exe'").ProcessId
+  if (-not $reviewer) { throw "the dispatcher's codex.exe never started" }
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000
   Mark $dispatcher.Id ($now + 600)
   $row = Row (Scan) $reviewer
