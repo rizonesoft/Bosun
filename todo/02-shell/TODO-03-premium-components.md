@@ -166,6 +166,8 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 
 These two appear on nearly every page. Status keeps its word, so a pill without one must not compile into a page.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. The icon map (`D02 T03 §3`) has the Ok, Warn and Fail status glyphs; Info and Neutral are added there, as the mockup draws them (`info`, `circle-dot`). "Throws in Debug, Unknown in Release" can't be proved by one build, and a missing word can't be a compile error in XAML: a `StatusPill` written in a view without a `Word` fails the XAML rules test (`tests/Bosun.Panel.Tests/XamlRules.cs`), which is how "must not compile into a page" is held, and at run time an empty or blank word always reads "Unknown". The theme choice the Settings page draws today is the `ThemeBox` combo box, whose tests name it. The tests go in `tests/Bosun.Panel.Tests/Controls/`, and the checkpoint is in the test platform's own filter form.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -179,8 +181,8 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 1. Create `src/Bosun.Panel/Controls/StatusPill.cs`. Done when: each state word renders in both themes.
 2. Create `src/Bosun.Panel/Controls/SegmentedControl.cs`. Done when: arrow keys move the selection.
 
-- [ ] Create `StatusPill` in `src/Bosun.Panel/Controls/StatusPill.cs` with `Kind`, `Word` and a Lucide glyph from `Glyphs.cs`. Done when: `tests/Bosun.Panel.Tests/StatusPillTests.cs` renders Ok, Warn, Danger, Info and Neutral in both themes. Cheaper substitute: a coloured dot with a tooltip.
-- [ ] Make an empty `Word` an error in `StatusPill.cs`. Done when: a test with an empty word throws in Debug and renders "Unknown" in Release. Cheaper substitute: a pill showing only a colour.
+- [ ] Create `StatusPill` in `src/Bosun.Panel/Controls/StatusPill.cs` with `Kind`, `Word` and a Lucide glyph from `Glyphs.cs`. Done when: `tests/Bosun.Panel.Tests/Controls/StatusPillTests.cs` renders Ok, Warn, Danger, Info and Neutral in both themes and in contrast, each with its glyph from the map and its word reading at 4.5:1 or better on `Base`, `Surface` and `Raised` (design/SPEC.md §19). Cheaper substitute: a coloured dot with a tooltip.
+- [ ] Make a missing `Word` an error: a `StatusPill` in a view with no `Word` fails `XamlRulesTests`, and an empty or blank word reads "Unknown" in `StatusPill.cs`. Done when: the rules test fails a pill written without a word and passes one with it, and a test sets the word to "" and "  " and reads "Unknown" on screen and in its name. Cheaper substitute: a pill showing only a colour.
 - [ ] Expose `Word` as the automation name in `StatusPill.cs`. Done when: a UI Automation test reads the word.
 - [ ] Create `SegmentedControl` in `src/Bosun.Panel/Controls/SegmentedControl.cs` on `ListBox`, with the selected indicator using `Motion.Fast`. Done when: a render shows the indicator on the selected item in both themes. Cheaper substitute: a row of toggle buttons with no exclusive selection.
 - [ ] Support Left, Right, Home and End in `SegmentedControl.cs`. Done when: a UI Automation test moves and reads selection by keyboard only.
@@ -188,7 +190,7 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 - [ ] Use the segmented control for the theme on the Settings page, `src/Bosun.Panel/Settings/SettingsView.xaml` (**Added 2026-11-15** from `D02 T02 §5`, which draws the three-way choice as a combo box until this control exists; `design/SPEC.md` §19). Done when: the off-screen render of the page shows the three choices side by side, and a test moves between them with the arrow keys and reads the selected one.
 - [ ] Commit: `controls: status pill and segmented control`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~StatusPill` exits 0, and fails if the empty word check is removed.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*StatusPillTests" --filter-class "*SegmentedControlTests"` exits 0, and fails if the empty word check is removed.
 
 ## 5. Gauge, sparkline and stacked bar
 
