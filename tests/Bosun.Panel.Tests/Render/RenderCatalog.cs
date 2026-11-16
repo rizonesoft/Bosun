@@ -85,7 +85,6 @@ public static partial class RenderCatalog
         return frame;
     }
 
-    /// <summary>A page showing the data it read 12 minutes ago, before WSL stopped, by a clock fixed for the picture.</summary>
     /// <summary>The shell painted for a backdrop, as <see cref="Bosun.Panel.Shell.Backdrop.Paint"/> paints it in the window.</summary>
     private static FrameworkElement Backdropped(Bosun.Panel.Shell.BackdropKind kind)
     {
@@ -94,6 +93,7 @@ public static partial class RenderCatalog
         return shell;
     }
 
+    /// <summary>A page showing the data it read 12 minutes ago, before WSL stopped, by a clock fixed for the picture.</summary>
     private static FrameworkElement Stale()
     {
         var clock = new Helpers.ManualClock();

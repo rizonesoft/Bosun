@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 26 | Checklist items: 258
+Sections: 26 | Checklist items: 260
 
 | Status | Reference   | Deliverable                                                    | Needs           | Items |
 | ------ | ----------- | -------------------------------------------------------------- | --------------- | ----- |
@@ -90,7 +90,7 @@ Sections: 26 | Checklist items: 258
 | [ ]    | D02 T03 §9  | In-window toasts                                               | display-session | 8     |
 | [x]    | D02 T03 §10 | High contrast theme and renders                                | none            | 11    |
 | [ ]    | D02 T03 §11 | Contrast preview and its smoke on the shown window             | display-session | 4     |
-| [ ]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen | display-session | 5     |
+| [ ]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen | display-session | 7     |
 
 ### Phase 3: Monitoring
 
@@ -149,4 +149,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 58/92 verified sections, 7 ready to run now.
 
-Checklist: 629/803 items completed (includes Commit items).
+Checklist: 629/805 items completed (includes Commit items).
