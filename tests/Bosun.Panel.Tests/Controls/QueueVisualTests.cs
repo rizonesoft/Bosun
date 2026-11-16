@@ -164,6 +164,48 @@ public class QueueVisualTests
         });
     }
 
+    [Fact]
+    public void An_unavailable_slot_says_why_seen_and_said()
+    {
+        // Completion review: "Not available" alone gave no reason.
+        PageRenderer.InPage("Dark", () => new QueueSlotTile { Slot = Slot("""{"index":1,"busy":null,"holder":null}""") }, page =>
+        {
+            var tile = ShellSupport.Under<QueueSlotTile>(page).Single();
+            Assert.Equal($"Slot 2, Not available, {QueueSlotTile.NotKnown}", Said(tile));
+            Assert.Contains(QueueSlotTile.NotKnown, PageRenderer.TextsOf(tile));
+            Assert.True(((TextBlock)tile.Template.FindName("job", tile)).IsVisible);
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Long_commands_are_shown_whole_never_cut()
+    {
+        // Completion review: two commands that differ only past the tile's width read the same when cut with an ellipsis.
+        const string prefix = "cmake --build build --config Release --target bosun_panel_tests --parallel 8 -- /p:Verbosity=minimal";
+        var long1 = Holder(0).Replace("\"cmake --build build\"", $"\"{prefix} /p:Case=one\"");
+        var waiter = Waiter(11, "\"slot\"").Replace("\"dotnet test\"", $"\"{prefix} /p:Case=two\"");
+        PageRenderer.InPage("Dark", () =>
+        {
+            var panel = new StackPanel { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
+            panel.Children.Add(new QueueSlotTile { Slot = Slot($$"""{"index":0,"busy":true,"holder":{{long1}}}""") });
+            panel.Children.Add(new WaitingRow { Status = Doc(FreeSlot, waiter) });
+            return panel;
+        }, page =>
+        {
+            var tile = ShellSupport.Under<QueueSlotTile>(page).Single();
+            var line = ShellSupport.Under<WaitingLineView>(page).Single();
+            foreach (var (job, text) in new[] { ((TextBlock)tile.Template.FindName("job", tile), "/p:Case=one"), ((TextBlock)line.Template.FindName("job", line), "/p:Case=two") })
+            {
+                Assert.EndsWith(text, job.Text);
+                Assert.Equal(TextTrimming.None, job.TextTrimming);
+                Assert.Equal(TextWrapping.Wrap, job.TextWrapping);
+                Assert.True(job.ActualHeight > job.FontSize * 2, "the whole command shows, over more than one line");
+            }
+            return 0;
+        }, 480, 600);
+    }
+
     [Theory]
     [InlineData(null, null)]
     [InlineData(45L, "45 s")]

@@ -96,6 +96,9 @@ public class QueueSlotTile : Control
 
     public static readonly DependencyProperty HeldProperty = HeldKey.DependencyProperty;
 
+    /// <summary>Why a slot is Not available: whether it is in use could not be checked (its lock could not be probed).</summary>
+    public const string NotKnown = "whether it is in use could not be checked";
+
     private static DependencyPropertyKey Text(string name, string initial) =>
         DependencyProperty.RegisterReadOnly(name, typeof(string), typeof(QueueSlotTile), new FrameworkPropertyMetadata(initial));
 
@@ -182,7 +185,8 @@ public class QueueSlotTile : Control
         }));
         var held = state is not (SlotState.Free or SlotState.NotAvailable);
         tile.SetValue(HeldKey, held);
-        tile.SetValue(JobKey, holder is not null ? QueueWords.Job(holder) : held ? "holder not known" : "");
+        tile.SetValue(JobKey, holder is not null ? QueueWords.Job(holder) : held ? "holder not known"
+            : state == SlotState.NotAvailable ? NotKnown : "");
         tile.SetValue(TimingKey, holder is null ? "" : string.Join(", ", new[]
         {
             QueueWords.Side(holder.Side),

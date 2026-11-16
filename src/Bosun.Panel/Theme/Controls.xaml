@@ -1400,7 +1400,8 @@
                                     </StackPanel>
                                     <!-- The state's word on its own line, so a long one never squeezes the slot's number. -->
                                     <controls:StatusPill Kind="{TemplateBinding Kind}" Word="{TemplateBinding Word}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
-                                    <TextBlock x:Name="job" Text="{TemplateBinding Job}" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <!-- The whole job, wrapped, never cut: two commands can differ only in their last arguments. -->
+                                    <TextBlock x:Name="job" Text="{TemplateBinding Job}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                                     <TextBlock x:Name="timing" Text="{TemplateBinding Timing}" FontSize="{DynamicResource T.Caption}"
                                                Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"/>
                                     <TextBlock x:Name="doubt" Text="{TemplateBinding Doubt}" FontSize="{DynamicResource T.Caption}"
@@ -1510,7 +1511,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Name="place" Text="{Binding Place}" FontFamily="{StaticResource F.Mono}" Foreground="{DynamicResource B.TextDim}"/>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="{Binding Job}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="job" Text="{Binding Job}" FontWeight="SemiBold" TextWrapping="Wrap"/>
                                 <TextBlock Text="{Binding Why}" TextWrapping="Wrap"/>
                                 <TextBlock x:Name="meta" Text="{Binding Meta}" FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.TextDim}"/>
                                 <TextBlock x:Name="doubt" Text="May have ended" FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.Warn}" Visibility="Collapsed"/>
