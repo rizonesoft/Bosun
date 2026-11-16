@@ -322,6 +322,8 @@ Every page has a loading state under `design/SPEC.md` §1. A shared shape stops 
 
 A keyboard route to every page and action. It adds no action of its own, so it must not become a way around a danger confirmation.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. A page's commands are a new `PageCommand` list on `PageBase` (`src/Bosun.Panel/Shell/PageBase.cs`): a name, a glyph from `Glyphs.cs`, what it runs, the reason it is disabled (null while it may run) and, for a danger command, the confirmation its own button asks. `PageBase.RefreshNow` already exists, so a page with a refresh lists "Refresh" without writing it again. Leaving a page goes through `ShellViewModel.GoToAsync`, which asks the same Save, Discard or Stay question (`LeaveAsync`) the rail's `SelectionGuard` asks; the palette navigates only through it. The tray's Pause, Resume and Exit are `TrayViewModel.Menu()`'s items, reused as they are so their words and behaviour stay one (`TrayController.Tray`). No danger command exists in the panel yet (the Optimise page's changes bring the first): the palette's rule is proven with a test page whose danger command and button share one confirmation. Ctrl+K and F5 are taken at the window (`MainWindow`'s key handling), so they work with the focus in a text field. The overlay uses `R.Overlay` and `Elevation.Overlay`, Windows' colours in a contrast theme, the theme's motion through the gate, and every row is said in full by a screen reader. Tests: `tests/Bosun.Core.Tests/CommandIndexTests.cs`, `tests/Bosun.Panel.Tests/Shell/CommandPaletteTests.cs`, and the keyboard and focus checks in the end-to-end smoke (`tests/Bosun.Panel.E2E`, on the test screen); the checkpoint takes the test platform's filter form.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -347,7 +349,7 @@ A keyboard route to every page and action. It adds no action of its own, so it m
 - [ ] Register the page's Refresh as a command in the palette, with F5 as its key (**Added 2026-11-15** from the plan and completion reviews of `D02 T02 §8`, which builds the header's Refresh button). Done when: a test finds Refresh for the page on screen, runs it from the palette and with F5, and reads the same command as the button's: one extra call, joined to a run under way, with its Activity line; and no entry, and no key, for a page that has no refresh. Cheaper substitute: a refresh only the mouse can reach.
 - [ ] Commit: `shell: command palette`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~CommandPalette` exits 0, and fails if a danger command skips its confirmation.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*CommandPaletteTests"` and `dotnet test --project tests/Bosun.Core.Tests --filter-class "*CommandIndexTests"` exit 0, and the first fails if a danger command skips its confirmation.
 
 ## 9. In-window toasts
 
