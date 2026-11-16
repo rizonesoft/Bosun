@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 
@@ -85,6 +86,9 @@ struct Options {
     // When the WSL shim began, in ms since 1970: acquire starts through interop up to a second later, and that much of
     // the job's wait would otherwise be missing from its line.
     std::optional<uint64_t> queued_at_ms;
+    // The WSL shim's own Linux process, kept in the holder's record so the instance scanners can join the job's two
+    // halves (D03 T02 §1).
+    std::optional<int64_t> guest_pid;
     std::vector<std::wstring> command;
     // What a record says of the job (acquire takes them from the WSL shim; run works them out for itself).
     std::wstring repo, side, label;
@@ -124,6 +128,7 @@ bool parse_flags(const std::vector<std::wstring>& args, Options& o) {
         else if (a == L"--guest-total-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.guest_total_mb = guest; }
         else if (a == L"--min-guest-mb") { if (!count(0, dm::kMaxQuantity, guest)) return false; o.min_guest_mb = guest; o.limit_flags["min_guest_mb"] = guest; }
         else if (a == L"--queued-at-ms") { if (!count(0, UINT64_MAX, guest)) return false; o.queued_at_ms = guest; }
+        else if (a == L"--guest-pid") { if (!count(1, INT32_MAX, guest)) return false; o.guest_pid = static_cast<int64_t>(guest); }
         else if (a == L"--wsl-logger") {
             if (v != L"running" && v != L"stopped" && v != L"unknown") return false;
             o.wsl_logger = v;
@@ -272,6 +277,7 @@ class Records {
         base_.side = o.side.empty() ? "windows" : narrow(o.side);
         base_.session = own_session();
         base_.ns = narrow(o.ns);
+        base_.guest_pid = o.guest_pid;
         min_avail_mb_ = o.min_avail_mb;
         max_wait_s_ = o.max_wait_s;
         min_guest_mb_ = o.min_guest_mb;
@@ -841,7 +847,8 @@ struct Proc {
 };
 
 // The one API that reports memory for every process, including ones this user cannot open.
-std::vector<Proc> snapshot_processes() {
+// `ok`, when given, is false when the list could not be taken at all: an empty list is then not "no processes".
+std::vector<Proc> snapshot_processes(bool* ok = nullptr) {
     using QueryFn = NTSTATUS(NTAPI*)(ULONG, PVOID, ULONG, PULONG);
     static auto query = reinterpret_cast<QueryFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQuerySystemInformation"));
     std::vector<BYTE> buf(1 << 20);
@@ -850,6 +857,7 @@ std::vector<Proc> snapshot_processes() {
     while ((st = query(SystemProcessInformation, buf.data(), static_cast<ULONG>(buf.size()), &needed)) == static_cast<NTSTATUS>(0xC0000004L))
         buf.resize(std::max<size_t>(buf.size() * 2, needed + 65536));
     std::vector<Proc> out;
+    if (ok) *ok = st >= 0;
     if (st < 0) return out;
     auto* p = reinterpret_cast<SYSTEM_PROCESS_INFORMATION*>(buf.data());
     for (;;) {
@@ -1076,6 +1084,238 @@ void prune_logs(int keep_days) {
         std::string d = file_date(e.path());
         if (!d.empty() && d < cutoff) fs::remove(e.path(), ec);
     }
+}
+
+// --- bosun instances (D03 T02 §1) ------------------------------------------------------------------------------------
+// Every agent and editor on Windows, and every job holding a slot (both sides'), as dm::instances_json writes them.
+
+std::optional<uint64_t> process_start_of(ULONG_PTR pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!h) return std::nullopt;
+    FILETIME created{}, exited{}, kernel{}, user{};
+    std::optional<uint64_t> start;
+    if (GetProcessTimes(h, &created, &exited, &kernel, &user)) start = (uint64_t{created.dwHighDateTime} << 32) | created.dwLowDateTime;
+    CloseHandle(h);
+    return start;
+}
+
+std::optional<std::string> utc_of_filetime(uint64_t value) {
+    FILETIME ft{static_cast<DWORD>(value), static_cast<DWORD>(value >> 32)};
+    SYSTEMTIME t{};
+    if (!FileTimeToSystemTime(&ft, &t)) return std::nullopt;
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%04u-%02u-%02uT%02u:%02u:%02uZ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    return std::string(buf);
+}
+
+// A small file's text, or nothing with why. A file that went while it was read is `gone`, not a fault.
+std::optional<std::string> read_small(const fs::path& path, std::string& why, bool& gone) {
+    gone = false;
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        std::error_code ec;
+        gone = !fs::exists(path, ec) && !ec;
+        why = narrow(path.wstring()) + " can't be read";
+        return std::nullopt;
+    }
+    std::string text(64 * 1024 + 1, '\0');
+    in.read(text.data(), static_cast<std::streamsize>(text.size()));
+    text.resize(static_cast<size_t>(in.gcount()));
+    if (text.size() > 64 * 1024) {
+        why = narrow(path.wstring()) + " is larger than any such record";
+        return std::nullopt;
+    }
+    return text;
+}
+
+// The JSON files in `dir`, or nothing when the folder exists and can't be listed. A missing folder is none.
+std::optional<std::vector<fs::path>> json_files(const fs::path& dir, std::string& why) {
+    std::vector<fs::path> out;
+    std::error_code ec;
+    if (!fs::exists(dir, ec)) {
+        if (!ec) return out;
+        why = narrow(dir.wstring()) + " can't be read (error " + std::to_string(ec.value()) + ")";
+        return std::nullopt;
+    }
+    fs::directory_iterator it(dir, ec), end;
+    if (ec) {
+        why = narrow(dir.wstring()) + " can't be read (error " + std::to_string(ec.value()) + ")";
+        return std::nullopt;
+    }
+    for (; it != end; it.increment(ec)) {
+        if (ec) break;
+        if (it->path().extension() == L".json") out.push_back(it->path());
+    }
+    if (ec) {
+        why = narrow(dir.wstring()) + " can't be read (error " + std::to_string(ec.value()) + ")";
+        return std::nullopt;
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+// The program a command line runs, by its file name: what a job is called.
+std::string job_name(const std::string& command) {
+    std::string first;
+    if (!command.empty() && command[0] == '"') {
+        size_t end = command.find('"', 1);
+        first = command.substr(1, end == std::string::npos ? std::string::npos : end - 1);
+    } else {
+        first = command.substr(0, command.find(' '));
+    }
+    size_t slash = first.find_last_of("/\\");
+    return slash == std::string::npos ? first : first.substr(slash + 1);
+}
+
+int cmd_instances(const Options& o) {
+    bool listed = false;
+    auto procs = snapshot_processes(&listed);
+    if (!listed) {
+        std::cerr << "[bosun] the process list can't be taken (NtQuerySystemInformation failed), so no instance can be named\n";
+        return 2;
+    }
+    dm::InstancesDoc doc;
+    doc.side = "windows";
+    doc.at = utc_now();
+
+    std::vector<dm::ProcInfo> infos;
+    infos.reserve(procs.size());
+    for (const auto& p : procs) {
+        dm::ProcInfo info;
+        info.pid = static_cast<int64_t>(p.pid);
+        info.ppid = static_cast<int64_t>(p.ppid);
+        info.name = p.name;
+        info.private_mb = static_cast<int64_t>(p.private_bytes / (1024 * 1024));
+        info.start = process_start_of(p.pid);
+        infos.push_back(std::move(info));
+    }
+    auto parent = dm::parents_of(infos);
+    auto agents = dm::instance_roots(infos, parent);
+
+    // The jobs holding slots, from the queue's records: both sides', since the queue is one, kept here.
+    RecordsPass pass = sweep_records(o);
+    if (!pass.readable) doc.problems.push_back({"queue-records", narrow(records_dir(o).wstring()) + " can't be read, so no job can be named"});
+    else if (pass.skipped) doc.problems.push_back({"queue-records", std::to_string(pass.skipped) + " of the queue's records couldn't be read"});
+    std::vector<dm::SlotRecord> holders;
+    for (const auto& seen : pass.seen)
+        if (seen.record.kind == "holder" && seen.state != dm::RecordState::Stale) holders.push_back(seen.record);
+    std::set<int64_t> roots = agents;
+    for (const auto& h : holders) roots.insert(h.pid);
+    auto memory = dm::owned_memory(infos, parent, roots);
+
+    // Claude Code's session records, by process.
+    std::map<int64_t, dm::SessionRecord> sessions;
+    std::string why;
+    fs::path session_dir = fs::path(env(L"USERPROFILE")) / L".claude" / L"sessions";
+    if (auto files = json_files(session_dir, why)) {
+        for (const auto& file : *files) {
+            bool gone = false;
+            auto text = read_small(file, why, gone);
+            if (!text) {
+                if (!gone) doc.problems.push_back({"sessions", why});
+                continue;
+            }
+            auto record = dm::parse_session_record(*text);
+            if (!record) doc.problems.push_back({"sessions", narrow(file.wstring()) + " is not a session record"});
+            else sessions[record->pid] = *record;
+        }
+    } else {
+        doc.problems.push_back({"sessions", why});
+    }
+
+    std::map<int64_t, const dm::ProcInfo*> by_pid;
+    for (const auto& info : infos) by_pid[info.pid] = &info;
+    std::unordered_map<std::wstring, std::string> repo_cache;
+    std::map<std::string, std::vector<dm::ReviewMark>> marks_by_repo;  // read once per repo
+    const double now_s = static_cast<double>(epoch_ms()) / 1000;
+    auto marks_of = [&](const std::string& repo) -> const std::vector<dm::ReviewMark>& {
+        auto found = marks_by_repo.find(repo);
+        if (found != marks_by_repo.end()) return found->second;
+        auto& marks = marks_by_repo[repo];
+        std::string listing;
+        fs::path dir = fs::path(widen(repo)) / L"build" / L"review-in-flight";
+        auto files = json_files(dir, listing);
+        if (!files) {
+            doc.problems.push_back({"review-marks", listing});
+            return marks;
+        }
+        for (const auto& file : *files) {
+            bool gone = false;
+            std::string unread;
+            auto text = read_small(file, unread, gone);
+            if (!text) {
+                if (!gone) doc.problems.push_back({"review-marks", unread});
+                continue;
+            }
+            auto obj = dm::parse_flat_object(*text);
+            auto pid = obj ? obj->find("pid") : decltype(obj->find("pid")){};
+            auto deadline = obj ? obj->find("deadline") : decltype(obj->find("deadline")){};
+            if (!obj || pid == obj->end() || pid->second.kind != dm::FlatValue::Integer || pid->second.negative || deadline == obj->end() ||
+                (deadline->second.kind != dm::FlatValue::Integer && deadline->second.kind != dm::FlatValue::Decimal)) {
+                doc.problems.push_back({"review-marks", narrow(file.wstring()) + " is not a review mark"});
+                continue;
+            }
+            dm::ReviewMark mark;
+            mark.pid = pid->second.number;
+            auto reviewer = obj->find("reviewer");
+            mark.reviewer = reviewer != obj->end() && reviewer->second.kind == dm::FlatValue::String ? reviewer->second.text : "a reviewer";
+            mark.live = deadline->second.decimal >= now_s && probe_process(mark.pid).what == dm::ProbeAnswer::Running;
+            marks.push_back(mark);
+        }
+        return marks;
+    };
+
+    for (int64_t pid : agents) {
+        const dm::ProcInfo& p = *by_pid[pid];
+        dm::Instance i;
+        i.side = "windows";
+        i.kind = dm::instance_kind(p.name);
+        i.name = p.name;
+        i.pid = pid;
+        std::wstring dir = process_cwd(static_cast<ULONG_PTR>(pid));
+        if (dir.empty()) {
+            ++doc.unreadable;  // another user's process, or one that went: its folder can't be read
+        } else {
+            if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
+            i.cwd = narrow(dir);
+            std::string repo = repo_for_dir(dir, repo_cache);
+            if (!repo.empty()) i.repo = repo;
+        }
+        i.private_mb = memory[pid];
+        if (p.start) i.started_at = utc_of_filetime(*p.start);
+        const dm::ReviewMark* under = nullptr;
+        if (i.repo) {
+            const auto& marks = marks_of(*i.repo);
+            std::set<int64_t> mark_pids;
+            for (const auto& m : marks) mark_pids.insert(m.pid);
+            int64_t found = dm::first_root(pid, parent, mark_pids);
+            for (const auto& m : marks)
+                if (found && m.pid == found && (!under || (m.live && !under->live))) under = &m;
+        }
+        auto session = sessions.find(pid);
+        dm::instance_state(i, nullptr, under, session == sessions.end() ? nullptr : &session->second, p.start);
+        doc.instances.push_back(std::move(i));
+    }
+    for (const auto& h : holders) {
+        dm::Instance i;
+        i.side = h.side;
+        i.kind = "job";
+        i.name = job_name(h.command);
+        i.pid = h.pid;
+        i.repo = h.repo;
+        i.slot = h.slot;
+        i.command = h.command;
+        i.guest_pid = h.guest_pid;
+        i.started_at = h.command_started_at;
+        if (h.side == "windows") i.private_mb = memory[h.pid];  // a WSL job's memory is WSL's to measure
+        dm::instance_state(i, &h, nullptr, nullptr, std::nullopt);
+        doc.instances.push_back(std::move(i));
+    }
+    std::sort(doc.instances.begin(), doc.instances.end(), [](const dm::Instance& a, const dm::Instance& b) {
+        return std::tie(a.repo, a.kind, a.pid) < std::tie(b.repo, b.kind, b.pid);
+    });
+    std::cout << (o.json ? dm::instances_json(doc) + "\n" : dm::instances_text(doc));
+    return 0;
 }
 
 int cmd_log(const Options& o) {
@@ -1438,7 +1678,7 @@ int cmd_config(const std::vector<std::wstring>& rest) {
 
 int bosun_main(const std::vector<std::wstring>& args) {
     if (args.empty()) {
-        std::cerr << "usage: bosun run|acquire|status|log|report|config [options] [-- command]\n";
+        std::cerr << "usage: bosun run|acquire|status|log|report|instances|config [options] [-- command]\n";
         return 64;
     }
     std::vector<std::wstring> rest(args.begin() + 1, args.end());
@@ -1463,6 +1703,7 @@ int bosun_main(const std::vector<std::wstring>& args) {
     if (args[0] == L"status") return cmd_status(o);
     if (args[0] == L"log") return cmd_log(o);
     if (args[0] == L"report") return cmd_report(o);
+    if (args[0] == L"instances") return cmd_instances(o);
     std::cerr << "[bosun] unknown command\n";
     return 64;
 }

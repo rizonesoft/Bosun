@@ -98,6 +98,11 @@ if [ "${1:-}" = "config" ]; then
   export WSLENV
   exec "$EXE" "$@"
 fi
+# instances lists this side's agents, editors and jobs (D03 T02 §1) from /proc, by the rules bosun.exe uses on Windows.
+if [ "${1:-}" = "instances" ]; then
+  shift
+  exec python3 -I "${BOSUN_LOG_PY:-$HOME/.local/share/bosun/bosun_log.py}" instances "$@"
+fi
 [ "${1:-}" = "run" ] || exec "$EXE" "$@"
 shift
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do
@@ -228,7 +233,8 @@ began_ms="$(now_ms)"
 # this script, before it could write the job's line (D01 T01 §2). It still ends when the pipe closes.
 detach=()
 command -v setsid >/dev/null && detach=(setsid)
-"${detach[@]}" "$EXE" acquire "${args[@]}" --queued-at-ms "$began_ms" <"$pipes/in" >"$pipes/out" &
+# --guest-pid names this shim's own process in the holder's record, so the instance scanners join the job's two halves.
+"${detach[@]}" "$EXE" acquire "${args[@]}" --queued-at-ms "$began_ms" --guest-pid "$$" <"$pipes/in" >"$pipes/out" &
 hold_pid=$!
 exec 3>"$pipes/in" 4<"$pipes/out"
 rm -rf "$pipes"

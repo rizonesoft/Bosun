@@ -779,6 +779,166 @@ struct Group {
     const char* owner;  // the section that fills a reserved group in
 };
 
+
+// --- Instances (D03 T02 §1) ---
+static dm::ProcInfo proc(int64_t pid, int64_t ppid, const char* name, int64_t mb, uint64_t start = 100) {
+    dm::ProcInfo p;
+    p.pid = pid;
+    p.ppid = ppid;
+    p.name = name;
+    p.private_mb = mb;
+    p.start = start;
+    return p;
+}
+
+static void instances() {
+    // What an image is: case and .exe don't count; nothing else is an agent or editor.
+    CHECK(dm::instance_kind("Claude.EXE") == "claude");
+    CHECK(dm::instance_kind("codex") == "codex");
+    CHECK(dm::instance_kind("agy.exe") == "agy");
+    CHECK(dm::instance_kind("Code.exe") == "code");
+    CHECK(dm::instance_kind("Antigravity.exe") == "antigravity");
+    CHECK(dm::instance_kind("node.exe").empty());
+    CHECK(dm::instance_kind("claude-helper").empty());
+    CHECK(dm::instance_kind(".exe").empty());
+
+    // A VS Code window and its twelve helpers are one editor, with their memory summed.
+    std::vector<dm::ProcInfo> procs{proc(1, 0, "explorer.exe", 50), proc(10, 1, "Code.exe", 200)};
+    for (int64_t k = 0; k < 12; ++k) procs.push_back(proc(11 + k, 10, "Code.exe", 10));
+    // A claude with a claude under it is one; a job it started counts in the job, never in it; node under it is its.
+    procs.push_back(proc(30, 1, "claude.exe", 300));
+    procs.push_back(proc(31, 30, "claude.exe", 40));
+    procs.push_back(proc(32, 30, "node.exe", 60));
+    procs.push_back(proc(40, 30, "bosun.exe", 5));   // a job's process, holding a slot
+    procs.push_back(proc(41, 40, "cl.exe", 900));
+    // Antigravity's sidecars, started by its language server through cmd.exe: one editor with it.
+    procs.push_back(proc(80, 1, "Antigravity.exe", 1000));
+    procs.push_back(proc(81, 80, "language_server.exe", 300));
+    procs.push_back(proc(82, 81, "cmd.exe", 2));
+    procs.push_back(proc(83, 82, "Antigravity.exe", 35));
+    auto parent = dm::parents_of(procs);
+    auto roots = dm::instance_roots(procs, parent);
+    CHECK(roots == (std::set<int64_t>{10, 30, 80}));
+    roots.insert(40);
+    auto mb = dm::owned_memory(procs, parent, roots);
+    CHECK(mb[80] == std::optional<int64_t>(1000 + 300 + 2 + 35));
+    CHECK(mb[10] == std::optional<int64_t>(200 + 12 * 10));
+    CHECK(mb[30] == std::optional<int64_t>(300 + 40 + 60));
+    CHECK(mb[40] == std::optional<int64_t>(5 + 900));
+
+    // A reused parent id: the "parent" started after its child, so it is no parent, and a loop of such ids ends.
+    std::vector<dm::ProcInfo> loop{proc(50, 51, "claude", 1, 200), proc(51, 50, "claude", 1, 300)};
+    auto loop_parent = dm::parents_of(loop);
+    CHECK(loop_parent[50] == 0);
+    CHECK(loop_parent[51] == 50);
+    CHECK(dm::instance_roots(loop, loop_parent) == (std::set<int64_t>{50}));
+    // A loop with no starts to tell them apart still ends, each its own root's.
+    std::vector<dm::ProcInfo> blind{proc(60, 61, "claude", 1), proc(61, 60, "codex", 1)};
+    for (auto& p : blind) p.start.reset();
+    auto blind_parent = dm::parents_of(blind);
+    CHECK(dm::first_root(60, blind_parent, {}) == 0);
+    CHECK(dm::instance_roots(blind, blind_parent) == (std::set<int64_t>{60, 61}));
+    // Nothing measured is null, never zero.
+    std::vector<dm::ProcInfo> unmeasured{proc(70, 0, "codex", 0)};
+    unmeasured[0].private_mb.reset();
+    CHECK(!dm::owned_memory(unmeasured, dm::parents_of(unmeasured), {70})[70]);
+
+    // Session records: read for their flat fields, lists and objects skipped; anything else refused.
+    auto rec = dm::parse_session_record(R"({"pid":87544,"sessionId":"x","procStart":"134392624419037465","peerFeatures":["a",{"b":"]}"}],"status":"busy"})");
+    CHECK(rec && rec->pid == 87544 && rec->proc_start == "134392624419037465" && rec->status == std::optional<std::string>("busy"));
+    auto linux_rec = dm::parse_session_record(R"({"pid":11007,"procStart":128409})");
+    CHECK(linux_rec && linux_rec->proc_start == "128409" && !linux_rec->status);
+    CHECK(!dm::parse_session_record(R"({"pid":1,"procStart":"1","peerFeatures":["unclosed"})"));
+    CHECK(!dm::parse_session_record(R"({"pid":1,"procStart":"1","x":[}])"));
+    CHECK(!dm::parse_session_record(R"({"procStart":"1"})"));
+    CHECK(!dm::parse_session_record(R"({"pid":-3,"procStart":"1"})"));
+    CHECK(!dm::parse_session_record("not json"));
+    // A flat reader that wasn't asked for nested values still refuses them.
+    CHECK(!dm::parse_flat_object(R"({"a":[1]})"));
+    std::string deep(300, '[');
+    CHECK(!dm::parse_session_record(R"({"pid":1,"procStart":"1","x":)" + deep + std::string(300, ']') + "}"));
+
+    // The state, from the evidence in order: slot, review, session; none is unknown.
+    auto state = [](const dm::SlotRecord* holder, const dm::ReviewMark* mark, const dm::SessionRecord* session, std::optional<uint64_t> start) {
+        dm::Instance i;
+        i.pid = 30;
+        dm::instance_state(i, holder, mark, session, start);
+        return std::make_pair(i.state, i.evidence.value_or("(none)"));
+    };
+    dm::SessionRecord busy{30, "100", std::string("busy")}, idle{30, "100", std::string("idle")}, odd{30, "100", std::string("waiting")};
+    CHECK(state(nullptr, nullptr, &busy, 100) == std::make_pair(std::string("working"), std::string("Claude Code says busy (session record)")));
+    CHECK(state(nullptr, nullptr, &idle, 100).first == "idle");
+    CHECK(state(nullptr, nullptr, &odd, 100) == std::make_pair(std::string("unknown"), std::string("Claude Code says waiting (session record)")));
+    CHECK(state(nullptr, nullptr, &busy, 101).first == "unknown");  // the record names a process that started at another time
+    CHECK(state(nullptr, nullptr, &busy, std::nullopt).first == "unknown");
+    dm::ReviewMark live{77, "astra", true}, expired{77, "astra", false};
+    CHECK(state(nullptr, &live, nullptr, 100) == std::make_pair(std::string("reviewing"), std::string("runs under astra's review (dispatcher pid 77)")));
+    CHECK(state(nullptr, &expired, nullptr, 100) == std::make_pair(std::string("unknown"), std::string("(none)")));
+    CHECK(state(nullptr, &live, &busy, 100).first == "reviewing");  // a mark over a busy session: the review wins
+    dm::SlotRecord running;
+    running.kind = "holder";
+    running.slot = 1;
+    running.command_started_at = "2026-11-16T09:00:00Z";
+    dm::SlotRecord waiting = running;
+    waiting.command_started_at.reset();
+    CHECK(state(&running, &live, &busy, 100) == std::make_pair(std::string("working"), std::string("holds slot 1, its command running since 2026-11-16T09:00:00Z")));
+    CHECK(state(&waiting, nullptr, nullptr, 100) ==
+          std::make_pair(std::string("idle"), std::string("holds slot 1; its command has not started (waiting for guest memory)")));
+    CHECK(state(nullptr, nullptr, nullptr, 100) == std::make_pair(std::string("unknown"), std::string("(none)")));
+
+    // The shared document: every field, nulls and a problem, and a path with a quote and a backslash escaped.
+    dm::InstancesDoc doc;
+    doc.side = "windows";
+    doc.at = "2026-11-16T09:00:00Z";
+    dm::Instance a;
+    a.side = "windows";
+    a.kind = "claude";
+    a.name = "claude.exe";
+    a.pid = 30;
+    a.cwd = std::string("D:\\a\"b");
+    a.repo = std::string("D:/a\"b");
+    a.private_mb = 400;
+    a.started_at = std::string("2026-11-16T08:00:00Z");
+    a.state = "working";
+    a.evidence = std::string("Claude Code says busy (session record)");
+    dm::Instance job;
+    job.side = "wsl";
+    job.kind = "job";
+    job.name = "make";
+    job.pid = 40;
+    job.slot = 0;
+    job.command = std::string("make -j8");
+    job.guest_pid = 4321;
+    doc.instances = {a, job};
+    doc.unreadable = 3;
+    doc.problems = {{"sessions", "C:\\Users\\x\\.claude\\sessions can't be read: denied"}};
+    CHECK(dm::instances_json(doc) ==
+          R"j({"schema_version":1,"side":"windows","distro":null,"at":"2026-11-16T09:00:00Z","instances":[)j"
+          R"j({"side":"windows","kind":"claude","name":"claude.exe","pid":30,"cwd":"D:\\a\"b","repo":"D:/a\"b","private_mb":400,)j"
+          R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null},)j"
+          R"j({"side":"wsl","kind":"job","name":"make","pid":40,"cwd":null,"repo":null,"private_mb":null,"started_at":null,"state":"unknown","evidence":null,)j"
+          R"j("slot":0,"command":"make -j8","guest_pid":4321}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
+
+    // A holder's record carries its WSL job's own process when the shim names it, and one without it still reads.
+    dm::SlotRecord holder;
+    holder.kind = "holder";
+    holder.pid = 9;
+    holder.process_start = 5;
+    holder.started_at = "2026-11-16T09:00:00Z";
+    holder.command = "make";
+    holder.side = "wsl";
+    holder.slot = 0;
+    holder.ns = "default";
+    CHECK(dm::record_json(holder).find("guest_pid") == std::string::npos);
+    CHECK(dm::parse_record(dm::record_json(holder)) && !dm::parse_record(dm::record_json(holder))->guest_pid);
+    holder.guest_pid = 4321;
+    auto back = dm::parse_record(dm::record_json(holder));
+    CHECK(back && back->guest_pid == std::optional<int64_t>(4321));
+    std::string bad = dm::record_json(holder);
+    bad.replace(bad.find("4321"), 4, "\"x\"");
+    CHECK(!dm::parse_record(bad));
+}
+
 static const Group groups[] = {
     {"slots", slots, nullptr},
     {"write_budget", write_budget, nullptr},
@@ -793,6 +953,7 @@ static const Group groups[] = {
     {"status_json", status_json, nullptr},
     {"report_json", report_json, nullptr},
     {"config", config, nullptr},
+    {"instances", instances, nullptr},
     {"pressure", nullptr, "D05 T02"},
 };
 

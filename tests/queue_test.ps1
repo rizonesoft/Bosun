@@ -917,6 +917,10 @@ if ($SkipWsl) {
     $never = "nevermarker$PID"
     $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','0','--','bash','-c',(Q 'exit 0'),$never -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-1.json').side -eq 'wsl' } 15000
+    # The holder's record names the shim's own Linux process (D03 T02 §1), which is the `bosun run` the job started.
+    $guest = (Read-Rec 'slot-1.json').guest_pid
+    $argv = if ($guest) { (wsl.exe -d Ubuntu -- cat "/proc/$guest/cmdline") -replace "`0", ' ' } else { '' }
+    Check ($guest -gt 0 -and $argv -like "*bosun run*$never*") "a WSL holder's record names its shim's own process ($guest)"
     Start-Sleep -Seconds 3
     wsl.exe -d Ubuntu -- pkill -KILL -f "wsl/bosun run .*$never"
     $null = Wait-Until { (Job-Line "*$never*").Count -eq 1 } 15000

@@ -1,6 +1,7 @@
 // Platform-free logic, kept apart from the Windows calls so it can be unit tested.
 #pragma once
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -473,6 +474,9 @@ struct SlotRecord {
     std::optional<uint64_t> min_guest_mb;           // WSL holders past slot 0: the guest memory floor the shim waits on
     std::optional<std::string> waiting_for;         // waiters: "slot" (every slot held) or "memory" (a slot's floor unmet)
     std::optional<uint64_t> min_avail_mb, max_wait_s;  // waiters: the limits the job waits under
+    // Added by D03 T02 §1: a WSL job's own Linux process (the shim's), so the instance scanners can join a holder to the
+    // job tree WSL sees. Optional, so a record without it still reads; written only when known.
+    std::optional<int64_t> guest_pid;
 };
 
 
@@ -500,6 +504,7 @@ inline std::string record_fields(const SlotRecord& r) {
         text(r.command_started_at);
         o << ",\"min_guest_mb\":";
         count(r.min_guest_mb);
+        if (r.guest_pid) o << ",\"guest_pid\":" << *r.guest_pid;  // D03 T02 §1: absent, never null, while unknown
     } else {
         o << ",\"waiting_for\":";
         text(r.waiting_for);
@@ -515,7 +520,7 @@ inline std::string record_json(const SlotRecord& r) { return "{" + record_fields
 
 // A flat JSON object whose values are strings, integers or null, as the records are; anything else is refused.
 struct FlatValue {
-    enum Kind { String, Integer, Decimal, Bool, Null } kind = Null;
+    enum Kind { String, Integer, Decimal, Bool, Null, Nested } kind = Null;  // Nested: an object or list, skipped (`allow_nested`)
     std::string text;  // a String's contents; a number's own text, exactly as read (round 2 of D01 T01 §5)
     int64_t number = 0;
     bool negative = false;
@@ -526,8 +531,10 @@ struct FlatValue {
 };
 
 // `allow_overflow` keeps an integer too large for 64 bits as an Integer marked `overflow`, so a caller that refuses
-// one key (config.json) can do that; every other caller refuses the whole object, as it always has.
-inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s, bool allow_overflow = false) {
+// one key (config.json) can do that; every other caller refuses the whole object, as it always has. `allow_nested`
+// reads a value that is an object or a list as Nested, its text checked for balance and skipped, so a document another
+// tool writes (Claude Code's session records, D03 T02 §1) can be read for its flat fields; every other caller refuses it.
+inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const std::string& s, bool allow_overflow = false, bool allow_nested = false) {
     size_t i = 0;
     auto ws = [&] { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i; };
     auto hex4 = [&](uint32_t& v) -> bool {
@@ -605,6 +612,30 @@ inline std::optional<std::map<std::string, FlatValue>> parse_flat_object(const s
         if (i < s.size() && s[i] == '"') {
             v.kind = FlatValue::String;
             if (!str(v.text)) return std::nullopt;
+        } else if (i < s.size() && (s[i] == '{' || s[i] == '[')) {
+            if (!allow_nested) return std::nullopt;
+            // Skipped by balance: brackets inside strings don't count, and the depth is bounded so no input recurses.
+            std::vector<char> open;
+            while (i < s.size()) {
+                char c = s[i];
+                if (c == '"') {
+                    std::string ignored;
+                    if (!str(ignored)) return std::nullopt;
+                    continue;
+                }
+                ++i;
+                if (c == '{' || c == '[') {
+                    if (open.size() >= 256) return std::nullopt;
+                    open.push_back(c == '{' ? '}' : ']');
+                } else if (c == '}' || c == ']') {
+                    if (open.empty() || open.back() != c) return std::nullopt;
+                    open.pop_back();
+                    if (open.empty()) break;
+                }
+            }
+            if (!open.empty()) return std::nullopt;
+            v.kind = FlatValue::Nested;
+            v.text = s.substr(number_from, i - number_from);  // its own text, so a writer can put it back unchanged
         } else if (s.compare(i, 4, "null") == 0) {
             v.kind = FlatValue::Null;
             i += 4;
@@ -743,6 +774,12 @@ inline std::optional<SlotRecord> parse_record(const std::string& text) {
         out = it->second.magnitude;
         return true;
     };
+    auto guest = obj->find("guest_pid");
+    if (guest != obj->end() && guest->second.kind != FlatValue::Null) {
+        if (guest->second.kind != FlatValue::Integer || guest->second.negative || guest->second.magnitude == 0 || guest->second.magnitude > INT32_MAX)
+            return std::nullopt;
+        r.guest_pid = guest->second.number;
+    }
     if (!opt_stamp("acquired_at", r.acquired_at) || !opt_stamp("command_started_at", r.command_started_at) ||
         !opt_count("min_guest_mb", r.min_guest_mb) || !opt_count("min_avail_mb", r.min_avail_mb) || !opt_count("max_wait_s", r.max_wait_s))
         return std::nullopt;
@@ -1208,6 +1245,241 @@ inline std::string snapshot_json(const Snapshot& s) {
     return o.str();
 }
 
+// --- Instances (D03 T02 §1) ------------------------------------------------------------------------------------------
+// Every agent and editor on a side, recognised by its image, never by a window title, and each job holding a slot. The
+// Windows tool and the WSL scanner (wsl/bosun_log.py, which mirrors these rules) write the same document.
+
+// One process as a scanner sees it. `start` is the process's start as its side counts it (a FILETIME on Windows,
+// /proc/<pid>/stat field 22 on Linux), to tell a reused process id from the process a record named.
+struct ProcInfo {
+    int64_t pid = 0, ppid = 0;
+    std::string name;
+    std::optional<int64_t> private_mb;
+    std::optional<uint64_t> start;
+    std::optional<std::string> started_at, cwd, repo;
+};
+
+// The kind of agent or editor an image is, or "" when it is neither. Case and a trailing .exe don't count.
+inline std::string instance_kind(std::string name) {
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".exe") == 0) name.resize(name.size() - 4);
+    if (name == "claude" || name == "codex" || name == "agy") return name;
+    if (name == "code") return "code";
+    if (name == "antigravity") return "antigravity";
+    return "";
+}
+
+// Each process's parent, or 0 when it has none here: a parent that started after its child is a reused id, not the
+// parent (both starts known), so a loop of reused ids can't form.
+inline std::map<int64_t, int64_t> parents_of(const std::vector<ProcInfo>& procs) {
+    std::map<int64_t, const ProcInfo*> by_pid;
+    for (const auto& p : procs) by_pid[p.pid] = &p;
+    std::map<int64_t, int64_t> parent;
+    for (const auto& p : procs) {
+        auto it = by_pid.find(p.ppid);
+        bool real = it != by_pid.end() && p.ppid != p.pid &&
+                    !(p.start && it->second->start && *it->second->start > *p.start);
+        parent[p.pid] = real ? p.ppid : 0;
+    }
+    return parent;
+}
+
+// The first of `pid` and its ancestors that is in `roots`, or 0. Bounded by the number of processes, so even a loop
+// that slipped past parents_of ends.
+inline int64_t first_root(int64_t pid, const std::map<int64_t, int64_t>& parent, const std::set<int64_t>& roots) {
+    for (size_t steps = 0; pid && steps <= parent.size(); ++steps) {
+        if (roots.count(pid)) return pid;
+        auto it = parent.find(pid);
+        pid = it == parent.end() ? 0 : it->second;
+    }
+    return 0;
+}
+
+// The instances among `procs`: each process of a kind with no ancestor of the same kind, so a VS Code window's helpers
+// are one editor, and so are the sidecars Antigravity's language server starts through cmd.exe (found on this machine,
+// 2026-11-16: their parent is cmd.exe, never Antigravity). The walk is bounded, as in first_root.
+inline std::set<int64_t> instance_roots(const std::vector<ProcInfo>& procs, const std::map<int64_t, int64_t>& parent) {
+    std::map<int64_t, std::string> kind;
+    for (const auto& p : procs) kind[p.pid] = instance_kind(p.name);
+    std::set<int64_t> roots;
+    for (const auto& p : procs) {
+        const std::string& k = kind[p.pid];
+        if (k.empty()) continue;
+        bool nested = false;
+        int64_t up = p.pid;
+        for (size_t steps = 0; !nested && steps <= parent.size(); ++steps) {
+            auto it = parent.find(up);
+            up = it == parent.end() ? 0 : it->second;
+            if (!up || up == p.pid) break;  // a loop back to itself is no ancestor
+            nested = kind[up] == k;
+        }
+        if (!nested) roots.insert(p.pid);
+    }
+    return roots;
+}
+
+// Each root's memory: its own private memory and that of every descendant whose nearest root it is, so a job under an
+// agent counts in the job and never in the agent. Null when nothing it owns was measured.
+inline std::map<int64_t, std::optional<int64_t>> owned_memory(const std::vector<ProcInfo>& procs, const std::map<int64_t, int64_t>& parent,
+                                                              const std::set<int64_t>& roots) {
+    std::map<int64_t, std::optional<int64_t>> mb;
+    for (int64_t r : roots) mb[r] = std::nullopt;
+    for (const auto& p : procs) {
+        int64_t owner = first_root(p.pid, parent, roots);
+        if (!owner || !p.private_mb) continue;
+        auto& total = mb[owner];
+        total = std::min<int64_t>(total.value_or(0) + *p.private_mb, INT64_MAX / 2);
+    }
+    return mb;
+}
+
+// Claude Code's own record of a session (~/.claude/sessions/<pid>.json): its process and start, and what it says.
+struct SessionRecord {
+    int64_t pid = 0;
+    std::string proc_start;  // as the record writes it: a FILETIME on Windows, the /proc start tick on Linux
+    std::optional<std::string> status;
+};
+
+// A record's fields, or nothing when it isn't one: a document Claude Code writes, read for its flat fields only.
+inline std::optional<SessionRecord> parse_session_record(const std::string& text) {
+    auto obj = parse_flat_object(text, true, true);
+    if (!obj) return std::nullopt;
+    auto pid = obj->find("pid");
+    auto start = obj->find("procStart");
+    if (pid == obj->end() || pid->second.kind != FlatValue::Integer || pid->second.negative || pid->second.magnitude == 0 || pid->second.overflow)
+        return std::nullopt;
+    SessionRecord r;
+    r.pid = pid->second.number;
+    if (start == obj->end()) return std::nullopt;
+    if (start->second.kind == FlatValue::String) r.proc_start = start->second.text;
+    else if (start->second.kind == FlatValue::Integer && !start->second.overflow) r.proc_start = start->second.text;
+    else return std::nullopt;
+    auto status = obj->find("status");
+    if (status != obj->end() && status->second.kind == FlatValue::String) r.status = status->second.text;
+    return r;
+}
+
+// A review in flight (scripts/review-dispatch.py's mark in a repo's build/review-in-flight/): its dispatcher's process,
+// and whether it still counts (that process alive, its deadline not passed), which the scanner decides.
+struct ReviewMark {
+    int64_t pid = 0;
+    std::string reviewer;
+    bool live = false;
+};
+
+struct Instance {
+    std::string side, kind, name;
+    int64_t pid = 0;
+    std::optional<std::string> cwd, repo;
+    std::optional<int64_t> private_mb;
+    std::optional<std::string> started_at;
+    std::string state = "unknown";
+    std::optional<std::string> evidence;
+    std::optional<int> slot;
+    std::optional<std::string> command;
+    std::optional<int64_t> guest_pid;
+};
+
+// An instance's state, from the evidence in this order: the slot its job holds, a live review its process runs under,
+// Claude Code's record of the session; with none, unknown. Never guessed from CPU use.
+inline void instance_state(Instance& i, const SlotRecord* holder, const ReviewMark* mark, const SessionRecord* session,
+                           const std::optional<uint64_t>& own_start) {
+    if (holder) {
+        std::string slot = "slot " + std::to_string(holder->slot.value_or(0));
+        if (holder->command_started_at) {
+            i.state = "working";
+            i.evidence = "holds " + slot + ", its command running since " + *holder->command_started_at;
+        } else {
+            i.state = "idle";
+            i.evidence = "holds " + slot + "; its command has not started (waiting for guest memory)";
+        }
+        return;
+    }
+    if (mark && mark->live) {
+        i.state = "reviewing";
+        i.evidence = "runs under " + mark->reviewer + "'s review (dispatcher pid " + std::to_string(mark->pid) + ")";
+        return;
+    }
+    if (session) {
+        if (!own_start || session->proc_start != std::to_string(*own_start)) {
+            i.state = "unknown";
+            i.evidence = "the session record for pid " + std::to_string(session->pid) + " names a process that started at another time";
+            return;
+        }
+        if (session->status == std::optional<std::string>("busy")) i.state = "working";
+        else if (session->status == std::optional<std::string>("idle")) i.state = "idle";
+        else i.state = "unknown";
+        i.evidence = "Claude Code says " + session->status.value_or("nothing") + " (session record)";
+        return;
+    }
+    i.state = "unknown";
+    i.evidence = std::nullopt;
+}
+
+struct InstancesDoc {
+    std::string side, at;
+    std::optional<std::string> distro;  // the WSL distro; null on Windows
+    std::vector<Instance> instances;
+    int64_t unreadable = 0;                                    // processes whose folder or memory couldn't be read
+    std::vector<std::pair<std::string, std::string>> problems;  // (source, why) for each source that couldn't be read
+};
+
+inline std::string instances_json(const InstancesDoc& d) {
+    std::ostringstream o;
+    auto text = [&](const std::optional<std::string>& v) {
+        if (v) o << "\"" << json_escape(*v) << "\"";
+        else o << "null";
+    };
+    auto count = [&](const std::optional<int64_t>& v) {
+        if (v) o << *v;
+        else o << "null";
+    };
+    o << "{\"schema_version\":1,\"side\":\"" << json_escape(d.side) << "\",\"distro\":";
+    text(d.distro);
+    o << ",\"at\":\"" << json_escape(d.at) << "\",\"instances\":[";
+    for (size_t k = 0; k < d.instances.size(); ++k) {
+        const Instance& i = d.instances[k];
+        o << (k ? "," : "") << "{\"side\":\"" << json_escape(i.side) << "\",\"kind\":\"" << json_escape(i.kind) << "\",\"name\":\""
+          << json_escape(i.name) << "\",\"pid\":" << i.pid << ",\"cwd\":";
+        text(i.cwd);
+        o << ",\"repo\":";
+        text(i.repo);
+        o << ",\"private_mb\":";
+        count(i.private_mb);
+        o << ",\"started_at\":";
+        text(i.started_at);
+        o << ",\"state\":\"" << json_escape(i.state) << "\",\"evidence\":";
+        text(i.evidence);
+        o << ",\"slot\":";
+        count(i.slot ? std::optional<int64_t>(*i.slot) : std::nullopt);
+        o << ",\"command\":";
+        text(i.command);
+        o << ",\"guest_pid\":";
+        count(i.guest_pid);
+        o << "}";
+    }
+    o << "],\"unreadable\":" << d.unreadable << ",\"problems\":[";
+    for (size_t k = 0; k < d.problems.size(); ++k)
+        o << (k ? "," : "") << "{\"source\":\"" << json_escape(d.problems[k].first) << "\",\"why\":\"" << json_escape(d.problems[k].second) << "\"}";
+    o << "]}";
+    return o.str();
+}
+
+// The text form: one line per instance.
+inline std::string instances_text(const InstancesDoc& d) {
+    std::ostringstream o;
+    if (d.instances.empty()) o << "no agents, editors or jobs running\n";
+    for (const auto& i : d.instances) {
+        o << i.kind << " " << i.pid << " " << (i.repo ? *i.repo : "(no repo)") << " " << i.state;
+        if (i.private_mb) o << " " << *i.private_mb << " MB";
+        if (i.slot) o << " slot " << *i.slot;
+        o << "\n";
+    }
+    for (const auto& [source, why] : d.problems) o << "can't read " << source << ": " << why << "\n";
+    if (d.unreadable) o << d.unreadable << " processes couldn't be read\n";
+    return o.str();
+}
+
 // --- One config file for queue limits (D01 T01 §5) -------------------------------------------------------------------
 // %LOCALAPPDATA%\Bosun\config.json holds the limits the panel's Limits form saves. A flag beats a variable, a variable
 // the file, and the file the default, so scripts that set flags or variables behave as they always have.
@@ -1297,6 +1569,7 @@ inline std::string config_json(const ConfigFile& f) {
             case FlatValue::Decimal: o << v.text; break;
             case FlatValue::Bool: o << (v.flag ? "true" : "false"); break;
             case FlatValue::Null: o << "null"; break;
+            case FlatValue::Nested: o << v.text; break;  // only a reader asked for nested values keeps one
         }
     }
     o << "\n}\n";

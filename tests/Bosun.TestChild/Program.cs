@@ -58,6 +58,42 @@ int Lines(string file)
     }
 }
 
+// A fake tool asked several things (D03 T02 §1: bosun.exe and wsl.exe): with BOSUN_FAKE_SCRIPT set (a JSON object from
+// the arguments, joined by single spaces, to an answer {"answer": <file>, "exit": <n>, "stderr": <text>}), the child
+// appends its arguments as one JSON line to BOSUN_FAKE_LOG, when that is set, then answers as the script says. Arguments
+// the script has no answer for: exit 64, naming them, so a caller that asked something unplanned fails.
+if (Environment.GetEnvironmentVariable("BOSUN_FAKE_SCRIPT") is { } script)
+{
+    // Callers ask several things at once: an append that meets another child's is tried again, never lost.
+    if (Environment.GetEnvironmentVariable("BOSUN_FAKE_LOG") is { Length: > 0 } log)
+        for (var tries = 0; ; tries++)
+        {
+            try
+            {
+                File.AppendAllText(log, JsonSerializer.Serialize(args) + "\n");
+                break;
+            }
+            catch (IOException) when (tries < 100)
+            {
+                Thread.Sleep(10);
+            }
+        }
+    using var plan = JsonDocument.Parse(script);
+    if (!plan.RootElement.TryGetProperty(string.Join(' ', args), out var reply))
+    {
+        Write(stderr, "fake tool: no answer for " + JsonSerializer.Serialize(args));
+        return 64;
+    }
+    if (reply.TryGetProperty("stderr", out var err)) Write(stderr, err.GetString() ?? "");
+    if (reply.TryGetProperty("answer", out var path) && path.GetString() is { Length: > 0 } scripted)
+    {
+        using var file = File.OpenRead(scripted);
+        file.CopyTo(stdout);
+        stdout.Flush();
+    }
+    return reply.TryGetProperty("exit", out var exit) ? exit.GetInt32() : 0;
+}
+
 // A fake bosun (D03 T01 §1): with BOSUN_FAKE_EXPECT set (a JSON array), the child checks it was given exactly those
 // arguments, then sleeps BOSUN_FAKE_SLEEP_MS, writes BOSUN_FAKE_STDERR and the file BOSUN_FAKE_ANSWER, and exits
 // BOSUN_FAKE_EXIT (0). Other arguments: exit 64, naming the ones it got, so a caller that asked wrongly fails.

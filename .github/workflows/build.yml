@@ -63,6 +63,8 @@ jobs:
         run: pwsh tests\preflight_test.ps1
       - name: Queue tests
         run: pwsh tests\queue_test.ps1 -SkipWsl
+      - name: Instances test
+        run: pwsh tests\instances_test.ps1
       - name: Start script test
         run: pwsh tests\start_run_test.ps1
       - name: Build output test

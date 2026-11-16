@@ -188,5 +188,131 @@ class Snapshot(unittest.TestCase):
         self.assertEqual([dl.csv_name(p["name"]) for p in doc["processes"]], [p[3] for p in procs])
 
 
+class Instances(unittest.TestCase):
+    """The WSL instance scanner (D03 T02 §1) over a fixture /proc: the rules of src/core.hpp, from Linux's own files."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.proc = os.path.join(self.root, "proc")
+        self.home = os.path.join(self.root, "home")
+        os.makedirs(self.proc)
+        os.makedirs(os.path.join(self.home, ".claude", "sessions"))
+        with open(os.path.join(self.proc, "stat"), "w") as f:
+            f.write("cpu 1 2 3\nbtime 1700000000\n")
+        self.repo = os.path.join(self.root, "app")
+        os.makedirs(os.path.join(self.repo, ".git"))
+        os.makedirs(os.path.join(self.repo, "src"))
+        self.outside = os.path.join(self.root, "loose")
+        os.makedirs(self.outside)
+
+    def tearDown(self):
+        shutil.rmtree(self.root)
+
+    def process(self, pid, name, ppid, rss_kb, start, cwd=None, argv=None):
+        d = os.path.join(self.proc, str(pid))
+        os.makedirs(d)
+        with open(os.path.join(d, "status"), "w") as f:
+            f.write(f"Name:\t{name}\nPPid:\t{ppid}\nVmRSS:\t{rss_kb + 10} kB\nRssAnon:\t{rss_kb} kB\n")
+        fields = ["S", str(ppid)] + ["0"] * 17 + [str(start)] + ["0"] * 10
+        with open(os.path.join(d, "stat"), "w") as f:
+            f.write(f"{pid} ({name}) " + " ".join(fields) + "\n")
+        with open(os.path.join(d, "cmdline"), "wb") as f:
+            f.write(b"\0".join(a.encode() for a in (argv or [name])) + b"\0")
+        if cwd:
+            os.symlink(cwd, os.path.join(d, "cwd"))
+
+    def session(self, pid, start, status):
+        with open(os.path.join(self.home, ".claude", "sessions", f"{pid}.json"), "w") as f:
+            json.dump({"pid": pid, "procStart": str(start), "peerFeatures": ["x"], "status": status}, f)
+
+    def mark(self, pid, deadline, reviewer="astra"):
+        folder = os.path.join(self.repo, "build", "review-in-flight")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, f"{pid}-{reviewer}.json"), "w") as f:
+            json.dump({"pid": pid, "reviewer": reviewer, "started": "x", "deadline": deadline}, f)
+
+    def scan(self, now=1700001000.0):
+        return dl.instances(proc=self.proc, home=self.home, now=now, distro="Ubuntu", ticks=100)
+
+    def rows(self, doc):
+        return {r["pid"]: r for r in doc["instances"]}
+
+    def test_agents_jobs_folders_memory_and_starts(self):
+        self.process(1, "init", 0, 1024, 1)
+        self.process(10, "claude", 1, 300 * 1024, 5000, cwd=os.path.join(self.repo, "src"))
+        self.process(11, "claude", 10, 40 * 1024, 5100)        # a claude under a claude is the same one
+        self.process(12, "node", 10, 60 * 1024, 5200)          # its tool, counted in it
+        # A job the claude started through the shim: its own row, its tree never counted in the claude.
+        self.process(20, "bosun", 10, 2 * 1024, 6000, cwd=self.repo, argv=["/bin/bash", "/home/u/bin/bosun", "run", "--slots", "2", "--", "make", "-j8", "a b"])
+        self.process(21, "make", 20, 900 * 1024, 6100)
+        # A shim inside that job's slot passes through: not a second job.
+        self.process(22, "bosun", 21, 1024, 6200, cwd=self.repo, argv=["bash", "/x/wsl/bosun", "run", "--", "true"])
+        self.process(30, "codex", 1, 8 * 1024, 7000, cwd=self.outside)
+        self.process(40, "code", 1, 50 * 1024, 7100)           # its folder can't be read
+        doc = self.scan()
+        self.assertEqual((doc["schema_version"], doc["side"], doc["distro"], doc["problems"]), (1, "wsl", "Ubuntu", []))
+        rows = self.rows(doc)
+        self.assertEqual(sorted(rows), [10, 20, 30, 40])
+        claude, job, codex, code = rows[10], rows[20], rows[30], rows[40]
+        self.assertEqual((claude["kind"], claude["repo"], claude["cwd"], claude["private_mb"]), ("claude", self.repo, os.path.join(self.repo, "src"), 400))
+        self.assertEqual(claude["started_at"], "2023-11-14T22:14:10Z")  # boot at 1700000000, plus 5000 ticks of 100 a second
+        self.assertEqual((job["kind"], job["name"], job["command"], job["private_mb"], job["repo"]), ("job", "make", "make -j8 'a b'", 2 + 900 + 1, self.repo))
+        self.assertEqual((codex["repo"], codex["cwd"]), (None, self.outside))
+        self.assertEqual((code["cwd"], code["repo"], doc["unreadable"]), (None, None, 1))
+        self.assertTrue(all(r["state"] == "unknown" and r["evidence"] is None for r in rows.values()))  # no evidence at all
+        self.assertEqual(list(claude), ["side", "kind", "name", "pid", "cwd", "repo", "private_mb", "started_at", "state", "evidence", "slot", "command", "guest_pid"])
+
+    def test_state_from_session_records_and_review_marks(self):
+        self.process(1, "init", 0, 1024, 1)
+        self.process(10, "claude", 1, 1024, 5000, cwd=self.repo)
+        self.process(11, "claude", 1, 1024, 5001, cwd=self.repo)
+        self.process(12, "claude", 1, 1024, 5002, cwd=self.repo)
+        self.process(50, "python3", 1, 1024, 5003, cwd=self.repo)   # the dispatcher
+        self.process(51, "codex", 50, 1024, 5004, cwd=self.repo)
+        self.process(60, "python3", 1, 1024, 5005, cwd=self.repo)   # a dispatcher whose deadline has passed
+        self.process(61, "codex", 60, 1024, 5006, cwd=self.repo)
+        self.process(70, "python3", 1, 1024, 5007, cwd=self.repo)   # a live dispatcher over a busy claude
+        self.process(71, "claude", 70, 1024, 5008, cwd=self.repo)
+        self.session(10, 5000, "busy")
+        self.session(11, 9999, "busy")      # a reused pid: the record names a process that started at another time
+        self.session(12, 5002, "waiting")
+        self.session(71, 5008, "busy")
+        self.mark(50, 1700002000.0)
+        self.mark(60, 1700000500.0)
+        self.mark(70, 1700002000.0, reviewer="carbon")
+        with open(os.path.join(self.home, ".claude", "sessions", "broken.json"), "w") as f:
+            f.write("{not json")
+        doc = self.scan()
+        rows = self.rows(doc)
+        self.assertEqual((rows[10]["state"], rows[10]["evidence"]), ("working", "Claude Code says busy (session record)"))
+        self.assertEqual(rows[11]["state"], "unknown")
+        self.assertIn("started at another time", rows[11]["evidence"])
+        self.assertEqual((rows[12]["state"], rows[12]["evidence"]), ("unknown", "Claude Code says waiting (session record)"))
+        self.assertEqual((rows[51]["state"], rows[51]["evidence"]), ("reviewing", "runs under astra's review (dispatcher pid 50)"))
+        self.assertEqual((rows[61]["state"], rows[61]["evidence"]), ("unknown", None))
+        self.assertEqual(rows[71]["state"], "reviewing")  # a live mark over a busy session: the review wins
+        self.assertEqual(doc["problems"], [{"source": "sessions", "why": os.path.join(self.home, ".claude", "sessions", "broken.json") + " is not a session record"}])
+        self.assertEqual(len(doc["instances"]), 6)  # every instance is still listed beside the problem
+
+    def test_a_folder_that_cant_be_listed_is_a_problem(self):
+        self.process(10, "claude", 0, 1024, 5000, cwd=self.repo)
+        sessions = os.path.join(self.home, ".claude", "sessions")
+        shutil.rmtree(sessions)
+        with open(sessions, "w") as f:
+            f.write("a file where the folder should be")
+        doc = self.scan()
+        self.assertEqual([p["source"] for p in doc["problems"]], ["sessions"])
+        self.assertEqual(len(doc["instances"]), 1)
+
+    def test_the_text_and_json_forms(self):
+        self.process(10, "claude", 0, 2048, 5000, cwd=self.repo)
+        doc = self.scan()
+        self.assertEqual(dl.instances_text(doc), f"claude 10 {self.repo} unknown 2 MB\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            dl.main(["bosun_log.py", "instances", "--json"])
+        self.assertEqual(json.loads(out.getvalue())["side"], "wsl")  # the command's own output parses as the shape
+
+
 if __name__ == "__main__":
     unittest.main()
