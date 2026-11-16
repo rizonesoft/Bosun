@@ -39,7 +39,7 @@ title: "TODO-01 -- Memory and overview"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Memory readers | D01 T01 §4, D02 T02 §3 | [x] |
 | 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [x] |
-| 3 | §3 | History chart with a table equivalent | §2 | [ ] |
+| 3 | §3 | History chart with a table equivalent | §2 | [x] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
 | 6 | §6 | Decision card and the report's evidence for it | §3 | [ ] |
@@ -150,9 +150,12 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 - [x] ~~Build the Decision card from `report --json`, stating days logged.~~ Struck 2026-11-16 by the plan review: the report holds no honest evidence for the verdict yet. -> XREF: D03 T01 §6
 - [x] Add the 24 hours, 7 days and 14 days `SegmentedControl` to `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: each range changes the data, and the table shows the same points.
 - [x] Draw the pressure line from `PanelSettings` in `src/Bosun.Panel/Controls/SeriesChart.cs`. Done when: a threshold change moves the line with no restart.
-- [ ] Commit: `memory: history chart and decision card`
+- [x] Commit: `memory: history chart and decision card`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SeriesChartTests" --filter-class "*MemoryHistoryTests"` exits 0, and fails if a gap is drawn as a joined line.
+
+> **Verified:** 2026-11-17 | §3 | df0ed821f268164cc7a683fe59b16791aef613a5
+> **Review:** `docs/reviews/d03-t01-s3.json`
 
 ## 4. Pressure alerts
 

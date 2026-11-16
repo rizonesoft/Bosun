@@ -1,0 +1,82 @@
+{
+  "ref": "D03 T01 \u00a73",
+  "title": "History chart with a table equivalent",
+  "implementation_sha": "df0ed821f268164cc7a683fe59b16791aef613a5",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T01-s3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*SeriesChartTests\" --filter-class \"*MemoryHistoryTests\" -> all pass; with a gap joined into the line, the gap test fails",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 740, succeeded: 740",
+    "dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*RailTests\" --filter-class \"*CommandPaletteE2ETests\" --filter-class \"*KeyboardTests\" -> 7 of 7",
+    "CI full gate at df0ed82 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43967094984, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43967094957"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T01-s3.md",
+    "verdict": "completed",
+    "candidate": "02f0785fafd7cdb1c32962209c459507c1647825",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T01-s3.md",
+    "candidate": "76c2366ad926ee46ea6fb2791acbf8943c5f741d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "76c2366ad926ee46ea6fb2791acbf8943c5f741d",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
