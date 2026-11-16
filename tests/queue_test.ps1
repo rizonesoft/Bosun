@@ -15,7 +15,22 @@ $env:LOCALAPPDATA = Join-Path $work 'home'
 $nsDir = 'ns-' + (-join ($ns.ToCharArray() | ForEach-Object { if ($_ -cmatch '[a-z0-9_-]') { $_ } else { '%{0:X2}' -f [int]$_ } }))
 $recDir = Join-Path $env:LOCALAPPDATA "Bosun\run\$((Get-Process -Id $PID).SessionId)\$nsDir"
 function Records { @(Get-ChildItem -LiteralPath $recDir -Filter '*.json' -ErrorAction Ignore) }
-function Read-Rec([string]$name) { $f = Join-Path $recDir $name; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
+# A record is replaced whole while jobs run, and a reader that opens it in the moment of the replace is refused (a
+# sharing violation): the queue's own reader skips it and reads it on its next pass (src/app.cpp, read_pass). A test
+# reads as a reader should, sharing delete and asking again for up to a second; on 2026-11-16 a single Get-Content
+# lost that race on CI and failed the run. A record that is gone is $null.
+function Read-Text([string]$path) {
+  foreach ($try in 1..20) {
+    try {
+      $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+      try { return ([IO.StreamReader]::new($stream)).ReadToEnd() } finally { $stream.Dispose() }
+    } catch [IO.FileNotFoundException] { return $null }
+    catch [IO.DirectoryNotFoundException] { return $null }
+    catch [IO.IOException] { Start-Sleep -Milliseconds 50 }  # held in the moment of a replace: asked again
+  }
+  throw "can't read $path after a second of trying"
+}
+function Read-Rec([string]$name) { $text = Read-Text (Join-Path $recDir $name); if ($text) { $text | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
 # The job log's lines (D01 T01 §2), read back from the test's home; -DateKind String keeps the times as written.
 function Job-Lines { @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -Filter 'jobs-*.jsonl' -ErrorAction Ignore | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json -DateKind String }) }
 function Job-Line([string]$like) { @(Job-Lines | Where-Object { $_.command -like $like }) }
@@ -181,7 +196,7 @@ Check ($r.kind -eq 'holder' -and $r.pid -eq $h.Id -and $r.slot -eq 0 -and $r.sid
 $w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'rec2.txt')),'500' -PassThru -WindowStyle Hidden
 $null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
 $waiter = @(Records | Where-Object Name -like 'wait-*')
-Check ($waiter.Count -eq 1 -and (Get-Content -LiteralPath $waiter[0].FullName -Raw | ConvertFrom-Json).kind -eq 'waiter' -and $waiter[0].Name -like "wait-$($w.Id)-*") "a job waiting for the slot has a waiter record ($($waiter.Name -join ', '))"
+Check ($waiter.Count -eq 1 -and (Read-Text $waiter[0].FullName | ConvertFrom-Json).kind -eq 'waiter' -and $waiter[0].Name -like "wait-$($w.Id)-*") "a job waiting for the slot has a waiter record ($($waiter.Name -join ', '))"
 & $bosun run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 1 -- $sleeper (Join-Path $work 'rec3.txt') 200 2>$null
 Check (@(Records | Where-Object Name -like 'wait-*').Count -eq 1 -and (Read-Rec 'slot-0.json').pid -eq $h.Id) 'a job that timed out ran without a slot and left no record, the holder''s untouched'
 $took = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $w.Id } 15000
@@ -835,7 +850,7 @@ if ($SkipWsl) {
     $wslLogsLinux = (wsl.exe -d Ubuntu -- wslpath -a $wslLogs.Replace('\', '/')).Trim()
     $logger = (wsl.exe -d Ubuntu -- wslpath -a (Join-Path $PSScriptRoot '..\wsl\bosun_log.py').Replace('\', '/')).Trim()
     wsl.exe -d Ubuntu -- python3 -I $logger $wslLogsLinux --once
-    $cw = Get-Content -LiteralPath (Join-Path $wslLogs 'current-wsl.json') -Raw | ConvertFrom-Json -DateKind String
+    $cw = Read-Text (Join-Path $wslLogs 'current-wsl.json') | ConvertFrom-Json -DateKind String
     Check ($cw.schema_version -eq 1 -and $cw.side -eq 'wsl' -and [math]::Abs($cw.memory.total_mb - $total) -le 0.1 * $total -and $null -eq $cw.wsl_vm -and @(Get-ChildItem -LiteralPath $wslLogs -Filter '*.tmp').Count -eq 0) "the WSL logger's current-wsl.json reads from Windows, its total memory as /proc/meminfo gives ($($cw.memory | ConvertTo-Json -Compress))"
 
     # The shim takes the saved wait and guest floor (D01 T01 §5). Slot 0 held, so the job gets slot 1 and waits for guest
