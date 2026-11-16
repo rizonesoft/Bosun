@@ -44,7 +44,7 @@ title: "TODO-03 -- Premium components"
 | 3 | §3 | Lucide icon map and rail marker | §1, D02 T02 §4 | [x] |
 | 4 | §4 | Status pill and segmented control | §1, D02 T01 §4 | [x] |
 | 5 | §5 | Gauge, sparkline and stacked bar | §4 | [x] |
-| 6 | §6 | Queue slot visuals | §5 | [ ] |
+| 6 | §6 | Queue slot visuals | §5 | [x] |
 | 7 | §7 | Skeleton and page transitions | §1, D02 T02 §4 | [x] |
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
@@ -263,9 +263,12 @@ The queue is what the panel exists to show. It gets visuals of its own, fed enti
 
 - [x] Create `QueueSlotTile` in `src/Bosun.Panel/Controls/QueueSlotTile.cs` showing free or holder, command and elapsed time. Done when: `tests/Bosun.Panel.Tests/Controls/QueueVisualTests.cs` renders each state (Free, Running, Starting, Waiting for guest memory, Held, Not available) in Dark, Light and both contrast palettes with its word and glyph, a running holder's slot, side, repo (and "no repo" for none), command, waited and running time, a holder with no phase "Held", a holder whose state is unknown "may have ended", its automation name the whole tile in words, a new document changing the tile in place, and the moving bar on the gate (moving, still with motion off, no clock hidden or unloaded). Cheaper substitute: colour showing busy or free.
 - [x] Create `WaitingRow` in `src/Bosun.Panel/Controls/WaitingRow.cs` listing waiting jobs in order with why, including the memory floor for slot 2 in words. Done when: a test with a memory-held job shows its own floor and the available figure in words (two waiters with floors of their own, both apart from the status default, each showing its own), a slot-held job says it waits for a free slot, a waiter with no reason "for a reason not recorded" and none with no floor a 0, each line its place, command, repo, side and waited time, records that could not be read said as such (none read: never "Nothing waiting"; some skipped: the jobs kept and the count said), jobs keep the document's order with their waited time, an unread available figure says "not available" and never 0, no waiters say "Nothing waiting", and each line is said once by a screen reader.
-- [ ] Commit: `controls: queue slot visuals`
+- [x] Commit: `controls: queue slot visuals`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*QueueVisualTests"` exits 0, and fails if a slot state loses its word.
+
+> **Verified:** 2026-11-16 | §6 | 418036a95a92522d6588e51014bb3f501d17c572
+> **Review:** `docs/reviews/d02-t03-s6.json`
 
 ## 7. Skeleton and page transitions
 

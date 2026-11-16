@@ -84,7 +84,7 @@ Sections: 26 | Checklist items: 261
 | [x]    | D02 T03 §3  | Lucide icon map and rail marker                                | display-session | 9     |
 | [x]    | D02 T03 §4  | Status pill and segmented control                              | display-session | 8     |
 | [x]    | D02 T03 §5  | Gauge, sparkline and stacked bar                               | display-session | 8     |
-| [ ]    | D02 T03 §6  | Queue slot visuals                                             | none            | 3     |
+| [x]    | D02 T03 §6  | Queue slot visuals                                             | none            | 3     |
 | [x]    | D02 T03 §7  | Skeleton and page transitions                                  | none            | 12    |
 | [ ]    | D02 T03 §8  | Command palette                                                | display-session | 11    |
 | [ ]    | D02 T03 §9  | In-window toasts                                               | display-session | 8     |
@@ -147,6 +147,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 63/92 verified sections, 8 ready to run now.
+Progress: 64/92 verified sections, 7 ready to run now.
 
-Checklist: 664/806 items completed (includes Commit items).
+Checklist: 665/806 items completed (includes Commit items).
