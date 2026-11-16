@@ -12,7 +12,8 @@ public class RailTests
     /// </summary>
     private static readonly (string Title, string State)[] Rows =
     [
-        ("Overview", "Empty"), ("Memory", "Empty"), ("Instances", "Empty"), ("Queue", "Empty"),
+        // Memory is built (D03 T01 §2): its data is the seeded snapshot, so it shows Data.
+        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Empty"), ("Queue", "Empty"),
         ("Optimise", "Empty"), ("Settings", "Data"), ("About", "Empty"),
     ];
 
@@ -94,6 +95,7 @@ public class RailTests
     internal static string? DataMark(string title) => title switch
     {
         "Settings" => "ThemeBox",
+        "Memory" => "ByRepo",
         _ => null,
     };
 

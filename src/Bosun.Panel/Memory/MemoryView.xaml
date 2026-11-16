@@ -11,6 +11,8 @@
              xmlns:memory="clr-namespace:Bosun.Panel.Memory"
              Focusable="False">
     <UserControl.Resources>
+        <memory:ShownWhen x:Key="WhenTable" When="True"/>
+        <memory:ShownWhen x:Key="WhenChart" When="False"/>
         <!-- A card as the mockup draws one: the surface, a line, and its corners. -->
         <Style x:Key="MemoryCard" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource B.Surface}"/>
@@ -51,6 +53,43 @@
 
     <StackPanel>
         <TextBlock x:Name="HistoryNote" Text="{Binding HistoryNote}" Style="{StaticResource Warning}"/>
+
+        <!-- Available memory over the range (D03 T01 §3): the chart, or its table, the same points; the range beside the
+             title, the lowest point under it, and Show as table or Show as chart under the card's body. -->
+        <Border Style="{StaticResource MemoryCard}" Margin="0,0,0,16" AutomationProperties.Name="Available memory">
+            <StackPanel>
+                <DockPanel>
+                    <controls:SegmentedControl x:Name="RangeBox" DockPanel.Dock="Right" ItemsSource="{Binding Ranges}"
+                                               SelectedItem="{Binding Range, Mode=TwoWay}" AutomationProperties.Name="Range"/>
+                    <StackPanel>
+                        <TextBlock Text="Available memory" Style="{StaticResource CardTitle}" HorizontalAlignment="Left"
+                                   AutomationProperties.HeadingLevel="Level2"/>
+                        <TextBlock x:Name="LowestSummary" Text="{Binding LowestSummary}" Style="{StaticResource Note}"/>
+                    </StackPanel>
+                </DockPanel>
+                <TextBlock x:Name="HistoryState" Text="{Binding HistoryState}" Style="{StaticResource Warning}" Margin="0,10,0,0"/>
+                <Grid Margin="0,10,0,0">
+                    <controls:SeriesChart x:Name="Chart" Points="{Binding Points}" FloorMb="{Binding FloorMb}"
+                                          RangeName="{Binding Range.Name}"
+                                          Visibility="{Binding ShowTable, Converter={StaticResource WhenChart}}"/>
+                    <DataGrid x:Name="HistoryTable" ItemsSource="{Binding Points}" AutoGenerateColumns="False" IsReadOnly="True"
+                              MaxHeight="320" AutomationProperties.Name="Available memory as a table"
+                              Visibility="{Binding ShowTable, Converter={StaticResource WhenTable}}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Time" Binding="{Binding Time}" Width="*" ElementStyle="{DynamicResource Cell.Text}"/>
+                            <DataGridTextColumn Header="Lowest available" Binding="{Binding Lowest}" Width="*" ElementStyle="{DynamicResource Cell.Number}"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+                <DockPanel Margin="0,8,0,0">
+                    <Button x:Name="ShowAsTable" DockPanel.Dock="Right" Content="Show as table" Command="{Binding ShowAsTable}"
+                            Style="{DynamicResource Btn.Small}" Visibility="{Binding ShowTable, Converter={StaticResource WhenChart}}"/>
+                    <Button x:Name="ShowAsChart" DockPanel.Dock="Right" Content="Show as chart" Command="{Binding ShowAsChart}"
+                            Style="{DynamicResource Btn.Small}" Visibility="{Binding ShowTable, Converter={StaticResource WhenTable}}"/>
+                    <TextBlock x:Name="FloorNote" Text="{Binding FloorNote}" Style="{StaticResource Note}" VerticalAlignment="Center"/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
         <UniformGrid Columns="3" Margin="0,0,0,16">
             <Border Style="{StaticResource MemoryCard}" Margin="0,0,8,0" AutomationProperties.Name="Windows used">
                 <StackPanel>

@@ -35,8 +35,11 @@ public abstract class PageBase(string title, string summary) : Observable
     private bool _isShown;
     private ICommand? _retry, _refreshNow;
     private object? _actions;
-    private Refresh? _refresh, _also;
-    private Action? _alsoShow;
+    private Refresh? _refresh;
+    private readonly List<Refresh> _also = [];
+
+    /// <summary>How many reads a page may hold: its own and two more (D03 T01 §2 and §3).</summary>
+    public const int MaxRefreshes = 3;
     private bool _refreshFailing;
     private string? _staleNote, _staleWhy;
     private DateTimeOffset _staleAt;
@@ -174,10 +177,10 @@ public abstract class PageBase(string title, string summary) : Observable
         });
         var command = log.Command($"Refresh {Title}", async () =>
         {
-            // The second read (RefreshAlso) runs beside the first: Refresh, Retry and the palette read both.
-            var also = _also?.RunNowAsync();
+            // The page's other reads (RefreshAlso) run beside the first: Refresh, Retry and the palette read them all.
+            var also = _also.Select(a => a.RunNowAsync()).ToList();
             var outcome = await refresh.RunNowAsync();
-            if (also is not null) await also;
+            await Task.WhenAll(also);
             // Stopped because the page left the screen: the tool did not fail, and the line does not say it did.
             if (outcome == RefreshOutcome.Stale || outcome == RefreshOutcome.NotStarted) return ActionOutcome.DoneWith("stopped, the page is not on screen");
             return outcome.Succeeded ? ActionOutcome.Done : ActionOutcome.Failed(outcome.Message ?? "It did not refresh.");
@@ -204,26 +207,28 @@ public abstract class PageBase(string title, string summary) : Observable
     }
 
     /// <summary>
-    /// A second read on its own interval (D03 T01 §2: the Memory page reads its snapshots every 5 s and its report
-    /// every 30 s), registered after <see cref="RefreshEvery"/>. It starts and stops with the page, its work cancelled
-    /// and a late result dropped when the page leaves the screen, and the page's Refresh, Retry and palette Refresh run
-    /// it too. It never fails the page: <paramref name="load"/> returns how to show what it read, its own failure
-    /// included, so a slow or failing second source never holds back or replaces the first.
+    /// Another read on its own interval (D03 T01 §2: the Memory page reads its snapshots every 5 s and its day report
+    /// every 30 s; §3: its fortnight's report every 5 minutes), registered after <see cref="RefreshEvery"/>, up to
+    /// <see cref="MaxRefreshes"/> in all. Each starts and stops with the page, its work cancelled and a late result
+    /// dropped when the page leaves the screen, and the page's Refresh, Retry and palette Refresh run every one. None
+    /// fails the page: <paramref name="load"/> returns how to show what it read, its own failure included, so a slow or
+    /// failing source never holds back or replaces another.
     /// </summary>
     protected void RefreshAlso(RefreshScheduler scheduler, string name, TimeSpan interval, Func<CancellationToken, Task<Action>> load)
     {
         if (_refresh is null) throw new InvalidOperationException("RefreshAlso comes after RefreshEvery");
-        if (_also is not null) throw new InvalidOperationException("a page has at most two refreshes");
+        if (_also.Count + 1 >= MaxRefreshes) throw new InvalidOperationException($"a page has at most {MaxRefreshes} refreshes");
+        Action? show = null;
         var also = scheduler.Register($"{Title}: {name}", interval, async token =>
         {
-            _alsoShow = null;
-            _alsoShow = await load(token);
+            show = null;
+            show = await load(token);
         });
         also.Finished += outcome =>
         {
-            if (outcome.Succeeded) _alsoShow?.Invoke();
+            if (outcome.Succeeded) show?.Invoke();
         };
-        _also = also;
+        _also.Add(also);
         if (IsShown) also.Start();
     }
 
@@ -327,7 +332,7 @@ public abstract class PageBase(string title, string summary) : Observable
         SayAge(); // back on screen: the stale line says the age as it is now
         Shown();
         _refresh?.Start();
-        _also?.Start();
+        foreach (var also in _also) also.Start();
     }
 
     /// <summary>The shell says the page has left the screen. Once per hiding.</summary>
@@ -336,7 +341,7 @@ public abstract class PageBase(string title, string summary) : Observable
         if (!IsShown) return;
         IsShown = false;
         _refresh?.Stop();
-        _also?.Stop();
+        foreach (var also in _also) also.Stop();
         Hidden();
     }
 

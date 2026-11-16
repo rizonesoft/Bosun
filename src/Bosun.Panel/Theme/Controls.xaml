@@ -1102,9 +1102,13 @@
     </Style>
 
     <!-- The edge of a column header: dragging it resizes the column. Nothing is drawn. -->
+    <!-- Named for a screen reader by the column it resizes ("Resize Peak GB"): the first real page with a table, the
+         Memory page (D03 T01 §2), left these unnamed, and the end-to-end smoke's every-control-named check found them. -->
     <Style x:Key="ColumnGripper" TargetType="Thumb">
         <Setter Property="Width" Value="8"/>
         <Setter Property="Cursor" Value="SizeWE"/>
+        <Setter Property="AutomationProperties.Name"
+                Value="{Binding Content, RelativeSource={RelativeSource AncestorType=DataGridColumnHeader}, StringFormat=Resize {0}}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">

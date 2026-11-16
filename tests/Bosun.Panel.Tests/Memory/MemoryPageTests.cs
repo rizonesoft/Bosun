@@ -27,8 +27,9 @@ public class MemoryPageTests
         public Reading<SnapshotDoc> Windows = Reading<SnapshotDoc>.Of(Snapshot(), Now);
         public Reading<SnapshotDoc> Wsl = Reading<SnapshotDoc>.Of(WslSnapshot(), Now);
         public Reading<ReportDoc> Report = Reading<ReportDoc>.Of(ReportOf(), Now);
-        public TaskCompletionSource? HoldReport, HoldSnapshots;
-        public int Snapshots, Reports;
+        public Reading<ReportDoc> Fortnight = Reading<ReportDoc>.Of(ReportOf(), Now);
+        public TaskCompletionSource? HoldReport, HoldSnapshots, HoldFortnight;
+        public int Snapshots, Reports, Fortnights;
 
         public async Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default)
         {
@@ -39,6 +40,12 @@ public class MemoryPageTests
 
         public async Task<Reading<ReportDoc>> ReportAsync(int days, CancellationToken cancellationToken = default)
         {
+            if (days == 14)                                                                // the fortnight, for 7 and 14 days
+            {
+                Fortnights++;
+                if (HoldFortnight is { } held) await held.Task.WaitAsync(cancellationToken);
+                return Fortnight;
+            }
             Assert.Equal(1, days);                                                         // the last 24 hours
             Reports++;
             if (HoldReport is { } hold) await hold.Task.WaitAsync(cancellationToken);
@@ -69,8 +76,8 @@ public class MemoryPageTests
         JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"wsl","at":"2026-11-16T09:00:00Z","interval_s":5,"memory":{"available_mb":6000,"total_mb":14336},"wsl_vm":null,"repos":[{{repos ?? Repos(("/home/me/Resolute", 4505, 22))}}],"processes":[],"history_written":true}""",
             MemoryJson.Default.SnapshotDoc)!;
 
-    internal static ReportDoc ReportOf(bool complete = true, string? repos = null, long overlap = 3) =>
-        JsonSerializer.Deserialize($$$"""{"schema_version":1,"generated_at":"2026-11-16T09:00:00Z","since":"2026-11-15T09:00:00Z","days_requested":1,"days_covered":1,"first_sample":"2026-11-15T09:00:05","last_sample":"2026-11-16T08:59:55","low_mb":2048,"read":{"complete":{{{(complete ? "true" : "false")}}},"files":2,"unreadable_files":{{{(complete ? 0 : 1)}}},"rejected_rows":{{{(complete ? 0 : 7)}}}},"windows":{"samples":17000,"low_samples":3,"min_available_mb":1536,"worst_minute":"2026-11-16T07:20","worst_repos":[],"max_commit_mb":41000,"commit_limit_mb":65536,"max_pages_in_per_sec":40},"wsl":{"samples":17000,"min_available_mb":2000,"max_swap_mb":512,"max_psi_full_avg10_x100":0,"max_oom_kills":0},"builds":{"jobs":9,"max_overlap":{{{overlap}}},"at":"2026-11-16T07:20:00Z"},"active_repos":{"max":4,"minute":"2026-11-16T07:20","total_private_mb":20000},"repos":[{{{repos ?? """{"repo":"D:/Recto","side":"win","peak_private_mb":11674,"peak_rss_mb":9000,"peak_processes":30},{"repo":"/home/me/Resolute","side":"wsl","peak_private_mb":9011,"peak_rss_mb":8000,"peak_processes":40},{"repo":"D:/Isotone","side":"win","peak_private_mb":7168,"peak_rss_mb":6000,"peak_processes":12}"""}}}],"series":[]}""",
+    internal static ReportDoc ReportOf(bool complete = true, string? repos = null, long overlap = 3, string series = "") =>
+        JsonSerializer.Deserialize($$$"""{"schema_version":1,"generated_at":"2026-11-16T09:00:00Z","since":"2026-11-15T09:00:00Z","days_requested":1,"days_covered":1,"first_sample":"2026-11-15T09:00:05","last_sample":"2026-11-16T08:59:55","low_mb":2048,"read":{"complete":{{{(complete ? "true" : "false")}}},"files":2,"unreadable_files":{{{(complete ? 0 : 1)}}},"rejected_rows":{{{(complete ? 0 : 7)}}}},"windows":{"samples":17000,"low_samples":3,"min_available_mb":1536,"worst_minute":"2026-11-16T07:20","worst_repos":[],"max_commit_mb":41000,"commit_limit_mb":65536,"max_pages_in_per_sec":40},"wsl":{"samples":17000,"min_available_mb":2000,"max_swap_mb":512,"max_psi_full_avg10_x100":0,"max_oom_kills":0},"builds":{"jobs":9,"max_overlap":{{{overlap}}},"at":"2026-11-16T07:20:00Z"},"active_repos":{"max":4,"minute":"2026-11-16T07:20","total_private_mb":20000},"series":[{{{series}}}],"repos":[{{{repos ?? """{"repo":"D:/Recto","side":"win","peak_private_mb":11674,"peak_rss_mb":9000,"peak_processes":30},{"repo":"/home/me/Resolute","side":"wsl","peak_private_mb":9011,"peak_rss_mb":8000,"peak_processes":40},{"repo":"D:/Isotone","side":"win","peak_private_mb":7168,"peak_rss_mb":6000,"peak_processes":12}"""}}}]}""",
             MemoryJson.Default.ReportDoc)!;
 
     static void Pump()
@@ -81,14 +88,14 @@ public class MemoryPageTests
     }
 
     /// <summary>A shell whose Memory page reads <paramref name="source"/>, shown, and a clock the test moves.</summary>
-    static void OnPage(Source source, Action<MemoryPage, ShellViewModel, RefreshScheduler, Action<TimeSpan>> test)
+    static void OnPage(Source source, Action<MemoryPage, ShellViewModel, RefreshScheduler, Action<TimeSpan>> test, Bosun.Core.PanelSettingsStore? settings = null)
     {
         PageRenderer.InPage("Dark", () => new Grid(), _ =>
         {
             var clock = Now.UtcDateTime;
             var scheduler = new RefreshScheduler(() => clock, new Driver());
             var log = Shells.Log();
-            var page = new MemoryPage(source, scheduler, log);
+            var page = new MemoryPage(source, scheduler, log, settings);
             var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["memory"] = page }), log);
             shell.Show(shell.Sections.Single(s => s.Key == "memory"));
             for (var i = 0; i < 4; i++) Pump();
@@ -281,7 +288,7 @@ public class MemoryPageTests
         {
             Assert.Equal(new Metric("24.0 GB"), page.WindowsUsed);                                        // drawn while the report is held
             Assert.IsType<NotAvailable>(page.Overlap);
-            Assert.Equal(2, scheduler.Refreshes.Count(r => r.IsActive));
+            Assert.Equal(3, scheduler.Refreshes.Count(r => r.IsActive));                     // snapshots, the day and the fortnight
             var (snapshots, reports) = (source.Snapshots, source.Reports);
             source.HoldReport = null;
             page.RefreshNow!.Execute(null);
@@ -377,7 +384,7 @@ public class MemoryPageTests
             var texts = PageRenderer.TextsOf(view);
             foreach (var text in new[] { "Windows used", "24.0 GB", "8.0 GB available of 32.0 GB; committed 37.1 GB", "WSL VM", "11.8 GB", "Overlapping builds", "3 at once", "By repo" })
                 Assert.Contains(text, texts);
-            var grid = ShellSupport.Under<DataGrid>(view).Single();
+            var grid = ShellSupport.Under<DataGrid>(view).Single(g => g.Name == "ByRepo");
             Assert.Equal(["Repo", "Side", "Private GB", "Peak GB", "Processes"], grid.Columns.Select(c => (string)c.Header));
             Assert.Equal(4, grid.Items.Count);
             // Round 2: the folder's name alone can't tell two repos apart; the whole path is its tooltip.
@@ -389,7 +396,15 @@ public class MemoryPageTests
     }
 
     /// <summary>The shell on the Memory page over <paramref name="source"/>, for the renders: ready once the page has drawn.</summary>
-    internal static (System.Windows.FrameworkElement View, Func<System.Windows.FrameworkElement, Task> Ready) Rendered(Source source)
+    internal static void OnMemoryPage(Source source, Action<MemoryPage, ShellViewModel, RefreshScheduler, Action<TimeSpan>> test, Bosun.Core.PanelSettingsStore? settings = null) =>
+        OnPage(source, test, settings);
+
+    internal static void Settle()
+    {
+        for (var i = 0; i < 6; i++) Pump();
+    }
+
+    internal static (System.Windows.FrameworkElement View, Func<System.Windows.FrameworkElement, Task> Ready) Rendered(Source source, Action<MemoryPage>? then = null)
     {
         var scheduler = new RefreshScheduler(() => Now.UtcDateTime, new Driver());
         var log = Shells.Log();
@@ -401,6 +416,12 @@ public class MemoryPageTests
             var settles = source.HoldSnapshots is null;
             // Held loading: the skeleton appears only after its delay (Skeleton.DefaultDelay), so a quick load never flashes.
             if (!settles) await Task.Delay(Bosun.Panel.Controls.Skeleton.DefaultDelay + TimeSpan.FromMilliseconds(150));
+            if (then is not null)
+            {
+                for (var i = 0; i < 20; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+                then(page);
+                for (var i = 0; i < 5; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+            }
             for (var i = 0; i < 50 && settles && page.State != PageState.Failed && (page.State == PageState.Loading || page.Overlap is null || page.Rows.Count == 0 && page.TableNote.Length == 0); i++)
                 await Dispatcher.Yield(DispatcherPriority.Background);
         });

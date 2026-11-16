@@ -26,6 +26,8 @@ public enum GlyphAction
     WindowsMemory,
     WslMemory,
     Builds,
+    Table,
+    Chart,
 }
 
 /// <summary>
@@ -75,6 +77,9 @@ public static class Glyphs
         [GlyphAction.WindowsMemory] = PackIconLucideKind.Cpu,
         [GlyphAction.WslMemory] = PackIconLucideKind.Layers,
         [GlyphAction.Builds] = PackIconLucideKind.ListOrdered,
+        // The history card's Show as table and Show as chart (D03 T01 §3).
+        [GlyphAction.Table] = PackIconLucideKind.Table,
+        [GlyphAction.Chart] = PackIconLucideKind.ChartLine,
     };
 
     /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>

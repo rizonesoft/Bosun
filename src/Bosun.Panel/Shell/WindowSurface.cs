@@ -85,7 +85,7 @@ public static class WindowStart
             ["settings"] = new Bosun.Panel.Settings.SettingsPage(settings, startup, log, openStartupSettings, theme),
         };
         // The Memory page reads on the panel's one scheduler (D03 T01 §2); without them its row keeps its placeholder.
-        if (refreshes is not null && memory is not null) pages["memory"] = new Bosun.Panel.Memory.MemoryPage(memory, refreshes, log);
+        if (refreshes is not null && memory is not null) pages["memory"] = new Bosun.Panel.Memory.MemoryPage(memory, refreshes, log, settings);
         var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
         log.Info("Panel ready");
         if (settings.Notice is { } notice) log.Warn(notice);

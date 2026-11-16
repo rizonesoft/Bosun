@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Data;
+using System.Windows.Input;
+using Bosun.Panel.Theme;
 using Bosun.Core;
 using Bosun.Core.Memory;
 using Bosun.Panel.Controls;
@@ -45,19 +47,90 @@ public sealed class MemoryPage : PageBase
 
     private readonly IMemorySource _client;
     private Reading<SnapshotDoc>? _windows, _wsl;
-    private Reading<ReportDoc>? _report;
+    private Reading<ReportDoc>? _report, _fortnight;
+    // The last report each read gave, kept to draw from with its age when a later read fails (D03 T01 §3).
+    private Reading<ReportDoc>? _dayGood, _fortnightGood;
+    private HistoryRange _range = HistoryRange.Day;
+    private IReadOnlyList<HistoryPoint> _points = [];
+    private string _historyState = "Reading the history.", _lowestSummary = "";
+    private bool _showTable;
+    private long _floorMb = Bosun.Core.PanelSettings.DefaultPressureFloorMb;
     private object? _windowsUsed, _wslVm, _overlap;
     private string _windowsNote = "", _wslNote = "", _overlapNote = "", _historyNote = "", _wslAge = "", _tableNote = "", _peaksNote = "";
 
-    public MemoryPage(IMemorySource client, RefreshScheduler scheduler, ActivityLog log) : base("Memory", Purpose)
+    public MemoryPage(IMemorySource client, RefreshScheduler scheduler, ActivityLog log, Bosun.Core.PanelSettingsStore? settings = null) : base("Memory", Purpose)
     {
+        // The pressure line is the stored threshold, and moves when Settings saves another (D03 T01 §3).
+        if (settings is not null)
+        {
+            _floorMb = settings.Current.PressureFloorMb;
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            settings.Changed += saved => dispatcher.BeginInvoke(() => FloorMb = saved.PressureFloorMb);
+        }
+        ShowAsTable = new Relay(() => ShowTable = true);
+        ShowAsChart = new Relay(() => ShowTable = false);
         _client = client;
         LoadingShape = SkeletonShape.Gauge;
         RowsView = CollectionViewSource.GetDefaultView(Rows);
         RowsView.SortDescriptions.Add(new SortDescription(nameof(RepoRow.PrivateGb), ListSortDirection.Descending));
         RefreshEvery(scheduler, log, RefreshScheduler.Fast, ReadSnapshotsAsync);
         RefreshAlso(scheduler, "history", RefreshScheduler.Slow, ReadReportAsync);
+        // The 7 and 14 days come from a fortnight's report, read less often: it reads every log of those days.
+        RefreshAlso(scheduler, "fortnight", FortnightEvery, ReadFortnightAsync);
     }
+
+    /// <summary>How often the fortnight's report is read while the page is shown.</summary>
+    public static readonly TimeSpan FortnightEvery = TimeSpan.FromMinutes(5);
+
+    public const string ReadingHistory = "Reading the history.";
+
+    public const string NoHistory = "No history in this range yet: leave the logger running and it fills.";
+
+    /// <summary>The chart's ranges, for its segmented control.</summary>
+    public IReadOnlyList<HistoryRange> Ranges => HistoryRange.All;
+
+    /// <summary>The range shown; changing it draws that range's points, or its own state, never the last range's.</summary>
+    public HistoryRange Range
+    {
+        get => _range;
+        set
+        {
+            if (value is null || !Set(ref _range, value)) return;
+            DrawHistory();
+        }
+    }
+
+    /// <summary>The chart's points and the table's rows: the same buckets.</summary>
+    public IReadOnlyList<HistoryPoint> Points { get => _points; private set => Set(ref _points, value); }
+
+    /// <summary>What the history card says about its data: reading, not read, incomplete, none in the range; empty when whole.</summary>
+    public string HistoryState { get => _historyState; private set => Set(ref _historyState, value); }
+
+    /// <summary>The chart card's header line: the lowest point in the range and when ("Lowest 1.5 GB at Mon 16 Nov 14:20").</summary>
+    public string LowestSummary { get => _lowestSummary; private set => Set(ref _lowestSummary, value); }
+
+    /// <summary>The pressure line, in MB: the stored threshold.</summary>
+    public long FloorMb
+    {
+        get => _floorMb;
+        private set
+        {
+            if (Set(ref _floorMb, value)) Raise(nameof(FloorNote));
+        }
+    }
+
+    public string FloorNote => $"Dashed line: the {(FloorMb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture)} GB pressure alert.";
+
+    /// <summary>True while the card shows its table in place of the chart.</summary>
+    public bool ShowTable { get => _showTable; private set => Set(ref _showTable, value); }
+
+    public ICommand ShowAsTable { get; }
+
+    public ICommand ShowAsChart { get; }
+
+    /// <summary>The page's own commands for Ctrl+K: whichever of Show as table and Show as chart the card offers now.</summary>
+    protected override IEnumerable<PageCommand> Commands =>
+        ShowTable ? [new PageCommand("Show the history as a chart", GlyphAction.Chart, ShowAsChart)] : [new PageCommand("Show the history as a table", GlyphAction.Table, ShowAsTable)];
 
     /// <summary>Windows used: a <see cref="Metric"/> ("24.6 GB") or a <see cref="NotAvailable"/>.</summary>
     public object? WindowsUsed { get => _windowsUsed; private set => Set(ref _windowsUsed, value); }
@@ -126,13 +199,62 @@ public sealed class MemoryPage : PageBase
         };
     }
 
+    private async Task<Action> ReadFortnightAsync(CancellationToken token)
+    {
+        var report = await _client.ReportAsync(14, token);
+        return () =>
+        {
+            _fortnight = report;
+            if (report.Value is not null) _fortnightGood = report;
+            DrawHistory();
+        };
+    }
+
+    /// <summary>The chart's points for the range shown, from its own report, and what it says about them.</summary>
+    private void DrawHistory()
+    {
+        var (latest, good) = _range == HistoryRange.Day ? (_report, _dayGood) : (_fortnight, _fortnightGood);
+        if (good?.Value is not { } doc)
+        {
+            Points = [];
+            LowestSummary = "";
+            HistoryState = latest is null ? ReadingHistory : $"The history could not be read: {latest.Why}";
+            return;
+        }
+        var end = DateTime.TryParse(doc.GeneratedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at) ? at : DateTime.UtcNow;
+        Points = History.Buckets(doc.Series, _range, end);
+        var low = History.Lowest(Points);
+        LowestSummary = low is null ? "" : $"Lowest {low.Lowest} at {low.LowestAt!.Value.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)}";
+        var notes = new List<string>();
+        if (latest is { Value: null })
+            notes.Add($"The history could not be read again: {latest.Why} Showing the read from {good.ReadAt?.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture) ?? "earlier"}.");
+        if (low is null) notes.Add(NoHistory);
+        if (!doc.Read.Complete) notes.Add($"The history is incomplete: {doc.Read.UnreadableFiles} files could not be read and {doc.Read.RejectedRows} rows were rejected.");
+        HistoryState = string.Join(" ", notes);
+    }
+
+    private sealed class Relay(Action run) : ICommand
+    {
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool CanExecute(object? parameter) => true;
+
+        public void Execute(object? parameter) => run();
+    }
+
     private async Task<Action> ReadReportAsync(CancellationToken token)
     {
         var report = await _client.ReportAsync(1, token);
         return () =>
         {
             _report = report;
+            if (report.Value is not null) _dayGood = report;
             Draw();
+            DrawHistory();
         };
     }
 

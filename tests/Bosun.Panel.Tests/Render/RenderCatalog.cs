@@ -72,7 +72,14 @@ public static partial class RenderCatalog
         // read at all, and after a save that only half took.
         new("settings", "general", () => Settings(_ => { })) { Shows = "Start with Windows, in the tray" },
         // D03 T01 §2: the Memory page with live data, and with WSL and the report unreadable and a counter unmeasured.
-        MemoryCase("data", new Memory.MemoryPageTests.Source(), "Overlapping builds"),
+        MemoryCase("data", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "Overlapping builds"),
+        // D03 T01 §3: the history, a gap in it breaking the line; its table; no history; a history that can't be read.
+        MemoryCase("history-table", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "Lowest available", page => page.ShowAsTable.Execute(null)),
+        MemoryCase("history-none", new Memory.MemoryPageTests.Source(), "No history in this range yet"),
+        MemoryCase("history-failed", new Memory.MemoryPageTests.Source
+        {
+            Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
+        }, "The history could not be read"),
         MemoryCase("unreadable", new Memory.MemoryPageTests.Source
         {
             Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.Snapshot(memory: "{\"available_mb\":null,\"total_mb\":32768,\"commit_mb\":null}"), Memory.MemoryPageTests.Now),
@@ -255,12 +262,21 @@ public static partial class RenderCatalog
         return new Bosun.Panel.Shell.ShellView { DataContext = shell };
     }
 
-    private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows)
+    /// <summary>A day's history for the renders: a slow fall to 1.5 GB in the afternoon, and two hours with no sample.</summary>
+    private static Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc> HistoryReport()
+    {
+        var points = Enumerable.Range(0, 24 * 60 / 5).Select(i => i * 5)
+            .Where(m => m is < 600 or > 720)
+            .Select(m => (m, (long?)(8000 + (long)(4000 * Math.Sin(m / 180.0)) - (m is > 200 and < 260 ? 6000 : 0)))).ToArray();
+        return Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(series: Memory.MemoryHistoryTests.Series(points)), Memory.MemoryPageTests.Now);
+    }
+
+    private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows, Action<Bosun.Panel.Memory.MemoryPage>? then = null)
     {
         Func<FrameworkElement, Task>? ready = null;
         return new RenderCase("memory", name, () =>
         {
-            var (view, isReady) = Memory.MemoryPageTests.Rendered(source);
+            var (view, isReady) = Memory.MemoryPageTests.Rendered(source, then);
             ready = isReady;
             return view;
         }) { Shows = shows, Ready = view => ready!(view) };
