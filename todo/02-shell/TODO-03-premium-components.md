@@ -409,6 +409,8 @@ Filed 2026-11-16 by the completion review of `D02 T03 §10` (`docs/reviews/02-sh
 
 ## 12. Window placement remembered, and the smoke off the main screen
 
+> **Started:** 2026-11-16T10:23:08Z
+
 The panel opens centred on the main screen every time, wherever it was last closed, and so does every end-to-end test's panel, which puts each test run on the screen the owner is working on. Asked for by the owner on 2026-11-16 ("move the testing away from my main screen permanently"). The owning fix is the window's: it reopens where it was last, on that screen, and the smoke starts each panel with a remembered place on a screen other than the main one. Moving each window after it appears would still flash it on the main screen.
 
 **Corrected 2026-11-16 (plan review):** a place is kept in screen pixels with the DPI it was saved at, converted to and from `WINDOWPLACEMENT`'s workspace coordinates (offset by the taskbar) through the window's monitor; it is fitted to the screens there are when it is used (scaled for a changed DPI, never under 960 x 600 nor over the work area, moved inside it); a window first appears where it belongs, proved at the moment it is shown, not after; a minimised exit keeps whether it would restore maximised; and the smoke's screen is named or chosen, checked, and refused when it is not there.
