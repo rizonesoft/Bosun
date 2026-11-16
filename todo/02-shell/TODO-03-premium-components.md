@@ -130,6 +130,8 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 
 One map keeps glyphs consistent and lets a test catch a kind the icon pack does not have.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. The rail, its row template and its two empty slots (`Glyph`, `Badge`) are `ShellView.xaml`'s (`D02 T02 §4`), not `MainWindow.xaml`'s; the selected row's marker today is a static bar each row draws in the `NavList` style (`Theme/Controls.xaml`), so the sliding marker is one element over the rail in `ShellView`, and the static bar goes. Nothing gives a page a count yet: `PageBase.Waiting` is added, 0 by default, for the badge and the row's spoken name to follow, and each page sets its own when it is built (`D03 T02 §3`, the queue's waiters). The glyphs are the mockup's (`design/mockups/control-panel.html`, its `pages` table): Overview `layout-dashboard`, Memory `memory-stick`, Instances `terminal`, Queue `list-ordered`, Optimise `gauge`, Settings `settings`, About `info`; the shared actions are the mockup's too (refresh `refresh-cw`, open folder `folder-open`, open terminal `square-terminal`, pause `pause`, search `search`, and the status icons `circle-check`, `triangle-alert`, `octagon-alert`). The package is pinned at 6.2.1, its latest. The tests go in `tests/Bosun.Panel.Tests/Shell/`, and the checkpoint is in the test platform's own filter form.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -141,18 +143,19 @@ One map keeps glyphs consistent and lets a test catch a kind the icon pack does 
 **Build order:**
 
 1. Create `src/Bosun.Panel/Theme/Glyphs.cs`. Done when: every rail row and shared action resolves through it.
-2. Extend `src/Bosun.Panel/Shell/MainWindow.xaml`. Done when: the marker slides between rows and badges show.
+2. Extend `src/Bosun.Panel/Shell/ShellView.xaml`. Done when: the marker slides between rows and badges show.
 
-- [ ] Add the package `MahApps.Metro.IconPacks.Lucide` to `Directory.Packages.props` and `src/Bosun.Panel/Bosun.Panel.csproj` (**Added 2026-11-15** from `D02 T02 §2`, which held this with a test of `Section.Icon`; the map and its `GlyphTests` are here, so the package is too). Done when: the panel builds with it and `PackIconLucideKind` resolves in `Glyphs.cs`. Cheaper substitute: glyphs drawn from a font's characters.
-- [ ] Create `src/Bosun.Panel/Theme/Glyphs.cs` mapping each page and shared action to a `PackIconLucideKind`, matching the mockup's choices. Done when: `tests/Bosun.Panel.Tests/GlyphTests.cs` proves every rail row has a glyph and each one is a defined kind. Cheaper substitute: glyph names typed into each view.
+- [ ] Add the package `MahApps.Metro.IconPacks.Lucide` to `Directory.Packages.props` and `src/Bosun.Panel/Bosun.Panel.csproj` (**Added 2026-11-15** from `D02 T02 §2`, which held this with a test of `Section.Icon`; the map and its `GlyphTests` are here, so the package is too). Pinned in `Directory.Packages.props` at 6.2.1. Done when: the panel builds with it and `PackIconLucideKind` resolves in `Glyphs.cs`. Cheaper substitute: glyphs drawn from a font's characters.
+- [ ] Create `src/Bosun.Panel/Theme/Glyphs.cs` mapping each page and shared action to a `PackIconLucideKind`, matching the mockup's choices. Done when: `tests/Bosun.Panel.Tests/Shell/GlyphTests.cs` proves every rail row (`Sections`) has a glyph, each one a defined kind, and every shared action named has one. Cheaper substitute: glyph names typed into each view.
 - [ ] Fail a `PackIconLucide` used outside the map in `tests/Bosun.Panel.Tests/XamlRulesTests.cs`. Done when: a direct kind in a view fails the test.
-- [ ] Add the rail marker in `MainWindow.xaml`, animated with `Motion.Normal`. Done when: it lands on the selected row after keyboard and mouse navigation, and jumps at once with motion off. Cheaper substitute: a static highlight on the selected row.
+- [ ] Add the rail marker in `ShellView.xaml`, one element over the rail moved to the selected row's position, animated with `Motion.Normal`, and take the static bar out of the `NavList` style. Done when: it lands on the selected row after keyboard and mouse navigation and after the window is resized, jumps at once with motion off, and draws in every theme, contrast included. Cheaper substitute: a static highlight on the selected row.
 - [ ] Draw each rail row's glyph from `Glyphs.cs` in the rail row template of `src/Bosun.Panel/Shell/ShellView.xaml` (**Added 2026-11-15** from `D02 T01 §4`, whose `NavList` style shows the row's content and leaves the glyph to this map): 16 px, `B.TextDim`, and `B.Accent` on the selected row. Done when: the off-screen render of the rail shows a glyph on every row. Cheaper substitute: a row of words only.
+- [ ] Add `PageBase.Waiting` (`src/Bosun.Panel/Shell/PageBase.cs`), 0 by default and raising its change, the count a rail row shows. Done when: a test page's count reaches its row live.
 - [ ] Add `CountBadge` to the rail row template in `src/Bosun.Panel/Shell/ShellView.xaml` (**Corrected 2026-11-15:** this said `Theme/Controls.xaml`; the row template is built by `D02 T02 §4` in the shell's view, and `Controls.xaml` holds the row's style). Done when: a zero count shows nothing and a count of 3 renders.
 - [ ] Set each rail row's automation name to include its count in words. Done when: a UI Automation test reads "Queue, 3 waiting". Cheaper substitute: a badge only sighted users can read.
 - [ ] Commit: `shell: Lucide icon map, rail marker and badges`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Glyph` exits 0, and fails with a rail row left unmapped.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*GlyphTests"` exits 0, and fails with a rail row left unmapped.
 
 ## 4. Status pill and segmented control
 
