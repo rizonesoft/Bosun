@@ -15,6 +15,9 @@ public enum GlyphAction
     StatusFail,
     StatusInfo,
     StatusNeutral,
+    SlotFree,
+    SlotHeld,
+    SlotUnknown,
 }
 
 /// <summary>
@@ -50,6 +53,10 @@ public static class Glyphs
         [GlyphAction.StatusFail] = PackIconLucideKind.OctagonAlert,
         [GlyphAction.StatusInfo] = PackIconLucideKind.CircleDot,
         [GlyphAction.StatusNeutral] = PackIconLucideKind.Pause, // the mockup's idle state
+        // A queue slot (D02 T03 §6), as the mockup's tiles draw it: free a dot, held a terminal; unknown dashed.
+        [GlyphAction.SlotFree] = PackIconLucideKind.CircleDot,
+        [GlyphAction.SlotHeld] = PackIconLucideKind.Terminal,
+        [GlyphAction.SlotUnknown] = PackIconLucideKind.CircleDashed,
     };
 
     /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>

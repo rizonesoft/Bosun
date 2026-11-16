@@ -36,6 +36,9 @@ public static partial class RenderCatalog
         new("controls", "gauges", Gauges) { Shows = "Not available" },
         new("controls", "sparklines", Sparklines) { Shows = "12.4 GB, rising" },
         new("controls", "stacked-bars", StackedBars) { Shows = "Windows 12.8 GB" },
+        // D02 T03 §6: a tile in each slot state, and the waiting jobs with their reasons and what can't be read.
+        new("controls", "queue-slots", QueueSlots) { Shows = "Waiting for guest memory" },
+        new("controls", "queue-waiting", QueueWaiting) { Shows = "Waiting for a free slot" },
         // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
         new("shell", "badges", Badged) { Shows = "12" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
@@ -157,6 +160,53 @@ public static partial class RenderCatalog
                      [new("Windows", 0), new("WSL", 0)], null,
                  })
             panel.Children.Add(new Bosun.Panel.Controls.StackedBar { Parts = parts, Unit = "GB", Margin = new Thickness(0, 0, 0, 14) });
+        return panel;
+    }
+
+    private static Bosun.Core.Memory.StatusDoc Queue(string slots, string waiters, bool readable = true, int skipped = 0) =>
+        System.Text.Json.JsonSerializer.Deserialize("{\"schema_version\":1,\"ns\":\"Bosun\",\"at\":\"2026-11-16T15:07:49Z\",\"slots\":[" + slots
+            + "],\"waiters\":[" + waiters + "],\"memory\":{\"available_mb\":4607,\"total_mb\":32601,\"min_avail_mb\":6144},\"guest\":null,"
+            + "\"logger\":{\"windows\":\"running\",\"wsl\":null},\"records\":{\"readable\":" + (readable ? "true" : "false") + ",\"skipped\":" + skipped
+            + ",\"dir\":\"C:\\\\run\"}}", Bosun.Core.Memory.MemoryJson.Default.StatusDoc)!;
+
+    private static string QueueHolder(int slot, string phase, string side, string repo, string state = "live", string running = "240") =>
+        "{\"index\":" + slot + ",\"busy\":true,\"holder\":{\"schema_version\":1,\"kind\":\"holder\",\"pid\":4120,\"process_start\":1,\"started_at\":\"2026-11-16T15:03:37Z\","
+        + "\"command\":\"cmake --build build\",\"repo\":" + repo + ",\"side\":\"" + side + "\",\"slot\":" + slot + ",\"session\":1,\"ns\":\"Bosun\","
+        + "\"acquired_at\":\"2026-11-16T15:03:49Z\",\"command_started_at\":null,\"min_guest_mb\":null,\"state\":\"" + state + "\",\"waited_s\":12,"
+        + "\"running_s\":" + running + ",\"phase\":" + phase + "}}";
+
+    private static string QueueWaiter(int pid, string why, string floor, string repo, string side, string state = "live") =>
+        "{\"schema_version\":1,\"kind\":\"waiter\",\"pid\":" + pid + ",\"process_start\":1,\"started_at\":\"2026-11-16T15:04:37Z\",\"command\":\"dotnet test\","
+        + "\"repo\":" + repo + ",\"side\":\"" + side + "\",\"session\":1,\"ns\":\"Bosun\",\"waiting_for\":" + why + ",\"min_avail_mb\":" + floor
+        + ",\"max_wait_s\":3600,\"state\":\"" + state + "\",\"waited_s\":190}";
+
+    /// <summary>A tile in each slot state: running, starting, waiting for guest memory, held with no phase, held with no record, free, unknown.</summary>
+    private static FrameworkElement QueueSlots()
+    {
+        var panel = new WrapPanel { Margin = new Thickness(20), Width = 820, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var slot in new[]
+                 {
+                     QueueHolder(0, "\"running\"", "windows", "\"Recto\""), QueueHolder(1, "\"starting\"", "windows", "\"Office\"", running: "null"),
+                     QueueHolder(0, "\"waiting for guest memory\"", "wsl", "\"Conclave\"", running: "null"),
+                     QueueHolder(1, "null", "wsl", "null", state: "unknown", running: "null"),
+                     "{\"index\":0,\"busy\":true,\"holder\":null}", "{\"index\":1,\"busy\":false,\"holder\":null}", "{\"index\":1,\"busy\":null,\"holder\":null}",
+                 })
+            panel.Children.Add(new Bosun.Panel.Controls.QueueSlotTile { Slot = Queue(slot, "").Slots[0], Width = 250, Margin = new Thickness(0, 0, 12, 12) });
+        return panel;
+    }
+
+    /// <summary>The waiting jobs: held by memory with their own floors, by a slot, by a reason not recorded; then records not read.</summary>
+    private static FrameworkElement QueueWaiting()
+    {
+        var panel = new StackPanel { Margin = new Thickness(20), Width = 560, HorizontalAlignment = HorizontalAlignment.Left };
+        panel.Children.Add(new Bosun.Panel.Controls.WaitingRow
+        {
+            Status = Queue("{\"index\":0,\"busy\":false,\"holder\":null}", string.Join(",",
+                QueueWaiter(11, "\"memory\"", "8192", "\"Office\"", "wsl"), QueueWaiter(12, "\"slot\"", "null", "\"Recto\"", "windows"),
+                QueueWaiter(13, "null", "null", "null", "wsl", "unknown")), skipped: 1),
+            Margin = new Thickness(0, 0, 0, 18),
+        });
+        panel.Children.Add(new Bosun.Panel.Controls.WaitingRow { Status = Queue("{\"index\":0,\"busy\":false,\"holder\":null}", "", readable: false) });
         return panel;
     }
 

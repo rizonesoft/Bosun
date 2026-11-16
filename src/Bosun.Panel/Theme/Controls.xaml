@@ -1371,4 +1371,165 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <!-- A queue slot's tile (D02 T03 §6, the mockup's .slot): its glyph, number and state word on top, the holder's job,
+         side and times under them, "may have ended" in the warning colour when its process couldn't be checked, and the
+         moving bar along the bottom while held. Held: the accent's border on its soft fill. Free: a dashed outline and
+         the muted text. In a contrast theme: Windows' text for every line and outline, the highlight for a held one. -->
+    <Style TargetType="controls:QueueSlotTile">
+        <Setter Property="MinWidth" Value="240"/>
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+        <Setter Property="Background" Value="{DynamicResource B.Raised}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:QueueSlotTile">
+                    <Grid>
+                        <Border x:Name="tile" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="{DynamicResource R.Control}" ClipToBounds="True">
+                            <Grid>
+                                <StackPanel Margin="14,12,14,12">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:Decorative VerticalAlignment="Center" Margin="0,0,7,0">
+                                            <icons:PackIconLucide Kind="{TemplateBinding Glyph}" Width="14" Height="14" Focusable="False" IsTabStop="False"
+                                                                  Foreground="{TemplateBinding Foreground}"/>
+                                        </controls:Decorative>
+                                        <TextBlock Text="{TemplateBinding Title}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <!-- The state's word on its own line, so a long one never squeezes the slot's number. -->
+                                    <controls:StatusPill Kind="{TemplateBinding Kind}" Word="{TemplateBinding Word}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="job" Text="{TemplateBinding Job}" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock x:Name="timing" Text="{TemplateBinding Timing}" FontSize="{DynamicResource T.Caption}"
+                                               Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"/>
+                                    <TextBlock x:Name="doubt" Text="{TemplateBinding Doubt}" FontSize="{DynamicResource T.Caption}"
+                                               Foreground="{DynamicResource B.Warn}"/>
+                                </StackPanel>
+                                <controls:SlotBar x:Name="bar" VerticalAlignment="Bottom" Active="{TemplateBinding Held}" Fill="{DynamicResource B.Accent}"/>
+                            </Grid>
+                        </Border>
+                        <Rectangle x:Name="dash" Visibility="Collapsed" Stroke="{DynamicResource B.Line}" StrokeThickness="1"
+                                   StrokeDashArray="4 3" RadiusX="8" RadiusY="8" SnapsToDevicePixels="True"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Job" Value="">
+                            <Setter TargetName="job" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="Timing" Value="">
+                            <Setter TargetName="timing" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="Doubt" Value="">
+                            <Setter TargetName="doubt" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="State" Value="Free">
+                            <Setter TargetName="tile" Property="BorderBrush" Value="Transparent"/>
+                            <Setter TargetName="tile" Property="Background" Value="Transparent"/>
+                            <Setter TargetName="dash" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="timing" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="doubt" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="dash" Property="Stroke" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Held" Value="True">
+                <Setter Property="Background" Value="{DynamicResource B.AccentDim}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
+            </Trigger>
+            <Trigger Property="State" Value="Free">
+                <Setter Property="Foreground" Value="{DynamicResource B.TextMute}"/>
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                    <Condition Property="Held" Value="False"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+            </MultiTrigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                    <Condition Property="Held" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+            </MultiTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- The waiting jobs (D02 T03 §6): a line each, in order, and under them what can't be shown or "Nothing waiting". -->
+    <Style TargetType="controls:WaitingRow">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:WaitingRow">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{TemplateBinding Lines}" Focusable="False" IsTabStop="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="controls:WaitingLine">
+                                    <controls:WaitingLineView Content="{Binding}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock x:Name="notice" Text="{TemplateBinding Notice}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource B.TextDim}"/>
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Notice" Value="">
+                            <Setter TargetName="notice" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="notice" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One waiting job: its place, then its repo and command, why it waits and its side and waited time. -->
+    <Style TargetType="controls:WaitingLineView">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:WaitingLineView">
+                    <Border x:Name="line" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource B.Line}" Padding="0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="28"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="place" Text="{Binding Place}" FontFamily="{StaticResource F.Mono}" Foreground="{DynamicResource B.TextDim}"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="{Binding Job}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Why}" TextWrapping="Wrap"/>
+                                <TextBlock x:Name="meta" Text="{Binding Meta}" FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.TextDim}"/>
+                                <TextBlock x:Name="doubt" Text="May have ended" FontSize="{DynamicResource T.Caption}" Foreground="{DynamicResource B.Warn}" Visibility="Collapsed"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding Doubtful}" Value="True">
+                            <Setter TargetName="doubt" Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="place" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="meta" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="doubt" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="line" Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>
