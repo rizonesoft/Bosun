@@ -129,6 +129,10 @@ def check_motion(motion: dict) -> None:
             for index, point in enumerate(value):
                 fraction(f"motion.Ease[{index}]", point)
         elif key.endswith("Ms") and len(key) > 2:
+            # The duration is emitted as Motion.<name>: Ease is the easing's key, so EaseMs would be a second
+            # Motion.Ease and a dictionary WPF refuses to load.
+            if key[:-2] == "Ease":
+                raise TokenError("motion.EaseMs: Motion.Ease is the easing's key; name the duration otherwise")
             milliseconds(f"motion.{key}", value)
         else:
             raise TokenError(f"motion.{key}: a motion token is a duration named <name>Ms, or Ease")

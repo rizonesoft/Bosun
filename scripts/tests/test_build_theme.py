@@ -170,6 +170,7 @@ class BuildThemeTest(unittest.TestCase):
             (setting("motion", "Ease", [0.2, 1.4, 0.2, 1]), "motion.Ease[1]: must be a number from 0 to 1"),
             (setting("motion", "Ease", [-0.1, 0.8, 0.2, 1]), "motion.Ease[0]"),
             (setting("motion", "Bounce", 3), "motion.Bounce: a motion token is a duration"),
+            (setting("motion", "EaseMs", 120), "motion.EaseMs: Motion.Ease is the easing's key"),  # round 1: one key twice
             ([], "must be a JSON object"),
         ]
         for tokens, path in cases:
