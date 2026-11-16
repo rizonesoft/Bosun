@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T02 \u00a710",
+  "title": "End-to-end smoke through UI Automation",
+  "implementation_sha": "d1b6f3a6de2d271e0c86732a743ba8d281e97d5f",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s10.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s10.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> total: 19, succeeded: 19 (twice, desktop session)",
+    "with AutomationProperties.Name=\"Minimise\" removed from ShellView.xaml -> RailTests fails: [\"/Window/Custom#Shell/Button#Minimise\"]",
+    "dotnet test --project tests/Bosun.Panel.Tests -> total: 390, succeeded: 390",
+    "CI full gate at 9c30d3c -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43784304780, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43784304727"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s10.md",
+    "verdict": "completed",
+    "candidate": "9c30d3cfde5d948cb4d6c70f64c82b96945a4142",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s10.md",
+    "candidate": "3a073bac21a73175f74c91d7165e246e02bb5614",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3a073bac21a73175f74c91d7165e246e02bb5614",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

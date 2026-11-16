@@ -2,7 +2,7 @@
 schema_version: 1
 id: application-shell
 domain: 02-shell
-status: active
+status: done
 title: "TODO-02 -- The application shell"
 ---
 
@@ -51,7 +51,7 @@ title: "TODO-02 -- The application shell"
 | 6 | §7 | Tray icon and notifications | §5, D02 T01 §3 | [x] |
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [x] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
-| 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [ ] |
+| 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [x] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -441,7 +441,7 @@ A surface section has to be provable in an unattended run with no visible deskto
 - [x] Say in `AGENTS.md` how a surface is looked at: `pwsh scripts/render-pages.ps1` for the unattended renders, `pwsh scripts/capture-window.ps1` for an attended capture of the real window. Done when: both commands are there with one line each.
 - [x] Commit: `tests: off-screen page renders`
 
-> **Deferred:** capturing a real window (the PNG decodes at the window's size, `-Verify` accepts the pair, a covered or background target is refused with exit 3) needs a desktop session -> XREF: D02 T02 §10
+> **Resolved:** 2026-11-16, by `D02 T02 §10` (`tests/Bosun.Panel.E2E/CaptureTests.cs`, in `89ed620`): capturing a real window (the PNG decodes at the window's size, `-Verify` accepts the pair, a covered or background target is refused with exit 3) needs a desktop session -> XREF: D02 T02 §10
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*PageRenderer*"` exits 0, and fails if the change is reverted; `pwsh tests/render_pages_test.ps1` and `pwsh tests/capture_window_test.ps1` each print `all passed`.
 
@@ -489,9 +489,12 @@ One real launch proves the parts work together: the process starts, every page o
 - [x] Hear a live region from the shown window in the smoke (**Added 2026-11-15** from the plan review of `D02 T02 §2`, whose tests replace the raise and so can't prove a screen reader's side). Done when: a UI Automation client subscribed to `LiveRegionChanged` on the window before the action, with Notify me about memory pressure toggled and Save chosen on Settings, receives one event whose source is the page's `Status` line and whose name is its new text (`Saved and read back: memory pressure notifications <on|off>.`), `panel.json` in the test's folder reads back the new value, and the Run key's `Bosun Panel` value is the same before and after. Cheaper substitute: trusting that an event nobody listened for was sent.
 - [x] See the snap layouts and drag the splitter in the smoke (**Added 2026-11-15** from the plan review of `D02 T02 §4`, which proves the hook on a window that is never shown and the splitter without a pointer). Done when: with the pointer held over the maximise button the snap layouts flyout is on screen, a click there maximises and a second restores, and a pointer drag of the Activity pane's splitter changes the pane's height within its limits. Cheaper substitute: trusting the hit-test code alone.
 - [x] See the tray icon, its menu and a notification in the smoke (**Added 2026-11-15** from `D02 T02 §7`, which proves the real icon only in what touches no screen). Done when: with the panel started in the tray (`--tray`, no window shown), its icon is in the notification area with its tooltip (and the test refuses, saying why, when the area holds a second Bosun Panel icon), its menu lists Open, the Queue line, Pause notifications for 1 hour and Exit, each chosen from the real menu does its work (Open shows the hidden window, the Queue line shows the Queue page, Pause changes the line to Resume, Resume changes it back to Pause notifications for 1 hour, Exit removes the icon and ends the process), a click on the icon shows the window when it is hidden again, and closing the window the first time raises the still-running notification. Cheaper substitute: trusting calls to Windows nobody watched.
-- [ ] Commit: `tests: end-to-end smoke`
+- [x] Commit: `tests: end-to-end smoke`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` exits 0 in a desktop session, and fails when one interactive control's `AutomationProperties.Name` is removed from `src/Bosun.Panel/Shell/ShellView.xaml`.
+
+> **Verified:** 2026-11-16 | §10 | d1b6f3a6de2d271e0c86732a743ba8d281e97d5f
+> **Review:** `docs/reviews/d02-t02-s10.json`
 
 ## Verification
 
