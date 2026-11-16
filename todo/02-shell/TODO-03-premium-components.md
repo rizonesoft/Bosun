@@ -128,6 +128,8 @@ Windows composes Mica outside the process, so it costs the panel almost nothing,
 
 ## 3. Lucide icon map and rail marker
 
+> **Started:** 2026-11-16T11:33:39Z
+
 One map keeps glyphs consistent and lets a test catch a kind the icon pack does not have.
 
 **Corrected 2026-11-16:** checked against the tree before the plan review. The rail, its row template and its two empty slots (`Glyph`, `Badge`) are `ShellView.xaml`'s (`D02 T02 §4`), not `MainWindow.xaml`'s; the selected row's marker today is a static bar each row draws in the `NavList` style (`Theme/Controls.xaml`), so the sliding marker is one element over the rail in `ShellView`, and the static bar goes. Nothing gives a page a count yet: `PageBase.Waiting` is added, 0 by default, for the badge and the row's spoken name to follow, and each page sets its own when it is built (`D03 T02 §3`, the queue's waiters). The glyphs are the mockup's (`design/mockups/control-panel.html`, its `pages` table): Overview `layout-dashboard`, Memory `memory-stick`, Instances `terminal`, Queue `list-ordered`, Optimise `gauge`, Settings `settings`, About `info`; the shared actions are the mockup's too (refresh `refresh-cw`, open folder `folder-open`, open terminal `square-terminal`, pause `pause`, search `search`, and the status icons `circle-check`, `triangle-alert`, `octagon-alert`). The package is pinned at 6.2.1, its latest. The tests go in `tests/Bosun.Panel.Tests/Shell/`, and the checkpoint is in the test platform's own filter form.
