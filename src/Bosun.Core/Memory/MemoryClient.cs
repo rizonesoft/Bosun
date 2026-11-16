@@ -53,9 +53,20 @@ public sealed class MemoryClient
     public static MemoryClient ForThisUser()
     {
         var bosun = BosunTool.Locate(out var why);
-        var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bosun", "logs");
-        return new MemoryClient(bosun, why, logs);
+        return new MemoryClient(bosun, why, LogFolder(Environment.GetEnvironmentVariable));
     }
+
+    /// <summary>
+    /// The folder the loggers write: <c>%LOCALAPPDATA%\Bosun\logs</c> as the variable says it, the way bosun.exe and
+    /// the logger find it (src/app.cpp <c>log_dir</c>), and the known folder only when the variable is not set. Asking
+    /// the known folder first read another folder than the logger whenever the variable was changed (the end-to-end
+    /// smoke's own folder, found by its full run on 2026-11-16, read this machine's logger instead).
+    /// </summary>
+    public static string LogFolder(Func<string, string?> environment) =>
+        Path.Combine(environment("LOCALAPPDATA") is { Length: > 0 } local ? local : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bosun", "logs");
+
+    /// <summary>The folder this client reads snapshots from.</summary>
+    public string Logs => _logs;
 
     /// <summary>How long <c>bosun status</c> may take: it reads a few small files.</summary>
     public TimeSpan StatusTimeout { get; init; } = TimeSpan.FromSeconds(10);

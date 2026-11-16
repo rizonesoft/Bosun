@@ -19,6 +19,17 @@ public sealed class MemoryClientTests : IDisposable
 
     public MemoryClientTests() => Directory.CreateDirectory(_logs);
 
+    [Fact]
+    public void The_log_folder_is_the_one_the_LOCALAPPDATA_variable_names_as_the_logger_reads_it()
+    {
+        // Found by the full end-to-end run on 2026-11-16: the panel asked Windows' known folder and read this machine's
+        // logger, while the logger and the smoke's own snapshot followed the variable.
+        Assert.Equal(Path.Combine(@"X:\elsewhere", "Bosun", "logs"), MemoryClient.LogFolder(name => name == "LOCALAPPDATA" ? @"X:\elsewhere" : null));
+        var known = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bosun", "logs");
+        Assert.Equal(known, MemoryClient.LogFolder(_ => null));                                 // unset: the known folder
+        Assert.Equal(known, MemoryClient.LogFolder(_ => ""));
+    }
+
     public void Dispose()
     {
         try
