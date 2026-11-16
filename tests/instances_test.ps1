@@ -32,8 +32,9 @@ function Start-Held([string]$exe, [string[]]$arguments, [string]$in) {
   $p
 }
 # A process started outside this test's own tree: a test run from an agent's terminal has that agent among its
-# ancestors, and a claude under a claude is part of that claude (dm::instance_roots), so the test's claude starts from
-# CIM, its parent the WMI host. It is still this test's to end, by its id.
+# ancestors, and a claude under a claude (or a codex under a codex) is part of it (dm::instance_roots), so every fixture
+# of a kind starts from CIM, its parent the WMI host (round 3: the codex fixtures failed under a Codex session). It is
+# still this test's to end, tree and all, by its id.
 function Start-Detached([string]$exe, [string]$arguments, [string]$in) {
   $made = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "$(Q $exe) $arguments"; CurrentDirectory = $in }
   if ($made.ReturnValue -ne 0) { throw "Win32_Process.Create refused $exe ($($made.ReturnValue))" }
@@ -58,7 +59,7 @@ function Mark([int]$id, [double]$deadline) {
 try {
   # A claude in a checkout, with its repo, folder, memory and start; one outside a checkout with a folder and no repo.
   $claude = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'c.txt')) 60000" (Join-Path $repo 'src')
-  $codexLoose = Start-Held (Join-Path $bin 'codex.exe') @((Q (Join-Path $work 'x.txt')), '60000') $loose
+  $codexLoose = Start-Detached (Join-Path $bin 'codex.exe') "$(Q (Join-Path $work 'x.txt')) 60000" $loose
   $null = Wait-Until { (Row (Scan) $codexLoose.Id) -and (Row (Scan) $claude.Id) }
   $doc = Scan
   $row = Row $doc $claude.Id
@@ -82,7 +83,7 @@ try {
 
   # A codex under a live review's dispatcher, in its repo, is reviewing; once the deadline has passed, unknown.
   # cmd /c takes the whole command in one pair of outer quotes.
-  $dispatcher = Start-Held "$env:SystemRoot\System32\cmd.exe" @('/c', "`"$(Q (Join-Path $bin 'codex.exe')) $(Q (Join-Path $work 'r.txt')) 60000`"") $repo
+  $dispatcher = Start-Detached "$env:SystemRoot\System32\cmd.exe" "/c `"$(Q (Join-Path $bin 'codex.exe')) $(Q (Join-Path $work 'r.txt')) 60000`"" $repo
   $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($dispatcher.Id)").Count -gt 0 }
   $reviewer = (Get-CimInstance Win32_Process -Filter "ParentProcessId=$($dispatcher.Id) AND Name='codex.exe'").ProcessId
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000
