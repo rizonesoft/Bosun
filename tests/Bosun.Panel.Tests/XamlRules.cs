@@ -60,7 +60,9 @@ static partial class XamlRules
     private static partial Regex Number();
 
     // BlurRadius = 8, new CornerRadius(8), new Duration(TimeSpan.FromMilliseconds(220)): the same in code.
-    [GeneratedRegex(@"\bBlurRadius\s*=\s*[0-9.]+|\bnew\s+CornerRadius\s*\(\s*[0-9.][^)]*\)|\bnew\s+Duration\s*\(\s*TimeSpan\s*\.\s*From\w+\s*\(\s*[0-9.]+")]
+    // And through the property itself, as the FontSize rule reads it (round 2): SetValue(X.BlurRadiusProperty, 20.0),
+    // new Setter(Border.CornerRadiusProperty, 8d).
+    [GeneratedRegex(@"\bBlurRadius\s*=\s*[0-9.]+|\bnew\s+CornerRadius\s*\(\s*[0-9.][^)]*\)|\bnew\s+Duration\s*\(\s*TimeSpan\s*\.\s*From\w+\s*\(\s*[0-9.]+|\b(?:BlurRadius|CornerRadius)Property\s*,\s*[0-9.]+")]
     private static partial Regex ThemedMeasureInCode();
 
     // FontSize = 13, an initialiser's FontSize = 13.0, SetValue(X.FontSizeProperty, 13), new Setter(X.FontSizeProperty, 13.0)

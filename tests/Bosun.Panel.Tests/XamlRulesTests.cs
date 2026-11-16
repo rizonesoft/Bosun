@@ -104,6 +104,8 @@ public class XamlRulesTests
     [InlineData("var shadow = new DropShadowEffect { BlurRadius = 20 };", 1)]
     [InlineData("card.CornerRadius = new CornerRadius(12);", 1)]
     [InlineData("var fade = new DoubleAnimation(1, new Duration(TimeSpan.FromMilliseconds(220)));", 1)]
+    [InlineData("shadow.SetValue(DropShadowEffect.BlurRadiusProperty, 20.0);", 1)]
+    [InlineData("style.Setters.Add(new Setter(Border.CornerRadiusProperty, 8d));", 1)]
     public void A_stray_colour_or_font_size_in_code_fails(string line, int count)
     {
         var violations = Code(line);
@@ -121,6 +123,7 @@ public class XamlRulesTests
     [InlineData("var text = \"Issue #123 is fixed\"; // was #FF0000, or Brushes.Red")]
     [InlineData("var MinFontSize = 5; var url = \"https://example.org/#fff\";")]
     [InlineData("var square = new CornerRadius(0); var now = new Duration(TimeSpan.Zero); var none = new Duration(TimeSpan.FromMilliseconds(0));")]
+    [InlineData("shadow.SetValue(DropShadowEffect.BlurRadiusProperty, 0.0); card.SetResourceReference(Border.CornerRadiusProperty, \"R.Card\");")]
     [InlineData("var fade = new DoubleAnimation(1, motion.Normal); card.Effect = (Effect)FindResource(\"Elevation.Card\");")]
     public void Theme_lookups_comparisons_and_comments_pass(string line) => Assert.Empty(Code(line));
 
