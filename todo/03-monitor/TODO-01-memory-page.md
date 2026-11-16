@@ -123,6 +123,8 @@ This is the question the whole project exists to answer.
 
 Peaks are the whole story, and a drawn chart needs an accessible equal. A small custom element costs less memory than a chart library.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. Paths: `src/Bosun.Panel/Controls/SeriesChart.cs` and `src/Bosun.Panel/Memory/MemoryView.xaml` (the Memory page of `§2`). The points are the report's `series` (`win_available_mb` by minute) from `bosun report --json`: the 24 hours from the page's day report (read every 30 s), 7 and 14 days from a 14-day report read every 5 minutes while the page is shown, a third read `PageBase` gains beside `RefreshAlso` (a page may hold up to three). The chart and its table draw the same points: the lowest available in each bucket (5 minutes for 24 hours, 30 minutes for 7 days, an hour for 14 days), so the table's rows are the chart's points, never 20,000 minutes. The pressure line is the stored threshold (`PanelSettings.PressureFloorMb`), moving when Settings saves a new one. The range is a `SegmentedControl` in the chart card's header, and Show as table switches the card between the chart and its table. The Decision card reads the 14-day report. There is no written rule for the 64 GB question, so the default taken, and recorded here, is: with fewer than 7 days logged (`days_covered`) it says how many and recommends nothing; with 7 or more it recommends more memory when Windows was below the pressure line for any minutes (`windows.low_samples`), when committed memory reached 90% of its limit (`max_commit_mb` against `commit_limit_mb`), or when WSL had out-of-memory kills (`wsl.max_oom_kills`), and otherwise says 32 GB has been enough so far, with each figure it rests on beside it. Changing that rule is a change to one function and its tests. Tests: `tests/Bosun.Panel.Tests/Controls/SeriesChartTests.cs` and `tests/Bosun.Panel.Tests/Memory/`; the checkpoint takes the test platform's filter form.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** yes
@@ -133,17 +135,17 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 
 **Build order:**
 
-1. Create `Controls/SeriesChart.cs`. Done when: a day of points draws with the pressure line.
+1. Create `src/Bosun.Panel/Controls/SeriesChart.cs`. Done when: a day of points draws with the pressure line.
 2. Add ranges, table and the Decision card. Done when: each range and the table show the same data.
 
 - [ ] Draw with a `DrawingVisual` and no chart dependency. Done when: 14 days of minute data draws in under 50 ms, in a test. Cheaper substitute: adding a charting package.
 - [ ] Add Show as table, and an automation summary of the lowest point. Done when: a screen reader string names lowest value and time.
 - [ ] Build the Decision card from `report --json`, stating days logged. Done when: under 7 days says so and gives no recommendation. Cheaper substitute: recommending from too little data.
-- [ ] Add the 24 hours, 7 days and 14 days `SegmentedControl` to `Views/MemoryView.xaml`. Done when: each range changes the data, and the table shows the same points.
-- [ ] Draw the pressure line from `PanelSettings` in `Controls/SeriesChart.cs`. Done when: a threshold change moves the line with no restart.
+- [ ] Add the 24 hours, 7 days and 14 days `SegmentedControl` to `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: each range changes the data, and the table shows the same points.
+- [ ] Draw the pressure line from `PanelSettings` in `src/Bosun.Panel/Controls/SeriesChart.cs`. Done when: a threshold change moves the line with no restart.
 - [ ] Commit: `memory: history chart and decision card`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~SeriesChart` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SeriesChartTests" --filter-class "*MemoryHistoryTests"` exits 0, and fails if the decision recommends from fewer than 7 days.
 
 ## 4. Pressure alerts
 
