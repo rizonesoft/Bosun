@@ -201,6 +201,8 @@ These two appear on nearly every page. Status keeps its word, so a pill without 
 
 These are drawn from data and stay cheap: they draw once per data change and hold no timer. An unreadable value must never look like zero.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review, and given what the plan reviews of `D02 T03 §3` and `§4` asked of every surface section. The tests go in `tests/Bosun.Panel.Tests/Controls/` and the checkpoint is in the test platform's own filter form. Each control takes its colours from the theme's tokens (the gauge's arc and its state word the status roles `B.Ok`, `B.Warn`, `B.Danger`, its track `B.Line`; the sparkline `B.Accent`; the stacked bar's segments the theme's series colours), and in a contrast theme Windows' own (`B.Text`, `B.Accent` as the highlight, `B.GrayText` for an empty track), checked in both palettes. Each control is one element with a name a screen reader says in words; nothing inside is said again. Every state is a `RenderCatalog` case, looked at in every theme. Animation goes through the installed motion gate (`Motion`): it lands at once with animation effects off or turned off mid-change, and holds no clock when hidden or unloaded.
+
 **Phase:** 2
 **Needs:** display-session
 **Surface:** yes
@@ -214,16 +216,16 @@ These are drawn from data and stay cheap: they draw once per data change and hol
 1. Create `src/Bosun.Panel/Controls/RadialGauge.cs`. Done when: value, unit and state word render, and an absent value draws the empty track.
 2. Create `src/Bosun.Panel/Controls/Sparkline.cs` and `StackedBar.cs`. Done when: each renders real sample data in both themes.
 
-- [ ] Create `RadialGauge` in `src/Bosun.Panel/Controls/RadialGauge.cs` with a nullable value, unit and state word. Done when: `tests/Bosun.Panel.Tests/GaugeTests.cs` compares the arc angle at 0, 50 and 100 percent.
+- [ ] Create `RadialGauge` in `src/Bosun.Panel/Controls/RadialGauge.cs` with a nullable value, unit and state word. Done when: `tests/Bosun.Panel.Tests/Controls/GaugeTests.cs` compares the arc angle at 0, 50 and 100 percent and clamps a value past the ends, the arc and the word in the state's colour (and Windows' own in both contrast palettes), its automation name the value, unit and word ("7.4 GB free, Safe"), and the gauge's states (a value in each state, and none) as `RenderCatalog` cases in every theme.
 - [ ] Draw a null value as an empty track with "Not available" in `RadialGauge.cs`. Done when: a test renders null and finds that text and no "0". Cheaper substitute: treating a missing value as 0.
-- [ ] Animate a gauge value change with `Motion.Slow` in `RadialGauge.cs`. Done when: a test sees no animation clock with motion off.
+- [ ] Animate a gauge value change with `Motion.Slow` through the installed motion gate in `RadialGauge.cs`. Done when: a test sees the arc part-way during the slow duration and at the value after it; no animation clock with motion off, or after motion turns off mid-change, or once hidden or unloaded; and a value changed while shown changes its arc, word and name.
 - [ ] Create `Sparkline` in `src/Bosun.Panel/Controls/Sparkline.cs` drawing a frozen `StreamGeometry`. Done when: a test proves redraw only when the sample array changes. Cheaper substitute: redrawing on a timer.
-- [ ] Set the `Sparkline` automation name to the latest value and direction in words. Done when: a UI Automation test reads "12.4 GB, rising".
-- [ ] Create `StackedBar` in `src/Bosun.Panel/Controls/StackedBar.cs` with a legend giving each value in words. Done when: a test proves segment widths sum to the bar's width and the legend holds every value. Cheaper substitute: a bar with colour as the only key.
+- [ ] Set the `Sparkline` automation name to the latest value and direction in words, following new samples. Done when: a UI Automation test reads "12.4 GB, rising", then "11.0 GB, falling" and "11.0 GB, steady" as samples change, and the sparkline (with too few samples to draw, and none) is a `RenderCatalog` case in every theme.
+- [ ] Create `StackedBar` in `src/Bosun.Panel/Controls/StackedBar.cs` with a legend giving each value in words. Done when: a test proves segment widths sum to the bar's width and the legend holds every value, each segment's swatch beside its name and value so colour is never the only key; a zero share draws no segment but keeps its legend line; and the bar (shares, one share, and all zero) is a `RenderCatalog` case in every theme, contrast included. Cheaper substitute: a bar with colour as the only key.
 - [ ] Reject negative or non-finite samples in all three, showing "Not available" in place. Done when: a test with NaN and a negative value renders that text without an exception.
 - [ ] Commit: `controls: gauge, sparkline and stacked bar`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Gauge` exits 0, and fails if a null value draws as 0.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*GaugeTests" --filter-class "*SparklineTests" --filter-class "*StackedBarTests"` exits 0, and fails if a null value draws as 0.
 
 ## 6. Queue slot visuals
 
