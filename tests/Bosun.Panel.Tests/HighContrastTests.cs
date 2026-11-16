@@ -202,8 +202,11 @@ public class HighContrastTests
 
     // ---- the templates ----
 
-    /// <summary>Live controls, disabled, in a page of the theme: what each draws its text in, and its opacity.</summary>
-    static List<(string What, double Opacity, Color? Text)> Disabled(string theme, SystemPalette? palette = null) => PageRenderer.InPage(theme, () =>
+    /// <summary>
+    /// Live controls, disabled, in a page of the theme: the opacity of the part each template fades, and the colour of
+    /// every part a person sees (the words as drawn, a check box's edge, fill and tick, a combo box's edge and arrow).
+    /// </summary>
+    static List<(string What, double Opacity, Color?[] Parts)> Disabled(string theme, SystemPalette? palette = null) => PageRenderer.InPage(theme, () =>
     {
         var panel = new StackPanel();
         var button = new Button { Content = "Save", IsEnabled = false };
@@ -211,20 +214,35 @@ public class HighContrastTests
         var field = new TextBox { Text = "build Bosun", IsEnabled = false };
         field.SetResourceReference(FrameworkElement.StyleProperty, "Field");
         var combo = new ComboBox { ItemsSource = new[] { "WSL", "Windows" }, SelectedIndex = 0, IsEnabled = false };
-        foreach (UIElement each in new UIElement[] { button, field, new CheckBox { Content = "Notify", IsEnabled = false }, combo }) panel.Children.Add(each);
+        foreach (UIElement each in new UIElement[] { button, field, new CheckBox { Content = "Notify", IsChecked = true, IsEnabled = false }, combo }) panel.Children.Add(each);
         return panel;
     }, page =>
     {
         var panel = (StackPanel)((Border)page).Child;
-        var found = new List<(string, double, Color?)>();
+        Color? Words(DependencyObject under) => Paint(Shell.ShellSupport.Under<TextBlock>(under).First().Foreground);
+        var found = new List<(string, double, Color?[])>();
         foreach (Control control in panel.Children)
         {
-            // The part each template fades: its first named root that is a panel or a border.
             var part = control.Template.FindName("root", control) as UIElement ?? control.Template.FindName("bd", control) as UIElement ?? control.Template.FindName("row", control) as UIElement;
-            found.Add((control.GetType().Name, part?.Opacity ?? -1, Paint(control.Foreground)));
+            Color?[] parts = control switch
+            {
+                Button b => [Words(b)],
+                TextBox t => [Paint(t.Foreground), Paint(((Border)t.Template.FindName("bd", t)).BorderBrush)],
+                CheckBox c => [Words(c), Paint(((Border)c.Template.FindName("box", c)).BorderBrush), Paint(((System.Windows.Shapes.Path)c.Template.FindName("tick", c)).Stroke)],
+                ComboBox x => [Words((DependencyObject)x.Template.FindName("Selected", x)), ToggleParts(x)[0], ToggleParts(x)[1]],
+                _ => [],
+            };
+            found.Add((control.GetType().Name, part?.Opacity ?? -1, parts));
         }
         return found;
     }, palette: palette);
+
+    /// <summary>A combo box's toggle: its edge and its arrow.</summary>
+    static Color?[] ToggleParts(ComboBox combo)
+    {
+        var toggle = (System.Windows.Controls.Primitives.ToggleButton)combo.Template.FindName("Toggle", combo);
+        return [Paint(((Border)toggle.Template.FindName("bd", toggle)).BorderBrush), Paint(((System.Windows.Shapes.Path)toggle.Template.FindName("arrow", toggle)).Stroke)];
+    }
 
     [Theory]
     [MemberData(nameof(Palettes))]
@@ -233,7 +251,15 @@ public class HighContrastTests
         var palette = Named(name);
         var contrast = Disabled("HighContrast", palette);
         Assert.Equal(4, contrast.Count);
-        Assert.All(contrast, c => Assert.Equal((c.What, 1.0, (Color?)palette.GrayText), c));
+        foreach (var (what, opacity, parts) in contrast)
+        {
+            Assert.Equal((what, 1.0), (what, opacity));
+            Assert.All(parts, colour => Assert.Equal((what, (Color?)palette.GrayText), (what, colour)));
+        }
+        // The checked box's fill is the window, not the highlight: nothing of it says it can be used.
+        var box = PageRenderer.InPage("HighContrast", () => new CheckBox { Content = "Notify", IsChecked = true, IsEnabled = false },
+            page => Paint(((Border)((CheckBox)((Border)page).Child).Template.FindName("box", (CheckBox)((Border)page).Child)).Background), palette: palette);
+        Assert.Equal(palette.Window, box);
         var dark = Disabled("Dark");
         Assert.All(dark, c => Assert.True(c.Opacity < 1, $"{c.What} in Dark is not faded"));
     }
@@ -288,6 +314,103 @@ public class HighContrastTests
             return focus;
         }, page => Paint(Shell.ShellSupport.Under<Border>(((Border)page).Child).First(b => b.BorderThickness.Left > 0).BorderBrush), palette: palette);
         Assert.Equal(palette.Highlight, ring);
+    }
+
+    [Theory]
+    [MemberData(nameof(Palettes))]
+    public void A_selected_tab_in_contrast_is_highlight_text_on_the_highlight(string name)
+    {
+        var palette = Named(name);
+        var read = PageRenderer.InPage("HighContrast", () =>
+        {
+            var tabs = new TabControl();
+            tabs.SetResourceReference(FrameworkElement.StyleProperty, "TabStrip"); // the panel's tab strip
+            tabs.Items.Add(new TabItem { Header = "Overview", IsSelected = true });
+            tabs.Items.Add(new TabItem { Header = "Logs" });
+            return tabs;
+        }, page =>
+        {
+            var tab = (TabItem)((TabControl)((Border)page).Child).Items[0];
+            var header = (ContentPresenter)tab.Template.FindName("header", tab);
+            return (Paint(TextElement(header)), Paint(((Border)tab.Template.FindName("bd", tab)).Background));
+        }, palette: palette);
+        Assert.Equal((palette.HighlightText, palette.Highlight), read);
+    }
+
+    static object? TextElement(DependencyObject element) => element.GetValue(System.Windows.Documents.TextElement.ForegroundProperty);
+
+    /// <summary>A button held pressed, as a person's press holds it, for a test to read its pressed state.</summary>
+    sealed class HeldButton : Button
+    {
+        public HeldButton() => IsPressed = true;
+    }
+
+    [Theory]
+    [MemberData(nameof(Palettes))]
+    public void Buttons_in_contrast_take_Windows_button_colours_and_a_press_is_the_opaque_highlight_pair(string name)
+    {
+        var palette = Named(name);
+        var read = PageRenderer.InPage("HighContrast", () =>
+        {
+            var panel = new StackPanel();
+            var plain = new Button { Content = "Refresh" };
+            plain.SetResourceReference(FrameworkElement.StyleProperty, "Btn");
+            var primary = new Button { Content = "Save" };
+            primary.SetResourceReference(FrameworkElement.StyleProperty, "Btn.Primary");
+            var held = new HeldButton { Content = "Stop job" };
+            held.SetResourceReference(FrameworkElement.StyleProperty, "Btn");
+            panel.Children.Add(plain);
+            panel.Children.Add(primary);
+            panel.Children.Add(held);
+            return panel;
+        }, page =>
+        {
+            var panel = (StackPanel)((Border)page).Child;
+            var (plain, primary, held) = ((Button)panel.Children[0], (Button)panel.Children[1], (Button)panel.Children[2]);
+            Color? Words(Button b) => Paint(Shell.ShellSupport.Under<TextBlock>(b).First().Foreground);
+            return new[]
+            {
+                Paint(plain.Background), Words(plain), Paint(plain.BorderBrush),
+                Paint(primary.Background), Words(primary),
+                Paint(((Border)held.Template.FindName("bd", held)).Background), Words(held), (Color?)Colors.Transparent,
+            }.Append(Paint(Shell.ShellSupport.Under<Border>(held).First(b => b.Name == "wash").Background)).ToArray()
+             .Concat([((UIElement)held.Template.FindName("wash", held)).Opacity == 0 ? (Color?)Colors.Black : Colors.White]).ToArray();
+        }, palette: palette);
+        Assert.Equal(palette.ButtonFace, read[0]);
+        Assert.Equal(palette.ButtonText, read[1]);
+        Assert.Equal(palette.ButtonText, read[2]);
+        Assert.Equal(palette.Highlight, read[3]); // the primary action keeps its emphasis
+        Assert.Equal(palette.HighlightText, read[4]);
+        Assert.Equal(palette.Highlight, read[5]); // pressed: the highlight, opaque
+        Assert.Equal(palette.HighlightText, read[6]);
+        Assert.Equal(Colors.Black, read[^1]); // and no translucent wash over it
+    }
+
+    [Theory]
+    [MemberData(nameof(Palettes))]
+    public void A_combo_box_s_own_drop_down_sees_contrast_draws_its_selection_in_the_highlight_pair_and_follows_a_live_change(string name)
+    {
+        var palette = Named(name);
+        var read = PageRenderer.InPage("HighContrast", () => new ComboBox { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 1 }, page =>
+        {
+            var combo = (ComboBox)((Border)page).Child;
+            // The drop-down's own tree, as the template makes it, laid out without opening a window on screen.
+            var popup = (System.Windows.Controls.Primitives.Popup)combo.Template.FindName("PART_Popup", combo);
+            var drop = (FrameworkElement)popup.Child;
+            drop.Measure(new Size(300, 300));
+            drop.Arrange(new Rect(0, 0, 300, 300));
+            drop.UpdateLayout();
+            var selected = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(1);
+            Color? Words() => Paint(Shell.ShellSupport.Under<TextBlock>(selected).First().Foreground);
+            var on = (Bosun.Panel.Theme.HighContrastMode.GetIsOn(drop), Bosun.Panel.Theme.HighContrastMode.GetIsOn(selected), Words(), Paint(((Border)selected.Template.FindName("bd", selected)).Background));
+            Bosun.Panel.Theme.HighContrastMode.SetIsOn(page, false); // contrast turned off, live
+            drop.UpdateLayout();
+            var off = (Bosun.Panel.Theme.HighContrastMode.GetIsOn(drop), Words());
+            return (on, off);
+        }, palette: palette);
+        Assert.Equal((true, true, (Color?)palette.HighlightText, (Color?)palette.Highlight), read.on);
+        Assert.False(read.off.Item1);
+        Assert.NotEqual(palette.HighlightText, read.off.Item2);
     }
 
     // ---- the Settings page ----

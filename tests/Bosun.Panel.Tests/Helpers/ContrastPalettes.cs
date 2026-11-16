@@ -9,11 +9,11 @@ namespace Bosun.Panel.Tests.Helpers;
 /// </summary>
 static class ContrastPalettes
 {
-    /// <summary>Night sky (<c>hc2.theme</c>): white text on black, a lilac highlight. Dark.</summary>
-    public static SystemPalette NightSky { get; } = new(Rgb(0, 0, 0), Rgb(255, 255, 255), Rgb(214, 180, 253), Rgb(43, 43, 43), Rgb(166, 166, 166), Rgb(128, 128, 255));
+    /// <summary>Night sky (<c>hc2.theme</c>): white text on black, a lilac highlight, yellow button text. Dark.</summary>
+    public static SystemPalette NightSky { get; } = new(Rgb(0, 0, 0), Rgb(255, 255, 255), Rgb(214, 180, 253), Rgb(43, 43, 43), Rgb(166, 166, 166), Rgb(128, 128, 255), Rgb(0, 0, 0), Rgb(255, 238, 50));
 
     /// <summary>Desert (<c>hcwhite.theme</c>): dark text on cream, a rust highlight. Light.</summary>
-    public static SystemPalette Desert { get; } = new(Rgb(255, 250, 239), Rgb(61, 61, 61), Rgb(144, 57, 9), Rgb(255, 245, 227), Rgb(103, 103, 103), Rgb(28, 94, 117));
+    public static SystemPalette Desert { get; } = new(Rgb(255, 250, 239), Rgb(61, 61, 61), Rgb(144, 57, 9), Rgb(255, 245, 227), Rgb(103, 103, 103), Rgb(28, 94, 117), Rgb(255, 250, 239), Rgb(32, 32, 32));
 
     public static IReadOnlyList<(string Name, SystemPalette Palette)> Both { get; } = [("NightSky", NightSky), ("Desert", Desert)];
 

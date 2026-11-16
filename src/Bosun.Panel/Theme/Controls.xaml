@@ -93,7 +93,7 @@
                                 CornerRadius="{DynamicResource R.Control}"/>
                         <Border x:Name="wash" Background="{DynamicResource B.Text}" Opacity="0"
                                 CornerRadius="{DynamicResource R.Control}"/>
-                        <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center"
+                        <ContentPresenter x:Name="content" Margin="{TemplateBinding Padding}" HorizontalAlignment="Center"
                                           VerticalAlignment="Center" RecognizesAccessKey="True"/>
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -111,9 +111,19 @@
                                 <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
                             </MultiTrigger.Conditions>
                             <Setter TargetName="root" Property="Opacity" Value="1"/>
-                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Base}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.ButtonFace}"/>
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.GrayText}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="content" Property="TextElement.Foreground" Value="{DynamicResource B.GrayText}"/>
+                        </MultiTrigger>
+                        <!-- Pressed in a contrast theme: the highlight pair, opaque, where the panel's own themes wash. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsPressed" Value="True"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="wash" Property="Opacity" Value="0"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Accent}"/>
+                            <Setter TargetName="content" Property="TextElement.Foreground" Value="{DynamicResource B.HighlightText}"/>
                         </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -124,6 +134,22 @@
                 <Setter Property="Background" Value="{DynamicResource B.Hover}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource B.LineStrong}"/>
             </Trigger>
+            <!-- In a contrast theme (D02 T03 §10): the button colours the person chose in Windows, and under the
+                 pointer the highlight pair, so hover still shows where the window colour is the button's own. -->
+            <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                <Setter Property="Background" Value="{DynamicResource B.ButtonFace}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.ButtonText}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.ButtonText}"/>
+            </Trigger>
+            <MultiTrigger>
+                <MultiTrigger.Conditions>
+                    <Condition Property="IsMouseOver" Value="True"/>
+                    <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                </MultiTrigger.Conditions>
+                <Setter Property="Background" Value="{DynamicResource B.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
+            </MultiTrigger>
         </Style.Triggers>
     </Style>
 
@@ -143,6 +169,12 @@
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource B.Accent}"/>
                 <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+            </Trigger>
+            <!-- In a contrast theme: the highlight pair, so the one action that matters still stands out. -->
+            <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                <Setter Property="Background" Value="{DynamicResource B.Accent}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -498,6 +530,16 @@
                             <Setter TargetName="bd" Property="Opacity" Value="1"/>
                             <Setter TargetName="header" Property="TextElement.Foreground" Value="{DynamicResource B.GrayText}"/>
                         </MultiTrigger>
+                        <!-- Selected in a contrast theme: highlight text on the highlight, never the highlight as text. -->
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="True"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Accent}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.HighlightText}"/>
+                            <Setter TargetName="header" Property="TextElement.Foreground" Value="{DynamicResource B.HighlightText}"/>
+                        </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -651,7 +693,9 @@
                             </MultiTrigger.Conditions>
                             <Setter TargetName="row" Property="Opacity" Value="1"/>
                             <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource B.GrayText}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="box" Property="Background" Value="{DynamicResource B.Base}"/>
+                            <Setter TargetName="tick" Property="Stroke" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="words" Property="TextElement.Foreground" Value="{DynamicResource B.GrayText}"/>
                         </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -740,7 +784,7 @@
                                     <Border x:Name="bd" Background="{DynamicResource B.Raised}"
                                             BorderBrush="{DynamicResource B.Line}" BorderThickness="1"
                                             CornerRadius="{DynamicResource R.Control}">
-                                        <Path Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource B.TextDim}"
+                                        <Path x:Name="arrow" Data="M0,0 L4,4 L8,0" Stroke="{DynamicResource B.TextDim}"
                                               StrokeThickness="1.4" Margin="0,0,10,0" HorizontalAlignment="Right"
                                               VerticalAlignment="Center" SnapsToDevicePixels="True"/>
                                     </Border>
@@ -753,6 +797,15 @@
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
                                         </Trigger>
+                                        <!-- A disabled box in a contrast theme (D02 T03 §10): its edge and arrow in gray text. -->
+                                        <MultiTrigger>
+                                            <MultiTrigger.Conditions>
+                                                <Condition Property="IsEnabled" Value="False"/>
+                                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                                            </MultiTrigger.Conditions>
+                                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.GrayText}"/>
+                                            <Setter TargetName="arrow" Property="Stroke" Value="{DynamicResource B.GrayText}"/>
+                                        </MultiTrigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </ToggleButton.Template>
@@ -798,6 +851,8 @@
                             </MultiTrigger.Conditions>
                             <Setter TargetName="root" Property="Opacity" Value="1"/>
                             <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="Selected" Property="TextElement.Foreground" Value="{DynamicResource B.GrayText}"/>
+                            <Setter TargetName="Placeholder" Property="Foreground" Value="{DynamicResource B.GrayText}"/>
                         </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

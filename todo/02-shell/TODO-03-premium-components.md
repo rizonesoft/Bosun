@@ -49,6 +49,7 @@ title: "TODO-03 -- Premium components"
 | 8 | §8 | Command palette | §3 | [ ] |
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [ ] |
+| 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
 
 ## 1. Elevation and motion tokens
 
@@ -372,6 +373,31 @@ Filed 2026-11-16 by the completion review of `D02 T03 §7` (`docs/reviews/02-she
 - [ ] Commit: `theme: high contrast`
 
 **Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*HighContrastTests"` exits 0 and fails if `ThemeService` ignores `SystemParameters.HighContrast`; `pwsh scripts/render-pages.ps1` writes every view in three themes.
+
+## 11. Contrast preview and its smoke on the shown window
+
+Filed 2026-11-16 by the completion review of `D02 T03 §10` (`docs/reviews/02-shell/D02-T03-s10.md`): the contrast colours are proved on live controls off screen, where no control can take keyboard focus and no drop-down opens a window, so the focus ring WPF draws on a real Tab and a drop-down opened on screen are not yet proved in contrast. Turning on Windows' own contrast theme for a test would change the whole desktop of whoever is at it, so the panel gains a preview: started with `BOSUN_PANEL_CONTRAST` naming a Windows `.theme` file, it draws in that file's contrast colours as if Windows were in that theme, whatever Windows is in. The same preview lets a designer see any contrast theme without changing their own.
+
+**Phase:** 2
+**Needs:** display-session
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §1 and §19, and Windows' own contrast themes (`C:\Windows\Resources\Ease of Access Themes\hc2.theme`, `hcwhite.theme`).
+**Job:** a person in a contrast theme sees where the keyboard is and what is chosen in an open list.
+**Treatment:** the focus ring and the drop-down in the theme's highlight colours, read from the real window. Cheaper substitute that fails: a picture of the parts drawn by hand.
+**Chrome:** the shell's window from `D02 T02 §4` and the theme service from `D02 T03 §10`.
+
+**Build order:**
+
+1. Read a `.theme` file's colours. Done when: `SystemPalette.FromThemeFile` gives the palette Windows would.
+2. Use it when `BOSUN_PANEL_CONTRAST` names one. Done when: the panel draws in that contrast theme.
+3. Prove it on the shown window. Done when: the smoke sees the ring and the open list in its colours.
+
+- [ ] Add `SystemPalette.FromThemeFile(string path)` in `src/Bosun.Panel/Theme/HighContrastTheme.cs`, reading the `[Control Panel\Colors]` section's `Window`, `WindowText`, `Hilight`, `HilightText`, `GrayText`, `HotTrackingColor`, `ButtonFace` and `ButtonText`, bounded to 64 KB and refusing a missing or malformed value by name. Done when: a test reads `hc2.theme` and `hcwhite.theme` copies as the palettes `tests/Bosun.Panel.Tests/Helpers/ContrastPalettes.cs` holds, and a damaged copy is refused naming the value. Cheaper substitute: colours typed into the panel.
+- [ ] Add `PreviewContrast : IHighContrast` in `src/Bosun.Panel/Theme/ThemeService.cs`, always on with the file's palette, chosen by `App.MakeWindow` when `BOSUN_PANEL_CONTRAST` is set, and saying in the Activity pane that a preview is in force and from which file; a file that can't be read is said there and Windows' own setting used. Done when: a test of the choice sees each case, and a started panel with the variable set draws its window in the file's window colour. Cheaper substitute: a hidden switch with no word of it.
+- [ ] Add `ContrastTests` to `tests/Bosun.Panel.E2E`, starting the panel with `BOSUN_PANEL_CONTRAST` naming `hc2.theme`: a real Tab puts the focus ring on screen in the highlight colour, and the theme box opened through UI Automation shows its selected item as highlight text on the highlight, both read from the screen's pixels. Done when: both pass in a desktop session, and fail with the contrast setters removed from `Controls.xaml`. Cheaper substitute: the off-screen drawings of the parts.
+- [ ] Commit: `theme: contrast preview and its smoke`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ContrastTests"` exits 0 in a desktop session, and `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*HighContrastTests"` exits 0.
 
 ## Verification
 

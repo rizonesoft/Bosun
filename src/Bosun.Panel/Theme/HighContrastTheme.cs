@@ -23,13 +23,15 @@ public static class HighContrastMode
 
 /// <summary>
 /// The colours of a Windows contrast theme, the ones a contrast theme lets the person choose (Settings, Accessibility,
-/// Contrast themes): the window and its text, the highlight and its text, and the gray text of what is disabled.
+/// Contrast themes): the window and its text, the highlight and its text, the gray text of what is disabled, and a button's face and text
+/// (Windows' ButtonFace and ButtonText, which WPF calls Control and ControlText).
 /// </summary>
-public sealed record SystemPalette(Color Window, Color WindowText, Color Highlight, Color HighlightText, Color GrayText, Color HotTrack)
+public sealed record SystemPalette(Color Window, Color WindowText, Color Highlight, Color HighlightText, Color GrayText, Color HotTrack,
+    Color ButtonFace, Color ButtonText)
 {
     /// <summary>The colours Windows has in force now.</summary>
     public static SystemPalette Current() => new(SystemColors.WindowColor, SystemColors.WindowTextColor, SystemColors.HighlightColor,
-        SystemColors.HighlightTextColor, SystemColors.GrayTextColor, SystemColors.HotTrackColor);
+        SystemColors.HighlightTextColor, SystemColors.GrayTextColor, SystemColors.HotTrackColor, SystemColors.ControlColor, SystemColors.ControlTextColor);
 }
 
 /// <summary>
@@ -39,13 +41,14 @@ public sealed record SystemPalette(Color Window, Color WindowText, Color Highlig
 /// window colour; Windows' guidance is text on window, the highlight for what is selected, and gray text only for
 /// what is disabled. So: every surface, hover and soft tint is the window; every text, line and status colour is the
 /// window text (a status still says its word); the accent is the highlight, and what sits on it the highlight text.
-/// Shadows are not drawn. The keys <c>B.GrayText</c> and <c>B.HighlightText</c> are this dictionary's own, for the
-/// templates' contrast triggers.
+/// Shadows are not drawn. The keys of <see cref="OwnKeys"/> (gray text, highlight text, and a button's face and text)
+/// are this dictionary's own, for the templates' contrast triggers.
 /// </summary>
 public static class HighContrastTheme
 {
     /// <summary>The keys only this dictionary holds, which the templates' contrast triggers name.</summary>
-    public static IReadOnlyList<string> OwnKeys { get; } = ["C.GrayText", "B.GrayText", "C.HighlightText", "B.HighlightText"];
+    public static IReadOnlyList<string> OwnKeys { get; } =
+        ["C.GrayText", "B.GrayText", "C.HighlightText", "B.HighlightText", "C.ButtonFace", "B.ButtonFace", "C.ButtonText", "B.ButtonText"];
 
     /// <summary>Which palette colour a theme colour key takes.</summary>
     public static Color For(string key, SystemPalette palette) => key switch
@@ -82,7 +85,7 @@ public static class HighContrastTheme
                 made[key] = none;
             }
         }
-        foreach (var (name, colour) in new[] { ("GrayText", palette.GrayText), ("HighlightText", palette.HighlightText) })
+        foreach (var (name, colour) in new[] { ("GrayText", palette.GrayText), ("HighlightText", palette.HighlightText), ("ButtonFace", palette.ButtonFace), ("ButtonText", palette.ButtonText) })
         {
             made["C." + name] = colour; // the keys of OwnKeys
             made["B." + name] = Frozen(colour);
