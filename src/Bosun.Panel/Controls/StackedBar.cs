@@ -87,7 +87,7 @@ public class StackedBar : Control
 
     /// <summary>Whether shares can be drawn and said: at least one, each named, finite and not negative.</summary>
     public static bool Readable(IReadOnlyList<BarPart>? parts) =>
-        parts is { Count: > 0 } && parts.All(p => p is not null && double.IsFinite(p.Value) && p.Value >= 0);
+        parts is { Count: > 0 } && parts.All(p => p is not null && !string.IsNullOrWhiteSpace(p.Name) && double.IsFinite(p.Value) && p.Value >= 0);
 
     /// <summary>
     /// Where each share's segment sits in a bar of a width: its share of the width less the gaps, a gap after each drawn
@@ -95,9 +95,11 @@ public class StackedBar : Control
     /// </summary>
     public static IReadOnlyList<(double X, double Width)> Layout(IReadOnlyList<double> values, double width, double gap)
     {
-        var total = values.Sum();
+        // Shares are taken over the largest first, so values near double's limit neither overflow the sum nor a width.
+        var largest = values.Count == 0 ? 0 : values.Max();
         var drawn = values.Count(v => v > 0);
-        if (total <= 0 || drawn == 0) return values.Select(_ => (0.0, 0.0)).ToList();
+        if (!(largest > 0) || drawn == 0) return values.Select(_ => (0.0, 0.0)).ToList();
+        var total = values.Sum(v => v / largest);
         var room = Math.Max(0, width - gap * (drawn - 1));
         var placed = new List<(double, double)>(values.Count);
         var x = 0.0;
@@ -108,7 +110,7 @@ public class StackedBar : Control
                 placed.Add((x, 0));
                 continue;
             }
-            var w = room * v / total;
+            var w = room * (v / largest / total);
             placed.Add((x, w));
             x += w + gap;
         }

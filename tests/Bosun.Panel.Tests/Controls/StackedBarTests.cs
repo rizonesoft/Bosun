@@ -113,7 +113,7 @@ public class StackedBarTests
         }, 480, 120);
     }
 
-    public static TheoryData<int> Unreadable() => new() { 0, 1, 2, 3 };
+    public static TheoryData<int> Unreadable() => new() { 0, 1, 2, 3, 4, 5 };
 
     [Theory]
     [MemberData(nameof(Unreadable))]
@@ -124,7 +124,9 @@ public class StackedBarTests
             0 => null,
             1 => [],
             2 => [new("Windows", double.NaN), new("WSL", 1)],
-            _ => [new("Windows", -2), new("WSL", 1)],
+            3 => [new("Windows", -2), new("WSL", 1)],
+            4 => [new(null!, 2), new("WSL", 1)],              // review round 1: a missing name threw on the legend
+            _ => [new(" ", 2), new("WSL", 1)],
         };
         PageRenderer.InPage("Dark", () => Bar(("Windows", 3), ("WSL", 1)), page =>
         {
@@ -143,6 +145,17 @@ public class StackedBarTests
             Assert.DoesNotContain(StackedBar.NotAvailable, PageRenderer.TextsOf(page).Where(t => ShellSupport.Under<TextBlock>(bar).Any(b => b.IsVisible && b.Text == t)));
             return 0;
         }, 480, 120);
+    }
+
+    [Fact]
+    public void Shares_near_the_limit_of_a_double_lay_out_without_overflowing()
+    {
+        // Review round 1: 1e307 twice overflowed the sum and each width to infinity.
+        var huge = StackedBar.Layout([1e307, 1e307], Wide, BarTrack.Gap);
+        Assert.Equal([(Wide - BarTrack.Gap) / 2, (Wide - BarTrack.Gap) / 2], huge.Select(s => s.Width).ToArray(), (a, b) => Math.Abs(a - b) < 1e-6);
+        var max = StackedBar.Layout([double.MaxValue, double.MaxValue, 0], Wide, BarTrack.Gap);
+        Assert.All(max, s => Assert.True(double.IsFinite(s.Width) && double.IsFinite(s.X)));
+        Assert.Equal(Wide, max.Sum(s => s.Width) + BarTrack.Gap, 6);
     }
 
     [Fact]
