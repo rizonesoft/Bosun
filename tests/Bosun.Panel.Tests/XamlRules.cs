@@ -59,10 +59,19 @@ static partial class XamlRules
     [GeneratedRegex(@"\d+(?:\.\d+)?|\.\d+")]
     private static partial Regex Number();
 
-    // BlurRadius = 8, new CornerRadius(8), new Duration(TimeSpan.FromMilliseconds(220)): the same in code.
-    // And through the property itself, as the FontSize rule reads it (round 2): SetValue(X.BlurRadiusProperty, 20.0),
-    // new Setter(Border.CornerRadiusProperty, 8d).
-    [GeneratedRegex(@"\bBlurRadius\s*=\s*[0-9.]+|\bnew\s+CornerRadius\s*\(\s*[0-9.][^)]*\)|\bnew\s+Duration\s*\(\s*TimeSpan\s*\.\s*From\w+\s*\(\s*[0-9.]+|\b(?:BlurRadius|CornerRadius)Property\s*,\s*[0-9.]+")]
+    // The same in code, each with its value as the group v, which is what is judged (so a zero passes): BlurRadius = 8;
+    // CornerRadius = new(12), target-typed, or new CornerRadius(8) anywhere; a length given to an animation, written
+    // as new Duration(TimeSpan.From...(220)), as Duration = TimeSpan.From...(220) (TimeSpan converts to Duration), or as
+    // a TimeSpan in an animation's constructor (completion review); and through the property itself, as the FontSize
+    // rule reads it (round 2): SetValue(X.BlurRadiusProperty, 20.0), new Setter(Border.CornerRadiusProperty, 8d).
+    // A TimeSpan anywhere else is not an animation's (a refresh interval is not motion), so it is not read.
+    [GeneratedRegex(@"\bBlurRadius\s*=\s*(?<v>[0-9.]+)"
+        + @"|\bCornerRadius\s*=\s*new\s*(?:CornerRadius\s*)?\(\s*(?<v>[0-9.][^)]*)\)"
+        + @"|\bnew\s+CornerRadius\s*\(\s*(?<v>[0-9.][^)]*)\)"
+        + @"|\bDuration\s*=\s*(?:new\s+Duration\s*\(\s*)?TimeSpan\s*\.\s*From\w+\s*\(\s*(?<v>[0-9.]+)"
+        + @"|\bnew\s+Duration\s*\(\s*TimeSpan\s*\.\s*From\w+\s*\(\s*(?<v>[0-9.]+)"
+        + @"|\bnew\s+\w*Animation\w*\s*\([^;]*?TimeSpan\s*\.\s*From\w+\s*\(\s*(?<v>[0-9.]+)"
+        + @"|\b(?:BlurRadius|CornerRadius)Property\s*,\s*(?<v>[0-9.]+)")]
     private static partial Regex ThemedMeasureInCode();
 
     // FontSize = 13, an initialiser's FontSize = 13.0, SetValue(X.FontSizeProperty, 13), new Setter(X.FontSizeProperty, 13.0)
@@ -173,7 +182,7 @@ static partial class XamlRules
             if (m.Groups[2].Value != "Transparent") Add(m, $"colour {Regex.Replace(m.Value, @"\s+", "")} written in code: use a B.* or C.* resource");
         foreach (Match m in FontSizeNumber().Matches(code)) Add(m, $"font size set to a number ({Flat(m)}...): use a T.* resource");
         foreach (Match m in ThemedMeasureInCode().Matches(code))
-            if (HasNonZeroNumber(m.Value)) Add(m, $"{Flat(m)} written in code: use an R.* or Elevation.* resource, or Theme/Motion.cs");
+            if (HasNonZeroNumber(m.Groups["v"].Value)) Add(m, $"{Flat(m)} written in code: use an R.* or Elevation.* resource, or Theme/Motion.cs");
         return found.OrderBy(v => v.Line).ToList();
     }
 
