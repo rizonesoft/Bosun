@@ -72,7 +72,7 @@ public static partial class RenderCatalog
         // read at all, and after a save that only half took.
         new("settings", "general", () => Settings(_ => { })) { Shows = "Start with Windows, in the tray" },
         // D03 T01 §2: the Memory page with live data, and with WSL and the report unreadable and a counter unmeasured.
-        MemoryCase("data", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "Overlapping builds"),
+        MemoryCase("data", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "32.0 GB has been enough so far.", tall: true),  // its Decision card too
         // D03 T01 §3: the history, a gap in it breaking the line; its table; no history; a history that can't be read.
         MemoryCase("history-table", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "Lowest available", page => page.ShowAsTable.Execute(null)),
         MemoryCase("history-none", new Memory.MemoryPageTests.Source(), "No history in this range yet"),
@@ -98,6 +98,22 @@ public static partial class RenderCatalog
             Report = HistoryReport(),
             Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),
         }, "could not be read for the decision", tall: true),
+        // The card's other states (the completion review): reading, withheld for rows rejected, no Windows samples yet,
+        // and a later failure keeping the verdict with its age.
+        MemoryCase("decision-reading", new Memory.MemoryPageTests.Source { Report = HistoryReport(), HoldFortnight = new TaskCompletionSource() },
+            Bosun.Panel.Memory.MemoryPage.ReadingDecision, tall: true),
+        MemoryCase("decision-withheld", new Memory.MemoryPageTests.Source
+        {
+            Report = HistoryReport(),
+            Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(complete: false), Memory.MemoryPageTests.Now),
+        }, "1 file could not be read and 7 rows were rejected", tall: true),
+        MemoryCase("decision-no-samples", new Memory.MemoryPageTests.Source
+        {
+            Report = HistoryReport(),
+            Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(
+                evidence: Memory.MemoryPageTests.Evidence.Replace("\"days_with_samples\":14", "\"days_with_samples\":0")), Memory.MemoryPageTests.Now),
+        }, "Not yet: 0 of the 7 days", tall: true),
+        KeptDecision(),
         MemoryCase("unreadable", new Memory.MemoryPageTests.Source
         {
             Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Of(Memory.MemoryPageTests.Snapshot(memory: "{\"available_mb\":null,\"total_mb\":32768,\"commit_mb\":null}"), Memory.MemoryPageTests.Now),
@@ -287,6 +303,25 @@ public static partial class RenderCatalog
             .Where(m => m is < 600 or > 720)
             .Select(m => (m, (long?)(8000 + (long)(4000 * Math.Sin(m / 180.0)) - (m is > 200 and < 260 ? 6000 : 0)))).ToArray();
         return Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Of(Memory.MemoryPageTests.ReportOf(series: Memory.MemoryHistoryTests.Series(points)), Memory.MemoryPageTests.Now);
+    }
+
+    /// <summary>A verdict read, then a fortnight that fails: the card keeps the verdict and says how old it is.</summary>
+    private static RenderCase KeptDecision()
+    {
+        // A source of its own each time it is drawn (once a theme): the failure it ends with must not be the next
+        // theme's first reading.
+        Func<FrameworkElement, Task>? ready = null;
+        return new RenderCase("memory", "decision-kept", () =>
+        {
+            var source = new Memory.MemoryPageTests.Source { Report = HistoryReport() };
+            var (view, isReady) = Memory.MemoryPageTests.Rendered(source, page =>
+            {
+                source.Fortnight = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s.");
+                page.RefreshNow!.Execute(null);
+            });
+            ready = isReady;
+            return view;
+        }) { Shows = "Showing the verdict from", Ready = view => ready!(view), Height = 1100 };
     }
 
     private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows, Action<Bosun.Panel.Memory.MemoryPage>? then = null, bool tall = false)

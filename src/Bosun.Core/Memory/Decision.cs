@@ -53,7 +53,7 @@ public static class DecisionRule
         // A rejected row is a sample thrown away, perhaps the very minute of pressure: as incomplete as a file unread.
         if (!report.Read.Complete || report.Read.RejectedRows > 0 || report.Read.UnreadableFiles > 0)
             return new(DecisionKind.Withheld,
-                $"No verdict: the history is incomplete ({report.Read.UnreadableFiles} files could not be read, {report.Read.RejectedRows} rows rejected).", evidence);
+                $"No verdict: the history is incomplete: {ReadLoss.Words(report.Read)}.", evidence);
 
         var reasons = new List<string>();
         var unknown = new List<string>();
@@ -65,7 +65,8 @@ public static class DecisionRule
         else unknown.Add("minutes below the pressure line");
         if (w.PeakCommitRatio is { } ratio)
         {
-            evidence.Add($"committed memory peaked at {(ratio * 100).ToString("0", CultureInfo.InvariantCulture)}% of its limit");
+            // One decimal, so 89.9% beside "enough" is never shown as the 90% that would have meant "more".
+            evidence.Add($"committed memory peaked at {(Math.Floor(Math.Round(ratio * 1000, 6)) / 10).ToString("0.0", CultureInfo.InvariantCulture)}% of its limit");
             if (ratio >= CommitPressure) reasons.Add("committed memory reached 90% of its limit");
         }
         else unknown.Add("the peak commit");
@@ -77,6 +78,8 @@ public static class DecisionRule
         }
         else if (report.Wsl.Samples > 0) unknown.Add("WSL out-of-memory kills");
 
+        // A figure not measured is said even when another reason already carries the verdict.
+        foreach (var figure in unknown) evidence.Add($"{figure}: not measured");
         if (reasons.Count > 0) return new(DecisionKind.More, $"More memory would help: {string.Join("; ", reasons)}.", evidence);
         if (unknown.Count > 0) return new(DecisionKind.Withheld, $"No verdict: {string.Join(" and ", unknown)} not measured.", evidence);
         var installed = w.TotalMb is { } total ? Gb(total) : "The installed memory";

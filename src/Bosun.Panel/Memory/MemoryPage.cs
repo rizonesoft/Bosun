@@ -298,7 +298,7 @@ public sealed class MemoryPage : PageBase
         if (latest is { Value: null })
             notes.Add($"The history could not be read again: {latest.Why} Showing the read from {ReadWhen(good.ReadAt)}.");
         if (low is null) notes.Add(NoHistory);
-        if (!doc.Read.Complete) notes.Add($"The history is incomplete: {doc.Read.UnreadableFiles} files could not be read and {doc.Read.RejectedRows} rows were rejected.");
+        if (!doc.Read.Complete) notes.Add($"The history is incomplete: {ReadLoss.Words(doc.Read)}.");
         HistoryState = string.Join(" ", notes);
     }
 
@@ -371,7 +371,7 @@ public sealed class MemoryPage : PageBase
             Overlap = new Metric(report.Builds.MaxOverlap.ToString(CultureInfo.InvariantCulture) + " at once");
             OverlapNote = "Most in the last 24 hours" + (report.Windows.MinAvailableMb is { } low ? $"; lowest headroom {Gb(low)}" : "; lowest headroom not measured");
             PeaksNote = report.Read.Complete ? ""
-                : $"The last 24 hours' history is incomplete: {report.Read.UnreadableFiles} files could not be read and {report.Read.RejectedRows} rows were rejected, so peaks may be higher.";
+                : $"The last 24 hours' history is incomplete: {ReadLoss.Words(report.Read)}, so peaks may be higher.";
         }
         else if (_report is { } failed)
         {

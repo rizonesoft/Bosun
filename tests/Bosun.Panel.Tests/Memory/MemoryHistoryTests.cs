@@ -88,7 +88,7 @@ public class MemoryHistoryTests
             Assert.All(page.Points, p => Assert.Null(p.LowestMb));                              // a null sample is missing, not 0
             Assert.Equal("", page.LowestSummary);
             Assert.Contains(MemoryPage.NoHistory, page.HistoryState, StringComparison.Ordinal);
-            Assert.Contains("The history is incomplete: 1 files could not be read and 7 rows were rejected.", page.HistoryState, StringComparison.Ordinal);
+            Assert.Contains("The history is incomplete: 1 file could not be read and 7 rows were rejected.", page.HistoryState, StringComparison.Ordinal);
         });
     }
 

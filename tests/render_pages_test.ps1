@@ -61,8 +61,13 @@ try {
   $index = Get-Content -LiteralPath (Join-Path $out 'index.json') -Raw | ConvertFrom-Json
   $pngs = @(Get-ChildItem -LiteralPath $out -Filter '*.png' | Sort-Object Name | ForEach-Object Name)
   Check "the index names every picture and no other ($($pngs.Count))" ((@($index.renders.file | Sort-Object) -join ',') -eq ($pngs -join ','))
-  Check 'each picture is a PNG of 1360 x 860' (-not (@($index.renders | Where-Object { $_.width -ne 1360 -or $_.height -ne 860 })) -and -not ($pngs | Where-Object {
-    $bytes = [IO.File]::ReadAllBytes((Join-Path $out $_)); -not ($bytes.Length -gt 1000 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47) }))
+  # The panel's 1360 wide, at least its 860 tall (a page whose last card is below that is drawn taller, D03 T01 §6),
+  # and each PNG the size its index row says, read from the PNG's own header.
+  Check 'each picture is a PNG 1360 wide, at least 860 tall, the size its index says' (-not (@($index.renders | Where-Object { $_.width -ne 1360 -or $_.height -lt 860 })) -and -not ($index.renders | Where-Object {
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $out $_.file))
+    $w = ([int]$bytes[16] -shl 24) -bor ([int]$bytes[17] -shl 16) -bor ([int]$bytes[18] -shl 8) -bor [int]$bytes[19]
+    $h = ([int]$bytes[20] -shl 24) -bor ([int]$bytes[21] -shl 16) -bor ([int]$bytes[22] -shl 8) -bor [int]$bytes[23]
+    -not ($bytes.Length -gt 1000 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47 -and $w -eq $_.width -and $h -eq $_.height) }))
   Check 'the index says which commit the pictures are of' ($index.commit -match '^([0-9a-f]{40}|unknown)$')
 
   # A render test that fails after its index was written (a check that reads the finished folder): the run fails, and

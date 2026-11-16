@@ -149,3 +149,7 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Memory/MemoryPage.cs`: keep the last range and chart or table view over a restart (D03 T01 §3 completion review, 2026-11-17).
 - `src/Bosun.Panel/Memory/MemoryPage.cs` (`DrawHistory`): measure a cold 14-day read end to end (report, parse, bucket) against a two-second budget, UI stalls under 50 ms, a damaged log included (D03 T01 §3 completion review, 2026-11-17).
 - `src/Bosun.Panel/Controls/SeriesChart.cs`: intermediate ticks and keyboard point inspection, checked at the least window size and 200% scaling (D03 T01 §3 completion review, 2026-11-17).
+- `src/Bosun.Core/Memory/Decision.cs` (`DecisionRule`): tell hardware pressure from configuration pressure (a commit limit a bigger page file would lift, a WSL VM capped below what the host has), each with its own next step, on documented fixtures (D03 T01 §6 completion review, 2026-11-17).
+- `src/Bosun.Panel/Memory/MemoryView.xaml` (Decision card): from each reason, one action shows its time and the measurements behind it (the commit peak's commit and limit) (D03 T01 §6 completion review, 2026-11-17).
+- `src/Bosun.Panel/Memory/MemoryView.xaml` (Decision card): say the evidence window (the last 14 days) and the latest sample time on every verdict (D03 T01 §6 completion review, 2026-11-17).
+- `src/core.hpp` (`decision_evidence`): measure a normal and a damaged 14-day log against a two-second warm budget and no UI stall over 100 ms; sort only the sys rows it needs (D03 T01 §6 completion review, 2026-11-17).

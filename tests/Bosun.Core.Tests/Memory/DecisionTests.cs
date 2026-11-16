@@ -49,13 +49,15 @@ public class DecisionTests
         Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(Report(complete: false)).Kind);
         // Rows rejected while the read still counts as complete: samples were thrown away, so no verdict either.
         var rejected = DecisionRule.Decide(Report(rejected: 1));
-        Assert.Equal((DecisionKind.Withheld, "No verdict: the history is incomplete (0 files could not be read, 1 rows rejected)."), (rejected.Kind, rejected.Verdict));
+        Assert.Equal((DecisionKind.Withheld, "No verdict: the history is incomplete: 0 files could not be read and 1 row was rejected."), (rejected.Kind, rejected.Verdict));
         var unmeasured = DecisionRule.Decide(Report(lowMinutes: null));
         Assert.Equal((DecisionKind.Withheld, "No verdict: minutes below the pressure line not measured."), (unmeasured.Kind, unmeasured.Verdict));
         Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(Report(commit: null)).Kind);
         Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(Report(days: null)).Kind);     // an older bosun.exe
         // A reason that was measured still stands beside one that wasn't.
-        Assert.Equal(DecisionKind.More, DecisionRule.Decide(Report(lowMinutes: 12, commit: null)).Kind);
+        var partly = DecisionRule.Decide(Report(lowMinutes: 12, commit: null));
+        Assert.Equal(DecisionKind.More, partly.Kind);
+        Assert.Contains("the peak commit: not measured", partly.Evidence);                  // said, though the verdict stands
     }
 
     [Theory]
@@ -67,7 +69,7 @@ public class DecisionTests
         var d = DecisionRule.Decide(Report(lowMinutes: minutes, commit: commit, oom: oom));
         Assert.Equal((DecisionKind.More, verdict), (d.Kind, d.Verdict));
         Assert.Contains($"{minutes} {(minutes == 1 ? "minute" : "minutes")} below the 2.0 GB pressure line", d.Evidence);
-        Assert.Contains($"committed memory peaked at {commit * 100:0}% of its limit", d.Evidence);
+        Assert.Contains(FormattableString.Invariant($"committed memory peaked at {commit * 100:0.0}% of its limit"), d.Evidence);
     }
 
     [Fact]
@@ -78,6 +80,15 @@ public class DecisionTests
         Assert.Equal("64.0 GB has been enough so far.", bigger.Verdict);
         Assert.Contains("counted since the memory changed to 64.0 GB (2026-11-05)", bigger.Evidence);
         Assert.Equal("The installed memory has been enough so far.", DecisionRule.Decide(Report(total: null)).Verdict);
+    }
+
+    [Fact]
+    public void A_commit_just_under_the_trigger_is_never_shown_as_the_trigger()
+    {
+        var d = DecisionRule.Decide(Report(commit: 0.8999));
+        Assert.Equal(DecisionKind.Enough, d.Kind);
+        Assert.Contains("committed memory peaked at 89.9% of its limit", d.Evidence);
+        Assert.Contains("committed memory peaked at 90.0% of its limit", DecisionRule.Decide(Report(commit: 0.9)).Evidence);
     }
 
     [Fact]

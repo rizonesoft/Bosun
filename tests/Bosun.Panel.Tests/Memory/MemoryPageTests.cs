@@ -283,7 +283,7 @@ public class MemoryPageTests
         OnPage(source, (page, _, _, _) =>
         {
             Assert.StartsWith("History is not being written", page.HistoryNote, StringComparison.Ordinal);
-            Assert.Equal("The last 24 hours' history is incomplete: 1 files could not be read and 7 rows were rejected, so peaks may be higher.", page.PeaksNote);
+            Assert.Equal("The last 24 hours' history is incomplete: 1 file could not be read and 7 rows were rejected, so peaks may be higher.", page.PeaksNote);
         });
     }
 
@@ -398,6 +398,11 @@ public class MemoryPageTests
             var recto = ShellSupport.Under<TextBlock>(grid).First(t => t.Text == "Recto");
             Assert.Equal("D:/Recto", recto.ToolTip);
             Assert.Equal("D:/Recto", System.Windows.Automation.AutomationProperties.GetHelpText(recto));
+            // Each Retry says what it does (D03 T01 §6 completion review).
+            var buttons = ShellSupport.Under<Button>(view).Where(b => b.Name.Length > 0).ToDictionary(b => b.Name);
+            Assert.Equal("Read the history again now", buttons["HistoryRetry"].ToolTip);
+            Assert.Equal("Read the last 14 days again for the decision", buttons["DecisionRetry"].ToolTip);
+            Assert.Equal("Retry reading the decision's history", System.Windows.Automation.AutomationProperties.GetName(buttons["DecisionRetry"]));
             return 0;
         }, 1360, 860);
     }
@@ -426,8 +431,14 @@ public class MemoryPageTests
             if (then is not null)
             {
                 for (var i = 0; i < 20; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+                // The card's first reading is in before what follows changes the source.
+                for (var i = 0; i < 50 && source.HoldFortnight is null && page.DecisionState == MemoryPage.ReadingDecision; i++)
+                    await Dispatcher.Yield(DispatcherPriority.Background);
+                var fortnights = source.Fortnights;
                 then(page);
-                for (var i = 0; i < 5; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+                // What it started (a refresh) is let finish: the fortnight it asked for is read and drawn.
+                for (var i = 0; i < 50 && source.Fortnights == fortnights && source.HoldFortnight is null; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+                for (var i = 0; i < 10; i++) await Dispatcher.Yield(DispatcherPriority.Background);
             }
             for (var i = 0; i < 50 && settles && page.State != PageState.Failed && (page.State == PageState.Loading || page.Overlap is null || page.Rows.Count == 0 && page.TableNote.Length == 0); i++)
                 await Dispatcher.Yield(DispatcherPriority.Background);

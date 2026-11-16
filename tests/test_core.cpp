@@ -1017,6 +1017,18 @@ static void decision() {
     CHECK(!none_before.wsl_oom_baseline_known);
     CHECK(!oom({{"2026-11-06T23:00:00", 5}}).wsl_oom_kills_in_period);  // no sample in the period: null
     CHECK(!oom({}).wsl_oom_kills_in_period);
+    // Kills before an upgrade within the period are the smaller machine's: the count starts at the upgrade, from the
+    // last sample before it (completion review).
+    std::vector<dm::Row> upgraded{
+        sys("2026-11-06T23:00:00", "wsl", "oom_kills", 0),
+        sys("2026-11-07T10:00:00", "win", "total_mb", 32768), sys("2026-11-07T11:00:00", "wsl", "oom_kills", 4),
+        sys("2026-11-08T10:00:00", "win", "total_mb", 65536), sys("2026-11-08T11:00:00", "wsl", "oom_kills", 4),
+        sys("2026-11-09T11:00:00", "wsl", "oom_kills", 4),
+    };
+    dm::Report up = dm::aggregate(upgraded, 2048, "2026-11-07T00:00:00");
+    CHECK(up.capacity_since == "2026-11-08T10:00:00");
+    CHECK(up.wsl_oom_kills_in_period == 0);
+    CHECK(up.wsl_oom_baseline_known);
 
     // The floor reaches the JSON and the text.
     CHECK(dm::report_json(r, dm::BuildOverlap{}, dm::ReadStatus{}, "t", "s", 7, 3000).find("\"low_mb\":3000") != std::string::npos);

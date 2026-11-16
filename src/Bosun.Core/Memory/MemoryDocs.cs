@@ -192,6 +192,17 @@ public sealed record ReportReadDoc
     [JsonPropertyName("rejected_rows")] public required long RejectedRows { get; init; }
 }
 
+/// <summary>What a report's read lost, in words: "1 file could not be read and 7 rows were rejected".</summary>
+public static class ReadLoss
+{
+    public static string Words(ReportReadDoc read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        return $"{read.UnreadableFiles} {(read.UnreadableFiles == 1 ? "file" : "files")} could not be read and "
+            + $"{read.RejectedRows} {(read.RejectedRows == 1 ? "row was" : "rows were")} rejected";
+    }
+}
+
 public sealed record ReportWindowsDoc
 {
     [JsonPropertyName("samples")] public required long Samples { get; init; }

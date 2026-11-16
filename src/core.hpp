@@ -319,6 +319,10 @@ inline void decision_evidence(Report& r, const std::vector<Row>& rows, int64_t l
         previous_total = row->private_mb;
     }
     r.total_mb = previous_total;
+    // The OOM count is scoped like the rest: from the period's start, or from an upgrade within it, the last sample
+    // before that being its baseline, so kills on the smaller machine never count against the memory now.
+    const std::string oom_from = !r.capacity_since.empty() && r.capacity_since > since ? r.capacity_since : since;
+    auto oom_in_scope = [&](const Row& row) { return oom_from.empty() || row.ts >= oom_from; };
     std::set<std::string> low_minutes, days;
     std::map<std::string, std::pair<std::optional<int64_t>, std::optional<int64_t>>> commit_by_ts;
     std::optional<int64_t> oom_last;
@@ -327,8 +331,8 @@ inline void decision_evidence(Report& r, const std::vector<Row>& rows, int64_t l
     for (const Row* row : ordered) {
         if (row->kind != "sys") continue;
         if (row->side == "wsl" && row->name == "oom_kills") {
-            if (!in_period(*row)) {
-                oom_last = row->private_mb;  // the last before the period: the baseline
+            if (!oom_in_scope(*row)) {
+                oom_last = row->private_mb;  // the last before the period (or the upgrade): the baseline
                 r.wsl_oom_baseline_known = true;
                 continue;
             }
