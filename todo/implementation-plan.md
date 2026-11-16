@@ -61,7 +61,7 @@ Sections: 5 | Checklist items: 55
 
 ### Phase 2: Shell and brand
 
-Sections: 24 | Checklist items: 244
+Sections: 24 | Checklist items: 249
 
 | Status | Reference   | Deliverable                                 | Needs           | Items |
 | ------ | ----------- | ------------------------------------------- | --------------- | ----- |
@@ -88,7 +88,7 @@ Sections: 24 | Checklist items: 244
 | [x]    | D02 T03 §7  | Skeleton and page transitions               | none            | 12    |
 | [ ]    | D02 T03 §8  | Command palette                             | display-session | 11    |
 | [ ]    | D02 T03 §9  | In-window toasts                            | display-session | 8     |
-| [ ]    | D02 T03 §10 | High contrast theme and renders             | none            | 6     |
+| [ ]    | D02 T03 §10 | High contrast theme and renders             | none            | 11    |
 
 ### Phase 3: Monitoring
 
@@ -146,4 +146,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 54/89 verified sections, 7 ready to run now.
 
-Checklist: 588/774 items completed (includes Commit items).
+Checklist: 588/779 items completed (includes Commit items).
