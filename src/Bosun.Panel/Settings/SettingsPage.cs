@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows.Input;
 using Bosun.Core;
 using Bosun.Panel.Mvvm;
@@ -33,6 +34,9 @@ public sealed class SettingsPage : PageBase
     private ThemeOption _selectedTheme;
     private bool _startWithWindows, _notifyMemoryPressure;
     private string? _notice, _startupNote, _status;
+    private long _storedFloor = PanelSettings.DefaultPressureFloorMb;
+    private string _floorText = "";
+    private string? _floorError;
 
     public SettingsPage(PanelSettingsStore store, StartupEntry startup, ActivityLog log, Action openStartupSettings, Bosun.Panel.Theme.ThemeService? theme = null)
         : base("Settings", "How the panel starts, looks and notifies.")
@@ -128,6 +132,44 @@ public sealed class SettingsPage : PageBase
         }
     }
 
+    /// <summary>
+    /// The pressure alert threshold as the person has typed it, in MB (D03 T01 §4, design/SPEC.md §15): read by the
+    /// pressure check (src/Bosun.Panel/Tray/PressureCheck.cs) once saved. What can't be a threshold is refused beside
+    /// the field (<see cref="PressureFloorError"/>), and no save goes through while it is.
+    /// </summary>
+    public string PressureFloorText
+    {
+        get => _floorText;
+        set
+        {
+            if (!Set(ref _floorText, value ?? "")) return;
+            PressureFloorError = FloorFault(_floorText, out _);
+            Edited();
+        }
+    }
+
+    /// <summary>Why the threshold as typed can't be saved; null when it can.</summary>
+    public string? PressureFloorError
+    {
+        get => _floorError;
+        private set => Set(ref _floorError, value);
+    }
+
+    /// <summary>Why <paramref name="text"/> is not a threshold, or null with its value.</summary>
+    public static string? FloorFault(string text, out long floor)
+    {
+        floor = 0;
+        var trimmed = text.Trim();
+        var range = string.Create(CultureInfo.InvariantCulture, $"from {PanelSettings.MinPressureFloorMb:N0} to {PanelSettings.MaxPressureFloorMb:N0} MB");
+        if (trimmed.Length == 0) return $"Enter the threshold in MB, {range}.";
+        if (!trimmed.All(char.IsAsciiDigit)) return $"Enter a whole number of MB, {range}.";
+        if (!long.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out floor) || floor > PanelSettings.MaxPressureFloorMb)
+            return string.Create(CultureInfo.InvariantCulture, $"That is more than the most a threshold may be, {PanelSettings.MaxPressureFloorMb:N0} MB.");
+        if (floor < PanelSettings.MinPressureFloorMb)
+            return string.Create(CultureInfo.InvariantCulture, $"That is less than the least a threshold may be, {PanelSettings.MinPressureFloorMb:N0} MB.");
+        return null;
+    }
+
     /// <summary>Why the settings are not the file's own: it was moved aside, and the defaults are in use.</summary>
     public string? Notice
     {
@@ -172,7 +214,8 @@ public sealed class SettingsPage : PageBase
     /// <summary>Opens Windows' own start-up settings, the supported way to turn an entry back on.</summary>
     public ICommand OpenStartupSettings { get; }
 
-    public override bool HasUnsavedEdits => State == PageState.Data && (_selectedTheme.Value != _storedTheme || _startWithWindows != _storedStart || _notifyMemoryPressure != _storedNotify);
+    public override bool HasUnsavedEdits => State == PageState.Data && (_selectedTheme.Value != _storedTheme || _startWithWindows != _storedStart || _notifyMemoryPressure != _storedNotify
+        || _floorText.Trim() != _storedFloor.ToString(CultureInfo.InvariantCulture));
 
     private void Edited()
     {
@@ -211,9 +254,11 @@ public sealed class SettingsPage : PageBase
     {
         _storedTheme = settings.Theme;
         _storedNotify = settings.NotifyMemoryPressure;
+        _storedFloor = settings.PressureFloorMb;
         TakeStart(start);
         SelectedTheme = ThemeOptions.First(option => option.Value == settings.Theme);
         NotifyMemoryPressure = _storedNotify;
+        PressureFloorText = _storedFloor.ToString(CultureInfo.InvariantCulture);
         StartWithWindows = _storedStart;
     }
 
@@ -270,6 +315,14 @@ public sealed class SettingsPage : PageBase
         var saved = new List<string>();
         var failed = new List<string>();
 
+        // A threshold that can't be one is refused before anything is written: nothing of the page is saved, here or
+        // through the question asked on leaving it, and the field says why.
+        if (_floorError is { } wrong)
+        {
+            Status = "Not saved: " + wrong;
+            return Task.FromResult(ActionOutcome.Failed(wrong));
+        }
+
         if (_selectedTheme.Value != _storedTheme)
         {
             var wanted = _selectedTheme.Value;
@@ -294,6 +347,17 @@ public sealed class SettingsPage : PageBase
                 saved.Add($"memory pressure notifications {(wanted ? "on" : "off")}");
             }
             else failed.Add(outcome.Reason ?? "The notification setting did not read back as it was saved.");
+        }
+
+        if (FloorFault(_floorText, out var floor) is null && floor != _storedFloor)
+        {
+            var outcome = _store.Update(current => current with { PressureFloorMb = floor });
+            if (outcome.Succeeded && _store.Current.PressureFloorMb == floor)
+            {
+                _storedFloor = floor;
+                saved.Add(string.Create(CultureInfo.InvariantCulture, $"pressure alert threshold {floor:N0} MB"));
+            }
+            else failed.Add(outcome.Reason ?? "The pressure alert threshold did not read back as it was saved.");
         }
 
         if (_startWithWindows != _storedStart)

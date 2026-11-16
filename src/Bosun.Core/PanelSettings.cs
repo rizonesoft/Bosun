@@ -18,7 +18,11 @@ public sealed record PanelSettings
 {
     public const double MinActivityPaneHeight = 64, MaxActivityPaneHeight = 400, DefaultActivityPaneHeight = 132;
 
+    /// <summary>The pressure alert threshold's limits and default, in MB of Windows' available memory (D03 T01 §4).</summary>
+    public const long MinPressureFloorMb = 512, MaxPressureFloorMb = 65536, DefaultPressureFloorMb = 2048;
+
     private readonly double _activityPaneHeight = DefaultActivityPaneHeight;
+    private readonly long _pressureFloorMb = DefaultPressureFloorMb;
 
     /// <summary>What the panel is with no file: the defaults.</summary>
     public static PanelSettings Defaults { get; } = new();
@@ -37,6 +41,17 @@ public sealed record PanelSettings
     /// (design/SPEC.md §17). Read by the tray controller, so it is said once ever.
     /// </summary>
     public bool TrayNoticeSaid { get; init; }
+
+    /// <summary>
+    /// The pressure alert threshold (design/SPEC.md §15): a memory pressure episode starts when Windows' available memory
+    /// falls under it. Read by the pressure check (src/Bosun.Panel/Tray/PressureCheck.cs) at every check, so a saved
+    /// change takes effect with no restart. Always within its limits: a value outside them is brought inside.
+    /// </summary>
+    public long PressureFloorMb
+    {
+        get => _pressureFloorMb;
+        init => _pressureFloorMb = Math.Clamp(value, MinPressureFloorMb, MaxPressureFloorMb);
+    }
 
     /// <summary>
     /// The Activity pane's height, read by the shell. Always within its limits: a height outside them is brought

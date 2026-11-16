@@ -57,6 +57,27 @@ public sealed class TrayViewModel
         }
     }
 
+    private string? _checkProblem;
+
+    /// <summary>
+    /// Why the memory check could not decide, when it couldn't (D03 T01 §4): "memory check unavailable: ..." or
+    /// "memory check stale: ...". Said in the tooltip beside the state, so a check that failed never looks like
+    /// healthy memory; null when the check read memory.
+    /// </summary>
+    public string? CheckProblem
+    {
+        get => _checkProblem;
+        set
+        {
+            if (_checkProblem == value) return;
+            _checkProblem = value;
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>The most a tooltip holds: Windows' NOTIFYICONDATA keeps 127 characters and the terminating null.</summary>
+    public const int MaxTooltip = 127;
+
     private int Needs => Math.Max(0, _needs?.Count ?? 0);
 
     /// <summary>Pressure when there is pressure, the more urgent of the two; else Needs you when something does; else Normal.</summary>
@@ -79,13 +100,16 @@ public sealed class TrayViewModel
         get
         {
             var needs = Needs == 0 ? null : string.Create(CultureInfo.InvariantCulture, $"{Needs} {(Needs == 1 ? "thing needs" : "things need")} you");
-            return (_pressure, needs) switch
+            var state = (_pressure, needs) switch
             {
                 (true, null) => "Bosun Panel: memory pressure",
                 (true, not null) => $"Bosun Panel: memory pressure, and {needs}",
                 (false, not null) => $"Bosun Panel: {needs}",
                 _ => NormalTooltip,
             };
+            if (_checkProblem is null) return state;
+            var said = $"{state}; {_checkProblem}";
+            return said.Length <= MaxTooltip ? said : said[..(MaxTooltip - 3)] + "...";
         }
     }
 

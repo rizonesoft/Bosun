@@ -36,6 +36,8 @@ public static partial class RenderCatalog
         // selected items, and the Settings page saying why its theme choice waits.
         new("controls", "states", States) { Shows = "Highlighted" },
         new("settings", "contrast", SettingsInContrast) { Shows = "Windows' contrast theme is in use" },
+        // The pressure alert threshold (D03 T01 §4): a value that can't be one, refused beside the field.
+        new("settings", "threshold-error", () => Settings(_ => { }, f => f.Page.PressureFloorText = "lots")) { Shows = "Enter a whole number of MB" },
         new("page", "data", () => Framed(new Shell.TestPage().Data())) { Shows = "two slots, one waiting" },
         new("page", "empty", () => Framed(new Shell.TestPage().Empty())) { Shows = "Nothing is waiting." },
         new("page", "failed", () => Framed(new Shell.TestPage().Failed())) { Shows = "bosun: the queue file is damaged at line 3" },

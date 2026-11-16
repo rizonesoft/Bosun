@@ -236,6 +236,7 @@ public sealed class PanelSettingsStore
             json.WriteNumber("schema_version", SchemaVersion);
             json.WriteString("theme", settings.Theme.ToString());
             json.WriteNumber("activity_pane_height", settings.ActivityPaneHeight);
+            json.WriteNumber("pressure_floor_mb", settings.PressureFloorMb);
             json.WriteBoolean("notify_memory_pressure", settings.NotifyMemoryPressure);
             json.WriteBoolean("tray_notice_said", settings.TrayNoticeSaid);
             json.WriteEndObject();
@@ -306,10 +307,20 @@ public sealed class PanelSettingsStore
                 }
             }
 
+            var floor = PanelSettings.DefaultPressureFloorMb;
+            if (root.TryGetProperty("pressure_floor_mb", out var threshold))
+            {
+                if (threshold.ValueKind != JsonValueKind.Number || !threshold.TryGetInt64(out floor))
+                {
+                    fault = "its pressure_floor_mb is not a whole number";
+                    return false;
+                }
+            }
+
             if (!TryBoolean(root, "notify_memory_pressure", PanelSettings.Defaults.NotifyMemoryPressure, out var notify, out fault)) return false;
             if (!TryBoolean(root, "tray_notice_said", PanelSettings.Defaults.TrayNoticeSaid, out var said, out fault)) return false;
 
-            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, NotifyMemoryPressure = notify, TrayNoticeSaid = said };
+            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, PressureFloorMb = floor, NotifyMemoryPressure = notify, TrayNoticeSaid = said };
             return true;
         }
     }

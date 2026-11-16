@@ -64,6 +64,28 @@
                     Command="{Binding StartupAction}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         </StackPanel>
 
+        <!-- The pressure alert threshold (D03 T01 §4, design/SPEC.md §15): what can't be one is refused beside it. -->
+        <TextBlock x:Name="FloorLabel" Text="Pressure alert threshold" Style="{DynamicResource FieldLabel}" Margin="0,18,0,0"/>
+        <StackPanel Orientation="Horizontal">
+            <TextBox x:Name="PressureFloor" Text="{Binding PressureFloorText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource Field}"
+                     Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Pressure alert threshold, in MB"
+                     AutomationProperties.HelpText="{Binding PressureFloorError}"
+                     ToolTip="A notification when Windows' available memory falls under this, from 512 to 65,536 MB."/>
+            <TextBlock Text="MB available" Foreground="{DynamicResource B.TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        </StackPanel>
+        <TextBlock x:Name="FloorError" Text="{Binding PressureFloorError}" Foreground="{DynamicResource B.Danger}" TextWrapping="Wrap"
+                   Margin="0,6,0,0" a:LiveRegion.Announce="True">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding PressureFloorError}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
         <TextBlock Text="Notifications" Style="{DynamicResource T.SectionLabel}" AutomationProperties.HeadingLevel="Level2"
                    Margin="0,24,0,0"/>
         <CheckBox x:Name="NotifyMemoryPressure" Content="Notify me about memory pressure" Margin="0,8,0,0"

@@ -97,7 +97,13 @@ public partial class App : Application
             HighContrastMode.SetIsOn(window, theme.IsHighContrast);
             theme.EffectiveChanged += () => HighContrastMode.SetIsOn(window, theme.IsHighContrast);
             return window;
-        }, window => tray.Start(window, inTray));
+        }, window =>
+        {
+            tray.Start(window, inTray);
+            // After the tray, so a pressure already present at launch has somewhere to be said (D03 T01 §4).
+            var memory = Bosun.Core.Memory.MemoryClient.ForThisUser();
+            tray.StartPressureCheck(token => memory.SnapshotAsync("windows", token));
+        });
     }
 
     /// <summary>Windows' own start-up settings: where an entry Windows has turned off is turned back on.</summary>

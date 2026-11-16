@@ -72,6 +72,20 @@ public sealed class TrayController : IDisposable
         else Open();
     }
 
+    /// <summary>
+    /// Starts the memory pressure check (D03 T01 §4) with the panel's refresh scheduler: after <see cref="Start"/>, so the
+    /// notifier has its sink and a pressure already present at launch is notified. It runs whether the window is shown
+    /// or in the tray, and stops with the scheduler at exit.
+    /// </summary>
+    public PressureCheck StartPressureCheck(Func<CancellationToken, Task<Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>>> read)
+    {
+        if (_window is null) throw new InvalidOperationException("the pressure check starts after the tray: Start first, so its notification has somewhere to go");
+        if (_refreshes is null) throw new InvalidOperationException("the pressure check runs on the panel's refresh scheduler, which this tray was not given");
+        var check = new PressureCheck(read, _settings, Tray, _notifier, _shell.Log);
+        _refreshes.Register("Memory pressure check", PressureCheck.Interval, check.RunAsync).Start();
+        return check;
+    }
+
     private void ShowState()
     {
         if (_disposed) return;
