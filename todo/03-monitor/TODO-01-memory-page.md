@@ -51,16 +51,29 @@ Typed access to the core contract, with schema refusal, so pages only deal in va
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-16:** checked against the tree before the build. The two items were summaries; they are decomposed below. What the tree holds: `bosun status --json` prints the queue and memory (`dm::status_json`, `src/core.hpp:887`), `bosun report --json --days N` the logged history (`dm::report_json`, `:1100`), and each side's logger replaces its snapshot `current-windows.json` (`bosun.exe`, `dm::snapshot_json`, `:1185`) and `current-wsl.json` (`wsl/bosun_log.py:103`) in `%LOCALAPPDATA%\Bosun\logs` every interval, each with `schema_version` 1. `ProcessRunner.RunJsonAsync` (`src/Bosun.Core/ProcessRunner.cs:210`) already runs a tool and refuses an unknown `schema_version` as `Unsupported`. The decisions, each with what reversing it costs:
+
+- The readers are `MemoryClient` in `src/Bosun.Core/Memory/`, with one record per document (`StatusDoc`, `SnapshotDoc`, `ReportDoc`) read through a source-generated `JsonSerializerContext`, and every answer a `Reading<T>`: the value, or why there is none (not installed, not started, failed with its message, an unknown schema, a file that is not one, or stale). A page never sees an exception or a default standing for a value. Reversal cost: none.
+- `bosun.exe` is found by `BosunTool.Locate`: the variable `BOSUN_EXE` when set (tests, a checkout), else the installed `%LOCALAPPDATA%\Bosun\bin\bosun.exe`; one that is not there reads as not installed, with the path. Reversal cost: one method.
+- A snapshot file is read as a reader of a file that is replaced whole must read it (`tests/queue_test.ps1`'s lesson of 2026-11-16): shared for delete, asked again for up to a second while it is held in a replace, and bounded to 1 MB before it is read.
+- Stale is per side: a snapshot whose `at` is more than 90 seconds before the client's clock (`TimeProvider`) reads as stale, with its age, and still carries its values, so a page can show the last data with `PageBase.ShowLastKnown` (`D02 T03 §7`). A clock behind the snapshot is not stale.
+- The fixtures are real output: `bosun status --json`, `bosun report --json --days 7` and both snapshots captured on this machine on 2026-11-16, with the user's profile path and name replaced, in `tests/Bosun.Core.Tests/Fixtures/memory/`.
+- The checkpoint named `dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryClient`, which the test platform here takes as `dotnet test --solution Bosun.slnx --filter-class "*MemoryClientTests"`.
+
 **Build order:**
 
 1. Create `src/Bosun.Core/Memory/MemoryClient.cs`. Done when: fixture JSON gives typed values.
 2. Handle absence. Done when: a stale snapshot reads as stale.
 
-- [ ] Read `bosun status --json`, `current-*.json` and `report --json`. Done when: fixtures from `D01 T01` parse, and an unknown schema reads as `Unsupported`. Cheaper substitute: parsing the CSV in C#.
-- [ ] Mark a snapshot older than 90 seconds as stale, per side. Done when: WSL stopped shows WSL stale and Windows live. Cheaper substitute: showing 0 GB.
+- [ ] Add the documents `StatusDoc`, `SnapshotDoc` and `ReportDoc` and their `MemoryJson` serializer context in `src/Bosun.Core/Memory/MemoryDocs.cs`, after `dm::status_json`, `dm::snapshot_json` and `dm::report_json`. Done when: each fixture in `tests/Bosun.Core.Tests/Fixtures/memory/` reads with every field the C++ writes. Cheaper substitute: parsing the CSV logs in C#.
+- [ ] Add `Reading<T>` in `src/Bosun.Core/Memory/Reading.cs`: a value with its read time and age, or the reason there is none (`NotInstalled`, `Failed`, `Unsupported`, `Invalid`, `Missing`), each with words for the page. Done when: a test sees each reason carry its words and no value. Cheaper substitute: null for every failure.
+- [ ] Add `BosunTool.Locate` in `src/Bosun.Core/Memory/BosunTool.cs`. Done when: a test sees `BOSUN_EXE` win, the installed path used otherwise, and a missing file read as not installed with its path.
+- [ ] Read `bosun status --json` and `bosun report --json --days N` through `ProcessRunner.RunJsonAsync` in `MemoryClient`. Done when: a test with the test child printing each fixture gets the typed document, one printing `schema_version` 2 gets `Unsupported`, and one exiting 1 gets `Failed` with its stderr. Cheaper substitute: running `cmd /c bosun` and parsing text.
+- [ ] Read `current-windows.json` and `current-wsl.json` in `MemoryClient`, shared for delete, asked again while held, and bounded to 1 MB. Done when: a test reads each fixture, a file held open without delete sharing for 300 ms is read once it is let go, a 2 MB file is refused as `Invalid`, and a missing file is `Missing`. Cheaper substitute: `File.ReadAllText`.
+- [ ] Mark a snapshot older than 90 seconds as stale, per side, from the client's clock. Done when: with WSL stopped (its snapshot 10 minutes old) a test reads WSL stale with its age and its values kept, and Windows live. Cheaper substitute: showing 0 GB.
 - [ ] Commit: `memory: typed readers`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryClient` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*MemoryClientTests"` exits 0, and fails if the stale rule or the schema refusal is removed.
 
 ## 2. Memory page
 

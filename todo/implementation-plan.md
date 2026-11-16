@@ -93,11 +93,11 @@ Sections: 25 | Checklist items: 253
 
 ### Phase 3: Monitoring
 
-Sections: 8 | Checklist items: 40
+Sections: 8 | Checklist items: 44
 
 | Status | Reference  | Deliverable                           | Needs | Items |
 | ------ | ---------- | ------------------------------------- | ----- | ----- |
-| [ ]    | D03 T01 §1 | Memory readers                        | none  | 3     |
+| [ ]    | D03 T01 §1 | Memory readers                        | none  | 7     |
 | [ ]    | D03 T01 §2 | Memory page                           | none  | 5     |
 | [ ]    | D03 T01 §3 | History chart with a table equivalent | none  | 6     |
 | [ ]    | D03 T01 §4 | Pressure alerts                       | none  | 5     |
@@ -147,4 +147,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 55/90 verified sections, 7 ready to run now.
 
-Checklist: 599/783 items completed (includes Commit items).
+Checklist: 599/787 items completed (includes Commit items).
