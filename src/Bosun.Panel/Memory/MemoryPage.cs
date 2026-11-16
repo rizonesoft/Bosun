@@ -72,7 +72,15 @@ public sealed class MemoryPage : PageBase
             // The decision's minutes are counted against the floor: a new one reads the fortnight again at once (D03 T01 §6).
             PropertyChanged += (_, e) =>
             {
-                if (e.PropertyName == nameof(FloorMb) && IsShown) _ = _fortnightRead?.RunNowAsync();
+                if (e.PropertyName != nameof(FloorMb)) return;
+                // The verdict shown was counted at the old floor: it goes, shown or not, until one at the new floor arrives.
+                if (_fortnightGood?.Value is { } shown && shown.LowMb != FloorMb)
+                {
+                    _fortnightGood = null;
+                    Decision = null;
+                    DecisionState = RereadingDecision(FloorMb);
+                }
+                if (IsShown) _ = _fortnightRead?.RunNowAsync();
             };
         }
         ShowAsTable = new Relay(() => ShowTable = true);
@@ -240,6 +248,10 @@ public sealed class MemoryPage : PageBase
     }
 
     public const string ReadingDecision = "Reading the last 14 days for the decision.";
+
+    /// <summary>What the card says while the fortnight is read again at a new pressure line.</summary>
+    public static string RereadingDecision(long floorMb) =>
+        $"Reading the last 14 days again at the new {(floorMb / 1024.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} GB pressure line.";
 
     /// <summary>The Decision card's answer from the fortnight's report; null until one has been read.</summary>
     public Decision? Decision { get => _decision; private set => Set(ref _decision, value); }

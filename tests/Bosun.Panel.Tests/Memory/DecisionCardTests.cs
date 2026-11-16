@@ -54,6 +54,30 @@ public class DecisionCardTests
     }
 
     [Fact]
+    public void A_verdict_counted_at_the_old_floor_goes_at_once_when_another_is_saved()
+    {
+        var settings = new SettingsFixture().Open();
+        var source = new Source();
+        OnMemoryPage(source, (page, _, _, _) =>
+        {
+            Assert.Equal("32.0 GB has been enough so far.", page.Decision!.Verdict);           // read at 2048
+            source.HoldFortnight = new TaskCompletionSource();                                   // the next read stays pending
+            Assert.True(settings.Store.Update(s => s with { PressureFloorMb = 4096 }).Succeeded);
+            Settle();
+            Assert.Null(page.Decision);
+            Assert.Equal("Reading the last 14 days again at the new 4.0 GB pressure line.", page.DecisionState);
+            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);
+            var held = source.HoldFortnight;
+            source.HoldFortnight = null;
+            held.SetResult();
+            Settle();
+            Settle();
+            Assert.Contains("0 minutes below the 4.0 GB pressure line", page.Decision!.Evidence);
+            Assert.Equal("", page.DecisionState);
+        }, settings.Store);
+    }
+
+    [Fact]
     public void A_failed_fortnight_has_the_cards_own_Retry_while_the_days_chart_is_fine_and_a_later_failure_keeps_the_verdict()
     {
         var source = new Source { Fortnight = Reading<ReportDoc>.Fail(ReadingProblem.Failed, "bosun report ran past 60 s.") };
