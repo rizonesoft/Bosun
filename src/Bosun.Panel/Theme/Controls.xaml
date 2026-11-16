@@ -10,7 +10,11 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:shell="clr-namespace:Bosun.Panel.Shell"
-                    xmlns:theme="clr-namespace:Bosun.Panel.Theme">
+                    xmlns:theme="clr-namespace:Bosun.Panel.Theme"
+                    xmlns:controls="clr-namespace:Bosun.Panel.Controls"
+                    xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks">
+
+    <controls:StatusGlyph x:Key="StatusGlyph"/>
 
     <!-- Segoe UI Variable is the Windows 11 face; Segoe UI stands in where it is missing. -->
     <FontFamily x:Key="F.Ui">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -234,6 +238,160 @@
                             <Setter TargetName="bd" Property="Opacity" Value="1"/>
                             <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
                         </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A status pill (D02 T03 §4, design/SPEC.md §19), as the mockup draws it: the state's glyph and word in its
+         colour on a soft tint of it, fully round. Neutral is the dim text on the raised surface. In a contrast theme,
+         an outline in the window's text: Windows' colours only. Seen, never focused (StatusPill). -->
+    <Style TargetType="controls:StatusPill">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{DynamicResource B.Raised}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:StatusPill">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{DynamicResource R.Pill}" Padding="7,2,9,2">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Decorative VerticalAlignment="Center" Margin="0,0,5,0">
+                                <icons:PackIconLucide Kind="{Binding Kind, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource StatusGlyph}}"
+                                                      Width="13" Height="13" Focusable="False" IsTabStop="False"
+                                                      Foreground="{TemplateBinding Foreground}"/>
+                            </controls:Decorative>
+                            <TextBlock Text="{TemplateBinding ShownWord}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Kind" Value="Ok">
+                <Setter Property="Background" Value="{DynamicResource B.OkSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Ok}"/>
+            </Trigger>
+            <Trigger Property="Kind" Value="Warn">
+                <Setter Property="Background" Value="{DynamicResource B.WarnSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            </Trigger>
+            <Trigger Property="Kind" Value="Danger">
+                <Setter Property="Background" Value="{DynamicResource B.DangerSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Danger}"/>
+            </Trigger>
+            <Trigger Property="Kind" Value="Info">
+                <Setter Property="Background" Value="{DynamicResource B.InfoSoft}"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Info}"/>
+            </Trigger>
+            <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- A segment of a segmented control (D02 T03 §4): a 32 px target with the focus ring; dim until chosen, then the
+         text colour in semibold, over the control's sliding indicator. In a contrast theme the chosen one is the
+         highlight's text on the highlight, and a disabled one Windows' gray. -->
+    <Style x:Key="Segment" TargetType="ListBoxItem">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="Padding" Value="12,0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="{DynamicResource R.Control}">
+                        <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsSelected" Value="True"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+                        </MultiTrigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                            <Setter Property="Cursor" Value="Arrow"/>
+                        </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="IsEnabled" Value="False"/>
+                                <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                            </MultiTrigger.Conditions>
+                            <Setter Property="Opacity" Value="1"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.GrayText}"/>
+                        </MultiTrigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A segmented control (D02 T03 §4, design/SPEC.md §19), as the mockup draws it: its segments in a track of the
+         hover colour with a line round it, the chosen one raised onto the surface by an indicator that slides between
+         them (theme:RailMarker, horizontal). In a contrast theme the indicator is Windows' highlight. -->
+    <Style TargetType="controls:SegmentedControl">
+        <Setter Property="theme:RailMarker.Axis" Value="Horizontal"/>
+        <Setter Property="theme:RailMarker.Slides" Value="True"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="Background" Value="{DynamicResource B.Hover}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="3"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="ItemContainerStyle" Value="{StaticResource Segment}"/>
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="ItemsPanel">
+            <Setter.Value>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="controls:SegmentedControl">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{DynamicResource R.Control}"
+                            Padding="{TemplateBinding Padding}">
+                        <Grid>
+                            <!-- The indicator behind the chosen segment, placed and slid by theme:RailMarker. Seen, never hit or said. -->
+                            <Canvas IsHitTestVisible="False">
+                                <Border x:Name="PART_Marker" Visibility="Collapsed" Background="{DynamicResource B.Surface}"
+                                        BorderBrush="{DynamicResource B.Line}" BorderThickness="1" CornerRadius="{DynamicResource R.Control}"/>
+                            </Canvas>
+                            <ItemsPresenter/>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="PART_Marker" Property="Background" Value="{DynamicResource B.Accent}"/>
+                            <Setter TargetName="PART_Marker" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

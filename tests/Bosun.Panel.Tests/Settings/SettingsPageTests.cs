@@ -467,7 +467,7 @@ public class SettingsPageTests
         }, host =>
         {
             var view = ShellSupport.Under<SettingsView>(frame).Single(); // through the frame's implicit template for the page
-            Assert.Equal(["Settings", "How the panel starts, looks and notifies.", "General", "Theme", "Follow Windows", "Start with Windows, in the tray", "Pressure alert threshold", "MB available", "Notifications", "Notify me about memory pressure", "Save", "Discard"], PageRenderer.TextsOf(frame));
+            Assert.Equal(["Settings", "How the panel starts, looks and notifies.", "General", "Theme", "Follow Windows", "Dark", "Light", "Start with Windows, in the tray", "Pressure alert threshold", "MB available", "Notifications", "Notify me about memory pressure", "Save", "Discard"], PageRenderer.TextsOf(frame));
 
             Assert.Equal("Theme", AutomationProperties.GetName(view.ThemeBox));
             Assert.Equal(f.Option(ThemeChoice.FollowWindows), view.ThemeBox.SelectedItem);

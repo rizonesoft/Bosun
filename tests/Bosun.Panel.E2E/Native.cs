@@ -8,7 +8,7 @@ static partial class Native
 {
     public const int WM_CLOSE = 0x0010, WM_NCHITTEST = 0x0084, HTMAXBUTTON = 9;
     public const int VK_LBUTTON = 0x01, VK_RBUTTON = 0x02, VK_MBUTTON = 0x04, VK_SHIFT = 0x10, VK_CONTROL = 0x11, VK_MENU = 0x12, VK_LWIN = 0x5B, VK_RWIN = 0x5C;
-    public const int VK_TAB = 0x09, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_SPACE = 0x20, VK_DOWN = 0x28;
+    public const int VK_TAB = 0x09, VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_SPACE = 0x20, VK_DOWN = 0x28, VK_LEFT = 0x25, VK_RIGHT = 0x27, VK_HOME = 0x24, VK_END = 0x23;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT

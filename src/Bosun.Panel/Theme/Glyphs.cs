@@ -13,6 +13,8 @@ public enum GlyphAction
     StatusOk,
     StatusWarn,
     StatusFail,
+    StatusInfo,
+    StatusNeutral,
 }
 
 /// <summary>
@@ -46,6 +48,8 @@ public static class Glyphs
         [GlyphAction.StatusOk] = PackIconLucideKind.CircleCheck,
         [GlyphAction.StatusWarn] = PackIconLucideKind.TriangleAlert,
         [GlyphAction.StatusFail] = PackIconLucideKind.OctagonAlert,
+        [GlyphAction.StatusInfo] = PackIconLucideKind.CircleDot,
+        [GlyphAction.StatusNeutral] = PackIconLucideKind.Pause, // the mockup's idle state
     };
 
     /// <summary>A rail row's glyph. A row with none is a fault of this map, said by its key.</summary>

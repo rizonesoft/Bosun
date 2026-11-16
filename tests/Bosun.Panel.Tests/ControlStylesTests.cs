@@ -705,6 +705,8 @@ public partial class ControlStylesTests
         ["ScrollPage"] = "a part of the scroll bar",
         ["LogBox/ListBoxItem"] = "a log line is read, not acted on: it is not focusable",
         ["CountBadge"] = "a rail row's count, drawn inside the row and never focused: the row is the target",
+        ["controls:StatusPill"] = "a state's glyph and word, never focused: the control it describes is the target",
+        ["controls:SegmentedControl"] = "the track of a segmented control: each segment (Segment) is the 32 px target with the ring",
         ["ToolTip"] = "a tooltip can't be pressed or focused",
         ["Value"] = "a value is read, not acted on: it is not focusable (D02 T03 §7)",
         ["ColumnGripper"] = "a part of the column header, which is the target",

@@ -28,6 +28,19 @@ public class XamlRulesTests
     }
 
     [Fact]
+    public void A_status_pill_is_never_written_without_its_word()
+    {
+        // D02 T03 §4: a pill with no word, or an empty one, fails by its file and line; one with a word or a binding passes.
+        const string controls = "xmlns:c=\"clr-namespace:Bosun.Panel.Controls\"";
+        List<Violation> View(string pill) => XamlRules.Violations("View.xaml", $"<Grid xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" {controls}>\n{pill}\n</Grid>");
+        Assert.Equal("a StatusPill with no Word: status is never colour alone, so give it its word", Assert.Single(View("<c:StatusPill Kind=\"Ok\"/>")).What);
+        Assert.Equal(2, Assert.Single(View("<c:StatusPill Kind=\"Ok\"/>")).Line);
+        Assert.Equal("a StatusPill with an empty Word: status is never colour alone, so give it its word", Assert.Single(View("<c:StatusPill Kind=\"Ok\" Word=\" \"/>")).What);
+        Assert.Empty(View("<c:StatusPill Kind=\"Ok\" Word=\"Running\"/>"));
+        Assert.Empty(View("<c:StatusPill Kind=\"Ok\" Word=\"{Binding State}\"/>"));
+    }
+
+    [Fact]
     public void The_panel_writes_no_colour_or_font_size_outside_the_generated_theme()
     {
         var (violations, read) = XamlRules.Scan(TestPaths.Panel());

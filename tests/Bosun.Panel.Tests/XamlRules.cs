@@ -145,6 +145,12 @@ static partial class XamlRules
             // is a glyph the map can't keep consistent or check is in the pack.
             if (name.StartsWith("PackIcon", StringComparison.Ordinal) && (string?)element.Attribute("Kind") is { } kind && IsLiteral(kind))
                 found.Add(new Violation(file, Line(element), $"Lucide kind {kind.Trim()} written in a view: name it through Theme/Glyphs.cs"));
+            // A status pill keeps its word (D02 T03 §4, design/SPEC.md §19): one written without it never reaches a page.
+            if (name == "StatusPill" && element.Attribute("Word") is not { } said
+                && !element.Elements().Any(e => e.Name.LocalName == "StatusPill.Word"))
+                found.Add(new Violation(file, Line(element), "a StatusPill with no Word: status is never colour alone, so give it its word"));
+            else if (name == "StatusPill" && element.Attribute("Word") is { } word && string.IsNullOrWhiteSpace(word.Value))
+                found.Add(new Violation(file, Line(element), "a StatusPill with an empty Word: status is never colour alone, so give it its word"));
             foreach (var attribute in element.Attributes())
             {
                 if (attribute.IsNamespaceDeclaration) continue;

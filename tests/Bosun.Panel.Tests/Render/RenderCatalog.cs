@@ -27,6 +27,9 @@ public static partial class RenderCatalog
         // The backdrop (D02 T03 §2), on a clear host: Mica leaves the title bar and rail clear for Windows' backdrop,
         // the page's sheet still solid. Solid is the shell as it starts, drawn above as shell.overview.
         new("shell", "backdrop-mica", () => Backdropped(Bosun.Panel.Shell.BackdropKind.Mica)) { Shows = "Panel ready", ClearHost = true },
+        // The status pill in each kind, and the segmented control with a choice and a disabled segment (D02 T03 §4).
+        new("controls", "status-pills", StatusPills) { Shows = "Not available" },
+        new("controls", "segmented", Segmented) { Shows = "Today" },
         // Count badges (D02 T03 §3): the selected row with a two-figure count, two others with one figure each.
         new("shell", "badges", Badged) { Shows = "12" },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
@@ -85,6 +88,30 @@ public static partial class RenderCatalog
         Shell.TestPage.AddTemplate(frame);
         page.Show();
         return frame;
+    }
+
+    /// <summary>A pill of each kind, as a page lays them out.</summary>
+    private static FrameworkElement StatusPills()
+    {
+        var row = new StackPanel { Margin = new Thickness(26) };
+        foreach (var (kind, word) in new[] { (Bosun.Panel.Controls.StatusKind.Ok, "Running"), (Bosun.Panel.Controls.StatusKind.Warn, "Stale"),
+                     (Bosun.Panel.Controls.StatusKind.Danger, "Not available"), (Bosun.Panel.Controls.StatusKind.Info, "Waiting"), (Bosun.Panel.Controls.StatusKind.Neutral, "Idle") })
+            row.Children.Add(new Bosun.Panel.Controls.StatusPill { Kind = kind, Word = word, Margin = new Thickness(0, 0, 0, 10) });
+        return row;
+    }
+
+    /// <summary>A segmented control with its second choice made and its third disabled, and the Settings page's theme choice.</summary>
+    private static FrameworkElement Segmented()
+    {
+        var panel = new StackPanel { Margin = new Thickness(26) };
+        panel.Children.Add(new Bosun.Panel.Controls.SegmentedControl
+        {
+            Items = { new ListBoxItem { Content = "Now" }, new ListBoxItem { Content = "Today" }, new ListBoxItem { Content = "Week", IsEnabled = false } },
+            SelectedIndex = 1,
+            Margin = new Thickness(0, 0, 0, 16),
+        });
+        panel.Children.Add(new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 0 });
+        return panel;
     }
 
     /// <summary>The shell with counts waiting: Overview (selected) 12, Queue 3, Settings 1.</summary>

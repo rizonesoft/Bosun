@@ -6,11 +6,13 @@ using System.Windows.Media.Animation;
 namespace Bosun.Panel.Theme;
 
 /// <summary>
-/// The rail's one marker (D02 T03 §3, design/SPEC.md §1 and §19): a bar beside the selected row, the same element
-/// whichever row that is, sliding to the new row over the motion gate's normal duration with its easing, so the eye
-/// follows the change. It is the <c>PART_Marker</c> of the <c>NavList</c> template, moved here; with Windows' animation
-/// effects off, or with no gate, it lands at once, and an effect turned off mid-slide lands it at once too. Its clock
-/// and every subscription go when the list is unloaded, hidden or its window minimised.
+/// A list's one selection marker, sliding between items (design/SPEC.md §19 Motion): the rail's bar beside the selected
+/// row (D02 T03 §3, <see cref="Orientation.Vertical"/>, over the gate's normal duration), and the segmented control's
+/// indicator behind the selected segment (D02 T03 §4, <see cref="Orientation.Horizontal"/>, its left edge and width
+/// over the gate's fast duration). The same element whichever item that is, it is the template's <c>PART_Marker</c>,
+/// moved here with the gate's easing, so the eye follows the change; with Windows' animation effects off, or with no
+/// gate, it lands at once, and an effect turned off mid-slide lands it at once too. Its clock and every subscription go
+/// when the list is unloaded, hidden or its window minimised.
 /// </summary>
 public static class RailMarker
 {
@@ -20,11 +22,19 @@ public static class RailMarker
     private static readonly DependencyProperty MoverProperty = DependencyProperty.RegisterAttached(
         "Mover", typeof(Mover), typeof(RailMarker), new PropertyMetadata(null));
 
+    /// <summary>Vertical (the rail's bar, the default) or horizontal (a segmented control's indicator).</summary>
+    public static readonly DependencyProperty AxisProperty = DependencyProperty.RegisterAttached(
+        "Axis", typeof(Orientation), typeof(RailMarker), new PropertyMetadata(Orientation.Vertical));
+
+    public static Orientation GetAxis(DependencyObject element) => (Orientation)element.GetValue(AxisProperty);
+
+    public static void SetAxis(DependencyObject element, Orientation value) => element.SetValue(AxisProperty, value);
+
     public static bool GetSlides(DependencyObject element) => (bool)element.GetValue(SlidesProperty);
 
     public static void SetSlides(DependencyObject element, bool value) => element.SetValue(SlidesProperty, value);
 
-    /// <summary>Where the marker is now (its top, moving during a slide) and where it is going; null before it is placed.</summary>
+    /// <summary>Where the marker is now (its top, or its left on a horizontal list, moving during a slide) and where it is going; null before it is placed.</summary>
     public static (double Now, double Target)? Position(ListBox list) =>
         list.GetValue(MoverProperty) is Mover { Placed: true } mover ? (mover.Now, mover.Target) : null;
 
@@ -69,7 +79,11 @@ public static class RailMarker
 
         public double Target { get; private set; }
 
-        public double Now => _move.Y;
+        public double Now => Horizontal ? _move.X : _move.Y;
+
+        private bool Horizontal => GetAxis(_list) == Orientation.Horizontal;
+
+        private double _width; // a horizontal marker's width when it lands
 
         public void Detach()
         {
@@ -163,7 +177,20 @@ public static class RailMarker
         private void Land()
         {
             _move.BeginAnimation(TranslateTransform.YProperty, null);
-            _move.Y = Target;
+            _move.BeginAnimation(TranslateTransform.XProperty, null);
+            if (Horizontal)
+            {
+                _move.X = Target;
+                if (_marker is not null)
+                {
+                    _marker.BeginAnimation(FrameworkElement.WidthProperty, null);
+                    _marker.Width = _width;
+                }
+            }
+            else
+            {
+                _move.Y = Target;
+            }
             Sliding = false;
         }
 
@@ -176,31 +203,57 @@ public static class RailMarker
                 _marker.Visibility = Visibility.Collapsed;
                 return;
             }
-            // The bar sits where the row's own padding leaves it: 8 in from the left, 6 down plus a 2 px inset.
             var at = row.TranslatePoint(new Point(0, 0), (UIElement)layer);
-            var top = at.Y + 8;
-            var height = Math.Max(0, row.ActualHeight - 16);
-            Canvas.SetLeft(_marker, at.X + 8);
-            Canvas.SetTop(_marker, 0);
-            if (double.IsNaN(_marker.Height) || Math.Abs(_marker.Height - height) > 0.5) _marker.Height = height; // NaN: not set yet
+            double moving, width = 0;
+            if (Horizontal)
+            {
+                // Behind the whole selected segment: its left edge and width move, its top and height are the row's.
+                moving = at.X;
+                width = row.ActualWidth;
+                Canvas.SetLeft(_marker, 0);
+                Canvas.SetTop(_marker, at.Y);
+                if (double.IsNaN(_marker.Height) || Math.Abs(_marker.Height - row.ActualHeight) > 0.5) _marker.Height = row.ActualHeight;
+            }
+            else
+            {
+                // The bar sits where the row's own padding leaves it: 8 in from the left, 6 down plus a 2 px inset.
+                moving = at.Y + 8;
+                var height = Math.Max(0, row.ActualHeight - 16);
+                Canvas.SetLeft(_marker, at.X + 8);
+                Canvas.SetTop(_marker, 0);
+                if (double.IsNaN(_marker.Height) || Math.Abs(_marker.Height - height) > 0.5) _marker.Height = height; // NaN: not set yet
+            }
             _marker.Visibility = Visibility.Visible;
-            if (Placed && Math.Abs(top - Target) < 0.5) return;
-            Target = top;
-            if (!Placed || !animate || Gate() is not { Animates: true } gate || gate.Normal.TimeSpan <= TimeSpan.Zero || !_list.IsVisible)
+            if (Placed && Math.Abs(moving - Target) < 0.5 && Math.Abs(width - _width) < 0.5) return;
+            Target = moving;
+            _width = width;
+            var gate = Gate();
+            var duration = gate is null ? Duration.Automatic : Horizontal ? gate.Fast : gate.Normal;
+            if (!Placed || !animate || gate is not { Animates: true } || duration.TimeSpan <= TimeSpan.Zero || !_list.IsVisible)
             {
                 Land();
                 Placed = true;
                 return;
             }
-            var slide = new DoubleAnimationUsingKeyFrames { Duration = gate.Normal, FillBehavior = FillBehavior.HoldEnd };
-            slide.KeyFrames.Add(new SplineDoubleKeyFrame(top, KeyTime.FromTimeSpan(gate.Normal.TimeSpan), gate.Ease));
-            var mine = ++_slide;
-            slide.Completed += (_, _) =>
+            DoubleAnimationUsingKeyFrames To(double value)
             {
-                if (mine == _slide && Sliding) Land();
+                var slide = new DoubleAnimationUsingKeyFrames { Duration = duration, FillBehavior = FillBehavior.HoldEnd };
+                slide.KeyFrames.Add(new SplineDoubleKeyFrame(value, KeyTime.FromTimeSpan(duration.TimeSpan), gate.Ease));
+                return slide;
+            }
+            var along = To(moving);
+            var mine = ++_slide;
+            along.Completed += (_, _) =>
+            {
+                if (mine != _slide || !Sliding) return;
+                Land();
+                // The item may have moved or grown while it slid (a chosen segment's text turns semibold, and wider):
+                // placed once more against the layout as it is now, at once.
+                Place(animate: false);
             };
             Sliding = true;
-            _move.BeginAnimation(TranslateTransform.YProperty, slide, HandoffBehavior.SnapshotAndReplace);
+            _move.BeginAnimation(Horizontal ? TranslateTransform.XProperty : TranslateTransform.YProperty, along, HandoffBehavior.SnapshotAndReplace);
+            if (Horizontal) _marker.BeginAnimation(FrameworkElement.WidthProperty, To(width), HandoffBehavior.SnapshotAndReplace);
         }
     }
 }

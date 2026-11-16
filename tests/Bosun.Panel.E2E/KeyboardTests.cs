@@ -17,9 +17,10 @@ public class KeyboardTests
     {
         using var panel = PanelProcess.Start();
         var (window, handle) = OnSettings(panel);
-        var theme = Ui.Get(window, "ThemeBox");
+        // The theme choice's selected segment holds the keyboard (a segmented control, D02 T03 §4).
+        var theme = Ui.Selected(Ui.Get(window, "ThemeBox"))!;
         theme.SetFocus();
-        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, theme), Ui.Short, "the theme box to have focus");
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, theme), Ui.Short, "the theme choice to have focus");
 
         var next = Ui.Get(window, "StartWithWindows");
         var area = Around(next);
@@ -49,29 +50,32 @@ public class KeyboardTests
         Ui.Until(() => Ui.Toggle(notify) == was, Ui.Short, "Space to toggle it back");
     }
 
+    /// <summary>
+    /// The theme choice is a segmented control (D02 T03 §4): its three choices named side by side, and Right, Left, Home
+    /// and End move the selection and the keyboard by real keys alone. The panel has no combo box any more, so this
+    /// replaces the closed combo box test; the combo box's style keeps its own tests (ControlStylesTests).
+    /// </summary>
     [Fact]
-    public void Down_selects_a_closed_combo_box_s_next_item_and_its_list_opens_named_and_closes_on_Esc()
+    public void The_arrow_keys_Home_and_End_move_the_theme_choice_by_keyboard_alone()
     {
         using var panel = PanelProcess.Start();
         var (window, handle) = OnSettings(panel);
         var theme = Ui.Get(window, "ThemeBox");
-        Assert.Equal(ExpandCollapseState.Collapsed, Ui.Expansion(theme));
-        Assert.Equal("Follow Windows", Ui.Selected(theme)?.Current.Name);
-        theme.SetFocus();
-        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, theme), Ui.Short, "the theme box to have focus");
-        RealInput.Key(handle, Native.VK_DOWN);
-        Ui.Until(() => Ui.Selected(theme)?.Current.Name == "Dark", Ui.Short, "Down to select the next theme, Dark");
-        Assert.Equal(ExpandCollapseState.Collapsed, Ui.Expansion(theme));
-
-        ((ExpandCollapsePattern)theme.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
-        Ui.Until(() => Ui.Expansion(theme) == ExpandCollapseState.Expanded, Ui.Short, "the list to open");
-        var items = theme.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
+        var items = theme.FindAll(TreeScope.Children, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
             .Cast<AutomationElement>().Select(item => item.Current.Name).ToList();
         Assert.Equal(["Follow Windows", "Dark", "Light"], items);
         Assert.Empty(Ui.Nameless(theme));
-        RealInput.Key(handle, Native.VK_ESCAPE);
-        Ui.Until(() => Ui.Expansion(theme) == ExpandCollapseState.Collapsed, Ui.Short, "Esc to close the list");
-        Assert.Equal("Dark", Ui.Selected(theme)?.Current.Name);
+        Assert.Equal("Follow Windows", Ui.Selected(theme)?.Current.Name);
+        var first = Ui.Selected(theme)!;
+        first.SetFocus();
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, first), Ui.Short, "the theme choice to have focus");
+
+        foreach (var (key, then) in new[] { (Native.VK_RIGHT, "Dark"), (Native.VK_RIGHT, "Light"), (Native.VK_RIGHT, "Light"), (Native.VK_LEFT, "Dark"),
+                     (Native.VK_HOME, "Follow Windows"), (Native.VK_END, "Light") })
+        {
+            RealInput.Key(handle, key);
+            Ui.Until(() => Ui.Selected(theme)?.Current.Name == then && Ui.Focused()?.Current.Name == then, Ui.Short, $"the key to select and focus {then}");
+        }
     }
 
     /// <summary>The panel in front, on its Settings page.</summary>

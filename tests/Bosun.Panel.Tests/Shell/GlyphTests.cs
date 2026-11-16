@@ -49,6 +49,8 @@ public class GlyphTests
             [GlyphAction.StatusOk] = PackIconLucideKind.CircleCheck,
             [GlyphAction.StatusWarn] = PackIconLucideKind.TriangleAlert,
             [GlyphAction.StatusFail] = PackIconLucideKind.OctagonAlert,
+            [GlyphAction.StatusInfo] = PackIconLucideKind.CircleDot,
+            [GlyphAction.StatusNeutral] = PackIconLucideKind.Pause,
         };
         Assert.Equal(Enum.GetValues<GlyphAction>().Order(), Glyphs.Actions.Keys.Order());
         Assert.Equal(expected.OrderBy(p => p.Key), Glyphs.Actions.OrderBy(p => p.Key));
