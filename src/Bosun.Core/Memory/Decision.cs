@@ -50,7 +50,8 @@ public static class DecisionRule
             evidence.Add($"counted since the memory changed to {Gb(now)} ({since[..Math.Min(10, since.Length)]})");
         if (days < MinimumDays)
             return new(DecisionKind.NotYet, $"Not yet: {days} of the {MinimumDays} days a verdict needs are logged. Leave the logger running.", evidence);
-        if (!report.Read.Complete)
+        // A rejected row is a sample thrown away, perhaps the very minute of pressure: as incomplete as a file unread.
+        if (!report.Read.Complete || report.Read.RejectedRows > 0 || report.Read.UnreadableFiles > 0)
             return new(DecisionKind.Withheld,
                 $"No verdict: the history is incomplete ({report.Read.UnreadableFiles} files could not be read, {report.Read.RejectedRows} rows rejected).", evidence);
 

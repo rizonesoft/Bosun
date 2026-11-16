@@ -11,13 +11,13 @@ namespace Bosun.Core.Tests.Memory;
 /// </summary>
 public class DecisionTests
 {
-    static ReportDoc Report(long? days = 14, bool complete = true, long? lowMinutes = 0, double? commit = 0.6, long? oom = 0, bool? baseline = true,
+    static ReportDoc Report(long? days = 14, bool complete = true, long? rejected = null, long? lowMinutes = 0, double? commit = 0.6, long? oom = 0, bool? baseline = true,
         long? total = 32768, string? since = null, long wslSamples = 100, long lowMb = 2048) =>
         JsonSerializer.Deserialize(JsonSerializer.Serialize(new Dictionary<string, object?>
         {
             ["schema_version"] = 1, ["generated_at"] = "2026-11-16T09:00:00Z", ["since"] = "2026-11-02T09:00:00Z", ["days_requested"] = 14, ["days_covered"] = 14,
             ["first_sample"] = null, ["last_sample"] = null, ["low_mb"] = lowMb,
-            ["read"] = new Dictionary<string, object> { ["complete"] = complete, ["files"] = 28, ["unreadable_files"] = complete ? 0 : 1, ["rejected_rows"] = complete ? 0 : 7 },
+            ["read"] = new Dictionary<string, object> { ["complete"] = complete, ["files"] = 28, ["unreadable_files"] = complete ? 0 : 1, ["rejected_rows"] = rejected ?? (complete ? 0 : 7) },
             ["windows"] = new Dictionary<string, object?>
             {
                 ["samples"] = 1000, ["low_samples"] = 0, ["min_available_mb"] = 3000, ["worst_minute"] = null, ["worst_repos"] = Array.Empty<object>(),
@@ -47,6 +47,9 @@ public class DecisionTests
     public void An_incomplete_history_or_an_unmeasured_figure_withholds_the_verdict_that_needs_it()
     {
         Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(Report(complete: false)).Kind);
+        // Rows rejected while the read still counts as complete: samples were thrown away, so no verdict either.
+        var rejected = DecisionRule.Decide(Report(rejected: 1));
+        Assert.Equal((DecisionKind.Withheld, "No verdict: the history is incomplete (0 files could not be read, 1 rows rejected)."), (rejected.Kind, rejected.Verdict));
         var unmeasured = DecisionRule.Decide(Report(lowMinutes: null));
         Assert.Equal((DecisionKind.Withheld, "No verdict: minutes below the pressure line not measured."), (unmeasured.Kind, unmeasured.Verdict));
         Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(Report(commit: null)).Kind);

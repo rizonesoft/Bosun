@@ -57,5 +57,12 @@ public sealed class ReportEvidenceTests : IDisposable
 
         var lower = DecisionRule.Decide((await client.ReportAsync(14, 2048, TestContext.Current.CancellationToken)).Value!);              // the same logs, a lower floor
         Assert.Equal("32.0 GB has been enough so far.", lower.Verdict);
+
+        // A torn row, as an interrupted write leaves: the report still says complete, but the verdict is withheld.
+        var torn = Path.Combine(logs, $"windows-{now.AddDays(-2).Date:yyyy-MM-dd}.csv");
+        File.AppendAllText(torn, $"{now.AddDays(-2).Date.AddHours(13):yyyy-MM-ddTHH:mm:ss},win,sys,availa{Environment.NewLine}");
+        var report2 = (await client.ReportAsync(14, 2048, TestContext.Current.CancellationToken)).Value!;
+        Assert.True(report2.Read.RejectedRows > 0);
+        Assert.Equal(DecisionKind.Withheld, DecisionRule.Decide(report2).Kind);
     }
 }
