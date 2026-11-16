@@ -10,6 +10,22 @@ public enum ThemeChoice
 }
 
 /// <summary>
+/// Where the panel's window was when it was last hidden or closed (D02 T03 §12): its normal bounds in screen pixels,
+/// the DPI of the screen they were on then, and whether it restores maximised. Fitted to the screens there are before
+/// it is used (src/Bosun.Panel/Shell/WindowPlacement.cs).
+/// </summary>
+public sealed record WindowPlace(int Left, int Top, int Width, int Height, int Dpi, bool Maximised)
+{
+    public const int MinDpi = 48, MaxDpi = 960;
+
+    /// <summary>What is wrong with it as a stored place, or null.</summary>
+    public string? Fault() =>
+        Width <= 0 || Height <= 0 ? "its window size is not more than zero"
+        : Dpi is < MinDpi or > MaxDpi ? $"its window DPI is not from {MinDpi} to {MaxDpi}"
+        : null;
+}
+
+/// <summary>
 /// The panel's settings (D02 T02 §5, design/SPEC.md §15): what `panel.json` holds. One immutable record: a change is
 /// a new record, saved whole. Each setting is added by the section that builds the code that reads it, so nothing
 /// here is a setting nothing reads.
@@ -41,6 +57,12 @@ public sealed record PanelSettings
     /// (design/SPEC.md §17). Read by the tray controller, so it is said once ever.
     /// </summary>
     public bool TrayNoticeSaid { get; init; }
+
+    /// <summary>
+    /// Where the window was last (D02 T03 §12), or null when it has never been placed: read by the window as it opens,
+    /// so it opens there again, and kept each time it is hidden or closed.
+    /// </summary>
+    public WindowPlace? Window { get; init; }
 
     /// <summary>
     /// The pressure alert threshold (design/SPEC.md §15): a memory pressure episode starts when Windows' available memory

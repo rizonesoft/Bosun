@@ -239,6 +239,17 @@ public sealed class PanelSettingsStore
             json.WriteNumber("pressure_floor_mb", settings.PressureFloorMb);
             json.WriteBoolean("notify_memory_pressure", settings.NotifyMemoryPressure);
             json.WriteBoolean("tray_notice_said", settings.TrayNoticeSaid);
+            if (settings.Window is { } place)
+            {
+                json.WriteStartObject("window");
+                json.WriteNumber("left", place.Left);
+                json.WriteNumber("top", place.Top);
+                json.WriteNumber("width", place.Width);
+                json.WriteNumber("height", place.Height);
+                json.WriteNumber("dpi", place.Dpi);
+                json.WriteBoolean("maximised", place.Maximised);
+                json.WriteEndObject();
+            }
             json.WriteEndObject();
         }
         buffer.WriteByte((byte)'\n');
@@ -320,7 +331,29 @@ public sealed class PanelSettingsStore
             if (!TryBoolean(root, "notify_memory_pressure", PanelSettings.Defaults.NotifyMemoryPressure, out var notify, out fault)) return false;
             if (!TryBoolean(root, "tray_notice_said", PanelSettings.Defaults.TrayNoticeSaid, out var said, out fault)) return false;
 
-            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, PressureFloorMb = floor, NotifyMemoryPressure = notify, TrayNoticeSaid = said };
+            WindowPlace? window = null;
+            if (root.TryGetProperty("window", out var placed) && placed.ValueKind != JsonValueKind.Null)
+            {
+                int Whole(string key) => placed.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : throw new FormatException(key);
+                try
+                {
+                    if (placed.ValueKind != JsonValueKind.Object) throw new FormatException("window");
+                    if (!placed.TryGetProperty("maximised", out var max) || max.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) throw new FormatException("maximised");
+                    window = new WindowPlace(Whole("left"), Whole("top"), Whole("width"), Whole("height"), Whole("dpi"), max.GetBoolean());
+                }
+                catch (FormatException e)
+                {
+                    fault = e.Message == "window" ? "its window is not an object" : $"its window's {e.Message} is missing or not what it should be";
+                    return false;
+                }
+                if (window.Fault() is { } wrong)
+                {
+                    fault = wrong;
+                    return false;
+                }
+            }
+
+            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, PressureFloorMb = floor, NotifyMemoryPressure = notify, TrayNoticeSaid = said, Window = window };
             return true;
         }
     }

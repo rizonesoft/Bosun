@@ -101,6 +101,8 @@ public partial class App : Application
             // Mica under the chrome where Windows has it and the person allows it, else solid (D02 T03 §2): attached as
             // the handle is made, so a window started in the tray has it too, and let go when the window closes.
             _backdrop = Backdrop.Attach(window, window.View, theme, _contrast, made.Log);
+            // Where it was last, on that screen, before it is first shown (D02 T03 §12), and kept each time it is hidden.
+            WindowPlacement.Attach(window, settings, made.Log);
             return window;
         }, window =>
         {

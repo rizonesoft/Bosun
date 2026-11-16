@@ -15,11 +15,13 @@ namespace Bosun.Panel.E2E;
 sealed class PanelProcess : IDisposable
 {
     private readonly ChildProcess _child;
+    private readonly FirstShown? _shown;
     private bool _disposed;
 
-    private PanelProcess(ChildProcess child, string data, string instance, string program)
+    private PanelProcess(ChildProcess child, string data, string instance, string program, FirstShown? shown)
     {
-        (_child, DataFolder, Instance, Program) = (child, data, instance, program);
+        (_child, DataFolder, Instance, Program, _shown) = (child, data, instance, program, shown);
+        if (shown is not null) shown.Process = child.Id;
     }
 
     /// <summary>The panel the build made, beside this test's own output (build/dotnet/bin/&lt;project&gt;/&lt;config&gt;).</summary>
@@ -79,17 +81,50 @@ sealed class PanelProcess : IDisposable
         File.WriteAllText(Path.Combine(local, "Bosun", "logs", "current-windows.json"),
             "{\"schema_version\":1,\"side\":\"windows\",\"at\":\"" + DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture)
             + "\",\"interval_s\":30,\"memory\":{\"available_mb\":20000,\"total_mb\":32000},\"wsl_vm\":null,\"repos\":[],\"processes\":[],\"history_written\":true}");
+        // The panel opens on the test screen, never first on the main one (D02 T03 §12): its window's place is the
+        // screen's centre, unless the folder already holds settings (a second launch of the same panel).
+        var panel = string.Equals(program, PanelExe, StringComparison.OrdinalIgnoreCase);
+        var settings = Path.Combine(data, "panel.json");
+        if (panel && !File.Exists(settings)) File.WriteAllText(settings, TestScreen.Settings(TestScreen.Current));
+        var shown = panel ? new FirstShown() : null;
         var request = new ProcessRequest(program, arguments)
         {
             Environment = new Dictionary<string, string?> { ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance, ["LOCALAPPDATA"] = local },
             WorkingDirectory = data,
         };
-        return new PanelProcess(ChildProcess.Start(request, new StartGate()), data, instance, program) { _ownsFolder = ownsFolder };
+        try
+        {
+            return new PanelProcess(ChildProcess.Start(request, new StartGate()), data, instance, program, shown) { _ownsFolder = ownsFolder };
+        }
+        catch
+        {
+            shown?.Dispose();
+            throw;
+        }
     }
 
     /// <summary>The panel's main window, once it has one (it has none while it is only in the tray).</summary>
-    public AutomationElement Window(TimeSpan? limit = null) =>
-        Ui.Until(() => Ui.TopLevel(Id, "Bosun Panel"), limit ?? TimeSpan.FromSeconds(20), "the panel's window to appear");
+    public AutomationElement Window(TimeSpan? limit = null)
+    {
+        var window = Ui.Until(() => Ui.TopLevel(Id, "Bosun Panel"), limit ?? TimeSpan.FromSeconds(20), "the panel's window to appear");
+        RequireShownOnTestScreen();
+        return window;
+    }
+
+    /// <summary>
+    /// Where the window first appeared, which must be the test screen: a panel that opened on another screen (the main
+    /// one, the owner's) and was then moved fails here, whatever the test it was started for.
+    /// </summary>
+    private void RequireShownOnTestScreen()
+    {
+        if (_shown is null) return;
+        Ui.Until(() => _shown.Bounds is not null, TimeSpan.FromSeconds(5), "the panel's window to be seen as it was first shown");
+        var b = _shown.Bounds!.Value;
+        var screen = TestScreen.Current;
+        if (!screen.Holds((b.Left + b.Right) / 2, (b.Top + b.Bottom) / 2))
+            throw new InvalidOperationException(FormattableString.Invariant(
+                $"the panel's window was first shown at ({b.Left}, {b.Top}) to ({b.Right}, {b.Bottom}), not on the test screen {screen}"));
+    }
 
     /// <summary>The window's handle.</summary>
     public IntPtr Handle(TimeSpan? limit = null) => new(Window(limit).Current.NativeWindowHandle);
@@ -128,6 +163,7 @@ sealed class PanelProcess : IDisposable
         _disposed = true;
         if (Running) RemoveTrayIcon();
         _child.Dispose(); // the job's last handle: the panel and everything it started end here
+        _shown?.Dispose();
         if (_ownsFolder) RemoveFolder();
     }
 
