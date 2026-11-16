@@ -11,7 +11,8 @@ namespace Bosun.Panel.Shell;
 /// <summary>
 /// The command palette's overlay (D02 T03 §8). It shows while its <see cref="CommandPalette"/> is open, takes the
 /// keyboard into its search field as it opens, and gives the keyboard back to where it was as it closes. It fades in
-/// over the motion gate's fast duration, at once with animation effects off, and holds no clock once hidden.
+/// over the motion gate's normal duration, the overlays' (design/SPEC.md §19 Motion), at once with animation effects
+/// off or turned off midway, and holds no clock once hidden.
 /// </summary>
 public partial class CommandPaletteView : UserControl
 {
@@ -26,8 +27,9 @@ public partial class CommandPaletteView : UserControl
         DataContextChanged += (_, _) => Bind(DataContext as CommandPalette);
         IsVisibleChanged += (_, e) =>
         {
-            if (e.NewValue is false) Card.BeginAnimation(OpacityProperty, null);
+            if (e.NewValue is false) Land();
         };
+        Unloaded += (_, _) => Land();
         Results.AddHandler(PreviewMouseLeftButtonUpEvent, new MouseButtonEventHandler(OnRowClick), true);
     }
 
@@ -76,14 +78,27 @@ public partial class CommandPaletteView : UserControl
         });
     }
 
+    private Motion? _gate;
+
     private void Fade()
+    {
+        Land();
+        if (TryFindResource(Motion.GateKey) is not Motion { Animates: true } gate || gate.Normal.TimeSpan <= TimeSpan.Zero) return;
+        // Round 2 of D02 T03 §8: the overlays' duration, and animation effects turned off midway land it at once.
+        _gate = gate;
+        gate.Changed += Land;
+        var fade = new DoubleAnimation(0, 1, gate.Normal) { FillBehavior = FillBehavior.Stop };
+        fade.Completed += (_, _) => Land();
+        Card.BeginAnimation(OpacityProperty, fade);
+    }
+
+    /// <summary>Ends the fade where it was going, now, and lets the gate go.</summary>
+    private void Land()
     {
         Card.BeginAnimation(OpacityProperty, null);
         Card.Opacity = 1;
-        if (TryFindResource(Motion.GateKey) is not Motion { Animates: true } gate || gate.Fast.TimeSpan <= TimeSpan.Zero) return;
-        var fade = new DoubleAnimation(0, 1, gate.Fast) { FillBehavior = FillBehavior.Stop };
-        fade.Completed += (_, _) => Card.BeginAnimation(OpacityProperty, null);
-        Card.BeginAnimation(OpacityProperty, fade);
+        if (_gate is not null) _gate.Changed -= Land;
+        _gate = null;
     }
 
     /// <summary>The keyboard goes back to where it was, when that is still there to take it.</summary>

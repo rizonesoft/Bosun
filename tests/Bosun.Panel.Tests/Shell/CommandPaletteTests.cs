@@ -554,6 +554,18 @@ public class CommandPaletteTests
                 Assert.Equal(animates, palette.Fading);
                 shell.Palette.Close();
                 Assert.False(palette.Fading);                                                // hidden: no clock
+                if (animates)
+                {
+                    var windows = new FakeAnimation(true);
+                    page.Resources[Motion.GateKey] = gate = new Motion(page.Resources, windows);
+                    shell.Palette.Open();
+                    Assert.True(palette.Fading);
+                    windows.Set(false);                                                       // turned off midway: lands at once
+                    Assert.False(palette.Fading);
+                    int Listeners() => (typeof(Motion).GetField("Changed", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(gate) as Delegate)?
+                        .GetInvocationList().Length ?? 0;
+                    Assert.Equal(0, Listeners());                                             // and lets the gate go
+                }
                 return 0;
             }, 1360, 860);
         }
