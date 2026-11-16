@@ -450,6 +450,8 @@ A surface section has to be provable in an unattended run with no visible deskto
 
 ## 10. End-to-end smoke through UI Automation
 
+> **Started:** 2026-11-16T00:37:36Z
+
 One real launch proves the parts work together: the process starts, every page opens and every control has a name. This needs a desktop session, so a run leaves it for an attended pass.
 
 **Phase:** 2
