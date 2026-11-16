@@ -225,6 +225,8 @@ The queue is what the panel exists to show. It gets visuals of its own, fed enti
 
 ## 7. Skeleton and page transitions
 
+> **Started:** 2026-11-16T03:10:22Z
+
 Every page has a loading state under `design/SPEC.md` §1. A shared shape stops each page inventing its own spinner, and the delay stops a fast load flashing.
 
 **Phase:** 2
