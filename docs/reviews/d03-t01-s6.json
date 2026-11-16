@@ -1,0 +1,94 @@
+{
+  "ref": "D03 T01 \u00a76",
+  "title": "Decision card and the report's evidence for it",
+  "implementation_sha": "432ce73b7238c76746ba45e7b6db9e8a5e269b1a",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T01-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T01-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T01-s6.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "build\\Release\\test_core.exe -> ok (decision group; the upgrade OOM case fails without its fix)",
+    "pwsh tests/report_test.ps1 -> 8 ok",
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class *DecisionTests --filter-class *ReportEvidenceTests (and *Memory*) -> 26 of 26",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class *DecisionCardTests --filter-class *MemoryPageTests --filter-class *MemoryHistoryTests --filter-class *PageRendererTests -> 50 of 50; renders looked at",
+    "pwsh tests/render_pages_test.ps1 -> all ok",
+    "CI full gate at 432ce73 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43980566533, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43980566416"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T01-s6.md",
+    "verdict": "completed",
+    "candidate": "9bffda885094742738990d78cb5d566ebd08c003",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T01-s6.md",
+    "candidate": "424765fb42a1619a47e41b3afe37a19d16bca4a0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "424765fb42a1619a47e41b3afe37a19d16bca4a0",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

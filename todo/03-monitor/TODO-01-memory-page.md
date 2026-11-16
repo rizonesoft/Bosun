@@ -42,7 +42,7 @@ title: "TODO-01 -- Memory and overview"
 | 3 | §3 | History chart with a table equivalent | §2 | [x] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
 | 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
-| 6 | §6 | Decision card and the report's evidence for it | §3 | [ ] |
+| 6 | §6 | Decision card and the report's evidence for it | §3 | [x] |
 
 ## 1. Memory readers
 
@@ -255,9 +255,12 @@ Filed 2026-11-16 by the plan review of `§3` (`docs/reviews/03-monitor/D03-T01-s
 - [x] Carry the new fields in `ReportWindowsDoc` and `ReportWslDoc` and the floor through `IMemorySource.ReportAsync` and `MemoryClient` (`--low-mb`), reading the fortnight again at once when Settings saves another floor and dropping a reading taken at another. Done when: a test changes the floor while a report is pending and sees the shown floor, minutes and verdict agree, and `tests/Bosun.Core.Tests/Memory/ReportEvidenceTests.cs` runs the built `bosun.exe report` over written logs through `MemoryClient` into the card's verdict.
 - [x] Give the card its own states, apart from the chart: reading, never read with why and Retry (also for Ctrl+K), a later failure keeping the last verdict with its day and age, no Windows samples yet. Done when: a test fails the fortnight while the day's chart is fine and finds the card's Retry, then recovers.
 - [x] Render the card in each branch and state in every theme. Done when: the renders are in `RenderCatalog` and looked at. (**Corrected 2026-11-17:** the card sits last, after the by-repo table, as `design/SPEC.md` §3 lists it, so its renders are drawn 1100 px tall through a new `RenderCase.Height`.)
-- [ ] Commit: `memory: decision card and its evidence`
+- [x] Commit: `memory: decision card and its evidence`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DecisionTests" --filter-class "*ReportEvidenceTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DecisionCardTests"` exit 0 (**Corrected 2026-11-17:** named only the Panel project, where the rule's tests are not; the rule is `src/Bosun.Core/Memory/Decision.cs`, its tests in Core, the card's in `DecisionCardTests`), and fails if a verdict is given from fewer than 7 days of Windows samples; `build\Release\test_core.exe` passes the report's new cases.
+
+> **Verified:** 2026-11-17 | §6 | 432ce73b7238c76746ba45e7b6db9e8a5e269b1a
+> **Review:** `docs/reviews/d03-t01-s6.json`
 
 ## Verification
 
