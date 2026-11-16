@@ -136,6 +136,8 @@ Peaks are the whole story, and a drawn chart needs an accessible equal. A small 
 
 ## 4. Pressure alerts
 
+> **Started:** 2026-11-16T06:33:27Z
+
 A warning is worth having only if it arrives once, early enough, and doesn't nag.
 
 **Phase:** 3
