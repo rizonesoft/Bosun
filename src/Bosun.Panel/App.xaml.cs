@@ -19,7 +19,7 @@ public partial class App : Application
     private readonly PanelStartup _startup;
     private IWindowSurface? _window;
     private WindowsTheme? _windowsTheme;
-    private WindowsHighContrast? _contrast;
+    private IHighContrast? _contrast;
     private Backdrop? _backdrop;
     private TrayController? _tray;
     private RefreshScheduler? _refreshes;
@@ -58,7 +58,7 @@ public partial class App : Application
         _motion?.Dispose();    // and nothing goes on listening for Windows' animation setting
         _tray?.Dispose();      // and no icon is left in the tray
         _windowsTheme?.Dispose();
-        _contrast?.Dispose();
+        (_contrast as IDisposable)?.Dispose();
         _backdrop?.Dispose();
         _startup.Dispose();
         base.OnExit(e);
@@ -71,13 +71,15 @@ public partial class App : Application
 
         // The stored theme first, so the window is never drawn in one theme and then another (D02 T02 §5).
         _windowsTheme = new WindowsTheme();
-        // Windows' contrast themes win over the stored choice while one is on (D02 T03 §10).
-        _contrast = new WindowsHighContrast();
+        // Windows' contrast themes win over the stored choice while one is on (D02 T03 §10); a preview named by
+        // BOSUN_PANEL_CONTRAST stands in for them, always on, and a file it can't read leaves Windows' own (D02 T03 §11).
+        var (contrast, previewLine, previewFailed) = PreviewContrast.Choose(Environment.GetEnvironmentVariable(PreviewContrast.Variable), () => new WindowsHighContrast());
+        _contrast = contrast;
         var theme = new ThemeService(Resources.MergedDictionaries, _windowsTheme, Dispatcher, contrast: _contrast);
         theme.Apply(settings.Current.Theme);
         settings.Changed += saved => theme.Apply(saved.Theme);
         _windowsTheme.Listen();
-        _contrast.Listen();
+        (_contrast as WindowsHighContrast)?.Listen();
         // The one motion gate (D02 T03 §1, §7), over the theme just applied: every animation takes its length from it,
         // and none runs while Windows' animation effects are off.
         _motion = Motion.Install(Resources, new WindowsAnimation());
@@ -88,6 +90,12 @@ public partial class App : Application
         // The one owner of every refresh (D02 T02 §8), ticked on this thread, and only while something is active.
         var refreshes = _refreshes = new RefreshScheduler(driver: new DispatcherRefreshDriver(Dispatcher));
         var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme);
+        // The preview said where the person will look: in force from which file, or why its file was not used.
+        if (previewLine is not null)
+        {
+            if (previewFailed) made.Log.Warn(previewLine);
+            else made.Log.Info(previewLine);
+        }
         var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes);
         _window = WindowStart.Open(made, shell =>
         {

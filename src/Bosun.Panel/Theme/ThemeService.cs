@@ -112,6 +112,9 @@ public sealed class ThemeService
     /// <summary>Whether the panel is drawn in Windows' contrast colours now, whatever the person chose.</summary>
     public bool IsHighContrast => Effective == HighContrast;
 
+    /// <summary>The <c>.theme</c> file a contrast preview draws from (D02 T03 §11); null when none is in force.</summary>
+    public string? PreviewFile => (_contrast as PreviewContrast)?.File;
+
     /// <summary>The person's choice, kept while a contrast theme is in force.</summary>
     public ThemeChoice Choice => _choice;
 

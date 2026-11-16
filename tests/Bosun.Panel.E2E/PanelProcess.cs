@@ -62,6 +62,10 @@ sealed class PanelProcess : IDisposable
     public static PanelProcess Start(params string[] arguments) =>
         Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]), "e2e-" + Guid.NewGuid().ToString("N")[..12]);
 
+    /// <summary>A panel of its own with more environment: a contrast preview's file, say (D02 T03 §11).</summary>
+    public static PanelProcess StartWith(IReadOnlyDictionary<string, string?> environment, params string[] arguments) =>
+        Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]), "e2e-" + Guid.NewGuid().ToString("N")[..12], extra: environment);
+
     /// <summary>Another <c>Bosun.Panel.exe</c> as the same instance, with the same data folder: a second launch.</summary>
     public PanelProcess StartAgain(params string[] arguments) => Launch(PanelExe, arguments, DataFolder, Instance, ownsFolder: false);
 
@@ -71,7 +75,8 @@ sealed class PanelProcess : IDisposable
 
     private bool _ownsFolder = true;
 
-    private static PanelProcess Launch(string program, string[] arguments, string data, string instance, bool ownsFolder = true)
+    private static PanelProcess Launch(string program, string[] arguments, string data, string instance, bool ownsFolder = true,
+        IReadOnlyDictionary<string, string?>? extra = null)
     {
         Directory.CreateDirectory(data);
         // A local application data folder of the test's own, holding a fresh Windows snapshot with plenty of memory:
@@ -89,7 +94,10 @@ sealed class PanelProcess : IDisposable
         var shown = panel ? new FirstShown() : null;
         var request = new ProcessRequest(program, arguments)
         {
-            Environment = new Dictionary<string, string?> { ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance, ["LOCALAPPDATA"] = local },
+            Environment = new Dictionary<string, string?>(extra ?? new Dictionary<string, string?>())
+            {
+                ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance, ["LOCALAPPDATA"] = local,
+            },
             WorkingDirectory = data,
         };
         try

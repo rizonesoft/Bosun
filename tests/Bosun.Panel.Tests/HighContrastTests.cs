@@ -436,4 +436,27 @@ public class HighContrastTests
             return 0;
         });
     }
+
+    [Fact]
+    public void A_contrast_preview_draws_its_file_says_so_on_the_Settings_page_and_leaves_the_stored_choice()
+    {
+        // D02 T03 §11: always on in the file's colours, the page saying where they come from and how to leave them.
+        Sta.Run(() =>
+        {
+            var fixture = new SettingsFixture().Open();
+            var stored = fixture.Store.Current.Theme;
+            var merged = new List<ResourceDictionary>();
+            var preview = new PreviewContrast(ContrastPalettes.Desert, "hcwhite.theme");
+            var theme = new ThemeService(merged, new FakeWindowsTheme(), System.Windows.Threading.Dispatcher.CurrentDispatcher, _ => Generated("Dark"), preview);
+            theme.Apply(ThemeChoice.Dark);
+            Assert.True(theme.IsHighContrast);
+            Assert.Equal("hcwhite.theme", theme.PreviewFile);
+            Assert.Equal(ContrastPalettes.Desert.Window, ((SolidColorBrush)merged.Last(d => d.Contains("B.Base"))["B.Base"]).Color); // the contrast colours, merged last, win
+            var page = new SettingsPage(fixture.Store, fixture.Startup, fixture.Log, () => { }, theme);
+            Assert.Equal(SettingsPage.PreviewNote("hcwhite.theme"), page.ThemeNote);
+            Assert.Contains("exit it from the tray and start it again", page.ThemeNote, StringComparison.Ordinal);
+            Assert.Equal(stored, fixture.Store.Current.Theme);                                   // the preview changed nothing stored
+            return 0;
+        });
+    }
 }

@@ -191,7 +191,10 @@ static partial class XamlRules
         if (!file.EndsWith("Theme/Glyphs.cs", StringComparison.Ordinal))
             foreach (Match m in Regex.Matches(code, @"PackIconLucideKind\s*\.\s*\w+"))
                 Add(m, $"Lucide kind {Flat(m)} named in code: name it through Theme/Glyphs.cs");
-        foreach (Match m in ColourMade().Matches(code)) Add(m, $"colour made in code ({Flat(m)}): use a B.* or C.* resource");
+        // The reader of Windows' own .theme files (D02 T03 §11) makes the colours those files hold: Windows' colours, as
+        // SystemColors gives them, never one the panel chooses. It is the one file that may.
+        if (!file.EndsWith("Theme/ContrastPreview.cs", StringComparison.Ordinal))
+            foreach (Match m in ColourMade().Matches(code)) Add(m, $"colour made in code ({Flat(m)}): use a B.* or C.* resource");
         foreach (Match m in NamedColour().Matches(code))
             if (m.Groups[2].Value != "Transparent") Add(m, $"colour {Regex.Replace(m.Value, @"\s+", "")} written in code: use a B.* or C.* resource");
         foreach (Match m in FontSizeNumber().Matches(code)) Add(m, $"font size set to a number ({Flat(m)}...): use a T.* resource");

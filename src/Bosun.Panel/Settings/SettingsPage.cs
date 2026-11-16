@@ -46,7 +46,7 @@ public sealed class SettingsPage : PageBase
         // under the theme box, and kept in step as contrast comes and goes.
         if (theme is not null)
         {
-            void Say() => ThemeNote = theme.IsHighContrast ? ContrastNote : null;
+            void Say() => ThemeNote = theme.PreviewFile is { } file ? PreviewNote(file) : theme.IsHighContrast ? ContrastNote : null;
             theme.EffectiveChanged += Say;
             Say();
         }
@@ -93,6 +93,10 @@ public sealed class SettingsPage : PageBase
 
     /// <summary>Said under the theme box while Windows draws in a contrast theme.</summary>
     public const string ContrastNote = "Windows' contrast theme is in use, so the panel draws in its colours. The theme chosen here applies when it is turned off.";
+
+    /// <summary>What the page says under a contrast preview (D02 T03 §11): where it comes from and how to leave it.</summary>
+    public static string PreviewNote(string file) =>
+        $"A contrast preview from {file} is in force ({Bosun.Panel.Theme.PreviewContrast.Variable}). The theme chosen here applies when the panel is started without it: exit it from the tray and start it again.";
 
     private string? _themeNote;
 
