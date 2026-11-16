@@ -87,6 +87,8 @@ Typed access to the core contract, with schema refusal, so pages only deal in va
 
 This is the question the whole project exists to answer.
 
+**Corrected 2026-11-16:** checked against the tree before the plan review. The page is `src/Bosun.Panel/Memory/MemoryPage.cs` (a `PageBase`) and its view `src/Bosun.Panel/Memory/MemoryView.xaml`, beside the Settings page's folder, not a `Views` folder; `WindowStart.NewShell` gives it to the rail by its key, `memory`, in place of its placeholder, with the panel's one `RefreshScheduler` and a `MemoryClient` (`D03 T01 §1`). What each part reads, as the mockup draws it: **Windows used** is the Windows snapshot's `total_mb` less `available_mb`, its note the committed memory (`commit_mb`); **WSL VM** is what the VM costs Windows (the Windows snapshot's `wsl_vm.private_mb`, "Not running" when it isn't), its note the guest's cap (the WSL snapshot's `total_mb`); **Overlapping builds** is today's most builds at once from `bosun report --json --days 1` (`builds.max_overlap`), its note today's lowest headroom (`windows.min_available_mb`). The **By repo** table joins each side's snapshot (repo, side, private GB now, processes now) with today's peaks from the report (`repos[].peak_private_mb`), sortable by Private GB, Peak GB and Processes, highest private first, with tabular figures (`Cell.Number`). The snapshots are read every 5 s (design/SPEC.md §1, memory) and the report every 30 s, each on the scheduler and only while the page is shown. A Windows snapshot that can't be read is the page's failed state with the reason and Retry; one gone stale shows the last data with its age (`ShowLastKnown`); a WSL snapshot or report that can't be read makes only its own values "Not available" with the reason. The history chart and the decision card are `§3` and later sections. Tests: `tests/Bosun.Panel.Tests/Memory/MemoryPageTests.cs` over snapshot files and a fake `bosun report`, and renders of each state; the checkpoint takes the test platform's filter form.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** yes
@@ -97,16 +99,16 @@ This is the question the whole project exists to answer.
 
 **Build order:**
 
-1. Create `Views/MemoryView.xaml`. Done when: cards and the by-repo table show live data.
+1. Create `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: cards and the by-repo table show live data.
 2. Add sort and the four states. Done when: each state renders.
 
 - [ ] Build the Windows used, WSL VM and Overlapping builds cards per `design/SPEC.md` §3. Done when: values match `bosun status --json` within a refresh. Cheaper substitute: mock numbers left in the view model.
 - [ ] Build the sortable by-repo table. Done when: sorting by peak puts the highest first, with tabular numbers.
-- [ ] Add a Side column to the by-repo table in `Views/MemoryView.xaml`. Done when: a fixture shows a Windows and a WSL repo with their words.
+- [ ] Add a Side column to the by-repo table in `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: a fixture shows a Windows and a WSL repo with their words.
 - [ ] Give the Memory page the gauge skeleton (`LoadingShape = SkeletonShape.Gauge`) and draw each value it can't read as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`, which built them on test pages). Done when: a render of the page loading shows the gauge shape, and a test with an unreadable counter shows "Not available" with its reason, never 0. Cheaper substitute: a card skeleton, or a 0 for a counter that failed.
 - [ ] Commit: `memory: page with live cards and repo table`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~MemoryViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPageTests"` exits 0, and fails if an unreadable counter is shown as 0.
 
 ## 3. History chart with a table equivalent
 
