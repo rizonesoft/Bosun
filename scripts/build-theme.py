@@ -6,9 +6,11 @@
 
 Each theme gets, in the token file's order, a `Color` `C.<name>` and a frozen `SolidColorBrush` `B.<name>` for every
 colour, a `CornerRadius` `R.<name>` for every radius, and a `sys:Double` `S.<name>` for every space and `T.<name>` for
-every type size: the key names Steward's theme uses, so its control templates port unchanged. Elevation and motion
-are emitted by D02 T03 §1. Edit the tokens, never the generated XAML: `--check` in `scripts/check-all.ps1` fails a
-hand edit. An eight-digit colour is alpha first (#AARRGGBB), as WPF reads it, so colours pass through unchanged.
+every type size: the key names Steward's theme uses, so its control templates port unchanged. Then (D02 T03 §1) a
+frozen `DropShadowEffect` `Elevation.<name>` for every elevation, at that theme's opacity, and the motion: a `Duration`
+`Motion.<name>` for every `<name>Ms` and a frozen `KeySpline` `Motion.Ease`, the same in both themes. Edit the tokens,
+never the generated XAML: `--check` in `scripts/check-all.ps1` fails a hand edit. An eight-digit colour is alpha first
+(#AARRGGBB), as WPF reads it, so colours pass through unchanged.
 
     python scripts/build-theme.py --tokens <colors.json> --out <folder> [--check]
 
@@ -35,7 +37,13 @@ REQUIRED = {
     "radius": ("Card", "Control", "Sheet", "Overlay", "Pill"),
     "space": ("XS", "S", "M", "L", "XL"),
     "type": ("Caption", "Body", "Subtitle", "Title", "Metric"),
+    "elevation": ("Card", "Overlay"),
+    "motion": ("FastMs", "NormalMs", "SlowMs", "PulseMs"),
 }
+# What an elevation holds: its measures, and its opacity in each theme.
+ELEVATION = ("Blur", "Depth", "OpacityDark", "OpacityLight")
+OPACITY = {"dark": "OpacityDark", "light": "OpacityLight"}
+MAX_MS = 10000
 # Group -> (key prefix, XAML element) for the measures.
 MEASURES = (("radius", "R", "CornerRadius"), ("space", "S", "sys:Double"), ("type", "T", "sys:Double"))
 COLOUR = re.compile(r"#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})")
@@ -70,11 +78,67 @@ def number(path: str, value) -> str:
     return str(int(value)) if float(value).is_integer() else repr(float(value))
 
 
+def fraction(path: str, value) -> str:
+    """A number from 0 to 1: an opacity, or a point of an easing curve."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        raise TokenError(f"{path}: must be a number from 0 to 1")
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def milliseconds(path: str, value) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= MAX_MS:
+        raise TokenError(f"{path}: must be a whole number of milliseconds from 0 to {MAX_MS}")
+    return value
+
+
+def duration(ms: int) -> str:
+    """A WPF Duration of a whole number of milliseconds: 120 is 0:0:0.120."""
+    return f"0:0:{ms // 1000}.{ms % 1000:03d}"
+
+
+def check_elevation(elevation: dict) -> None:
+    for key in REQUIRED["elevation"]:
+        if key not in elevation:
+            raise TokenError(f"elevation.{key}: missing")
+    for key, value in elevation.items():
+        if not isinstance(value, dict):
+            raise TokenError(f"elevation.{key}: must be an object")
+        for part in ELEVATION:
+            if part not in value:
+                raise TokenError(f"elevation.{key}.{part}: missing")
+        for part in value:
+            if part not in ELEVATION:
+                raise TokenError(f"elevation.{key}.{part}: not an elevation's part ({', '.join(ELEVATION)})")
+        number(f"elevation.{key}.Blur", value["Blur"])
+        number(f"elevation.{key}.Depth", value["Depth"])
+        for theme in THEMES:
+            fraction(f"elevation.{key}.{OPACITY[theme]}", value[OPACITY[theme]])
+
+
+def check_motion(motion: dict) -> None:
+    for key in REQUIRED["motion"]:
+        if key not in motion:
+            raise TokenError(f"motion.{key}: missing")
+    if "Ease" not in motion:
+        raise TokenError("motion.Ease: missing")
+    for key, value in motion.items():
+        if key == "Ease":
+            # A cubic Bezier's two control points (x1, y1, x2, y2); WPF's KeySpline takes each coordinate from 0 to 1.
+            if not isinstance(value, list) or len(value) != 4:
+                raise TokenError("motion.Ease: must be four numbers, x1, y1, x2, y2")
+            for index, point in enumerate(value):
+                fraction(f"motion.Ease[{index}]", point)
+        elif key.endswith("Ms") and len(key) > 2:
+            milliseconds(f"motion.{key}", value)
+        else:
+            raise TokenError(f"motion.{key}: a motion token is a duration named <name>Ms, or Ease")
+
+
 def validate(tokens) -> dict:
     """Every token checked before anything is written; returns the groups."""
     if not isinstance(tokens, dict):
         raise TokenError("the token file: must be a JSON object")
-    groups = {name: group(tokens, name) for name in THEMES + ("radius", "space", "type")}
+    groups = {name: group(tokens, name) for name in THEMES + ("radius", "space", "type", "elevation", "motion")}
     for theme in THEMES:
         other = THEMES[1 - THEMES.index(theme)]
         for key in groups[theme]:
@@ -92,6 +156,8 @@ def validate(tokens) -> dict:
                 raise TokenError(f"{name}.{key}: missing")
         for key, value in groups[name].items():
             number(f"{name}.{key}", value)
+    check_elevation(groups["elevation"])
+    check_motion(groups["motion"])
     return groups
 
 
@@ -117,6 +183,18 @@ def render(groups: dict, theme: str) -> str:
         lines += ["", f"    <!-- {titles[name]} -->"]
         for key, value in groups[name].items():
             lines.append(f'    <{element} x:Key="{prefix}.{key}">{number(f"{name}.{key}", value)}</{element}>')
+    lines += ["", "    <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->"]
+    for key, value in groups["elevation"].items():
+        lines.append(f'    <DropShadowEffect x:Key="Elevation.{key}" BlurRadius="{number(f"elevation.{key}.Blur", value["Blur"])}" '
+                     f'ShadowDepth="{number(f"elevation.{key}.Depth", value["Depth"])}" Direction="270" Color="#FF000000" '
+                     f'Opacity="{fraction(f"elevation.{key}.{OPACITY[theme]}", value[OPACITY[theme]])}" po:Freeze="True"/>')
+    lines += ["", "    <!-- Motion: the design's durations and easing. Read through Theme/Motion.cs, which gives zero when Windows' animation effects are off -->"]
+    motion = groups["motion"]
+    for key, value in motion.items():
+        if key != "Ease":
+            lines.append(f'    <Duration x:Key="Motion.{key[:-2]}">{duration(value)}</Duration>')
+    x1, y1, x2, y2 = (fraction(f"motion.Ease[{i}]", v) for i, v in enumerate(motion["Ease"]))
+    lines.append(f'    <KeySpline x:Key="Motion.Ease" ControlPoint1="{x1},{y1}" ControlPoint2="{x2},{y2}" po:Freeze="True"/>')
     lines += ["</ResourceDictionary>", ""]
     return "\n".join(lines)
 

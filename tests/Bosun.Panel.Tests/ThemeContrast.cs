@@ -16,6 +16,9 @@ static class ThemeContrast
     public static readonly string[] TextRoles = ["Text", "TextDim", "TextMute", "Accent", "Ok", "Warn", "Danger", "Info"];
     public static readonly string[] Surfaces = ["Base", "Surface", "Raised"];
 
+    /// <summary>The states a status pill shows, each with a soft tint named <c>&lt;state&gt;Soft</c>.</summary>
+    public static readonly string[] StatusRoles = ["Ok", "Warn", "Danger", "Info"];
+
     /// <summary>The colours of a generated theme file, by token name ("Base", not "C.Base").</summary>
     public static Dictionary<string, string> Load(string xamlPath)
     {
@@ -47,6 +50,16 @@ static class ThemeContrast
         foreach (var text in TextRoles)
             foreach (var surface in Surfaces)
                 Check(text, surface);
+        // A status pill's word on its soft tint, the tint laid over each surface the pill sits on (design/SPEC.md §19,
+        // D02 T03 §1): the tint is translucent, so the word is judged on what the tint and the surface make together.
+        foreach (var status in StatusRoles)
+            foreach (var surface in Surfaces)
+            {
+                if (Colour(status) is not { } word || Colour(status + "Soft") is not { } tint || Colour(surface) is not { } under || under.A < 1) continue;
+                var ratio = Ratio(word, Over(tint, under));
+                if (ratio < minimum)
+                    failures.Add($"{status} {colours[status]} on {status}Soft {colours[status + "Soft"]} over {surface} {colours[surface]} is {ratio.ToString("F2", CultureInfo.InvariantCulture)}:1, under {minimum.ToString(CultureInfo.InvariantCulture)}:1");
+            }
         Check("OnAccent", "Accent");  // Btn.Primary's label
         Check("Base", "Danger");      // the close button's glyph while the pointer is on it (Btn.Chrome, D02 T01 §4)
         // TextMute exists to sit below TextDim, and TextDim below Text: raising one for contrast must not collapse them.
@@ -69,6 +82,13 @@ static class ThemeContrast
         var a = Luminance(Blend(fg.R, bg.R), Blend(fg.G, bg.G), Blend(fg.B, bg.B));
         var c = Luminance(bg.R, bg.G, bg.B);
         return (Math.Max(a, c) + 0.05) / (Math.Min(a, c) + 0.05);
+    }
+
+    /// <summary>A translucent colour laid over an opaque one: the opaque colour that results, as WPF draws it.</summary>
+    static (double A, double R, double G, double B) Over((double A, double R, double G, double B) top, (double A, double R, double G, double B) under)
+    {
+        double Blend(double t, double u) => top.A * t + (1 - top.A) * u;
+        return (1, Blend(top.R, under.R), Blend(top.G, under.G), Blend(top.B, under.B));
     }
 
     // WCAG 2 relative luminance of sRGB channels in 0..1.

@@ -55,19 +55,44 @@ class BuildThemeTest(unittest.TestCase):
             for group, prefix, element in theme.MEASURES:
                 for key, value in tokens[group].items():
                     self.assertIn(f'<{element} x:Key="{prefix}.{key}">{value}</{element}>', text)
-            self.assertNotIn("Elevation", text)  # D02 T03 §1's
+            # D02 T03 §1: each elevation at this theme's opacity, and the motion, equal to the tokens.
+            opacity = "OpacityDark" if name == "dark" else "OpacityLight"
+            for key, value in tokens["elevation"].items():
+                self.assertIn(f'<DropShadowEffect x:Key="Elevation.{key}" BlurRadius="{value["Blur"]}" ShadowDepth="{value["Depth"]}" '
+                              f'Direction="270" Color="#FF000000" Opacity="{value[opacity]}" po:Freeze="True"/>', text)
+            durations = {k: v for k, v in tokens["motion"].items() if k != "Ease"}
+            for key, ms in durations.items():
+                self.assertIn(f'<Duration x:Key="Motion.{key[:-2]}">0:0:{ms // 1000}.{ms % 1000:03d}</Duration>', text)
+            x1, y1, x2, y2 = tokens["motion"]["Ease"]
+            self.assertIn(f'<KeySpline x:Key="Motion.Ease" ControlPoint1="{x1},{y1}" ControlPoint2="{x2},{y2}" po:Freeze="True"/>', text)
             keys = re.findall(r'x:Key="([^"]+)"', text)
             self.assertEqual(len(keys), len(set(keys)))
-            self.assertEqual(len(keys), 2 * len(tokens[name]) + sum(len(tokens[g]) for g, _, _ in theme.MEASURES))
+            self.assertEqual(len(keys), 2 * len(tokens[name]) + sum(len(tokens[g]) for g, _, _ in theme.MEASURES)
+                             + len(tokens["elevation"]) + len(durations) + 1)
         self.assertNotIn(b"\r\n", (self.out / "Dark.xaml").read_bytes())
 
-    def test_the_two_themes_differ_only_in_their_colours(self):
+    def test_the_two_themes_differ_only_in_their_colours_and_shadow_opacities(self):
         self.run_theme()
         dark = (self.out / "Dark.xaml").read_text(encoding="utf-8")
         light = (self.out / "Light.xaml").read_text(encoding="utf-8")
         self.assertNotEqual(dark, light)
-        strip = lambda t: re.sub(r"#[0-9A-F]{6,8}", "#", t)
+        strip = lambda t: re.sub(r'Opacity="[0-9.]+"', 'Opacity=""', re.sub(r"#[0-9A-F]{6,8}", "#", t))
         self.assertEqual(strip(dark), strip(light))
+        shadows = lambda t: re.findall(r'x:Key="(Elevation\.\w+)"[^>]* Opacity="([0-9.]+)"', t)
+        self.assertNotEqual(shadows(dark), shadows(light), "each theme has its own shadow strength")
+
+    def test_a_changed_elevation_or_duration_reaches_the_generated_theme(self):
+        tokens = self.load()
+        tokens["elevation"]["Card"]["Blur"] = 24
+        tokens["motion"]["FastMs"] = 90
+        tokens["motion"]["Ease"] = [0.4, 0, 0.2, 1]
+        self.save(tokens)
+        self.assertEqual(self.run_theme(), (0, ""))
+        for name in ("Dark", "Light"):
+            text = (self.out / f"{name}.xaml").read_text(encoding="utf-8")
+            self.assertRegex(text, r'x:Key="Elevation\.Card" BlurRadius="24" ')
+            self.assertIn('<Duration x:Key="Motion.Fast">0:0:0.090</Duration>', text)
+            self.assertIn('ControlPoint1="0.4,0" ControlPoint2="0.2,1"', text)
 
     def test_bad_tokens_are_refused_by_path_and_nothing_is_written(self):
         self.run_theme()
@@ -94,6 +119,17 @@ class BuildThemeTest(unittest.TestCase):
         del both_lack["light"]["TextDim"]
         missing_group = json.loads(json.dumps(good))
         del missing_group["space"]
+
+        def elevation(key, part, value):
+            t = json.loads(json.dumps(good))
+            if value is None:
+                del t["elevation"][key][part]
+            else:
+                t["elevation"][key][part] = value
+            return t
+
+        no_motion = json.loads(json.dumps(good))
+        del no_motion["motion"]
         cases = [
             (without("light", "OkSoft"), "light.OkSoft"),             # in dark only
             (setting("light", "Extra", "#123456"), "dark.Extra"),     # in light only
@@ -114,6 +150,26 @@ class BuildThemeTest(unittest.TestCase):
             (replacing("radius", {}), "radius: is empty"),
             (replacing("space", [4, 8]), "space: must be an object"),
             (missing_group, "space: missing"),
+            # D02 T03 §1: elevation and motion
+            (without("elevation", "Overlay"), "elevation.Overlay: missing"),
+            (elevation("Card", "Blur", None), "elevation.Card.Blur: missing"),
+            (elevation("Card", "Blur", "20"), "elevation.Card.Blur"),
+            (elevation("Card", "Depth", -1), "elevation.Card.Depth"),
+            (elevation("Overlay", "OpacityDark", 1.5), "elevation.Overlay.OpacityDark: must be a number from 0 to 1"),
+            (elevation("Card", "OpacityLight", None), "elevation.Card.OpacityLight: missing"),
+            (elevation("Card", "Spread", 3), "elevation.Card.Spread: not an elevation's part"),
+            (setting("elevation", "Card", 20), "elevation.Card: must be an object"),
+            (no_motion, "motion: missing"),
+            (without("motion", "NormalMs"), "motion.NormalMs: missing"),
+            (without("motion", "Ease"), "motion.Ease: missing"),
+            (setting("motion", "FastMs", "120"), "motion.FastMs: must be a whole number"),
+            (setting("motion", "SlowMs", 400.5), "motion.SlowMs: must be a whole number"),
+            (setting("motion", "PulseMs", 10001), "motion.PulseMs"),
+            (setting("motion", "FastMs", True), "motion.FastMs"),
+            (setting("motion", "Ease", [0.2, 0.8, 0.2]), "motion.Ease: must be four numbers"),
+            (setting("motion", "Ease", [0.2, 1.4, 0.2, 1]), "motion.Ease[1]: must be a number from 0 to 1"),
+            (setting("motion", "Ease", [-0.1, 0.8, 0.2, 1]), "motion.Ease[0]"),
+            (setting("motion", "Bounce", 3), "motion.Bounce: a motion token is a duration"),
             ([], "must be a JSON object"),
         ]
         for tokens, path in cases:

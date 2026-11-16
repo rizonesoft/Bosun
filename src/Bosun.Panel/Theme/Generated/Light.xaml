@@ -69,4 +69,15 @@
     <sys:Double x:Key="T.Subtitle">15</sys:Double>
     <sys:Double x:Key="T.Title">21</sys:Double>
     <sys:Double x:Key="T.Metric">28</sys:Double>
+
+    <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->
+    <DropShadowEffect x:Key="Elevation.Card" BlurRadius="20" ShadowDepth="6" Direction="270" Color="#FF000000" Opacity="0.07" po:Freeze="True"/>
+    <DropShadowEffect x:Key="Elevation.Overlay" BlurRadius="44" ShadowDepth="16" Direction="270" Color="#FF000000" Opacity="0.18" po:Freeze="True"/>
+
+    <!-- Motion: the design's durations and easing. Read through Theme/Motion.cs, which gives zero when Windows' animation effects are off -->
+    <Duration x:Key="Motion.Fast">0:0:0.120</Duration>
+    <Duration x:Key="Motion.Normal">0:0:0.220</Duration>
+    <Duration x:Key="Motion.Slow">0:0:0.400</Duration>
+    <Duration x:Key="Motion.Pulse">0:0:2.400</Duration>
+    <KeySpline x:Key="Motion.Ease" ControlPoint1="0.2,0.8" ControlPoint2="0.2,1" po:Freeze="True"/>
 </ResourceDictionary>

@@ -40,6 +40,29 @@ static partial class XamlRules
     [GeneratedRegex(@"\b(Colors|Brushes)\s*\.\s*(\w+)")]
     private static partial Regex NamedColour();
 
+    /// <summary>
+    /// Properties whose value the theme owns as well (D02 T03 §1): a corner's rounding (R.*), a shadow's blur
+    /// (Elevation.*) and an animation's length (Theme/Motion.cs, from Motion.*). Zero passes: no rounding and no motion
+    /// are not values a token owns (a window's square corners on its WindowChrome).
+    /// </summary>
+    static readonly Dictionary<string, string> ThemedMeasures = new(StringComparer.Ordinal)
+    {
+        ["CornerRadius"] = "an R.* resource",
+        ["BlurRadius"] = "an Elevation.* resource",
+        ["Duration"] = "Theme/Motion.cs",
+    };
+
+    /// <summary>Whether a value holds a number other than zero: "8", "0:0:0.2", "4,4,0,0"; not "0", "0,0,0,0" or "Automatic".</summary>
+    static bool HasNonZeroNumber(string value) =>
+        Number().Matches(value).Any(m => double.TryParse(m.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) && n != 0);
+
+    [GeneratedRegex(@"\d+(?:\.\d+)?|\.\d+")]
+    private static partial Regex Number();
+
+    // BlurRadius = 8, new CornerRadius(8), new Duration(TimeSpan.FromMilliseconds(220)): the same in code.
+    [GeneratedRegex(@"\bBlurRadius\s*=\s*[0-9.]+|\bnew\s+CornerRadius\s*\(\s*[0-9.][^)]*\)|\bnew\s+Duration\s*\(\s*TimeSpan\s*\.\s*From\w+\s*\(\s*[0-9.]+")]
+    private static partial Regex ThemedMeasureInCode();
+
     // FontSize = 13, an initialiser's FontSize = 13.0, SetValue(X.FontSizeProperty, 13), new Setter(X.FontSizeProperty, 13.0)
     [GeneratedRegex(@"\bFontSize\s*=\s*[0-9.]|\bFontSizeProperty\s*,\s*[0-9.]")]
     private static partial Regex FontSizeNumber();
@@ -90,6 +113,11 @@ static partial class XamlRules
         void Value(XObject at, string property, string value, string where)
         {
             var v = value.Trim();
+            if (ThemedMeasures.TryGetValue(Last(property), out var owner))
+            {
+                if (IsLiteral(v) && HasNonZeroNumber(v)) found.Add(new Violation(file, Line(at), $"{Last(property)} {v} written {where}: use {owner}"));
+                return;
+            }
             if (Last(property) == "FontSize")
             {
                 if (IsSize(v)) found.Add(new Violation(file, Line(at), $"font size {v} written {where}: use a T.* resource"));
@@ -142,6 +170,8 @@ static partial class XamlRules
         foreach (Match m in NamedColour().Matches(code))
             if (m.Groups[2].Value != "Transparent") Add(m, $"colour {Regex.Replace(m.Value, @"\s+", "")} written in code: use a B.* or C.* resource");
         foreach (Match m in FontSizeNumber().Matches(code)) Add(m, $"font size set to a number ({Flat(m)}...): use a T.* resource");
+        foreach (Match m in ThemedMeasureInCode().Matches(code))
+            if (HasNonZeroNumber(m.Value)) Add(m, $"{Flat(m)} written in code: use an R.* or Elevation.* resource, or Theme/Motion.cs");
         return found.OrderBy(v => v.Line).ToList();
     }
 

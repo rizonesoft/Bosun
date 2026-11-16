@@ -40,6 +40,21 @@ public class ThemeContrastTests
     }
 
     [Fact]
+    public void A_status_word_reads_on_its_soft_tint_over_every_surface_and_a_stronger_tint_fails()
+    {
+        foreach (var file in new[] { "Dark.xaml", "Light.xaml" })
+            Assert.DoesNotContain(ThemeContrast.Failures(Theme(file)), f => f.Contains("Soft ", StringComparison.Ordinal));
+
+        // The same tint at three times the strength: the word is lost on the tint, though it still reads on the plain
+        // surface, which is why the surface alone is not the measure.
+        var dark = Theme("Dark.xaml");
+        dark["DangerSoft"] = "#6C" + dark["DangerSoft"][3..];
+        var failures = ThemeContrast.Failures(dark);
+        Assert.Contains(failures, f => f.StartsWith("Danger ", StringComparison.Ordinal) && f.Contains(" on DangerSoft #6C", StringComparison.Ordinal) && f.Contains(" over Raised ", StringComparison.Ordinal));
+        Assert.DoesNotContain(failures, f => f.StartsWith("Danger ", StringComparison.Ordinal) && !f.Contains("Soft", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_close_buttons_glyph_reads_on_its_danger_hover()
     {
         // Btn.Chrome draws B.Base on B.Danger under the pointer (D02 T01 §4): a danger moved toward the base loses it.

@@ -56,6 +56,13 @@ public class XamlRulesTests
     [InlineData("<TextBlock><TextBlock.FontSize>13</TextBlock.FontSize></TextBlock>", "font size 13")]
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\" Value=\"11\"/></Style></Grid.Resources>", "font size 11")]
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"TextElement.FontSize\" Value=\"11\"/></Style></Grid.Resources>", "font size 11")]
+    // D02 T03 §1: a rounding, a shadow's blur and an animation's length are the theme's too.
+    [InlineData("<Border CornerRadius=\"8\"/>", "CornerRadius 8 written in CornerRadius: use an R.* resource")]
+    [InlineData("<Border CornerRadius=\"8,8,0,0\"/>", "CornerRadius 8,8,0,0")]
+    [InlineData("<Border><Border.CornerRadius>12</Border.CornerRadius></Border>", "CornerRadius 12")]
+    [InlineData("<Grid.Resources><Style TargetType=\"Border\"><Setter Property=\"CornerRadius\" Value=\"6\"/></Style></Grid.Resources>", "CornerRadius 6 written in a Setter")]
+    [InlineData("<Border><Border.Effect><DropShadowEffect BlurRadius=\"20\" ShadowDepth=\"{StaticResource S.M}\"/></Border.Effect></Border>", "BlurRadius 20 written in BlurRadius: use an Elevation.* resource")]
+    [InlineData("<Grid.Resources><Storyboard x:Key=\"Fade\"><DoubleAnimation Duration=\"0:0:0.2\" To=\"1\"/></Storyboard></Grid.Resources>", "Duration 0:0:0.2 written in Duration: use Theme/Motion.cs")]
     public void A_stray_colour_or_font_size_in_a_view_fails(string inner, string names)
     {
         var violations = Xaml(inner);
@@ -76,6 +83,11 @@ public class XamlRulesTests
     [InlineData("<Border><Border.Background><SolidColorBrush Color=\"{StaticResource C.Base}\"/></Border.Background></Border>")]
     [InlineData("<Grid.Resources><Style TargetType=\"TextBlock\"><Setter Property=\"FontSize\" Value=\"{StaticResource T.Caption}\"/><Setter Property=\"Margin\" Value=\"13\"/></Style></Grid.Resources>")]
     [InlineData("<Grid.RowDefinitions><RowDefinition Height=\"44\"/></Grid.RowDefinitions>")]
+    // No rounding and no motion are not token values; a resource is the token.
+    [InlineData("<Border CornerRadius=\"0\"/>")]
+    [InlineData("<Border CornerRadius=\"0,0,0,0\" Effect=\"{StaticResource Elevation.Card}\"/>")]
+    [InlineData("<Border CornerRadius=\"{DynamicResource R.Card}\"/>")]
+    [InlineData("<Grid.Resources><Storyboard x:Key=\"Now\"><DoubleAnimation Duration=\"0:0:0\" To=\"1\"/><DoubleAnimation Duration=\"Automatic\" To=\"1\"/></Storyboard></Grid.Resources>")]
     public void The_theme_s_resources_and_words_for_people_pass(string inner) => Assert.Empty(Xaml(inner));
 
     [Theory]
@@ -89,6 +101,9 @@ public class XamlRulesTests
     [InlineData("var t = new TextBlock { FontSize = 12.5, Text = \"x\" };", 1)]
     [InlineData("label.SetValue(TextBlock.FontSizeProperty, 13.0);", 1)]
     [InlineData("style.Setters.Add(new Setter(Control.FontSizeProperty, 11d));", 1)]
+    [InlineData("var shadow = new DropShadowEffect { BlurRadius = 20 };", 1)]
+    [InlineData("card.CornerRadius = new CornerRadius(12);", 1)]
+    [InlineData("var fade = new DoubleAnimation(1, new Duration(TimeSpan.FromMilliseconds(220)));", 1)]
     public void A_stray_colour_or_font_size_in_code_fails(string line, int count)
     {
         var violations = Code(line);
@@ -105,6 +120,8 @@ public class XamlRulesTests
     [InlineData("if (label.FontSize >= 13 || label.FontSize == 11) return;")]
     [InlineData("var text = \"Issue #123 is fixed\"; // was #FF0000, or Brushes.Red")]
     [InlineData("var MinFontSize = 5; var url = \"https://example.org/#fff\";")]
+    [InlineData("var square = new CornerRadius(0); var now = new Duration(TimeSpan.Zero); var none = new Duration(TimeSpan.FromMilliseconds(0));")]
+    [InlineData("var fade = new DoubleAnimation(1, motion.Normal); card.Effect = (Effect)FindResource(\"Elevation.Card\");")]
     public void Theme_lookups_comparisons_and_comments_pass(string line) => Assert.Empty(Code(line));
 
     [Theory]

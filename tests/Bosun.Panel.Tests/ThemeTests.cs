@@ -56,6 +56,28 @@ public class ThemeTests
                     if (group == "radius") Want(prefix + token.Name, v => v is CornerRadius r && r == new CornerRadius(want), $"CornerRadius {want}");
                     else Want(prefix + token.Name, v => v is double d && d == want, $"the double {want}");
                 }
+            // D02 T03 §1: each elevation a frozen shadow straight down, black, at this theme's opacity, and the motion.
+            var opacity = theme == "dark" ? "OpacityDark" : "OpacityLight";
+            foreach (var elevation in tokens.RootElement.GetProperty("elevation").EnumerateObject())
+            {
+                double blur = elevation.Value.GetProperty("Blur").GetDouble(), depth = elevation.Value.GetProperty("Depth").GetDouble();
+                double strength = elevation.Value.GetProperty(opacity).GetDouble();
+                Want("Elevation." + elevation.Name, v => v is System.Windows.Media.Effects.DropShadowEffect e && e.IsFrozen && e.BlurRadius == blur
+                    && e.ShadowDepth == depth && e.Opacity == strength && e.Direction == 270 && e.Color == Colors.Black,
+                    $"a frozen black shadow, blur {blur}, depth {depth}, direction 270, opacity {strength}");
+            }
+            foreach (var motion in tokens.RootElement.GetProperty("motion").EnumerateObject())
+            {
+                if (motion.Name == "Ease")
+                {
+                    var p = motion.Value.EnumerateArray().Select(n => n.GetDouble()).ToArray();
+                    Want("Motion.Ease", v => v is System.Windows.Media.Animation.KeySpline k && k.IsFrozen
+                        && k.ControlPoint1 == new Point(p[0], p[1]) && k.ControlPoint2 == new Point(p[2], p[3]), $"a frozen spline {string.Join(",", p)}");
+                    continue;
+                }
+                var ms = motion.Value.GetInt32();
+                Want("Motion." + motion.Name[..^2], v => v is Duration d && d.HasTimeSpan && d.TimeSpan == TimeSpan.FromMilliseconds(ms), $"a duration of {ms} ms");
+            }
             foreach (var key in dict.Keys.Cast<object>().Select(k => k.ToString()!))
                 if (!expected.Contains(key)) problems.Add($"{key} is not a token");
             return problems;
