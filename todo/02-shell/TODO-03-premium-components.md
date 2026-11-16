@@ -50,6 +50,7 @@ title: "TODO-03 -- Premium components"
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
 | 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
+| 12 | §12 | Window placement remembered, and the smoke off the main screen | D02 T02 §4 | [ ] |
 
 ## 1. Elevation and motion tokens
 
@@ -405,6 +406,27 @@ Filed 2026-11-16 by the completion review of `D02 T03 §10` (`docs/reviews/02-sh
 - [ ] Commit: `theme: contrast preview and its smoke`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class "*ContrastTests"` exits 0 in a desktop session, and `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*HighContrastTests"` exits 0.
+
+## 12. Window placement remembered, and the smoke off the main screen
+
+The panel opens centred on the main screen every time, wherever it was last closed, and so does every end-to-end test's panel, which puts each test run on the screen the owner is working on. Asked for by the owner on 2026-11-16 ("move the testing away from my main screen permanently"). The owning fix is the window's: it reopens where it was last, on that screen, and the smoke starts each panel with a remembered place on a screen other than the main one. Moving each window after it appears would still flash it on the main screen.
+
+**Phase:** 2
+**Needs:** display-session
+**Surface:** no
+
+**Build order:**
+
+1. Keep the window's place in `panel.json` and reopen there. Done when: a panel closed on another screen reopens on it.
+2. Start the smoke's panels on a screen other than the main one. Done when: a smoke run shows no window on the main screen.
+
+- [ ] Add `WindowPlace` (the normal bounds in screen pixels, and whether it was maximised) to `src/Bosun.Core/PanelSettings.cs` and `PanelSettingsStore` as `window` (missing reads as none; a wrong shape is the store's fault, as every field's is). Done when: `tests/Bosun.Core.Tests/Settings/` writes, reads back and refuses one.
+- [ ] Remember the place in `src/Bosun.Panel/Shell/WindowPlacement.cs` from `GetWindowPlacement` whenever the window is hidden (to the tray) or closed, saved through the store; a save that fails is one WARN line. Done when: a test with the window moved, then hidden, finds the place stored.
+- [ ] Reopen there: before the window is first shown (as its handle is made, shown or from the tray), `SetWindowPlacement` with the stored place when its title bar's strip lies on a screen there now; maximised again if it was; otherwise centred as before. Done when: a test reopens a stored place on a screen and maximised, and a place on a screen that is gone opens centred. Cheaper substitute: WPF's `Left` and `Top`, which are in a DPI that is not the other screen's.
+- [ ] Start every panel of the smoke (`tests/Bosun.Panel.E2E/PanelProcess.cs`) with a remembered place centred on the test screen: `BOSUN_TEST_SCREEN` when set, else the largest screen that is not the main one, else the main one (a machine with one screen, CI). Done when: `tests/Bosun.Panel.E2E` runs every panel off the main screen on this machine, a check fails if a panel's window lies on the main screen, and `docs/` or the smoke's README says how to choose the screen.
+- [ ] Commit: `shell: the window reopens where it was, and the smoke runs off the main screen`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowPlacementTests"` exits 0, and `dotnet test --project tests/Bosun.Panel.E2E` runs with no panel window on the main screen; it fails if the stored place is ignored.
 
 ## Verification
 
