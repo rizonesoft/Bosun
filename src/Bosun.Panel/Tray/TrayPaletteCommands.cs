@@ -6,10 +6,14 @@ namespace Bosun.Panel.Tray;
 /// <summary>
 /// The tray menu's own lines in the command palette (D02 T03 §8): Pause notifications for 1 hour, or Resume while
 /// paused, and Exit, taken from <see cref="TrayViewModel.Menu"/> each time, so the palette says and does what the menu
-/// does (Exit asks about unsaved edits there too). Open and the queue line are pages the palette already lists.
+/// does (Exit asks about unsaved edits there too). Open and the queue line are pages the palette already lists. While
+/// the palette listens, and only then, <paramref name="pauseWatch"/> looks for the pause running out; in the tray it is
+/// stopped, so only the pressure check runs there (design/SPEC.md §1).
 /// </summary>
-public sealed class TrayPaletteCommands(TrayViewModel tray) : IPanelCommands
+public sealed class TrayPaletteCommands(TrayViewModel tray, Bosun.Core.Refresh? pauseWatch = null) : IPanelCommands
 {
+    private int _listening;
+
     public IReadOnlyList<PaletteRow> Commands() =>
         tray.Menu().Where(i => i.Id is TrayViewModel.Pause or TrayViewModel.Exit)
             .Select(i => new PaletteRow(i.Text, CommandPalette.PanelGroup, Glyphs.For(i.Id == TrayViewModel.Exit ? GlyphAction.Exit : GlyphAction.Pause), null, i.Run))
@@ -17,7 +21,15 @@ public sealed class TrayPaletteCommands(TrayViewModel tray) : IPanelCommands
 
     public event Action? Changed
     {
-        add => tray.Changed += value;
-        remove => tray.Changed -= value;
+        add
+        {
+            tray.Changed += value;
+            if (_listening++ == 0) pauseWatch?.Start();
+        }
+        remove
+        {
+            tray.Changed -= value;
+            if (_listening > 0 && --_listening == 0) pauseWatch?.Stop();
+        }
     }
 }

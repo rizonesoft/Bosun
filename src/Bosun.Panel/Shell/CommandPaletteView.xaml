@@ -33,7 +33,7 @@
                 </Grid>
                 <Border BorderBrush="{DynamicResource B.Line}" BorderThickness="0,1,0,0">
                     <Grid>
-                        <ListBox x:Name="Results" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected, Mode=OneWay}"
+                        <shell:PaletteList x:Name="Results" ItemsSource="{Binding Rows}" SelectedItem="{Binding Selected, Mode=OneWay}"
                                  Style="{DynamicResource PaletteList}" ItemContainerStyle="{DynamicResource PaletteRow}"
                                  MaxHeight="360" Margin="6" Focusable="False" AutomationProperties.Name="Pages and commands"/>
                         <TextBlock x:Name="Nothing" Text="Nothing matches" Margin="16,14" Foreground="{DynamicResource B.TextDim}"

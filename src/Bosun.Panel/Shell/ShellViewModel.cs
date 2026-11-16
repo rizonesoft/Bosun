@@ -121,6 +121,7 @@ public sealed class ShellViewModel : Observable
     {
         if (!_windowShown) return;
         _windowShown = false;
+        Palette.Close();
         _selected.Page.Hide();
     }
 

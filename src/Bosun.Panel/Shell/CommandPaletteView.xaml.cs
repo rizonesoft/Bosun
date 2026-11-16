@@ -154,3 +154,25 @@ internal static class RowFinder
         return null;
     }
 }
+
+/// <summary>
+/// The palette's list (D02 T03 §8): its rows are <see cref="PaletteItem"/>s, so a row that can't run is disabled to UI
+/// Automation (completion review) while it stays selectable and clickable, to say why it can't.
+/// </summary>
+public sealed class PaletteList : ListBox
+{
+    protected override DependencyObject GetContainerForItemOverride() => new PaletteItem();
+
+    protected override bool IsItemItsOwnContainerOverride(object item) => item is PaletteItem;
+}
+
+/// <summary>A palette row's container: enabled to UI Automation exactly when its row may run.</summary>
+public sealed class PaletteItem : ListBoxItem
+{
+    protected override System.Windows.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new Said(this);
+
+    private sealed class Said(PaletteItem owner) : System.Windows.Automation.Peers.ListBoxItemWrapperAutomationPeer(owner)
+    {
+        protected override bool IsEnabledCore() => owner.DataContext is PaletteRow { Enabled: true } && base.IsEnabledCore();
+    }
+}

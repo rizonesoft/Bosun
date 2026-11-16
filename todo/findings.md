@@ -132,3 +132,6 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Controls/QueueSlotTile.cs` (`QueueWords.Gb`): one decimal can make 6143 MB and a 6144 MB floor look alike; show exact MB beside the summary with no navigation (D02 T03 §6 completion review, 2026-11-16).
 - `src/Bosun.Panel/Theme/Controls.xaml` (queue job lines): one keyboard-reachable copy action per job copying the whole command exactly (D02 T03 §6 completion review, 2026-11-16).
 - `src/Bosun.Panel/Controls/WaitingRow.cs` (`Read`): measure a realistic busy queue and keep document-to-display under 100 ms within the 150 MB and 1% CPU budget (D02 T03 §6 completion review, 2026-11-16).
+- `src/Bosun.Core/CommandIndex.cs` (`MatchOf`): ordered word-prefix matching, so "sv set" finds Save settings, keeping prefix over word start over inside; under 50 ms at the panel's command count (D02 T03 §8 completion review, 2026-11-16).
+- `src/Bosun.Panel/Shell/CommandPalette.cs` (`Open`): the last action run, if still offered, first on opening, so repeating it is Ctrl+K then Enter, its confirmation kept (D02 T03 §8 completion review, 2026-11-16).
+- `src/Bosun.Panel/Theme/Controls.xaml` (`PaletteRow`): show a command's own key beside it (F5 for Refresh) and a compact Enter and Esc hint, checked in all three themes (D02 T03 §8 completion review, 2026-11-16).

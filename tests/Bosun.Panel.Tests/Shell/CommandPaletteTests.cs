@@ -452,7 +452,8 @@ public class CommandPaletteTests
             var clock = new DateTime(2026, 11, 16, 9, 0, 0, DateTimeKind.Utc);
             var scheduler = new RefreshScheduler(() => clock, new IdleDriver());
             var tray = new TrayFixture(refreshes: scheduler);
-            Assert.Contains(scheduler.Refreshes, r => r.Name == "Notification pause" && r.IsActive);
+            Assert.Contains(scheduler.Refreshes, r => r.Name == "Notification pause");
+            tray.Shell.Palette.Open();                                                        // watched while the palette listens
             var changes = 0;
             tray.Controller.Tray.Changed += () => changes++;
             tray.Controller.Tray.Menu().Single(i => i.Id == "pause").Run();
@@ -462,6 +463,33 @@ public class CommandPaletteTests
             scheduler.Tick();
             Pump(TimeSpan.FromMilliseconds(50));
             Assert.Equal(1, changes);                                                          // its tick noticed the pause had run out
+        });
+    }
+
+    [Fact]
+    public void The_pause_is_watched_only_while_the_palette_is_open_never_in_the_tray()
+    {
+        // Completion review: in the tray only the pressure check runs (design/SPEC.md §1).
+        OnUi(() =>
+        {
+            var clock = new DateTime(2026, 11, 16, 9, 0, 0, DateTimeKind.Utc);
+            var scheduler = new RefreshScheduler(() => clock, new IdleDriver());
+            var tray = new TrayFixture(refreshes: scheduler);
+            var watch = scheduler.Refreshes.Single(r => r.Name == "Notification pause");
+            Assert.False(watch.IsActive);                                                     // closed: not watched
+            tray.Shell.Palette.Open();
+            Assert.True(watch.IsActive);
+            tray.Shell.Palette.Close();
+            Assert.False(watch.IsActive);
+            tray.Shell.Palette.Open();
+            tray.Shell.WindowHidden();                                                        // to the tray: the palette closes
+            Assert.False(tray.Shell.Palette.IsOpen);
+            Assert.False(watch.IsActive);
+            tray.Controller.Tray.Menu().Single(i => i.Id == "pause").Run();
+            tray.Now = tray.Now.AddHours(2);                                                  // the pause runs out in the tray
+            tray.Shell.WindowShown();
+            tray.Shell.Palette.Open();                                                        // reopened: it says Pause, as it is
+            Assert.Contains(tray.Shell.Palette.Rows, r => r.Name == "Pause notifications for 1 hour");
         });
     }
 
@@ -515,6 +543,16 @@ public class CommandPaletteTests
             Assert.Same(shell.Palette.Selected, results.SelectedItem);
             var chosen = (ListBoxItem)results.ItemContainerGenerator.ContainerFromItem(results.SelectedItem);
             Assert.True(chosen.IsSelected && ReferenceEquals(item, chosen));
+            // Disabled to UI Automation too, through the list's own item peer (completion review), and the others enabled.
+            var items = UIElementAutomationPeer.CreatePeerForElement(results).GetChildren();
+            Assert.False(items.Single(i => i.GetName().StartsWith("Restart the logger", StringComparison.Ordinal)).IsEnabled());
+            shell.Palette.Query = "apply";
+            PageRenderer.Settle(page);
+            var listPeer = UIElementAutomationPeer.CreatePeerForElement(results);
+            listPeer.ResetChildrenCache();                                                  // read the new rows, as a client is told to
+            Assert.True(listPeer.GetChildren().Single().IsEnabled());
+            shell.Palette.Query = "restart";
+            PageRenderer.Settle(page);
             Assert.Contains("The logger is not installed", PageRenderer.TextsOf(item));     // the reason is seen too
             shell.Palette.Query = "zzz";
             PageRenderer.Settle(page);
