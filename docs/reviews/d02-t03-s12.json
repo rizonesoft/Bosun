@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T03 \u00a712",
+  "title": "Window placement remembered, and the smoke off the main screen",
+  "implementation_sha": "f7fd767aee7778f95a5ba01d582c5f74b31d7e56",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T03-s12.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T03-s12.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*WindowPlacementTests\" -> 16 of 16 (no window shown)",
+    "dotnet test --project tests/Bosun.Core.Tests -> total: 140, succeeded: 140",
+    "dotnet test --project tests/Bosun.Panel.E2E -> every panel first shown on \\.\\DISPLAY1; PlacementTests 3 of 3 runs; with the placement unhooked the smoke fails naming where the window appeared",
+    "CI full gate at f7fd767 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43856024749, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43856024699"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T03-s12.md",
+    "verdict": "completed",
+    "candidate": "1c3fa62dd4d7a0f025890caf22a7c3ac3aa06014",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T03-s12.md",
+    "candidate": "5a02a460474aa2f1a0c65215e51d0754f2114e34",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "5a02a460474aa2f1a0c65215e51d0754f2114e34",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

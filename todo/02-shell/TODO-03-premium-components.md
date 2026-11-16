@@ -50,7 +50,7 @@ title: "TODO-03 -- Premium components"
 | 9 | §9 | In-window toasts | §4, D02 T02 §4 | [ ] |
 | 10 | §10 | High contrast theme and renders | §1, §7 | [x] |
 | 11 | §11 | Contrast preview and its smoke on the shown window | §10, D02 T02 §10 | [ ] |
-| 12 | §12 | Window placement remembered, and the smoke off the main screen | D02 T02 §4 | [ ] |
+| 12 | §12 | Window placement remembered, and the smoke off the main screen | D02 T02 §4 | [x] |
 
 ## 1. Elevation and motion tokens
 
@@ -433,9 +433,12 @@ The panel opens centred on the main screen every time, wherever it was last clos
 - [x] Remember the place whenever the window is hidden (to the tray), closed, or the panel exits, from `GetWindowPlacement` (a minimised window keeps `WPF_RESTORETOMAXIMIZED` as maximised), saved through the store; a save the store refuses keeps the stored place and every other setting, and is one WARN line; a capture that fails saves nothing and is one WARN line. Done when: a test moves, hides and finds the place stored; exits minimised from maximised and finds maximised; and with the store refusing finds the old place, the theme unchanged and one WARN line.
 - [x] Open there: with a fitted place, `MainWindow` opens with `WindowStartupLocation.Manual` and `SetWindowPlacement` before it is first shown (as its handle is made, without showing a window started in the tray), maximised if it was; with none, centred on the main screen as before. And each time a hidden window is shown again (Open from the tray), a window no longer on any screen is fitted again. Done when: a smoke test watching the panel's window with a WinEvent hook (`EVENT_OBJECT_SHOW`) finds its first shown bounds on the stored screen, for a normal launch and for `--tray` then Open; a place on a screen that is gone opens centred; and a hidden window moved off every screen opens back on one.
 - [x] Start every panel of the smoke (`tests/Bosun.Panel.E2E/PanelProcess.cs`) with a place centred on its test screen: `BOSUN_TEST_SCREEN` (a device name as Windows gives it, such as `\\.\DISPLAY3`) when set, refusing the run with the screens there are when it names none; else the largest screen that is not the main one; else the main one (one screen, as on CI). Done when: the smoke's first-shown check (above) finds every panel on the resolved screen, and on this machine never on the main one; tests cover an explicit screen, the automatic choice and the one-screen fallback with fake screen lists; and `tests/Bosun.Panel.E2E/README.md` says how to choose the screen.
-- [ ] Commit: `shell: the window reopens where it was, and the smoke runs off the main screen`
+- [x] Commit: `shell: the window reopens where it was, and the smoke runs off the main screen`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowPlacementTests"` exits 0, and `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` passes with every panel first shown on the resolved test screen; it fails if the stored place is ignored.
+
+> **Verified:** 2026-11-16 | §12 | f7fd767aee7778f95a5ba01d582c5f74b31d7e56
+> **Review:** `docs/reviews/d02-t03-s12.json`
 
 ## Verification
 
