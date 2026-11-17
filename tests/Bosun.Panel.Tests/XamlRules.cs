@@ -149,6 +149,10 @@ static partial class XamlRules
             if (name == "StatusPill" && element.Attribute("Word") is not { } said
                 && !element.Elements().Any(e => e.Name.LocalName == "StatusPill.Word"))
                 found.Add(new Violation(file, Line(element), "a StatusPill with no Word: status is never colour alone, so give it its word"));
+            // Focus is drawn by a control's FocusVisualStyle alone (D02 T04 §1): a trigger on keyboard focus that also
+            // changes a border or a fill drew a second outline beside the ring.
+            if (name is "Trigger" or "Condition" && (string?)element.Attribute("Property") is "IsKeyboardFocused" or "IsFocused" or "IsKeyboardFocusWithin")
+                found.Add(new Violation(file, Line(element), $"a trigger on {(string?)element.Attribute("Property")}: focus is the control's FocusVisualStyle alone, never a second change beside it"));
             else if (name == "StatusPill" && element.Attribute("Word") is { } word && string.IsNullOrWhiteSpace(word.Value))
                 found.Add(new Violation(file, Line(element), "a StatusPill with an empty Word: status is never colour alone, so give it its word"));
             foreach (var attribute in element.Attributes())

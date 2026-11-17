@@ -36,6 +36,33 @@ public class KeyboardTests
     }
 
     [Fact]
+    public void A_field_given_the_keyboard_by_Tab_shows_one_outline_not_two()
+    {
+        // D02 T04 §1: the field turned its own border accent as well as drawing the ring 2 px outside it, two outlines.
+        // On screen, after a real Tab: the ring above the field is accent, the field's own top border is not.
+        using var panel = PanelProcess.Start();
+        var (window, handle) = OnSettings(panel);
+        var start = Ui.Get(window, "StartWithWindows");
+        start.SetFocus();
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, start), Ui.Short, "Start with Windows to have focus");
+        var field = Ui.Get(window, "PressureFloor");
+        for (var press = 0; press < 10 && !(Ui.Focused() is { } f && Automation.Compare(f, field)); press++)
+        {
+            RealInput.Key(handle, Native.VK_TAB);
+            Thread.Sleep(80);
+        }
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, field) && f.Current.HasKeyboardFocus, Ui.Short, "Tab to give the threshold field the keyboard");
+        var box = Ui.Box(field);
+        var middle = Rectangle.FromLTRB((int)(box.Left + box.Width * 0.2), 0, (int)(box.Right - box.Width * 0.2), 0);
+        // The field's own top border: its first row, along its straight middle.
+        var border = Rectangle.FromLTRB(middle.Left, (int)box.Top, middle.Right, (int)box.Top + 1);
+        // The ring: the rows just above the field, where FocusRing draws 2 px outside it.
+        var ring = Rectangle.FromLTRB(middle.Left, (int)box.Top - 6, middle.Right, (int)box.Top);
+        Ui.Until(() => AccentPixels(ring) >= middle.Width, Ui.Short, "the focus ring to be drawn above the field");
+        Assert.True(AccentPixels(border) < middle.Width / 10, $"the field's own border is accent too ({AccentPixels(border)} of {middle.Width} pixels): two outlines");
+    }
+
+    [Fact]
     public void Space_toggles_a_focused_check_box()
     {
         using var panel = PanelProcess.Start();

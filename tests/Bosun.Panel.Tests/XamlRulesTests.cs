@@ -28,6 +28,20 @@ public class XamlRulesTests
     }
 
     [Fact]
+    public void Focus_is_a_control_s_focus_visual_alone_never_a_trigger_beside_it()
+    {
+        // D02 T04 §1: Field turned its border accent on focus as well as drawing its ring, a double outline.
+        foreach (var property in new[] { "IsKeyboardFocused", "IsFocused", "IsKeyboardFocusWithin" })
+        {
+            var trigger = Xaml($"<Grid.Style><Style><Style.Triggers><Trigger Property=\"{property}\" Value=\"True\"><Setter Property=\"Tag\" Value=\"x\"/></Trigger></Style.Triggers></Style></Grid.Style>");
+            Assert.Equal($"a trigger on {property}: focus is the control's FocusVisualStyle alone, never a second change beside it", Assert.Single(trigger).What);
+            var condition = Xaml($"<Grid.Style><Style><Style.Triggers><MultiTrigger><MultiTrigger.Conditions><Condition Property=\"{property}\" Value=\"True\"/></MultiTrigger.Conditions></MultiTrigger></Style.Triggers></Style></Grid.Style>");
+            Assert.Single(condition);
+        }
+        Assert.Empty(Xaml("<Grid.Style><Style><Style.Triggers><Trigger Property=\"IsMouseOver\" Value=\"True\"><Setter Property=\"Tag\" Value=\"x\"/></Trigger></Style.Triggers></Style></Grid.Style>"));
+    }
+
+    [Fact]
     public void A_status_pill_is_never_written_without_its_word()
     {
         // D02 T03 §4: a pill with no word, or an empty one, fails by its file and line; one with a word or a binding passes.

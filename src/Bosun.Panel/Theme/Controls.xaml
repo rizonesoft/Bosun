@@ -315,6 +315,27 @@
     <!-- A segment of a segmented control (D02 T03 §4): a 32 px target with the focus ring; dim until chosen, then the
          text colour in semibold, over the control's sliding indicator. In a contrast theme the chosen one is the
          highlight's text on the highlight, and a disabled one Windows' gray. -->
+    <!-- A segment's ring, 2 px inside it: at the segment's own bounds it lay on the sliding thumb's edge and crowded
+         the track (D02 T04 §1). The HighContrast inner line is kept, as FocusRing.Inside has it. -->
+    <Style x:Key="FocusRing.Segment">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border x:Name="ring" Margin="2" BorderThickness="2" BorderBrush="{DynamicResource B.Accent}"
+                            CornerRadius="{DynamicResource R.Mark}" SnapsToDevicePixels="True">
+                        <Border x:Name="inner" BorderThickness="1" BorderBrush="Transparent"
+                                CornerRadius="{DynamicResource R.Mark}" SnapsToDevicePixels="True"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                            <Setter TargetName="inner" Property="BorderBrush" Value="{DynamicResource B.Base}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style x:Key="Segment" TargetType="ListBoxItem">
         <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
@@ -322,7 +343,7 @@
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="Padding" Value="12,0"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Segment}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListBoxItem">
@@ -720,9 +741,7 @@
                             <Setter TargetName="header" Property="TextElement.Foreground" Value="{DynamicResource B.Accent}"/>
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
                         </Trigger>
-                        <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.Hover}"/>
-                        </Trigger>
+                        <!-- Focus is the inside ring alone (FocusVisualStyle): no hover fill beside it (D02 T04 §1). -->
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
                             <Setter Property="Cursor" Value="Arrow"/>
@@ -815,10 +834,9 @@
                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                       VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
                     </Border>
+                    <!-- Focus is the ring alone (FocusVisualStyle, 2 px outside): a border that also turned accent
+                         drew a second outline (D02 T04 §1). -->
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
-                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.6"/>
                         </Trigger>
@@ -879,9 +897,7 @@
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
                         </Trigger>
-                        <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
-                        </Trigger>
+                        <!-- Focus is the ring alone (FocusVisualStyle): the box no longer turns accent for it too (D02 T04 §1). -->
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="box" Property="Background" Value="{DynamicResource B.Accent}"/>
                             <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource B.Accent}"/>

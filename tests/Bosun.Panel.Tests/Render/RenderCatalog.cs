@@ -32,6 +32,8 @@ public static partial class RenderCatalog
         new("controls", "segmented", Segmented) { Shows = "Today" },
         // The chosen segment with the keyboard on it: the inside focus ring over it, where WPF's adorner layer draws it.
         new("controls", "segmented-focus", SegmentedFocus) { Shows = "Dark", Ready = PlaceRing },
+        // D02 T04 §1: every keyboard target with its own focus visual, one ring each.
+        new("controls", "focus", Focused) { Shows = "primary button", Ready = ShowFocus },
         // D02 T03 §5: the gauge in each state and with no value, sparklines with their words, stacked bars.
         new("controls", "gauges", Gauges) { Shows = "Not available" },
         new("controls", "sparklines", Sparklines) { Shows = "12.4 GB, rising" },
@@ -394,27 +396,47 @@ public static partial class RenderCatalog
     }
 
     /// <summary>The Settings page's theme choice with Dark chosen, and a ring to place on it once it is laid out.</summary>
-    private static FrameworkElement SegmentedFocus()
+    private static FrameworkElement SegmentedFocus() => new System.Windows.Documents.AdornerDecorator
     {
-        var grid = new Grid { Margin = new Thickness(26), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
-        grid.Children.Add(new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 1 });
-        var ring = new Control { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false };
-        ring.SetResourceReference(FrameworkElement.StyleProperty, "FocusRing.Inside");
-        grid.Children.Add(ring);
-        return grid;
-    }
+        Child = new Grid
+        {
+            Margin = new Thickness(26), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+            Children = { new Bosun.Panel.Controls.SegmentedControl { ItemsSource = new[] { "Follow Windows", "Dark", "Light" }, SelectedIndex = 1 } },
+        },
+    };
 
-    /// <summary>Puts the ring over the chosen segment, at its bounds, as keyboard focus would.</summary>
+    /// <summary>The chosen segment's own focus visual, drawn as keyboard focus draws it (FocusShown, D02 T04 §1).</summary>
     private static Task PlaceRing(FrameworkElement view)
     {
-        var grid = (Grid)view;
-        var control = (Bosun.Panel.Controls.SegmentedControl)grid.Children[0];
-        var ring = (Control)grid.Children[1];
-        grid.UpdateLayout();
-        var segment = (ListBoxItem)control.ItemContainerGenerator.ContainerFromIndex(control.SelectedIndex);
-        var at = segment.TranslatePoint(new Point(0, 0), grid);
-        ring.Margin = new Thickness(at.X, at.Y, 0, 0);
-        (ring.Width, ring.Height) = (segment.ActualWidth, segment.ActualHeight);
+        view.UpdateLayout();
+        var control = Shell.ShellSupport.Under<Bosun.Panel.Controls.SegmentedControl>(view).Single();
+        FocusShown.Show((FrameworkElement)control.ItemContainerGenerator.ContainerFromIndex(control.SelectedIndex));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Every keyboard target with its own focus visual shown (D02 T04 §1), labelled, two columns.</summary>
+    private static FrameworkElement Focused()
+    {
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 4, Margin = new Thickness(20) };
+        foreach (var c in FocusOutlineTests.All)
+        {
+            var cell = new StackPanel { Margin = new Thickness(16), Tag = c };
+            cell.Children.Add(new TextBlock { Text = c.Name, Margin = new Thickness(0, 0, 0, 10) });
+            cell.Children.Add(new Grid { HorizontalAlignment = HorizontalAlignment.Left, Children = { c.Make() } });
+            grid.Children.Add(cell);
+        }
+        return new System.Windows.Documents.AdornerDecorator { Child = grid };
+    }
+
+    private static Task ShowFocus(FrameworkElement view)
+    {
+        view.UpdateLayout();
+        foreach (var cell in Shell.ShellSupport.Under<StackPanel>(view).Where(p => p.Tag is FocusOutlineTests.Case))
+        {
+            var c = (FocusOutlineTests.Case)cell.Tag;
+            var made = (FrameworkElement)((Grid)cell.Children[1]).Children[0];
+            FocusShown.Show(c.Target(made));
+        }
         return Task.CompletedTask;
     }
 
