@@ -66,6 +66,8 @@ title: "TODO-04 -- Design polish"
 
 ## 1. One focus outline per control, with focus renders
 
+> **Started:** 2026-11-17T01:20:56Z
+
 A focused control shows one accent outline: today `Field` draws its own accent border and the shared ring together, and the segmented control's ring crowds its track. Each control gets exactly one treatment, and the render catalogue draws every interactive control focused, so a second outline fails a test.
 
 **Phase:** 3
