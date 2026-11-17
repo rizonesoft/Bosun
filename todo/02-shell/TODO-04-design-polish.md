@@ -100,6 +100,8 @@ A focused control shows one accent outline: today `Field` draws its own accent b
 
 ## 2. Field insets, error border and label spacing
 
+> **Started:** 2026-11-17T02:16:26Z
+
 A field's text sits about 21 px in and a combo box's 11 px, an invalid field keeps its normal border, and a label sits about 2 px above its control. Fields line up with each other and their labels, and an error is shown on the field itself.
 
 **Phase:** 3
