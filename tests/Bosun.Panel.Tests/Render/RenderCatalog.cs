@@ -132,6 +132,42 @@ public static partial class RenderCatalog
         {
             Windows = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Missing, "The Windows logger has written nothing yet."),
         }, "The Windows logger has written nothing yet."),
+        // D03 T02 §2: the Instances page with both sides and a job's slot; no distro reporting; a stale distro; a distro's
+        // report that can't be read; Windows unread with WSL rows; nothing readable, with Retry; nothing running; loading.
+        InstancesCase("data", new Instances.FakeInstances(), "Working, slot 1"),
+        InstancesCase("wsl-notice", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View("No WSL distro has reported its instances to C:\\Users\\me\\AppData\\Local\\Bosun\\logs, so only Windows is listed.",
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun"))),
+        }, "No WSL distro has reported"),
+        InstancesCase("stale", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View(null,
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun")),
+                Instances.InstanceFixtures.StaleWsl("Ubuntu", TimeSpan.FromMinutes(4), Instances.InstanceFixtures.I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"))),
+        }, "Last seen 4 minutes ago"),
+        InstancesCase("unreadable-distro", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View(null,
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun")),
+                Instances.InstanceFixtures.Failed("wsl", "Ubuntu", "instances-wsl-Ubuntu.json is not an instances report: 'n' is an invalid start of a value.")),
+        }, "WSL (Ubuntu): instances-wsl-Ubuntu.json is not an instances report"),
+        InstancesCase("windows-failed", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View(null,
+                Instances.InstanceFixtures.Failed("windows", null, "bosun instances --json ran past 20 s."),
+                Instances.InstanceFixtures.Wsl("Ubuntu", Instances.InstanceFixtures.I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"))),
+        }, "Windows: bosun instances --json ran past 20 s."),
+        InstancesCase("failed", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.Failed("windows", null,
+                "bosun.exe is not installed at C:\\Users\\me\\AppData\\Local\\Bosun\\bin\\bosun.exe. Install it with scripts/install.ps1, or name it with BOSUN_EXE.")),
+        }, "bosun.exe is not installed"),
+        InstancesCase("empty", new Instances.FakeInstances
+        {
+            Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.Win(), Instances.InstanceFixtures.Wsl("Ubuntu")),
+        }, Bosun.Panel.Instances.InstancesPage.NothingRunning),
+        InstancesCase("loading", new Instances.FakeInstances { Hold = new TaskCompletionSource() }, "Instances"),
         // With memory pressure notifications turned off (D02 T02 §7).
         new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
             "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
@@ -322,6 +358,17 @@ public static partial class RenderCatalog
             ready = isReady;
             return view;
         }) { Shows = "Showing the verdict from", Ready = view => ready!(view), Height = 1100 };
+    }
+
+    private static RenderCase InstancesCase(string name, Instances.FakeInstances source, string shows)
+    {
+        Func<FrameworkElement, Task>? ready = null;
+        return new RenderCase("instances", name, () =>
+        {
+            var (view, isReady) = Instances.InstancesPageTests.Rendered(source);
+            ready = isReady;
+            return view;
+        }) { Shows = shows, Ready = view => ready!(view) };
     }
 
     private static RenderCase MemoryCase(string name, Memory.MemoryPageTests.Source source, string shows, Action<Bosun.Panel.Memory.MemoryPage>? then = null, bool tall = false)

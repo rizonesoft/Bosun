@@ -86,6 +86,11 @@ sealed class PanelProcess : IDisposable
         File.WriteAllText(Path.Combine(local, "Bosun", "logs", "current-windows.json"),
             "{\"schema_version\":1,\"side\":\"windows\",\"at\":\"" + DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture)
             + "\",\"interval_s\":30,\"memory\":{\"available_mb\":20000,\"total_mb\":32000},\"wsl_vm\":null,\"repos\":[],\"processes\":[],\"history_written\":true}");
+        // A distro's instances report, fresh, so the Instances page (D03 T02 §2) has a row whatever runs on this machine.
+        File.WriteAllText(Path.Combine(local, "Bosun", "logs", "instances-wsl-Test.json"),
+            "{\"schema_version\":1,\"side\":\"wsl\",\"distro\":\"Test\",\"at\":\"" + DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture)
+            + "\",\"instances\":[{\"side\":\"wsl\",\"kind\":\"claude\",\"name\":\"claude\",\"pid\":4242,\"cwd\":\"/home/test/app\",\"repo\":\"/home/test/app\",\"private_mb\":512,"
+            + "\"started_at\":null,\"state\":\"idle\",\"evidence\":null,\"slot\":null,\"command\":null,\"guest_pid\":null,\"guest_distro\":null}],\"unreadable\":0,\"problems\":[]}");
         // The panel opens on the test screen, never first on the main one (D02 T03 §12): its window's place is the
         // screen's centre, unless the folder already holds settings (a second launch of the same panel).
         var panel = string.Equals(program, PanelExe, StringComparison.OrdinalIgnoreCase);

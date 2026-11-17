@@ -1,0 +1,421 @@
+using System.ComponentModel;
+using System.IO;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Threading;
+using Bosun.Core;
+using Bosun.Core.Instances;
+using Bosun.Panel.Instances;
+using Bosun.Panel.Shell;
+using Bosun.Panel.Tests.Render;
+using Bosun.Panel.Tests.Shell;
+using Xunit;
+using static Bosun.Panel.Tests.Instances.InstanceFixtures;
+
+namespace Bosun.Panel.Tests.Instances;
+
+/// <summary>
+/// The Instances page (D03 T02 §2, design/SPEC.md §4): every instance grouped by repo with each cell in words, a job's
+/// slot, its refresh and states, each source that could not be read said by name, a stale distro's rows marked old,
+/// numeric sorts, and Open folder and Open terminal from a row and from Ctrl+K, each with its Activity line.
+/// </summary>
+public class InstancesPageTests
+{
+    sealed class Driver : IRefreshDriver
+    {
+        public void Start(Action tick)
+        {
+        }
+
+        public void Stop()
+        {
+        }
+    }
+
+    static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, () => frame.Continue = false);
+        Dispatcher.PushFrame(frame);
+    }
+
+    internal static void Settle()
+    {
+        for (var i = 0; i < 6; i++) Pump();
+    }
+
+    internal sealed record Harness(InstancesPage Page, ShellViewModel Shell, ActivityLog Log, FakeInstances Source, FakeLauncher Launcher, Action<TimeSpan> Advance);
+
+    internal static void OnPage(FakeInstances source, Action<Harness> test, bool windowsTerminal = true, Func<string, bool>? folderExists = null)
+    {
+        PageRenderer.InPage("Dark", () => new Grid(), _ =>
+        {
+            var clock = Now.UtcDateTime;
+            var scheduler = new RefreshScheduler(() => clock, new Driver());
+            var log = Shells.Log();
+            var launcher = new FakeLauncher();
+            var page = new InstancesPage(source, scheduler, log, launcher, () => windowsTerminal, folderExists ?? (_ => true))
+            {
+                Clock = new FixedClock(Now),
+            };
+            var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["instances"] = page }), log);
+            shell.Show(shell.Sections.Single(s => s.Key == "instances"));
+            for (var i = 0; i < 4; i++) Pump();
+            test(new Harness(page, shell, log, source, launcher, by =>
+            {
+                clock += by;
+                scheduler.Tick();
+                for (var i = 0; i < 4; i++) Pump();
+            }));
+            return 0;
+        });
+    }
+
+    sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>The shell on the Instances page over <paramref name="source"/>, for a render, and when it has read.</summary>
+    internal static (System.Windows.FrameworkElement View, Func<System.Windows.FrameworkElement, Task> Ready) Rendered(FakeInstances source)
+    {
+        var scheduler = new RefreshScheduler(() => Now.UtcDateTime, new Driver());
+        var log = Shells.Log();
+        var page = new InstancesPage(source, scheduler, log, new FakeLauncher(), () => true, _ => true) { Clock = new FixedClock(Now) };
+        var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["instances"] = page }), log);
+        shell.Show(shell.Sections.Single(s => s.Key == "instances"));
+        return (new ShellView { DataContext = shell }, async _ =>
+        {
+            // Held loading: the skeleton shows only after its delay, so a quick read never flashes it.
+            if (source.Hold is not null) await Task.Delay(Bosun.Panel.Controls.Skeleton.DefaultDelay + TimeSpan.FromMilliseconds(150));
+            for (var i = 0; i < 50 && source.Hold is null && page.State == PageState.Loading; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+            for (var i = 0; i < 5; i++) await Dispatcher.Yield(DispatcherPriority.Background);
+        });
+    }
+
+    static InstanceLine Line(InstancesPage page, long pid) => page.Lines.Single(l => l.Row.Instance.Pid == pid);
+
+    [Fact]
+    public void Each_instance_is_a_row_in_words_grouped_by_its_repo_with_a_job_s_slot()
+    {
+        OnPage(new FakeInstances(), h =>
+        {
+            var page = h.Page;
+            Assert.Equal(PageState.Data, page.State);
+            var claude = Line(page, 100);
+            Assert.Equal(("Claude Code", "Windows", "Working", "2.0 GB", "2 h 12 min"), (claude.Instance, claude.Side, claude.State, claude.Memory, claude.Uptime));
+            Assert.Equal("Claude Code says busy (session record)", claude.StateDetail);
+            Assert.Equal("claude, pid 100, in D:\\Bosun", claude.InstanceDetail);
+            Assert.Equal(("VS Code", "Unknown", "10.0 GB", "5 min"), (Line(page, 101).Instance, Line(page, 101).State, Line(page, 101).Memory, Line(page, 101).Uptime));
+            var reviewing = Line(page, 300);
+            Assert.Equal(("WSL (Ubuntu)", "Reviewing"), (reviewing.Side, reviewing.State));
+            // The job: its WSL half joined to its Windows holder, so it shows its slot.
+            var job = Line(page, 4242);
+            Assert.Equal(("Build job: make test", "Working, slot 1"), (job.Instance, job.State));
+            // Not available, with why, never 0.
+            var codex = Line(page, 102);
+            Assert.Equal((InstanceLine.NotAvailable, InstanceLine.NotAvailable), (codex.Memory, codex.Uptime));
+            Assert.Equal(("Not available: its memory could not be read", "Not available: its start could not be read"), (codex.MemoryWhy, codex.UptimeWhy));
+            Assert.Equal(("1 h", "1 d", "2 h 12 min", "45 s"), (InstanceLine.Duration(3600), InstanceLine.Duration(86400), InstanceLine.Duration(7920), InstanceLine.Duration(45)));
+
+            // D:/Bosun holds the Windows agent and editor and the WSL agent under /mnt/d; /home/me/app is the distro's; codex is in no repo.
+            var groups = page.LinesView.Groups.Cast<CollectionViewGroup>().Select(g => (g.Name, g.ItemCount)).ToList();
+            // In the scanner's repo order (InstanceClient.Merge), then the instances outside any repo.
+            Assert.Equal([("/home/me/app in WSL (Ubuntu)", 1), ("D:/Bosun", 3), (InstancesPage.NotInRepo, 1)], groups.Select(g => ((string)g.Name, g.ItemCount)));
+        });
+    }
+
+    [Fact]
+    public void A_job_waiting_for_guest_memory_says_so_and_has_no_uptime_yet()
+    {
+        var source = new FakeInstances
+        {
+            Answer = View(null, Win(I("job", 7, cwd: @"D:\Bosun", repo: "D:/Bosun", started: null, state: "idle", slot: 2, command: "cmake --build",
+                evidence: "holds slot 2; its command has not started (waiting for guest memory)"))),
+        };
+        OnPage(source, h =>
+        {
+            var job = Line(h.Page, 7);
+            Assert.Equal(("Idle, slot 2: waiting for guest memory", InstanceLine.NotAvailable, "Not available: its command has not started"), (job.State, job.Uptime, job.UptimeWhy));
+        });
+    }
+
+    [Fact]
+    public void Two_distros_with_one_path_are_two_groups_and_a_Windows_repo_with_its_mnt_instance_is_one()
+    {
+        var source = new FakeInstances
+        {
+            Answer = View(null,
+                Win(I("claude", 1, cwd: @"D:\app", repo: "D:/app")),
+                Wsl("Ubuntu", I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"), I("codex", 3, side: "wsl", cwd: "/mnt/d/app", repo: "/mnt/d/app")),
+                Wsl("Debian", I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"))),
+        };
+        OnPage(source, h =>
+        {
+            var groups = h.Page.LinesView.Groups.Cast<CollectionViewGroup>().ToDictionary(g => (string)g.Name, g => g.ItemCount);
+            Assert.Equal(2, groups["D:/app"]);                                                  // Windows and its /mnt/d folder: one repo
+            Assert.Equal(1, groups["/home/me/app in WSL (Ubuntu)"]);
+            Assert.Equal(1, groups["/home/me/app in WSL (Debian)"]);
+            Assert.Equal(2, h.Page.Lines.Count(l => l.Row.Instance.Pid == 2));                 // same pid, two distros: two rows
+        });
+    }
+
+    [Fact]
+    public void It_refreshes_every_30_s_while_shown_and_reads_nothing_while_hidden()
+    {
+        var source = new FakeInstances();
+        OnPage(source, h =>
+        {
+            Assert.Equal(1, source.Reads);
+            source.Answer = View(null, Win(I("claude", 100, cwd: @"D:\Bosun", repo: "D:/Bosun")));
+            h.Advance(TimeSpan.FromSeconds(31));
+            Assert.Equal(2, source.Reads);
+            Assert.Single(h.Page.Lines);                                                       // the rows changed with it
+            h.Shell.Show(h.Shell.Sections.Single(s => s.Key == "overview"));
+            h.Advance(TimeSpan.FromMinutes(5));
+            Assert.Equal(2, source.Reads);                                                     // hidden: nothing read
+        });
+    }
+
+    [Fact]
+    public void It_shows_loading_then_a_failure_with_Retry_that_recovers()
+    {
+        var source = new FakeInstances
+        {
+            Hold = new TaskCompletionSource(),
+            Answer = View(null, Failed("windows", null, "bosun.exe was not found."), Failed("wsl", "Ubuntu", "instances-wsl-Ubuntu.json is not an instances report: bad.")),
+        };
+        OnPage(source, h =>
+        {
+            Assert.Equal(PageState.Loading, h.Page.State);
+            Assert.Equal(Bosun.Panel.Controls.SkeletonShape.Table, h.Page.LoadingShape);
+            var held = source.Hold!;
+            source.Hold = null;
+            held.SetResult();
+            Settle();
+            Assert.Equal(PageState.Failed, h.Page.State);
+            Assert.Equal($"Windows: bosun.exe was not found.{Environment.NewLine}WSL (Ubuntu): instances-wsl-Ubuntu.json is not an instances report: bad.", h.Page.FailureMessage);
+            source.Answer = Both();
+            h.Page.Retry!.Execute(null);
+            Settle();
+            Assert.Equal(PageState.Data, h.Page.State);
+        });
+    }
+
+    [Fact]
+    public void Nothing_running_is_said_only_when_every_side_was_read_whole()
+    {
+        var source = new FakeInstances { Answer = View(null, Win(), Wsl("Ubuntu")) };
+        OnPage(source, h =>
+        {
+            Assert.Equal((PageState.Empty, InstancesPage.NothingRunning), (h.Page.State, h.Page.EmptyReason));
+            source.Answer = View(null, new SideReading("windows", null, Bosun.Core.Memory.Reading<InstancesDoc>.Of(
+                Doc("windows", null, [], [new SourceProblemDoc { Source = "processes", Why = "access denied" }], unreadable: 3), Now)));
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal(PageState.Empty, h.Page.State);
+            Assert.StartsWith("Nothing is listed, but the scan was incomplete: ", h.Page.EmptyReason, StringComparison.Ordinal);
+            Assert.Contains("Windows: its process list could not be read: access denied.", h.Page.EmptyReason, StringComparison.Ordinal);
+            Assert.Contains("Windows: 3 processes could not be read, so an instance may be missing.", h.Page.EmptyReason, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void A_source_that_could_not_be_read_is_said_by_name_beside_the_rows_that_were()
+    {
+        var source = new FakeInstances
+        {
+            Answer = View(null, Win(I("claude", 1, cwd: @"D:\a", repo: "D:/a")), Failed("wsl", "Ubuntu", "instances-wsl-Ubuntu.json is not an instances report: bad.")),
+        };
+        OnPage(source, h =>
+        {
+            Assert.Equal(PageState.Data, h.Page.State);
+            Assert.Single(h.Page.Lines);
+            Assert.Equal(["WSL (Ubuntu): instances-wsl-Ubuntu.json is not an instances report: bad."], h.Page.Notices);
+            // Windows unread, the distro's rows kept and Windows said.
+            source.Answer = View(null, Failed("windows", null, "bosun instances --json ran past 20 s."), Wsl("Ubuntu", I("claude", 2, side: "wsl", cwd: "/home/me/a", repo: "/home/me/a")));
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal(PageState.Data, h.Page.State);
+            Assert.Equal(2, Assert.Single(h.Page.Lines).Row.Instance.Pid);
+            Assert.Equal(["Windows: bosun instances --json ran past 20 s."], h.Page.Notices);
+            // No distro has reported: the client's notice, above the Windows rows.
+            source.Answer = View("No WSL distro has reported its instances, so only Windows is listed.", Win(I("claude", 1, cwd: @"D:\a", repo: "D:/a")));
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal("No WSL distro has reported its instances, so only Windows is listed.", h.Page.WslNotice);
+        });
+    }
+
+    [Fact]
+    public void Each_stale_distro_keeps_its_rows_marked_old_with_its_own_age_and_one_that_reports_again_is_current()
+    {
+        var source = new FakeInstances
+        {
+            Answer = View(null, Win(I("claude", 1, cwd: @"D:\a", repo: "D:/a")),
+                StaleWsl("Ubuntu", TimeSpan.FromMinutes(4), I("claude", 2, side: "wsl", cwd: "/home/me/a", repo: "/home/me/a")),
+                StaleWsl("Debian", TimeSpan.FromMinutes(20), I("codex", 3, side: "wsl", cwd: "/home/me/b", repo: "/home/me/b"))),
+        };
+        OnPage(source, h =>
+        {
+            var page = h.Page;
+            Assert.Equal(PageState.Data, page.State);                                         // Windows is current: the page is not old
+            Assert.Null(page.StaleNote);
+            Assert.Equal(("Last seen 4 minutes ago", true), (Line(page, 2).State, Line(page, 2).IsStale));
+            Assert.Equal("Last seen 20 minutes ago", Line(page, 3).State);
+            Assert.Contains("WSL (Ubuntu) last reported 4 minutes ago: it is stopped, or its logger is.", page.Notices);
+            Assert.Contains("WSL (Debian) last reported 20 minutes ago: it is stopped, or its logger is.", page.Notices);
+            Assert.False(Line(page, 1).IsStale);
+
+            source.Answer = View(null, Win(I("claude", 1, cwd: @"D:\a", repo: "D:/a")),
+                Wsl("Ubuntu", I("claude", 2, side: "wsl", cwd: "/home/me/a", repo: "/home/me/a")),
+                StaleWsl("Debian", TimeSpan.FromMinutes(21), I("codex", 3, side: "wsl", cwd: "/home/me/b", repo: "/home/me/b")));
+            page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal(("Working", false), (Line(page, 2).State, Line(page, 2).IsStale));  // Ubuntu is back
+            Assert.Equal("Last seen 21 minutes ago", Line(page, 3).State);                        // Debian still old
+            Assert.DoesNotContain(page.Notices, n => n.StartsWith("WSL (Ubuntu)", StringComparison.Ordinal));
+
+            // Every side read is old: the page as a whole is what was last seen, from the oldest report.
+            source.Answer = View(null, Failed("windows", null, "bosun.exe was not found."),
+                StaleWsl("Debian", TimeSpan.FromMinutes(22), I("codex", 3, side: "wsl", cwd: "/home/me/b", repo: "/home/me/b")));
+            page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.StartsWith("WSL (Debian) last reported 22 minutes ago: it is stopped, or its logger is. Showing what was read 22 minutes ago", page.StaleNote, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void GB_and_Uptime_sort_by_their_numbers_with_unavailable_last_both_ways()
+    {
+        var source = new FakeInstances
+        {
+            Answer = View(null, Win(
+                I("claude", 1, cwd: @"D:\a", repo: "D:/a", mb: 2048, started: "2026-11-16T08:55:00Z"),
+                I("codex", 2, cwd: @"D:\a", repo: "D:/a", mb: 10240, started: "2026-11-16T07:00:00Z"),
+                I("code", 3, cwd: @"D:\a", repo: "D:/a", mb: null, started: null))),
+        };
+        OnPage(source, h =>
+        {
+            long[] Order() => h.Page.LinesView.Cast<InstanceLine>().Select(l => l.Row.Instance.Pid).ToArray();
+            h.Page.SortBy(nameof(InstanceLine.Memory), ListSortDirection.Ascending);
+            Assert.Equal([1L, 2, 3], Order());                                                 // 2 GB, 10 GB, then not available
+            h.Page.SortBy(nameof(InstanceLine.Memory), ListSortDirection.Descending);
+            Assert.Equal([2L, 1, 3], Order());
+            h.Page.SortBy(nameof(InstanceLine.Uptime), ListSortDirection.Ascending);
+            Assert.Equal([1L, 2, 3], Order());                                                 // 5 min, 2 h, then not available
+            h.Page.SortBy(nameof(InstanceLine.Uptime), ListSortDirection.Descending);
+            Assert.Equal([2L, 1, 3], Order());
+        });
+    }
+
+    [Fact]
+    public void Each_action_opens_through_the_launcher_and_writes_its_Activity_line_and_a_failure_its_toast()
+    {
+        OnPage(new FakeInstances(), h =>
+        {
+            var claude = Line(h.Page, 100);
+            claude.OpenFolder!.Execute(null);
+            Settle();
+            Assert.Equal(("explorer.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].ArgumentList.Single()));
+            Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal));
+            Line(h.Page, 4242).OpenTerminal!.Execute(null);
+            Settle();
+            Assert.Equal(["wsl.exe", "-d", "Ubuntu", "--cd", "/home/me/app"], h.Launcher.Started[^1].ArgumentList);
+
+            h.Launcher.Throw = new InvalidOperationException("wt.exe could not be started: access denied");
+            claude.OpenTerminal!.Execute(null);
+            Settle();
+            Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith("wt.exe could not be started: access denied", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void Without_Windows_Terminal_the_terminal_is_a_console_of_its_own_and_a_folder_gone_is_refused()
+    {
+        OnPage(new FakeInstances(), h =>
+        {
+            Line(h.Page, 100).OpenTerminal!.Execute(null);
+            Settle();
+            Assert.Equal(("cmd.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].WorkingDirectory));
+        }, windowsTerminal: false);
+
+        OnPage(new FakeInstances(), h =>
+        {
+            Line(h.Page, 100).OpenFolder!.Execute(null);
+            Settle();
+            Assert.Empty(h.Launcher.Started);
+            Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith(@"The folder is no longer there: D:\Bosun", StringComparison.Ordinal));
+            Line(h.Page, 4242).OpenFolder!.Execute(null);                                      // a distro's own folder is not looked at first
+            Settle();
+            Assert.Equal(@"\\wsl.localhost\Ubuntu\home\me\app", h.Launcher.Started.Single().ArgumentList.Single());
+        }, folderExists: _ => false);
+    }
+
+    [Fact]
+    public void A_row_with_no_folder_has_its_actions_disabled_with_why()
+    {
+        var source = new FakeInstances { Answer = View(null, Win(I("claude", 1, cwd: null, repo: null))) };
+        OnPage(source, h =>
+        {
+            var line = Line(h.Page, 1);
+            Assert.False(line.OpenFolder!.CanExecute(null));
+            Assert.Equal(OpenCommands.NoFolder, line.OpenFolderTip);
+            Assert.Equal(OpenCommands.NoFolder, line.OpenTerminalTip);
+        });
+    }
+
+    [Fact]
+    public void Ctrl_K_acts_on_the_selected_row_and_offers_nothing_without_one_and_a_refresh_keeps_or_clears_the_selection()
+    {
+        var source = new FakeInstances();
+        OnPage(source, h =>
+        {
+            var page = h.Page;
+            Assert.DoesNotContain(page.PaletteCommands, c => c.Name.StartsWith("Open", StringComparison.Ordinal));
+            page.Selected = Line(page, 100);
+            h.Shell.Palette.Open();
+            h.Shell.Palette.Query = "Open folder";
+            var row = h.Shell.Palette.Rows.Single(r => r.Name == "Open folder of Claude Code");
+            row.Run().GetAwaiter().GetResult();
+            Settle();
+            Assert.Equal(@"D:\Bosun", h.Launcher.Started.Single().ArgumentList.Single());
+
+            page.RefreshNow!.Execute(null);                                                     // the same instance: still selected
+            Settle();
+            Assert.Equal(100, page.Selected!.Row.Instance.Pid);
+            source.Answer = View(null, Win(I("code", 101, cwd: @"D:\Bosun", repo: "D:/Bosun")));
+            page.RefreshNow!.Execute(null);                                                     // gone: nothing selected, not another row
+            Settle();
+            Assert.Null(page.Selected);
+        });
+    }
+
+    [Fact]
+    public void The_drawn_page_has_its_grid_columns_groups_and_named_actions()
+    {
+        PageRenderer.InPage("Dark", () =>
+        {
+            var scheduler = new RefreshScheduler(() => Now.UtcDateTime, new Driver());
+            var log = Shells.Log();
+            var page = new InstancesPage(new FakeInstances(), scheduler, log, new FakeLauncher(), () => true, _ => true) { Clock = new FixedClock(Now) };
+            var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["instances"] = page }), log);
+            shell.Show(shell.Sections.Single(s => s.Key == "instances"));
+            return new ShellView { DataContext = shell };
+        }, page =>
+        {
+            for (var i = 0; i < 6; i++) Pump();
+            PageRenderer.Settle(page);
+            var view = ShellSupport.Under<Bosun.Panel.Instances.InstancesView>(page).Single();
+            var grid = ShellSupport.Under<DataGrid>(view).Single(g => g.Name == "Table");
+            Assert.Equal("Instances by repo", System.Windows.Automation.AutomationProperties.GetName(grid));
+            Assert.Equal(["Instance", "Side", "State", "GB", "Uptime", "Open"], grid.Columns.Select(c => (string)c.Header));
+            var texts = PageRenderer.TextsOf(view);
+            Assert.Contains("D:/Bosun", texts);
+            Assert.Contains("/home/me/app in WSL (Ubuntu)", texts);
+            var buttons = ShellSupport.Under<Button>(view).Where(b => b.Name == "OpenFolder").ToList();
+            Assert.Contains(buttons, b => System.Windows.Automation.AutomationProperties.GetName(b) == "Open folder of Claude Code (claude, pid 100, in D:\\Bosun)");
+            return 0;
+        }, 1360, 860);
+    }
+}

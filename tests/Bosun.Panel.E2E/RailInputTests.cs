@@ -52,8 +52,8 @@ public class RailInputTests
         var m = memory.Current.BoundingRectangle;
         RealInput.ClickOnWindow(handle, (int)(m.Left + m.Width / 2), (int)(m.Top + m.Height / 2));
         Ui.Until(() => Selected(memory), Ui.Short, "Memory to be selected by the click");
-        Ui.Until(() => window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, "Memory is not built yet.")) is not null,
-            Ui.Short, "the Memory page to be shown");
+        // Memory is built (D03 T01 §2): its page is known by its table, not a placeholder's words.
+        Ui.Until(() => Ui.Find(window, "ByRepo") is { Current.IsOffscreen: false } table ? table : null, Ui.Short, "the Memory page to be shown");
         Thread.Sleep(500); // past the marker's slide
         Assert.True(Differs(MarkerSpot(memory, scale), bare), $"the marker is drawn on the Memory row ({MarkerSpot(memory, scale)} against {bare})");
         var onMemory = MarkerSpot(memory, scale);
@@ -61,8 +61,7 @@ public class RailInputTests
         // The Down arrow, with the rail holding the keyboard after the click.
         RealInput.Key(handle, VK_DOWN);
         Ui.Until(() => Selected(instances), Ui.Short, "Instances to be selected by the Down arrow");
-        Ui.Until(() => window.FindFirst(TreeScope.Descendants, new PropertyCondition(AutomationElement.NameProperty, "Instances is not built yet.")) is not null,
-            Ui.Short, "the Instances page to be shown");
+        Ui.Until(() => Ui.Find(window, "Table") is { Current.IsOffscreen: false } table ? table : null, Ui.Short, "the Instances page to be shown");
         Thread.Sleep(500);
         Assert.True(Differs(MarkerSpot(instances, scale), MarkerSpot(memory, scale)),
             $"the marker left Memory for Instances ({MarkerSpot(instances, scale)} on Instances, {MarkerSpot(memory, scale)} on Memory)");

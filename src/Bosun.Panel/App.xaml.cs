@@ -92,7 +92,7 @@ public partial class App : Application
         // One reader of the memory documents, for the Memory page and the tray's pressure check (D03 T01 §2, §4).
         var memory = Bosun.Core.Memory.MemoryClient.ForThisUser();
         var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme,
-            refreshes: refreshes, memory: memory);
+            refreshes: refreshes, memory: memory, instances: Bosun.Core.Instances.InstanceClient.ForThisUser());
         // The preview said where the person will look: in force from which file, or why its file was not used.
         if (previewLine is not null)
         {

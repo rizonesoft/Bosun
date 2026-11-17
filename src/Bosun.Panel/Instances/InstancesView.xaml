@@ -1,0 +1,121 @@
+<!-- The Instances page's content (D03 T02 §2, design/SPEC.md §4): every source that could not be read or is old, by
+     name, then one table of instance, side, state, GB and uptime, grouped by repo (the group header names the repo and,
+     for a distro's own folder, its distro), each row with Open folder and Open terminal. The page stops nothing. Drawn
+     in the page frame through the implicit DataTemplate for InstancesPage (PageFrame.xaml), which is its DataContext. -->
+<UserControl x:Class="Bosun.Panel.Instances.InstancesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             Focusable="False">
+    <UserControl.Resources>
+        <Style x:Key="Note" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+            <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <!-- A row action: a small icon button, named for its instance, its reason on hover when it can't run. -->
+        <Style x:Key="RowAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+        </Style>
+    </UserControl.Resources>
+    <StackPanel>
+        <TextBlock x:Name="WslNotice" Text="{Binding WslNotice}" Style="{StaticResource Note}"/>
+        <ItemsControl x:Name="Notices" ItemsSource="{Binding Notices}" Focusable="False" IsTabStop="False"
+                      AutomationProperties.Name="What could not be read">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" Style="{StaticResource Note}"/>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <DataGrid x:Name="Table" ItemsSource="{Binding LinesView}" SelectedItem="{Binding Selected, Mode=TwoWay}"
+                  AutoGenerateColumns="False" IsReadOnly="True" CanUserSortColumns="True" SelectionMode="Single"
+                  Sorting="OnSorting" AutomationProperties.Name="Instances by repo" Margin="0,4,0,0">
+            <DataGrid.GroupStyle>
+                <GroupStyle>
+                    <GroupStyle.HeaderTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="8,12,0,4">
+                                <TextBlock x:Name="GroupName" Text="{Binding Name}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2"/>
+                                <TextBlock x:Name="GroupCount" Text="{Binding ItemCount, StringFormat='({0})'}" Margin="6,0,0,0" Foreground="{DynamicResource B.TextDim}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </GroupStyle.HeaderTemplate>
+                </GroupStyle>
+            </DataGrid.GroupStyle>
+            <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Instance" SortMemberPath="Instance" Width="2*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Instance}" Style="{DynamicResource Cell.Text}" ToolTip="{Binding InstanceDetail}"
+                                       AutomationProperties.HelpText="{Binding InstanceDetail}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*" ElementStyle="{DynamicResource Cell.Text}"/>
+                <DataGridTemplateColumn Header="State" SortMemberPath="State" Width="1.6*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding State}" ToolTip="{Binding StateDetail}" AutomationProperties.HelpText="{Binding StateDetail}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsStale}" Value="True">
+                                                <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="GB" SortMemberPath="Memory" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Memory}" Style="{DynamicResource Cell.Number}" ToolTip="{Binding MemoryWhy}"
+                                       AutomationProperties.HelpText="{Binding MemoryWhy}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Uptime" SortMemberPath="Uptime" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Uptime}" Style="{DynamicResource Cell.Number}" ToolTip="{Binding UptimeWhy}"
+                                       AutomationProperties.HelpText="{Binding UptimeWhy}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Open" Width="Auto" CanUserSort="False">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="OpenFolder" Style="{StaticResource RowAction}" Command="{Binding OpenFolder}"
+                                        AutomationProperties.Name="{Binding OpenFolderName}" ToolTip="{Binding OpenFolderTip}">
+                                    <icons:PackIconLucide Kind="FolderOpen" Width="14" Height="14"/>
+                                </Button>
+                                <Button x:Name="OpenTerminal" Style="{StaticResource RowAction}" Command="{Binding OpenTerminal}"
+                                        AutomationProperties.Name="{Binding OpenTerminalName}" ToolTip="{Binding OpenTerminalTip}">
+                                    <icons:PackIconLucide Kind="SquareTerminal" Width="14" Height="14"/>
+                                </Button>
+                            </StackPanel>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </StackPanel>
+</UserControl>

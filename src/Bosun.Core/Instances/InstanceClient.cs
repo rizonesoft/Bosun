@@ -25,7 +25,20 @@ public sealed record RepoGroup(string? Repo, string? Distro, IReadOnlyList<Insta
 /// Everything running, merged by repo (D03 T02 §1): the groups, what each side answered (a side that failed keeps the
 /// others' rows and says why, and a stale distro its last word), and a notice when no distro has reported.
 /// </summary>
-public sealed record InstancesView(IReadOnlyList<RepoGroup> Groups, IReadOnlyList<SideReading> Sides, string? WslNotice);
+public sealed record InstancesView(IReadOnlyList<RepoGroup> Groups, IReadOnlyList<SideReading> Sides, string? WslNotice)
+{
+    /// <summary>
+    /// The groups again, with each stale distro's last rows kept (D03 T02 §2): for a page that marks them as old.
+    /// <see cref="Groups"/> never lists them, so nothing else reads a stopped distro's rows as running.
+    /// </summary>
+    public IReadOnlyList<RepoGroup> Merged(bool keepStale) => keepStale ? InstanceClient.Merge(Sides, keepStale: true) : Groups;
+}
+
+/// <summary>What the Instances page reads everything running through: <see cref="InstanceClient"/>, or a test's fake.</summary>
+public interface IInstanceSource
+{
+    Task<InstancesView> ReadAsync(CancellationToken cancellationToken = default);
+}
 
 /// <summary>
 /// Reads every agent, editor and job (D03 T02 §1): <c>bosun instances --json</c> on Windows, and each WSL distro's own
@@ -33,7 +46,7 @@ public sealed record InstancesView(IReadOnlyList<RepoGroup> Groups, IReadOnlyLis
 /// WSL is never asked through wsl.exe: that would start a distro the person had stopped (round 1). A report older than
 /// <see cref="StaleAfter"/> is that distro's last word, said, and its rows are not listed as running.
 /// </summary>
-public sealed partial class InstanceClient
+public sealed partial class InstanceClient : IInstanceSource
 {
     /// <summary>The most of a document kept: a few hundred bytes an instance.</summary>
     public const int MaxDocumentBytes = 4 * 1024 * 1024;
@@ -63,12 +76,18 @@ public sealed partial class InstanceClient
     }
 
     /// <summary>The client for this user: the tool <see cref="BosunTool.Locate"/> finds, and the user's log folder.</summary>
-    public static InstanceClient ForThisUser()
+    public static InstanceClient ForThisUser(Func<string, string?>? environment = null)
     {
-        var bosun = BosunTool.Locate(out var why);
-        var logs = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Bosun", "logs");
+        environment ??= Environment.GetEnvironmentVariable;
+        var bosun = BosunTool.Locate(out var why, environment);
+        // The folder the loggers write, as the variable says it, like bosun.exe and MemoryClient (the known folder alone
+        // read another folder than the logger whenever LOCALAPPDATA was changed).
+        var logs = MemoryClient.LogFolder(environment);
         return new InstanceClient(bosun, why, logs);
     }
+
+    /// <summary>The folder each distro's report is read from.</summary>
+    public string Logs => _logs;
 
     /// <summary>How long the Windows scan may take: it lists processes and reads a few small files.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(20);
@@ -142,7 +161,7 @@ public sealed partial class InstanceClient
         var age = now > at ? now - at : TimeSpan.Zero;
         if (age > StaleAfter)
             return new SideReading("wsl", distro, Reading<InstancesDoc>.Stale(doc, now, age,
-                $"WSL ({distro}) last reported {MemoryClient.Words(age)} ago: it is stopped, or its logger is, so its instances aren't listed."));
+                $"WSL ({distro}) last reported {MemoryClient.Words(age)} ago: it is stopped, or its logger is."));
         return new SideReading("wsl", distro, Reading<InstancesDoc>.Of(doc, now, age));
     }
 
@@ -188,11 +207,12 @@ public sealed partial class InstanceClient
     /// other WSL path stays its distro's own, so two distros' same path are two repos. A WSL job's two halves join: the
     /// Windows holder (slot, state, command) and the WSL job whose pid is its <c>guest_pid</c> (memory, folder, start).
     /// </summary>
-    public static IReadOnlyList<RepoGroup> Merge(IReadOnlyList<SideReading> sides)
+    /// <param name="keepStale">Keep a stale distro's last rows too, for a page that says they are old (D03 T02 §2).</param>
+    public static IReadOnlyList<RepoGroup> Merge(IReadOnlyList<SideReading> sides, bool keepStale = false)
     {
         var rows = new List<InstanceRow>();
         foreach (var side in sides)
-            if (side.Reading is { Value: { } doc, IsStale: false })
+            if (side.Reading is { Value: { } doc } reading && (keepStale || !reading.IsStale))
                 rows.AddRange(doc.Instances.Select(i => new InstanceRow(i, side.Side == "wsl" ? side.Distro ?? doc.Distro : null)));
 
         // Pair each WSL holder in the Windows document with the job of its own distro whose pid is its guest_pid: a

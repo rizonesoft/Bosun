@@ -13,7 +13,8 @@ public class RailTests
     private static readonly (string Title, string State)[] Rows =
     [
         // Memory is built (D03 T01 §2): its data is the seeded snapshot, so it shows Data.
-        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Empty"), ("Queue", "Empty"),
+        // Instances is built (D03 T02 §2): the seeded distro's report gives it a row, so it shows Data.
+        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Data"), ("Queue", "Empty"),
         ("Optimise", "Empty"), ("Settings", "Data"), ("About", "Empty"),
     ];
 
@@ -36,7 +37,8 @@ public class RailTests
             var shown = Settle(window, title);
             Assert.Equal((title, state), shown);
             if (state == "Empty") Assert.Equal($"{title} is not built yet.", Ui.Get(window, "EmptyReason").Current.Name);
-            Assert.Empty(Ui.Nameless(window));
+            var nameless = Ui.Nameless(window).ToList();
+            Assert.True(nameless.Count == 0, $"{title} has controls without a name:{Environment.NewLine}{string.Join(Environment.NewLine, nameless)}");
         }
         Assert.True(panel.Running, "the panel still runs after every page has been shown");
     }
@@ -96,6 +98,7 @@ public class RailTests
     {
         "Settings" => "ThemeBox",
         "Memory" => "ByRepo",
+        "Instances" => "Table",
         _ => null,
     };
 

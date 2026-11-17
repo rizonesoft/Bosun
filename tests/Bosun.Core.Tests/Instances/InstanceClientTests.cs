@@ -158,6 +158,13 @@ public sealed class InstanceClientTests : IDisposable
     }
 
     [Fact]
+    public void This_user_s_reports_are_read_from_the_folder_LOCALAPPDATA_names_as_the_loggers_write_them()
+    {
+        var client = InstanceClient.ForThisUser(name => name == "LOCALAPPDATA" ? @"X:\elsewhere" : null);
+        Assert.Equal(Path.Combine(@"X:\elsewhere", "Bosun", "logs"), client.Logs);
+    }
+
+    [Fact]
     public async Task A_stale_report_is_its_distro_s_last_word_and_its_rows_are_not_listed_as_running()
     {
         Report("Ubuntu", "wsl-ubuntu.json");
@@ -165,9 +172,16 @@ public sealed class InstanceClientTests : IDisposable
         var view = await Fake(Answer(Fixture("windows.json")), now: Now.AddMinutes(12)).ReadAsync(Token);
         var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
         Assert.True(ubuntu.IsStale);
-        Assert.Equal("WSL (Ubuntu) last reported 12 minutes ago: it is stopped, or its logger is, so its instances aren't listed.", ubuntu.Why);
+        Assert.Equal("WSL (Ubuntu) last reported 12 minutes ago: it is stopped, or its logger is.", ubuntu.Why);
         Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Distro is not null);
         Assert.Contains(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200); // the holder still shown, as Windows saw it
+
+        // Kept for a page that says they are old (D03 T02 §2): the stale distros' rows, the holder joined to its half.
+        var kept = view.Merged(keepStale: true).SelectMany(g => g.Rows).ToList();
+        Assert.Contains(kept, r => r.Distro == "Ubuntu");
+        Assert.Contains(kept, r => r.Distro == "Debian");
+        Assert.DoesNotContain(kept, r => r.Instance.Pid == 9200 && r.Distro is null);             // joined, not listed apart
+        Assert.Same(view.Groups, view.Merged(keepStale: false));
     }
 
     [Fact]

@@ -205,7 +205,8 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <ItemsControl x:Name="Evidence" ItemsSource="{Binding Decision.Evidence}" Focusable="False" IsTabStop="False">
+                <ItemsControl x:Name="Evidence" ItemsSource="{Binding Decision.Evidence}" Focusable="False" IsTabStop="False"
+                              AutomationProperties.Name="What the verdict rests on">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding}" Style="{StaticResource Note}" Margin="0,1,0,1"/>

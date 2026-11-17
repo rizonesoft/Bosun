@@ -10,6 +10,7 @@
              xmlns:a="clr-namespace:Bosun.Panel.Accessibility"
              xmlns:settings="clr-namespace:Bosun.Panel.Settings"
              xmlns:memory="clr-namespace:Bosun.Panel.Memory"
+             xmlns:instances="clr-namespace:Bosun.Panel.Instances"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
              Focusable="False">
     <UserControl.Resources>
@@ -20,6 +21,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type memory:MemoryPage}">
             <memory:MemoryView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type instances:InstancesPage}">
+            <instances:InstancesView/>
         </DataTemplate>
     </UserControl.Resources>
     <!-- Everything the frame draws moves together when the page changes: it fades in and rises 4 px (D02 T03 §7). -->
