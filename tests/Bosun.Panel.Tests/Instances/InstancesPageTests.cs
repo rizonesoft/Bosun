@@ -327,6 +327,9 @@ public class InstancesPageTests
             claude.OpenTerminal!.Execute(null);
             Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith("wt.exe could not be started: access denied", StringComparison.Ordinal));
+            // And its toast, beside the line (round 3): a failure shown, with its reason.
+            var toast = Assert.Single(h.Shell.Toasts.Shown, t => t.IsFail);
+            Assert.EndsWith("wt.exe could not be started: access denied", toast.Message, StringComparison.Ordinal);
         });
     }
 
