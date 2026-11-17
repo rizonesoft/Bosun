@@ -95,6 +95,15 @@
         <Setter Property="Padding" Value="{DynamicResource Inset.L}"/>
     </Style>
 
+    <!-- A control's short explanation under it: the caption size in the dim colour, the scale's XS below the control. -->
+    <Style x:Key="Hint" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="Margin" Value="{DynamicResource Gap.Above.XS}"/>
+    </Style>
+
     <Style x:Key="FieldLabel" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>

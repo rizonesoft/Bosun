@@ -40,6 +40,8 @@
         <controls:SegmentedControl x:Name="ThemeBox" ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
                                    DisplayMemberPath="Name" AutomationProperties.Name="Theme"
                                    ToolTip="Follow Windows, or always dark or light. Applies when saved, with no restart."/>
+        <!-- Said on the card, not only on hover (D02 T04 §3 completion review). -->
+        <TextBlock x:Name="ThemeHint" Text="Applies when saved, with no restart." Style="{DynamicResource Hint}"/>
         <!-- While Windows draws in a contrast theme (D02 T03 §10): why the choice above changes nothing yet. -->
         <TextBlock x:Name="ThemeNote" Text="{Binding ThemeNote}" Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"
                    Margin="{DynamicResource Gap.Above.S}" a:LiveRegion.Announce="True">
@@ -110,6 +112,7 @@
         <CheckBox x:Name="NotifyMemoryPressure" Content="Notify me about memory pressure"
                   IsChecked="{Binding NotifyMemoryPressure, Mode=TwoWay}" HorizontalAlignment="Left"
                   ToolTip="Shows a Windows notification when memory runs short. It is written to the Activity pane either way."/>
+        <TextBlock x:Name="NotifyHint" Text="Written to the Activity pane either way." Style="{DynamicResource Hint}"/>
 
         </StackPanel>
         </Border>

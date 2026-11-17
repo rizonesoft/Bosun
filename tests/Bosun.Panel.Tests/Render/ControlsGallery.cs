@@ -46,6 +46,7 @@ public sealed class ControlsGallery : UserControl
             Field("build Bosun"), Field("read only", readOnly: true), Field("disabled", enabled: false),
             Combo("Choose a side", -1), Combo("Choose a side", 1), Combo("Choose a side", 0, enabled: false)));
 
+        stack.Children.Add(FormSection());
         stack.Children.Add(Label("Check boxes"));
         stack.Children.Add(Row(
             new CheckBox { Content = "Start with Windows", IsChecked = true }, new CheckBox { Content = "Notify on pressure" },
@@ -109,7 +110,21 @@ public sealed class ControlsGallery : UserControl
         ElementStyle = (Style)controls[style],
     };
 
-    private static TextBlock Label(string text) => Text(text, "T.SectionLabel");
+    /// <summary>A group's heading, as a page's section is headed (D02 T04 §3).</summary>
+    private static TextBlock Label(string text) => Text(text, "Section.Heading");
+
+    /// <summary>A form section as Settings draws one: its heading, then a field label the scale's S above its field.</summary>
+    private static StackPanel FormSection()
+    {
+        var field = new TextBox { Text = "2048", Width = 120, HorizontalAlignment = HorizontalAlignment.Left };
+        field.SetResourceReference(StyleProperty, "Field");
+        // The scale's XL above and below it, as one section stands apart from the next.
+        var after = new Border();
+        after.SetResourceReference(HeightProperty, "S.XL");
+        var section = new StackPanel { Children = { Text("A section", "Section.Heading"), Text("A field label", "FieldLabel"), field, after } };
+        section.SetResourceReference(MarginProperty, "Gap.Above.XL");
+        return section;
+    }
 
     private static TextBlock Text(string text, string style)
     {

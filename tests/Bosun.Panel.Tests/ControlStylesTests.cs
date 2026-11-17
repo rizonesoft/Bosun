@@ -702,6 +702,7 @@ public partial class ControlStylesTests
         ["T.SectionLabel"] = "text",
         ["FieldLabel"] = "text",
         ["Section.Heading"] = "text: a section's heading (D02 T04 §3)",
+        ["Hint"] = "text: a control's short explanation (D02 T04 §3)",
         ["Card"] = "a surface that holds controls, never focused itself: its controls are the targets (D02 T04 §3)",
         ["Cell.Text"] = "text",
         ["Cell.Number"] = "text",
@@ -930,7 +931,7 @@ public partial class ControlStylesTests
             foreach (var button in buttons) Assert.Contains(button.Style, new[] { "Btn", "Btn.Small", "Btn.Primary", "Btn.Danger", "Btn.Chrome" }.Select(key => controls[key]));
             Assert.Same(controls["TabStrip"], Under<TabControl>(gallery).Single().Style);
             var fields = Under<TextBox>(gallery).ToList();
-            Assert.Equal(3, fields.Count);
+            Assert.Equal(4, fields.Count); // three in a row, and the form section's (D02 T04 §3)
             foreach (var field in fields) Assert.Same(controls["Field"], field.Style);
             var checks = Under<CheckBox>(gallery).ToList();
             Assert.Equal(4, checks.Count);

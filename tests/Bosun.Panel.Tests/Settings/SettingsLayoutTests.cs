@@ -63,6 +63,19 @@ public class SettingsLayoutTests
         }, 900, 760);
     }
 
+    [Fact]
+    public void What_a_person_needs_to_know_is_on_the_card_not_only_on_hover()
+    {
+        PageRenderer.InPage("Dark", () => new Bosun.Panel.Settings.SettingsView { DataContext = new SettingsFixture().Open().Page }, page =>
+        {
+            var texts = PageRenderer.TextsOf(page);
+            Assert.Contains("Applies when saved, with no restart.", texts);
+            Assert.Contains("Written to the Activity pane either way.", texts);
+            Assert.True(Inside(Named<TextBlock>(page, "NotifyHint"), Named<Border>(page, "NotificationsCard")));
+            return 0;
+        }, 900, 760);
+    }
+
     [Theory]
     [InlineData(1360, true)]
     [InlineData(420, false)]
@@ -91,11 +104,20 @@ public class SettingsLayoutTests
         }, page =>
         {
             PageRenderer.Settle(page);
+            // Measured where it is drawn: each card's content starts its border and the scale's L inside it, on every side.
             var inset = (double)page.FindResource("S.L");
             var cards = ShellSupport.Under<Border>(page).Where(b => ReferenceEquals(b.Style, page.FindResource("Card"))).ToList();
-            Assert.True(cards.Count >= 5, $"the Memory page draws its cards with the shared Card ({cards.Count} found)");
+            Assert.Equal(6, cards.Count); // the chart, three cards, By repo and Decision
             foreach (var card in cards)
-                Assert.Equal(new Thickness(inset), card.Padding);
+            {
+                var content = (FrameworkElement)card.Child;
+                var at = content.TransformToAncestor(card).Transform(new Point());
+                var edge = card.BorderThickness.Left + inset;
+                Assert.Equal(edge, at.X, 0.5);
+                Assert.Equal(edge, at.Y, 0.5);
+                Assert.Equal(edge, card.ActualWidth - at.X - content.ActualWidth, 0.5);
+                Assert.Equal(edge, card.ActualHeight - at.Y - content.ActualHeight, 0.5);
+            }
             return 0;
         }, 1360, 1100);
     }
