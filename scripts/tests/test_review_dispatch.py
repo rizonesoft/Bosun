@@ -574,7 +574,7 @@ class Dispatch(Harness):
         module.record(path, {**self.RESULT, "review": "Plain."}, "2026-10-20T00:00:01Z")
         self.assertEqual([r["number"] for r in module.read_rounds(path.read_text(encoding="utf-8"))], [1, 2])
         # A round recorded before the count (no Lines field) still reads, running to the next heading.
-        legacy = ("## Round 1: astra (`gpt-6-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-10-16T00:00:00Z\n\n"
+        legacy = ("## Round 1: astra (`gpt-6.2-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-10-16T00:00:00Z\n\n"
                   "Review.\n\n")
         self.assertEqual([r["number"] for r in module.read_rounds(legacy)], [1])
         # A hand edit that changes the review's line count is refused, not misread.
@@ -1473,7 +1473,7 @@ class MultiCli(Harness):
 
         [reviewers.astra]
         cli = "codex"
-        model = "gpt-6-astra"
+        model = "gpt-6.2-astra"
         effort = "medium"
 
         [routes]
@@ -1557,7 +1557,7 @@ class RepositoryPin(unittest.TestCase):
         with open(REPO_PIN, "rb") as handle:
             pin = tomllib.load(handle)
         self.assertEqual(set(pin["reviewers"]), {"astra"})
-        self.assertEqual(pin["reviewers"]["astra"], {"cli": "codex", "model": "gpt-6-astra", "effort": "medium"})
+        self.assertEqual(pin["reviewers"]["astra"], {"cli": "codex", "model": "gpt-6.2-astra", "effort": "medium"})
         self.assertEqual(pin["routes"], {"claude": ["astra"],
                                        "gemini": ["astra"]})
         schedule = pin["schedule"]
@@ -1681,7 +1681,7 @@ class Settled(Harness):
     def seed(self, path, *notes):
         """A findings file holding one recorded round whose review quotes a settled line, then the writer's notes."""
         module = self.module()
-        result = {"writer": "claude", "reviewer": "astra", "cli": "codex", "model": "gpt-6-astra", "effort": "medium",
+        result = {"writer": "claude", "reviewer": "astra", "cli": "codex", "model": "gpt-6.2-astra", "effort": "medium",
                   "failover": [], "review": "1. P2 x.\n- Settled: the reviewer's own words\n\nOVERALL: needs-attention"}
         module.record(path, result, "2026-11-08T00:00:00Z")
         path.write_text(path.read_text(encoding="utf-8") + "\n" + "\n".join(notes) + "\n", encoding="utf-8")
@@ -1887,7 +1887,7 @@ class Settled(Harness):
 
     def test_records_without_seconds_still_parse_and_a_bad_one_does_not(self):
         module = self.module()
-        old = ("## Round 1: astra (`gpt-6-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-11-07T00:00:00Z\n"
+        old = ("## Round 1: astra (`gpt-6.2-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-11-07T00:00:00Z\n"
                "- Lines: 1\n- Digest: {d}\n\nOVERALL: approve\n").format(d=module.digest(["OVERALL: approve"]))
         (entry,) = module.read_rounds(old)
         self.assertNotIn("seconds", entry)

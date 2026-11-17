@@ -6,7 +6,7 @@
 #
 # Options for the owner: -Repo (this checkout), -ProbeSeconds (120, at least 1, each external call's limit),
 # -MinFreeGB (50, at least 1, on each of -FreeDrives, by default the drive this checkout is on), -MinLoginDays (30, at least 1, left on Claude's
-# sign-in or token), -ReviewerModel (gpt-6-astra) and -Distro (Ubuntu). The other parameters point the checks at test
+# sign-in or token), -ReviewerModel (gpt-6.2-astra) and -Distro (Ubuntu). The other parameters point the checks at test
 # doubles (paths, registry keys, a task store) and are for tests/preflight_test.ps1.
 #
 # Tools are found on the PATH a run's shortcut launches with (the machine and user PATH in the registry), not this
@@ -18,7 +18,7 @@ param(
   [string]$Repo = (Split-Path $PSScriptRoot),
   [string]$SearchPath = '',
   [int]$ProbeSeconds = 120,
-  [string]$ReviewerModel = 'gpt-6-astra',
+  [string]$ReviewerModel = 'gpt-6.2-astra',
   [string]$Distro = 'Ubuntu',
   [double]$MinFreeGB = 50,
   [int]$MinLoginDays = 30,

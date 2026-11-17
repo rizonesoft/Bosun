@@ -45,7 +45,7 @@ def entry(kind='round', clean=False):
         review = 'HIGHEST: none\nPLAN: complete\nOVERALL: approve'
     if kind == 'completion':
         review = 'COMPLETION: complete'
-    return dict(writer='codex', writer_model='gpt-6-astra', reviewer='carbon',
+    return dict(writer='codex', writer_model='gpt-6.2-astra', reviewer='carbon',
                 cli='agy', model='gemini-4-carbon-medium', review=review,
                 policy='a'*40, execution='returned', candidate='b'*40)
 
@@ -63,7 +63,7 @@ class LivePinCaps(unittest.TestCase):
         return dict(plans=[entry('plan')], rounds=entries, completions=[])
 
     def check(self, kind, found):
-        d.check_sequence(self.schedule, kind, found, 'codex', 'gpt-6-astra')
+        d.check_sequence(self.schedule, kind, found, 'codex', 'gpt-6.2-astra')
 
     def test_the_pin_gives_thirty_three(self):
         self.assertEqual(d.schedule_cap(self.schedule), 33)
@@ -198,7 +198,7 @@ class CurrentPolicy(unittest.TestCase):
                     d.record_completion(path, e, '2026-11-06T00:00:00Z', 'b'*40, kind)
             found = d.read_findings(path.read_text())
             d.validate_current_record(pin, found)
-            self.assertEqual(found['plans'][0]['writer_model'], 'gpt-6-astra')
+            self.assertEqual(found['plans'][0]['writer_model'], 'gpt-6.2-astra')
             found['completions'][0]['_line'] = 0
             with self.assertRaises(d.Refused):
                 d.validate_current_record(pin, found)
@@ -226,7 +226,7 @@ class CurrentPolicy(unittest.TestCase):
             path = t.root / t.PLAN
             path.write_text('')
             policy_sha = t.head()
-            e = dict(entry('plan'), writer='claude', writer_model='claude-opus-5-5', reviewer='astra', cli='codex', model='gpt-6-astra')
+            e = dict(entry('plan'), writer='claude', writer_model='claude-opus-5-5', reviewer='astra', cli='codex', model='gpt-6.2-astra')
             e.update(policy=policy_sha, attempt_reviewer='astra', attempt_model=e['model'], attempt_cli='codex',
                      failover=[], effort='medium', lenses=['plan'])
             d.record_completion(path, e, '2026-11-06T00:00:00Z', policy_sha, 'plan')
@@ -244,7 +244,7 @@ class CurrentPolicy(unittest.TestCase):
             fixtures.tg.graph(t.root)
             # A receipt cannot hide a failed terminal execution or a different model.
             text = path.read_text(encoding='utf-8')
-            path.write_text(text.replace('Attempt model: gpt-6-astra',
+            path.write_text(text.replace('Attempt model: gpt-6.2-astra',
                                          'Attempt model: gemini-4-carbon-low'), encoding='utf-8')
             with self.assertRaises(fixtures.tg.Refused):
                 fixtures.tg.graph(t.root)
@@ -368,15 +368,15 @@ class CurrentPolicy(unittest.TestCase):
     def test_sequence_clean_and_exhaustion(self):
         found = dict(plans=[entry('plan')], rounds=[], completions=[])
         with self.assertRaises(d.Refused):
-            d.check_sequence(policy(), 'completion', found, 'codex', 'gpt-6-astra')
+            d.check_sequence(policy(), 'completion', found, 'codex', 'gpt-6.2-astra')
         found['rounds'] = [entry() for _ in range(9)]
         for kind in ('round', 'completion'):
             with self.assertRaises(d.Refused):
-                d.check_sequence(policy(), kind, found, 'codex', 'gpt-6-astra')
+                d.check_sequence(policy(), kind, found, 'codex', 'gpt-6.2-astra')
         found['rounds'][-1] = entry(clean=True)
-        d.check_sequence(policy(), 'completion', found, 'codex', 'gpt-6-astra')
+        d.check_sequence(policy(), 'completion', found, 'codex', 'gpt-6.2-astra')
         with self.assertRaises(d.Refused):
-            d.check_sequence(policy(), 'round', found, 'codex', 'gpt-6-astra')
+            d.check_sequence(policy(), 'round', found, 'codex', 'gpt-6.2-astra')
 
     def test_missing_or_changed_writer_and_plan_refused(self):
         found = dict(plans=[entry('plan')], rounds=[], completions=[])
@@ -385,7 +385,7 @@ class CurrentPolicy(unittest.TestCase):
                 d.check_sequence(policy(), 'round', found, 'codex', model)
         found['plans'] = []
         with self.assertRaises(d.Refused):
-            d.check_sequence(policy(), 'round', found, 'codex', 'gpt-6-astra')
+            d.check_sequence(policy(), 'round', found, 'codex', 'gpt-6.2-astra')
 
     def test_failed_attempt_does_not_spend_round(self):
         rounds = [entry(), dict(entry(), reviewer=None, execution='timeout')]
@@ -424,7 +424,7 @@ class WriterReviewerRoles(unittest.TestCase):
                 with patch.object(d, 'find_cli', return_value='codex.exe'), patch.object(d, 'run', side_effect=run):
                     result = d.review(pin, writer, ROOT / 'docs/plan-review-prompt.md', 1, step)
                 self.assertEqual(result['execution'], 'returned')
-                self.assertEqual(result['model'], 'gpt-6-astra')
+                self.assertEqual(result['model'], 'gpt-6.2-astra')
                 self.assertEqual(result['effort'], 'low' if prior else 'medium')
                 self.assertEqual(result['lenses'], step['lenses'])
         self.assertEqual(d.schedule_cap(pin['schedule']), 33)

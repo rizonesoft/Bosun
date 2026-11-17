@@ -1,7 +1,7 @@
 OpenAI Codex v0.167.0
 --------
 workdir: D:\GitHub\Bosun
-model: gpt-6-astra
+model: gpt-6.2-astra
 provider: openai
 approval: never
 sandbox: read-only

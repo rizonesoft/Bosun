@@ -149,10 +149,10 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match 'codex is not signed in' -and $r.Text -match 'fix: `codex login`') 'a signed-out codex fails with its fix'
   $d = Tool 'codex-mute' 'codex' "if `"%1`"==`"login`" (echo Logged in using ChatGPT& exit /b 0)`r`necho error: model not available`r`nexit /b 1"
   $r = Preflight "$d;$system" @('-Only', 'codex')
-  Check ($r.Code -eq 1 -and $r.Text -match "gpt-6-astra didn't reply READY" -and $r.Text -match 'codex exec -m gpt-6-astra') 'a reviewer that does not reply fails with its fix'
+  Check ($r.Code -eq 1 -and $r.Text -match "gpt-6.2-astra didn't reply READY" -and $r.Text -match 'codex exec -m gpt-6.2-astra') 'a reviewer that does not reply fails with its fix'
   $d = Tool 'codex-good' 'codex' "if `"%1`"==`"login`" (echo Logged in using ChatGPT& exit /b 0)`r`necho READY"
   $r = Preflight "$d;$system" @('-Only', 'codex')
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   codex signed in, and gpt-6-astra replied') 'a signed-in codex whose reviewer replies passes'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   codex signed in, and gpt-6.2-astra replied') 'a signed-in codex whose reviewer replies passes'
 
   # Claude, as a run's session would sign in. The fake reports a token sign-in only when the token reaches it,
   # and an API key sign-in only when one does.
