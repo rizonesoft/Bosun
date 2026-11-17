@@ -175,18 +175,20 @@ public sealed class InstancesPage : PageBase
     private readonly ILauncher _launcher;
     private readonly Func<bool> _windowsTerminal;
     private readonly Func<string, bool> _folderExists;
+    private readonly TimeSpan _folderWait;
     private InstanceLine? _selected;
     private string? _wslNotice;
     private Comparison<InstanceLine>? _sort;
 
     public InstancesPage(IInstanceSource source, RefreshScheduler scheduler, ActivityLog log, ILauncher? launcher = null,
-        Func<bool>? windowsTerminal = null, Func<string, bool>? folderExists = null) : base("Instances", Purpose)
+        Func<bool>? windowsTerminal = null, Func<string, bool>? folderExists = null, TimeSpan? folderWait = null) : base("Instances", Purpose)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _launcher = launcher ?? new ProcessLauncher();
         _windowsTerminal = windowsTerminal ?? (() => OpenCommands.HasWindowsTerminal());
         _folderExists = folderExists ?? Directory.Exists;
+        _folderWait = folderWait ?? TimeSpan.FromSeconds(3);
         LoadingShape = SkeletonShape.Table;
         var view = (ListCollectionView)CollectionViewSource.GetDefaultView(Lines);
         view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(InstanceLine.Group)));
@@ -361,16 +363,29 @@ public sealed class InstancesPage : PageBase
     /// <summary>An action on a row: its Activity line and toast, disabled with its reason when the row has no folder.</summary>
     private ICommand Action(InstanceLine line, string verb, Func<OpenTarget, System.Diagnostics.ProcessStartInfo> build, bool checkFolder)
     {
-        return _log.Command($"{verb} of {line.Instance} ({line.InstanceDetail})", () =>
+        return _log.Command($"{verb} of {line.Instance} ({line.InstanceDetail})", async () =>
         {
-            if (line.Target is not { } target) return Task.FromResult(ActionOutcome.Failed(line.FolderProblem ?? OpenCommands.NoFolder));
+            if (line.Target is not { } target) return ActionOutcome.Failed(line.FolderProblem ?? OpenCommands.NoFolder);
             // A Windows folder is checked before anything is started; a distro's own folder is not, since reaching its
-            // share would start a stopped distro just to look.
+            // share would start a stopped distro just to look. The check and the start run off the UI thread, the
+            // check bounded: a folder on a network share that has gone can block for the network's own timeout (round 1).
             var windowsSide = target.Distro is null || OpenCommands.MountedDrive(target.Path) is not null;
-            if (checkFolder && windowsSide && !_folderExists(target.WindowsPath))
-                return Task.FromResult(ActionOutcome.Failed($"The folder is no longer there: {target.WindowsPath}"));
-            _launcher.Start(build(target));
-            return Task.FromResult(ActionOutcome.DoneWith(target.Distro is { } d ? $"{target.Path} in WSL ({d})" : target.Path));
+            if (checkFolder && windowsSide)
+            {
+                bool there;
+                try
+                {
+                    there = await Task.Run(() => _folderExists(target.WindowsPath)).WaitAsync(_folderWait);
+                }
+                catch (TimeoutException)
+                {
+                    return ActionOutcome.Failed($"The folder could not be reached within {_folderWait.TotalSeconds:0} s: {target.WindowsPath}");
+                }
+                if (!there) return ActionOutcome.Failed($"The folder is no longer there: {target.WindowsPath}");
+            }
+            var start = build(target);
+            await Task.Run(() => _launcher.Start(start));
+            return ActionOutcome.DoneWith(target.Distro is { } d ? $"{target.Path} in WSL ({d})" : target.Path);
         }, () => line.Target is not null);
     }
 }

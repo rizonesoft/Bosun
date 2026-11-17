@@ -21,8 +21,11 @@ public sealed record OpenTarget(string? Distro, string Path)
 /// side's command is read in a test. A WSL folder is only ever given to WSL as its own Linux path, and to Windows through
 /// the drive or the distro's share: never a Windows path handed to a WSL shell.
 /// </summary>
-public static class OpenCommands
+public static partial class OpenCommands
 {
+    [System.Text.RegularExpressions.GeneratedRegex("^[A-Za-z0-9._-]{1,64}$")]
+    private static partial System.Text.RegularExpressions.Regex DistroName();
+
     public const string NoFolder = "Its folder couldn't be read";
 
     public const string NoDistro = "Its WSL distro's report could not be read";
@@ -38,7 +41,8 @@ public static class OpenCommands
         // A WSL instance: in the distro whose report listed it, or for a holder Windows saw whose distro's report was not
         // read, the distro it names, and only with a Linux path.
         var distro = row.Distro ?? instance.GuestDistro;
-        if (distro is null || !folder.StartsWith('/')) return (null, NoDistro);
+        // A distro is named as WSL names one, never with characters a command line would read.
+        if (distro is null || !DistroName().IsMatch(distro) || !folder.StartsWith('/')) return (null, NoDistro);
         return (new OpenTarget(distro, folder), null);
     }
 
@@ -62,40 +66,33 @@ public static class OpenCommands
     }
 
     /// <summary>
-    /// A terminal in the folder: Windows Terminal when it is there (<c>wt.exe -d</c>, or a tab running <c>wsl.exe -d
-    /// &lt;distro&gt; --cd &lt;path&gt;</c>), otherwise a console of its own (<c>cmd.exe</c> in the folder, or <c>wsl.exe</c>).
+    /// A terminal in the folder: Windows Terminal when it is there, otherwise a console of its own (<c>cmd.exe</c>, or
+    /// <c>wsl.exe -d &lt;distro&gt;</c>). The folder is the process's working directory and never one of its arguments:
+    /// Windows Terminal reads a <c>;</c> in any argument as the start of another command, so a folder named
+    /// <c>x;calc.exe</c> would run calc (round 1). <c>wt.exe -d .</c> opens at that directory and <c>wsl.exe</c> starts
+    /// in the Linux folder behind it (the drive under <c>/mnt</c>, or the distro's own path through its share).
     /// </summary>
     public static ProcessStartInfo Terminal(OpenTarget target, bool windowsTerminal)
     {
         ArgumentNullException.ThrowIfNull(target);
         ProcessStartInfo start;
-        if (target.Distro is null)
-        {
-            if (windowsTerminal)
-            {
-                start = new ProcessStartInfo("wt.exe") { UseShellExecute = false };
-                start.ArgumentList.Add("-d");
-                start.ArgumentList.Add(target.Path);
-                return start;
-            }
-            // A console of its own: shell-executed, so it opens its own window rather than borrowing the panel's.
-            return new ProcessStartInfo("cmd.exe") { UseShellExecute = true, WorkingDirectory = target.Path };
-        }
-        start = new ProcessStartInfo(windowsTerminal ? "wt.exe" : "wsl.exe") { UseShellExecute = !windowsTerminal };
-        if (windowsTerminal) start.ArgumentList.Add("wsl.exe");
         if (windowsTerminal)
         {
-            foreach (var a in new[] { "-d", target.Distro, "--cd", target.Path }) start.ArgumentList.Add(a);
+            start = new ProcessStartInfo("wt.exe") { UseShellExecute = false, WorkingDirectory = target.WindowsPath };
+            start.ArgumentList.Add("-d");
+            start.ArgumentList.Add(".");
+            if (target.Distro is { } distro)
+            {
+                start.ArgumentList.Add("wsl.exe");
+                start.ArgumentList.Add("-d");
+                start.ArgumentList.Add(distro);
+            }
+            return start;
         }
-        else
-        {
-            // Shell-executed starts take one argument string: each part is a distro name or a Linux path, quoted.
-            start.Arguments = $"-d {Quote(target.Distro)} --cd {Quote(target.Path)}";
-        }
-        return start;
+        // A console of its own: shell-executed, so it opens its own window rather than borrowing the panel's.
+        if (target.Distro is null) return new ProcessStartInfo("cmd.exe") { UseShellExecute = true, WorkingDirectory = target.Path };
+        return new ProcessStartInfo("wsl.exe") { UseShellExecute = true, WorkingDirectory = target.WindowsPath, Arguments = $"-d {target.Distro}" };
     }
-
-    private static string Quote(string part) => "\"" + part.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     /// <summary>Whether Windows Terminal is there to open: <c>wt.exe</c> on the PATH, its App Execution Alias included.</summary>
     public static bool HasWindowsTerminal(string? path = null)

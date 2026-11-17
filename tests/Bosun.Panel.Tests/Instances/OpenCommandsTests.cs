@@ -23,8 +23,8 @@ public class OpenCommandsTests
         Assert.Equal("explorer.exe", folder.FileName);
         Assert.Equal([@"D:\Bosun"], folder.ArgumentList);
         var wt = OpenCommands.Terminal(target, windowsTerminal: true);
-        Assert.Equal("wt.exe", wt.FileName);
-        Assert.Equal(["-d", @"D:\Bosun"], wt.ArgumentList);
+        Assert.Equal(("wt.exe", @"D:\Bosun"), (wt.FileName, wt.WorkingDirectory));
+        Assert.Equal(["-d", "."], wt.ArgumentList);
         var console = OpenCommands.Terminal(target, windowsTerminal: false);           // no Windows Terminal: a console of its own
         Assert.Equal(("cmd.exe", @"D:\Bosun", true), (console.FileName, console.WorkingDirectory, console.UseShellExecute));
     }
@@ -35,10 +35,10 @@ public class OpenCommandsTests
         var target = Target(new InstanceRow(I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"), "Ubuntu"));
         Assert.Equal(@"\\wsl.localhost\Ubuntu\home\me\app", OpenCommands.Folder(target).ArgumentList.Single());
         var wt = OpenCommands.Terminal(target, windowsTerminal: true);
-        Assert.Equal("wt.exe", wt.FileName);
-        Assert.Equal(["wsl.exe", "-d", "Ubuntu", "--cd", "/home/me/app"], wt.ArgumentList);
+        Assert.Equal(("wt.exe", @"\\wsl.localhost\Ubuntu\home\me\app"), (wt.FileName, wt.WorkingDirectory));
+        Assert.Equal(["-d", ".", "wsl.exe", "-d", "Ubuntu"], wt.ArgumentList);
         var wsl = OpenCommands.Terminal(target, windowsTerminal: false);
-        Assert.Equal(("wsl.exe", "-d \"Ubuntu\" --cd \"/home/me/app\"", true), (wsl.FileName, wsl.Arguments, wsl.UseShellExecute));
+        Assert.Equal(("wsl.exe", "-d Ubuntu", @"\\wsl.localhost\Ubuntu\home\me\app", true), (wsl.FileName, wsl.Arguments, wsl.WorkingDirectory, wsl.UseShellExecute));
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class OpenCommandsTests
     {
         var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/mnt/d/Bosun/src", repo: "/mnt/d/Bosun"), "Ubuntu"));
         Assert.Equal(@"D:\Bosun\src", OpenCommands.Folder(target).ArgumentList.Single());
-        Assert.Equal(["wsl.exe", "-d", "Ubuntu", "--cd", "/mnt/d/Bosun/src"], OpenCommands.Terminal(target, true).ArgumentList);
+        Assert.Equal(@"D:\Bosun\src", OpenCommands.Terminal(target, true).WorkingDirectory);    // wsl.exe starts in /mnt/d/Bosun/src behind it
         Assert.Equal(@"C:\", OpenCommands.MountedDrive("/mnt/c"));
         Assert.Null(OpenCommands.MountedDrive("/mnt/cdrom/x"));                         // a folder named like a drive is not one
     }
@@ -63,6 +63,28 @@ public class OpenCommandsTests
         Assert.Equal((null, OpenCommands.NoFolder), OpenCommands.Resolve(new InstanceRow(I("claude", 9, cwd: null, repo: null), null)));
         // Without a cwd, the repo.
         Assert.Equal(@"D:/Bosun", OpenCommands.Resolve(new InstanceRow(I("claude", 9, cwd: null, repo: "D:/Bosun"), null)).Target!.Path);
+    }
+
+    [Fact]
+    public void A_folder_name_is_never_an_argument_Windows_Terminal_could_split_into_another_command()
+    {
+        // Windows Terminal reads ';' in any argument as a new command (round 1): the folder goes in as the directory.
+        foreach (var row in new[]
+                 {
+                     new InstanceRow(I("claude", 1, cwd: @"D:\x;calc.exe"), null),
+                     new InstanceRow(I("claude", 2, side: "wsl", cwd: "/tmp/project;calc.exe"), "Ubuntu"),
+                 })
+        {
+            var target = Target(row);
+            foreach (var start in new[] { OpenCommands.Terminal(target, true), OpenCommands.Terminal(target, false) })
+            {
+                Assert.DoesNotContain(start.ArgumentList, a => a.Contains(';', StringComparison.Ordinal));
+                Assert.DoesNotContain(";", start.Arguments, StringComparison.Ordinal);
+                Assert.Contains(";calc.exe", start.WorkingDirectory, StringComparison.Ordinal);
+            }
+        }
+        // A distro named with anything WSL would not name one with is refused.
+        Assert.Equal((null, OpenCommands.NoDistro), OpenCommands.Resolve(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/home/a"), "Ubuntu;calc")));
     }
 
     [Fact]

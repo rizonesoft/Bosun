@@ -46,7 +46,7 @@ public class InstancesPageTests
 
     internal sealed record Harness(InstancesPage Page, ShellViewModel Shell, ActivityLog Log, FakeInstances Source, FakeLauncher Launcher, Action<TimeSpan> Advance);
 
-    internal static void OnPage(FakeInstances source, Action<Harness> test, bool windowsTerminal = true, Func<string, bool>? folderExists = null)
+    internal static void OnPage(FakeInstances source, Action<Harness> test, bool windowsTerminal = true, Func<string, bool>? folderExists = null, TimeSpan? folderWait = null)
     {
         PageRenderer.InPage("Dark", () => new Grid(), _ =>
         {
@@ -54,7 +54,7 @@ public class InstancesPageTests
             var scheduler = new RefreshScheduler(() => clock, new Driver());
             var log = Shells.Log();
             var launcher = new FakeLauncher();
-            var page = new InstancesPage(source, scheduler, log, launcher, () => windowsTerminal, folderExists ?? (_ => true))
+            var page = new InstancesPage(source, scheduler, log, launcher, () => windowsTerminal, folderExists ?? (_ => true), folderWait)
             {
                 Clock = new FixedClock(Now),
             };
@@ -316,16 +316,16 @@ public class InstancesPageTests
         {
             var claude = Line(h.Page, 100);
             claude.OpenFolder!.Execute(null);
-            Settle();
+            Until(() => h.Launcher.Started.Count == 1);
             Assert.Equal(("explorer.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].ArgumentList.Single()));
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal));
             Line(h.Page, 4242).OpenTerminal!.Execute(null);
-            Settle();
-            Assert.Equal(["wsl.exe", "-d", "Ubuntu", "--cd", "/home/me/app"], h.Launcher.Started[^1].ArgumentList);
+            Until(() => h.Launcher.Started.Count == 2);
+            Assert.Equal(["-d", ".", "wsl.exe", "-d", "Ubuntu"], h.Launcher.Started[^1].ArgumentList);
 
             h.Launcher.Throw = new InvalidOperationException("wt.exe could not be started: access denied");
             claude.OpenTerminal!.Execute(null);
-            Settle();
+            Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith("wt.exe could not be started: access denied", StringComparison.Ordinal));
         });
     }
@@ -336,20 +336,44 @@ public class InstancesPageTests
         OnPage(new FakeInstances(), h =>
         {
             Line(h.Page, 100).OpenTerminal!.Execute(null);
-            Settle();
+            Until(() => h.Launcher.Started.Count == 1);
             Assert.Equal(("cmd.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].WorkingDirectory));
         }, windowsTerminal: false);
 
         OnPage(new FakeInstances(), h =>
         {
             Line(h.Page, 100).OpenFolder!.Execute(null);
-            Settle();
+            Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
             Assert.Empty(h.Launcher.Started);
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith(@"The folder is no longer there: D:\Bosun", StringComparison.Ordinal));
             Line(h.Page, 4242).OpenFolder!.Execute(null);                                      // a distro's own folder is not looked at first
-            Settle();
+            Until(() => h.Launcher.Started.Count == 1);
             Assert.Equal(@"\\wsl.localhost\Ubuntu\home\me\app", h.Launcher.Started.Single().ArgumentList.Single());
         }, folderExists: _ => false);
+    }
+
+    /// <summary>Pumps until <paramref name="done"/>, the actions' work running off the UI thread.</summary>
+    static void Until(Func<bool> done)
+    {
+        for (var i = 0; i < 200 && !done(); i++)
+        {
+            Settle();
+            Thread.Sleep(5);
+        }
+        Assert.True(done(), "the action did not finish");
+    }
+
+    [Fact]
+    public void A_folder_that_does_not_answer_holds_neither_the_panel_nor_the_action_past_its_wait()
+    {
+        using var never = new ManualResetEventSlim();
+        OnPage(new FakeInstances(), h =>
+        {
+            Line(h.Page, 100).OpenFolder!.Execute(null);                                        // returns at once: the check is off the UI thread
+            Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
+            Assert.Contains(h.Log.Entries, e => e.Message.EndsWith(@"The folder could not be reached within 0 s: D:\Bosun", StringComparison.Ordinal));
+            Assert.Empty(h.Launcher.Started);
+        }, folderExists: _ => never.Wait(TimeSpan.FromSeconds(30)), folderWait: TimeSpan.FromMilliseconds(200));
     }
 
     [Fact]
@@ -377,8 +401,8 @@ public class InstancesPageTests
             h.Shell.Palette.Open();
             h.Shell.Palette.Query = "Open folder";
             var row = h.Shell.Palette.Rows.Single(r => r.Name == "Open folder of Claude Code");
-            row.Run().GetAwaiter().GetResult();
-            Settle();
+            _ = row.Run();
+            Until(() => h.Launcher.Started.Count == 1);
             Assert.Equal(@"D:\Bosun", h.Launcher.Started.Single().ArgumentList.Single());
 
             page.RefreshNow!.Execute(null);                                                     // the same instance: still selected
