@@ -198,6 +198,12 @@ def render(groups: dict, theme: str) -> str:
         # And the same space all round: a card's or a panel's padding (D02 T04 §3).
         lines.append(f'    <Thickness x:Key="Inset.{key}">{v}</Thickness>')
         lines.append(f'    <Thickness x:Key="Gap.Before.{key}">{v},0,0,0</Thickness>')
+        lines.append(f'    <Thickness x:Key="Gap.After.{key}">0,0,{v},0</Thickness>')
+        # A table bleeds its cells' leading space into its card, so its text still starts at the card's edge (D02 T04 §4).
+        lines.append(f'    <Thickness x:Key="Bleed.Before.{key}">-{v},0,0,0</Thickness>')
+    # A table cell's padding: XS before its text, clear of an inside focus ring, and M after it to the next column.
+    space = groups["space"]
+    lines.append(f'    <Thickness x:Key="Cell.Pad">{number("space.XS", space["XS"])},0,{number("space.M", space["M"])},0</Thickness>')
     lines += ["", "    <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->"]
     for key, value in groups["elevation"].items():
         lines.append(f'    <DropShadowEffect x:Key="Elevation.{key}" BlurRadius="{number(f"elevation.{key}.Blur", value["Blur"])}" '

@@ -27,6 +27,21 @@ public sealed record RepoRow(string Repo, string Path, string Side, double? Priv
     public string Private => PrivateGb?.ToString("0.0", CultureInfo.InvariantCulture) ?? "Not available";
 
     public string ProcessesNow => Processes?.ToString(CultureInfo.InvariantCulture) ?? "Not available";
+
+    // Where a number goes and a word is shown, why (D02 T04 §4, design/SPEC.md §1): the table's tooltip and help text.
+    public bool PrivateIsWord => PrivateGb is null;
+
+    public string? PrivateWhy => PrivateGb is null ? $"Not available: the {Side} snapshot could not be read" : null;
+
+    public bool PeakIsWord => PeakGb is null;
+
+    public string? PeakWhy => PeakGb is not null ? null
+        : Peak == MemoryPage.NotInHistory ? "No sample of this repo is in the last 24 hours' history yet"
+        : "Not available: the last 24 hours' history could not be read";
+
+    public bool ProcessesIsWord => Processes is null;
+
+    public string? ProcessesWhy => Processes is null ? $"Not available: the {Side} snapshot could not be read" : null;
 }
 
 /// <summary>

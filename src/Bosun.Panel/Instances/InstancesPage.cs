@@ -81,6 +81,12 @@ public sealed class InstanceLine : Observable
 
     public string Memory { get; }
 
+    /// <summary>Whether GB shows a word, not a number: drawn dim by the theme (D02 T04 §4).</summary>
+    public bool MemoryIsWord => MemoryMb is null;
+
+    /// <summary>Whether Uptime shows a word, not a number.</summary>
+    public bool UptimeIsWord => UptimeSeconds is null;
+
     /// <summary>The memory's reason or source: why it is not available, or the megabytes behind it.</summary>
     public string MemoryWhy { get; }
 

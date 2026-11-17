@@ -1158,6 +1158,29 @@
         <Setter Property="HorizontalAlignment" Value="Right"/>
         <Setter Property="TextAlignment" Value="Right"/>
         <Setter Property="Typography.NumeralAlignment" Value="Tabular"/>
+        <Style.Triggers>
+            <!-- A word where a number goes ("Not available"): dim, its reason its tooltip (D02 T04 §4). -->
+            <Trigger Property="controls:TableColumn.IsWord" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+            </Trigger>
+            <!-- Selected in a contrast theme the row is the highlight: the word takes the highlight's own text colour. -->
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding (controls:TableColumn.IsWord), RelativeSource={RelativeSource Self}}" Value="True"/>
+                    <Condition Binding="{Binding (theme:HighContrastMode.IsOn), RelativeSource={RelativeSource Self}}" Value="True"/>
+                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridCell}}" Value="True"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+            </MultiDataTrigger>
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding (controls:TableColumn.IsWord), RelativeSource={RelativeSource Self}}" Value="True"/>
+                    <Condition Binding="{Binding (theme:HighContrastMode.IsOn), RelativeSource={RelativeSource Self}}" Value="True"/>
+                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Foreground" Value="{DynamicResource B.HighlightText}"/>
+            </MultiDataTrigger>
+        </Style.Triggers>
     </Style>
 
     <!-- The edge of a column header: dragging it resizes the column. Nothing is drawn. -->
@@ -1185,7 +1208,10 @@
         <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Padding" Value="10,0"/>
+        <!-- XS before the text, clear of an inside focus ring, and M after it to the next column; the table bleeds the
+             XS into its card, so its text starts at the card's edge (D02 T04 §4). -->
+        <Setter Property="Padding" Value="{DynamicResource Cell.Pad}"/>
+        <Setter Property="controls:TableColumn.Watch" Value="True"/>
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -1200,6 +1226,10 @@
                             <StackPanel Orientation="Horizontal"
                                         HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
+                                <!-- A number column's arrow sits before its right-aligned text, so the text ends where its
+                                     numbers do whichever way it is sorted (D02 T04 §4). -->
+                                <Path x:Name="sortBefore" Data="M0,4 L4,0 L8,4" Stroke="{DynamicResource B.TextMute}"
+                                      StrokeThickness="1.4" Margin="0,0,6,0" VerticalAlignment="Center" Visibility="Collapsed"/>
                                 <ContentPresenter RecognizesAccessKey="False"/>
                                 <!-- The sort is shown by an arrow, not by colour. -->
                                 <Path x:Name="sort" Data="M0,4 L4,0 L8,4" Stroke="{DynamicResource B.TextMute}"
@@ -1223,10 +1253,32 @@
                             <Setter TargetName="sort" Property="Visibility" Value="Visible"/>
                             <Setter TargetName="sort" Property="Data" Value="M0,0 L4,4 L8,0"/>
                         </Trigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="controls:TableColumn.IsNumberHeader" Value="True"/>
+                                <Condition Property="SortDirection" Value="Ascending"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="sort" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="sortBefore" Property="Visibility" Value="Visible"/>
+                        </MultiTrigger>
+                        <MultiTrigger>
+                            <MultiTrigger.Conditions>
+                                <Condition Property="controls:TableColumn.IsNumberHeader" Value="True"/>
+                                <Condition Property="SortDirection" Value="Descending"/>
+                            </MultiTrigger.Conditions>
+                            <Setter TargetName="sort" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="sortBefore" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="sortBefore" Property="Data" Value="M0,0 L4,4 L8,0"/>
+                        </MultiTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <Style.Triggers>
+            <Trigger Property="controls:TableColumn.IsNumberHeader" Value="True">
+                <Setter Property="HorizontalContentAlignment" Value="Right"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style TargetType="DataGridRow">
@@ -1260,7 +1312,7 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="Padding" Value="{DynamicResource Cell.Pad}"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -1284,6 +1336,8 @@
     </Style>
 
     <Style TargetType="DataGrid">
+        <!-- Its cells' XS before the text bled into what holds it: the text starts at the card's edge (D02 T04 §4). -->
+        <Setter Property="Margin" Value="{DynamicResource Bleed.Before.XS}"/>
         <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>

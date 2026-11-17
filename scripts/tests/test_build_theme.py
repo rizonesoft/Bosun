@@ -71,10 +71,13 @@ class BuildThemeTest(unittest.TestCase):
                 self.assertIn(f'<Thickness x:Key="Gap.Above.{key}">0,{value},0,0</Thickness>', text)
                 self.assertIn(f'<Thickness x:Key="Inset.{key}">{value}</Thickness>', text)
                 self.assertIn(f'<Thickness x:Key="Gap.Before.{key}">{value},0,0,0</Thickness>', text)
+                self.assertIn(f'<Thickness x:Key="Gap.After.{key}">0,0,{value},0</Thickness>', text)
+                self.assertIn(f'<Thickness x:Key="Bleed.Before.{key}">-{value},0,0,0</Thickness>', text)
+            self.assertIn(f'<Thickness x:Key="Cell.Pad">{tokens["space"]["XS"]},0,{tokens["space"]["M"]},0</Thickness>', text)
             keys = re.findall(r'x:Key="([^"]+)"', text)
             self.assertEqual(len(keys), len(set(keys)))
             self.assertEqual(len(keys), 2 * len(tokens[name]) + sum(len(tokens[g]) for g, _, _ in theme.MEASURES)
-                             + 4 * len(tokens["space"]) + len(tokens["elevation"]) + len(durations) + 1)
+                             + 6 * len(tokens["space"]) + 1 + len(tokens["elevation"]) + len(durations) + 1)
         self.assertNotIn(b"\r\n", (self.out / "Dark.xaml").read_bytes())
 
     def test_the_two_themes_differ_only_in_their_colours_and_shadow_opacities(self):

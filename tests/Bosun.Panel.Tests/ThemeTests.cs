@@ -64,6 +64,13 @@ public class ThemeTests
                 Want("Gap.Above." + token.Name, v => v is Thickness t && t == new Thickness(0, size, 0, 0), $"Thickness 0,{size},0,0");
                 Want("Inset." + token.Name, v => v is Thickness t && t == new Thickness(size), $"Thickness {size}");
                 Want("Gap.Before." + token.Name, v => v is Thickness t && t == new Thickness(size, 0, 0, 0), $"Thickness {size},0,0,0");
+                Want("Gap.After." + token.Name, v => v is Thickness t && t == new Thickness(0, 0, size, 0), $"Thickness 0,0,{size},0");
+                Want("Bleed.Before." + token.Name, v => v is Thickness t && t == new Thickness(-size, 0, 0, 0), $"Thickness -{size},0,0,0");
+            }
+            {
+                var space = tokens.RootElement.GetProperty("space");
+                var (xs, m) = (space.GetProperty("XS").GetDouble(), space.GetProperty("M").GetDouble());
+                Want("Cell.Pad", v => v is Thickness t && t == new Thickness(xs, 0, m, 0), $"Thickness {xs},0,{m},0");
             }
             // D02 T03 §1: each elevation a frozen shadow straight down, black, at this theme's opacity, and the motion.
             var opacity = theme == "dark" ? "OpacityDark" : "OpacityLight";

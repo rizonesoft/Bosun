@@ -337,7 +337,7 @@ public static partial class RenderCatalog
     }
 
     /// <summary>A day's history for the renders: a slow fall to 1.5 GB in the afternoon, and two hours with no sample.</summary>
-    private static Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc> HistoryReport()
+    internal static Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc> HistoryReport()
     {
         var points = Enumerable.Range(0, 24 * 60 / 5).Select(i => i * 5)
             .Where(m => m is < 600 or > 720)

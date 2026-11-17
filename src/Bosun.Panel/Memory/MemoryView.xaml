@@ -76,8 +76,8 @@
                               MaxHeight="320" AutomationProperties.Name="Available memory as a table"
                               Visibility="{Binding ShowTable, Converter={StaticResource WhenTable}}">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Time" Binding="{Binding Time}" SortMemberPath="At" Width="*" ElementStyle="{DynamicResource Cell.Text}"/>
-                            <DataGridTextColumn Header="Lowest available" Binding="{Binding Lowest}" SortMemberPath="LowestSort" Width="*" ElementStyle="{DynamicResource Cell.Number}"/>
+                            <controls:TextColumn Header="Time" Binding="{Binding Time}" SortMemberPath="At" Width="*"/>
+                            <controls:NumberColumn Header="Lowest available" Binding="{Binding Lowest}" SortMemberPath="LowestSort" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -150,14 +150,13 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*"
-                                            ElementStyle="{DynamicResource Cell.Text}"/>
-                        <DataGridTextColumn Header="Private GB" Binding="{Binding Private}" SortMemberPath="PrivateGb" Width="*"
-                                            ElementStyle="{DynamicResource Cell.Number}"/>
-                        <DataGridTextColumn Header="Peak GB" Binding="{Binding Peak}" SortMemberPath="PeakGb" Width="1.4*"
-                                            ElementStyle="{DynamicResource Cell.Number}"/>
-                        <DataGridTextColumn Header="Processes" Binding="{Binding ProcessesNow}" SortMemberPath="Processes" Width="*"
-                                            ElementStyle="{DynamicResource Cell.Number}"/>
+                        <controls:TextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*"/>
+                        <controls:NumberColumn Header="Private GB" Binding="{Binding Private}" SortMemberPath="PrivateGb" Width="*"
+                                               WordPath="PrivateIsWord" WhyPath="PrivateWhy"/>
+                        <controls:NumberColumn Header="Peak GB" Binding="{Binding Peak}" SortMemberPath="PeakGb" Width="1.4*"
+                                               WordPath="PeakIsWord" WhyPath="PeakWhy"/>
+                        <controls:NumberColumn Header="Processes" Binding="{Binding ProcessesNow}" SortMemberPath="Processes" Width="*"
+                                               WordPath="ProcessesIsWord" WhyPath="ProcessesWhy"/>
                     </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock x:Name="TableNote" Text="{Binding TableNote}" Margin="0,10,0,0">

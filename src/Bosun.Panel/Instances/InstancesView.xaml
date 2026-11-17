@@ -7,6 +7,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
              xmlns:theme="clr-namespace:Bosun.Panel.Theme"
+             xmlns:controls="clr-namespace:Bosun.Panel.Controls"
              Focusable="False">
     <UserControl.Resources>
         <Style x:Key="Note" TargetType="TextBlock">
@@ -42,6 +43,22 @@
                   Sorting="OnSorting" AutomationProperties.Name="Instances by repo" Margin="0,4,0,0">
             <DataGrid.GroupStyle>
                 <GroupStyle>
+                    <!-- A group's rows under its header, with no inset of their own: the default container moved them right
+                         of the column headers (D02 T04 §4). -->
+                    <GroupStyle.ContainerStyle>
+                        <Style TargetType="GroupItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="GroupItem">
+                                        <StackPanel>
+                                            <ContentPresenter/>
+                                            <ItemsPresenter/>
+                                        </StackPanel>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </GroupStyle.ContainerStyle>
                     <GroupStyle.HeaderTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" Margin="8,12,0,4">
@@ -61,7 +78,7 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*" ElementStyle="{DynamicResource Cell.Text}"/>
+                <controls:TextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="*"/>
                 <DataGridTemplateColumn Header="State" SortMemberPath="State" Width="1.6*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -81,18 +98,18 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="GB" SortMemberPath="Memory" Width="*">
+                <DataGridTemplateColumn Header="GB" SortMemberPath="Memory" Width="*" controls:TableColumn.Number="True">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Memory}" Style="{DynamicResource Cell.Number}" ToolTip="{Binding MemoryWhy}"
+                            <TextBlock Text="{Binding Memory}" Style="{DynamicResource Cell.Number}" controls:TableColumn.IsWord="{Binding MemoryIsWord}" ToolTip="{Binding MemoryWhy}"
                                        AutomationProperties.HelpText="{Binding MemoryWhy}"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTemplateColumn Header="Uptime" SortMemberPath="Uptime" Width="*">
+                <DataGridTemplateColumn Header="Uptime" SortMemberPath="Uptime" Width="*" controls:TableColumn.Number="True">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Uptime}" Style="{DynamicResource Cell.Number}" ToolTip="{Binding UptimeWhy}"
+                            <TextBlock Text="{Binding Uptime}" Style="{DynamicResource Cell.Number}" controls:TableColumn.IsWord="{Binding UptimeIsWord}" ToolTip="{Binding UptimeWhy}"
                                        AutomationProperties.HelpText="{Binding UptimeWhy}"/>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
