@@ -133,6 +133,8 @@ A field's text sits about 21 px in and a combo box's 11 px, an invalid field kee
 
 ## 3. Spacing scale, section headings and Settings in cards
 
+> **Started:** 2026-11-17T03:01:20Z
+
 Section headings are smaller and dimmer than the labels under them, sections run together, and Settings is a 260 px column on an empty page. Headings rank above labels, sections are apart by a token, and Settings groups its sections in cards like the Memory page.
 
 **Phase:** 3
