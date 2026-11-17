@@ -24,24 +24,25 @@ public sealed record Metric(string Text)
 /// Its private memory and processes now are null when its side's snapshot could not be read: never measured, never 0.
 public sealed record RepoRow(string Repo, string Path, string Side, double? PrivateGb, double? PeakGb, string Peak, long? Processes)
 {
-    public string Private => PrivateGb?.ToString("0.0", CultureInfo.InvariantCulture) ?? "Not available";
+    public string Private => PrivateGb is { } gb ? MemoryPage.GbText(gb) : "Not available";
 
     public string ProcessesNow => Processes?.ToString(CultureInfo.InvariantCulture) ?? "Not available";
 
     // Where a number goes and a word is shown, why (D02 T04 §4, design/SPEC.md §1): the table's tooltip and help text.
     public bool PrivateIsWord => PrivateGb is null;
 
-    public string? PrivateWhy => PrivateGb is null ? $"Not available: the {Side} snapshot could not be read" : null;
+    // A value's hover says its exact size, a word's says why (D02 T04 §4 completion review).
+    public string? PrivateWhy => PrivateGb is { } gb ? MemoryPage.MbText(gb, "private now") : $"Not available: the {Side} snapshot could not be read";
 
     public bool PeakIsWord => PeakGb is null;
 
-    public string? PeakWhy => PeakGb is not null ? null
+    public string? PeakWhy => PeakGb is { } gb ? MemoryPage.MbText(gb, "at its peak in the last 24 hours")
         : Peak == MemoryPage.NotInHistory ? "No sample of this repo is in the last 24 hours' history yet"
         : "Not available: the last 24 hours' history could not be read";
 
     public bool ProcessesIsWord => Processes is null;
 
-    public string? ProcessesWhy => Processes is null ? $"Not available: the {Side} snapshot could not be read" : null;
+    public string? ProcessesWhy => Processes is { } n ? string.Create(CultureInfo.InvariantCulture, $"{n} {(n == 1 ? "process" : "processes")} now") : $"Not available: the {Side} snapshot could not be read";
 }
 
 /// <summary>
@@ -222,7 +223,16 @@ public sealed class MemoryPage : PageBase
 
     public static string Gb(long mb) => (mb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB";
 
-    private static double GbOf(long mb) => Math.Round(mb / 1024.0, 1);
+    private static double GbOf(long mb) => mb / 1024.0;
+
+    /// <summary>
+    /// Gigabytes to one decimal, and "&lt; 0.1" for a positive amount that would round to 0.0: 40 MB is not nothing
+    /// (D02 T04 §4 completion review). The exact size is the cell's hover (<see cref="MbText"/>).
+    /// </summary>
+    public static string GbText(double gb) => gb > 0 && gb < 0.05 ? "< 0.1" : gb.ToString("0.0", CultureInfo.InvariantCulture);
+
+    /// <summary>The exact size behind a cell, in megabytes: "40 MB private now".</summary>
+    public static string MbText(double gb, string what) => string.Create(CultureInfo.InvariantCulture, $"{Math.Round(gb * 1024):0} MB {what}");
 
     private async Task<Action> ReadSnapshotsAsync(CancellationToken token)
     {
@@ -418,7 +428,7 @@ public sealed class MemoryPage : PageBase
             foreach (var g in groups.Where(g => !string.IsNullOrWhiteSpace(g.Repo)))
             {
                 var (peakGb, peak) = report is null ? ((double?)null, "Not available")
-                    : peaks.TryGetValue((side, g.Repo!), out var mb) ? (GbOf(mb), GbOf(mb).ToString("0.0", CultureInfo.InvariantCulture)) : (null, NotInHistory);
+                    : peaks.TryGetValue((side, g.Repo!), out var mb) ? (GbOf(mb), GbText(GbOf(mb))) : (null, NotInHistory);
                 rows.Add(new RepoRow(Name(g.Repo!), g.Repo!, side == "wsl" ? "WSL" : "Windows", GbOf(g.PrivateMb), peakGb, peak, g.Processes));
             }
         }
@@ -433,7 +443,7 @@ public sealed class MemoryPage : PageBase
             if ((side == "Windows" || vmRunning) && !rows.Any(x => x.Path == path && x.Side == side))
             {
                 var measured = side == "Windows" || wsl is not null;
-                rows.Add(new RepoRow(Name(path), path, side, measured ? 0 : null, GbOf(mb), GbOf(mb).ToString("0.0", CultureInfo.InvariantCulture), measured ? 0 : null));
+                rows.Add(new RepoRow(Name(path), path, side, measured ? 0 : null, GbOf(mb), GbText(GbOf(mb)), measured ? 0 : null));
             }
         }
         Rows.Clear();

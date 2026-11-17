@@ -49,28 +49,36 @@ public class TableAlignmentTests
         });
     }
 
-    [Fact]
-    public void A_number_column_s_cells_and_header_end_at_its_right_inset_in_tabular_figures_sorted_either_way()
+    /// <summary>Every number column of a grid: its header's text and each cell's text end at the column's right inset,
+    /// in tabular figures, unsorted and sorted either way.</summary>
+    static void NumbersEndAtTheirInset(Border page, DataGrid grid, params string[] columns)
     {
-        OnMemory((page, grid) =>
+        var inset = (double)page.FindResource("S.M");
+        foreach (var name in columns)
         {
-            var inset = (double)page.FindResource("S.M");
-            foreach (var direction in new[] { ListSortDirection.Ascending, ListSortDirection.Descending, (ListSortDirection?)null })
+            var column = grid.Columns.Single(c => c.Header as string == name);
+            foreach (var direction in new ListSortDirection?[] { null, ListSortDirection.Ascending, ListSortDirection.Descending })
             {
-                var column = grid.Columns.Single(c => c.Header as string == "Private GB");
                 column.SortDirection = direction;
                 PageRenderer.Settle(page);
                 var header = ShellSupport.Under<DataGridColumnHeader>(grid).First(h => ReferenceEquals(h.Column, column));
-                var headerText = ShellSupport.Under<TextBlock>(header).First(t => t.Text == "Private GB");
-                Assert.Equal(Box(header, page).Right - inset, Box(headerText, page).Right, 1);
+                var headerText = ShellSupport.Under<TextBlock>(header).First(t => t.Text == name);
+                Assert.True(Math.Abs(Box(header, page).Right - inset - Box(headerText, page).Right) <= 1, $"{name}'s header, sorted {direction}, ends at {Box(headerText, page).Right:0}, not {Box(header, page).Right - inset:0}");
                 foreach (var cell in ShellSupport.Under<DataGridCell>(grid).Where(c => ReferenceEquals(c.Column, column)))
                 {
                     var text = TextOf(cell);
-                    Assert.Equal(Box(cell, page).Right - inset, Box(text, page).Right, 1);
+                    Assert.True(Math.Abs(Box(cell, page).Right - inset - Box(text, page).Right) <= 1, $"{name}'s '{text.Text}' ends at {Box(text, page).Right:0}, not {Box(cell, page).Right - inset:0}");
                     Assert.Equal(FontNumeralAlignment.Tabular, Typography.GetNumeralAlignment(text));
                 }
             }
-        });
+            column.SortDirection = null;
+        }
+    }
+
+    [Fact]
+    public void A_number_column_s_cells_and_header_end_at_its_right_inset_in_tabular_figures_sorted_either_way()
+    {
+        OnMemory((page, grid) => NumbersEndAtTheirInset(page, grid, "Private GB", "Peak GB", "Processes"));
     }
 
     [Fact]
@@ -90,9 +98,7 @@ public class TableAlignmentTests
             while (!waiting.IsCompleted) PageRenderer.Settle(page);
             PageRenderer.Settle(page);
             var inset = (double)page.FindResource("S.M");
-            var grid = ShellSupport.Under<DataGrid>(page).Single(g => g.Name == "HistoryTable");
-            var cell = ShellSupport.Under<DataGridCell>(grid).First(c => c.Column.Header as string == "Lowest available");
-            Assert.Equal(Box(cell, page).Right - inset, Box(TextOf(cell), page).Right, 1);
+            NumbersEndAtTheirInset(page, ShellSupport.Under<DataGrid>(page).Single(g => g.Name == "HistoryTable"), "Lowest available");
             return 0;
         }, 1360, 1100);
         // The Instances page's GB and Uptime.
@@ -109,13 +115,69 @@ public class TableAlignmentTests
             var instanceHeader = ShellSupport.Under<DataGridColumnHeader>(grid).First(h => h.Column?.Header as string == "Instance");
             var firstInstance = ShellSupport.Under<DataGridCell>(grid).First(c => c.Column.Header as string == "Instance");
             Assert.Equal(Box(TextOf(instanceHeader), page).Left, Box(TextOf(firstInstance), page).Left, 1);
-            foreach (var name in new[] { "GB", "Uptime" })
+            NumbersEndAtTheirInset(page, grid, "GB", "Uptime");
+            return 0;
+        }, 1360, 860);
+    }
+
+    [Fact]
+    public void Every_word_says_why_and_every_number_its_exact_size_on_the_drawn_page()
+    {
+        // WSL's snapshot unread with the history read (its rows from their peaks, their memory now unknown), then the
+        // history unread (the peaks unknown).
+        var wslUnread = Bosun.Core.Memory.Reading<Bosun.Core.Memory.SnapshotDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "The WSL logger's file could not be read.");
+        var historyUnread = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s.");
+        foreach (var (source, reason) in new[]
+                 {
+                     (new Memory.MemoryPageTests.Source { Wsl = wslUnread }, "Not available: the WSL snapshot could not be read"),
+                     (new Memory.MemoryPageTests.Source { Report = historyUnread }, "Not available: the last 24 hours' history could not be read"),
+                 })
+        {
+            PageRenderer.InPage<int>("Dark", () =>
             {
-                var header = ShellSupport.Under<DataGridColumnHeader>(grid).First(h => h.Column?.Header as string == name);
-                Assert.Equal(Box(header, page).Right - inset, Box(ShellSupport.Under<TextBlock>(header).First(t => t.Text == name), page).Right, 1);
-                foreach (var cell in ShellSupport.Under<DataGridCell>(grid).Where(c => c.Column.Header as string == name).Take(3))
-                    Assert.Equal(Box(cell, page).Right - inset, Box(TextOf(cell), page).Right, 1);
-            }
+                var (view, _) = Memory.MemoryPageTests.Rendered(source);
+                return view;
+            }, page =>
+            {
+                PageRenderer.Settle(page);
+                var grid = ShellSupport.Under<DataGrid>(page).Single(g => g.Name == "ByRepo");
+                var said = ShellSupport.Under<DataGridCell>(grid).Select(TextOf).Select(t => t.ToolTip as string).OfType<string>().ToList();
+                Assert.Contains(reason, said);
+                foreach (var cell in ShellSupport.Under<DataGridCell>(grid).Where(c => c.Column is Bosun.Panel.Controls.NumberColumn))
+                {
+                    var text = TextOf(cell);
+                    Assert.Equal(text.ToolTip, System.Windows.Automation.AutomationProperties.GetHelpText(text));
+                    if (Bosun.Panel.Controls.TableColumn.GetIsWord(text))
+                        Assert.StartsWith(text.Text == Bosun.Panel.Memory.MemoryPage.NotInHistory ? "No sample" : "Not available:", (string)text.ToolTip, StringComparison.Ordinal);
+                    else if (cell.Column.Header as string == "Private GB") Assert.EndsWith("MB private now", (string)text.ToolTip, StringComparison.Ordinal);
+                    else if (cell.Column.Header as string == "Peak GB") Assert.EndsWith("MB at its peak in the last 24 hours", (string)text.ToolTip, StringComparison.Ordinal);
+                }
+                return 0;
+            }, 1360, 1100);
+        }
+        Assert.Equal("< 0.1", Bosun.Panel.Memory.MemoryPage.GbText(40 / 1024.0));
+        Assert.Equal("0.0", Bosun.Panel.Memory.MemoryPage.GbText(0));
+        Assert.Equal("6.2", Bosun.Panel.Memory.MemoryPage.GbText(6.2));
+    }
+
+    [Fact]
+    public void Instances_words_take_the_highlight_s_text_when_selected_in_contrast()
+    {
+        PageRenderer.InPage<int>("HighContrast", () =>
+        {
+            var (view, _) = Instances.InstancesPageTests.Rendered(new Instances.FakeInstances());
+            return view;
+        }, page =>
+        {
+            PageRenderer.Settle(page);
+            var grid = ShellSupport.Under<DataGrid>(page).Single(g => g.Name == "Table");
+            var line = grid.Items.Cast<Bosun.Panel.Instances.InstanceLine>().First(l => l.MemoryIsWord);
+            var row = ShellSupport.Under<DataGridRow>(grid).First(r => ReferenceEquals(r.Item, line));
+            var word = TextOf(ShellSupport.Under<DataGridCell>(row).First(c => c.Column.Header as string == "GB"));
+            Assert.Equal(((SolidColorBrush)page.FindResource("B.TextDim")).Color, ((SolidColorBrush)word.Foreground).Color);
+            grid.SelectedItem = line;
+            PageRenderer.Settle(page);
+            Assert.Equal(((SolidColorBrush)page.FindResource("B.HighlightText")).Color, ((SolidColorBrush)word.Foreground).Color);
             return 0;
         }, 1360, 860);
     }

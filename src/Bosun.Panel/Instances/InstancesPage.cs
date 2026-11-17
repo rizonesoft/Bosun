@@ -39,7 +39,7 @@ public sealed class InstanceLine : Observable
         MemoryMb = i.PrivateMb;
         // "Not available" in the cell, its reason on hover and to a screen reader (design/SPEC.md §1): the reason
         // in the cell itself is cut off in a column sized for a number.
-        Memory = i.PrivateMb is { } mb ? (mb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB" : NotAvailable;
+        Memory = i.PrivateMb is { } mb ? Bosun.Panel.Memory.MemoryPage.GbText(mb / 1024.0) + " GB" : NotAvailable;
         MemoryWhy = i.PrivateMb is null ? "Not available: its memory could not be read" : $"{i.PrivateMb} MB private";
         UptimeSeconds = Started(i.StartedAt) is { } started ? Math.Max(0, (long)(now - started).TotalSeconds) : null;
         Uptime = UptimeSeconds is { } seconds ? Duration(seconds) : NotAvailable;
