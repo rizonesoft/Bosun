@@ -701,6 +701,8 @@ public partial class ControlStylesTests
         ["T.Mono"] = "text",
         ["T.SectionLabel"] = "text",
         ["FieldLabel"] = "text",
+        ["Section.Heading"] = "text: a section's heading (D02 T04 §3)",
+        ["Card"] = "a surface that holds controls, never focused itself: its controls are the targets (D02 T04 §3)",
         ["Cell.Text"] = "text",
         ["Cell.Number"] = "text",
         ["ScrollBar"] = "a scroll bar is driven by the wheel, the keys and its page's own keyboard path, and is 10 px by design",

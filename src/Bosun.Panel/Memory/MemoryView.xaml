@@ -13,14 +13,6 @@
     <UserControl.Resources>
         <memory:ShownWhen x:Key="WhenTable" When="True"/>
         <memory:ShownWhen x:Key="WhenChart" When="False"/>
-        <!-- A card as the mockup draws one: the surface, a line, and its corners. -->
-        <Style x:Key="MemoryCard" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource B.Surface}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="{DynamicResource R.Card}"/>
-            <Setter Property="Padding" Value="16,14"/>
-        </Style>
         <Style x:Key="CardTitle" TargetType="TextBlock">
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
@@ -60,7 +52,7 @@
 
         <!-- Available memory over the range (D03 T01 §3): the chart, or its table, the same points; the range beside the
              title, the lowest point under it, and Show as table or Show as chart under the card's body. -->
-        <Border Style="{StaticResource MemoryCard}" Margin="0,0,0,16" AutomationProperties.Name="Available memory">
+        <Border Style="{DynamicResource Card}" Margin="0,0,0,16" AutomationProperties.Name="Available memory">
             <StackPanel>
                 <DockPanel>
                     <controls:SegmentedControl x:Name="RangeBox" DockPanel.Dock="Right" ItemsSource="{Binding Ranges}"
@@ -100,7 +92,7 @@
         </Border>
 
         <UniformGrid Columns="3" Margin="0,0,0,16">
-            <Border Style="{StaticResource MemoryCard}" Margin="0,0,8,0" AutomationProperties.Name="Windows used">
+            <Border Style="{DynamicResource Card}" Margin="0,0,8,0" AutomationProperties.Name="Windows used">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <controls:Decorative Margin="0,0,8,0" VerticalAlignment="Center">
@@ -113,7 +105,7 @@
                     <TextBlock x:Name="WindowsNote" Text="{Binding WindowsNote}" Style="{StaticResource Note}"/>
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource MemoryCard}" Margin="4,0" AutomationProperties.Name="WSL VM">
+            <Border Style="{DynamicResource Card}" Margin="4,0" AutomationProperties.Name="WSL VM">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <controls:Decorative Margin="0,0,8,0" VerticalAlignment="Center">
@@ -126,7 +118,7 @@
                     <TextBlock x:Name="WslNote" Text="{Binding WslNote}" Style="{StaticResource Note}"/>
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource MemoryCard}" Margin="8,0,0,0" AutomationProperties.Name="Overlapping builds">
+            <Border Style="{DynamicResource Card}" Margin="8,0,0,0" AutomationProperties.Name="Overlapping builds">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <controls:Decorative Margin="0,0,8,0" VerticalAlignment="Center">
@@ -141,7 +133,7 @@
             </Border>
         </UniformGrid>
 
-        <Border Style="{StaticResource MemoryCard}">
+        <Border Style="{DynamicResource Card}">
             <StackPanel>
                 <TextBlock Text="By repo" Style="{StaticResource CardTitle}" Margin="0,0,0,10" AutomationProperties.HeadingLevel="Level2"/>
                 <TextBlock x:Name="WslAge" Text="{Binding WslAge}" Style="{StaticResource Warning}"/>
@@ -184,7 +176,7 @@
 
         <!-- The 64 GB question (D03 T01 §6): a verdict only when the evidence supports one, and every figure it rests on
              under it; its own states, apart from the chart's range. -->
-        <Border Style="{StaticResource MemoryCard}" Margin="0,16,0,0" AutomationProperties.Name="Decision">
+        <Border Style="{DynamicResource Card}" Margin="0,16,0,0" AutomationProperties.Name="Decision">
             <StackPanel>
                 <TextBlock Text="Decision" Style="{StaticResource CardTitle}" HorizontalAlignment="Left" AutomationProperties.HeadingLevel="Level2"/>
                 <TextBlock x:Name="DecisionState" Text="{Binding DecisionState}" Style="{StaticResource Warning}" Margin="0,8,0,0"/>

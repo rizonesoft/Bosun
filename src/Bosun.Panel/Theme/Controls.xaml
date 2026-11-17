@@ -74,6 +74,27 @@
         <Setter Property="Margin" Value="0,0,0,8"/>
     </Style>
 
+    <!-- A section's heading, ranked above the field labels under it (D02 T04 §3): the body size, semibold, in the
+         text colour, where a label is the caption size in the dim colour. A heading for a screen reader too. -->
+    <Style x:Key="Section.Heading" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
+        <Setter Property="FontSize" Value="{DynamicResource T.Body}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+        <Setter Property="Margin" Value="{DynamicResource Gap.Below.M}"/>
+        <Setter Property="AutomationProperties.HeadingLevel" Value="Level2"/>
+    </Style>
+
+    <!-- A card, as every page draws one (D02 T04 §3, lifted from the Memory page): the surface, a line, its corners,
+         and the space scale's L all round inside it. -->
+    <Style x:Key="Card" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource B.Surface}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{DynamicResource R.Card}"/>
+        <Setter Property="Padding" Value="{DynamicResource Inset.L}"/>
+    </Style>
+
     <Style x:Key="FieldLabel" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource F.Ui}"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>

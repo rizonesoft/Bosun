@@ -49,7 +49,7 @@ public class ThemeTests
                 Want("C." + colour.Name, v => v is Color c && c == want, want.ToString());
                 Want("B." + colour.Name, v => v is SolidColorBrush b && b.Color == want && b.IsFrozen, $"a frozen brush of {want}");
             }
-            foreach (var (group, prefix) in new[] { ("radius", "R."), ("space", "S."), ("type", "T.") })
+            foreach (var (group, prefix) in new[] { ("radius", "R."), ("size", "Size."), ("space", "S."), ("type", "T.") })
                 foreach (var token in tokens.RootElement.GetProperty(group).EnumerateObject())
                 {
                     var want = token.Value.GetDouble();
@@ -62,6 +62,8 @@ public class ThemeTests
                 var size = token.Value.GetDouble();
                 Want("Gap.Below." + token.Name, v => v is Thickness t && t == new Thickness(0, 0, 0, size), $"Thickness 0,0,0,{size}");
                 Want("Gap.Above." + token.Name, v => v is Thickness t && t == new Thickness(0, size, 0, 0), $"Thickness 0,{size},0,0");
+                Want("Inset." + token.Name, v => v is Thickness t && t == new Thickness(size), $"Thickness {size}");
+                Want("Gap.Before." + token.Name, v => v is Thickness t && t == new Thickness(size, 0, 0, 0), $"Thickness {size},0,0,0");
             }
             // D02 T03 §1: each elevation a frozen shadow straight down, black, at this theme's opacity, and the motion.
             var opacity = theme == "dark" ? "OpacityDark" : "OpacityLight";

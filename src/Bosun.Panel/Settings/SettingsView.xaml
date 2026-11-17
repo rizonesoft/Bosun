@@ -8,10 +8,17 @@
              xmlns:a="clr-namespace:Bosun.Panel.Accessibility"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
              Focusable="False">
-    <StackPanel MaxWidth="560" HorizontalAlignment="Left">
+    <!-- The form's readable width (Size.Form) at most, and the window's width when that is less: a star column capped
+         by it, where a capped width aligned left shrank to its content (D02 T04 §3). -->
+    <Grid>
+    <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MaxWidth="{DynamicResource Size.Form}"/>
+        <ColumnDefinition Width="Auto"/>
+    </Grid.ColumnDefinitions>
+    <StackPanel>
         <!-- The settings file could not be read as settings: it was kept, and the defaults are in use. -->
         <TextBlock x:Name="Notice" Text="{Binding Notice}" Foreground="{DynamicResource B.Warn}" TextWrapping="Wrap"
-                   Margin="0,0,0,16" a:LiveRegion.Announce="True">
+                   Margin="{DynamicResource Gap.Below.L}" a:LiveRegion.Announce="True">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
                     <Style.Triggers>
@@ -23,7 +30,10 @@
             </TextBlock.Style>
         </TextBlock>
 
-        <TextBlock Text="General" Style="{DynamicResource T.SectionLabel}" AutomationProperties.HeadingLevel="Level2"/>
+        <!-- Two cards, General and Notifications, a readable width and the scale's XL apart (D02 T04 §3). -->
+        <Border x:Name="GeneralCard" Style="{DynamicResource Card}">
+        <StackPanel>
+        <TextBlock x:Name="GeneralHeading" Text="General" Style="{DynamicResource Section.Heading}"/>
 
         <TextBlock x:Name="ThemeLabel" Text="Theme" Style="{DynamicResource FieldLabel}"/>
         <!-- The three-way choice side by side (D02 T03 §4, design/SPEC.md §19 Segmented control): one press, or the arrow keys. -->
@@ -32,7 +42,7 @@
                                    ToolTip="Follow Windows, or always dark or light. Applies when saved, with no restart."/>
         <!-- While Windows draws in a contrast theme (D02 T03 §10): why the choice above changes nothing yet. -->
         <TextBlock x:Name="ThemeNote" Text="{Binding ThemeNote}" Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"
-                   Margin="0,6,0,0" a:LiveRegion.Announce="True">
+                   Margin="{DynamicResource Gap.Above.S}" a:LiveRegion.Announce="True">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
                     <Style.Triggers>
@@ -44,13 +54,13 @@
             </TextBlock.Style>
         </TextBlock>
 
-        <CheckBox x:Name="StartWithWindows" Content="Start with Windows, in the tray" Margin="0,14,0,0"
+        <CheckBox x:Name="StartWithWindows" Content="Start with Windows, in the tray" Margin="{DynamicResource Gap.Above.L}"
                   IsChecked="{Binding StartWithWindows, Mode=TwoWay}" HorizontalAlignment="Left"
                   ToolTip="Starts Bosun Panel in the tray when you sign in to Windows."/>
 
         <!-- The entry is not simply on or off (Windows has it turned off, it starts another copy, or it could not be
              read again): said in words, with the way out. -->
-        <StackPanel x:Name="StartupOff" Margin="0,6,0,0">
+        <StackPanel x:Name="StartupOff" Margin="{DynamicResource Gap.Above.S}">
             <StackPanel.Style>
                 <Style TargetType="StackPanel">
                     <Style.Triggers>
@@ -64,7 +74,7 @@
                        TextWrapping="Wrap" a:LiveRegion.Announce="True"/>
             <!-- The way out of what the line says: Windows' own settings, this copy in place of another, or reading again. -->
             <Button x:Name="StartupAction" Content="{Binding StartupActionName}" Style="{DynamicResource Btn}"
-                    Command="{Binding StartupAction}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+                    Command="{Binding StartupAction}" HorizontalAlignment="Left" Margin="{DynamicResource Gap.Above.S}"/>
         </StackPanel>
 
         <!-- The pressure alert threshold (D03 T01 §4, design/SPEC.md §15): what can't be one is refused beside it. -->
@@ -75,11 +85,11 @@
                      theme:FieldState.Invalid="{Binding HasPressureFloorError}"
                      Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Pressure alert threshold, in MB"
                      AutomationProperties.HelpText="{Binding PressureFloorError}"
-                     ToolTip="A notification when Windows' available memory falls under this, from 512 to 65,536 MB."/>
-            <TextBlock Text="MB available" Foreground="{DynamicResource B.TextDim}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                     ToolTip="A notification when Windows' available memory falls under this, from 512 to 65536 MB."/>
+            <TextBlock Text="MB available" Foreground="{DynamicResource B.TextDim}" VerticalAlignment="Center" Margin="{DynamicResource Gap.Before.S}"/>
         </StackPanel>
         <TextBlock x:Name="FloorError" Text="{Binding PressureFloorError}" Foreground="{DynamicResource B.Danger}" TextWrapping="Wrap"
-                   Margin="0,6,0,0" a:LiveRegion.Announce="True">
+                   Margin="{DynamicResource Gap.Above.S}" a:LiveRegion.Announce="True">
             <TextBlock.Style>
                 <Style TargetType="TextBlock">
                     <Style.Triggers>
@@ -91,22 +101,29 @@
             </TextBlock.Style>
         </TextBlock>
         </StackPanel>
+        </StackPanel>
+        </Border>
 
-        <TextBlock Text="Notifications" Style="{DynamicResource T.SectionLabel}" AutomationProperties.HeadingLevel="Level2"
-                   Margin="0,24,0,0"/>
-        <CheckBox x:Name="NotifyMemoryPressure" Content="Notify me about memory pressure" Margin="0,8,0,0"
+        <Border x:Name="NotificationsCard" Style="{DynamicResource Card}" Margin="{DynamicResource Gap.Above.XL}">
+        <StackPanel>
+        <TextBlock x:Name="NotificationsHeading" Text="Notifications" Style="{DynamicResource Section.Heading}"/>
+        <CheckBox x:Name="NotifyMemoryPressure" Content="Notify me about memory pressure"
                   IsChecked="{Binding NotifyMemoryPressure, Mode=TwoWay}" HorizontalAlignment="Left"
                   ToolTip="Shows a Windows notification when memory runs short. It is written to the Activity pane either way."/>
 
-        <StackPanel Orientation="Horizontal" Margin="0,22,0,0">
+        </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Margin="{DynamicResource Gap.Above.XL}">
             <Button x:Name="Save" Content="Save" Style="{DynamicResource Btn.Primary}" Command="{Binding Save}"
                     ToolTip="Saves the settings on this page and reads them back"/>
             <Button x:Name="Discard" Content="Discard" Style="{DynamicResource Btn}" Command="{Binding DiscardChanges}"
-                    Margin="8,0,0,0" ToolTip="Puts the page back to what is stored"/>
+                    Margin="{DynamicResource Gap.Before.S}" ToolTip="Puts the page back to what is stored"/>
         </StackPanel>
 
         <!-- What the last save did: said aloud when it changes. -->
         <TextBlock x:Name="Status" Text="{Binding Status}" Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"
-                   Margin="0,12,0,0" a:LiveRegion.Announce="True"/>
+                   Margin="{DynamicResource Gap.Above.M}" a:LiveRegion.Announce="True"/>
     </StackPanel>
+    </Grid>
 </UserControl>
