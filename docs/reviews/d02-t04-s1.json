@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T04 \u00a71",
+  "title": "One focus outline per control, with focus renders",
+  "implementation_sha": "629cf5eeee4bf6e240b8da8178b82517b9a93b6b",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 791 of 791 (FocusOutlineTests 23, XamlRulesTests, ControlStylesTests)",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class *KeyboardTests -> 5 of 5",
+    "Field trigger restored -> XamlRules fails and the E2E field test fails (108 of 108 border pixels accent); inner line removed -> FocusOutlineTests fail; a 1 px ring -> 8 of 23 fail",
+    "CI full gate at 629cf5e -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43999584704, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43999584664"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s1.md",
+    "verdict": "completed",
+    "candidate": "583b34577819a87de387a2d6d8f5ef35066ba4f6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s1.md",
+    "candidate": "5c272f1d1eec798294b5cdcbd4601c178f3b774f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "5c272f1d1eec798294b5cdcbd4601c178f3b774f",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

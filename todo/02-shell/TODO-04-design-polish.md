@@ -54,7 +54,7 @@ title: "TODO-04 -- Design polish"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | One focus outline per control, with focus renders | -- | [ ] |
+| 1 | §1 | One focus outline per control, with focus renders | -- | [x] |
 | 2 | §2 | Field insets, error border and label spacing | §1 | [ ] |
 | 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
 | 4 | §4 | Table alignment and tabular numbers | -- | [ ] |
@@ -91,9 +91,12 @@ A focused control shows one accent outline: today `Field` draws its own accent b
 - [x] Add `ControlsGallery` focus renders of every keyboard target: a field, `Btn`, `Btn.Small`, `Btn.Primary`, `Btn.Danger`, `Btn.Chrome` (a window button), a segment selected and not, a check box checked and unchecked, a combo box and an open combo's item, a rail row selected and not, a table row, a column header and a cell selected and not, a tab, and the log box, in `ControlsGallery.cs` and `RenderCatalog.cs`. Done when: each is drawn in Dark, Light and HighContrast and looked at.
 - [x] Add `FocusOutlineTests` in `tests/Bosun.Panel.Tests/Render/`: for each focused control, render it focused and unfocused, take the pixels that differ, and check they form one ring: all four sides present, 2 px thick, at the specified clearance (outside for `FocusRing`, inside for `FocusRing.Inside`), and nothing else changed. Done when: it passes, and fails with `Field`'s or the check box's old trigger put back, a control's `FocusVisualStyle` removed, or a side of the ring missing. Cheaper substitute: counting accent edges along one line, which a selected fill or a checked box also passes.
 - [x] Keep `FocusRing.Inside`'s HighContrast inner line and test it: in HighContrast, a focused selected rail row and segment show the ring against the selected fill. Done when: a `FocusOutlineTests` case fails with the inner line removed.
-- [ ] Commit: `theme: one focus outline per control`
+- [x] Commit: `theme: one focus outline per control`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*FocusOutlineTests" --filter-class "*PageRendererTests"` exits 0, and fails with `Field`'s focus border trigger restored, a `FocusVisualStyle` removed, or the HighContrast inner line removed; the E2E `KeyboardTests` still draw the ring on a real Tab.
+
+> **Verified:** 2026-11-17 | §1 | 629cf5eeee4bf6e240b8da8178b82517b9a93b6b
+> **Review:** `docs/reviews/d02-t04-s1.json`
 
 ## 2. Field insets, error border and label spacing
 
