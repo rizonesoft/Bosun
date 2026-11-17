@@ -42,6 +42,9 @@ public class MemoryHistoryTests
             page.Range = HistoryRange.Week;                                                    // the fortnight is still being read
             Assert.Empty(page.Points);                                                          // not the day's points
             Assert.Equal(MemoryPage.ReadingHistory, page.HistoryState);
+            Assert.Null(page.ChartFrom);                                                        // nor the day's span or "Now"
+            Assert.Null(page.ChartTo);
+            Assert.Null(page.ChartEnd);
             source.HoldFortnight!.SetResult();
             Settle();
             Assert.Equal(337, page.Points.Count);
@@ -59,6 +62,8 @@ public class MemoryHistoryTests
         {
             Assert.Empty(page.Points);
             Assert.Equal("The history could not be read: bosun report ran past 60 s.", page.HistoryState);
+            Assert.Null(page.ChartFrom);                                                                       // no axis made up
+            Assert.Null(page.ChartEnd);
             source.Report = Day(Series((10, 4096)));                                            // read at last
             tick(Bosun.Core.RefreshScheduler.Slow + TimeSpan.FromSeconds(1));
             Assert.Equal("", page.HistoryState);

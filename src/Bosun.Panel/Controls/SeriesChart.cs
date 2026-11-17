@@ -253,7 +253,14 @@ public class SeriesChart : FrameworkElement
             Put(floorText.Text, floorText, new Point(gutter - 8 - floorText.Width, y));
         }
 
-        // The axis: its start with its day, its end "Now" or a kept reading's time, and the ticks between that fit.
+        // The axis: its start with its day, its end "Now" or a kept reading's time, and the ticks between that fit. With no
+        // span and nothing read there is no axis: two made-up times would say a period was shown (completion review).
+        if (From is null && To is null && points.Count == 0)
+        {
+            Labels = labels;
+            Ticks = [];
+            return;
+        }
         var dayRange = RangeName == HistoryRange.Day.Name;
         var startText = Text(from.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture));
         var endText = Text(EndText ?? to.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture));

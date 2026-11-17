@@ -324,6 +324,10 @@ public sealed class MemoryPage : PageBase
         {
             Points = [];
             LowestSummary = "";
+            // No reading for this range: no axis either, never another range's span or two made-up times (completion review).
+            ChartFrom = null;
+            ChartTo = null;
+            ChartEnd = null;
             HistoryState = latest is null ? ReadingHistory : $"The history could not be read: {latest.Why}";
             return;
         }

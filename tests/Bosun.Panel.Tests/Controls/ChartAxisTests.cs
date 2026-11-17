@@ -41,15 +41,40 @@ public class ChartAxisTests
         return false;
     }
 
-    [Theory]
-    [InlineData(1100)]
-    [InlineData(560)]
-    public void No_label_lies_over_the_line_a_lone_point_or_the_pressure_line_and_all_are_inside_and_apart(int width)
+    /// <summary>The same falling line, over any range: one point per range's bucket.</summary>
+    static List<HistoryPoint> Over(HistoryRange range)
     {
+        var from = To - range.Length;
+        var count = (int)(range.Length / range.Bucket);
+        var points = new List<HistoryPoint>();
+        for (var i = 0; i < count; i++)
+        {
+            var at = from + range.Bucket * i;
+            long? mb = i == count / 3 ? null : 16000 - 14000L * i / count;
+            points.Add(new HistoryPoint(at, mb is null ? null : at, mb));
+        }
+        points.Add(new HistoryPoint(To, To, 1500));
+        return points;
+    }
+
+    public static readonly TheoryData<string, int, string> RangesWidthsEnds = new()
+    {
+        { "24 hours", 1100, "Now" }, { "24 hours", 560, "Now" }, { "24 hours", 560, "11:37, 3 hours ago" },
+        { "7 days", 1100, "Now" }, { "7 days", 560, "Now" }, { "7 days", 560, "11:37, 3 hours ago" },
+        { "14 days", 1100, "Now" }, { "14 days", 560, "Now" }, { "14 days", 560, "11:37, 3 hours ago" },
+    };
+
+    static HistoryRange Named(string name) => name == HistoryRange.Day.Name ? HistoryRange.Day : name == HistoryRange.Week.Name ? HistoryRange.Week : HistoryRange.Fortnight;
+
+    [Theory]
+    [MemberData(nameof(RangesWidthsEnds))]
+    public void No_label_lies_over_the_line_a_lone_point_or_the_pressure_line_and_all_are_inside_and_apart(string rangeName, int width, string end)
+    {
+        var range = Named(rangeName);
         PageRenderer.InPage<int>("Dark", () => new SeriesChart
         {
-            Points = Day(), FloorMb = 2048, Width = width, Height = 220, RangeName = HistoryRange.Day.Name, Bucket = HistoryRange.Day.Bucket,
-            From = To - HistoryRange.Day.Length, To = To, EndText = "Now",
+            Points = range == HistoryRange.Day ? Day() : Over(range), FloorMb = 2048, Width = width, Height = 220, RangeName = range.Name, Bucket = range.Bucket,
+            From = To - range.Length, To = To, EndText = end,
         }, page =>
         {
             var chart = ShellSupport.Under<SeriesChart>(page).Single();
@@ -68,6 +93,18 @@ public class ChartAxisTests
             }
             return 0;
         }, width + 40, 280);
+    }
+
+    [Fact]
+    public void With_nothing_read_and_no_span_there_is_no_axis_and_no_made_up_times()
+    {
+        PageRenderer.InPage<int>("Dark", () => new SeriesChart { Points = [], FloorMb = 2048, Width = 600, Height = 220, RangeName = HistoryRange.Day.Name }, page =>
+        {
+            var chart = ShellSupport.Under<SeriesChart>(page).Single();
+            Assert.Empty(chart.Ticks);
+            Assert.DoesNotContain(chart.Labels, l => l.Text.Contains(':', StringComparison.Ordinal) || l.Text == "Now");
+            return 0;
+        }, 640, 280);
     }
 
     [Fact]
