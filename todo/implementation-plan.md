@@ -94,20 +94,29 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 10 | Checklist items: 74
+Sections: 19 | Checklist items: 114
 
-| Status | Reference  | Deliverable                                    | Needs | Items |
-| ------ | ---------- | ---------------------------------------------- | ----- | ----- |
-| [x]    | D03 T01 §1 | Memory readers                                 | none  | 8     |
-| [x]    | D03 T01 §2 | Memory page                                    | none  | 5     |
-| [x]    | D03 T01 §3 | History chart with a table equivalent          | none  | 6     |
-| [x]    | D03 T01 §4 | Pressure alerts                                | none  | 6     |
-| [x]    | D03 T01 §6 | Decision card and the report's evidence for it | none  | 9     |
-| [x]    | D03 T02 §1 | Instance scanner                               | none  | 8     |
-| [x]    | D03 T02 §2 | Instances page                                 | none  | 15    |
-| [ ]    | D03 T02 §3 | Queue page                                     | none  | 5     |
-| [ ]    | D03 T01 §5 | Overview page                                  | none  | 7     |
-| [ ]    | D03 T02 §4 | Editor windows by repo                         | none  | 5     |
+| Status | Reference  | Deliverable                                                      | Needs | Items |
+| ------ | ---------- | ---------------------------------------------------------------- | ----- | ----- |
+| [ ]    | D02 T04 §1 | One focus outline per control, with focus renders                | none  | 5     |
+| [ ]    | D02 T04 §2 | Field insets, error border and label spacing                     | none  | 5     |
+| [ ]    | D02 T04 §3 | Spacing scale, section headings and Settings in cards            | none  | 5     |
+| [ ]    | D02 T04 §4 | Table alignment and tabular numbers                              | none  | 4     |
+| [ ]    | D02 T04 §5 | Chart labels clear of lines and a readable time axis             | none  | 4     |
+| [ ]    | D02 T04 §6 | Deliberate disabled buttons, crisp pills, badge and close glyph  | none  | 5     |
+| [ ]    | D02 T04 §7 | Expandable toasts and a clean palette search field               | none  | 4     |
+| [ ]    | D02 T04 §8 | Memory page scroll gutter and the Decision evidence list         | none  | 4     |
+| [ ]    | D02 T04 §9 | Placeholder copy, the Activity heading and the idle scroll thumb | none  | 4     |
+| [x]    | D03 T01 §1 | Memory readers                                                   | none  | 8     |
+| [x]    | D03 T01 §2 | Memory page                                                      | none  | 5     |
+| [x]    | D03 T01 §3 | History chart with a table equivalent                            | none  | 6     |
+| [x]    | D03 T01 §4 | Pressure alerts                                                  | none  | 6     |
+| [x]    | D03 T01 §6 | Decision card and the report's evidence for it                   | none  | 9     |
+| [x]    | D03 T02 §1 | Instance scanner                                                 | none  | 8     |
+| [x]    | D03 T02 §2 | Instances page                                                   | none  | 15    |
+| [ ]    | D03 T02 §3 | Queue page                                                       | none  | 5     |
+| [ ]    | D03 T01 §5 | Overview page                                                    | none  | 7     |
+| [ ]    | D03 T02 §4 | Editor windows by repo                                           | none  | 5     |
 
 ### Phase 5: Machine
 
@@ -148,6 +157,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 71/93 verified sections, 3 ready to run now.
+Progress: 71/102 verified sections, 8 ready to run now.
 
-Checklist: 723/825 items completed (includes Commit items).
+Checklist: 723/865 items completed (includes Commit items).

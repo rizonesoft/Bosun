@@ -7,6 +7,7 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | Domain | File | Scope |
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
+| 02 | 02-shell/TODO-04-design-polish.md | Focus, fields, spacing, tables, charts and chrome tuned to one system |
 | 03 | 03-monitor/TODO-01-memory-page.md | Live memory, history, alerts and the Overview page |
 | 03 | 03-monitor/TODO-02-instances-queue.md | Every dev instance on both sides, and the queue |
 | 05 | 05-machine/TODO-02-optimise-page.md | Preview, apply, verify and undo machine changes |

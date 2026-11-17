@@ -4,6 +4,7 @@ Brand, theme and the application shell every page lives in.
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-04-design-polish.md | Focus, fields, spacing, tables, charts and chrome tuned to one system | active |
 
 ## Completed
 
