@@ -194,6 +194,8 @@ A table's header and cells start 10 px right of its card's title, and number col
 
 ## 5. Chart labels clear of lines and a readable time axis
 
+> **Started:** 2026-11-17T04:45:04Z
+
 `SeriesChart` writes its top value and its pressure-line label over the lines, and a 24-hour axis reads "11:00" at both ends. Labels sit clear of every line, and the time axis says which day and when now is.
 
 **Phase:** 3
