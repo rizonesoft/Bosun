@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T04 \u00a74",
+  "title": "Table alignment and tabular numbers",
+  "implementation_sha": "bb8943064b3b05ac8c395808872f6ae939fcf1ac",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 814 of 814 (TableAlignmentTests 6)",
+    "python -B -m unittest scripts.tests.test_build_theme -> OK",
+    "the old cell inset -> TableAlignmentTests 1 of 4; the old group container -> 3 of 4 (244 against 239)",
+    "CI full gate at bb89430 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/44017180199, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44017180114"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s4.md",
+    "verdict": "completed",
+    "candidate": "af105cd3f5ff785025362432f30945d2791b38c4",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s4.md",
+    "candidate": "c2e165e3ff1b9e888d96e0d349b70f03a04f18bf",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "c2e165e3ff1b9e888d96e0d349b70f03a04f18bf",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

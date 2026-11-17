@@ -57,7 +57,7 @@ title: "TODO-04 -- Design polish"
 | 1 | §1 | One focus outline per control, with focus renders | -- | [x] |
 | 2 | §2 | Field insets, error border and label spacing | §1 | [x] |
 | 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
-| 4 | §4 | Table alignment and tabular numbers | -- | [ ] |
+| 4 | §4 | Table alignment and tabular numbers | -- | [x] |
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [ ] |
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [ ] |
 | 7 | §7 | Expandable toasts and a clean palette search field | §1 | [ ] |
@@ -185,9 +185,12 @@ A table's header and cells start 10 px right of its card's title, and number col
 - [x] Find why number cells draw left-aligned although `Cell.Number` already sets right alignment and tabular figures (`Theme/Controls.xaml`): measure the drawn cells, fix the cause at its layer (the cell's content alignment, the element's width, or the template column bypassing the style), and right-align each number column's header to match (**Corrected 2026-11-17** by the plan review: repeating the setters fixes nothing). Done when: `TableAlignmentTests` reads, on the Memory By repo table, its history table and the Instances GB and Uptime template columns, each number cell's text ending at the column's right inset within 1 px, its effective `Typography.NumeralAlignment` tabular, and its header's text ending there too, ascending and descending sorted; and fails with the old cause back. Cheaper substitute: a monospace font. (**Corrected 2026-11-17** at build: the cause was `ElementStyle="{DynamicResource Cell.Number}"` on a column, which is not in the visual tree, so the resource never resolved and every cell drew in DataGrid's own style; `TextColumn` and `NumberColumn` (`src/Bosun.Panel/Controls/TableColumns.cs`) set the style on the generated text. A header's `Column` gives no change notice, so a trigger bound through it never fired; the theme sets `TableColumn.Watch` on headers, which read the column once loaded into `IsNumberHeader`.)
 - [x] Give the Memory table's words their reasons: `RepoRow` (`src/Bosun.Panel/Memory/MemoryPage.cs`) gains a reason for each word it shows in a number column (no current memory, no history yet, the history unread), bound as the cell's tooltip and `AutomationProperties.HelpText` as Instances already does. Done when: a test reads each word's tooltip and help text on the drawn page.
 - [x] Draw a word in a number column in `B.TextDim` through a `Cell.Word` style in `Theme/Controls.xaml`, `B.HighlightText` while its row is selected in a contrast theme, in `MemoryView.xaml` and `src/Bosun.Panel/Instances/InstancesView.xaml`. Done when: a test reads the word's own text brush (not the cell's) dim when not selected and `B.HighlightText` when selected in HighContrast, and the renders show it dim and right-aligned with the numbers.
-- [ ] Commit: `theme: tables line up with their cards, numbers in tabular figures`
+- [x] Commit: `theme: tables line up with their cards, numbers in tabular figures`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*TableAlignmentTests" --filter-class "*MemoryPageTests" --filter-class "*InstancesPageTests"` exits 0, and fails with the old cell inset or the old number alignment; the whole panel suite passes before the push.
+
+> **Verified:** 2026-11-17 | §4 | bb8943064b3b05ac8c395808872f6ae939fcf1ac
+> **Review:** `docs/reviews/d02-t04-s4.json`
 
 ## 5. Chart labels clear of lines and a readable time axis
 
