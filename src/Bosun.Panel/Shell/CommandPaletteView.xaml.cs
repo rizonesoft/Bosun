@@ -22,7 +22,6 @@ public partial class CommandPaletteView : UserControl
     public CommandPaletteView()
     {
         InitializeComponent();
-        SearchGlyph.Kind = Glyphs.For(GlyphAction.Search);
         Visibility = Visibility.Collapsed;
         DataContextChanged += (_, _) => Bind(DataContext as CommandPalette);
         IsVisibleChanged += (_, e) =>

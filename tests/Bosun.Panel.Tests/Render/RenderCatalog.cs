@@ -52,6 +52,9 @@ public static partial class RenderCatalog
         // D02 T03 §9: a done toast and a long failure cut at three lines; then three failures with two more counted.
         new("shell", "toasts", () => Toasted(false)) { Shows = "Save settings" },
         new("shell", "toasts-full", () => Toasted(true)) { Shows = "2 more in the Activity pane" },
+        // D02 T04 §7: a long result opened in full, and three opened at the least window size with every Dismiss on it.
+        new("shell", "toasts-expanded", () => Expanded(1)) { Shows = "Show less" },
+        new("shell", "toasts-expanded-least", () => Expanded(3)) { Shows = "Show less", Width = 960, Height = 600 },
         new("page", "loading", () => Loading(new Shell.TestPage())) { Shows = "Loading Queue" },
         // The loading state's three shapes (D02 T03 §7, design/SPEC.md §19), as each page declares its own.
         new("skeleton", "card", () => Loading(new Shell.TestPage("Overview", "Memory, the queue and dev instances at a glance."))) { Shows = "Loading Overview" },
@@ -338,6 +341,18 @@ public static partial class RenderCatalog
         {
             for (var i = 1; i <= 5; i++) shell.Toasts.Show(sink, $"Run the WSL logger: wsl.exe exited with code {i}");
         }
+        return new Bosun.Panel.Shell.ShellView { DataContext = shell };
+    }
+
+    private static FrameworkElement Expanded(int count)
+    {
+        var shell = Shell.Shells.Panel();
+        for (var i = 1; i <= count; i++)
+        {
+            shell.Toasts.Show(Bosun.Panel.Shell.LogSeverity.Fail, $"Run the WSL logger: wsl.exe exited with code {i}: " + string.Join(" ",
+                Enumerable.Repeat("the distribution named in Settings did not start, so no reading was taken; start it from a WSL prompt, or pick another in Settings and save again.", 3)));
+        }
+        foreach (var toast in shell.Toasts.Shown.ToList()) shell.Toasts.Expand(toast, true);
         return new Bosun.Panel.Shell.ShellView { DataContext = shell };
     }
 
@@ -648,7 +663,7 @@ public static partial class RenderCatalog
                 var name = $"{view.Name}.{theme.ToLowerInvariant()}.png";
                 try
                 {
-                    var drawn = PageRenderer.Render(view, theme, height: view.Height);
+                    var drawn = PageRenderer.Render(view, theme, view.Width, view.Height);
                     var (width, height, pixels) = PageRenderer.Decode(drawn.Png);
                     // Two states of one view that draw the same picture are one state: the factory ignored its state.
                     var same = pictures.Values.FirstOrDefault(other => other.View.View == view.View && other.Pixels.AsSpan().SequenceEqual(pixels));

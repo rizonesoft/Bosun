@@ -64,6 +64,8 @@ public class FocusOutlineTests
     public static readonly IReadOnlyList<Case> All =
     [
         new Case("field", () => Styled(new TextBox { Text = "2048", Width = 140 }, "Field"), r => r),
+        // The palette's search (D02 T04 §7): no border of its own, its glyph inside it, one ring round both.
+        new Case("palette search", () => Styled(new TextBox { Text = "set", Width = 320 }, "PaletteSearch"), r => r),
         // An invalid field (D02 T04 §2): its danger border is its own, and focus is still the one ring outside it.
         new Case("field, invalid", () =>
         {

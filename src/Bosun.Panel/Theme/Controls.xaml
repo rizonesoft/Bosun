@@ -1682,9 +1682,33 @@
          keyboard (the search field keeps it); and its rows: glyph, name and group, and the reason under a row that can't
          run. The selected row is the hover colour; a danger row's name the danger colour. In a contrast theme the
          selected row is the highlight with its text, and every other line Windows' text. -->
+    <!-- The palette's search: one field with its glyph inside it, no border of its own inside the palette's card (D02
+         T04 §7: a bordered box sat in the bordered card with the glyph outside it). Its focus is the field's one ring. -->
     <Style x:Key="PaletteSearch" TargetType="TextBox" BasedOn="{StaticResource Field}">
         <Setter Property="MinHeight" Value="36"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Subtitle}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource R.Control}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <controls:Decorative VerticalAlignment="Center" Margin="{DynamicResource Gap.Before.S}">
+                                <icons:PackIconLucide x:Name="SearchGlyph" Kind="{x:Static theme:Glyphs.Search}" Width="16" Height="16"
+                                                      Focusable="False" IsTabStop="False" Foreground="{DynamicResource B.TextDim}"/>
+                            </controls:Decorative>
+                            <ScrollViewer x:Name="PART_ContentHost" Grid.Column="1" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="PaletteList" TargetType="ListBox">
@@ -1785,18 +1809,43 @@
                             CornerRadius="{DynamicResource R.Control}" Padding="12,8,8,12" Effect="{DynamicResource Elevation.Overlay}">
                         <StackPanel>
                             <DockPanel>
-                                <Button x:Name="Dismiss" DockPanel.Dock="Right" Style="{StaticResource Btn.Small}" Content="Dismiss"
-                                        Command="{Binding Dismiss, RelativeSource={RelativeSource TemplatedParent}}"
-                                        AutomationProperties.Name="Dismiss" AutomationProperties.HelpText="{Binding Spoken}"/>
+                                <!-- Show more then Dismiss, in reading order for the eye and the Tab key alike (D02 T04 §7). -->
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                    <Button x:Name="ShowMore" Style="{StaticResource Btn.Small}" Margin="0,0,6,0" MinHeight="32"
+                                            Content="Show more" Command="{Binding ShowMore, RelativeSource={RelativeSource TemplatedParent}}"
+                                            AutomationProperties.Name="Show the whole message" Visibility="Collapsed"/>
+                                    <Button x:Name="Dismiss" Style="{StaticResource Btn.Small}" Content="Dismiss"
+                                            Command="{Binding Dismiss, RelativeSource={RelativeSource TemplatedParent}}"
+                                            AutomationProperties.Name="Dismiss" AutomationProperties.HelpText="{Binding Spoken}"/>
+                                </StackPanel>
                                 <controls:StatusPill Kind="{Binding Kind}" Word="{Binding Word}" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                             </DockPanel>
-                            <TextBlock x:Name="Words" Text="{Binding Message}" Margin="2,8,4,0" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
-                                       LineHeight="19" LineStackingStrategy="BlockLineHeight" MaxHeight="57"
-                                       ToolTip="{Binding Message}" AutomationProperties.HelpText="{Binding Message}"
-                                       AutomationProperties.Name="{Binding Spoken}" a:LiveRegion.Announce="True"/>
+                            <!-- Its first three lines; expanded, the whole message in a scroll bounded by Size.ToastText, so
+                                 three expanded toasts still fit the smallest window with every Dismiss on screen (D02 T04 §7). -->
+                            <ScrollViewer x:Name="WordsScroll" Margin="2,8,4,0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                          Focusable="False" IsTabStop="False">
+                                <TextBlock x:Name="Words" Text="{Binding Message}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                           LineHeight="19" LineStackingStrategy="BlockLineHeight" MaxHeight="57"
+                                           ToolTip="{Binding Message}" AutomationProperties.HelpText="{Binding Message}"
+                                           AutomationProperties.Name="{Binding Spoken}" a:LiveRegion.Announce="True"/>
+                            </ScrollViewer>
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsCut" Value="True">
+                            <Setter TargetName="ShowMore" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                        <DataTrigger Binding="{Binding Expanded}" Value="True">
+                            <Setter TargetName="Words" Property="MaxHeight" Value="Infinity"/>
+                            <Setter TargetName="Words" Property="TextTrimming" Value="None"/>
+                            <Setter TargetName="WordsScroll" Property="MaxHeight" Value="{DynamicResource Size.ToastText}"/>
+                            <Setter TargetName="WordsScroll" Property="VerticalScrollBarVisibility" Value="Auto"/>
+                            <Setter TargetName="WordsScroll" Property="Focusable" Value="True"/>
+                            <Setter TargetName="WordsScroll" Property="IsTabStop" Value="True"/>
+                            <Setter TargetName="WordsScroll" Property="AutomationProperties.Name" Value="The whole message"/>
+                            <Setter TargetName="ShowMore" Property="Content" Value="Show less"/>
+                            <Setter TargetName="ShowMore" Property="AutomationProperties.Name" Value="Show the first lines again"/>
+                        </DataTrigger>
                         <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
                             <Setter TargetName="card" Property="BorderBrush" Value="{DynamicResource B.Text}"/>
                         </Trigger>

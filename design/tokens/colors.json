@@ -64,7 +64,7 @@
     "Overlay": {"Blur": 44, "Depth": 16, "OpacityDark": 0.42, "OpacityLight": 0.18}
   },
   "motion": {"FastMs": 120, "NormalMs": 220, "SlowMs": 400, "PulseMs": 2400, "Ease": [0.2, 0.8, 0.2, 1]},
-  "size": {"Form": 560},
+  "size": {"Form": 560, "ToastText": 95},
   "space": {"XS": 4, "S": 8, "M": 12, "L": 16, "XL": 24},
   "type": {"Caption": 11, "Body": 13, "Subtitle": 15, "Title": 21, "Metric": 28}
 }

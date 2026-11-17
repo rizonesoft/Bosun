@@ -27,6 +27,9 @@ public sealed record RenderCase(string View, string State, Func<FrameworkElement
     /// <summary>The picture's height: the panel's own by default, taller for a page whose last card is below it.</summary>
     public int Height { get; init; } = PageRenderer.Height;
 
+    /// <summary>The picture's width: the panel's own by default, narrower for a state shown at the least window size.</summary>
+    public int Width { get; init; } = PageRenderer.Width;
+
     /// <summary>
     /// Drawn on a clear host rather than the theme's <c>Base</c>, so what the view itself leaves clear (the chrome under
     /// Mica, D02 T03 §2) is clear in the picture, and what it paints is its own.

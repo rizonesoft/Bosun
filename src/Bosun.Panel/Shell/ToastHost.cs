@@ -31,6 +31,14 @@ public sealed class Toast : Observable
     public string Spoken => $"{Word}: {Message}";
 
     internal bool Pointer, Focus;
+
+    private bool _expanded;
+
+    /// <summary>
+    /// Whether its whole message is shown (D02 T04 §7). An expanded toast is held until it is collapsed or dismissed,
+    /// whatever the pointer and the keyboard then do: its own hold, not theirs.
+    /// </summary>
+    public bool Expanded { get => _expanded; internal set => Set(ref _expanded, value); }
     internal ITimer? Timer;
     internal TimeSpan Left;
     internal DateTimeOffset Since;
@@ -128,14 +136,27 @@ public sealed class ToastHost : Observable
     /// <summary>The pointer came over or left a toast's card.</summary>
     public void HoldByPointer(Toast toast, bool held) => Hold(toast, held, toast.Focus);
 
+    /// <summary>Shows a toast's whole message, or its first lines again; expanded, it is held until collapsed (D02 T04 §7).</summary>
+    public void Expand(Toast toast, bool expanded)
+    {
+        ArgumentNullException.ThrowIfNull(toast);
+        if (toast.Expanded == expanded) return;
+        var was = toast.Pointer || toast.Focus || toast.Expanded;
+        toast.Expanded = expanded;
+        var now = toast.Pointer || toast.Focus || toast.Expanded;
+        if (toast.IsFail || !Shown.Contains(toast) || was == now) return;
+        if (now) Pause(toast);
+        else Run(toast);
+    }
+
     /// <summary>The keyboard came into or left a toast's card.</summary>
     public void HoldByFocus(Toast toast, bool held) => Hold(toast, toast.Pointer, held);
 
     private void Hold(Toast toast, bool pointer, bool focus)
     {
-        var was = toast.Pointer || toast.Focus;
+        var was = toast.Pointer || toast.Focus || toast.Expanded;
         (toast.Pointer, toast.Focus) = (pointer, focus);
-        var now = pointer || focus;
+        var now = pointer || focus || toast.Expanded;
         if (toast.IsFail || !Shown.Contains(toast) || was == now) return;
         if (now) Pause(toast);
         else Run(toast);
@@ -144,7 +165,7 @@ public sealed class ToastHost : Observable
     private void Run(Toast toast)
     {
         Stop(toast);
-        if (toast.Pointer || toast.Focus) return;
+        if (toast.Pointer || toast.Focus || toast.Expanded) return;
         var generation = ++toast.Generation;
         toast.Since = _clock.GetUtcNow();
         // A real clock calls back off the UI thread: the expiry is handed to it, and does nothing for a toast that has

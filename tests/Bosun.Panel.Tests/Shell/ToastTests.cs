@@ -90,6 +90,120 @@ public class ToastTests
     static string[] Words(ToastHost host) => host.Shown.Select(t => t.Message).ToArray();
 
     [Fact]
+    public void An_expanded_toast_is_held_until_collapsed_whatever_the_pointer_and_the_keyboard_do()
+    {
+        // D02 T04 §7: its own hold, not the focus hold borrowed, which a later focus change would release.
+        OnUi(() =>
+        {
+            var (shell, clock) = Shell();
+            var host = shell.Toasts;
+            host.Show(LogSeverity.Info, "a long result");
+            var toast = host.Shown.Single();
+            host.Expand(toast, true);
+            host.HoldByPointer(toast, true);
+            host.HoldByPointer(toast, false);                                                 // the pointer leaves
+            host.HoldByFocus(toast, true);
+            host.HoldByFocus(toast, false);                                                   // the keyboard leaves
+            clock.Advance(TimeSpan.FromSeconds(30));
+            Pump();
+            Assert.Contains(toast, host.Shown);                                               // still held, expanded
+            host.Expand(toast, false);                                                        // collapsed: its time runs again
+            clock.Advance(TimeSpan.FromSeconds(7));
+            Pump();
+            Assert.DoesNotContain(toast, host.Shown);
+            host.Show(LogSeverity.Info, "another");
+            var other = host.Shown.Single();
+            host.Expand(other, true);
+            host.Dismiss(other);                                                               // dismissed while expanded
+            Assert.Empty(host.Shown);
+            host.Show(LogSeverity.Info, "a third");
+            host.Expand(host.Shown.Single(), true);
+            host.WindowShown = false;                                                         // hidden while expanded
+            Assert.Empty(host.Shown);
+        });
+    }
+
+    /// <summary>A toast card drawn at its width, with <paramref name="message"/>, in a shell's host.</summary>
+    static int Drawn(string message, Func<ToastCard, Border, int> read) => PageRenderer.InPage("Dark", () =>
+    {
+        var (shell, _) = Shell();
+        shell.Toasts.Show(LogSeverity.Fail, message);
+        return new ToastCard { DataContext = shell.Toasts.Shown.Single(), Host = shell.Toasts, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top };
+    }, page =>
+    {
+        PageRenderer.Settle(page);
+        return read((ToastCard)page.Child, page);
+    }, 480, 600);
+
+    [Theory]
+    [InlineData("Saved.", false)]
+    [InlineData("Line one\nLine two\nLine three", false)]
+    [InlineData("Save queue limits: bosun config set slots 9: slots must be between 1 and 8, and the file was left as it was, so the queue still runs 2 slots and every job waits its turn as before; change the value to one the queue allows and save again.", true)]
+    public void Show_more_is_offered_only_where_the_layout_cuts_the_text(string message, bool cut)
+    {
+        Drawn(message.Replace("\\n", "\n", StringComparison.Ordinal), (card, _) =>
+        {
+            Assert.Equal(cut, card.IsCut);
+            var more = (Button)card.Template.FindName("ShowMore", card);
+            Assert.Equal(cut ? Visibility.Visible : Visibility.Collapsed, more.Visibility);
+            if (cut)
+            {
+                Assert.Equal("Show the whole message", System.Windows.Automation.AutomationProperties.GetName(more));
+                Assert.True(more.ActualHeight >= 32, $"Show more is {more.ActualHeight} px high");
+            }
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Expanded_the_whole_message_is_reachable_and_Dismiss_stays_on_the_card()
+    {
+        var message = string.Join(" ", Enumerable.Range(1, 120).Select(i => $"word{i}"));
+        Drawn(message, (card, page) =>
+        {
+            Assert.True(card.IsCut);
+            ((Button)card.Template.FindName("ShowMore", card)).Command.Execute(null);
+            PageRenderer.Settle(page);
+            var scroll = (ScrollViewer)card.Template.FindName("WordsScroll", card);
+            var words = (TextBlock)card.Template.FindName("Words", card);
+            Assert.True(scroll.ScrollableHeight > 0, "a very long message scrolls inside the card");
+            Assert.True(scroll.Focusable && scroll.IsTabStop, "the keyboard can reach the message to scroll it");
+            Assert.True(words.ActualHeight > ToastCard.Lines * ToastCard.LineHeight, "the whole message is laid out, not three lines");
+            Assert.True(scroll.ActualHeight <= (double)page.FindResource("Size.ToastText") + 0.5, "bounded");
+            scroll.ScrollToBottom();
+            PageRenderer.Settle(page);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);                // its end is reached
+            var dismiss = (Button)card.Template.FindName("Dismiss", card);
+            Assert.True(dismiss.IsVisible && dismiss.TransformToAncestor(page).Transform(new Point()).Y >= 0);
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Three_expanded_toasts_keep_every_Dismiss_in_the_smallest_window()
+    {
+        var message = string.Join(" ", Enumerable.Range(1, 120).Select(i => $"word{i}"));
+        PageRenderer.InPage("Dark", () =>
+        {
+            var (shell, _) = Shell();
+            for (var i = 0; i < 3; i++) shell.Toasts.Show(LogSeverity.Fail, message);
+            foreach (var toast in shell.Toasts.Shown.ToList()) shell.Toasts.Expand(toast, true);
+            return new Bosun.Panel.Shell.ShellView { DataContext = shell };
+        }, page =>
+        {
+            PageRenderer.Settle(page);
+            var dismisses = ShellSupport.Under<Button>(page).Where(b => b.Name == "Dismiss").ToList();
+            Assert.Equal(3, dismisses.Count);
+            foreach (var dismiss in dismisses)
+            {
+                var box = dismiss.TransformToAncestor(page).TransformBounds(new Rect(dismiss.RenderSize));
+                Assert.True(box.Top >= 0 && box.Bottom <= page.ActualHeight, $"a Dismiss at {box} is off the {page.ActualHeight} px window");
+            }
+            return 0;
+        }, 960, 600);
+    }
+
+    [Fact]
     public void A_fourth_toast_takes_the_place_of_the_oldest_that_is_not_a_FAIL()
     {
         OnUi(() =>

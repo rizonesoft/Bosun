@@ -36,7 +36,7 @@ REQUIRED = {
                 "OnAccent", "Ok", "Warn", "Danger", "Info", "LineStrong", "OkSoft", "WarnSoft", "DangerSoft", "InfoSoft",
                 "DisabledFill", "DisabledText", "DisabledLine", "OkLine", "WarnLine", "DangerLine", "InfoLine"),
     "radius": ("Card", "Control", "Sheet", "Overlay", "Pill"),
-    "size": ("Form",),
+    "size": ("Form", "ToastText"),
     "space": ("XS", "S", "M", "L", "XL"),
     "type": ("Caption", "Body", "Subtitle", "Title", "Metric"),
     "elevation": ("Card", "Overlay"),

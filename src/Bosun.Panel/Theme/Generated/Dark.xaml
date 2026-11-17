@@ -72,6 +72,7 @@
 
     <!-- Sizes: a settings form's readable width -->
     <sys:Double x:Key="Size.Form">560</sys:Double>
+    <sys:Double x:Key="Size.ToastText">95</sys:Double>
 
     <!-- Spacing -->
     <sys:Double x:Key="S.XS">4</sys:Double>

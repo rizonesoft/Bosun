@@ -18,16 +18,9 @@
                 CornerRadius="{DynamicResource R.Overlay}" Effect="{DynamicResource Elevation.Overlay}"
                 KeyboardNavigation.TabNavigation="Cycle">
             <StackPanel>
-                <Grid Margin="16,12,16,10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <controls:Decorative VerticalAlignment="Center" Margin="0,0,10,0">
-                        <icons:PackIconLucide x:Name="SearchGlyph" Width="16" Height="16" Focusable="False" IsTabStop="False"
-                                              Foreground="{DynamicResource B.TextDim}"/>
-                    </controls:Decorative>
-                    <TextBox x:Name="Search" Grid.Column="1" Style="{DynamicResource PaletteSearch}"
+                <Grid Margin="10,8,10,8">
+                    <!-- The search draws its own glyph inside it (PaletteSearch, D02 T04 §7). -->
+                    <TextBox x:Name="Search" Style="{DynamicResource PaletteSearch}"
                              Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
                              AutomationProperties.Name="Search pages and commands" PreviewKeyDown="OnSearchKey"/>
                 </Grid>

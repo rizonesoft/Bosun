@@ -102,6 +102,8 @@ public static class Glyphs
         return geometry;
     }
 
+    public static PackIconLucideKind Search => Actions[GlyphAction.Search];
+
     public static PackIconLucideKind OpenFolder => Actions[GlyphAction.OpenFolder];
 
     public static PackIconLucideKind OpenTerminal => Actions[GlyphAction.OpenTerminal];
