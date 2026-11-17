@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T04 \u00a72",
+  "title": "Field insets, error border and label spacing",
+  "implementation_sha": "5e155c6a41c3b6980c6758359481bd50e8f9163b",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 801 of 801; *ThresholdTests *FieldGeometryTests *SettingsPageTests -> 39 of 39 after the last change",
+    "python -B -m unittest scripts.tests.test_build_theme -> 11 OK; build-theme.py --check passes",
+    "the danger setter removed -> FieldGeometryTests 5 of 8; the old content-host margin -> 21 px against 11",
+    "CI full gate at 5e155c6 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/44005250017, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44005249888"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s2.md",
+    "verdict": "complete",
+    "candidate": "aa6446a54dfb9845133578024855289748a47775",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s2.md",
+    "candidate": "8491e5d040705c8b08f6b665e9ed4eb784a1efcf",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "8491e5d040705c8b08f6b665e9ed4eb784a1efcf",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

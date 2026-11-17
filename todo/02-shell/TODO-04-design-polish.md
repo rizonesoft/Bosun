@@ -55,7 +55,7 @@ title: "TODO-04 -- Design polish"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | One focus outline per control, with focus renders | -- | [x] |
-| 2 | §2 | Field insets, error border and label spacing | §1 | [ ] |
+| 2 | §2 | Field insets, error border and label spacing | §1 | [x] |
 | 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
 | 4 | §4 | Table alignment and tabular numbers | -- | [ ] |
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [ ] |
@@ -124,9 +124,12 @@ A field's text sits about 21 px in and a combo box's 11 px, an invalid field kee
 - [x] Keep one focus outline on an invalid field: add `field, invalid` to `FocusOutlineTests.All`, drawn focused and unfocused in every theme. Done when: it passes with one 2 px ring outside the danger border, and fails if WPF's validation adorner is turned on for the field.
 - [x] Set the label-to-control gap from a spacing token (**Corrected 2026-11-17:** `Gap.Below.S`, which `scripts/build-theme.py` now generates with `Gap.Above.*` from the space scale, a `Margin` taking a `Thickness`; the threshold label's own `Margin` had replaced the style's gap with 0, so space above a label goes on what holds it) on every field label in `SettingsView.xaml` and the gallery. Done when: a test measures the gap between "Pressure alert threshold" and its field as the token's value. Cheaper substitute: a hand-typed margin on one label.
 - [x] Add a hover render and an error render of a field to the gallery, in every theme. Done when: they are in `RenderCatalog` and looked at. (**Corrected 2026-11-17:** a field has no hover state of its own, so `controls.field-states` draws normal, invalid, focused, invalid and focused, read only and disabled beside a combo box.)
-- [ ] Commit: `theme: fields line up, say their errors and keep their labels apart`
+- [x] Commit: `theme: fields line up, say their errors and keep their labels apart`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*FieldGeometryTests" --filter-class "*SettingsPageTests" --filter-class "*ControlStylesTests" --filter-class "*FocusOutlineTests"` exits 0, and fails with the old content-host margin restored or the danger border trigger removed; the whole panel suite passes before the push.
+
+> **Verified:** 2026-11-17 | §2 | 5e155c6a41c3b6980c6758359481bd50e8f9163b
+> **Review:** `docs/reviews/d02-t04-s2.json`
 
 ## 3. Spacing scale, section headings and Settings in cards
 
