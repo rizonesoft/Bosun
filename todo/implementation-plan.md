@@ -94,12 +94,12 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 19 | Checklist items: 118
+Sections: 19 | Checklist items: 120
 
 | Status | Reference  | Deliverable                                                      | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------------------- | ----- | ----- |
 | [x]    | D02 T04 §1 | One focus outline per control, with focus renders                | none  | 9     |
-| [ ]    | D02 T04 §2 | Field insets, error border and label spacing                     | none  | 5     |
+| [ ]    | D02 T04 §2 | Field insets, error border and label spacing                     | none  | 7     |
 | [ ]    | D02 T04 §3 | Spacing scale, section headings and Settings in cards            | none  | 5     |
 | [ ]    | D02 T04 §4 | Table alignment and tabular numbers                              | none  | 4     |
 | [ ]    | D02 T04 §5 | Chart labels clear of lines and a readable time axis             | none  | 4     |
@@ -159,4 +159,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 72/102 verified sections, 9 ready to run now.
 
-Checklist: 732/869 items completed (includes Commit items).
+Checklist: 732/871 items completed (includes Commit items).
