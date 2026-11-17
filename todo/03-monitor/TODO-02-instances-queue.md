@@ -37,7 +37,7 @@ title: "TODO-02 -- Instances and queue"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [x] |
-| 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [ ] |
+| 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [x] |
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [ ] |
 | 4 | §4 | Editor windows by repo | §1 | [ ] |
 
@@ -118,9 +118,12 @@ The direct answer to monitoring all the dev instances.
 - [x] Create `src/Bosun.Panel/Instances/Opener.cs`: `OpenCommands.Folder(line)` and `Terminal(line)` build each `ProcessStartInfo` (Windows: `explorer.exe <folder>`, `wt.exe -d <folder>`; WSL: `explorer.exe \\wsl.localhost\<distro>\<path>` or the Windows path of a `/mnt/<drive>/` folder, `wt.exe wsl.exe -d <distro> --cd <path>`; without Windows Terminal, `cmd.exe /k` in the folder, or `wsl.exe -d <distro> --cd <path>`), the folder the instance's `cwd`, else its repo. An unjoined WSL holder (a Windows-reported WSL job whose distro's report was not read, `InstanceRow.Distro` null) opens in its `GuestDistro` only when that is known and its path is a Linux path; otherwise its actions are disabled with "Its WSL distro's report could not be read". An `ILauncher` starts them. Done when: `OpenCommandsTests` reads each command for a Windows row, a WSL row in its own file system and one under `/mnt/c`, an unjoined WSL holder with and without its `GuestDistro`, and none is built from a Windows path given to a WSL shell. Cheaper substitute: Windows paths passed to a WSL shell.
 - [x] Add the row actions Open folder and Open terminal (row buttons named for their instance, and page commands for the selected row in Ctrl+K), disabled with "Its folder couldn't be read" when neither `cwd` nor repo is known, and with "The folder is no longer there" when it is gone; with no row selected the palette commands are absent; a selected row that a refresh removes leaves nothing selected rather than another row; without Windows Terminal the terminal falls back as `OpenCommands` says. Every launch goes through `ActivityLog.Record`, an INFO line when it starts and a FAIL with why and a toast when it does not (`design/SPEC.md` §1: every panel action writes a line). Done when: tests run each action through a fake `ILauncher` from its row button and from the palette (`ShellViewModel.Palette`, the command run by name), see its Activity line, the failing launch's FAIL and toast, the fallback without Windows Terminal, the missing folder's refusal, no commands with nothing selected, and the selection cleared when its row goes.
 - [x] Render the page in each state in every theme: data (both sides, a job with its slot), WSL notice, a stale distro, a malformed distro report, Windows failed with WSL rows, everything failed with its Retry, empty, loading. Done when: the renders are in `RenderCatalog` and looked at.
-- [ ] Commit: `instances: page`
+- [x] Commit: `instances: page`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests" --filter-class "*OpenCommandsTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` exit 0, and fail if the slot, the grouping or the WSL command is reverted.
+
+> **Verified:** 2026-11-17 | §2 | 46ee987ee0201c91dc1acfbecc2b49559a56851e
+> **Review:** `docs/reviews/d03-t02-s2.json`
 
 ## 3. Queue page
 

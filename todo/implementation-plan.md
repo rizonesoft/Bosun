@@ -104,7 +104,7 @@ Sections: 10 | Checklist items: 74
 | [x]    | D03 T01 §4 | Pressure alerts                                | none  | 6     |
 | [x]    | D03 T01 §6 | Decision card and the report's evidence for it | none  | 9     |
 | [x]    | D03 T02 §1 | Instance scanner                               | none  | 8     |
-| [ ]    | D03 T02 §2 | Instances page                                 | none  | 15    |
+| [x]    | D03 T02 §2 | Instances page                                 | none  | 15    |
 | [ ]    | D03 T02 §3 | Queue page                                     | none  | 5     |
 | [ ]    | D03 T01 §5 | Overview page                                  | none  | 7     |
 | [ ]    | D03 T02 §4 | Editor windows by repo                         | none  | 5     |
@@ -148,6 +148,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 70/93 verified sections, 3 ready to run now.
+Progress: 71/93 verified sections, 3 ready to run now.
 
-Checklist: 722/825 items completed (includes Commit items).
+Checklist: 723/825 items completed (includes Commit items).

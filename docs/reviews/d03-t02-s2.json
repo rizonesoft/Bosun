@@ -1,0 +1,94 @@
+{
+  "ref": "D03 T02 \u00a72",
+  "title": "Instances page",
+  "implementation_sha": "46ee987ee0201c91dc1acfbecc2b49559a56851e",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s2.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 767 of 767; *InstancesPageTests *DecisionCardTests -> 21 of 21 after the last fixes",
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class *InstanceClientTests -> 21 of 21",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> 34 of 34 (RailTests again after the scroll bar names)",
+    "slot or grouping removed -> InstancesPageTests 12 and 11 of 14",
+    "CI full gate at 46ee987 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/43991608875, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/43991608960"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s2.md",
+    "verdict": "completed",
+    "candidate": "56390b3f813d74a5e66df1ad66fbe714b95df38c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 returned HIGHEST: P3 (the failing action's test named a toast it did not check); fixed in 56390b3, the test now finds the toast and its reason",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s2.md",
+    "candidate": "f619129609d346bef6cd9022d5d11076a731073b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "f619129609d346bef6cd9022d5d11076a731073b",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
