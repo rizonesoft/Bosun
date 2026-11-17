@@ -34,6 +34,15 @@ public class SeriesChart : FrameworkElement
     public static readonly DependencyProperty PressureProperty = DependencyProperty.Register(
         nameof(Pressure), typeof(Brush), typeof(SeriesChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty FromProperty = DependencyProperty.Register(
+        nameof(From), typeof(DateTime?), typeof(SeriesChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty ToProperty = DependencyProperty.Register(
+        nameof(To), typeof(DateTime?), typeof(SeriesChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public static readonly DependencyProperty EndTextProperty = DependencyProperty.Register(
+        nameof(EndText), typeof(string), typeof(SeriesChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+
     public static readonly DependencyProperty LabelProperty = DependencyProperty.Register(
         nameof(Label), typeof(Brush), typeof(SeriesChart), new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
@@ -68,6 +77,50 @@ public class SeriesChart : FrameworkElement
     public Brush? Pressure { get => (Brush?)GetValue(PressureProperty); set => SetValue(PressureProperty, value); }
 
     public Brush? Label { get => (Brush?)GetValue(LabelProperty); set => SetValue(LabelProperty, value); }
+
+    /// <summary>
+    /// The span the chart covers, in UTC, from its page (D02 T04 §5): the report's own period, so points and ticks share
+    /// one mapping and the end is the report's time, not the last bucket's end up to an hour later. Null: the points'.
+    /// </summary>
+    public DateTime? From { get => (DateTime?)GetValue(FromProperty); set => SetValue(FromProperty, value); }
+
+    public DateTime? To { get => (DateTime?)GetValue(ToProperty); set => SetValue(ToProperty, value); }
+
+    /// <summary>What the axis's end says: "Now" while the history is current, a kept reading's time and age otherwise.</summary>
+    public string? EndText { get => (string?)GetValue(EndTextProperty); set => SetValue(EndTextProperty, value); }
+
+    /// <summary>The area the line is plotted in: inside the left gutter that holds the value labels, above the axis.</summary>
+    public Rect Plot { get; private set; }
+
+    /// <summary>Every label drawn, by its box: the value labels, the axis's ends and each tick label kept.</summary>
+    public IReadOnlyList<(string Text, Rect Box)> Labels { get; private set; } = [];
+
+    /// <summary>Each tick: its time, where it is drawn, and its label when one was kept (null when it would collide).</summary>
+    public IReadOnlyList<(DateTime At, double X, string? Text)> Ticks { get; private set; } = [];
+
+    /// <summary>
+    /// Where ticks go between two UTC times (D02 T04 §5), placed by local time so a daylight-saving change moves none off
+    /// its hour: every 6 hours on the local clock for a day, each local midnight for a week, every other one for a fortnight.
+    /// </summary>
+    public static IReadOnlyList<DateTime> TickTimes(DateTime fromUtc, DateTime toUtc, string rangeName, TimeZoneInfo? zone = null)
+    {
+        zone ??= TimeZoneInfo.Local;
+        var ticks = new List<DateTime>();
+        var local = TimeZoneInfo.ConvertTimeFromUtc(fromUtc, zone);
+        var day = rangeName == HistoryRange.Day.Name;
+        var cursor = day ? new DateTime(local.Year, local.Month, local.Day, local.Hour / 6 * 6, 0, 0) : local.Date;
+        for (var guard = 0; guard < 400; guard++)
+        {
+            cursor = day ? cursor.AddHours(6) : cursor.AddDays(1);
+            if (zone.IsInvalidTime(cursor)) continue;
+            var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(cursor, DateTimeKind.Unspecified), zone);
+            if (utc >= toUtc) break;
+            if (utc <= fromUtc) continue;
+            if (rangeName == HistoryRange.Fortnight.Name && DateOnly.FromDateTime(cursor).DayNumber % 2 != 0) continue;
+            ticks.Add(utc);
+        }
+        return ticks;
+    }
 
     /// <summary>The runs of the line last drawn: each an unbroken run of measured points, a gap between two.</summary>
     public IReadOnlyList<IReadOnlyList<Point>> Runs { get; private set; } = [];
@@ -115,13 +168,49 @@ public class SeriesChart : FrameworkElement
         return runs;
     }
 
+    /// <summary>The runs laid out inside <paramref name="plot"/>, each point at its own time between <paramref name="from"/> and <paramref name="to"/>.</summary>
+    public static IReadOnlyList<IReadOnlyList<Point>> Layout(IReadOnlyList<HistoryPoint> points, Rect plot, long topMb, DateTime from, DateTime to)
+    {
+        var runs = new List<IReadOnlyList<Point>>();
+        if (points.Count == 0 || topMb <= 0) return runs;
+        var span = (to - from).Ticks;
+        double X(DateTime at) => plot.Left + (span <= 0 ? 0 : plot.Width * Math.Clamp((double)(at - from).Ticks / span, 0, 1));
+        List<Point>? run = null;
+        foreach (var point in points)
+        {
+            if (point.LowestMb is not { } mb)
+            {
+                run = null;
+                continue;
+            }
+            if (run is null) runs.Add(run = []);
+            run.Add(new Point(X(point.At), plot.Top + plot.Height - plot.Height * mb / topMb));
+        }
+        return runs;
+    }
+
     protected override void OnRender(DrawingContext dc)
     {
         var points = Points ?? [];
         var plotHeight = Math.Max(0, ActualHeight - Inset);
         var top = Math.Max(FloorMb, points.Where(p => p.LowestMb is not null).Select(p => p.LowestMb!.Value).DefaultIfEmpty(0).Max());
         TopMb = top + top / 10;
-        Runs = Layout(points, ActualWidth, plotHeight, TopMb, Bucket);
+        var from = From ?? (points.Count > 0 ? points[0].Start : DateTime.UtcNow);
+        var to = To ?? (points.Count > 0 ? points[^1].Start + Bucket : DateTime.UtcNow);
+
+        // The value labels sit in a gutter of their own, left of the plot: on the plot they lay over the line (D02 T04 §5).
+        var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        var size = TryFindResource("T.Caption") is double caption ? caption : 12;
+        var face = new Typeface(TryFindResource("F.Ui") as FontFamily ?? new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        var ink = Label ?? TryFindResource("B.TextDim") as Brush ?? new SolidColorBrush();
+        FormattedText Text(string text) => new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, size, ink, dpi);
+        var topText = Text(MemoryPage.GbText(TopMb / 1024.0) + " GB");
+        var floorText = Text(MemoryPage.GbText(FloorMb / 1024.0) + " GB");
+        var gutter = Math.Ceiling(Math.Max(topText.Width, floorText.Width)) + 8;
+        Plot = new Rect(gutter, 0, Math.Max(0, ActualWidth - gutter), plotHeight);
+        Runs = Layout(points, Plot, TopMb, from, to);
+        FloorY = TopMb > 0 ? plotHeight - plotHeight * FloorMb / TopMb : double.NaN;
+
         if (Line is { } line)
         {
             var pen = new Pen(line, 1.7) { LineJoin = PenLineJoin.Round };
@@ -143,33 +232,51 @@ public class SeriesChart : FrameworkElement
                 dc.DrawGeometry(null, pen, geometry);
             }
         }
-        FloorY = TopMb > 0 ? plotHeight - plotHeight * FloorMb / TopMb : double.NaN;
         if (Pressure is { } pressure && !double.IsNaN(FloorY))
         {
             var dashed = new Pen(pressure, 1) { DashStyle = new DashStyle([4, 3], 0) };
             dashed.Freeze();
-            dc.DrawLine(dashed, new Point(0, FloorY), new Point(ActualWidth, FloorY));
+            dc.DrawLine(dashed, new Point(Plot.Left, FloorY), new Point(Plot.Right, FloorY));
         }
-        if (Label is { } label)
+
+        var labels = new List<(string, Rect)>();
+        void Put(string text, FormattedText formatted, Point at)
         {
-            var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-            var size = TryFindResource("T.Caption") is double caption ? caption : 12;
-            var face = new Typeface(TryFindResource("F.Ui") as FontFamily ?? new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-            FormattedText Text(string s) => new(s, CultureInfo.CurrentUICulture, FlowDirection, face, size, label, dpi);
-            if (!double.IsNaN(FloorY))
-            {
-                var floor = Text($"{(FloorMb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture)} GB pressure line");
-                dc.DrawText(floor, new Point(Math.Max(0, ActualWidth - floor.Width), Math.Max(0, FloorY - floor.Height - 2)));
-            }
-            dc.DrawText(Text((TopMb / 1024.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB"), new Point(0, 0));
-            if (points.Count > 0)
-            {
-                string When(DateTime at) => at.ToLocalTime().ToString(RangeName == "24 hours" ? "HH:mm" : "d MMM", CultureInfo.InvariantCulture);
-                dc.DrawText(Text(When(points[0].Start)), new Point(0, plotHeight + 2));
-                var end = Text(When(points[^1].Start));
-                dc.DrawText(end, new Point(Math.Max(0, ActualWidth - end.Width), plotHeight + 2));
-            }
+            if (Label is not null) dc.DrawText(formatted, at);
+            labels.Add((text, new Rect(at, new Size(formatted.Width, formatted.Height))));
         }
+        // The top value right-aligned in the gutter at the top; the line's value beside where the line is, kept clear of it.
+        Put(topText.Text, topText, new Point(gutter - 8 - topText.Width, 0));
+        if (!double.IsNaN(FloorY))
+        {
+            var y = Math.Clamp(FloorY - floorText.Height / 2, topText.Height + 2, Math.Max(topText.Height + 2, plotHeight - floorText.Height));
+            Put(floorText.Text, floorText, new Point(gutter - 8 - floorText.Width, y));
+        }
+
+        // The axis: its start with its day, its end "Now" or a kept reading's time, and the ticks between that fit.
+        var dayRange = RangeName == HistoryRange.Day.Name;
+        var startText = Text(from.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture));
+        var endText = Text(EndText ?? to.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture));
+        var axisY = plotHeight + 2;
+        Put(startText.Text, startText, new Point(Plot.Left, axisY));
+        Put(endText.Text, endText, new Point(Math.Max(Plot.Left, ActualWidth - endText.Width), axisY));
+        var ticks = new List<(DateTime, double, string?)>();
+        var tickPen = new Pen(ink, 1);
+        tickPen.Freeze();
+        var span = (to - from).Ticks;
+        foreach (var at in TickTimes(from, to, RangeName))
+        {
+            var x = Plot.Left + (span <= 0 ? 0 : Plot.Width * (double)(at - from).Ticks / span);
+            if (Label is not null) dc.DrawLine(tickPen, new Point(x, plotHeight - 3), new Point(x, plotHeight));
+            var label = Text(at.ToLocalTime().ToString(dayRange ? "HH:mm" : "d MMM", CultureInfo.InvariantCulture));
+            var box = new Rect(new Point(x - label.Width / 2, axisY), new Size(label.Width, label.Height));
+            var room = new Rect(box.X - 8, box.Y, box.Width + 16, box.Height);
+            var fits = box.Left >= Plot.Left && box.Right <= ActualWidth && !labels.Any(l => l.Item2.IntersectsWith(room));
+            if (fits) Put(label.Text, label, box.TopLeft);
+            ticks.Add((at, x, fits ? label.Text : null));
+        }
+        Labels = labels;
+        Ticks = ticks;
     }
 
     private static void OnSaid(DependencyObject d, DependencyPropertyChangedEventArgs e)

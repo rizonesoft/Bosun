@@ -71,6 +71,7 @@
                 <Grid Margin="0,10,0,0">
                     <controls:SeriesChart x:Name="Chart" Points="{Binding Points}" FloorMb="{Binding FloorMb}"
                                           RangeName="{Binding Range.Name}" Bucket="{Binding Range.Bucket}"
+                                          From="{Binding ChartFrom}" To="{Binding ChartTo}" EndText="{Binding ChartEnd}"
                                           Visibility="{Binding ShowTable, Converter={StaticResource WhenChart}}"/>
                     <DataGrid x:Name="HistoryTable" ItemsSource="{Binding Points}" AutoGenerateColumns="False" IsReadOnly="True"
                               MaxHeight="320" AutomationProperties.Name="Available memory as a table"

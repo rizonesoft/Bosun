@@ -80,6 +80,11 @@ public static partial class RenderCatalog
         // D03 T01 §3: the history, a gap in it breaking the line; its table; no history; a history that can't be read.
         MemoryCase("history-table", new Memory.MemoryPageTests.Source { Report = HistoryReport() }, "Lowest available", page => page.ShowAsTable.Execute(null)),
         MemoryCase("history-none", new Memory.MemoryPageTests.Source(), "No history in this range yet"),
+        // D02 T04 §5: the week and the fortnight, their dated ticks, at the panel's width and at its narrowest.
+        MemoryCase("history-week", new Memory.MemoryPageTests.Source { Report = HistoryReport(), Fortnight = HistoryReport() }, "7 days",
+            page => page.Range = Bosun.Panel.Memory.HistoryRange.Week),
+        MemoryCase("history-fortnight", new Memory.MemoryPageTests.Source { Report = HistoryReport(), Fortnight = HistoryReport() }, "14 days",
+            page => page.Range = Bosun.Panel.Memory.HistoryRange.Fortnight),
         MemoryCase("history-failed", new Memory.MemoryPageTests.Source
         {
             Report = Bosun.Core.Memory.Reading<Bosun.Core.Memory.ReportDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun report ran past 60 s."),

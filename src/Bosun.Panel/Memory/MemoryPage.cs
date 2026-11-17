@@ -303,6 +303,18 @@ public sealed class MemoryPage : PageBase
             : "";
     }
 
+    private DateTime? _chartFrom, _chartTo;
+    private string? _chartEnd;
+
+    /// <summary>Where the chart's time axis starts, in UTC: the report's time less the range.</summary>
+    public DateTime? ChartFrom { get => _chartFrom; private set => Set(ref _chartFrom, value); }
+
+    /// <summary>Where it ends: the report's time.</summary>
+    public DateTime? ChartTo { get => _chartTo; private set => Set(ref _chartTo, value); }
+
+    /// <summary>What its end says: "Now", or a kept reading's time and age.</summary>
+    public string? ChartEnd { get => _chartEnd; private set => Set(ref _chartEnd, value); }
+
     /// <summary>The chart's points for the range shown, from its own report, and what it says about them.</summary>
     private void DrawHistory()
     {
@@ -317,6 +329,12 @@ public sealed class MemoryPage : PageBase
         }
         var end = DateTime.TryParse(doc.GeneratedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at) ? at : DateTime.UtcNow;
         Points = History.Buckets(doc.Series, _range, end);
+        // The chart's span is the report's own period, its end "Now" while this is the latest read (D02 T04 §5).
+        ChartFrom = end - _range.Length;
+        ChartTo = end;
+        ChartEnd = latest is { Value: null }
+            ? $"{end.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture)}, {Age(Clock.GetUtcNow() - new DateTimeOffset(end, TimeSpan.Zero))} ago"
+            : "Now";
         var low = History.Lowest(Points);
         LowestSummary = low is null ? "" : $"Lowest {low.Lowest} at {low.LowestAt!.Value.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture)}";
         var notes = new List<string>();

@@ -62,11 +62,15 @@ public class MemoryHistoryTests
             source.Report = Day(Series((10, 4096)));                                            // read at last
             tick(Bosun.Core.RefreshScheduler.Slow + TimeSpan.FromSeconds(1));
             Assert.Equal("", page.HistoryState);
+            // The chart's span is the report's own period, its end "Now" while it is the latest read (D02 T04 §5).
+            Assert.Equal("Now", page.ChartEnd);
+            Assert.Equal(page.ChartTo - page.ChartFrom, HistoryRange.Day.Length);
             source.Report = Reading<ReportDoc>.Fail(ReadingProblem.Failed, "bosun report ran past 60 s.");
             tick(Bosun.Core.RefreshScheduler.Slow + TimeSpan.FromSeconds(1));
             Assert.Equal((long?)4096, History.Lowest(page.Points)!.LowestMb);                  // the last points kept
             Assert.StartsWith("The history could not be read again: bosun report ran past 60 s. Showing the read from ", page.HistoryState, StringComparison.Ordinal);
             Assert.EndsWith(" ago.", page.HistoryState, StringComparison.Ordinal);                             // its day and its age, never a bare time
+            Assert.Matches(@"^\d\d:\d\d, .+ ago$", page.ChartEnd);                                             // a kept read is not "Now"
             Assert.True(page.HistoryFailed);
             Assert.Contains(page.PaletteCommands, c => c.Name == "Retry reading the history");                // its own Retry, the cards still live
             Assert.Equal(Bosun.Panel.Shell.PageState.Data, page.State);
@@ -74,6 +78,7 @@ public class MemoryHistoryTests
             page.PaletteCommands.Single(c => c.Name == "Retry reading the history").Command.Execute(null);
             Settle();
             Assert.False(page.HistoryFailed);                                                                    // recovered
+            Assert.Equal("Now", page.ChartEnd);
             Assert.Equal("", page.HistoryState);
             Assert.DoesNotContain(page.PaletteCommands, c => c.Name == "Retry reading the history");
         });
