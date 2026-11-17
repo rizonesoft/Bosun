@@ -58,7 +58,7 @@ title: "TODO-04 -- Design polish"
 | 2 | §2 | Field insets, error border and label spacing | §1 | [x] |
 | 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
 | 4 | §4 | Table alignment and tabular numbers | -- | [x] |
-| 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [ ] |
+| 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [x] |
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [ ] |
 | 7 | §7 | Expandable toasts and a clean palette search field | §1 | [ ] |
 | 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [ ] |
@@ -217,9 +217,12 @@ A table's header and cells start 10 px right of its card's title, and number col
 - [x] Label the axis in local time: Day's ends "Sun 15 Nov 11:00" and its end "Now" while the history is current, "11:00, 5 min ago" style when it is a kept reading after a failed refresh; Week and Fortnight with dates ("Sun 15 Nov"), never a weekday alone; ticks every 6 hours (Day), each local midnight (Week) or every other local midnight (Fortnight), placed by local time so a daylight-saving change moves no tick off its hour; a tick label that would overlap another or leave the chart is dropped, the ends kept. Done when: `SeriesChartTests` reads each range's tick count, times and drawn positions, a span across a daylight-saving change, and a kept reading's end text; and fails when a tick is omitted or misplaced or labels overlap. Cheaper substitute: two identical times.
 - [x] Add Week and Fortnight history renders (`memory.history-week`, `memory.history-fortnight`) at the panel's width and at 960 px, beside the Day ones. Done when: they are in `RenderCatalog` and looked at, no label clipped. (**Corrected 2026-11-17:** the render catalogue draws at the panel's width; the narrow width is held by `ChartAxisTests` at a 560 px chart, every label inside the chart and apart.)
 - [x] Redraw the Memory history renders in every theme. Done when: each is looked at.
-- [ ] Commit: `memory: chart labels clear of the lines and a readable time axis`
+- [x] Commit: `memory: chart labels clear of the lines and a readable time axis`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SeriesChartTests" --filter-class "*MemoryHistoryTests"` exits 0, and fails with the old label placement or an omitted tick; the whole panel suite passes before the push.
+
+> **Verified:** 2026-11-17 | §5 | e4c881f2f997ecfce5301339b93276f413d23085
+> **Review:** `docs/reviews/d02-t04-s5.json`
 
 ## 6. Deliberate disabled buttons, crisp pills, badge and close glyph
 

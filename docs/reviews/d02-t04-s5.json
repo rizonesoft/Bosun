@@ -1,0 +1,81 @@
+{
+  "ref": "D02 T04 \u00a75",
+  "title": "Chart labels clear of lines and a readable time axis",
+  "implementation_sha": "e4c881f2f997ecfce5301339b93276f413d23085",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s5.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 829 of 829 (ChartAxisTests 13, SeriesChartTests, MemoryHistoryTests)",
+    "no gutter -> ChartAxisTests 5 of 7; a dropped tick -> 6 of 7; the axis not cleared -> MemoryHistoryTests 6 of 7",
+    "CI full gate at e4c881f -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/44022132967, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44022132979"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s5.md",
+    "verdict": "completed",
+    "candidate": "1e6bbb6c0231a31417aae8b6bb022d961c99b184",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s5.md",
+    "candidate": "1fa988c961975351e360eb3d4b1285055ead8192",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "1fa988c961975351e360eb3d4b1285055ead8192",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
