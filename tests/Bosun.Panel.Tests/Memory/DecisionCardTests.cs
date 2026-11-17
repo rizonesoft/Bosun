@@ -87,6 +87,34 @@ public class DecisionCardTests
     }
 
     [Fact]
+    public void The_Decision_card_is_in_reach_in_a_window_shorter_than_the_page()
+    {
+        // The frame is the window's height; the Memory page is taller, so it scrolls itself (D03 T02 §2 completion review).
+        Func<System.Windows.FrameworkElement, Task>? ready = null;
+        Bosun.Panel.Tests.Render.PageRenderer.InPage("Dark", () =>
+        {
+            var (view, isReady) = Rendered(new Source { Report = Bosun.Core.Memory.Reading<ReportDoc>.Of(ReportOf(), Now) });
+            ready = isReady;
+            return view;
+        }, root =>
+        {
+            var waiting = ready!(root);
+            while (!waiting.IsCompleted) Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            var scroll = Bosun.Panel.Tests.Shell.ShellSupport.Under<System.Windows.Controls.ScrollViewer>(root).Single(s => s.Name == "MemoryScroll");
+            Assert.True(scroll.ScrollableHeight > 0, $"the page scrolls (extent {scroll.ExtentHeight}, viewport {scroll.ViewportHeight})");
+            scroll.ScrollToBottom();
+            Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            var card = Bosun.Panel.Tests.Shell.ShellSupport.Under<System.Windows.Controls.Border>(root)
+                .Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Decision");
+            var presenter = Bosun.Panel.Tests.Shell.ShellSupport.Under<System.Windows.Controls.ScrollContentPresenter>(scroll).First();
+            var bottom = card.TransformToAncestor(presenter).Transform(new System.Windows.Point(0, card.ActualHeight)).Y;
+            Assert.True(bottom <= scroll.ViewportHeight + 1, $"the Decision card is in view at the bottom ({bottom} of {scroll.ViewportHeight})");
+            return 0;
+        }, 960, 600);
+    }
+
+    [Fact]
     public void A_failed_fortnight_has_the_cards_own_Retry_while_the_days_chart_is_fine_and_a_later_failure_keeps_the_verdict()
     {
         var source = new Source { Fortnight = Reading<ReportDoc>.Fail(ReadingProblem.Failed, "bosun report ran past 60 s.") };

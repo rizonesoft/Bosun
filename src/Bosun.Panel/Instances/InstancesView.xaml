@@ -23,16 +23,13 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
-        <!-- A row action: a small icon button, named for its instance, its reason on hover when it can't run. -->
-        <Style x:Key="RowAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="Margin" Value="0,0,4,0"/>
-            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
-        </Style>
     </UserControl.Resources>
-    <StackPanel>
-        <TextBlock x:Name="WslNotice" Text="{Binding WslNotice}" Style="{StaticResource Note}"/>
-        <ItemsControl x:Name="Notices" ItemsSource="{Binding Notices}" Focusable="False" IsTabStop="False"
+    <!-- The notices above, and the table filling the rest of the frame's height (Shell/ShellView.xaml gives a page
+         the window's height and no more): a long table scrolls inside itself, by wheel and by keyboard, and keeps the
+         grid's own row virtualisation (the completion review). -->
+    <DockPanel LastChildFill="True">
+        <TextBlock x:Name="WslNotice" DockPanel.Dock="Top" Text="{Binding WslNotice}" Style="{StaticResource Note}"/>
+        <ItemsControl x:Name="Notices" DockPanel.Dock="Top" ItemsSource="{Binding Notices}" Focusable="False" IsTabStop="False"
                       AutomationProperties.Name="What could not be read">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
@@ -104,11 +101,15 @@
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
-                                <Button x:Name="OpenFolder" Style="{StaticResource RowAction}" Command="{Binding OpenFolder}"
+                                <!-- The panel's own small button, a 32 px target (design/SPEC.md §1), named for its instance,
+                                     its reason on hover even while it can't run. -->
+                                <Button x:Name="OpenFolder" Style="{DynamicResource Btn.Small}" MinWidth="32" MinHeight="32" Margin="0,0,4,0"
+                                        ToolTipService.ShowOnDisabled="True" Command="{Binding OpenFolder}"
                                         AutomationProperties.Name="{Binding OpenFolderName}" ToolTip="{Binding OpenFolderTip}">
                                     <icons:PackIconLucide Kind="{x:Static theme:Glyphs.OpenFolder}" Width="14" Height="14" Focusable="False"/>
                                 </Button>
-                                <Button x:Name="OpenTerminal" Style="{StaticResource RowAction}" Command="{Binding OpenTerminal}"
+                                <Button x:Name="OpenTerminal" Style="{DynamicResource Btn.Small}" MinWidth="32" MinHeight="32" Margin="0,0,4,0"
+                                        ToolTipService.ShowOnDisabled="True" Command="{Binding OpenTerminal}"
                                         AutomationProperties.Name="{Binding OpenTerminalName}" ToolTip="{Binding OpenTerminalTip}">
                                     <icons:PackIconLucide Kind="{x:Static theme:Glyphs.OpenTerminal}" Width="14" Height="14" Focusable="False"/>
                                 </Button>
@@ -118,5 +119,5 @@
                 </DataGridTemplateColumn>
             </DataGrid.Columns>
         </DataGrid>
-    </StackPanel>
+    </DockPanel>
 </UserControl>

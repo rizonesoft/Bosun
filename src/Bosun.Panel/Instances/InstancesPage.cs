@@ -19,7 +19,7 @@ namespace Bosun.Panel.Instances;
 /// One instance as its row shows it (D03 T02 §2, design/SPEC.md §4): every cell in words, the numbers it sorts by, and
 /// its two actions. A value that could not be read says "Not available" with its reason, never 0 (SPEC §1).
 /// </summary>
-public sealed class InstanceLine
+public sealed class InstanceLine : Observable
 {
     internal InstanceLine(InstanceRow row, string group, int groupOrder, int order, string? staleAs, string staleWhy, DateTimeOffset now)
     {
@@ -46,7 +46,7 @@ public sealed class InstanceLine
         UptimeWhy = UptimeSeconds is not null ? $"Started {i.StartedAt}"
             : i.Kind == "job" && i.Slot is not null ? "Not available: its command has not started"
             : "Not available: its start could not be read";
-        (Target, FolderProblem) = OpenCommands.Resolve(row);
+        (Target, _folderProblem) = OpenCommands.Resolve(row);
     }
 
     public InstanceRow Row { get; }
@@ -95,8 +95,21 @@ public sealed class InstanceLine
 
     public OpenTarget? Target { get; }
 
-    /// <summary>Why its actions can't run, or null when they can.</summary>
-    public string? FolderProblem { get; }
+    /// <summary>Why its actions can't run, or null when they can: set too when a click found its folder gone.</summary>
+    public string? FolderProblem
+    {
+        get => _folderProblem;
+        internal set
+        {
+            if (!Set(ref _folderProblem, value)) return;
+            Raise(nameof(OpenFolderTip));
+            Raise(nameof(OpenTerminalTip));
+            (OpenFolder as AsyncCommand)?.Refresh();
+            (OpenTerminal as AsyncCommand)?.Refresh();
+        }
+    }
+
+    private string? _folderProblem;
 
     public ICommand? OpenFolder { get; internal set; }
 
@@ -327,16 +340,19 @@ public sealed class InstancesPage : PageBase
         foreach (var notice in notices) Notices.Add(notice);
         WslNotice = view.WslNotice;
 
+        // The client's WSL notice (no distro reported, or the reports could not be listed) is as much a gap in what was
+        // read as a failed side: the empty and failed states say it too, since they hide the view that shows it.
+        var gaps = view.WslNotice is { } wsl ? [.. notices, wsl] : notices;
         var anyRead = view.Sides.Any(s => s.Reading.Value is not null);
         if (!anyRead)
         {
-            ShowFailed(string.Join(Environment.NewLine, notices.Count > 0 ? notices : ["Nothing could be read."]));
+            ShowFailed(string.Join(Environment.NewLine, gaps.Count > 0 ? gaps : ["Nothing could be read."]));
             return;
         }
         if (lines.Count == 0)
         {
             // Nothing listed: said as nothing running only when every side was read whole.
-            if (notices.Count > 0) ShowEmpty("Nothing is listed, but the scan was incomplete: " + string.Join(" ", notices.Select(n => n.TrimEnd('.') + ".")),
+            if (gaps.Count > 0) ShowEmpty("Nothing is listed, but the scan was incomplete: " + string.Join(" ", gaps.Select(n => n.TrimEnd('.') + ".")),
                 "Retry with Refresh, or see the line for the source that could not be read.");
             else ShowEmpty(NothingRunning, NothingRunningAction);
             return;
@@ -381,11 +397,16 @@ public sealed class InstancesPage : PageBase
                 {
                     return ActionOutcome.Failed($"The folder could not be reached within {_folderWait.TotalSeconds:0} s: {target.WindowsPath}");
                 }
-                if (!there) return ActionOutcome.Failed($"The folder is no longer there: {target.WindowsPath}");
+                if (!there)
+                {
+                    // Its actions stay off with why until the next refresh reads the instance again.
+                    line.FolderProblem = $"The folder is no longer there: {target.WindowsPath}";
+                    return ActionOutcome.Failed(line.FolderProblem);
+                }
             }
             var start = build(target);
             await Task.Run(() => _launcher.Start(start));
             return ActionOutcome.DoneWith(target.Distro is { } d ? $"{target.Path} in WSL ({d})" : target.Path);
-        }, () => line.Target is not null);
+        }, () => line.Target is not null && line.FolderProblem is null);
     }
 }

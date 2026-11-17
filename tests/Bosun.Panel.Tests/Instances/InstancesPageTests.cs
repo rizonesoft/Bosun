@@ -217,6 +217,19 @@ public class InstancesPageTests
             Assert.StartsWith("Nothing is listed, but the scan was incomplete: ", h.Page.EmptyReason, StringComparison.Ordinal);
             Assert.Contains("Windows: its process list could not be read: access denied.", h.Page.EmptyReason, StringComparison.Ordinal);
             Assert.Contains("Windows: 3 processes could not be read, so an instance may be missing.", h.Page.EmptyReason, StringComparison.Ordinal);
+
+            // No distro has reported: Windows empty is not nothing running on either side (the completion review).
+            source.Answer = View("No WSL distro has reported its instances to X:\\logs, so only Windows is listed.", Win());
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal(PageState.Empty, h.Page.State);
+            Assert.Equal("Nothing is listed, but the scan was incomplete: No WSL distro has reported its instances to X:\\logs, so only Windows is listed.", h.Page.EmptyReason);
+            // And with Windows unread too, the failure says both.
+            source.Answer = View("The WSL reports in X:\\logs can't be listed (access denied), so only Windows is listed.", Failed("windows", null, "bosun.exe was not found."));
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal(PageState.Failed, h.Page.State);
+            Assert.Equal($"Windows: bosun.exe was not found.{Environment.NewLine}The WSL reports in X:\\logs can't be listed (access denied), so only Windows is listed.", h.Page.FailureMessage);
         });
     }
 
@@ -316,7 +329,8 @@ public class InstancesPageTests
         {
             var claude = Line(h.Page, 100);
             claude.OpenFolder!.Execute(null);
-            Until(() => h.Launcher.Started.Count == 1);
+            // Its line is written once the launch has returned: waited for itself, not for the launch (CI's red run).
+            Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal)));
             Assert.Equal(("explorer.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].ArgumentList.Single()));
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal));
             Line(h.Page, 4242).OpenTerminal!.Execute(null);
@@ -349,6 +363,14 @@ public class InstancesPageTests
             Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
             Assert.Empty(h.Launcher.Started);
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith(@"The folder is no longer there: D:\Bosun", StringComparison.Ordinal));
+            // Its actions are now off, with why, until a refresh reads the instance again (the completion review).
+            var gone = Line(h.Page, 100);
+            Assert.False(gone.OpenFolder!.CanExecute(null));
+            Assert.False(gone.OpenTerminal!.CanExecute(null));
+            Assert.Equal(@"The folder is no longer there: D:\Bosun", gone.OpenFolderTip);
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.True(Line(h.Page, 100).OpenFolder!.CanExecute(null));
             Line(h.Page, 4242).OpenFolder!.Execute(null);                                      // a distro's own folder is not looked at first
             Until(() => h.Launcher.Started.Count == 1);
             Assert.Equal(@"\\wsl.localhost\Ubuntu\home\me\app", h.Launcher.Started.Single().ArgumentList.Single());
@@ -416,6 +438,44 @@ public class InstancesPageTests
             Settle();
             Assert.Null(page.Selected);
         });
+    }
+
+    [Fact]
+    public void A_long_table_scrolls_with_the_page_so_its_last_row_and_actions_are_in_reach_at_the_least_window()
+    {
+        // Sixty instances in thirty repos: far taller than a 960 x 600 window (the completion review).
+        var many = Enumerable.Range(0, 60).Select(i => I("claude", 1000 + i, cwd: $@"D:\r{i / 2}", repo: $"D:/r{i / 2}")).ToArray();
+        PageRenderer.InPage("Dark", () =>
+        {
+            var scheduler = new RefreshScheduler(() => Now.UtcDateTime, new Driver());
+            var log = Shells.Log();
+            var page = new InstancesPage(new FakeInstances { Answer = View(null, Win(many)) }, scheduler, log, new FakeLauncher(), () => true, _ => true)
+            {
+                Clock = new FixedClock(Now),
+            };
+            var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["instances"] = page }), log);
+            shell.Show(shell.Sections.Single(s => s.Key == "instances"));
+            return new ShellView { DataContext = shell };
+        }, root =>
+        {
+            for (var i = 0; i < 6; i++) Pump();
+            PageRenderer.Settle(root);
+            // The table scrolls inside itself, in the height the frame gives it.
+            var grid = ShellSupport.Under<DataGrid>(root).Single(g => g.Name == "Table");
+            var scroll = ShellSupport.Under<ScrollViewer>(grid).First();
+            Assert.True(scroll.ScrollableHeight > 0, $"the table scrolls (extent {scroll.ExtentHeight}, viewport {scroll.ViewportHeight})");
+            var page = ShellSupport.Under<ScrollViewer>(root).Single(s => s.Name == "PageScroll");
+            Assert.True(grid.TransformToAncestor(page).Transform(new System.Windows.Point(0, grid.ActualHeight)).Y <= page.ActualHeight + 1, "the table ends inside the window");
+            scroll.ScrollToBottom();
+            PageRenderer.Settle(root);
+            var last = ShellSupport.Under<Button>(root).Where(b => b.Name == "OpenTerminal").Last();
+            // Measured in the scroll's own viewport (its content presenter), inside the ScrollViewer's padding.
+            var presenter = ShellSupport.Under<ScrollContentPresenter>(scroll).First();
+            var bottom = last.TransformToAncestor(presenter).Transform(new System.Windows.Point(0, last.ActualHeight)).Y;
+            Assert.True(bottom <= scroll.ViewportHeight + 1, $"the last row's action is in view at the bottom ({bottom} of {scroll.ViewportHeight})");
+            Assert.True(last.ActualHeight >= 32 && last.ActualWidth >= 32, $"a 32 px target ({last.ActualWidth} x {last.ActualHeight})");
+            return 0;
+        }, 960, 600);
     }
 
     [Fact]

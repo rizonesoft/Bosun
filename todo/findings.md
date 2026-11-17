@@ -153,3 +153,7 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Memory/MemoryView.xaml` (Decision card): from each reason, one action shows its time and the measurements behind it (the commit peak's commit and limit) (D03 T01 §6 completion review, 2026-11-17).
 - `src/Bosun.Panel/Memory/MemoryView.xaml` (Decision card): say the evidence window (the last 14 days) and the latest sample time on every verdict (D03 T01 §6 completion review, 2026-11-17).
 - `src/core.hpp` (`decision_evidence`): measure a normal and a damaged 14-day log against a two-second warm budget and no UI stall over 100 ms; sort only the sys rows it needs (D03 T01 §6 completion review, 2026-11-17).
+- `src/Bosun.Panel/Instances/InstancesView.xaml`: Ctrl+F to filter the instances by repo or process, 1,000 rows within 100 ms, the count said to a screen reader (D03 T02 §2 completion review, 2026-11-17).
+- `src/Bosun.Core/Instances/InstanceClient.cs` (`ReadAsync`): show each source as it answers, the other marked pending, instead of waiting for the slowest (D03 T02 §2 completion review, 2026-11-17).
+- `src/Bosun.Panel/Instances/InstancesPage.cs` (`Show`): update rows in place, under 50 ms on the UI thread for 1,000 rows, keeping focus, scroll and sort over an unchanged refresh (D03 T02 §2 completion review, 2026-11-17).
+- `src/Bosun.Panel/Instances/InstancesPage.cs` (`InstanceLine`): tell two instances of one kind in one repo apart without hovering, a short second label (D03 T02 §2 completion review, 2026-11-17).

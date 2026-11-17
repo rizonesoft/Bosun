@@ -600,7 +600,9 @@
         </DataTemplate.Triggers>
     </DataTemplate>
 
-    <!-- Scroll bars. The stock one is light chrome with stepper buttons, the loudest thing on a dark page. -->
+    <!-- Scroll bars. The stock one is light chrome with stepper buttons, the loudest thing on a dark page. Its thumb
+         and the track either side are named, so a screen reader can say what each is (D03 T02 §2: the smoke found
+         them unnamed once a page first scrolled). -->
     <Style x:Key="ScrollThumb" TargetType="Thumb">
         <Setter Property="Template">
             <Setter.Value>
@@ -646,13 +648,13 @@
                     <Grid Background="{TemplateBinding Background}">
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.Thumb>
-                                <Thumb Style="{StaticResource ScrollThumb}"/>
+                                <Thumb Style="{StaticResource ScrollThumb}" AutomationProperties.Name="Scroll position"/>
                             </Track.Thumb>
                             <Track.IncreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageDownCommand"/>
+                                <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageDownCommand" AutomationProperties.Name="Page down"/>
                             </Track.IncreaseRepeatButton>
                             <Track.DecreaseRepeatButton>
-                                <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageUpCommand"/>
+                                <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageUpCommand" AutomationProperties.Name="Page up"/>
                             </Track.DecreaseRepeatButton>
                         </Track>
                     </Grid>
@@ -672,13 +674,13 @@
                             <Grid Background="{TemplateBinding Background}">
                                 <Track x:Name="PART_Track" IsDirectionReversed="False">
                                     <Track.Thumb>
-                                        <Thumb Style="{StaticResource ScrollThumb}"/>
+                                        <Thumb Style="{StaticResource ScrollThumb}" AutomationProperties.Name="Scroll position"/>
                                     </Track.Thumb>
                                     <Track.IncreaseRepeatButton>
-                                        <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageRightCommand"/>
+                                        <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageRightCommand" AutomationProperties.Name="Page right"/>
                                     </Track.IncreaseRepeatButton>
                                     <Track.DecreaseRepeatButton>
-                                        <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageLeftCommand"/>
+                                        <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageLeftCommand" AutomationProperties.Name="Page left"/>
                                     </Track.DecreaseRepeatButton>
                                 </Track>
                             </Grid>

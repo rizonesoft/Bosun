@@ -51,6 +51,10 @@
         </DataTemplate>
     </UserControl.Resources>
 
+    <!-- The page frame gives a page the window's height and no more (Shell/ShellView.xaml, PageHost): the cards, the
+         chart, the table and the Decision card are taller than a small window, so they scroll here, and the Decision
+         card is never out of reach below the frame (D03 T02 §2 completion review). -->
+    <ScrollViewer x:Name="MemoryScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
     <StackPanel>
         <TextBlock x:Name="HistoryNote" Text="{Binding HistoryNote}" Style="{StaticResource Warning}"/>
 
@@ -216,4 +220,5 @@
             </StackPanel>
         </Border>
     </StackPanel>
+    </ScrollViewer>
 </UserControl>
