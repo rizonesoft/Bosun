@@ -147,7 +147,10 @@ public partial class ControlStylesTests
 
             button.IsEnabled = false;
             PageRenderer.Settle(page);
-            Assert.Equal(0.4, Part<Grid>(button, "root").Opacity);
+            // Disabled in its own colours at full strength, never faded (D02 T04 §6: at 0.4 a primary read as active).
+            Assert.Equal(1.0, Part<Grid>(button, "root").Opacity);
+            Assert.Equal(Token(theme, "DisabledFill"), Paint(Part<Border>(button, "bd").Background));
+            Assert.Equal(Token(theme, "DisabledLine"), Paint(Part<Border>(button, "bd").BorderBrush));
             Assert.Equal(Cursors.Arrow, button.Cursor);
         });
     }

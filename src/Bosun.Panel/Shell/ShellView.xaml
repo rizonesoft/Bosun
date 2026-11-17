@@ -8,6 +8,7 @@
 <UserControl x:Class="Bosun.Panel.Shell.ShellView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
              xmlns:shell="clr-namespace:Bosun.Panel.Shell"
              xmlns:chrome="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
@@ -60,7 +61,7 @@
                     </Button>
                     <Button x:Name="CloseButton" Style="{DynamicResource Btn.Chrome}" Tag="danger"
                             AutomationProperties.Name="Close" ToolTip="Close" Click="OnClose">
-                        <Path Data="M0,0 L10,10 M10,0 L0,10" StrokeThickness="1" SnapsToDevicePixels="True"
+                        <Path x:Name="CloseGlyph" Data="{x:Static theme:Glyphs.CaptionClose}" StrokeThickness="1" SnapsToDevicePixels="True"
                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                     </Button>
                 </StackPanel>

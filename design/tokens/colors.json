@@ -20,7 +20,14 @@
     "OkSoft": "#2446C96B",
     "WarnSoft": "#24FFB547",
     "DangerSoft": "#24FF6B5E",
-    "InfoSoft": "#246EA8FF"
+    "InfoSoft": "#246EA8FF",
+    "DisabledFill": "#151A21",
+    "DisabledText": "#7E8898",
+    "DisabledLine": "#2D3644",
+    "OkLine": "#6646C96B",
+    "WarnLine": "#66FFB547",
+    "DangerLine": "#66FF6B5E",
+    "InfoLine": "#666EA8FF"
   },
   "light": {
     "Base": "#F4F6F8",
@@ -42,7 +49,14 @@
     "OkSoft": "#1216703A",
     "WarnSoft": "#128F5A00",
     "DangerSoft": "#12C2281C",
-    "InfoSoft": "#121F5FBF"
+    "InfoSoft": "#121F5FBF",
+    "DisabledFill": "#F8F9FB",
+    "DisabledText": "#6F7A89",
+    "DisabledLine": "#CCD3DC",
+    "OkLine": "#5516703A",
+    "WarnLine": "#558F5A00",
+    "DangerLine": "#55C2281C",
+    "InfoLine": "#551F5FBF"
   },
   "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999, "Mark": 4},
   "elevation": {

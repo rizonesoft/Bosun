@@ -1,3 +1,4 @@
+using System.Windows.Media;
 using MahApps.Metro.IconPacks;
 
 namespace Bosun.Panel.Theme;
@@ -89,6 +90,18 @@ public static class Glyphs
     public static PackIconLucideKind For(GlyphAction action) => Actions[action];
 
     /// <summary>The Memory page's card glyphs, for a view to name with x:Static.</summary>
+    /// <summary>
+    /// The window's close glyph (D02 T04 §6): the thin cross Windows draws in a caption, one of the caption buttons' set,
+    /// so it is a geometry beside them rather than a Lucide kind. The shell's close and any chrome button draw it.
+    /// </summary>
+    public static Geometry CaptionClose { get; } = Frozen(Geometry.Parse("M0,0 L10,10 M10,0 L0,10"));
+
+    private static Geometry Frozen(Geometry geometry)
+    {
+        geometry.Freeze();
+        return geometry;
+    }
+
     public static PackIconLucideKind OpenFolder => Actions[GlyphAction.OpenFolder];
 
     public static PackIconLucideKind OpenTerminal => Actions[GlyphAction.OpenTerminal];

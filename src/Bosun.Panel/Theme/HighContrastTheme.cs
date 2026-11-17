@@ -53,7 +53,8 @@ public static class HighContrastTheme
     /// <summary>Which palette colour a theme colour key takes.</summary>
     public static Color For(string key, SystemPalette palette) => key switch
     {
-        "Base" or "Surface" or "Raised" or "Hover" => palette.Window,
+        "Base" or "Surface" or "Raised" or "Hover" or "DisabledFill" => palette.Window,
+        "DisabledText" or "DisabledLine" => palette.GrayText,
         _ when key.EndsWith("Soft", StringComparison.Ordinal) => palette.Window,
         "Accent" or "AccentDim" => palette.Highlight,
         "OnAccent" => palette.HighlightText,

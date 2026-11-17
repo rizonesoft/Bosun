@@ -148,8 +148,12 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="wash" Property="Opacity" Value="0.12"/>
                         </Trigger>
+                        <!-- Disabled in its own colours at full strength (D02 T04 §6): faded to 0.4, a primary read as still active
+                             and a secondary nearly vanished. -->
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="root" Property="Opacity" Value="0.4"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource B.DisabledFill}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.DisabledLine}"/>
+                            <Setter TargetName="content" Property="TextElement.Foreground" Value="{DynamicResource B.DisabledText}"/>
                             <Setter Property="Cursor" Value="Arrow"/>
                         </Trigger>
                         <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
@@ -297,8 +301,10 @@
         <Setter Property="VerticalAlignment" Value="Center"/>
         <Setter Property="Background" Value="{DynamicResource B.Raised}"/>
         <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
-        <Setter Property="BorderBrush" Value="Transparent"/>
-        <Setter Property="BorderThickness" Value="0"/>
+        <!-- A 1 px edge in its status colour, Neutral in the line colour (D02 T04 §6): with none, the soft fill's edge
+             read as a glow. -->
+        <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
+        <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Template">
@@ -321,18 +327,22 @@
         <Style.Triggers>
             <Trigger Property="Kind" Value="Ok">
                 <Setter Property="Background" Value="{DynamicResource B.OkSoft}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.OkLine}"/>
                 <Setter Property="Foreground" Value="{DynamicResource B.Ok}"/>
             </Trigger>
             <Trigger Property="Kind" Value="Warn">
                 <Setter Property="Background" Value="{DynamicResource B.WarnSoft}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.WarnLine}"/>
                 <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
             </Trigger>
             <Trigger Property="Kind" Value="Danger">
                 <Setter Property="Background" Value="{DynamicResource B.DangerSoft}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.DangerLine}"/>
                 <Setter Property="Foreground" Value="{DynamicResource B.Danger}"/>
             </Trigger>
             <Trigger Property="Kind" Value="Info">
                 <Setter Property="Background" Value="{DynamicResource B.InfoSoft}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource B.InfoLine}"/>
                 <Setter Property="Foreground" Value="{DynamicResource B.Info}"/>
             </Trigger>
             <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
@@ -826,13 +836,25 @@
                             <DockPanel>
                                 <TabPanel x:Name="HeaderPanel" DockPanel.Dock="Left" IsItemsHost="True"
                                           KeyboardNavigation.TabIndex="1" Margin="0,0,0,-1"/>
-                                <ContentPresenter x:Name="Trailing" Content="{TemplateBinding Tag}"
-                                                  VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <!-- What the strip says beside its tabs ("3 waiting"): a count pill on the tabs' text line, not
+                                     loose text above it (D02 T04 §6). Shown only when there is something to say. -->
+                                <Border x:Name="TrailingPill" Background="{DynamicResource B.Raised}" BorderBrush="{DynamicResource B.Line}"
+                                        BorderThickness="1" CornerRadius="{DynamicResource R.Pill}" Padding="8,1,8,2"
+                                        VerticalAlignment="Center" HorizontalAlignment="Left" Margin="{DynamicResource Gap.Before.S}">
+                                    <ContentPresenter x:Name="Trailing" Content="{TemplateBinding Tag}" VerticalAlignment="Center"
+                                                      TextElement.FontSize="{DynamicResource T.Caption}"
+                                                      TextElement.Foreground="{DynamicResource B.TextDim}"/>
+                                </Border>
                             </DockPanel>
                         </Border>
                         <ContentPresenter Grid.Row="1" x:Name="PART_SelectedContentHost"
                                           ContentSource="SelectedContent"/>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Tag" Value="{x:Null}">
+                            <Setter TargetName="TrailingPill" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>

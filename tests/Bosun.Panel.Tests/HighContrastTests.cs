@@ -260,8 +260,11 @@ public class HighContrastTests
         var box = PageRenderer.InPage("HighContrast", () => new CheckBox { Content = "Notify", IsChecked = true, IsEnabled = false },
             page => Paint(((Border)((CheckBox)((Border)page).Child).Template.FindName("box", (CheckBox)((Border)page).Child)).Background), palette: palette);
         Assert.Equal(palette.Window, box);
+        // In Dark a field, check box and combo box keep their fade; a button is drawn disabled in its own colours at
+        // full strength instead (D02 T04 §6: faded, a primary read as active and a secondary nearly vanished).
         var dark = Disabled("Dark");
-        Assert.All(dark, c => Assert.True(c.Opacity < 1, $"{c.What} in Dark is not faded"));
+        Assert.All(dark.Where(c => c.What != nameof(Button)), c => Assert.True(c.Opacity < 1, $"{c.What} in Dark is not faded"));
+        Assert.Equal(1.0, dark.Single(c => c.What == nameof(Button)).Opacity);
     }
 
     [Theory]

@@ -25,6 +25,13 @@
     <Color x:Key="C.WarnSoft">#24FFB547</Color>
     <Color x:Key="C.DangerSoft">#24FF6B5E</Color>
     <Color x:Key="C.InfoSoft">#246EA8FF</Color>
+    <Color x:Key="C.DisabledFill">#151A21</Color>
+    <Color x:Key="C.DisabledText">#7E8898</Color>
+    <Color x:Key="C.DisabledLine">#2D3644</Color>
+    <Color x:Key="C.OkLine">#6646C96B</Color>
+    <Color x:Key="C.WarnLine">#66FFB547</Color>
+    <Color x:Key="C.DangerLine">#66FF6B5E</Color>
+    <Color x:Key="C.InfoLine">#666EA8FF</Color>
 
     <!-- Brushes, frozen: they never change, so WPF can share them across threads and skip change tracking -->
     <SolidColorBrush x:Key="B.Base" Color="{StaticResource C.Base}" po:Freeze="True"/>
@@ -47,6 +54,13 @@
     <SolidColorBrush x:Key="B.WarnSoft" Color="{StaticResource C.WarnSoft}" po:Freeze="True"/>
     <SolidColorBrush x:Key="B.DangerSoft" Color="{StaticResource C.DangerSoft}" po:Freeze="True"/>
     <SolidColorBrush x:Key="B.InfoSoft" Color="{StaticResource C.InfoSoft}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.DisabledFill" Color="{StaticResource C.DisabledFill}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.DisabledText" Color="{StaticResource C.DisabledText}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.DisabledLine" Color="{StaticResource C.DisabledLine}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.OkLine" Color="{StaticResource C.OkLine}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.WarnLine" Color="{StaticResource C.WarnLine}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.DangerLine" Color="{StaticResource C.DangerLine}" po:Freeze="True"/>
+    <SolidColorBrush x:Key="B.InfoLine" Color="{StaticResource C.InfoLine}" po:Freeze="True"/>
 
     <!-- Corner radii -->
     <CornerRadius x:Key="R.Card">12</CornerRadius>

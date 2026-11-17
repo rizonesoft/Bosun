@@ -33,7 +33,8 @@ THEMES = ("dark", "light")
 # The keys the panel's consumers use: a token file without one of them is refused, even when both themes lack it.
 REQUIRED = {
     "colours": ("Base", "Surface", "Raised", "Hover", "Line", "Text", "TextDim", "TextMute", "Accent", "AccentDim",
-                "OnAccent", "Ok", "Warn", "Danger", "Info", "LineStrong", "OkSoft", "WarnSoft", "DangerSoft", "InfoSoft"),
+                "OnAccent", "Ok", "Warn", "Danger", "Info", "LineStrong", "OkSoft", "WarnSoft", "DangerSoft", "InfoSoft",
+                "DisabledFill", "DisabledText", "DisabledLine", "OkLine", "WarnLine", "DangerLine", "InfoLine"),
     "radius": ("Card", "Control", "Sheet", "Overlay", "Pill"),
     "size": ("Form",),
     "space": ("XS", "S", "M", "L", "XL"),

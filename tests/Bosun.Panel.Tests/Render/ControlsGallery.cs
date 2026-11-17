@@ -31,10 +31,10 @@ public sealed class ControlsGallery : UserControl
         stack.Children.Add(Row(
             Button("Btn", "Refresh"), Button("Btn.Primary", "Save"), Button("Btn.Danger", "Stop job"),
             Button("Btn.Small", "Details"), Button("Btn", "Disabled", enabled: false), Button("Btn.Primary", "Disabled", enabled: false),
-            Button("Btn.Chrome", "x", tag: "danger")));
+            Chrome()));
 
         stack.Children.Add(Label("Tabs"));
-        var tabs = new TabControl { Height = 96, Tag = Text("3 waiting", "T.SectionLabel") };
+        var tabs = new TabControl { Height = 96, Tag = "3 waiting" }; // the strip draws it as its count pill (D02 T04 §6)
         tabs.SetResourceReference(StyleProperty, "TabStrip");
         tabs.Items.Add(new TabItem { Header = "Overview", Content = new TextBlock { Text = "The first tab's content" } });
         tabs.Items.Add(new TabItem { Header = "Logs", Content = new TextBlock { Text = "The second tab's content" } });
@@ -155,6 +155,17 @@ public sealed class ControlsGallery : UserControl
         System.Windows.Controls.Grid.SetColumn(stack, column);
         foreach (var child in children) stack.Children.Add(child);
         return stack;
+    }
+
+    /// <summary>A window's close button as the shell draws it: the map's caption glyph, named and with its tooltip (D02 T04 §6).</summary>
+    private static Button Chrome()
+    {
+        var glyph = new System.Windows.Shapes.Path { Data = Bosun.Panel.Theme.Glyphs.CaptionClose, StrokeThickness = 1, SnapsToDevicePixels = true };
+        glyph.SetBinding(System.Windows.Shapes.Shape.StrokeProperty, new Binding(nameof(Foreground)) { RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor, typeof(Button), 1) });
+        var button = new Button { Content = glyph, Tag = "danger", ToolTip = "Close", Width = 46, Height = 32 };
+        System.Windows.Automation.AutomationProperties.SetName(button, "Close");
+        button.SetResourceReference(StyleProperty, "Btn.Chrome");
+        return button;
     }
 
     private static Button Button(string style, string text, bool enabled = true, string? tag = null)
