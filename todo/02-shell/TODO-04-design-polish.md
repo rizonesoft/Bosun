@@ -59,7 +59,7 @@ title: "TODO-04 -- Design polish"
 | 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
 | 4 | §4 | Table alignment and tabular numbers | -- | [x] |
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [x] |
-| 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [ ] |
+| 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [x] |
 | 7 | §7 | Expandable toasts and a clean palette search field | §1 | [ ] |
 | 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [ ] |
 | 9 | §9 | Placeholder copy, the Activity heading and the idle scroll thumb | -- | [ ] |
@@ -249,11 +249,16 @@ A disabled primary button is a muddy green that still reads as active, a disable
 - [x] Give `StatusPill` a 1 px edge in its status colour (Ok, Warn, Danger, Info and Neutral) from new `*Line` tokens in `colors.json` (**Corrected 2026-11-17** by the plan review: the pill has no shadow or blur; its edge is a zero-width transparent border over a soft fill, which reads as a glow), keeping its contrast theme's opaque outline. Done when: a `ControlStylesTests` case reads each kind's border thickness 1 and brush, and no `Effect`, in every theme; `controls.status-pills` and the toast renders are looked at.
 - [x] Draw the strip's trailing content (`TabStrip`'s `Trailing` presenter, where `TabControl.Tag` shows "3 waiting") as a count pill centred on the tabs' text line (**Corrected 2026-11-17** by the plan review: the badge is the strip's trailing slot, not `TabStrip.Item`). Done when: a test on the gallery's tab strip finds the pill's vertical centre within 1 px of the tab text's.
 - [x] Add a close glyph to the shared glyph map (**Corrected 2026-11-17** at build: `Glyphs.CaptionClose`, the thin caption cross as a geometry, since the shell's minimise, maximise and close draw Windows' caption glyphs as one set and a Lucide X would break it; in `src/Bosun.Panel/Theme/Glyphs.cs`), and draw it in the gallery's chrome button (`tests/Bosun.Panel.Tests/Render/ControlsGallery.cs`) and the shell's close caption button (`src/Bosun.Panel/Shell/ShellView.xaml`, today an inline `Path`) (**Corrected 2026-11-17** by the plan review: the map has no close glyph, and a rule against a letter x passes an empty button). Done when: a test finds each button's glyph is `Glyphs.Close`, its accessible name and tooltip kept, a 32 px target, and the shell's close still closing the window (`ShellTests`).
-- [ ] Commit: `theme: deliberate disabled states, crisp pills, centred badges and a close glyph`
+- [x] Commit: `theme: deliberate disabled states, crisp pills, centred badges and a close glyph`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DisabledButtonTests" --filter-class "*ControlStylesTests" --filter-class "*ThemeTests" --filter-class "*ShellTests" --filter-class "*XamlRulesTests"` exits 0, and fails with a button faded instead or a pill's edge removed; the whole panel suite passes before the push.
 
+> **Verified:** 2026-11-17 | §6 | 482b378f028f9460b18785049a5b1835cfda4a93
+> **Review:** `docs/reviews/d02-t04-s6.json`
+
 ## 7. Expandable toasts and a clean palette search field
+
+> **Started:** 2026-11-17T06:17:37Z
 
 A long toast is cut off with no way to read the rest, and the palette's search box is a bordered field inside a bordered card with its icon outside it. A toast shows its whole message on request, and the palette's search is one clean field with its icon inside.
 

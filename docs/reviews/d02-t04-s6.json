@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T04 \u00a76",
+  "title": "Deliberate disabled buttons, crisp pills, badge and close glyph",
+  "implementation_sha": "482b378f028f9460b18785049a5b1835cfda4a93",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s6.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 850 of 850 (DisabledButtonTests 21)",
+    "python -B -m unittest scripts.tests.test_build_theme -> OK",
+    "the 0.4 fade back and the pill's edge removed -> DisabledButtonTests 6 of 16",
+    "CI full gate at 482b378 -> build.yml green https://github.com/rizonetech/Bosun/actions/runs/44028718524, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44028718532"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s6.md",
+    "verdict": "completed",
+    "candidate": "a104210aaec9c77d60ab4dc669a7edeb34505881",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s6.md",
+    "candidate": "665548d9033bb04dc260bc1d1f2903a30ecc3fac",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "665548d9033bb04dc260bc1d1f2903a30ecc3fac",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
