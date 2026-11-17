@@ -94,6 +94,61 @@ public class DisabledButtonTests
     [Theory]
     [InlineData("Dark")]
     [InlineData("Light")]
+    [InlineData("HighContrast")]
+    public void A_disabled_window_button_keeps_full_strength_its_glyph_in_the_disabled_colour(string theme)
+    {
+        // The chrome buttons have their own template; the completion review found it still faded to 0.4.
+        PageRenderer.InPage<int>(theme, () =>
+        {
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24) };
+            foreach (var enabled in new[] { true, false })
+            {
+                var glyph = new System.Windows.Shapes.Path { Data = Bosun.Panel.Theme.Glyphs.CaptionClose, StrokeThickness = 1 };
+                var button = new Button { Content = glyph, IsEnabled = enabled, Width = 46, Height = 32 };
+                glyph.SetBinding(System.Windows.Shapes.Shape.StrokeProperty, new System.Windows.Data.Binding(nameof(Button.Foreground)) { Source = button });
+                button.SetResourceReference(FrameworkElement.StyleProperty, "Btn.Chrome");
+                panel.Children.Add(button);
+            }
+            return panel;
+        }, page =>
+        {
+            var (on, off) = (ShellSupport.Under<Button>(page).First(b => b.IsEnabled), ShellSupport.Under<Button>(page).First(b => !b.IsEnabled));
+            var bd = (Border)off.Template.FindName("bd", off);
+            Assert.Equal(1.0, bd.Opacity * off.Opacity, 3);
+            var want = theme == "HighContrast" ? "B.GrayText" : "B.DisabledText";
+            Assert.Equal(Of((Brush)page.FindResource(want)), Of(off.Foreground));
+            Assert.NotEqual(Of(on.Foreground), Of(off.Foreground));
+            return 0;
+        });
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
+    public void A_pill_is_a_capsule_with_room_around_its_word(string theme)
+    {
+        // Its corners are half its height, so its ends are semicircles, not the lens a 999 radius drew; and 3 px above
+        // and below its word (D02 T04 §6 completion review).
+        PageRenderer.InPage<int>(theme, () => new StackPanel { Margin = new Thickness(24), Children = { new StatusPill { Kind = StatusKind.Ok, Word = "Running" } } }, page =>
+        {
+            var pill = ShellSupport.Under<StatusPill>(page).Single();
+            var border = (Border)VisualTreeHelper.GetChild(pill, 0);
+            Assert.Equal(border.ActualHeight / 2, border.CornerRadius.TopLeft, 0.5);
+            Assert.True(border.Padding.Top >= 3 && border.Padding.Bottom >= 3, $"{border.Padding}");
+            return 0;
+        });
+        PageRenderer.InPage<int>(theme, () => ControlsGallery.Gallery(), page =>
+        {
+            var strip = ShellSupport.Under<TabControl>(page).Single();
+            var count = (Border)strip.Template.FindName("TrailingPill", strip);
+            Assert.Equal(count.ActualHeight / 2, count.CornerRadius.TopLeft, 0.5);
+            return 0;
+        }, 1360, 860);
+    }
+
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
     public void A_status_pill_has_a_1_px_edge_in_its_status_colour_and_no_effect(string theme)
     {
         PageRenderer.InPage<int>(theme, () =>

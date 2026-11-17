@@ -16,6 +16,7 @@
                     xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks">
 
     <controls:StatusGlyph x:Key="StatusGlyph"/>
+    <controls:PillCorners x:Key="PillCorners"/>
 
     <!-- Segoe UI Variable is the Windows 11 face; Segoe UI stands in where it is missing. -->
     <FontFamily x:Key="F.Ui">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -274,8 +275,9 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="bd" Property="Opacity" Value="0.8"/>
                         </Trigger>
+                        <!-- Disabled in its own text colour at full strength, its glyph following it (D02 T04 §6). -->
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="bd" Property="Opacity" Value="0.4"/>
+                            <Setter Property="Foreground" Value="{DynamicResource B.DisabledText}"/>
                         </Trigger>
                         <!-- In a contrast theme (D02 T03 §10): Windows' colours, never a fade or the panel's own. -->
                         <MultiTrigger>
@@ -311,7 +313,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="controls:StatusPill">
                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{DynamicResource R.Pill}" Padding="7,2,9,2">
+                            BorderThickness="{TemplateBinding BorderThickness}" Padding="8,3,9,3"
+                            CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillCorners}}">
                         <StackPanel Orientation="Horizontal">
                             <controls:Decorative VerticalAlignment="Center" Margin="0,0,5,0">
                                 <icons:PackIconLucide Kind="{Binding Kind, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource StatusGlyph}}"
@@ -839,7 +842,8 @@
                                 <!-- What the strip says beside its tabs ("3 waiting"): a count pill on the tabs' text line, not
                                      loose text above it (D02 T04 §6). Shown only when there is something to say. -->
                                 <Border x:Name="TrailingPill" Background="{DynamicResource B.Raised}" BorderBrush="{DynamicResource B.Line}"
-                                        BorderThickness="1" CornerRadius="{DynamicResource R.Pill}" Padding="8,1,8,2"
+                                        BorderThickness="1" Padding="8,3,8,3"
+                                        CornerRadius="{Binding ActualHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource PillCorners}}"
                                         VerticalAlignment="Center" HorizontalAlignment="Left" Margin="{DynamicResource Gap.Before.S}">
                                     <ContentPresenter x:Name="Trailing" Content="{TemplateBinding Tag}" VerticalAlignment="Center"
                                                       TextElement.FontSize="{DynamicResource T.Caption}"

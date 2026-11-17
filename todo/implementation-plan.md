@@ -94,7 +94,7 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 19 | Checklist items: 126
+Sections: 19 | Checklist items: 128
 
 | Status | Reference  | Deliverable                                                      | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------------------- | ----- | ----- |
@@ -104,7 +104,7 @@ Sections: 19 | Checklist items: 126
 | [x]    | D02 T04 §4 | Table alignment and tabular numbers                              | none  | 5     |
 | [x]    | D02 T04 §5 | Chart labels clear of lines and a readable time axis             | none  | 6     |
 | [ ]    | D02 T04 §6 | Deliberate disabled buttons, crisp pills, badge and close glyph  | none  | 6     |
-| [ ]    | D02 T04 §7 | Expandable toasts and a clean palette search field               | none  | 4     |
+| [ ]    | D02 T04 §7 | Expandable toasts and a clean palette search field               | none  | 6     |
 | [ ]    | D02 T04 §8 | Memory page scroll gutter and the Decision evidence list         | none  | 4     |
 | [ ]    | D02 T04 §9 | Placeholder copy, the Activity heading and the idle scroll thumb | none  | 4     |
 | [x]    | D03 T01 §1 | Memory readers                                                   | none  | 8     |
@@ -159,4 +159,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 75/102 verified sections, 8 ready to run now.
 
-Checklist: 761/877 items completed (includes Commit items).
+Checklist: 761/879 items completed (includes Commit items).
