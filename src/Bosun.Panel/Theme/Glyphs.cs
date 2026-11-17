@@ -89,6 +89,10 @@ public static class Glyphs
     public static PackIconLucideKind For(GlyphAction action) => Actions[action];
 
     /// <summary>The Memory page's card glyphs, for a view to name with x:Static.</summary>
+    public static PackIconLucideKind OpenFolder => Actions[GlyphAction.OpenFolder];
+
+    public static PackIconLucideKind OpenTerminal => Actions[GlyphAction.OpenTerminal];
+
     public static PackIconLucideKind WindowsMemory => Actions[GlyphAction.WindowsMemory];
 
     public static PackIconLucideKind WslMemory => Actions[GlyphAction.WslMemory];

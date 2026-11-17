@@ -6,6 +6,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
              Focusable="False">
     <UserControl.Resources>
         <Style x:Key="Note" TargetType="TextBlock">
@@ -105,11 +106,11 @@
                             <StackPanel Orientation="Horizontal">
                                 <Button x:Name="OpenFolder" Style="{StaticResource RowAction}" Command="{Binding OpenFolder}"
                                         AutomationProperties.Name="{Binding OpenFolderName}" ToolTip="{Binding OpenFolderTip}">
-                                    <icons:PackIconLucide Kind="FolderOpen" Width="14" Height="14"/>
+                                    <icons:PackIconLucide Kind="{x:Static theme:Glyphs.OpenFolder}" Width="14" Height="14" Focusable="False"/>
                                 </Button>
                                 <Button x:Name="OpenTerminal" Style="{StaticResource RowAction}" Command="{Binding OpenTerminal}"
                                         AutomationProperties.Name="{Binding OpenTerminalName}" ToolTip="{Binding OpenTerminalTip}">
-                                    <icons:PackIconLucide Kind="SquareTerminal" Width="14" Height="14"/>
+                                    <icons:PackIconLucide Kind="{x:Static theme:Glyphs.OpenTerminal}" Width="14" Height="14" Focusable="False"/>
                                 </Button>
                             </StackPanel>
                         </DataTemplate>
