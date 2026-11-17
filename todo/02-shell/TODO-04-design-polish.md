@@ -226,6 +226,8 @@ A table's header and cells start 10 px right of its card's title, and number col
 
 ## 6. Deliberate disabled buttons, crisp pills, badge and close glyph
 
+> **Started:** 2026-11-17T05:28:05Z
+
 A disabled primary button is a muddy green that still reads as active, a disabled secondary one nearly vanishes, status pills glow instead of having an edge, a tab badge floats above the text, and a close button is a bare "x". Each is drawn as a deliberate state.
 
 **Phase:** 3
