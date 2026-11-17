@@ -163,6 +163,8 @@ Section headings are smaller and dimmer than the labels under them, sections run
 
 ## 4. Table alignment and tabular numbers
 
+> **Started:** 2026-11-17T03:47:47Z
+
 A table's header and cells start 10 px right of its card's title, and number columns are left-aligned in proportional figures. A table lines up with its card, and its numbers right-align in tabular figures.
 
 **Phase:** 3
