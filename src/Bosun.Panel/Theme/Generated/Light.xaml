@@ -70,6 +70,18 @@
     <sys:Double x:Key="T.Title">21</sys:Double>
     <sys:Double x:Key="T.Metric">28</sys:Double>
 
+    <!-- Gaps: the space scale as a margin below or above an element -->
+    <Thickness x:Key="Gap.Below.XS">0,0,0,4</Thickness>
+    <Thickness x:Key="Gap.Above.XS">0,4,0,0</Thickness>
+    <Thickness x:Key="Gap.Below.S">0,0,0,8</Thickness>
+    <Thickness x:Key="Gap.Above.S">0,8,0,0</Thickness>
+    <Thickness x:Key="Gap.Below.M">0,0,0,12</Thickness>
+    <Thickness x:Key="Gap.Above.M">0,12,0,0</Thickness>
+    <Thickness x:Key="Gap.Below.L">0,0,0,16</Thickness>
+    <Thickness x:Key="Gap.Above.L">0,16,0,0</Thickness>
+    <Thickness x:Key="Gap.Below.XL">0,0,0,24</Thickness>
+    <Thickness x:Key="Gap.Above.XL">0,24,0,0</Thickness>
+
     <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->
     <DropShadowEffect x:Key="Elevation.Card" BlurRadius="20" ShadowDepth="6" Direction="270" Color="#FF000000" Opacity="0.07" po:Freeze="True"/>
     <DropShadowEffect x:Key="Elevation.Overlay" BlurRadius="44" ShadowDepth="16" Direction="270" Color="#FF000000" Opacity="0.18" po:Freeze="True"/>

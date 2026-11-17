@@ -3,6 +3,7 @@
      for SettingsPage (PageFrame.xaml), which is its DataContext. Every resource is named with DynamicResource. -->
 <UserControl x:Class="Bosun.Panel.Settings.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:a="clr-namespace:Bosun.Panel.Accessibility"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
@@ -67,9 +68,11 @@
         </StackPanel>
 
         <!-- The pressure alert threshold (D03 T01 §4, design/SPEC.md §15): what can't be one is refused beside it. -->
-        <TextBlock x:Name="FloorLabel" Text="Pressure alert threshold" Style="{DynamicResource FieldLabel}" Margin="0,18,0,0"/>
+        <StackPanel Margin="{DynamicResource Gap.Above.L}">
+        <TextBlock x:Name="FloorLabel" Text="Pressure alert threshold" Style="{DynamicResource FieldLabel}"/>
         <StackPanel Orientation="Horizontal">
             <TextBox x:Name="PressureFloor" Text="{Binding PressureFloorText, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource Field}"
+                     theme:FieldState.Invalid="{Binding HasPressureFloorError}"
                      Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Pressure alert threshold, in MB"
                      AutomationProperties.HelpText="{Binding PressureFloorError}"
                      ToolTip="A notification when Windows' available memory falls under this, from 512 to 65,536 MB."/>
@@ -87,6 +90,7 @@
                 </Style>
             </TextBlock.Style>
         </TextBlock>
+        </StackPanel>
 
         <TextBlock Text="Notifications" Style="{DynamicResource T.SectionLabel}" AutomationProperties.HeadingLevel="Level2"
                    Margin="0,24,0,0"/>

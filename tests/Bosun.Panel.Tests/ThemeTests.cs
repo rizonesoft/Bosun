@@ -56,6 +56,13 @@ public class ThemeTests
                     if (group == "radius") Want(prefix + token.Name, v => v is CornerRadius r && r == new CornerRadius(want), $"CornerRadius {want}");
                     else Want(prefix + token.Name, v => v is double d && d == want, $"the double {want}");
                 }
+            // D02 T04 §2: each space token as a gap below and above, a Thickness of that size and nothing else.
+            foreach (var token in tokens.RootElement.GetProperty("space").EnumerateObject())
+            {
+                var size = token.Value.GetDouble();
+                Want("Gap.Below." + token.Name, v => v is Thickness t && t == new Thickness(0, 0, 0, size), $"Thickness 0,0,0,{size}");
+                Want("Gap.Above." + token.Name, v => v is Thickness t && t == new Thickness(0, size, 0, 0), $"Thickness 0,{size},0,0");
+            }
             // D02 T03 §1: each elevation a frozen shadow straight down, black, at this theme's opacity, and the motion.
             var opacity = theme == "dark" ? "OpacityDark" : "OpacityLight";
             foreach (var elevation in tokens.RootElement.GetProperty("elevation").EnumerateObject())

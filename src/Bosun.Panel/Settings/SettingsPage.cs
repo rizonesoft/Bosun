@@ -157,8 +157,14 @@ public sealed class SettingsPage : PageBase
     public string? PressureFloorError
     {
         get => _floorError;
-        private set => Set(ref _floorError, value);
+        private set
+        {
+            if (Set(ref _floorError, value)) Raise(nameof(HasPressureFloorError));
+        }
     }
+
+    /// <summary>Whether the threshold as typed can't be saved: what the field draws as its danger border (D02 T04 §2).</summary>
+    public bool HasPressureFloorError => _floorError is not null;
 
     /// <summary>Why <paramref name="text"/> is not a threshold, or null with its value.</summary>
     public static string? FloorFault(string text, out long floor)

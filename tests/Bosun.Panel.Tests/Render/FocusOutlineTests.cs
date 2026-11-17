@@ -64,6 +64,13 @@ public class FocusOutlineTests
     public static readonly IReadOnlyList<Case> All =
     [
         new Case("field", () => Styled(new TextBox { Text = "2048", Width = 140 }, "Field"), r => r),
+        // An invalid field (D02 T04 §2): its danger border is its own, and focus is still the one ring outside it.
+        new Case("field, invalid", () =>
+        {
+            var field = Styled(new TextBox { Text = "lots", Width = 140 }, "Field");
+            Bosun.Panel.Theme.FieldState.SetInvalid(field, true);
+            return field;
+        }, r => r),
         new Case("button", () => Styled(new Button { Content = "Refresh" }, "Btn"), r => r),
         new Case("small button", () => Styled(new Button { Content = "Retry" }, "Btn.Small"), r => r),
         new Case("primary button", () => Styled(new Button { Content = "Save" }, "Btn.Primary"), r => r),

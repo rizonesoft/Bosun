@@ -187,6 +187,13 @@ def render(groups: dict, theme: str) -> str:
         lines += ["", f"    <!-- {titles[name]} -->"]
         for key, value in groups[name].items():
             lines.append(f'    <{element} x:Key="{prefix}.{key}">{number(f"{name}.{key}", value)}</{element}>')
+    # The space scale as margins too (D02 T04 §2): a Margin takes a Thickness, never a number, so a gap below or above
+    # a label or a section is named from the same scale instead of typed.
+    lines += ["", "    <!-- Gaps: the space scale as a margin below or above an element -->"]
+    for key, value in groups["space"].items():
+        v = number(f"space.{key}", value)
+        lines.append(f'    <Thickness x:Key="Gap.Below.{key}">0,0,0,{v}</Thickness>')
+        lines.append(f'    <Thickness x:Key="Gap.Above.{key}">0,{v},0,0</Thickness>')
     lines += ["", "    <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->"]
     for key, value in groups["elevation"].items():
         lines.append(f'    <DropShadowEffect x:Key="Elevation.{key}" BlurRadius="{number(f"elevation.{key}.Blur", value["Blur"])}" '

@@ -65,10 +65,14 @@ class BuildThemeTest(unittest.TestCase):
                 self.assertIn(f'<Duration x:Key="Motion.{key[:-2]}">0:0:{ms // 1000}.{ms % 1000:03d}</Duration>', text)
             x1, y1, x2, y2 = tokens["motion"]["Ease"]
             self.assertIn(f'<KeySpline x:Key="Motion.Ease" ControlPoint1="{x1},{y1}" ControlPoint2="{x2},{y2}" po:Freeze="True"/>', text)
+            # D02 T04 §2: each space token as a gap below and above it, a Thickness.
+            for key, value in tokens["space"].items():
+                self.assertIn(f'<Thickness x:Key="Gap.Below.{key}">0,0,0,{value}</Thickness>', text)
+                self.assertIn(f'<Thickness x:Key="Gap.Above.{key}">0,{value},0,0</Thickness>', text)
             keys = re.findall(r'x:Key="([^"]+)"', text)
             self.assertEqual(len(keys), len(set(keys)))
             self.assertEqual(len(keys), 2 * len(tokens[name]) + sum(len(tokens[g]) for g, _, _ in theme.MEASURES)
-                             + len(tokens["elevation"]) + len(durations) + 1)
+                             + 2 * len(tokens["space"]) + len(tokens["elevation"]) + len(durations) + 1)
         self.assertNotIn(b"\r\n", (self.out / "Dark.xaml").read_bytes())
 
     def test_the_two_themes_differ_only_in_their_colours_and_shadow_opacities(self):

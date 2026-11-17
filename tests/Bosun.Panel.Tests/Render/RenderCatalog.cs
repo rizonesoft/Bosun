@@ -34,6 +34,8 @@ public static partial class RenderCatalog
         new("controls", "segmented-focus", SegmentedFocus) { Shows = "Dark", Ready = PlaceRing },
         // D02 T04 §1: every keyboard target with its own focus visual, one ring each.
         new("controls", "focus", Focused) { Shows = "primary button", Ready = ShowFocus },
+        // D02 T04 §2: a field in each of its states, its text at the combo box's inset, its error on its border.
+        new("controls", "field-states", FieldStates) { Shows = "invalid and focused", Ready = ShowFieldFocus },
         // D02 T03 §5: the gauge in each state and with no value, sparklines with their words, stacked bars.
         new("controls", "gauges", Gauges) { Shows = "Not available" },
         new("controls", "sparklines", Sparklines) { Shows = "12.4 GB, rising" },
@@ -411,6 +413,39 @@ public static partial class RenderCatalog
         view.UpdateLayout();
         var control = Shell.ShellSupport.Under<Bosun.Panel.Controls.SegmentedControl>(view).Single();
         FocusShown.Show((FrameworkElement)control.ItemContainerGenerator.ContainerFromIndex(control.SelectedIndex));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A field in each state beside a combo box, labelled (D02 T04 §2).</summary>
+    private static FrameworkElement FieldStates()
+    {
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(20) };
+        void Add(string name, Action<TextBox> set, bool focus = false)
+        {
+            var field = new TextBox { Text = name.StartsWith("invalid", StringComparison.Ordinal) ? "lots" : "2048", Width = 180, HorizontalAlignment = HorizontalAlignment.Left, Tag = focus ? "focus" : null };
+            field.SetResourceReference(FrameworkElement.StyleProperty, "Field");
+            set(field);
+            var label = new TextBlock { Text = name };
+            label.SetResourceReference(FrameworkElement.StyleProperty, "FieldLabel");
+            grid.Children.Add(new StackPanel { Margin = new Thickness(16), Children = { label, field } });
+        }
+        Add("normal", _ => { });
+        Add("invalid", f => Bosun.Panel.Theme.FieldState.SetInvalid(f, true));
+        Add("focused", _ => { }, focus: true);
+        Add("invalid and focused", f => Bosun.Panel.Theme.FieldState.SetInvalid(f, true), focus: true);
+        Add("read only", f => f.IsReadOnly = true);
+        Add("disabled", f => f.IsEnabled = false);
+        var combo = new ComboBox { ItemsSource = new[] { "2048" }, SelectedIndex = 0, Width = 180, HorizontalAlignment = HorizontalAlignment.Left };
+        var comboLabel = new TextBlock { Text = "combo box, for its inset" };
+        comboLabel.SetResourceReference(FrameworkElement.StyleProperty, "FieldLabel");
+        grid.Children.Add(new StackPanel { Margin = new Thickness(16), Children = { comboLabel, combo } });
+        return new System.Windows.Documents.AdornerDecorator { Child = grid };
+    }
+
+    private static Task ShowFieldFocus(FrameworkElement view)
+    {
+        view.UpdateLayout();
+        foreach (var field in Shell.ShellSupport.Under<TextBox>(view).Where(f => (string?)f.Tag == "focus")) FocusShown.Show(field);
         return Task.CompletedTask;
     }
 

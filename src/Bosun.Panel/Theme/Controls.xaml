@@ -79,7 +79,9 @@
         <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
-        <Setter Property="Margin" Value="0,0,0,4"/>
+        <!-- The gap to its control, from the space scale (D02 T04 §2). A label never sets its own Margin: that replaced
+             this gap with 0 under the threshold's label. Space above it goes on what holds it. -->
+        <Setter Property="Margin" Value="{DynamicResource Gap.Below.S}"/>
     </Style>
 
     <!-- Buttons: one template. The intents (primary, danger) and the small size are styles based on it, so each
@@ -830,13 +832,19 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="{DynamicResource R.Control}">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                        <!-- No margin of its own: a TextBox applies its Padding to its text host itself, so a margin
+                             of the same Padding here put the text twice as far in as a combo box's (D02 T04 §2). -->
+                        <ScrollViewer x:Name="PART_ContentHost"
                                       VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                                       VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
                     </Border>
                     <!-- Focus is the ring alone (FocusVisualStyle, 2 px outside): a border that also turned accent
                          drew a second outline (D02 T04 §1). -->
                     <ControlTemplate.Triggers>
+                        <!-- An error shows on the field itself (D02 T04 §2), set from the page's own validation. -->
+                        <Trigger Property="theme:FieldState.Invalid" Value="True">
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.Danger}"/>
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.6"/>
                         </Trigger>
