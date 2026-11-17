@@ -32,7 +32,7 @@ public class ThresholdTests
             Assert.True(f.Page.HasUnsavedEdits);
             Assert.True(f.Page.SaveAsync().Result.Succeeded);
             Assert.Equal(4096, f.OnDisk().PressureFloorMb); // read back as a new panel reads it
-            Assert.Equal("Saved and read back: pressure alert threshold 4,096 MB.", f.Page.Status);
+            Assert.Equal("Saved and read back: pressure alert threshold 4096 MB.", f.Page.Status);
             Assert.False(f.Page.HasUnsavedEdits);
 
             f.Page.PressureFloorText = "3000";
@@ -63,8 +63,8 @@ public class ThresholdTests
     [InlineData("2,048", "Enter a whole number of MB")]
     [InlineData("-1", "Enter a whole number of MB")]
     [InlineData("100", "less than the least a threshold may be, 512 MB")]
-    [InlineData("70000", "more than the most a threshold may be, 65,536 MB")]
-    [InlineData("99999999999999999999999", "more than the most a threshold may be, 65,536 MB")]
+    [InlineData("70000", "more than the most a threshold may be, 65536 MB")]
+    [InlineData("99999999999999999999999", "more than the most a threshold may be, 65536 MB")]
     public void What_can_t_be_a_threshold_is_refused_beside_the_field_and_nothing_is_saved(string typed, string said)
     {
         OnUi(() =>

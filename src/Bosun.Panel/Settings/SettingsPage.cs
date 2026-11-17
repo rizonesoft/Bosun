@@ -171,13 +171,15 @@ public sealed class SettingsPage : PageBase
     {
         floor = 0;
         var trimmed = text.Trim();
-        var range = string.Create(CultureInfo.InvariantCulture, $"from {PanelSettings.MinPressureFloorMb:N0} to {PanelSettings.MaxPressureFloorMb:N0} MB");
+        // Numbers written as they are typed, never grouped: "65,536" would invite a form the field refuses, and in a
+        // locale with a decimal comma "2,048" is two and a bit (D02 T04 §2 completion review).
+        var range = string.Create(CultureInfo.InvariantCulture, $"from {PanelSettings.MinPressureFloorMb} to {PanelSettings.MaxPressureFloorMb} MB");
         if (trimmed.Length == 0) return $"Enter the threshold in MB, {range}.";
         if (!trimmed.All(char.IsAsciiDigit)) return $"Enter a whole number of MB, {range}.";
         if (!long.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out floor) || floor > PanelSettings.MaxPressureFloorMb)
-            return string.Create(CultureInfo.InvariantCulture, $"That is more than the most a threshold may be, {PanelSettings.MaxPressureFloorMb:N0} MB.");
+            return string.Create(CultureInfo.InvariantCulture, $"That is more than the most a threshold may be, {PanelSettings.MaxPressureFloorMb} MB.");
         if (floor < PanelSettings.MinPressureFloorMb)
-            return string.Create(CultureInfo.InvariantCulture, $"That is less than the least a threshold may be, {PanelSettings.MinPressureFloorMb:N0} MB.");
+            return string.Create(CultureInfo.InvariantCulture, $"That is less than the least a threshold may be, {PanelSettings.MinPressureFloorMb} MB.");
         return null;
     }
 
@@ -391,7 +393,7 @@ public sealed class SettingsPage : PageBase
             {
                 _storedFloor = floor;
                 PressureFloorText = floor.ToString(CultureInfo.InvariantCulture); // as stored: "04096" reads back as "4096"
-                saved.Add(string.Create(CultureInfo.InvariantCulture, $"pressure alert threshold {floor:N0} MB"));
+                saved.Add(string.Create(CultureInfo.InvariantCulture, $"pressure alert threshold {floor} MB"));
             }
             else failed.Add(outcome.Reason ?? "The pressure alert threshold did not read back as it was saved.");
         }

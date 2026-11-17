@@ -83,6 +83,11 @@ public class FieldGeometryTests
             Bosun.Panel.Theme.FieldState.SetInvalid(field, true);
             PageRenderer.Settle(page);
             Assert.True(Near(Edge(page, field), Colour(page, "B.Danger")), $"an invalid field's border is the danger colour in {theme}");
+            // And 2 px, not 1: a contrast theme draws every border in one colour, so the width is the cue there.
+            var box = field.TransformToAncestor(page).TransformBounds(new Rect(field.RenderSize));
+            var pixels = PageRenderer.Pixels(page);
+            var second = pixels[((int)Math.Round(box.Top) + 1) * (int)page.Width + (int)Math.Round(box.Left + box.Width / 2)];
+            Assert.True(Near(second, Edge(page, field)), $"the invalid border's second row is the border too in {theme}");
             Bosun.Panel.Theme.FieldState.SetInvalid(field, false);
             PageRenderer.Settle(page);
             Assert.True(Near(Edge(page, field), Colour(page, "B.Line")), "and the line colour again once it is valid");
@@ -114,6 +119,20 @@ public class FieldGeometryTests
             Assert.True(Near(Edge(page, field), Colour(page, "B.Line")), "discarded: the line colour, the stored value back");
             return 0;
         }, 900, 700);
+    }
+
+    [Fact]
+    public void The_threshold_s_messages_write_their_numbers_as_they_are_typed_never_grouped()
+    {
+        // The message is what a person copies: a grouped "65,536" is refused by the field (a comma is a decimal point in
+        // many locales), so the message never writes one (D02 T04 §2 completion review).
+        foreach (var text in new[] { "", "lots", "70000", "10" })
+        {
+            var said = Bosun.Panel.Settings.SettingsPage.FloorFault(text, out _)!;
+            Assert.DoesNotMatch(@"\d,\d", said);
+        }
+        Assert.Contains("from 512 to 65536 MB", Bosun.Panel.Settings.SettingsPage.FloorFault("lots", out _), StringComparison.Ordinal);
+        Assert.StartsWith("Enter a whole number of MB", Bosun.Panel.Settings.SettingsPage.FloorFault("2,048", out _), StringComparison.Ordinal);
     }
 
     [Fact]

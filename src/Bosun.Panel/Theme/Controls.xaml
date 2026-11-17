@@ -842,8 +842,11 @@
                          drew a second outline (D02 T04 §1). -->
                     <ControlTemplate.Triggers>
                         <!-- An error shows on the field itself (D02 T04 §2), set from the page's own validation. -->
+                        <!-- Two cues, so an error never rests on colour alone: a contrast theme draws every border in
+                             one system colour, where only the thicker line tells it (completion review). -->
                         <Trigger Property="theme:FieldState.Invalid" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource B.Danger}"/>
+                            <Setter TargetName="bd" Property="BorderThickness" Value="2"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Opacity" Value="0.6"/>
