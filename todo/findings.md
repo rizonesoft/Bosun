@@ -157,3 +157,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Core/Instances/InstanceClient.cs` (`ReadAsync`): show each source as it answers, the other marked pending, instead of waiting for the slowest (D03 T02 §2 completion review, 2026-11-17).
 - `src/Bosun.Panel/Instances/InstancesPage.cs` (`Show`): update rows in place, under 50 ms on the UI thread for 1,000 rows, keeping focus, scroll and sort over an unchanged refresh (D03 T02 §2 completion review, 2026-11-17).
 - `src/Bosun.Panel/Instances/InstancesPage.cs` (`InstanceLine`): tell two instances of one kind in one repo apart without hovering, a short second label (D03 T02 §2 completion review, 2026-11-17).
+- `tests/Bosun.Panel.Tests/Render/PageRenderer.cs`: focus renders at 100%, 125%, 150% and 200% scaling, the ring whole and crisp at each, and after a move between monitors (D02 T04 §1 completion review, 2026-11-17).
+- `tests/Bosun.Panel.E2E/KeyboardTests.cs`: a timed keyboard task against WinUI's own controls, zero focus-location errors and a lower median time to find the focus, selected controls included (D02 T04 §1 completion review, 2026-11-17).

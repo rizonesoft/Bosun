@@ -34,9 +34,21 @@ public class FocusOutlineTests
 
     static DataGrid Grid()
     {
-        var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, Width = 360, ItemsSource = new[] { new { Repo = "Recto", Gb = "6.2" }, new { Repo = "Bosun", Gb = "0.9" } } };
+        var grid = new DataGrid { AutoGenerateColumns = false, IsReadOnly = true, Width = 260, ItemsSource = new[] { new { Repo = "Recto", Gb = "6.2" }, new { Repo = "Bosun", Gb = "0.9" } } };
         grid.Columns.Add(new DataGridTextColumn { Header = "Repo", Binding = new System.Windows.Data.Binding("Repo"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
         grid.Columns.Add(new DataGridTextColumn { Header = "GB", Binding = new System.Windows.Data.Binding("Gb"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        return grid;
+    }
+
+    /// <summary>The grid with its first cell, or first row, chosen once it is laid out.</summary>
+    static DataGrid Chosen(DataGrid grid, DataGridSelectionUnit unit)
+    {
+        grid.SelectionUnit = unit;
+        grid.Loaded += (_, _) =>
+        {
+            if (unit == DataGridSelectionUnit.Cell) grid.SelectedCells.Add(new DataGridCellInfo(grid.Items[0], grid.Columns[0]));
+            else grid.SelectedIndex = 0;
+        };
         return grid;
     }
 
@@ -69,7 +81,9 @@ public class FocusOutlineTests
         new Case("rail row, not chosen", () => Listed("NavList", selectFirst: true), r => ShellSupport.Under<ListBoxItem>(r).Skip(1).First()),
         new Case("column header", Grid, r => First<DataGridColumnHeader>(r, h => h.Column is not null)),
         new Case("cell", Grid, r => First<DataGridCell>(r)),
+        new Case("cell, chosen", () => Chosen(Grid(), DataGridSelectionUnit.Cell), r => First<DataGridCell>(r), Selected: true),
         new Case("table row", Grid, r => First<DataGridRow>(r)),
+        new Case("table row, chosen", () => Chosen(Grid(), DataGridSelectionUnit.FullRow), r => First<DataGridRow>(r), Selected: true),
         new Case("tab", () => Styled(new TabControl { Width = 360, Height = 80, Items = { new TabItem { Header = "Overview" }, new TabItem { Header = "Logs" } } }, "TabStrip"),
             r => ShellSupport.Under<TabItem>(r).Skip(1).First()),
         new Case("log", () => Listed("LogBox"), r => r),
@@ -100,12 +114,69 @@ public class FocusOutlineTests
                 var after = PageRenderer.Pixels(page);
                 // A chosen row or segment in a contrast theme is filled with the highlight, the ring's own colour: there the
                 // ring shows by its inner line, 2 px in, so the band is the ring and that line (FocusRing.Inside).
-                var contrastChosen = theme == "HighContrast" && c.Selected;
-                var ring = Ring.Measure(before, after, (int)page.Width, box, Offset[key], thickness: contrastChosen ? 3 : 2);
+                var contrastChosen = theme == "HighContrast" && c.Selected && key != "FocusRing";
+                // Where the selection is filled with the highlight the ring blends in and shows by its inner line alone;
+                // where it is not, the ring shows as anywhere else.
+                var ring = Ring.Measure(before, after, (int)page.Width, box, Offset[key]);
+                if (contrastChosen && ring.Problem is not null)
+                {
+                    // The ring itself may still show where the fill stops (a row's gridline): outside the line is not checked.
+                    var inner = Ring.Measure(before, after, (int)page.Width, box, Offset[key] + 2, thickness: 1, sole: false, clearOutside: false);
+                    if (inner.Problem is null) ring = inner;
+                }
                 Assert.True(ring.Problem is null, $"{c.Name} in {theme} ({key}): {ring.Problem}");
                 return 0;
             });
         }
+    }
+
+    [Fact]
+    public void An_item_in_an_open_dropdown_shows_one_ring_in_its_popup()
+    {
+        foreach (var theme in PageRenderer.Themes)
+        {
+            PageRenderer.InPage(theme, () => new AdornerDecorator
+            {
+                Child = new Grid { Margin = new Thickness(24), Children = { new ComboBox { ItemsSource = new[] { "Windows", "WSL", "Both" }, SelectedIndex = 0, Width = 160 } } },
+            }, page =>
+            {
+                var combo = ShellSupport.Under<ComboBox>(page).Single();
+                combo.IsDropDownOpen = true;
+                PageRenderer.Settle(page);
+                var item = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(1);
+                Assert.NotNull(item);
+                // The popup is a window of its own: its content is drawn and measured on its own.
+                var root = (FrameworkElement)System.Windows.Media.VisualTreeHelper.GetParent(PopupChild(item));
+                var host = new Border { Width = Math.Ceiling(root.ActualWidth) + 16, Height = Math.Ceiling(root.ActualHeight) + 16 };
+                var box = item.TransformToAncestor(root).TransformBounds(new Rect(item.RenderSize));
+                var before = Draw(root, (int)host.Width, (int)host.Height);
+                Assert.True(FocusShown.Show(item));
+                root.UpdateLayout();
+                PageRenderer.Settle(page);
+                var after = Draw(root, (int)host.Width, (int)host.Height);
+                var ring = Ring.Measure(before, after, (int)host.Width, box, Offset["FocusRing.Inside"]);
+                Assert.True(ring.Problem is null, $"an open dropdown's item in {theme}: {ring.Problem}");
+                combo.IsDropDownOpen = false;
+                return 0;
+            });
+        }
+    }
+
+    /// <summary>The top of the popup's own tree that holds <paramref name="item"/>.</summary>
+    static FrameworkElement PopupChild(FrameworkElement item)
+    {
+        DependencyObject node = item;
+        while (System.Windows.Media.VisualTreeHelper.GetParent(node) is { } parent && System.Windows.Media.VisualTreeHelper.GetParent(parent) is not null) node = parent;
+        return (FrameworkElement)node;
+    }
+
+    static uint[] Draw(FrameworkElement root, int width, int height)
+    {
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(root);
+        var pixels = new uint[width * height];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        return pixels;
     }
 
     [Fact]
@@ -139,7 +210,7 @@ public class FocusOutlineTests
         /// inside <paramref name="box"/> (negative: outside): each side covered along its straight middle, the pixel
         /// just outside it unchanged, and, when <paramref name="sole"/>, nothing changed away from the ring.
         /// </summary>
-        public static (string? Problem, int Changed) Measure(uint[] before, uint[] after, int width, Rect box, int offset, int thickness = 2, bool sole = true)
+        public static (string? Problem, int Changed) Measure(uint[] before, uint[] after, int width, Rect box, int offset, int thickness = 2, bool sole = true, bool clearOutside = true)
         {
             int height = before.Length / width;
             bool At(int x, int y) => x >= 0 && y >= 0 && x < width && y < height && Changed(before[y * width + x], after[y * width + x]);
@@ -151,15 +222,16 @@ public class FocusOutlineTests
             for (var i = 0; i < before.Length; i++) if (Changed(before[i], after[i])) total++;
             if (total == 0) return ("nothing was drawn: no focus ring", 0);
 
-            // Each side, along its middle 60% (the corners are rounded): covered in its band, clear just outside it.
-            string? Side(string name, Func<int, int, bool> inBand, Func<int, bool> outside, int from, int to)
+            // Each side, along its middle half (the corners are rounded): covered across its band, clear either side of it.
+            string? Side(string name, Func<int, int, bool> inBand, Func<int, bool> outsideBand, int from, int to)
             {
                 int covered = 0, spilled = 0, n = 0;
                 var span = to - from;
-                for (var p = from + span / 5; p <= to - span / 5; p++, n++)
+                for (var p = from + span / 4; p <= to - span / 4; p++, n++)
                 {
-                    if (Enumerable.Range(0, thickness).Any(d => inBand(p, d))) covered++;
-                    if (outside(p)) spilled++;
+                    if (Enumerable.Range(0, thickness).All(d => inBand(p, d))) covered++;
+                    // Clear on both sides of the band: a ring thicker than specified spills one way or the other.
+                    if ((clearOutside && outsideBand(p)) || inBand(p, thickness)) spilled++;
                 }
                 if (n == 0) return $"the {name} side is too short to measure";
                 if (covered < n * 0.9) return $"the {name} side is missing ({covered} of {n} drawn)";
@@ -171,7 +243,16 @@ public class FocusOutlineTests
                 ?? Side("bottom", (x, d) => At(x, bottom - d), x => At(x, bottom + 1), left, right)
                 ?? Side("left", (y, d) => At(left + d, y), y => At(left - 1, y), top, bottom)
                 ?? Side("right", (y, d) => At(right - d, y), y => At(right + 1, y), top, bottom);
-            if (problem is not null || !sole) return (problem, total);
+            if (problem is not null)
+            {
+                // Where the change actually was, so a failure says what was drawn instead.
+                int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
+                for (var y = 0; y < height; y++)
+                    for (var x = 0; x < width; x++)
+                        if (At(x, y)) (minX, minY, maxX, maxY) = (Math.Min(minX, x), Math.Min(minY, y), Math.Max(maxX, x), Math.Max(maxY, y));
+                return ($"{problem}; the ring was looked for at {left},{top}..{right},{bottom} and {total} pixels changed within {minX},{minY}..{maxX},{maxY}", total);
+            }
+            if (!sole) return (null, total);
 
             // Nothing else: changed pixels away from the ring's band (with a pixel either side for its anti-aliasing).
             int away = 0;

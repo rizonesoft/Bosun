@@ -63,6 +63,39 @@ public class KeyboardTests
     }
 
     [Fact]
+    public void A_check_box_with_the_keyboard_and_the_pointer_keeps_its_ring_and_its_check()
+    {
+        // D02 T04 §1: hover turns the box's border accent and focus draws the ring outside the whole control; both at
+        // once still show the one ring, and the check stays drawn.
+        using var panel = PanelProcess.Start();
+        var (window, handle) = OnSettings(panel);
+        var notify = Ui.Get(window, "NotifyMemoryPressure");
+        var start = Ui.Get(window, "StartWithWindows");
+        start.SetFocus();
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, start), Ui.Short, "Start with Windows to have focus");
+        for (var press = 0; press < 10 && !(Ui.Focused() is { } f && Automation.Compare(f, notify)); press++)
+        {
+            RealInput.Key(handle, Native.VK_TAB);
+            Thread.Sleep(80);
+        }
+        Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, notify) && f.Current.HasKeyboardFocus, Ui.Short, "Tab to give the check box the keyboard");
+        var was = Ui.Toggle(notify);
+        var box = Ui.Box(notify);
+        RealInput.MoveOnWindow(handle, (int)(box.Left + 10), (int)(box.Top + box.Height / 2));
+        Thread.Sleep(300);
+        var middle = Rectangle.FromLTRB((int)(box.Left + box.Width * 0.2), 0, (int)(box.Right - box.Width * 0.2), 0);
+        var ring = Rectangle.FromLTRB(middle.Left, (int)box.Top - 6, middle.Right, (int)box.Top);
+        Ui.Until(() => AccentPixels(ring) >= middle.Width, Ui.Short, "the focus ring to stay drawn with the pointer over the check box");
+        Assert.Equal(was, Ui.Toggle(notify));
+        if (was == ToggleState.On)
+        {
+            // The checked box is filled with the accent: the check is still drawn under the pointer.
+            var check = Rectangle.FromLTRB((int)box.Left + 2, (int)(box.Top + box.Height / 2 - 6), (int)box.Left + 18, (int)(box.Top + box.Height / 2 + 6));
+            Assert.True(AccentPixels(check) > 20, "the checked box is no longer drawn checked");
+        }
+    }
+
+    [Fact]
     public void Space_toggles_a_focused_check_box()
     {
         using var panel = PanelProcess.Start();

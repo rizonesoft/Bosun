@@ -376,8 +376,10 @@ public partial class ControlStylesTests
             Assert.Equal(32, field.ActualHeight);
             var bd = Part<Border>(field, "bd");
             Assert.Equal(Token(theme, "Line"), Paint(bd.BorderBrush));
-            var focused = TriggerOn(field.Template.Triggers, UIElement.IsKeyboardFocusedProperty, true);
-            Assert.Equal(Token(theme, "Accent"), ColourOf(field, focused.Setters, Border.BorderBrushProperty, "bd"));
+            // Focus is the shared ring 2 px outside and nothing else (D02 T04 §1): the border turning accent too drew a
+            // second outline, so the template has no focus trigger.
+            Assert.Same(field.FindResource("FocusRing"), field.FocusVisualStyle);
+            Assert.DoesNotContain(field.Template.Triggers.OfType<Trigger>(), t => t.Property == UIElement.IsKeyboardFocusedProperty);
 
             // The template still holds a working text host: text set as a person's would be is in the field.
             Pattern<IValueProvider>(field, PatternInterface.Value).SetValue("build Bosun");
@@ -695,6 +697,7 @@ public partial class ControlStylesTests
     {
         ["FocusRing"] = "the focus ring itself",
         ["FocusRing.Inside"] = "the focus ring itself",
+        ["FocusRing.Segment"] = "the focus ring itself, 2 px inside a segment (D02 T04 §1)",
         ["T.Mono"] = "text",
         ["T.SectionLabel"] = "text",
         ["FieldLabel"] = "text",
@@ -751,7 +754,7 @@ public partial class ControlStylesTests
         }
         bool Tall(XElement style) => new[] { Setter(style, "MinHeight"), Setter(style, "Height") }
             .Any(v => double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var height) && height >= 32);
-        bool Ringed(XElement style) => Setter(style, "FocusVisualStyle") is "{StaticResource FocusRing}" or "{StaticResource FocusRing.Inside}";
+        bool Ringed(XElement style) => Setter(style, "FocusVisualStyle") is "{StaticResource FocusRing}" or "{StaticResource FocusRing.Inside}" or "{StaticResource FocusRing.Segment}";
 
         var problems = new List<string>();
         foreach (var (name, style) in styles)
