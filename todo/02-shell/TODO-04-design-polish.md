@@ -343,6 +343,8 @@ Placeholder pages show an internal plan reference, the Activity pane has no head
 
 **Chrome:** the shell.
 
+**Corrected 2026-11-18:** checked against the tree before the build. The plan reference comes from `PlaceholderPage` (`src/Bosun.Panel/Shell/PlaceholderPage.cs:12`, "It arrives with {Owner} of the plan."); each rail row's `Owner` (`Sections.Rows`) stays as data, since `WindowTests` ties every row to a section that exists, and only stops being shown. The copy is made from what the row already says the page is for: "Overview is coming soon." over "This page will show memory, the queue and dev instances at a glance, and what needs you." (its `Summary`, its first letter lowered). The idle thumb is the `LogBox` style's own template (`Theme/Controls.xaml`, `x:Key="LogBox"`): its `ScrollViewer` sets no scroll bar visibility, and a bare `ScrollViewer`'s default is Visible, so every log list shows a bar whether or not it overflows; the template takes the list's own `ScrollViewer.VerticalScrollBarVisibility`, Auto in the style. The heading style is `Section.Heading` (`Theme/Controls.xaml:80`). The tests that read the old copy are `ShellTests` (lines 80 to 132) and the E2E's `RailTests` (line 39).
+
 **Build order:**
 
 1. Rewrite the placeholder copy. Done when: no page shows a plan reference.
