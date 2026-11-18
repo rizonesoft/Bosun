@@ -230,10 +230,14 @@ function Finish([string]$outcome, [string]$reason, [int]$code) {
     $entry.skipped = @($ran.Values | Where-Object { $_ -ne 'Passed' -and $_ -ne 'Failed' }).Count
     Say "$outcome$(if ($reason) { ": $reason" })"
     Add-History ([pscustomobject]$entry)
-    # The last 30 logs and their results kept.
+    # The last 30 logs and their results kept. A run's results go first and its log only once they are gone: the log
+    # is what the next run finds, so results that could not be removed (a file held open) are tried again then.
     Get-ChildItem -LiteralPath $StateFolder -Filter 'input-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | ForEach-Object {
-        Remove-Item -LiteralPath $_.FullName -ErrorAction Ignore
-        Remove-Item -LiteralPath (Join-Path $StateFolder "results-$($_.BaseName.Substring(6))") -Recurse -Force -ErrorAction Ignore
+        $old = Join-Path $StateFolder "results-$($_.BaseName.Substring(6))"
+        try {
+            if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction Stop }
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
+        } catch { Write-Warning "smoke-input: $old could not be removed yet, and is tried again after the next run: $($_.Exception.Message)" }
     }
     $script:exitCode = $code
 }

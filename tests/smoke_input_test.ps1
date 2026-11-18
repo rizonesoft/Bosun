@@ -271,12 +271,21 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   $filler = foreach ($i in 1..70) { (@{ at = (Get-Date).Date.AddDays(-80 + $i).AddHours(3).AddMinutes(1).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'skipped-locked'; reason = 'the desktop was locked'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress) }
   Set-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -Value (@($filler) + $lines)
   foreach ($i in 1..31) { Set-Content -LiteralPath (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log") -Value old; (Get-Item (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log")).LastWriteTime = (Get-Date).AddDays(-30) }
-  $c = Invoke-Run 'pass' -State $state
+  # The oldest run's results are held open: they stay, with the log that names them, and go after the next run.
+  New-Item -ItemType Directory -Force -Path (Join-Path $state 'results-20200101-000001') | Out-Null
+  $heldPath = Join-Path $state 'results-20200101-000001/build.log'
+  Set-Content -LiteralPath $heldPath -Value held
+  (Get-Item (Join-Path $state 'input-20200101-000001.log')).LastWriteTime = (Get-Date).AddDays(-40)
+  $held = [IO.File]::Open($heldPath, 'Open', 'Read', 'Read')
+  try { $c = Invoke-Run 'pass' -State $state } finally { $held.Dispose() }
+  Check 'results held open stay, with their log, for the next run' ((Test-Path -LiteralPath (Join-Path $state 'input-20200101-000001.log')) -and (Test-Path -LiteralPath $heldPath))
+  $d = Invoke-Run 'pass' -State $state
+  Check 'and the next run removes them' (-not (Test-Path -LiteralPath (Join-Path $state 'results-20200101-000001')) -and -not (Test-Path -LiteralPath (Join-Path $state 'input-20200101-000001.log')))
   Check 'the history keeps its last 60 entries' (@(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl')).Count -eq 60)
   Check 'the logs keep their last 30' (@(Get-ChildItem -LiteralPath $state -Filter 'input-*.log').Count -eq 30 -and (Test-Path -LiteralPath $c.Last.log))
   $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
-  # Of the 70 filler nights and the three runs since, the last 60 entries are kept: 57 nights skipped in a row.
-  Check 'the status reads the last scheduled run, the skips in a row and the last on-demand run' ($status -like '*last scheduled run: skipped*the desktop was locked*' -and $status -like '*Skipped 57 nights in a row*' -and $status -like '*Last on-demand run: passed 5 of 5*' -and $status -like '*is not installed*') $status
+  # Of the 70 filler nights and the four runs since, the last 60 entries are kept: 56 nights skipped in a row.
+  Check 'the status reads the last scheduled run, the skips in a row and the last on-demand run' ($status -like '*last scheduled run: skipped*the desktop was locked*' -and $status -like '*Skipped 56 nights in a row*' -and $status -like '*Last on-demand run: passed 5 of 5*' -and $status -like '*is not installed*') $status
 
   # The nightly task: installed as asked, read back whole, started from outside the checkout, and removed.
   $state = Join-Path $dir 'state-task'
