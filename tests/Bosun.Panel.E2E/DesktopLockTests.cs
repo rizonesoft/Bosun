@@ -205,6 +205,36 @@ public class DesktopLockTests
     }
 
     [Fact]
+    public void The_smoke_refuses_a_hold_whose_record_can_t_be_written_and_lets_the_lock_go()
+    {
+        // Its captures would otherwise refuse the inherited hold and wait on their own parent (round 1, P2).
+        var name = Name();
+        var notAFolder = Path.Combine(Folder(), "file");
+        File.WriteAllText(notAFolder, "");
+        var refused = Assert.Throws<DesktopLockException>(() => DesktopFixture.Hold(name, notAFolder, TimeSpan.Zero));
+        Assert.Contains("couldn't be written", refused.Message);
+        Assert.Equal("free", Probe(name));
+    }
+
+    [Fact]
+    public void A_record_names_its_holder_by_label_never_by_command_line()
+    {
+        // A command line can carry a secret, which a waiting process would print (round 1, P1).
+        var (name, folder) = (Name(), Folder());
+        using (DesktopLock.Acquire(name, folder, TimeSpan.Zero, label: "a label\nwith a second line"))
+        {
+            var recorded = Record(DesktopLock.RecordPath(name, folder)).Command;
+            Assert.Equal("a label with a second line", recorded);
+        }
+        using (DesktopLock.Acquire(name, folder, TimeSpan.Zero))
+        {
+            using var me = Process.GetCurrentProcess();
+            Assert.Equal(me.ProcessName, Record(DesktopLock.RecordPath(name, folder)).Command);
+        }
+        Assert.Equal(160, DesktopLock.Shorten(new string('x', 400)).Length);
+    }
+
+    [Fact]
     public void A_release_removes_the_record_and_leaves_a_successor_s_alone()
     {
         var (name, folder) = (Name(), Folder());

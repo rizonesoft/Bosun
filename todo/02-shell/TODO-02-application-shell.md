@@ -523,6 +523,8 @@ Decisions, each with what reversing it costs:
 
 **Corrected 2026-11-18** at build: the lock's code is one source, `scripts/lib/DesktopLock.cs` (namespace `Bosun.Desktop`), not `tests/Bosun.Panel.E2E/DesktopLock.cs`: the smoke compiles it in, `Bosun.TestChild` links it for its `hold-desktop` and `probe-desktop` helpers, and `capture-window.ps1` loads it with `Add-Type` (0.8 s), so the name and wait rules, the record and the inherited-hold check can't drift between C# and PowerShell. A holder's command is shown on one line and at most 160 characters in a message (`DesktopLock.Shorten`); the record keeps it whole.
 
+**Corrected 2026-11-18** by review round 1 (`docs/reviews/02-shell/D02-T02-s11.md`): the record's `command` is a label its holder gives (`capture-window.ps1`, `Bosun.Panel.E2E smoke`, the process name when none), never the command line, which can carry a secret a waiting process would print; the smoke refuses a hold whose record couldn't be written (`DesktopFixture.Hold`), since its captures take the hold only from that record; `capture-window.ps1` waits in quarter-second attempts (`DesktopLock.TryAcquire`), so Ctrl+C or a stop acts at once and its pair is released; and the capture test hands its children every path through their environment, in a folder named with an apostrophe.
+
 **Build order:**
 
 1. Add the lock, its hold thread and its record to the smoke. Done when: a waiting contender names the holder, takes the lock on release and is refused at its bound, and the smoke holds the lock from before its first test to after its last.

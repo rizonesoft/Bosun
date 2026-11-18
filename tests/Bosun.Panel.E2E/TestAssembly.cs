@@ -26,9 +26,23 @@ public sealed class DesktopFixture : IDisposable
     public DesktopFixture()
     {
         Settings = DesktopSettings.FromEnvironment();
-        _hold = new DesktopHold(Settings.Name, DesktopLock.RecordFolder(), Settings.Wait, line => Console.Error.WriteLine("smoke: " + line));
+        _hold = Hold(Settings.Name, DesktopLock.RecordFolder(), Settings.Wait);
         _inherited = Environment.GetEnvironmentVariable(DesktopLock.HeldVariable);
         Environment.SetEnvironmentVariable(DesktopLock.HeldVariable, _hold.Holder.HeldValue);
+    }
+
+    /// <summary>
+    /// The run's hold, refused when its record couldn't be written: the captures the smoke runs take its hold only
+    /// from a record naming it, and without one they would wait on their own parent until their bound, failing far
+    /// from the cause.
+    /// </summary>
+    internal static DesktopHold Hold(string name, string folder, TimeSpan wait)
+    {
+        var hold = new DesktopHold(name, folder, wait, line => Console.Error.WriteLine("smoke: " + line), label: "Bosun.Panel.E2E smoke");
+        if (hold.Holder.Published) return hold;
+        var path = hold.Holder.RecordPath;
+        hold.Dispose();
+        throw new DesktopLockException($"the desktop lock was free, but its record {path} couldn't be written, and the smoke's captures need it to work under the run's hold");
     }
 
     public DesktopSettings Settings { get; }

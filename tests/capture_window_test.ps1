@@ -23,7 +23,8 @@ if ($code -ne 0 -or $text -notmatch '(?m)^self-test: all pass\s*$') { "capture-w
 
 Add-Type -Path $lockSource
 $scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [System.IO.Path]::GetTempPath() }
-$dir = Join-Path $scratch ('capture-lock-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+# The folder's name holds an apostrophe, so a path spliced into a child's source would break it (round 1, P2).
+$dir = Join-Path $scratch ("capture-lock-test-O'Brien-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
 New-Item -ItemType Directory -Path $dir | Out-Null
 $name = 'test-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
 $other = 'test-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -66,20 +67,23 @@ function Start-Holder([string]$Lock, [string]$Folder, [string]$Then = '') {
   # The script it runs under its hold goes in a file of its own, so its quotes can't break the holder's.
   $thenScript = Join-Path $Folder 'then.ps1'
   if ($Then) { Set-Content -LiteralPath $thenScript -Value $Then -Encoding utf8 }
-  $code = @"
-Add-Type -Path '$lockSource'
-`$h = [Bosun.Desktop.DesktopLock]::Acquire('$Lock', [Bosun.Desktop.DesktopLock]::RecordFolder(), [TimeSpan]::FromSeconds(60), `$null, `$null)
-Set-Content -LiteralPath '$Folder\held' -Value `$PID
-if (Test-Path -LiteralPath '$thenScript') {
-  `$env:BOSUN_DESKTOP_HELD = `$h.HeldValue
-  & '$shell' -NoProfile -File '$thenScript' *> '$Folder\then-said.txt'
-  Set-Content -LiteralPath '$Folder\then' -Value `$LASTEXITCODE
+  # Every path reaches the child in its environment, never spliced into its source, so a folder named O'Brien
+  # can't break the child's quoting (round 1, P2).
+  $code = @'
+Add-Type -Path $env:HOLD_SOURCE
+$h = [Bosun.Desktop.DesktopLock]::Acquire($env:HOLD_LOCK, [Bosun.Desktop.DesktopLock]::RecordFolder(), [TimeSpan]::FromSeconds(60), $null, $null, $null)
+Set-Content -LiteralPath (Join-Path $env:HOLD_FOLDER 'held') -Value $PID
+$then = Join-Path $env:HOLD_FOLDER 'then.ps1'
+if (Test-Path -LiteralPath $then) {
+  $env:BOSUN_DESKTOP_HELD = $h.HeldValue
+  & $env:HOLD_SHELL -NoProfile -File $then *> (Join-Path $env:HOLD_FOLDER 'then-said.txt')
+  Set-Content -LiteralPath (Join-Path $env:HOLD_FOLDER 'then') -Value $LASTEXITCODE
 }
-`$deadline = (Get-Date).AddSeconds(90)
-while (-not (Test-Path -LiteralPath '$Folder\release') -and (Get-Date) -lt `$deadline) { Start-Sleep -Milliseconds 50 }
-`$h.Dispose()
-"@
-  $child = Start-Child @('-Command', $code)
+$deadline = (Get-Date).AddSeconds(90)
+while (-not (Test-Path -LiteralPath (Join-Path $env:HOLD_FOLDER 'release')) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50 }
+$h.Dispose()
+'@
+  $child = Start-Child @('-Command', $code) @{ HOLD_SOURCE = $lockSource; HOLD_LOCK = $Lock; HOLD_FOLDER = $Folder; HOLD_SHELL = $shell }
   Wait-Until { Test-Path -LiteralPath (Join-Path $Folder 'held') } 'a holder to hold the lock'
   return $child
 }
@@ -110,6 +114,8 @@ try {
   $two = Wait-Child $second
   Check "the first ends as before, no window having appeared (exit $($one.Code))" ($one.Code -eq 1 -and $one.Said -like '*no window appeared*')
   Check 'the second said whom it waited for' ($two.Said -like "*held by pid $($first.Id) (*waiting up to 40 s*")
+  # By the label its holder gave, never its command line, which can carry a secret (round 1, P1).
+  Check 'and named it by its label, not its command line' ($two.Said -like "*held by pid $($first.Id) (capture-window.ps1), started*" -and $two.Said -notlike '*LaunchArgs*') $two.Said
   Check "and took the lock once the first had gone (exit $($two.Code))" ($two.Code -eq 1 -and $two.Said -like '*no window appeared*')
   Check 'the lock is free after both, and their record gone' (-not (Test-Taken $name) -and -not (Test-Path -LiteralPath $record))
 
@@ -125,7 +131,7 @@ try {
   # A wait that runs out exits 4, naming the holder, with nothing launched.
   $holder = Start-Holder $name (Join-Path $dir 'h1')
   $marker = Join-Path $dir 'launched.txt'
-  $run = Wait-Child (Start-Capture (Join-Path $dir 'e.png') ($lockEnv + @{ BOSUN_DESKTOP_WAIT_S = '1' }) 1 "Set-Content -LiteralPath '$marker' -Value x; Start-Sleep 30")
+  $run = Wait-Child (Start-Capture (Join-Path $dir 'e.png') ($lockEnv + @{ BOSUN_DESKTOP_WAIT_S = '1'; LAUNCH_MARKER = $marker }) 1 'Set-Content -LiteralPath $env:LAUNCH_MARKER -Value x; Start-Sleep 30')
   Check "a capture that can't have the lock within its wait exits 4 naming the holder (exit $($run.Code))" ($run.Code -eq 4 -and $run.Said -like "*held by pid $($holder.Id) (*") $run.Said
   Check 'and launched nothing' (-not (Test-Path -LiteralPath $marker))
 
@@ -189,6 +195,31 @@ try {
   Check "the self-test passes while a holder holds the caller's lock (exit $($run.Code), $([int]$clock.Elapsed.TotalSeconds) s)" ($run.Code -eq 0 -and $run.Said -match '(?m)^self-test: all pass\s*$')
   New-Item -ItemType File -Path (Join-Path $dir 'h5\release') | Out-Null
   $null = Wait-Child $holder
+
+  # A capture waiting for the lock stops at once when stopped, as Ctrl+C stops it (both act only between calls), and
+  # releases its pair: a capture to the same file right after isn't refused as another capture writing it (round 1).
+  $holder = Start-Holder $name (Join-Path $dir 'h6')
+  $saved = @{}
+  foreach ($k in 'BOSUN_DESKTOP_LOCK', 'BOSUN_DESKTOP_WAIT_S') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+  $stopOut = Join-Path $dir 'k.png'
+  $ps = [PowerShell]::Create()
+  try {
+    $env:BOSUN_DESKTOP_LOCK = $name
+    $env:BOSUN_DESKTOP_WAIT_S = '120'
+    [void]$ps.AddCommand($script).AddParameter('Path', $shell).AddParameter('LaunchArgs', '-NoProfile -Command Start-Sleep 30').AddParameter('NoNewWindow').AddParameter('WaitSeconds', 1).AddParameter('Out', $stopOut)
+    $async = $ps.BeginInvoke()
+    Start-Sleep -Seconds 3
+    $clock.Restart()
+    $ps.Stop()
+    Check "a capture waiting for the lock stops when stopped ($([Math]::Round($clock.Elapsed.TotalSeconds, 1)) s)" ($async.IsCompleted -and $clock.Elapsed.TotalSeconds -lt 5)
+  } finally {
+    $ps.Dispose()
+    foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+  }
+  New-Item -ItemType File -Path (Join-Path $dir 'h6\release') | Out-Null
+  $null = Wait-Child $holder
+  $run = Wait-Child (Start-Capture $stopOut $lockEnv 1)
+  Check "and its pair was released: the same file captures next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Said -like '*no window appeared*') $run.Said
 
   # The help says what the lock is, where its record is and what exit 4 means.
   $help = Get-Help $script -Full | Out-String

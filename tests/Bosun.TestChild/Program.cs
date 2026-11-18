@@ -165,7 +165,7 @@ switch (args[0])
         }
         return 0;
     case "hold-desktop":
-        using (Bosun.Desktop.DesktopLock.Acquire(args[1], args[2], TimeSpan.FromSeconds(60)))
+        using (Bosun.Desktop.DesktopLock.Acquire(args[1], args[2], TimeSpan.FromSeconds(60), label: "Bosun.TestChild hold-desktop"))
         {
             File.WriteAllText("held", Environment.ProcessId.ToString());
             for (var waited = 0; waited < 1200 && !File.Exists("release"); waited++) Thread.Sleep(50);

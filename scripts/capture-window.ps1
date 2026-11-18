@@ -781,13 +781,19 @@ try {
     Exit-Capture 2
 }
 if (-not [Bosun.Desktop.DesktopLock]::InheritsHold($desktop.Name, $desktopFolder)) {
-    try {
-        $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::Acquire($desktop.Name, $desktopFolder, $desktop.Wait,
-            [Action[string]] { param($said) [Console]::Error.WriteLine("capture-window: $said") }, $null)
-    } catch {
-        $why = $_.Exception.InnerException ?? $_.Exception
-        if ($why -isnot [Bosun.Desktop.DesktopLockException]) { throw }
-        Write-Host "capture-window: refused: $($why.Message)" -ForegroundColor Red
+    # In attempts of a quarter second, not one long wait: Ctrl+C (or a runspace's Stop) acts only between calls, and
+    # this must stay stoppable, its pair released, for as long as it waits.
+    $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::TryAcquire($desktop.Name, $desktopFolder, [TimeSpan]::Zero, 'capture-window.ps1', $null)
+    if (-not $script:DesktopHolder -and $desktop.Wait -gt [TimeSpan]::Zero) {
+        [Console]::Error.WriteLine("capture-window: $([Bosun.Desktop.DesktopLock]::WaitingMessage($desktop.Name, $desktopFolder, $desktop.Wait))")
+        $deadline = [DateTime]::UtcNow + $desktop.Wait
+        while (-not $script:DesktopHolder -and [DateTime]::UtcNow -lt $deadline) {
+            $slice = [TimeSpan]::FromMilliseconds([Math]::Min(250, [Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)))
+            $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::TryAcquire($desktop.Name, $desktopFolder, $slice, 'capture-window.ps1', $null)
+        }
+    }
+    if (-not $script:DesktopHolder) {
+        Write-Host "capture-window: refused: $([Bosun.Desktop.DesktopLock]::RefusedMessage($desktop.Name, $desktopFolder, $desktop.Wait))" -ForegroundColor Red
         Exit-Capture 4
     }
 }

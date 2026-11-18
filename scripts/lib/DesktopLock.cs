@@ -101,28 +101,40 @@ namespace Bosun.Desktop
         /// Take <c>Local\&lt;name&gt;</c>, waiting up to <paramref name="wait"/>. When it is taken on arrival,
         /// <paramref name="onWaiting"/> hears once whom this waits for. An abandoned mutex (its holder died) is taken.
         /// The record is written only while holding, and its failures go to <paramref name="errors"/> (stderr when
-        /// null) and change nothing: the mutex is the only authority.
+        /// null) and change nothing: the mutex is the only authority. <paramref name="label"/> is what the record
+        /// calls the holder (its process name when null): a short name, never the command line, which can hold a
+        /// secret a waiting process would print.
         /// </summary>
-        public static DesktopHolder Acquire(string name, string folder, TimeSpan wait, Action<string>? onWaiting = null, TextWriter? errors = null)
+        public static DesktopHolder Acquire(string name, string folder, TimeSpan wait, Action<string>? onWaiting = null, TextWriter? errors = null, string? label = null)
+        {
+            var holder = TryAcquire(name, folder, TimeSpan.Zero, label, errors);
+            if (holder is not null) return holder;
+            if (wait > TimeSpan.Zero)
+            {
+                onWaiting?.Invoke(WaitingMessage(name, folder, wait));
+                holder = TryAcquire(name, folder, wait, label, errors);
+            }
+            return holder ?? throw new DesktopLockException(RefusedMessage(name, folder, wait), timedOut: true);
+        }
+
+        /// <summary>
+        /// One attempt: the lock held, or null when it stayed taken for <paramref name="wait"/>. A caller that must
+        /// stay interruptible (capture-window.ps1, where Ctrl+C acts only between calls) waits in short attempts.
+        /// </summary>
+        public static DesktopHolder? TryAcquire(string name, string folder, TimeSpan wait, string? label = null, TextWriter? errors = null)
         {
             ParseName(name);
-            errors ??= Console.Error;
             var mutex = new Mutex(false, @"Local\" + name);
             var owned = false;
             try
             {
-                owned = Take(mutex, TimeSpan.Zero);
+                owned = Take(mutex, wait);
                 if (!owned)
                 {
-                    if (wait > TimeSpan.Zero) onWaiting?.Invoke($"the desktop is held by {Describe(name, folder)}; waiting up to {(int)wait.TotalSeconds} s for it ({WaitVariable})");
-                    owned = wait > TimeSpan.Zero && Take(mutex, wait);
+                    mutex.Dispose();
+                    return null;
                 }
-                if (!owned)
-                {
-                    throw new DesktopLockException(
-                        $"the desktop is held by {Describe(name, folder)}, and {(int)wait.TotalSeconds} s ({WaitVariable}) went by without it", timedOut: true);
-                }
-                var holder = new DesktopHolder(mutex, name, folder, errors);
+                var holder = new DesktopHolder(mutex, name, folder, errors ?? Console.Error, label);
                 holder.Publish();
                 return holder;
             }
@@ -133,6 +145,14 @@ namespace Bosun.Desktop
                 throw;
             }
         }
+
+        /// <summary>What a process that finds the lock taken says, once, before it waits.</summary>
+        public static string WaitingMessage(string name, string folder, TimeSpan wait) =>
+            $"the desktop is held by {Describe(name, folder)}; waiting up to {(int)wait.TotalSeconds} s for it ({WaitVariable})";
+
+        /// <summary>What a process says when its wait ran out.</summary>
+        public static string RefusedMessage(string name, string folder, TimeSpan wait) =>
+            $"the desktop is held by {Describe(name, folder)}, and {(int)wait.TotalSeconds} s ({WaitVariable}) went by without it";
 
         private static bool Take(Mutex mutex, TimeSpan wait)
         {
@@ -155,7 +175,7 @@ namespace Bosun.Desktop
             return $"pid {record.Pid} ({Shorten(record.Command)}), started {started}";
         }
 
-        /// <summary>A command on one line and at most 160 characters, for a message: the record keeps it whole.</summary>
+        /// <summary>A label on one line and at most 160 characters: what a record holds and a message shows.</summary>
         public static string Shorten(string command)
         {
             var line = new StringBuilder(command.Length);
@@ -310,14 +330,24 @@ namespace Bosun.Desktop
         private readonly TextWriter _errors;
         private bool _disposed;
 
-        internal DesktopHolder(Mutex mutex, string name, string folder, TextWriter errors)
+        internal DesktopHolder(Mutex mutex, string name, string folder, TextWriter errors, string? label)
         {
             (_mutex, Name, _errors) = (mutex, name, errors);
             RecordPath = DesktopLock.RecordPath(name, folder);
             using var me = Process.GetCurrentProcess();
             Pid = me.Id;
             ProcessStart = (ulong)me.StartTime.ToFileTimeUtc();
+            Label = DesktopLock.Shorten(string.IsNullOrWhiteSpace(label) ? me.ProcessName : label!);
         }
+
+        /// <summary>What the record calls this holder: a short name, never its command line.</summary>
+        public string Label { get; }
+
+        /// <summary>
+        /// Whether the record was written. A holder whose children must work under its hold (the smoke) needs it,
+        /// since a child takes the hold only from a record that names its parent.
+        /// </summary>
+        public bool Published { get; private set; }
 
         public string Name { get; }
 
@@ -344,7 +374,7 @@ namespace Bosun.Desktop
                         json.WriteNumber("schema_version", 1);
                         json.WriteNumber("pid", Pid);
                         json.WriteNumber("process_start", ProcessStart);
-                        json.WriteString("command", Environment.CommandLine);
+                        json.WriteString("command", Label);
                         if (Repo() is { } repo) json.WriteString("repo", repo); else json.WriteNull("repo");
                         json.WriteString("acquired_at", DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture));
                         json.WriteEndObject();
@@ -352,6 +382,7 @@ namespace Bosun.Desktop
                     File.WriteAllBytes(temporary, stream.ToArray());
                 }
                 File.Move(temporary, RecordPath, overwrite: true);
+                Published = true;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -409,13 +440,13 @@ namespace Bosun.Desktop
         private Exception? _failure;
         private bool _disposed;
 
-        public DesktopHold(string name, string folder, TimeSpan wait, Action<string>? onWaiting = null, TextWriter? errors = null)
+        public DesktopHold(string name, string folder, TimeSpan wait, Action<string>? onWaiting = null, TextWriter? errors = null, string? label = null)
         {
             _thread = new Thread(() =>
             {
                 try
                 {
-                    _holder = DesktopLock.Acquire(name, folder, wait, onWaiting, errors);
+                    _holder = DesktopLock.Acquire(name, folder, wait, onWaiting, errors, label);
                 }
                 catch (Exception e)
                 {
