@@ -100,6 +100,7 @@ public class DecisionCardTests
         {
             var waiting = ready!(root);
             while (!waiting.IsCompleted) Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            Assert.True(waiting.IsCompletedSuccessfully, $"the page was drawn ({waiting.Status}): {waiting.Exception}");   // a cancelled or failed draw is no draw
             Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
             read(root, shown!);
             return 0;
@@ -252,6 +253,7 @@ public class DecisionCardTests
         {
             var waiting = ready!(root);
             while (!waiting.IsCompleted) Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            Assert.True(waiting.IsCompletedSuccessfully, $"the page was drawn ({waiting.Status}): {waiting.Exception}");   // a cancelled or failed draw is no draw
             Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
             var scroll = Bosun.Panel.Tests.Shell.ShellSupport.Under<System.Windows.Controls.ScrollViewer>(root).Single(s => s.Name == "MemoryScroll");
             Assert.True(scroll.ScrollableHeight > 0, $"the page scrolls (extent {scroll.ExtentHeight}, viewport {scroll.ViewportHeight})");
