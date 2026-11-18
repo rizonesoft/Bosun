@@ -332,6 +332,8 @@ The Memory page's scroll bar sits on the cards' right border, and the Decision c
 
 ## 9. Placeholder copy, the Activity heading and the idle scroll thumb
 
+> **Started:** 2026-11-18T04:55:52Z
+
 Placeholder pages show an internal plan reference, the Activity pane has no heading, and a log shows a scroll thumb when nothing overflows. Placeholders speak to the user, the pane says what it is, and a scroll bar shows only when there is something to scroll.
 
 **Phase:** 3
