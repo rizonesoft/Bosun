@@ -7,7 +7,8 @@ namespace Bosun.TestChild;
 /// Watches for a person at the desk while the real-input smoke runs (D02 T02 §12). Low-level keyboard and mouse hooks
 /// see every input. The smoke's own is injected (LLKHF_INJECTED, LLMHF_INJECTED) and carries its mark in dwExtraInfo
 /// (Native.SmokeTag in tests/Bosun.Panel.E2E, the same value as <see cref="SmokeTag"/>); anything else is a person,
-/// injected or not (a remote-control tool injects too), and its time is written to a file the runner reads.
+/// injected or not (a remote-control tool injects too), and its time is written to a file the runner reads (by a writer
+/// thread, never inside a hook).
 /// Beside it, <c>&lt;file&gt;.held</c> lists the keys and buttons the smoke pressed and has not let go of (virtual-key codes,
 /// comma-separated): a class ended mid-drag leaves them down, and the runner lets go of those, never one a person
 /// holds (a person pressing a key the smoke holds takes it off the list).
@@ -20,9 +21,10 @@ static class InputWatch
     private const long SmokeTag = 0x42534E31; // "BSN1", as Native.SmokeTag
 
     private static string _file = "";
-    private static DateTime _written = DateTime.MinValue, _latest = DateTime.MinValue;
+    private static DateTime _latest = DateTime.MinValue;
+    private static readonly AutoResetEvent Wake = new(false);
     private static readonly object Gate = new();
-    private static readonly SortedSet<int> SmokeHeld = [];   // touched only on the hook thread
+    private static readonly SortedSet<int> SmokeHeld = [];   // under Gate: the hooks change it, the writer reads it
     private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105,
         WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208;
     private static HookProc? _keys, _mouse;   // held, so the collector never takes a callback Windows still calls
@@ -68,7 +70,8 @@ static class InputWatch
         // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
         // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
         Write(null);
-        WriteHeld();
+        WriteHeld("");
+        new Thread(Writer) { IsBackground = true, Name = "watch-input writer" }.Start();
         // A person stood in for: each "person" line on stdin is one input not marked injected.
         new Thread(() =>
         {
@@ -93,33 +96,57 @@ static class InputWatch
 
     /// <summary>
     /// Keeps the list of what the smoke holds down: its own press adds a key, any release of it, or a person's press of
-    /// it (the key is the person's now), takes it off. Written whenever it changes.
+    /// it (the key is the person's now), takes it off. The hooks only change memory and wake the writer: a hook that
+    /// waits on the disk past Windows' hook timeout is removed without a word, and the desk would go unwatched.
     /// </summary>
     private static void Track(int key, bool down, bool up, bool smoke)
     {
-        var changed = down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
-        if (changed) WriteHeld();
-    }
-
-    private static void WriteHeld()
-    {
-        var temporary = _file + ".held.tmp";
-        File.WriteAllText(temporary, string.Join(",", SmokeHeld));
-        File.Move(temporary, _file + ".held", overwrite: true);
+        lock (Gate)
+        {
+            var changed = down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
+            if (changed) Wake.Set();
+        }
     }
 
     /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
     private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() == SmokeTag;
 
-    /// <summary>A person's input now: written at most once a second, the latest time always kept.</summary>
+    /// <summary>A person's input now: kept in memory, written by the writer.</summary>
     private static void Seen()
     {
         lock (Gate)
         {
             _latest = DateTime.UtcNow;
-            if (_latest - _written < TimeSpan.FromSeconds(1)) return;
-            _written = _latest;
-            Write(_latest);
+            Wake.Set();
+        }
+    }
+
+    /// <summary>
+    /// The writer, on a thread of its own: each time it is woken it writes what changed, the latest person's time and
+    /// the held list, each whole through a temporary file. A write that fails is said and tried again on the next wake,
+    /// or after a second, so a stalled disk delays the record and never the hooks.
+    /// </summary>
+    private static void Writer()
+    {
+        DateTime written = DateTime.MinValue;
+        string heldWritten = "";
+        while (true)
+        {
+            Wake.WaitOne(TimeSpan.FromSeconds(1));
+            DateTime latest;
+            string held;
+            lock (Gate)
+            {
+                latest = _latest;
+                held = string.Join(",", SmokeHeld);
+            }
+            try
+            {
+                if (latest != written) { Write(latest); written = latest; }
+                if (held != heldWritten) { WriteHeld(held); heldWritten = held; }
+            }
+            catch (IOException failed) { Console.Error.WriteLine($"watch-input: the record could not be written yet: {failed.Message}"); }
+            catch (UnauthorizedAccessException failed) { Console.Error.WriteLine($"watch-input: the record could not be written yet: {failed.Message}"); }
         }
     }
 
@@ -128,6 +155,13 @@ static class InputWatch
         var temporary = _file + ".tmp";
         File.WriteAllText(temporary, at is { } t ? t.ToString("o", CultureInfo.InvariantCulture) : "none");
         File.Move(temporary, _file, overwrite: true);
+    }
+
+    private static void WriteHeld(string held)
+    {
+        var temporary = _file + ".held.tmp";
+        File.WriteAllText(temporary, held);
+        File.Move(temporary, _file + ".held", overwrite: true);
     }
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);

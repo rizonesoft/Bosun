@@ -42,14 +42,16 @@ if ($which -and $which -eq $class) {
   if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
   if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
-  if ($word -eq 'hold') {
+  if ($word -eq 'hold' -or $word -eq 'hold-crash') {
     # F24 pressed and never let go, as a drag ended between its button-down and button-up.
     Add-Type 'using System; using System.Runtime.InteropServices; public static class F24 { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(10)] public ushort scan; [FieldOffset(12)] public int flags; [FieldOffset(16)] public int time; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Down() { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
     if ([F24]::Down() -eq 1) {
       Set-Content -LiteralPath (Join-Path $state 'held.txt') -Value 'down'
       # What the real watcher writes when the smoke presses a key and does not let go of it.
-      Set-Content -LiteralPath ((Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName + '.held') -Value '135'
+      Set-Content -LiteralPath ((Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Where-Object Name -notlike '*.held' | Select-Object -First 1).FullName + '.held') -Value '135'
     }
+    # A test host that dies holding it, before it ever lets go.
+    if ($word -eq 'hold-crash') { exit 3 }
     Start-Sleep 120
   }
   if ($word -eq 'sleep') {
@@ -187,6 +189,10 @@ try {
   $run = Invoke-Run 'hold Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(20).ToString('s'))
   Add-Type 'using System.Runtime.InteropServices; public static class F24State { [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k); public static bool Down() { return (GetAsyncKeyState(0x87) & 0x8000) != 0; } }' -ErrorAction Ignore
   Check "a key held by an ended class is let go of (exit $($run.Code), held: $(Test-Path -LiteralPath (Join-Path $run.State 'held.txt')))" ($run.Last.outcome -eq 'stopped-deadline' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+
+  # The same when the class's host dies holding it: its failure is recorded, and the key is let go of before the next.
+  $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
+  Check "a key held by a class whose host died is let go of (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'failed' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
 
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))

@@ -435,8 +435,9 @@ try {
             try { $rows = @(([xml](Get-Content -LiteralPath $report -Raw)).TestRun.Results.UnitTestResult | Where-Object { $_ }) }
             catch { if (-not $run.TimedOut) { Finish 'failed' "the report of $class could not be read: $($_.Exception.Message)" 1; return } }
         }
-        # A class that was ended may have left a button or a key down (a drag, a chord): let go of them first.
-        if ($run.TimedOut) { Release-Held }
+        # A class that was ended, or whose host failed, may have left a button or a key down (a drag, a chord): let go
+        # of what the smoke still holds before anything else, however the class ended.
+        Release-Held
         if ($run.TimedOut) { Stop-For $(if ($run.StoppedBy) { $run.StoppedBy } else { 'deadline' }) "during $class, which was ended"; return }
         foreach ($result in $rows) {
             $name = $result.testName
