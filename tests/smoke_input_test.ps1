@@ -221,6 +221,47 @@ try {
     Check 'the E2E project is built, for the inherited-hold check (run dotnet build first)' $false
   }
 
+  # A holder of the desktop lock, for the cases that find it taken: it takes the test's lock and keeps it until its
+  # file is removed, or for two minutes at most.
+  $holdFile = Join-Path $dir 'hold.txt'
+  $holdScript = Join-Path $dir 'hold.ps1'
+  Set-Content -LiteralPath $holdScript -Encoding utf8 -Value @"
+Add-Type -Path '$(Join-Path $repo 'scripts/lib/DesktopLock.cs')'
+`$waiter = [Bosun.Desktop.DesktopWaiter]::new('$lockName', [Bosun.Desktop.DesktopLock]::RecordFolder(), 'hold.ps1', `$null)
+try { `$holder = `$waiter.TryTake([TimeSpan]::FromSeconds(5)) } finally { `$waiter.Dispose() }
+if (-not `$holder) { exit 9 }
+Set-Content -LiteralPath '$holdFile' -Value held
+for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { Start-Sleep -Milliseconds 200 }
+`$holder.Dispose()
+"@
+  $hold = Start-Process -FilePath $shell -ArgumentList @('-NoProfile', '-File', $holdScript) -NoNewWindow -PassThru
+  $started.Add($hold)
+  try {
+    for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $holdFile); $i++) { Start-Sleep -Milliseconds 100 }
+    # 05:00 coming while the run waits for the desktop is the deadline, not a desk in use.
+    $env:BOSUN_DESKTOP_WAIT_S = '60'
+    $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(6).ToString('s'))
+    Check "the deadline reached while waiting for the desktop is stopped-deadline (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and "$($run.Last.reason)" -like '*while it waited for the desktop*') $run.Said
+    # Runs refused the lock at once write their records without it: six at once in one state folder keep all six.
+    $env:BOSUN_DESKTOP_WAIT_S = '0'
+    $state = Join-Path $dir 'state-many'
+    New-Item -ItemType Directory -Force -Path $state | Out-Null
+    $env:BOSUN_DESKTOP_LOCK = $lockName
+    $many = foreach ($i in 1..6) {
+      $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
+      foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-TestProbes')) { $info.ArgumentList.Add($a) }
+      $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+      $p = [System.Diagnostics.Process]::Start($info); $started.Add($p); $p
+    }
+    foreach ($p in $many) { $p.WaitForExit(60000) | Out-Null }
+    $kept = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
+    Check "six refused runs at once keep six records ($($kept.Count))" ($kept.Count -eq 6 -and @($kept | Where-Object { $_.reason -like '*lock was held by*hold.ps1*' }).Count -eq 6)
+  } finally {
+    Remove-Item Env:BOSUN_DESKTOP_WAIT_S, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore
+    Remove-Item -LiteralPath $holdFile -ErrorAction Ignore
+    $hold.WaitForExit(10000) | Out-Null
+  }
+
   # The history: each run kept with its own log, the last 60 and 30 kept, read back in words.
   $state = Join-Path $dir 'state-history'
   $a = Invoke-Run 'pass' -State $state
@@ -242,7 +283,8 @@ try {
   New-Item -ItemType Directory -Force -Path $state | Out-Null
   Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
   Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
-  $taskArgs = "-StateFolder `"$state`" -Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes"
+  # The state folder is not among these: -Install writes it into the task from its own -StateFolder.
+  $taskArgs = "-Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes"
   # The colon form: a value that starts with a dash would be read as a parameter of its own.
   $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName "-TaskArguments:$taskArgs" 2>&1 | Out-String
   try {

@@ -92,12 +92,19 @@ function Read-History {
 }
 
 # Writes the whole file anew through a temporary file and a replace, the last 60 entries kept.
+# One writer at a time, across processes: runs refused the desktop lock write their record without holding it, and two
+# that read the same history would each replace it with only their own entry added. The mutex is named for the file.
 function Add-History($entry) {
-    $lines = @(Read-History | ForEach-Object { $_ | ConvertTo-Json -Compress }) + @($entry | ConvertTo-Json -Compress)
-    $lines = @($lines | Select-Object -Last 60)
-    $temporary = "$history.$PID.tmp"
-    [IO.File]::WriteAllText($temporary, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temporary -Destination $history -Force
+    $key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($history)).ToLowerInvariant()))).Substring(0, 16)
+    $gate = [Threading.Mutex]::new($false, "Local\bosun-smoke-history-$key")
+    try {
+        try { [void]$gate.WaitOne() } catch [Threading.AbandonedMutexException] { }  # a writer that died: the file was replaced whole or not at all
+        $lines = @(Read-History | ForEach-Object { $_ | ConvertTo-Json -Compress }) + @($entry | ConvertTo-Json -Compress)
+        $lines = @($lines | Select-Object -Last 60)
+        $temporary = "$history.$PID.tmp"
+        [IO.File]::WriteAllText($temporary, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporary -Destination $history -Force
+    } finally { $gate.ReleaseMutex(); $gate.Dispose() }
 }
 
 function Format-Outcome($e) {
@@ -147,7 +154,8 @@ function Show-Status {
 if ($Status) { Show-Status; exit 0 }
 if ($Install) {
     $shell = (Get-Process -Id $PID).Path
-    $arguments = "-NoProfile -WindowStyle Hidden -File `"$PSCommandPath`" -Scheduled -Invocation task"
+    # The state folder goes in the task's own arguments, so the nightly run writes where -Status here will read.
+    $arguments = "-NoProfile -WindowStyle Hidden -File $(ConvertTo-CommandLineArgument $PSCommandPath) -Scheduled -Invocation task -StateFolder $(ConvertTo-CommandLineArgument ([IO.Path]::GetFullPath($StateFolder)))"
     if ($TaskArguments) { $arguments += " $TaskArguments" }
     $action = New-ScheduledTaskAction -Execute $shell -Argument $arguments -WorkingDirectory $repo
     $trigger = New-ScheduledTaskTrigger -Daily -At '03:00'
@@ -243,6 +251,7 @@ try {
     } finally { $waiter.Dispose() }
     if (-not $holder) {
         $who = [Bosun.Desktop.DesktopLock]::Describe($settingsNow.Name, [Bosun.Desktop.DesktopLock]::RecordFolder())
+        if (PastDeadline) { Finish 'stopped-deadline' "05:00 came while it waited for the desktop, in use by $who" 1; return }
         if ($Scheduled) { Finish 'skipped-in-use' "the desktop was in use by $who" 0 } else { Finish 'failed' "the desktop lock was held by $who" 1 }
         return
     }
