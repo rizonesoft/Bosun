@@ -571,14 +571,6 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="MinHeight" Value="32"/>
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing.Inside}"/>
-        <!-- A scroll bar only when the lines overflow (D02 T04 §9): the template's ScrollViewer takes these, where a bare
-             ScrollViewer's own default showed a bar, and its thumb, over a log with room to spare. -->
-        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-        <!-- Scrolled by the pixel, not the line: scrolled by the line, the bar stayed after the lines came to fit again
-             (a taller pane), the list's line count leaving the bar's Auto undecided. A log holds a bounded number of
-             lines (UiLogSink.MaxEntries), so it needs no virtualising. -->
-        <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
         <!-- Its own template: the stock list paints the system's control colour behind itself when it is disabled,
              a light box on a dark page. -->
         <Setter Property="Template">
