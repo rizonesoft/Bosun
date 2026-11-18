@@ -60,7 +60,7 @@ title: "TODO-04 -- Design polish"
 | 4 | §4 | Table alignment and tabular numbers | -- | [x] |
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [x] |
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [x] |
-| 7 | §7 | Expandable toasts and a clean palette search field | §1 | [ ] |
+| 7 | §7 | Expandable toasts and a clean palette search field | §1 | [x] |
 | 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [ ] |
 | 9 | §9 | Placeholder copy, the Activity heading and the idle scroll thumb | -- | [ ] |
 
@@ -288,9 +288,12 @@ A long toast is cut off with no way to read the rest, and the palette's search b
 
 - [x] Extend the E2E: `ToastE2ETests` reaches a long toast's Show more with Tab, opens it with Space, and reaches Dismiss; the palette E2E opens with Ctrl+K, types, moves the selection and runs a row with Enter, and closes with Esc. Done when: both pass on the test screen.
 - [x] Add an expanded toast render, and the full stack expanded at 960 x 600, and redraw the toast and palette renders, in every theme. Done when: each is looked at.
-- [ ] Commit: `shell: toasts show their whole message, the palette searches in one field`
+- [x] Commit: `shell: toasts show their whole message, the palette searches in one field`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ToastTests" --filter-class "*CommandPaletteTests" --filter-class "*FocusOutlineTests"` exits 0, and the E2E `ToastE2ETests` and palette tests pass on the test screen; the whole panel suite passes before the push.
+
+> **Verified:** 2026-11-18 | §7 | efeb4fbb4ad404e66be90aea8b24eb4eb3b864a8
+> **Review:** `docs/reviews/d02-t04-s7.json`
 
 ## 8. Memory page scroll gutter and the Decision evidence list
 

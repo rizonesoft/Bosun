@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T04 \u00a77",
+  "title": "Expandable toasts and a clean palette search field",
+  "implementation_sha": "efeb4fbb4ad404e66be90aea8b24eb4eb3b864a8",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T04-s7.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 865 of 865 (ToastTests, CommandPaletteTests, FocusOutlineTests among them)",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*ToastE2ETests\" --filter-class \"*CommandPaletteE2ETests\" -> passed (toast 2 of 2 with real Down and End scrolling; palette 2 of 2)",
+    "python scripts/ci_status.py --gate --sha efeb4fbb4ad4 -> build.yml and plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44231631928)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s7.md",
+    "verdict": "completed",
+    "candidate": "b4298e8468f423d73f22b088b00649bb6ecd43b3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "round 2 returned only a P3 (the toast host summaries named FAILs alone), fixed in b4298e8 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s7.md",
+    "candidate": "a104210aaec9c77d60ab4dc669a7edeb34505881",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "a104210aaec9c77d60ab4dc669a7edeb34505881",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
