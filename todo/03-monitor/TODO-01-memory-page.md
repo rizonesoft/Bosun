@@ -202,29 +202,42 @@ A warning is worth having only if it arrives once, early enough, and doesn't nag
 
 This is what opens first. It only assembles other pages' state, so it is built after them and owns no data.
 
+**Corrected 2026-11-18** against the tree before building. Each correction says what the plan said before:
+
+- The panel has no `Views/` folder or `MainViewModel.cs`: pages live in feature folders (`src/Bosun.Panel/Memory/`, `Instances/`, `Queue/`, each a `XPage.cs` and `XView.xaml`) and the shell in `src/Bosun.Panel/Shell/ShellViewModel.cs`; the Overview goes in `src/Bosun.Panel/Overview/`, registered in `WindowStart.NewShell` (`Shell/WindowSurface.cs`), `PageFrame.xaml` and `App.xaml.cs`, replacing the placeholder row in `Shell/Sections.cs`. (It said `Views/OverviewView.xaml` and `Shell/MainViewModel.cs`.)
+- `INeedsYouSource` already exists, in the panel's tray (`src/Bosun.Panel/Tray/INeedsYouSource.cs`: `Count`, `Changed`), with only a test fake: the Needs you table implements it; it does not move to `Bosun.Core`, since what needs the operator is the panel's to say. (It said: define it in `src/Bosun.Core`.)
+- `design/SPEC.md` §2 names the four cards (Windows available, WSL guest available, Queue, Dev instances) and the table's columns (state word, what, where, Open) and its empty words, and nothing more: what each card shows and which rows exist are settled here, below.
+- A hidden page polls nothing (`design/SPEC.md` §1), so the Overview can't borrow the other pages' readings: it reads its own, while it is shown, through the same sources (`IMemorySource`, `IQueueSource`, `IInstanceSource`), at the same pace (memory and queue 5 s, instances 30 s), and words them with the pages' own word functions so a card can't disagree with its page.
+- The rail's badges are fed today only by `PageBase.Waiting` (the Queue page's waiter count, `D02 T03 §3`); a row of Needs you for a page adds to its badge.
+- The checkpoint used `--filter FullyQualifiedName~`, which Microsoft.Testing.Platform refuses: it is `--filter-class` now.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** yes
-**Fidelity:** `design/SPEC.md` §2.
+**Fidelity:** `design/SPEC.md` §2 (and §1, §19 for the cards and the count badge).
 **Job:** decide in five seconds whether to start more work and what needs attention.
 **Treatment:** four cards, then Needs you. Cheaper substitute that fails: a static welcome page.
-**Chrome:** the shell's page frame.
+**Chrome:** the shell's page frame (`PageBase`), the metric card and radial gauge of `design/SPEC.md` §19, the `CountBadge`.
 
 **Build order:**
 
-1. Create `Views/OverviewView.xaml` with the cards. Done when: they mirror Memory and Queue.
-2. Build Needs you. Done when: each row opens its owner.
+1. Read and word the four cards from the shared sources and word functions. Done when: each card matches its page on shared fakes.
+2. Gather Needs you from its providers, and show the table with Open. Done when: each row opens its owner.
+3. Feed the rail badges and the tray from Needs you; register and render. Done when: the rail and the tray count the rows.
 
-- [ ] Build the four metric cards per `design/SPEC.md` §2. Done when: they match their pages in a test using shared fakes.
-- [ ] Define `INeedsYouSource` in `src/Bosun.Core`, implemented by each page's owner. Done when: each later page adds rows without changing Overview. Cheaper substitute: Overview querying tools itself.
-- [ ] Build the empty state. Done when: with nothing pending, it says "Nothing needs you."
-- [ ] Build the Needs you table with state word, what, where and Open in `Views/OverviewView.xaml`. Done when: Open goes to the owning page.
-- [ ] Feed rail count badges from `INeedsYouSource` by page in `src/Bosun.Panel/Shell/MainViewModel.cs`. Done when: a fake row on Queue shows a count of 1 on that rail row.
-- [ ] Give the tray what needs the operator through `INeedsYouSource` (`src/Bosun.Panel/Tray/INeedsYouSource.cs`), from the Needs you table (**Added 2026-11-15** from `D02 T02 §7`, whose tray shows the Needs you state from this source and is tested with its own). Done when: a test with two rows in the table reads the tray's Needs you state and its tooltip saying two things need you, and with none reads Normal.
+- [ ] Create `src/Bosun.Panel/Overview/OverviewPage.cs` on `PageBase`, reading while shown through `RefreshEvery(scheduler, log, RefreshScheduler.Fast, ...)` (memory and queue, 5 s) and `RefreshAlso(..., RefreshScheduler.Slow, ...)` (instances, 30 s), nothing while hidden, a late older reading dropped. Done when: an `OverviewPageTests` case counts one memory and one queue read per 5 s tick and one instances read per 30 s while shown, none while hidden.
+- [ ] Build the four cards: Windows available (GB available of total, from the Windows snapshot, with the pressure verdict's word), WSL guest available (the guest's available of total, or "WSL not running" with its last-known age, or Not available with the reason), Queue (`QueueSummary.WordsOf`: "1 running, 2 waiting", "Idle"), Dev instances (the count running on each side, from `InstanceClient`'s merge), each a metric card per `design/SPEC.md` §19 with its gauge where it has a fraction, each value that can't be read "Not available" with its reason, never 0, and each card opening its page. Done when: an `OverviewPageTests` case on shared fakes reads each card the same as its page reads the same reading (the Memory page's words for memory, `QueueSummary` for the queue, the Instances page's count). Cheaper substitute: figures copied by hand from each page's code.
+- [ ] Add `INeedsYouProvider` (`src/Bosun.Panel/Overview/NeedsYou.cs`): a page's rows (state word, what, where, the section key to open), and `NeedsYou`, which gathers every provider's rows, implements the tray's `INeedsYouSource` (`Count`, `Changed`) and gives each section its row count. Done when: a test adds a provider and its rows appear in the table, in the tray's count and on the rail, with no change to `OverviewPage`. Cheaper substitute: the Overview querying tools itself.
+- [ ] Give the first providers their rows: memory pressure from the tray's `PressureCheck` (a row while the panel's floor is crossed: "Pressure", "Free memory is under the floor", "Memory"); a queue job held for memory longer than the queue's maximum wait would let it run anyway is not a row, and a job waiting is not one either (the badge counts waiters); a failed read of a source the Overview shows is not a row but the card's own "Not available". Done when: tests drive each provider's row in and out. Cheaper substitute: rows for every waiting job.
+- [ ] Build the Needs you table (state word, what, where, Open) in `src/Bosun.Panel/Overview/OverviewView.xaml`: Open goes to the owning page through the shell, each Open named for its row, the rows read in order of how much they need the person (state first, then age). Done when: a test presses Open on a row and the shell shows its page.
+- [ ] Build the states: the frame's Loading on the first read; data; Needs you empty says "Nothing needs you." inside the page with the cards still shown (not the frame's Empty); a card whose source failed shows its own Not available; the page is `Failed` with Retry only when no card could be read. Done when: tests drive each state.
+- [ ] Feed the rail's count badges from `NeedsYou` by section: a page's badge is its own `Waiting` (the Queue page's waiters) plus its Needs you rows, the spoken name saying the count in words (`design/SPEC.md` §19). Done when: a fake row on Queue adds one to the Queue row's badge, seen and said.
+- [ ] Give the tray what needs the operator through `INeedsYouSource` from `NeedsYou` (**Added 2026-11-15** from `D02 T02 §7`, whose tray shows the Needs you state from this source and is tested with its own), passed to `TrayController` in `App.xaml.cs`; it is kept current while the panel runs whatever page shows (the providers' own sources, the pressure check, already run in the tray). Done when: a test with two rows reads the tray's Needs you state and its tooltip saying two things need you, and with none reads Normal.
+- [ ] Register the page: `pages["overview"]` in `WindowStart.NewShell`, the `OverviewPage` to `OverviewView` template in `PageFrame.xaml`, its sources from `App.xaml.cs`, the placeholder row replaced; and update `tests/Bosun.Panel.E2E/RailTests.cs` (Overview in its data state, its data mark) and any other end-to-end test that expects the placeholder. Done when: a shell-level test opens the panel on Overview and finds its cards and table, and the bare end-to-end run passes.
+- [ ] Render the page in every state and theme (`RenderCatalog` `OverviewCase`): data with pressure and a row, nothing needs you, WSL not running, a card not available, loading, failed. Done when: the renders are in `build/renders/` and looked at.
 - [ ] Commit: `overview: page`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Overview` exits 0, and fails if the change is reverted.
-
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Overview*" --filter-class "*NeedsYou*"` exits 0, and fails if the change is reverted; the bare `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` passes with Overview opened first.
 
 ## 6. Decision card and the report's evidence for it
 
