@@ -268,7 +268,7 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   $b = Invoke-Run 'pass' -State $state
   Check 'two runs in one minute keep two logs' ($a.Last.log -ne $b.Last.log -and (Test-Path -LiteralPath $a.Last.log) -and (Test-Path -LiteralPath $b.Last.log))
   $lines = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl'))
-  $filler = foreach ($i in 1..70) { (@{ at = (Get-Date).AddDays(-80 + $i).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'skipped-locked'; reason = 'the desktop was locked'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress) }
+  $filler = foreach ($i in 1..70) { (@{ at = (Get-Date).Date.AddDays(-80 + $i).AddHours(3).AddMinutes(1).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'skipped-locked'; reason = 'the desktop was locked'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress) }
   Set-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -Value (@($filler) + $lines)
   foreach ($i in 1..31) { Set-Content -LiteralPath (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log") -Value old; (Get-Item (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log")).LastWriteTime = (Get-Date).AddDays(-30) }
   $c = Invoke-Run 'pass' -State $state
@@ -304,6 +304,17 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     $night = (Get-Date).Date.AddHours(3); if ((Get-Date) -lt $night.AddHours(2)) { $night = $night.AddDays(-1) }
     $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
     Check 'a night with no record is named by its date' ($status -like "*No result for $($night.ToString('yyyy-MM-dd'))*") $status
+    # A scheduled run started by hand after the window, on the night missed, is not that night's result.
+    $history = Join-Path $state 'input-history.jsonl'
+    Set-Content -LiteralPath $history -Value (@{ at = $night.Date.AddHours(9).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'stopped-deadline'; reason = 'it began after 05:00'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress)
+    $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check 'a late run on a missed night still leaves it named as missed' ($status -like "*No result for $($night.ToString('yyyy-MM-dd'))*") $status
+    # Skipped nights are counted by date: a night with no result between two skipped ones ends the count.
+    $skip = { param($d) (@{ at = $d.Date.AddHours(3).AddMinutes(1).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'skipped-locked'; reason = 'the desktop was locked'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress) }
+    Set-Content -LiteralPath $history -Value @((& $skip $night.AddDays(-3)), (& $skip $night.AddDays(-1)), (& $skip $night))
+    $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check 'a night with no result between skipped ones ends the count (2 in a row, not 3)' ($status -like '*Skipped 2 nights in a row*') $status
+    Remove-Item -LiteralPath $history
     Set-Content -LiteralPath $mark -Value $was
     $before = @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count
     Push-Location $env:TEMP

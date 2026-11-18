@@ -133,17 +133,29 @@ function Show-Status {
         "No scheduled run yet, installed $since."
     }
     if ($nightly.Count -gt 0) { "Real-input smoke, last scheduled run: $(Format-Outcome $nightly[-1])." }
+    # A night's result is a scheduled run that began in that night's window, 03:00 to 05:00: a scheduled run started
+    # later the same day (a missed trigger run by hand from Task Scheduler) is not the night's, and a night with none
+    # has no result. The latest run of a night is its result.
+    $nights = @{}
+    foreach ($e in $nightly) {
+        $at = ([DateTime]$e.at).ToLocalTime()
+        if ($at.TimeOfDay -ge [TimeSpan]::FromHours(3) -and $at.TimeOfDay -lt [TimeSpan]::FromHours(5)) { $nights[$at.Date] = $e }
+    }
+    # Skipped nights in a row: consecutive trigger dates, back from the latest night with a result, each skipped. A
+    # night with no result ends the count, as a night that ran does.
     $streak = 0
-    for ($i = $nightly.Count - 1; $i -ge 0 -and "$($nightly[$i].outcome)".StartsWith('skipped'); $i--) { $streak++ }
+    if ($nights.Count -gt 0) {
+        $night = ($nights.Keys | Sort-Object)[-1]
+        while ($nights.ContainsKey($night) -and "$($nights[$night].outcome)".StartsWith('skipped')) { $streak++; $night = $night.AddDays(-1) }
+    }
     if ($streak -gt 1) { "Skipped $streak nights in a row: the desk was locked or in use at 03:00." }
     if ($task) {
-        # The last 03:00 that has passed since the install: a night with no record is a night the machine slept, was off
-        # or nobody was logged on, when nothing could write one.
+        # The last 03:00 whose window has closed since the install: a night with no result is a night the machine slept,
+        # was off or nobody was logged on, when nothing could write one.
         $last = (Get-Date).Date.AddHours(3)
         if ((Get-Date) -lt $last.AddHours(2)) { $last = $last.AddDays(-1) }
         $since = if (Test-Path -LiteralPath $installed) { ([DateTime](Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).at).ToLocalTime() } else { $last }
-        $had = @($nightly | Where-Object { ([DateTime]$_.at).ToLocalTime().Date -eq $last.Date })
-        if ($last -gt $since -and $had.Count -eq 0) { "No result for $($last.ToString('yyyy-MM-dd')): the machine was asleep, off or logged off at 03:00." }
+        if ($last -gt $since -and -not $nights.ContainsKey($last.Date)) { "No result for $($last.ToString('yyyy-MM-dd')): the machine was asleep, off or logged off at 03:00." }
     }
     if ($manual.Count -gt 0) { "Last on-demand run: $(Format-Outcome $manual[-1])." }
     elseif ($nightly.Count -eq 0) { 'No run yet: pwsh scripts/smoke-input.ps1 runs the real-input tests now.' }
