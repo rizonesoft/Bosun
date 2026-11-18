@@ -39,10 +39,8 @@ static class InputWatch
             if (code >= 0)
             {
                 var stroke = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                var smoke = Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra);
-                if (!smoke) Seen();
                 var message = (uint)wParam.ToInt64();
-                Track((int)stroke.vkCode, message is WM_KEYDOWN or WM_SYSKEYDOWN, message is WM_KEYUP or WM_SYSKEYUP, smoke);
+                Input(Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra), (int)stroke.vkCode, message is WM_KEYDOWN or WM_SYSKEYDOWN, message is WM_KEYUP or WM_SYSKEYUP);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -51,11 +49,9 @@ static class InputWatch
             if (code >= 0)
             {
                 var pointer = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                var smoke = Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra);
-                if (!smoke) Seen();
                 var message = (uint)wParam.ToInt64();
                 var button = message switch { WM_LBUTTONDOWN or WM_LBUTTONUP => 1, WM_RBUTTONDOWN or WM_RBUTTONUP => 2, WM_MBUTTONDOWN or WM_MBUTTONUP => 4, _ => 0 };
-                if (button != 0) Track(button, message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN, message is WM_LBUTTONUP or WM_RBUTTONUP or WM_MBUTTONUP, smoke);
+                Input(Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra), button, message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN, message is WM_LBUTTONUP or WM_RBUTTONUP or WM_MBUTTONUP);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -75,7 +71,7 @@ static class InputWatch
         new Thread(() =>
         {
             for (string? line; (line = Console.In.ReadLine()) is not null;)
-                if (line.Trim() == "person") Seen();
+                if (line.Trim() == "person") Input(smoke: false, key: 0, down: false, up: false);
         }) { IsBackground = true }.Start();
         // Held to the end: a timer nothing references can be collected, and the four-hour cap would never come.
         using var quit = new Timer(_ => PostThreadMessage(thread, WM_QUIT, IntPtr.Zero, IntPtr.Zero), null, TimeSpan.FromHours(4), Timeout.InfiniteTimeSpan);
@@ -98,27 +94,24 @@ static class InputWatch
     /// it (the key is the person's now), takes it off. The hooks only change memory and wake the writer: a hook that
     /// waits on the disk past Windows' hook timeout is removed without a word, and the desk would go unwatched.
     /// </summary>
-    private static void Track(int key, bool down, bool up, bool smoke)
+    /// <param name="key">The virtual key or mouse button (1, 2, 4) the event presses or lets go of; 0 for none (a move).</param>
+    /// <remarks>
+    /// One event, one change under the lock: a person's time and who holds the key move together, so the writer never
+    /// writes a person's press beside a list that still gives the smoke the key they now hold.
+    /// </remarks>
+    private static void Input(bool smoke, int key, bool down, bool up)
     {
         lock (Gate)
         {
-            var changed = down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
+            var changed = false;
+            if (!smoke) { _latest = DateTime.UtcNow; changed = true; }
+            if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
             if (changed) Wake.Set();
         }
     }
 
     /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
     private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() == SmokeTag;
-
-    /// <summary>A person's input now: kept in memory, written by the writer.</summary>
-    private static void Seen()
-    {
-        lock (Gate)
-        {
-            _latest = DateTime.UtcNow;
-            Wake.Set();
-        }
-    }
 
     /// <summary>
     /// The writer, on a thread of its own: each time it is woken it writes the record anew, the latest person's time and
@@ -158,11 +151,27 @@ static class InputWatch
     }
 
     /// <summary>The record, both lines at once: whoever reads it sees one moment, never a time from one and keys from another.</summary>
+    /// <remarks>
+    /// The replace is tried for a quarter of a second: a reader holding the record that moment (the runner reads it with
+    /// delete sharing, so the replace goes through; any other reader may briefly hold it) only delays it.
+    /// </remarks>
     private static void Write(DateTime? at, string held)
     {
         var temporary = _file + ".tmp";
         File.WriteAllText(temporary, (at is { } t ? t.ToString("o", CultureInfo.InvariantCulture) : "none") + "\n" + held + "\n");
-        File.Move(temporary, _file, overwrite: true);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(temporary, _file, overwrite: true);
+                return;
+            }
+            // A reader holding the record without delete sharing makes the replace fail, as access denied.
+            catch (Exception refused) when (refused is IOException or UnauthorizedAccessException && attempt < 10)
+            {
+                Thread.Sleep(25);
+            }
+        }
     }
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);

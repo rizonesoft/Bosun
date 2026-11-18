@@ -281,7 +281,12 @@ function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($Window
 # read. The two lines are written together, so they are of one moment.
 function Read-Watch {
     for ($try = 0; $try -lt 3; $try++) {
-        try { return @(([IO.File]::ReadAllText($watchFile) -split "\r?\n") + @('', '')) }
+        # Read with delete sharing, so the watcher's replace of the record is never refused while it is read.
+        try {
+            $stream = [IO.File]::Open($watchFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+            try { $text = [IO.StreamReader]::new($stream).ReadToEnd() } finally { $stream.Dispose() }
+            return @(($text -split "\r?\n") + @('', ''))
+        }
         catch { Start-Sleep -Milliseconds 50 }
     }
     $null
@@ -410,9 +415,10 @@ try {
     # has ended, or a record it cannot read, stops the run as a person would: the run never goes on unwatched.
     function StopReason {
         if (PastDeadline) { return 'deadline' }
+        # The watcher keeps what the smoke holds in both modes, so a run never goes on without it.
+        if ($watch.HasExited) { return 'watcher' }
         if (-not $Scheduled) { return $null }
         if (Locked) { return 'locked' }
-        if ($watch.HasExited) { return 'watcher' }
         $record = Read-Watch
         if ($null -eq $record) { return 'unreadable' }
         $said = "$($record[0])".Trim()

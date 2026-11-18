@@ -224,6 +224,10 @@ try {
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha'
   Check "an on-demand run lets go of what its crashed class held (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
 
+  # On demand the watcher is kept too: one that ends stops the run.
+  $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' -Pauses @('Bosun.Panel.E2E.Alpha 60')
+  Check "an on-demand run whose watcher ends stops (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and "$($run.Last.reason)" -like '*the input watcher ended*') $run.Said
+
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
   Check "a scheduled run started before its window is skipped (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
