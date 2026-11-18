@@ -22,7 +22,7 @@ namespace Bosun.Panel.Tests.Overview;
 public class OverviewShellTests
 {
     /// <summary>The panel's shell as NewShell makes it, drawn, with the rig the test drives.</summary>
-    static void InShell(Func<OverviewRig> make, Action<OverviewRig, Border> test)
+    static void InShell(Func<OverviewRig> make, Action<OverviewRig, Border> test, int width = 1360, int height = 1000)
     {
         OverviewRig? rig = null;
         PageRenderer.InPage("Dark", () =>
@@ -34,7 +34,7 @@ public class OverviewShellTests
             Draw(border);
             test(rig!, border);
             return 0;
-        }, 1360, 1000);
+        }, width, height);
     }
 
     static void Draw(Border border)
@@ -70,7 +70,7 @@ public class OverviewShellTests
                 Assert.Equal(gap, start - end, 0.5);
             }
             var gauges = ShellSupport.Under<RadialGauge>(view).Where(g => g.IsVisible).ToList();
-            Assert.Equal([20.0 / 32.0, 6.0 / 14.0], gauges.Select(g => g.Fraction));
+            Assert.Equal([20.0 / 32.0, 6.0 / 14.0, 1.0 / 2.0], gauges.Select(g => g.Fraction));   // the queue's gauge: 1 of 2 slots in use
             var texts = PageRenderer.TextsOf(view);
             Assert.Contains("1 running, 2 waiting", texts);
             Assert.Contains("Windows 3, WSL (Ubuntu) 2", texts);
@@ -191,6 +191,59 @@ public class OverviewShellTests
             Draw(border);
             Assert.Equal("memory", rig.Shell.Selected.Key);
         });
+    }
+
+    [Fact]
+    public void With_every_card_unusable_though_some_sources_parsed_the_frame_still_fails_with_Retry_and_the_pressure_row()
+    {
+        // Impossible Windows counters, a guest snapshot without its counters, no queue, and stale-only instances.
+        InShell(() => new OverviewRig(new FakeMemory { Windows = Fresh(WindowsSnapshot(available: 32768, total: 4096)), Guest = Fresh(GuestSnapshot(total: null)) },
+                new FakeQueueSource { Status = Reading<StatusDoc>.Fail(ReadingProblem.NotInstalled, "bosun.exe is not installed.") },
+                new Instances.FakeInstances { Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), Instances.InstanceFixtures.I("claude", 300, side: "wsl"))) })
+            .WithTray(() => Fresh(WindowsSnapshot(available: 1000))), (rig, border) =>
+        {
+            Assert.Equal(PageState.Failed, rig.Page.State);
+            var failed = ShellSupport.Under<StackPanel>(border).Single(p => p.Name == "Failed");
+            Assert.True(failed.IsVisible);
+            Assert.True(ShellSupport.Under<Button>(failed).Single(b => b.Name == "Retry").IsVisible);
+            var kept = ShellSupport.Under<NeedsYouView>(failed).Single();
+            Assert.True(kept.IsVisible);
+            var open = ShellSupport.Under<Button>(kept).Single(b => b.Name == "OpenRow");
+            Assert.StartsWith("Open Memory: Memory pressure since ", AutomationProperties.GetName(open), StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void The_loading_skeleton_is_four_cards_across_then_a_table_and_fits_the_smallest_window()
+    {
+        // The window opens no smaller than 960 by 600 (MainWindow.xaml): the page there is what the skeleton must fit.
+        var memory = new FakeMemory { NeverAnswers = true };
+        var queue = new FakeQueueSource { StatusNeverAnswers = true };
+        InShell(() => new OverviewRig(memory, queue, new Instances.FakeInstances { Hold = new TaskCompletionSource() }), (rig, border) =>
+        {
+            Assert.Equal(PageState.Loading, rig.Page.State);
+            Assert.Equal(SkeletonShape.Overview, rig.Page.LoadingShape);
+            var skeleton = ShellSupport.Under<Skeleton>(border).Single();
+            var until = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!skeleton.Revealed && DateTime.UtcNow < until)
+            {
+                Thread.Sleep(20);
+                Draw(border);
+            }
+            Assert.True(skeleton.Revealed);
+            var blocks = ShellSupport.Under<Border>(skeleton).Where(b => b.Height > 0 && b.Child is null).ToList();
+            var cards = blocks.Where(b => b.Height == 150).ToList();
+            Assert.Equal(4, cards.Count);
+            var spots = cards.Select(c => c.TranslatePoint(new Point(0, 0), skeleton)).ToList();
+            Assert.All(spots, spot => Assert.Equal(spots[0].Y, spot.Y));            // one row
+            Assert.Equal(spots.OrderBy(spot => spot.X), spots);                      // left to right, each past the last
+            Assert.All(spots.Zip(cards), pair => Assert.True(pair.First.X >= 0));
+            for (var i = 1; i < 4; i++) Assert.True(spots[i].X >= spots[i - 1].X + cards[i - 1].ActualWidth);
+            var table = blocks.Where(b => b.Height != 150).Select(b => (Top: b.TranslatePoint(new Point(0, 0), skeleton).Y, Bottom: b.TranslatePoint(new Point(0, b.ActualHeight), skeleton).Y)).ToList();
+            Assert.NotEmpty(table);
+            Assert.All(table, row => Assert.True(row.Top >= spots[0].Y + 150));      // under the cards
+            Assert.True(table.Max(row => row.Bottom) <= skeleton.ActualHeight);      // none cut off by the page's height
+        }, 960, 600);
     }
 
     [Fact]

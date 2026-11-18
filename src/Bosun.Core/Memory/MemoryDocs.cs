@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 namespace Bosun.Core.Memory;
@@ -145,6 +146,60 @@ public sealed record SnapshotDoc : ICheckedDoc
     public long? Counter(string name) => Memory.TryGetValue(name, out var value) ? value : null;
 
     public string? Fault() => Lists.NullIn(("repos", Repos), ("processes", Processes));
+
+    /// <summary>
+    /// The sample's available and total memory judged once, for every reader (the Overview's cards, the pressure check, a
+    /// stopped guest's last sample): <see cref="MemoryFigure.NotMeasured"/> when either is missing, available is negative
+    /// or total is not above 0, <see cref="MemoryFigure.Impossible"/> when more is available than there is in all (a
+    /// logger fault, never a reading), else <see cref="MemoryFigure.Valid"/>.
+    /// </summary>
+    public MemoryFigure Figures(out long available, out long total)
+    {
+        (available, total) = (0, 0);
+        if (Counter("available_mb") is not { } a || Counter("total_mb") is not { } t || a < 0 || t <= 0) return MemoryFigure.NotMeasured;
+        (available, total) = (a, t);
+        return a > t ? MemoryFigure.Impossible : MemoryFigure.Valid;
+    }
+
+    /// <summary>The words for a sample whose available memory is more than its total: its logger's fault, so it is not used.</summary>
+    public static string ImpossibleWords(string side, long available, long total) => string.Create(CultureInfo.InvariantCulture,
+        $"The {side} logger reported {available:N0} MB available of {total:N0} MB in all, which can't be: its sample is not used.");
+
+    /// <summary>When the sample was taken, from its own time; null when the time is not a UTC time (a client refuses such a sample).</summary>
+    public DateTimeOffset? ObservedAt => DateTimeOffset.TryParseExact(At, "yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture,
+        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at) ? at : null;
+}
+
+/// <summary>What a snapshot's available and total memory are: see <see cref="SnapshotDoc.Figures"/>.</summary>
+public enum MemoryFigure
+{
+    Valid,
+    NotMeasured,
+    Impossible,
+}
+
+/// <summary>
+/// Whether the WSL VM runs, decided once for the Overview and the Memory page from what each side's snapshot saw
+/// (D03 T01 §5). A snapshot that is stale says nothing about now. A fresh guest sample proves the VM ran when it was
+/// taken, so it wins unless a fresh Windows sample that saw the VM stopped is newer: the VM was shut down after the
+/// guest last wrote; at the same second, the VM process Windows watched directly wins over a sample that can have
+/// been taken just before. With no fresh guest sample, a fresh Windows sample says whether the VM process runs; with
+/// neither fresh, nothing is known.
+/// </summary>
+public static class WslVmState
+{
+    /// <summary>True when it runs, false when it does not, null when nothing fresh says.</summary>
+    public static bool? Running(Reading<SnapshotDoc>? windows, Reading<SnapshotDoc>? guest)
+    {
+        var freshWindows = windows is { Value: { } w, IsStale: false } ? w : null;
+        var freshGuest = guest is { Value: { } g, IsStale: false } ? g : null;
+        if (freshGuest is not null)
+        {
+            if (freshWindows?.WslVm is { Running: false } && freshWindows.ObservedAt is { } stopped && freshGuest.ObservedAt is { } ran && stopped >= ran) return false;
+            return true;
+        }
+        return freshWindows is null ? null : freshWindows.WslVm is { Running: true };
+    }
 }
 
 /// <summary>The Windows side's view of the WSL VM process.</summary>

@@ -304,8 +304,14 @@ public class OverviewPageTests
         // A scan that read everything and found nothing.
         { "empty", "0", "Nothing is running on either side.", "" },
         // No distro reported: WSL is not counted, and said.
-        { "no-wsl", "1", "Windows 1", OverviewPage.NoWslCounted },
+        // No distro reported (a first run) or the reports folder can't be listed: the reader's own words, each its own cause.
+        { "no-wsl", "1", "Windows 1", FirstRun },
+        { "unlisted", "1", "Windows 1", Unlisted },
     };
+
+    // InstanceClient's own words for each cause, with their recovery.
+    const string FirstRun = "No WSL distro has reported its instances to C:\\logs, so only Windows is listed. Each distro's logger reports every 30 s once it runs (wsl/install.sh sets it up).";
+    const string Unlisted = "The WSL reports in C:\\logs can't be listed (Access to the path is denied.), so only Windows is listed.";
 
     static Bosun.Core.Instances.InstancesView ScanOf(string kind) => kind switch
     {
@@ -313,7 +319,8 @@ public class OverviewPageTests
         "stale" => View(null, Win(I("claude", 100, repo: "D:/Bosun")), StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), I("claude", 300, side: "wsl", repo: "/home/me/app"))),
         "unread" => View(null, Failed("windows", null, "bosun instances --json did not answer within 20 s and was stopped."), Wsl("Ubuntu", I("claude", 300, side: "wsl"))),
         "empty" => View(null, Win(), Wsl("Ubuntu")),
-        _ => View("No WSL distro has reported its instances to C:\\logs, so only Windows is listed.", Win(I("claude", 100))),
+        "unlisted" => View(Unlisted, Win(I("claude", 100))),
+        _ => View(FirstRun, Win(I("claude", 100))),
     };
 
     [Theory]
@@ -374,6 +381,182 @@ public class OverviewPageTests
             });
             Assert.Equal("Not available: Windows: bosun instances --json could not be started. WSL (Ubuntu): instances-wsl-Ubuntu.json can't be read: denied.",
                 rig.Page.Instances.Said);
+        });
+    }
+
+    // ---- completion review: each card on its own, the VM's state, impossible figures, the queue, instances, failure ----
+
+    [Fact]
+    public void A_held_guest_read_holds_back_the_Windows_card_and_a_held_Windows_read_holds_back_the_guest_card()
+    {
+        On(() =>
+        {
+            var guestHeld = new TaskCompletionSource();
+            var rig = new OverviewRig(new FakeMemory { HoldGuest = guestHeld });
+            Assert.StartsWith("20.0 GB", rig.Page.Windows.Said, StringComparison.Ordinal);   // read, while the guest's file is held
+            Assert.Equal(OverviewPage.Checking, rig.Page.Guest.Said);
+            guestHeld.SetResult();
+            OverviewRig.Settle();
+            Assert.StartsWith("6.0 GB", rig.Page.Guest.Said, StringComparison.Ordinal);
+
+            var windowsHeld = new TaskCompletionSource();
+            var reverse = new OverviewRig(new FakeMemory { HoldWindows = windowsHeld });
+            Assert.StartsWith("6.0 GB", reverse.Page.Guest.Said, StringComparison.Ordinal);
+            Assert.Equal(OverviewPage.Checking, reverse.Page.Windows.Said);
+            windowsHeld.SetResult();
+            OverviewRig.Settle();
+            Assert.StartsWith("20.0 GB", reverse.Page.Windows.Said, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void A_Windows_sample_newer_than_the_guests_saying_the_VM_stopped_is_a_shutdown_and_a_guest_sample_newer_is_a_restart()
+    {
+        On(() =>
+        {
+            // Both fresh. Shutdown: the guest wrote at 08:59:40, Windows saw the VM stopped at 08:59:55.
+            var rig = new OverviewRig(new FakeMemory
+            {
+                Windows = Fresh(WindowsSnapshot(vmRunning: false, at: "2026-11-18T08:59:55Z")),
+                Guest = Fresh(GuestSnapshot(at: "2026-11-18T08:59:40Z")),
+            });
+            Assert.Equal(OverviewPage.WslNotRunning, rig.Page.Guest.Said);
+            Assert.Equal("Last sample less than a minute ago: 6.0 GB available of 14.0 GB.", rig.Page.Guest.Note);
+            rig.GoTo("memory");                                                      // the Memory page says the same
+            Assert.Equal("Not running", ((Metric)((MemoryPage)rig.PageOf("memory")).WslVm!).Text);
+
+            // Restart: Windows saw it stopped at 08:59:40, the guest has written since, at 08:59:55.
+            rig.Memory.Windows = Fresh(WindowsSnapshot(vmRunning: false, at: "2026-11-18T08:59:40Z"));
+            rig.Memory.Guest = Fresh(GuestSnapshot(at: "2026-11-18T08:59:55Z"));
+            rig.GoTo("overview");
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.NotEqual(OverviewPage.WslNotRunning, rig.Page.Guest.Said);
+            Assert.Equal(6.0 / 14.0, rig.Page.Guest.Fraction);
+            rig.GoTo("memory");
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.IsNotType<Metric>(((MemoryPage)rig.PageOf("memory")).WslVm);      // not "Not running": it restarted
+        });
+    }
+
+    [Fact]
+    public void An_impossible_Windows_sample_is_no_reading_for_the_pressure_check_neither_starting_nor_ending_an_episode()
+    {
+        On(() =>
+        {
+            // The sample says 1,000 MB available of 500 MB in all: under the floor, but it can't be.
+            var sample = Fresh(WindowsSnapshot(available: 1000, total: 500));
+            var rig = new OverviewRig().WithTray(() => sample);
+            rig.RunCheck();
+            Assert.False(rig.Check!.InEpisode);                                      // it did not start one
+            Assert.Contains("can't be", rig.Check.Problem);
+            Assert.Contains(rig.Page.Needs.Rows, row => row.Key == "check");         // a check problem with its reason
+
+            sample = Fresh(WindowsSnapshot(available: 1000));                        // a real one under the floor: an episode
+            rig.RunCheck();
+            Assert.True(rig.Check.InEpisode);
+            sample = Fresh(WindowsSnapshot(available: 9000, total: 4000));           // impossible and over the floor: it does not end it
+            rig.RunCheck();
+            Assert.True(rig.Check.InEpisode);
+            Assert.Contains("can't be", rig.Check.Problem);
+            sample = Fresh(WindowsSnapshot(available: 9000));                        // a real one over the recovery band: it ends
+            rig.RunCheck();
+            Assert.False(rig.Check.InEpisode);
+            Assert.Null(rig.Check.Problem);
+        });
+    }
+
+    [Fact]
+    public void A_stopped_guests_last_sample_prints_no_impossible_figures()
+    {
+        On(() =>
+        {
+            var rig = new OverviewRig(new FakeMemory
+            {
+                Windows = Fresh(WindowsSnapshot(vmRunning: false)),
+                Guest = Stale(GuestSnapshot(available: 20000, total: 14336), TimeSpan.FromMinutes(20), "WSL"),
+            });
+            Assert.Equal(OverviewPage.WslNotRunning, rig.Page.Guest.Said);
+            Assert.Equal("Last sample 20 minutes ago.", rig.Page.Guest.Note);
+        });
+    }
+
+    [Fact]
+    public void The_queue_card_draws_the_in_use_fraction_when_every_slot_is_known_and_never_claims_a_count_when_one_is_not()
+    {
+        On(() =>
+        {
+            // Known: one of two slots in use.
+            var rig = new OverviewRig();
+            var queue = rig.Page.Queue;
+            Assert.True(queue.ShowGauge);
+            Assert.Equal(0.5, queue.Fraction);
+            Assert.Equal("1 of 2 slots in use", queue.Note);
+            Assert.Equal("Queue: 1 running, 2 waiting. Open Queue", queue.OpenName);
+            Assert.Equal("1 of 2 slots in use", queue.Help);
+
+            // Partly unknown: one free, one that could not be checked.
+            rig.Queue.Status = Reading<StatusDoc>.Of(QueueFixtures.Status($"{QueueFixtures.Free(0)},{QueueFixtures.Held(1, null, busy: null)}"), QueueFixtures.Now);
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.False(queue.ShowGauge);
+            Assert.Null(queue.Fraction);
+            Assert.Equal("1 of 2 slots not known", queue.Note);
+            Assert.Equal("Queue: 1 slot not known. Open Queue", queue.OpenName);
+            Assert.Equal("1 of 2 slots not known", queue.Help);
+
+            // Partly unknown with one held: at least that many.
+            rig.Queue.Status = Reading<StatusDoc>.Of(QueueFixtures.Status($"{QueueFixtures.Held(0, QueueFixtures.Holder(0))},{QueueFixtures.Held(1, null, busy: null)}"), QueueFixtures.Now);
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.Equal("At least 1 in use, 1 of 2 slots not known", queue.Note);
+            Assert.Equal("Queue: 1 running, 1 slot not known. Open Queue", queue.OpenName);
+
+            // Wholly unknown.
+            rig.Queue.Status = Reading<StatusDoc>.Of(QueueFixtures.Status($"{QueueFixtures.Held(0, null, busy: null)},{QueueFixtures.Held(1, null, busy: null)}"), QueueFixtures.Now);
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.Equal("2 of 2 slots not known", queue.Note);
+            Assert.Equal("Queue: 2 slots not known. Open Queue", queue.OpenName);
+            Assert.False(queue.ShowGauge);
+        });
+    }
+
+    [Fact]
+    public void The_instances_card_keeps_the_readers_own_reason_for_missing_WSL_reports_in_the_count_and_when_every_side_failed()
+    {
+        On(() =>
+        {
+            foreach (var reason in new[] { FirstRun, Unlisted })
+            {
+                var counted = new OverviewRig(instances: new FakeInstances { Answer = View(reason, Win(I("claude", 100))) });
+                Assert.Contains(reason, counted.Page.Instances.Warning);
+
+                var failed = new OverviewRig(instances: new FakeInstances { Answer = View(reason, Failed("windows", null, "bosun instances --json could not be started.")) });
+                Assert.IsType<NotAvailable>(failed.Page.Instances.Value);
+                Assert.Contains("bosun instances --json could not be started.", failed.Page.Instances.Said);
+                Assert.Contains(reason, failed.Page.Instances.Said);
+            }
+        });
+    }
+
+    [Fact]
+    public void Every_card_without_a_usable_value_is_Failed_with_Retry_even_when_a_source_parsed()
+    {
+        On(() =>
+        {
+            var rig = new OverviewRig(
+                new FakeMemory { Windows = Fresh(WindowsSnapshot(available: 32768, total: 4096)), Guest = Fresh(GuestSnapshot(total: null)) },
+                new FakeQueueSource { Status = Reading<StatusDoc>.Fail(ReadingProblem.NotInstalled, "bosun.exe is not installed.") },
+                new FakeInstances { Answer = View(null, Failed("windows", null, "bosun instances --json could not be started."), StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), I("claude", 300, side: "wsl"))) });
+            Assert.All(rig.Page.Cards, card => Assert.IsType<NotAvailable>(card.Value));
+            Assert.Equal(PageState.Failed, rig.Page.State);
+            Assert.Contains("can't be", rig.Page.FailureMessage);
+            Assert.Contains("bosun.exe is not installed.", rig.Page.FailureMessage);
+            Assert.Contains("WSL (Ubuntu) last reported 12 minutes ago", rig.Page.FailureMessage);
+            Assert.NotNull(rig.Page.Retry);
+
+            // One card with a value takes it out of Failed.
+            rig.Memory.Windows = Fresh(WindowsSnapshot());
+            rig.Page.Retry!.Execute(null);
+            OverviewRig.Settle();
+            Assert.Equal(PageState.Data, rig.Page.State);
         });
     }
 }

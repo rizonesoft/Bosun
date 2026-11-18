@@ -19,6 +19,9 @@ public enum SkeletonShape
 
     /// <summary>A row of metric cards, each with a round gauge.</summary>
     Gauge,
+
+    /// <summary>Four metric cards across, then a table region: the Overview.</summary>
+    Overview,
 }
 
 /// <summary>
@@ -166,6 +169,30 @@ public sealed class Skeleton : Border
                 }
                 _blocks.Children.Add(row);
                 _blocks.Children.Add(Block(height: 110, bottom: 12));
+                break;
+            case SkeletonShape.Overview:
+                // Four cards across with the Overview's own gutters (the M space token), then the Needs you table: a
+                // header and two rows, short enough for the smallest window the panel opens at.
+                var cards = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+                for (var column = 0; column < 7; column++)
+                    cards.ColumnDefinitions.Add(new ColumnDefinition { Width = column % 2 == 0 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
+                for (var gutter = 1; gutter < 7; gutter += 2)
+                {
+                    var space = new Border();
+                    space.SetResourceReference(WidthProperty, "S.M");
+                    Grid.SetColumn(space, gutter);
+                    cards.Children.Add(space);
+                }
+                for (var tile = 0; tile < 4; tile++)
+                {
+                    var card = Block(height: 150, bottom: 0);
+                    Grid.SetColumn(card, tile * 2);
+                    cards.Children.Add(card);
+                }
+                _blocks.Children.Add(cards);
+                var table = Block(height: 36, bottom: 4);
+                _blocks.Children.Add(table);
+                for (var line = 0; line < 2; line++) _blocks.Children.Add(Block(height: 28, bottom: 4, radius: "R.Control"));
                 break;
             default:
                 for (var card = 0; card < 3; card++) _blocks.Children.Add(Block(height: 110, bottom: 12));

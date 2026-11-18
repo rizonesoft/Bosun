@@ -397,7 +397,8 @@ public sealed class MemoryPage : PageBase
         WindowsNote = room + "; " + (windows.Counter("commit_mb") is { } commit ? $"committed {Gb(commit)}" : "committed: not measured");
         HistoryNote = windows.HistoryWritten ? "" : "History is not being written: the logger could not save its samples, so the history has a gap.";
 
-        var vmRunning = windows.WslVm is { Running: true };
+        // Decided as the Overview decides it (Bosun.Core WslVmState): by the newer of the two fresh samples.
+        var vmRunning = WslVmState.Running(_windows, _wsl) ?? windows.WslVm is { Running: true };
         var wsl = _wsl?.Value;
         if (!vmRunning)
         {
@@ -407,7 +408,9 @@ public sealed class MemoryPage : PageBase
         }
         else
         {
-            WslVm = new Metric(Gb(windows.WslVm!.PrivateMb));
+            // The guest has written since Windows last saw the VM stopped: what it costs Windows is not known until Windows samples again.
+            WslVm = windows.WslVm is { Running: true } running ? new Metric(Gb(running.PrivateMb))
+                : new NotAvailable("The WSL guest is running, but the Windows logger has not sampled the VM since it started.");
             WslNote = wsl?.Counter("total_mb") is { } cap ? $"Cap {Gb(cap)}" : $"Cap: not available. {_wsl?.Why ?? "The WSL snapshot has not been read."}";
             WslAge = _wsl is { IsStale: true } ? $"The WSL figures are not current: {_wsl.Why}" : "";
         }

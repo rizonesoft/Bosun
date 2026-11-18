@@ -22,6 +22,10 @@ internal sealed class FakeMemory : IMemorySource
     public Reading<SnapshotDoc> Windows = Reading<SnapshotDoc>.Of(OverviewFixtures.WindowsSnapshot(), OverviewFixtures.Now, TimeSpan.FromSeconds(5));
     public Reading<SnapshotDoc> Guest = Reading<SnapshotDoc>.Of(OverviewFixtures.GuestSnapshot(), OverviewFixtures.Now, TimeSpan.FromSeconds(5));
     public bool NeverAnswers;
+
+    /// <summary>A side's read held until the test sets it: its answer is taken as the read starts, as a held file read would.</summary>
+    public TaskCompletionSource? HoldWindows, HoldGuest;
+
     public int WindowsReads, GuestReads, Reports;
 
     public async Task<Reading<SnapshotDoc>> SnapshotAsync(string side, CancellationToken cancellationToken = default)
@@ -30,6 +34,7 @@ internal sealed class FakeMemory : IMemorySource
         else GuestReads++;
         var answer = side == "windows" ? Windows : Guest;
         if (NeverAnswers) await Task.Delay(Timeout.Infinite, cancellationToken);
+        if ((side == "windows" ? HoldWindows : HoldGuest) is { } hold) await hold.Task;
         return answer;
     }
 
@@ -45,12 +50,12 @@ internal static class OverviewFixtures
 {
     internal static readonly DateTimeOffset Now = new(2026, 11, 18, 9, 0, 0, TimeSpan.Zero);
 
-    internal static SnapshotDoc WindowsSnapshot(long? available = 20480, long? total = 32768, bool vmRunning = true) =>
-        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"windows","at":"2026-11-18T09:00:00Z","interval_s":30,"memory":{"available_mb":{{N(available)}},"total_mb":{{N(total)}}},"wsl_vm":{"running":{{(vmRunning ? "true" : "false")}},"processes":1,"private_mb":12083,"rss_mb":9000},"repos":[],"processes":[],"history_written":true}""",
+    internal static SnapshotDoc WindowsSnapshot(long? available = 20480, long? total = 32768, bool vmRunning = true, string at = "2026-11-18T09:00:00Z") =>
+        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"windows","at":"{{at}}","interval_s":30,"memory":{"available_mb":{{N(available)}},"total_mb":{{N(total)}}},"wsl_vm":{"running":{{(vmRunning ? "true" : "false")}},"processes":1,"private_mb":12083,"rss_mb":9000},"repos":[],"processes":[],"history_written":true}""",
             MemoryJson.Default.SnapshotDoc)!;
 
-    internal static SnapshotDoc GuestSnapshot(long? available = 6144, long? total = 14336) =>
-        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"wsl","at":"2026-11-18T09:00:00Z","interval_s":30,"memory":{"available_mb":{{N(available)}},"total_mb":{{N(total)}}},"wsl_vm":null,"repos":[],"processes":[],"history_written":true}""",
+    internal static SnapshotDoc GuestSnapshot(long? available = 6144, long? total = 14336, string at = "2026-11-18T09:00:00Z") =>
+        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"wsl","at":"{{at}}","interval_s":30,"memory":{"available_mb":{{N(available)}},"total_mb":{{N(total)}}},"wsl_vm":null,"repos":[],"processes":[],"history_written":true}""",
             MemoryJson.Default.SnapshotDoc)!;
 
     private static string N(long? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null";

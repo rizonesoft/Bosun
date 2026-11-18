@@ -10,8 +10,9 @@ namespace Bosun.Panel.Tray;
 /// tray, it is the only check that runs), it reads Windows' available memory from the logger's snapshot and the stored
 /// threshold, and says what changed: the tray's Pressure state, one notification as an episode starts (the notifier
 /// honours the notification setting and the hour's pause, and writes the line either way), and a line as it ends. A
-/// reading that decides nothing (no snapshot, one that can't be read or isn't one, a stale one, or one that didn't
-/// measure available memory) keeps the episode as it was and says why in the tray, never a healthy state.
+/// reading that decides nothing (no snapshot, one that can't be read or isn't one, a stale one, one that didn't
+/// measure available memory, or one with more available than installed, a logger fault) keeps the episode
+/// as it was and says why in the tray, never a healthy state.
 ///
 /// After each check it says what it now holds (<see cref="Checked"/>): the episode, when it began, the floor it was
 /// judged against, and why it could not read memory, for the Overview's Needs you (D03 T01 §5), which is fed by this
@@ -66,6 +67,8 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
         else if (reading.IsStale) (problem, full) = ($"memory check stale: {reading.Why}", reading.Why);
         else if (reading.Value!.Counter("available_mb") is not { } measured)
             (problem, full) = ("memory check unavailable: available memory not measured", "The logger's snapshot did not measure available memory.");
+        else if (reading.Value!.Figures(out var counted, out var total) == MemoryFigure.Impossible)
+            (problem, full) = ("memory check unavailable: the logger's figures are impossible", SnapshotDoc.ImpossibleWords("Windows", counted, total));
         else available = measured;
 
         // The tooltip holds 127 characters: it has the short reason first, and the Activity pane the whole of it, once.

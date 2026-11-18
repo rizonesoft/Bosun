@@ -29,7 +29,8 @@ public sealed class OverviewCard : Observable
     private string _note = OverviewPage.BeingRead, _warning = "", _word = "", _unit = "GB free";
     private double? _gaugeValue, _gaugeMaximum;
     private StatusKind _state = StatusKind.Neutral;
-    private bool _showGauge;
+    private bool _showGauge, _wordsWithGauge, _usable;
+    private string _gaugeWord = "";
 
     internal OverviewCard(string title, string section, string page, PackIconLucideKind glyph, ICommand open)
     {
@@ -73,6 +74,15 @@ public sealed class OverviewCard : Observable
 
     public string Word { get => _word; private set => Set(ref _word, value); }
 
+    /// <summary>The state word the gauge draws under its value; a card's <see cref="Word"/> is the one its value is said with.</summary>
+    public string GaugeWord { get => _gaugeWord; private set => Set(ref _gaugeWord, value); }
+
+    /// <summary>Whether the card holds a value that was read (a count, a figure, "WSL not running"), not "Not available" and not the first look.</summary>
+    public bool Usable => _usable;
+
+    /// <summary>Whether the value's text is left out of the card because its gauge says it: a card whose value is words keeps them beside its gauge.</summary>
+    public bool ValueHidden => _showGauge && !_wordsWithGauge;
+
     public StatusKind State { get => _state; private set => Set(ref _state, value); }
 
     /// <summary>The gauge's fraction, as the gauge works it out: null for an empty track.</summary>
@@ -100,26 +110,48 @@ public sealed class OverviewCard : Observable
     {
         ShowGauge = false;
         GaugeValue = GaugeMaximum = null;
-        Word = "";
+        Word = GaugeWord = "";
+        _wordsWithGauge = false;
+        _usable = true;
         Draw(new Metric(text), note, warning);
     }
 
     internal void ShowGaugeOf(double valueGb, double totalGb, string word, StatusKind state, string note, string warning = "")
     {
         ShowGauge = true;
+        _wordsWithGauge = false;
+        _usable = true;
         GaugeValue = Math.Round(valueGb, 1);
         GaugeMaximum = Math.Round(totalGb, 1);
-        Word = word;
+        Unit = "GB free";
+        Word = GaugeWord = word;
         State = state;
         Draw(new Metric(MemoryPage.GbText(valueGb) + " GB"), note, warning);
+    }
+
+    /// <summary>A value in words with a gauge of a count beside it: the queue's words, and how many of its slots are in use.</summary>
+    internal void ShowWordsWithGauge(string text, double value, double maximum, string unit, string gaugeWord, StatusKind state, string note, string warning = "")
+    {
+        ShowGauge = true;
+        _wordsWithGauge = true;
+        _usable = true;
+        GaugeValue = value;
+        GaugeMaximum = maximum;
+        Unit = unit;
+        Word = "";
+        GaugeWord = gaugeWord;
+        State = state;
+        Draw(new Metric(text), note, warning);
     }
 
     /// <summary>The value can't be read: "Not available" with why; a gauge card keeps its empty track.</summary>
     internal void ShowNotAvailable(string why, bool gauge, string warning = "")
     {
         ShowGauge = gauge;
+        _wordsWithGauge = false;
+        _usable = false;
         GaugeValue = GaugeMaximum = null;
-        Word = "";
+        Word = GaugeWord = "";
         State = StatusKind.Neutral;
         // The theme draws a value's "Not available" with its reason; a gauge's empty track has only the words, so its
         // note says why. Never both, so the reason is said once.
@@ -132,6 +164,8 @@ public sealed class OverviewCard : Observable
         Note = note;
         Warning = warning;
         Raise(nameof(Fraction));
+        Raise(nameof(ValueHidden));
+        Raise(nameof(Usable));
         Raise(nameof(Said));
         Raise(nameof(OpenName));
         Raise(nameof(Help));
@@ -219,11 +253,12 @@ public sealed class OverviewPage : PageBase
     private readonly QueueWaiting _waiting;
     private readonly QueueSummary? _words;
     private readonly Bosun.Core.PanelSettingsStore? _settings;
-    private long _memoryAsked, _memoryApplied, _queueAsked, _queueApplied, _scanAsked, _scanApplied;
+    private long _windowsAsked, _windowsApplied, _guestAsked, _guestApplied, _queueAsked, _queueApplied, _scanAsked, _scanApplied;
     private Reading<SnapshotDoc>? _windows, _guest;
     private Reading<StatusDoc>? _status;
     private Scan? _scan;
     private string? _scanFailure;
+    private List<string> _scanWhys = [];
     private bool _scanAnswered;
 
     public OverviewPage(IMemorySource memory, IQueueSource queue, IInstanceSource instances, RefreshScheduler scheduler, ActivityLog log,
@@ -242,6 +277,7 @@ public sealed class OverviewPage : PageBase
         Queue = Card("Queue", "queue", "Queue", Glyphs.ForPage("queue"));
         Instances = Card("Dev instances", "instances", "Instances", Glyphs.ForPage("instances"));
         Cards = [Windows, Guest, Queue, Instances];
+        LoadingShape = Bosun.Panel.Controls.SkeletonShape.Overview;
         // The table follows Needs you whatever page is shown: its providers' sources already run (the pressure check).
         KeptWhenFailed = Table;
         Needs.Changed += ShowNeeds;
@@ -304,21 +340,39 @@ public sealed class OverviewPage : PageBase
         }
     }
 
+    /// <summary>
+    /// Both snapshots are read together and each card shows its own the moment it is read: a guest file held in its
+    /// logger's replace never holds back the Windows card, nor the reverse. Each is applied here, on the UI thread, and
+    /// only while this run was not stopped (the page leaving the screen cancels its token); a newer read of a side that
+    /// is on its card already is never replaced by an older one.
+    /// </summary>
     private async Task<Action> ReadMemoryAsync(CancellationToken token)
     {
-        var seq = ++_memoryAsked;
+        var windowsSeq = ++_windowsAsked;
+        var guestSeq = ++_guestAsked;
         var windows = Caught(_memory.SnapshotAsync("windows", token));
         var guest = Caught(_memory.SnapshotAsync("wsl", token));
-        var (w, g) = (await windows, await guest);
-        return () =>
+        async Task ShowWindows()
         {
-            if (seq <= _memoryApplied) return; // a newer reading is on the cards already
-            _memoryApplied = seq;
-            (_windows, _guest) = (w, g);
+            var reading = await windows;
+            if (token.IsCancellationRequested || windowsSeq <= _windowsApplied) return;
+            _windowsApplied = windowsSeq;
+            _windows = reading;
             DrawWindows();
+            DrawGuest(); // whether the VM runs depends on the Windows sample too
+            Settle();
+        }
+        async Task ShowGuest()
+        {
+            var reading = await guest;
+            if (token.IsCancellationRequested || guestSeq <= _guestApplied) return;
+            _guestApplied = guestSeq;
+            _guest = reading;
             DrawGuest();
             Settle();
-        };
+        }
+        await Task.WhenAll(ShowWindows(), ShowGuest());
+        return () => { };
     }
 
     private async Task<Action> ReadQueueAsync(CancellationToken token)
@@ -358,27 +412,29 @@ public sealed class OverviewPage : PageBase
             if (seq <= _scanApplied) return;
             _scanApplied = seq;
             (_scan, _scanFailure, _scanAnswered) = (scan, failure, true);
+            _scanWhys = scan is null ? [failure ?? "The instances could not be read."] : InstanceReasons(scan);
             DrawInstances();
             Settle();
         };
     }
 
     /// <summary>
-    /// The page's state from what has answered: Data once any source gave something usable; Failed, quoting each
-    /// source, once every source has answered with nothing; until then, Loading.
+    /// The page's state from what has answered: Data once any card holds a value that was read (a card that says "Not
+    /// available" is not one, whether its source failed or answered with nothing usable); Failed, quoting each card's
+    /// reason, once every source has answered and no card has a value; until then, Loading.
     /// </summary>
     private void Settle()
     {
-        var usable = _windows?.HasValue == true || _guest?.HasValue == true || _status?.HasValue == true
-                     || _scan?.Sides.Any(s => s.Reading.HasValue) == true;
-        if (usable)
+        if (Cards.Any(card => card.Usable))
         {
             ShowData();
             return;
         }
         if (_windows is null || _status is null || !_scanAnswered) return;
-        var whys = new List<string?> { _windows.Why, _guest?.Why, _status.Why, _scanFailure };
-        if (_scan is not null) whys.AddRange(InstancesPage.NoticesOf(_scan));
+        var whys = new List<string?>();
+        foreach (var card in new[] { Windows, Guest, Queue })
+            if (card.Value is NotAvailable na) whys.Add(na.Reason);
+        whys.AddRange(_scanWhys);
         var said = whys.Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w!).Distinct().ToList();
         ShowFailed(string.Join(Environment.NewLine, said.Count > 0 ? said : ["Nothing could be read."]));
     }
@@ -408,17 +464,16 @@ public sealed class OverviewPage : PageBase
             Windows.ShowNotAvailable(reading.Why ?? "The Windows snapshot could not be read.", gauge: true);
             return;
         }
-        if (doc.Counter("total_mb") is not { } total || doc.Counter("available_mb") is not { } available || available < 0 || total <= 0)
+        switch (doc.Figures(out var available, out var total))
         {
-            // The Memory page's own words for the same gap.
-            Windows.ShowNotAvailable("The Windows logger did not measure total and available memory.", gauge: true, NotCurrent(reading, "Windows"));
-            return;
-        }
-        if (available > total)
-        {
-            // Impossible counters are never a Safe verdict (round 1).
-            Windows.ShowNotAvailable(Impossible("Windows", available, total), gauge: true, NotCurrent(reading, "Windows"));
-            return;
+            case MemoryFigure.NotMeasured:
+                // The Memory page's own words for the same gap.
+                Windows.ShowNotAvailable("The Windows logger did not measure total and available memory.", gauge: true, NotCurrent(reading, "Windows"));
+                return;
+            case MemoryFigure.Impossible:
+                // Impossible counters are never a Safe verdict (round 1).
+                Windows.ShowNotAvailable(Impossible("Windows", available, total), gauge: true, NotCurrent(reading, "Windows"));
+                return;
         }
         var (word, state) = WindowsWord(available, FloorMb);
         Windows.ShowGaugeOf(available / 1024.0, total / 1024.0, word, state, Room(available, total), NotCurrent(reading, "Windows"));
@@ -431,12 +486,9 @@ public sealed class OverviewPage : PageBase
     private void DrawGuest()
     {
         if (_guest is not { } guest) return;
-        // Whether the VM runs: a current guest sample proves it does; otherwise a current Windows snapshot says. A stale
-        // Windows snapshot says nothing about now (round 1: its old "stopped" hid a running guest), so it is not known.
-        bool? running = guest is { HasValue: true, IsStale: false } ? true
-            : _windows is { Value: { } windows, IsStale: false } ? windows.WslVm is { Running: true }
-            : null;
-        if (running == false)
+        // Whether the VM runs, decided as the Memory page decides it: by the newer of the two fresh samples, and a stale
+        // snapshot says nothing about now (round 1: its old "stopped" hid a running guest).
+        if (WslVmState.Running(_windows, guest) == false)
         {
             var note = guest.Value is { } last ? LastSample(guest, last)
                 : guest.Problem == ReadingProblem.Missing ? WslNeverReported
@@ -451,28 +503,27 @@ public sealed class OverviewPage : PageBase
             return;
         }
         // The guest's own figures: what the guest has free of what it has, never the VM's cost to Windows.
-        if (doc.Counter("total_mb") is not { } total || doc.Counter("available_mb") is not { } available || available < 0 || total <= 0)
+        switch (doc.Figures(out var available, out var total))
         {
-            Guest.ShowNotAvailable("The WSL logger did not measure the guest's total and available memory.", gauge: true, NotCurrent(guest, "WSL"));
-            return;
-        }
-        if (available > total)
-        {
-            Guest.ShowNotAvailable(Impossible("WSL", available, total), gauge: true, NotCurrent(guest, "WSL"));
-            return;
+            case MemoryFigure.NotMeasured:
+                Guest.ShowNotAvailable("The WSL logger did not measure the guest's total and available memory.", gauge: true, NotCurrent(guest, "WSL"));
+                return;
+            case MemoryFigure.Impossible:
+                Guest.ShowNotAvailable(Impossible("WSL", available, total), gauge: true, NotCurrent(guest, "WSL"));
+                return;
         }
         Guest.ShowGaugeOf(available / 1024.0, total / 1024.0, "Free", StatusKind.Neutral, Room(available, total), NotCurrent(guest, "WSL"));
     }
 
     /// <summary>The words for a sample whose available memory is more than its total: a logger fault, never a reading.</summary>
-    public static string Impossible(string side, long available, long total) => string.Create(CultureInfo.InvariantCulture,
-        $"The {side} logger reported {available:N0} MB available of {total:N0} MB in all, which can't be: its sample is not used.");
+    public static string Impossible(string side, long available, long total) => SnapshotDoc.ImpossibleWords(side, available, total);
 
     /// <summary>A stopped VM's last sample, with its age: "Last sample 12 minutes ago: 6.0 GB available of 14.0 GB".</summary>
     private static string LastSample(Reading<SnapshotDoc> reading, SnapshotDoc doc)
     {
         var age = Age(reading.Age ?? TimeSpan.Zero);
-        return doc.Counter("total_mb") is { } total && doc.Counter("available_mb") is { } available
+        // Only figures that can be: a sample with more available than total prints none (a logger fault, never a reading).
+        return doc.Figures(out var available, out var total) == MemoryFigure.Valid
             ? $"Last sample {age} ago: {Room(available, total)}."
             : $"Last sample {age} ago.";
     }
@@ -487,11 +538,32 @@ public sealed class OverviewPage : PageBase
         }
         var states = status.Slots.Select(QueueSlotTile.StateOf).ToList();
         var inUse = states.Count(s => s is SlotState.Running or SlotState.Starting or SlotState.WaitingForGuest or SlotState.Held);
-        var note = string.Create(CultureInfo.InvariantCulture, $"{inUse} of {states.Count} {(states.Count == 1 ? "slot" : "slots")} in use");
-        Queue.ShowValue(QueueSummary.WordsOf(status), note);
+        var unknown = states.Count(s => s == SlotState.NotAvailable);
+        var slots = states.Count == 1 ? "slot" : "slots";
+        var words = QueueSummary.WordsOf(status);
+        if (unknown > 0)
+        {
+            // A slot that could not be checked is not a free one: no definite count, and no gauge of one.
+            var notKnown = string.Create(CultureInfo.InvariantCulture, $"{unknown} of {states.Count} {slots} not known");
+            Queue.ShowValue(words, inUse > 0 ? string.Create(CultureInfo.InvariantCulture, $"At least {inUse} in use, {notKnown}") : notKnown);
+            return;
+        }
+        var note = string.Create(CultureInfo.InvariantCulture, $"{inUse} of {states.Count} {slots} in use");
+        if (states.Count == 0) Queue.ShowValue(words, note);
+        else Queue.ShowWordsWithGauge(words, inUse, states.Count, "in use", inUse == 0 ? "Idle" : inUse == states.Count ? "Full" : "Busy",
+            inUse == states.Count ? StatusKind.Warn : StatusKind.Neutral, note);
     }
 
-    public const string NoWslCounted = "WSL is not counted: no distro's report could be read.";
+    /// <summary>
+    /// Why an instances scan has no card value, a reason each: every source's notice, and the reader's own words for WSL
+    /// (no distro has reported, or its folder can't be listed) with their recovery words.
+    /// </summary>
+    private static List<string> InstanceReasons(Scan scan)
+    {
+        var reasons = InstancesPage.NoticesOf(scan);
+        if (scan.WslNotice is { } wsl) reasons.Add(wsl);
+        return reasons.Count > 0 ? reasons : ["Nothing could be read."];
+    }
 
     private void DrawInstances()
     {
@@ -506,7 +578,7 @@ public sealed class OverviewPage : PageBase
         // why instead of a measured 0 (round 1).
         if (!scan.Sides.Any(s => s.Reading is { HasValue: true, IsStale: false }))
         {
-            Instances.ShowNotAvailable(string.Join(" ", notices.Count > 0 ? notices : ["Nothing could be read."]), gauge: false);
+            Instances.ShowNotAvailable(string.Join(" ", InstanceReasons(scan)), gauge: false);
             return;
         }
         // The merged live instances, each once: a WSL job seen by both sides is one, and a stale distro's rows are not
@@ -523,8 +595,9 @@ public sealed class OverviewPage : PageBase
         foreach (var other in live.Select(InstanceLine.SideOf).Distinct().Where(name => !scan.Sides.Any(s => s.Reading is { HasValue: true, IsStale: false } && s.Name == name)))
             Side(other);
         var note = live.Count == 0 && notices.Count == 0 && scan.WslNotice is null ? "Nothing is running on either side." : string.Join(", ", bySide);
-        // No distro's report was read (none written, or the folder could not be listed): WSL is not counted, and says so.
-        var warnings = scan.WslNotice is null ? notices : [.. notices, NoWslCounted];
+        // No distro's report was read (none written, or the folder could not be listed): the reader's own words, which
+        // say which and what to do.
+        var warnings = scan.WslNotice is null ? notices : [.. notices, scan.WslNotice];
         Instances.ShowValue(live.Count.ToString(CultureInfo.InvariantCulture), note, string.Join(" ", warnings));
     }
 }

@@ -93,18 +93,18 @@
                                               Foreground="{DynamicResource B.TextDim}"/>
                     </controls:Decorative>
                     <TextBlock x:Name="CardTitle" Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis"/>
+                               TextWrapping="Wrap"/>
                 </DockPanel>
                 <controls:RadialGauge x:Name="Gauge" Value="{Binding GaugeValue}" Maximum="{Binding GaugeMaximum}" Unit="{Binding Unit}"
-                                      Word="{Binding Word}" State="{Binding State}" HorizontalAlignment="Center"
+                                      Word="{Binding GaugeWord}" State="{Binding State}" HorizontalAlignment="Center"
                                       Margin="{DynamicResource Gap.Above.M}" Visibility="{Binding ShowGauge, Converter={StaticResource Shown}}"/>
                 <ContentControl x:Name="CardValue" Content="{Binding Value}" Style="{DynamicResource Value}"/>
                 <TextBlock x:Name="CardNote" Text="{Binding Note}" Style="{StaticResource Note}"/>
                 <TextBlock x:Name="CardWarning" Text="{Binding Warning}" Style="{StaticResource Warning}"/>
             </StackPanel>
             <DataTemplate.Triggers>
-                <!-- With its gauge, the gauge says the value and "Not available": the value is not drawn twice. -->
-                <DataTrigger Binding="{Binding ShowGauge}" Value="True">
+                <!-- With its gauge, the gauge says the value and "Not available": the value is not drawn twice (the queue keeps its words beside its gauge). -->
+                <DataTrigger Binding="{Binding ValueHidden}" Value="True">
                     <Setter TargetName="CardValue" Property="Visibility" Value="Collapsed"/>
                 </DataTrigger>
             </DataTemplate.Triggers>

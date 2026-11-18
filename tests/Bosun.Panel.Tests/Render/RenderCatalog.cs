@@ -248,6 +248,11 @@ public static partial class RenderCatalog
             .WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot())), "did not answer within 10 s"),
         OverviewCase("loading", () => new Overview.OverviewRig(new Overview.FakeMemory { NeverAnswers = true }, new Bosun.Panel.Tests.Queue.FakeQueueSource { StatusNeverAnswers = true },
             new Instances.FakeInstances { Hold = new TaskCompletionSource() }), "Overview", loading: true),
+        // The smallest window the panel opens at (MainWindow.xaml): the skeleton's four cards and table must fit it.
+        OverviewCase("loading-min", () => new Overview.OverviewRig(new Overview.FakeMemory { NeverAnswers = true }, new Bosun.Panel.Tests.Queue.FakeQueueSource { StatusNeverAnswers = true },
+            new Instances.FakeInstances { Hold = new TaskCompletionSource() }), "Overview", loading: true, width: 960, height: 600),
+        OverviewCase("data-min", () => new Overview.OverviewRig(new Overview.FakeMemory { Windows = Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(available: 1500)) })
+            .WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(available: 1500))).WithRow(), "Memory pressure since", width: 960, height: 600),
         OverviewCase("failed", () => new Overview.OverviewRig(new Overview.FakeMemory { Windows = Overview.OverviewFixtures.Missing("windows"), Guest = Overview.OverviewFixtures.Missing("wsl") },
                 new Bosun.Panel.Tests.Queue.FakeQueueSource { Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Fail(Bosun.Core.Memory.ReadingProblem.NotInstalled, QueueNotInstalled) },
                 new Instances.FakeInstances { Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.Failed("windows", null, QueueNotInstalled)) })
@@ -500,7 +505,7 @@ public static partial class RenderCatalog
         }) { Shows = shows, Ready = view => ready!(view), Height = tall ? 1700 : PageRenderer.Height };  // tall: the whole page, form included
     }
 
-    private static RenderCase OverviewCase(string name, Func<Overview.OverviewRig> make, string shows, bool loading = false)
+    private static RenderCase OverviewCase(string name, Func<Overview.OverviewRig> make, string shows, bool loading = false, int? width = null, int? height = null)
     {
         Func<FrameworkElement, Task>? ready = null;
         return new RenderCase("overview", name, () =>
@@ -508,7 +513,7 @@ public static partial class RenderCatalog
             var (view, isReady) = Overview.OverviewRig.Rendered(make, loading);
             ready = isReady;
             return view;
-        }) { Shows = shows, Ready = view => ready!(view) };
+        }) { Shows = shows, Ready = view => ready!(view), Width = width ?? PageRenderer.Width, Height = height ?? PageRenderer.Height };
     }
 
     private static RenderCase InstancesCase(string name, Instances.FakeInstances source, string shows)
