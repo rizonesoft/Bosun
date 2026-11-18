@@ -833,7 +833,10 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
 
     # At the first look: a missing run is held for the grace or started now, or the reason it can't be is known now.
     look_after()
-    while args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0:
+    # A commit the branch has left, with no run that can still answer for it (its runs cancelled by a newer push, or
+    # none), stays unanswered however long this waits: say where the branch went now, the commit to gate instead.
+    while (args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0
+           and not result.get("moved_to")):
         states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
         holding = result.get("holding")
         note = (f"; holding the start of {', '.join(holding)} for {int(hold_left())}s more in case the push's own run is "

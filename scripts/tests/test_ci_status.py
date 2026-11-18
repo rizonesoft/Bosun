@@ -47,7 +47,7 @@ SHA = "a" * 40
 OLD = "b" * 40
 
 
-def run(status="completed", conclusion="success", created="2026-11-07T10:00:00Z", sha=SHA, run_id=1):
+def run(status="completed", conclusion: str | None = "success", created="2026-11-07T10:00:00Z", sha=SHA, run_id=1):
     return {"databaseId": run_id, "headSha": sha, "status": status, "conclusion": conclusion,
             "url": f"https://x/{run_id}", "createdAt": created, "event": "push"}
 
@@ -1256,6 +1256,20 @@ class Gate(Base):
         self.assertEqual(data["not_pushed"], OLD)
         self.assertNotIn("moved_to", data)
         self.assertNotIn("recovery", data)
+
+    def test_a_gate_on_a_commit_the_branch_has_left_stops_waiting_at_once(self):
+        # Its run cancelled by a newer push, and the branch's head another commit: no later look can give this commit
+        # a verdict, so the gate says where the branch went now rather than polling out its wait (2026-11-18: a gate
+        # on 288206f polled 40 minutes on a cancelled run).
+        for runs in ({"plan.yml": [run()], "build.yml": [run(conclusion="cancelled")]}, dict(self.NO_BUILD)):
+            clock = _Clock()
+            gh = FakeGh(runs, head=OLD)
+            code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], gh, FakeGit(["README.md"], ancestor=False),
+                                clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+            data = json.loads(out)
+            self.assertEqual((code, data["action"], data["moved_to"]), (ci_status.EXIT_NONE, "wait", OLD))
+            self.assertLess(clock.t, ci_status.POLL_SECONDS, "it stopped at its first look")
+            self.assertEqual(gh.started, [])
 
     def test_a_moved_branch_is_given_no_run_and_names_the_head_to_gate(self):
         gh = FakeGh(dict(self.NO_BUILD), head=OLD)
