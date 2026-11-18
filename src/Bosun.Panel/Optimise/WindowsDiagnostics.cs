@@ -101,7 +101,7 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
                 var command = value as string ?? $"(a {value?.GetType().Name ?? "missing"} value, not text)";
                 var approval = approvedFailure is not null
                     ? StartupApproval.Unreadable(approvedFailure)
-                    : StartupApproval.FromRecord(approved is null ? null : Find(approved, name) as byte[]);
+                    : StartupApproval.FromValue(approved is null ? null : Find(approved, name));
                 items.Add(new StartupItem(name, command, hive, view, approval));
             }
         }

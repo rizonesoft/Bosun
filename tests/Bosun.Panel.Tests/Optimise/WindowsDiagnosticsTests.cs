@@ -257,7 +257,11 @@ public class WindowsDiagnosticsTests
         m.Registry.Key(RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.Run)["Quiet"] = "q.exe";
         m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.Run)["Walled"] = "w.exe";
         m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.Run)["Garbled"] = "g.exe";
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.Run)["Texted"] = "t.exe";
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.Run)["Short"] = "s.exe";
         m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.ApprovedRun)["Garbled"] = new byte[] { 0x09 };
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.ApprovedRun)["Texted"] = "02";        // round 1: read as on
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, WindowsDiagnostics.ApprovedRun)["Short"] = new byte[] { 0x02 };
         m.Registry.Denied.Add((RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.ApprovedRun));
 
         var items = m.Reader.ReadStartup().Items;
@@ -267,6 +271,8 @@ public class WindowsDiagnosticsTests
 
         Assert.Equal(ApprovalState.NoRecord, items.Single(i => i.Name == "Walled").Approval.State);
         Assert.Equal(ApprovalState.Unreadable, items.Single(i => i.Name == "Garbled").Approval.State);
+        Assert.Equal(ApprovalState.Unreadable, items.Single(i => i.Name == "Texted").Approval.State);
+        Assert.Equal(ApprovalState.Unreadable, items.Single(i => i.Name == "Short").Approval.State);
 
         // With the key denied, no entry in its scope is ever read as on or as having no record.
         Assert.DoesNotContain(items.Where(i => i.Hive == RunHive.CurrentUser), i => i.Approval.State is ApprovalState.On or ApprovalState.NoRecord);
@@ -307,7 +313,8 @@ public class WindowsDiagnosticsTests
         else text.AppendLine($"Memory: {report.Memory.Reason}");
         if (report.Startup.IsRead)
         {
-            foreach (var item in report.Startup.Value!.Items) text.AppendLine($"Startup: {item.Hive} {item.View} {item.Name} = {item.Command} [{item.Approval.State}]");
+            // Never the command: its arguments can hold a token, and a test log is no place for one (round 1).
+            foreach (var item in report.Startup.Value!.Items) text.AppendLine($"Startup: {item.Hive} {item.View} {item.Name} [{item.Approval.State}]");
             foreach (var why in report.Startup.Value.Unreadable) text.AppendLine($"Startup unreadable: {why}");
         }
         else text.AppendLine($"Startup: {report.Startup.Reason}");
@@ -319,6 +326,7 @@ public class WindowsDiagnosticsTests
         Assert.True(report.Memory.IsRead, report.Memory.Reason);
         Assert.True(report.Startup.IsRead, report.Startup.Reason);
         Assert.NotEmpty(report.Memory.Value!);
-        Assert.All(report.Memory.Value!, module => Assert.False(string.IsNullOrEmpty(module.PartNumber)));
+        // A part number is optional in SMBIOS (round 1): a machine whose modules give none has no finding, and passes.
+        if (report.Memory.Value!.Any(module => string.IsNullOrEmpty(module.PartNumber))) Assert.Null(report.RamFinding);
     }
 }

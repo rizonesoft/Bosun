@@ -232,6 +232,8 @@ public class DiagnosticsTests
     [InlineData("[wsl2]\nmemory=0\n")]
     [InlineData("[wsl2]\nmemory=12XB\n")]
     [InlineData("[wsl2]\nmemory=\n")]
+    [InlineData("[wsl2]\nmemory=100000000000000000000GB\n")]   // round 1: overflowed and lost all four facts
+    [InlineData("[wsl2]\nmemory=79228162514264337593543950335TB\n")]
     public void A_bad_value_is_a_reason_naming_it_never_a_cap_or_zero(string text)
     {
         var fact = WslConfigParser.ParseCap(text);
@@ -364,9 +366,17 @@ public class DiagnosticsTests
         var empty = StartupApproval.FromRecord([]);
         Assert.Equal(ApprovalState.Unreadable, empty.State);
         Assert.NotNull(empty.Reason);
-        var odd = StartupApproval.FromRecord([0x09, 0, 0]);
-        Assert.Equal(ApprovalState.Unreadable, odd.State);
-        Assert.Contains("0x09", odd.Reason);
+        var odd = new byte[12];
+        odd[0] = 0x09;
+        Assert.Equal(ApprovalState.Unreadable, StartupApproval.FromRecord(odd).State);
+        Assert.Contains("0x09", StartupApproval.FromRecord(odd).Reason);
+
+        // Round 1: a lone 02 and a text value read as on.
+        Assert.Equal(ApprovalState.Unreadable, StartupApproval.FromRecord([0x02]).State);
+        Assert.Contains("1 bytes", StartupApproval.FromRecord([0x02]).Reason);
+        Assert.Equal(ApprovalState.Unreadable, StartupApproval.FromValue("02").State);
+        Assert.Contains("String", StartupApproval.FromValue("02").Reason);
+        Assert.Equal(ApprovalState.NoRecord, StartupApproval.FromValue(null).State);
     }
 
     // ---- rated speed ----

@@ -25,11 +25,19 @@ public sealed class RegistryKeySource : IRegistrySource
 /// <summary>Files read as files: no process is started, so a <c>.wslconfig</c> read never starts WSL.</summary>
 public sealed class ProfileFiles : IProfileFiles
 {
+    /// <summary>The most a profile file is read to: a <c>.wslconfig</c> is a few lines, so anything larger is not one.</summary>
+    public const int MaxBytes = 64 * 1024;
+
     public string? ReadText(string path)
     {
         try
         {
-            return File.ReadAllText(path);
+            // Bounded before it is read (round 1: a large file was read and split whole on the UI's process).
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length > MaxBytes)
+                throw new IOException($"{path} is {stream.Length:N0} bytes, more than the {MaxBytes / 1024} KB a .wslconfig can need, so it is not read.");
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
         }
         catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
         {

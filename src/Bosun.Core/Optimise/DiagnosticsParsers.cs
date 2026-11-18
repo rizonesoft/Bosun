@@ -80,6 +80,9 @@ public static class WslConfigParser
             : Fact<WslCap>.Unavailable($"The .wslconfig memory value '{value}' is not a size WSL accepts.");
     }
 
+    /// <summary>The largest cap read as a size: a petabyte, more than any machine has.</summary>
+    public const long MaxCapMb = 1L << 30;
+
     /// <summary>A number with an optional B, KB, MB, GB or TB suffix; a plain number is bytes.</summary>
     private static long? ToMb(string value)
     {
@@ -99,8 +102,12 @@ public static class WslConfigParser
             _ => 0m,
         };
         if (bytes == 0m) return null;
-        var mb = decimal.Floor(n * bytes / (1024m * 1024));
-        return mb >= 1 && mb <= long.MaxValue ? (long)mb : null;
+        // Divided first, so no value a decimal holds can overflow (round 1: 1e20 GB threw past the guard and lost
+        // all four facts); a cap over a petabyte is no machine's, and is a bad value.
+        var perMb = bytes / (1024m * 1024);
+        if (n > MaxCapMb / perMb) return null;   // compared before multiplying, so no value can overflow
+        var mb = decimal.Floor(n * perMb);
+        return mb >= 1 ? (long)mb : null;
     }
 }
 

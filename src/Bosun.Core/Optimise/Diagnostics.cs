@@ -120,14 +120,27 @@ public sealed record StartupApproval(ApprovalState State, string? Reason = null)
 
     public static StartupApproval Unreadable(string reason) => new(ApprovalState.Unreadable, reason);
 
+    /// <summary>The length of the record Windows writes: four bytes of state, then the time it was turned off.</summary>
+    public const int RecordLength = 12;
+
     /// <summary>
-    /// Decodes the binary value: the first byte is 02 or 06 when the entry is on and 03 or 07 once it is turned off
-    /// (Settings, Task Manager). No value is no record; any other value is unreadable, never on.
+    /// Decodes the value as the registry holds it: the first byte of Windows' 12-byte binary record is 02 or 06 when
+    /// the entry is on and 03 or 07 once it is turned off (Settings, Task Manager). No value is no record; a value of
+    /// another type or length is unreadable, never on (round 1: a text value and a lone 02 read as on).
     /// </summary>
+    public static StartupApproval FromValue(object? value) => value switch
+    {
+        null => NoRecord,
+        byte[] record => FromRecord(record),
+        var other => Unreadable($"The approval record is a {other.GetType().Name}, not the binary record Windows writes."),
+    };
+
+    /// <summary>Decodes a binary record: see <see cref="FromValue"/>.</summary>
     public static StartupApproval FromRecord(byte[]? record)
     {
         if (record is null) return NoRecord;
-        if (record.Length == 0) return Unreadable("The approval record is empty.");
+        if (record.Length != RecordLength)
+            return Unreadable($"The approval record is {record.Length} bytes, not the {RecordLength} Windows writes.");
         return record[0] switch
         {
             0x02 or 0x06 => new StartupApproval(ApprovalState.On),
