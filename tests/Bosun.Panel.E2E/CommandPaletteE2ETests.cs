@@ -48,7 +48,7 @@ public class CommandPaletteE2ETests
         Assert.Equal("Settings", RailTests.Settle(window, "Settings").Item1);
 
         var floor = Ui.Get(window, "PressureFloor");                                           // from Settings, typing in a field
-        floor.SetFocus();
+        RealInput.Focus(floor);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, floor), Ui.Short, "the threshold field to have the keyboard");
         Open(window, handle);
         RealInput.Key(handle, Native.VK_ESCAPE);

@@ -21,6 +21,16 @@ static class RealInput
 {
     private static readonly string[] TrayWindows = ["Shell_TrayWnd", "Shell_SecondaryTrayWnd", "TopLevelWindowForOverflowXamlIsland"];
 
+    /// <summary>
+    /// Gives an element the keyboard through UI Automation: no input, so the watcher's hook cannot stop it, yet it takes
+    /// the foreground with it and what a person types lands there. Every focus change in the smoke comes through here.
+    /// </summary>
+    public static void Focus(AutomationElement element)
+    {
+        SmokeInput.Require("RealInput.Focus");
+        element.SetFocus();
+    }
+
     /// <summary>A key, to the panel's window only.</summary>
     public static void Key(IntPtr panel, int virtualKey)
     {

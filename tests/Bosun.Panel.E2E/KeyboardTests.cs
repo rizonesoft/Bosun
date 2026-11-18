@@ -20,7 +20,7 @@ public class KeyboardTests
         var (window, handle) = OnSettings(panel);
         // The theme choice's selected segment holds the keyboard (a segmented control, D02 T03 §4).
         var theme = Ui.Selected(Ui.Get(window, "ThemeBox"))!;
-        theme.SetFocus();
+        RealInput.Focus(theme);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, theme), Ui.Short, "the theme choice to have focus");
 
         var next = Ui.Get(window, "StartWithWindows");
@@ -45,7 +45,7 @@ public class KeyboardTests
         using var panel = PanelProcess.Start();
         var (window, handle) = OnSettings(panel);
         var start = Ui.Get(window, "StartWithWindows");
-        start.SetFocus();
+        RealInput.Focus(start);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, start), Ui.Short, "Start with Windows to have focus");
         var field = Ui.Get(window, "PressureFloor");
         for (var press = 0; press < 10 && !(Ui.Focused() is { } f && Automation.Compare(f, field)); press++)
@@ -74,7 +74,7 @@ public class KeyboardTests
         var (window, handle) = OnSettings(panel);
         var notify = Ui.Get(window, "NotifyMemoryPressure");
         var start = Ui.Get(window, "StartWithWindows");
-        start.SetFocus();
+        RealInput.Focus(start);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, start), Ui.Short, "Start with Windows to have focus");
         for (var press = 0; press < 10 && !(Ui.Focused() is { } f && Automation.Compare(f, notify)); press++)
         {
@@ -106,7 +106,7 @@ public class KeyboardTests
         var (window, handle) = OnSettings(panel);
         var notify = Ui.Get(window, "NotifyMemoryPressure");
         var was = Ui.Toggle(notify);
-        notify.SetFocus();
+        RealInput.Focus(notify);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, notify), Ui.Short, "the check box to have focus");
         RealInput.Key(handle, Native.VK_SPACE);
         Ui.Until(() => Ui.Toggle(notify) != was, Ui.Short, "Space to toggle the check box");
@@ -132,7 +132,7 @@ public class KeyboardTests
         Assert.Empty(Ui.Nameless(theme));
         Assert.Equal("Follow Windows", Ui.Selected(theme)?.Current.Name);
         var first = Ui.Selected(theme)!;
-        first.SetFocus();
+        RealInput.Focus(first);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, first), Ui.Short, "the theme choice to have focus");
 
         foreach (var (key, then) in new[] { (Native.VK_RIGHT, "Dark"), (Native.VK_RIGHT, "Light"), (Native.VK_RIGHT, "Light"), (Native.VK_LEFT, "Dark"),

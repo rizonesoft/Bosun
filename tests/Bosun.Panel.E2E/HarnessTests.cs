@@ -67,6 +67,31 @@ public class HarnessTests
     }
 
     [Fact]
+    public void Once_a_person_comes_in_the_nightly_run_every_way_of_taking_the_desk_is_refused()
+    {
+        // D02 T02 §12: the nightly runner's person event, set by its watcher the moment a person comes, refuses what the
+        // hook cannot stop (a focus change) as well as input; with no event (on demand) nothing is refused for it.
+        var name = $@"Local\bosun-smoke-person-test-{Guid.NewGuid():N}";
+        var was = Environment.GetEnvironmentVariable(SmokeInput.PersonVariable);
+        using var seen = new EventWaitHandle(false, EventResetMode.ManualReset, name);
+        try
+        {
+            Environment.SetEnvironmentVariable(SmokeInput.PersonVariable, null);
+            SmokeInput.RequireNobodyCame("a step on demand");
+            Environment.SetEnvironmentVariable(SmokeInput.PersonVariable, name);
+            SmokeInput.RequireNobodyCame("a step before anyone came");
+            seen.Set();
+            Assert.Contains("a person came", Assert.Throws<RealInputRefused>(() => SmokeInput.RequireNobodyCame("a step after")).Message);
+            Environment.SetEnvironmentVariable(SmokeInput.PersonVariable, name + "-gone");
+            Assert.Contains("is gone", Assert.Throws<RealInputRefused>(() => SmokeInput.RequireNobodyCame("a step without the signal")).Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SmokeInput.PersonVariable, was);
+        }
+    }
+
+    [Fact]
     public void Outside_the_real_input_run_every_way_of_taking_the_desktop_is_refused_and_nothing_is_sent()
     {
         // D02 T02 §12: a test without [Trait("Input", "Real")] can't send a key, click, move the pointer or bring a
@@ -245,6 +270,8 @@ sealed class Cover : IDisposable
 
     public static Cover Open(Rect at, bool activate = true)
     {
+        // Shown activated, the cover takes the foreground and the keyboard with it: asked as any focus change is.
+        if (activate) SmokeInput.Require("Cover.Open (activated)");
         Cover? made = null;
         var ready = new ManualResetEventSlim();
         Window? window = null;
@@ -290,7 +317,7 @@ sealed class Cover : IDisposable
             if (activate)
                 Ui.Until(() =>
                 {
-                    element.SetFocus();
+                    RealInput.Focus(element);
                     return Native.GetForegroundWindow() == handle;
                 }, Ui.Short, "the cover window to take the foreground");
             return made;

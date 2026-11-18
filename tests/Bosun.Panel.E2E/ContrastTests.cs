@@ -57,7 +57,7 @@ public class ContrastTests
         Assert.True(Count(segment, Highlight) > segment.Width * segment.Height / 3, "the chosen segment is the highlight");
         Assert.True(Count(segment, HighlightText) > 10, "its words are the highlight's text");
 
-        chosen.SetFocus();
+        RealInput.Focus(chosen);
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, chosen), Ui.Short, "the theme choice to have focus");
         var next = Ui.Get(window, "StartWithWindows");
         var around = Box(next, 8);
