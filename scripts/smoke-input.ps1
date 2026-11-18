@@ -335,6 +335,7 @@ $personSeen = $null
 $watchFile = Join-Path $StateFolder "watch-$stamp-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).txt"
 $savedHeld = $env:BOSUN_DESKTOP_HELD
 $savedInput = $env:BOSUN_SMOKE_INPUT
+$savedPerson = $env:BOSUN_SMOKE_PERSON_EVENT
 # The run is a function, so a `return` at any step ends the run, not the script: the script then exits with the code
 # that step recorded (at the script's top level a `return` ended it at once, with exit 0, whatever was recorded).
 function Invoke-Smoke {
@@ -397,7 +398,11 @@ try {
     $personSeen = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $personName)
     $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile); $info.ArgumentList.Add($personName)
     # The nightly run is guarded: once a person comes, the watcher's hook stops every new press the smoke sends.
-    if ($Scheduled) { $info.ArgumentList.Add('guard') }
+    if ($Scheduled) {
+        $info.ArgumentList.Add('guard')
+        # And each class is told the event, so what the hook cannot stop (a focus change) is refused there too.
+        $env:BOSUN_SMOKE_PERSON_EVENT = $personName
+    }
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
     $watch = [Diagnostics.Process]::Start($info)
     # Stdin stays open: the runner asks the watcher to let go of what the smoke holds on it.
@@ -485,6 +490,7 @@ try {
     if ($personSeen) { $personSeen.Dispose() }
     $env:BOSUN_DESKTOP_HELD = $savedHeld
     $env:BOSUN_SMOKE_INPUT = $savedInput
+    $env:BOSUN_SMOKE_PERSON_EVENT = $savedPerson
     if ($holder) { $holder.Dispose() }
 }
 }

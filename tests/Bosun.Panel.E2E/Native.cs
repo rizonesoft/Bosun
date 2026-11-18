@@ -93,14 +93,11 @@ static partial class Native
     /// <summary>Moves the pointer to a point in screen pixels.</summary>
     public static void MoveTo(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE)]);
 
-    /// <summary>
-    /// One injected pointer move to where the pointer already is: input every low-level hook sees, that moves nothing.
-    /// Untagged, it stands for input another program injects (a remote-control tool), which the watcher counts as a person.
-    /// </summary>
-    public static void MoveInPlace(bool tagged = true)
+    /// <summary>One injected pointer move to where the pointer already is: input every low-level hook sees, that moves nothing.</summary>
+    public static void MoveInPlace()
     {
         var at = Cursor();
-        Send([Mouse(at.X, at.Y, MOUSEEVENTF_MOVE)], tagged);
+        Send([Mouse(at.X, at.Y, MOUSEEVENTF_MOVE)]);
     }
 
     /// <summary>
@@ -133,14 +130,13 @@ static partial class Native
 
     private static long _sent;
 
-    private static void Send(INPUT[] inputs, bool tagged = true)
+    private static void Send(INPUT[] inputs)
     {
-        if (tagged)
-            for (var i = 0; i < inputs.Length; i++)
-            {
-                if (inputs[i].type == INPUT_MOUSE) inputs[i].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
-                else inputs[i].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
-            }
+        for (var i = 0; i < inputs.Length; i++)
+        {
+            if (inputs[i].type == INPUT_MOUSE) inputs[i].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
+            else inputs[i].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
+        }
         Interlocked.Add(ref _sent, inputs.Length);
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != inputs.Length) throw new InvalidOperationException($"Windows took {sent} of {inputs.Length} input events (error {Marshal.GetLastPInvokeError()})");

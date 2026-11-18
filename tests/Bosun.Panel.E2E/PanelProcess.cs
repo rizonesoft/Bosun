@@ -189,6 +189,8 @@ sealed class PanelProcess : IDisposable
         Ui.Until(() =>
         {
             if (Native.GetForegroundWindow() == handle) return true;
+            // A focus change is no input, so the watcher's hook cannot stop it: asked before each attempt.
+            SmokeInput.RequireNobodyCame("PanelProcess.Front");
             try
             {
                 window.SetFocus();

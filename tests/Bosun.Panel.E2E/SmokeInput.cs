@@ -33,6 +33,25 @@ public static class SmokeInput
             throw new RealInputRefused($"{what} is real input, which only a test with [Trait(\"{Trait}\", \"{Real}\")] and [RealInputFact] may send");
         if (!OptedIn)
             throw new RealInputRefused($"{what} is real input, sent only in the real-input run ({Variable}=1, pwsh scripts/smoke-input.ps1)");
+        RequireNobodyCame(what);
+    }
+
+    /// <summary>The named event the nightly runner's watcher sets the moment a person comes (scripts/smoke-input.ps1).</summary>
+    public const string PersonVariable = "BOSUN_SMOKE_PERSON_EVENT";
+
+    /// <summary>
+    /// Refuses once a person has come during the nightly run: asked before every way the smoke takes the desk, the ones
+    /// the watcher's hook cannot stop too (a UI Automation focus change is not input). On demand there is no event.
+    /// </summary>
+    public static void RequireNobodyCame(string what)
+    {
+        var name = Environment.GetEnvironmentVariable(PersonVariable);
+        if (string.IsNullOrEmpty(name)) return;
+        if (!EventWaitHandle.TryOpenExisting(name, out var seen))
+            throw new RealInputRefused($"{what} was not done: the nightly run's person signal ({name}) is gone, so nobody can tell whether the desk is in use");
+        using (seen)
+            if (seen.WaitOne(0))
+                throw new RealInputRefused($"{what} was not done: a person came to the desk during the nightly run");
     }
 }
 

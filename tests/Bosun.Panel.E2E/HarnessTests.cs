@@ -41,23 +41,14 @@ public class HarnessTests
             Assert.True(Ui.Wait(() => Line(file, 1) == "135", TimeSpan.FromSeconds(3)), $"the smoke's F24 is listed held ('{Line(file, 1)}')");
             Native.KeyUp(Native.VK_F24);
             Assert.True(Ui.Wait(() => Line(file, 1) == "", TimeSpan.FromSeconds(3)), "let go of, it is off the list");
-            // Injected but without the smoke's mark (a remote-control tool's input) is a person.
-            var injected = DateTime.UtcNow;
-            Native.MoveInPlace(tagged: false);
-            var until = DateTime.UtcNow.AddSeconds(5);
-            string seenInjected;
-            while ((seenInjected = Line(file, 0)) == "none" && DateTime.UtcNow < until) Thread.Sleep(100);
-            Assert.True(DateTime.TryParse(seenInjected, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var other) && other.ToUniversalTime() >= injected.AddSeconds(-1),
-                $"an untagged injected move was not seen as a person (the watcher wrote '{seenInjected}')");
-            // The watcher writes at most once a second; the stand-in below must be later than that.
-            Thread.Sleep(1200);
+            // Input injected without the smoke's mark is a person too: that is shown by tests/smoke_input_test.ps1, never
+            // here, where the nightly run's own watcher would take it for a person and stop the run.
             var before = DateTime.UtcNow;
             watcher.StandardInput.WriteLine("person");
             watcher.StandardInput.Flush();
             var deadline = DateTime.UtcNow.AddSeconds(5);
             string said;
-            // Waiting for a time other than the untagged move's, which the file already holds.
-            while ((said = Line(file, 0)) == seenInjected && DateTime.UtcNow < deadline) Thread.Sleep(100);
+            while ((said = Line(file, 0)) == "none" && DateTime.UtcNow < deadline) Thread.Sleep(100);
             Assert.True(DateTime.TryParse(said, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var seen), $"the watcher wrote '{said}'");
             Assert.True(seen.ToUniversalTime() >= before.AddSeconds(-1), $"a person at {seen:o}, before the stand-in at {before:o}");
         }

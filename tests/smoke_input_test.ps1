@@ -118,6 +118,11 @@ $tests = @(
   'Bosun.Panel.E2E.Gamma.One', 'Bosun.Panel.E2E.Gamma.Two'
 )
 $started = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+function Wait-Until([scriptblock]$Probe, [int]$Seconds) {
+  $until = (Get-Date).AddSeconds($Seconds)
+  while ((Get-Date) -lt $until) { if (& $Probe) { return $true }; Start-Sleep -Milliseconds 100 }
+  [bool](& $Probe)
+}
 
 # A run of the script, in a state folder of the case's own (or the one given), its output and exit code.
 function Invoke-Run([string]$Mode, [string[]]$Extra = @(), [string]$State = '', [hashtable]$Probes = @{}, [string[]]$Pauses = @()) {
@@ -278,6 +283,9 @@ try {
       [void]$real.StandardOutput.ReadLine()
       try {
         [void][F24Send]::Key($false, 0); Start-Sleep -Milliseconds 200
+        # Injected without the smoke's mark (a remote-control tool's input) is a person: the record says so.
+        $guardRecord = Join-Path $dir 'watch-guard.txt'
+        Check 'input injected without the smoke mark is a person' ((Wait-Until { "$((@(Get-Content -LiteralPath $guardRecord -ErrorAction Ignore) + @(''))[0])".Trim() -notin '', 'none' } 3) -and $seen.WaitOne(0))
         [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
         [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
         Check "guarded, the smoke's press after a person's is stopped, and so its release" ([F24State]::Down())
