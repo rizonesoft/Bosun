@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Automation;
@@ -10,6 +11,46 @@ namespace Bosun.Panel.E2E;
 /// <summary>The smoke's own two promises: nothing it starts outlives a test, and no real input lands anywhere else.</summary>
 public class HarnessTests
 {
+    // The real-input runner's watcher (D02 T02 §12) tells a person from the smoke: input the smoke sends is marked
+    // injected, and leaves its file alone; input that is not (the watcher's own stand-in line) is a person, and moves it.
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
+    public void The_input_watcher_passes_over_injected_input_and_sees_a_person()
+    {
+        SmokeInput.Require("HarnessTests.The_input_watcher_passes_over_injected_input_and_sees_a_person");
+        var file = Path.Combine(Path.GetTempPath(), $"bosun-watch-{Guid.NewGuid():N}.txt");
+        var info = new ProcessStartInfo(PanelProcess.TestChildExe) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true };
+        info.ArgumentList.Add("watch-input");
+        info.ArgumentList.Add(file);
+        using var watcher = Process.Start(info)!;
+        try
+        {
+            Assert.Equal("watching", watcher.StandardOutput.ReadLine());
+            Assert.Equal("none", File.ReadAllText(file).Trim());
+            for (var i = 0; i < 5; i++)
+            {
+                Native.MoveInPlace();
+                Thread.Sleep(100);
+            }
+            // The watcher writes at most once a second: past that, a move it counted would be in the file.
+            Thread.Sleep(1500);
+            Assert.Equal("none", File.ReadAllText(file).Trim());
+            var before = DateTime.UtcNow;
+            watcher.StandardInput.WriteLine("person");
+            watcher.StandardInput.Flush();
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            string said;
+            while ((said = File.ReadAllText(file).Trim()) == "none" && DateTime.UtcNow < deadline) Thread.Sleep(100);
+            Assert.True(DateTime.TryParse(said, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var seen), $"the watcher wrote '{said}'");
+            Assert.True(seen.ToUniversalTime() >= before.AddSeconds(-1), $"a person at {seen:o}, before the stand-in at {before:o}");
+        }
+        finally
+        {
+            if (!watcher.HasExited) watcher.Kill(entireProcessTree: true);
+            File.Delete(file);
+        }
+    }
+
     [Fact]
     public void Outside_the_real_input_run_every_way_of_taking_the_desktop_is_refused_and_nothing_is_sent()
     {

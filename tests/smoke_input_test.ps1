@@ -36,6 +36,8 @@ $class = $args[[array]::IndexOf($args, '--filter-class') + 1]
 $dir = $args[[array]::IndexOf($args, '--results-directory') + 1]
 $file = $args[[array]::IndexOf($args, '--report-xunit-trx-filename') + 1]
 Add-Content -LiteralPath (Join-Path $state 'classes.txt') -Value $class
+$pause = @(Get-Content -LiteralPath (Join-Path $state 'pauses.txt') -ErrorAction Ignore | Where-Object { ($_ -split ' ')[0] -eq $class })
+if ($pause) { Start-Sleep -Seconds ([int]($pause[0] -split ' ')[1]) }
 $mine = @($tests | Where-Object { ($_ -replace '\.[^.]+$', '') -eq $class })
 if ($which -and $which -eq $class) {
   if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
@@ -128,25 +130,62 @@ try {
   $run = Invoke-Run 'pass' @('-Deadline', (Get-Date).AddSeconds(-5).ToString('s'))
   Check "an on-demand run has no deadline (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'passed') $run.Said
 
-  # The lock is held across the classes: a capture started while the run goes on waits for it and is refused.
+  # The lock is held across the classes: a capture started in the first class still waits when the next begins,
+  # and is refused once its wait runs out in the last.
   $state = Join-Path $dir 'state-lock'
   New-Item -ItemType Directory -Force -Path $state | Out-Null
-  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'sleep Bosun.Panel.E2E.Gamma'
+  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
   Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
+  Set-Content -LiteralPath (Join-Path $state 'pauses.txt') -Value @('Bosun.Panel.E2E.Alpha 4', 'Bosun.Panel.E2E.Gamma 12')
   Set-Content -LiteralPath (Join-Path $state 'probe-idle') -Value 3600
   $env:STANDIN_STATE = $state; $env:BOSUN_DESKTOP_LOCK = $lockName
   $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
   foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-Watcher', (Join-Path $fakes 'watcher.cmd'), '-TestProbes')) { $info.ArgumentList.Add($a) }
-  $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
+  $info.UseShellExecute = $false; $info.CreateNoWindow = $true
   $long = [System.Diagnostics.Process]::Start($info); $started.Add($long)
   try {
-    for ($i = 0; $i -lt 150 -and -not (Test-Path -LiteralPath (Join-Path $state 'child.txt')); $i++) { Start-Sleep -Milliseconds 200 }
-    $env:BOSUN_DESKTOP_WAIT_S = '1'
+    for ($i = 0; $i -lt 150 -and -not (Test-Path -LiteralPath (Join-Path $state 'classes.txt')); $i++) { Start-Sleep -Milliseconds 200 }
+    $env:BOSUN_DESKTOP_WAIT_S = '8'
     $said = & $shell -NoProfile -File $capture -Path $shell '-LaunchArgs:-NoProfile -Command Start-Sleep 5' -NoNewWindow -WaitSeconds 1 -Out (Join-Path $dir 'capture.png') 2>&1 | Out-String
-    Check "a capture during the run waits for its lock and is refused (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 4 -and $said -like '*smoke-input.ps1*') $said
+    $code = $LASTEXITCODE
+    $classesThen = @(Get-Content -LiteralPath (Join-Path $state 'classes.txt'))
+    Check "a capture started in the first class waits past the next and is refused (exit $code, classes $($classesThen.Count))" ($code -eq 4 -and $said -like '*smoke-input.ps1*' -and $classesThen.Count -eq 3) $said
+    $long.WaitForExit(60000) | Out-Null
+    $record = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })[-1]
+    Check 'and the run it waited on passed whole' ($long.HasExited -and $long.ExitCode -eq 0 -and $record.outcome -eq 'passed')
   } finally {
     Remove-Item Env:BOSUN_DESKTOP_WAIT_S, Env:STANDIN_STATE, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore
-    & taskkill.exe /T /F /PID $long.Id *> $null
+    if (-not $long.HasExited) { & taskkill.exe /T /F /PID $long.Id *> $null }
+  }
+
+  # A smoke class run under the runner's hold works under it: the real E2E fixture, its wait cut to a second, starts
+  # at once in a child of a holder of the lock and leaves the holder's record as it was.
+  $e2e = Join-Path $repo 'tests/Bosun.Panel.E2E'
+  if (Test-Path -LiteralPath (Join-Path $repo 'build/dotnet/bin/Bosun.Panel.E2E')) {
+    $holderScript = Join-Path $dir 'holder.ps1'
+    Set-Content -LiteralPath $holderScript -Encoding utf8 -Value @"
+`$ErrorActionPreference = 'Stop'
+Add-Type -Path '$(Join-Path $repo 'scripts/lib/DesktopLock.cs')'
+`$folder = [Bosun.Desktop.DesktopLock]::RecordFolder()
+`$waiter = [Bosun.Desktop.DesktopWaiter]::new('$lockName', `$folder, 'holder.ps1', `$null)
+try { `$holder = `$waiter.TryTake([TimeSpan]::FromSeconds(5)) } finally { `$waiter.Dispose() }
+if (-not `$holder) { 'could not take the lock'; exit 9 }
+try {
+  `$path = [Bosun.Desktop.DesktopLock]::RecordPath('$lockName', `$folder)
+  `$before = Get-Content -LiteralPath `$path -Raw
+  `$env:BOSUN_DESKTOP_HELD = `$holder.HeldValue
+  `$env:BOSUN_DESKTOP_LOCK = '$lockName'
+  `$env:BOSUN_DESKTOP_WAIT_S = '1'
+  dotnet test --project '$e2e' --no-build --filter-method '*The_run_holds_the_desktop_lock_and_names_itself' 2>&1 | Where-Object { "`$_" -match 'total:|failed:|succeeded:|error' } | ForEach-Object { "`$_" }
+  `$code = `$LASTEXITCODE
+  if ((Get-Content -LiteralPath `$path -Raw) -ne `$before) { 'the record changed'; exit 8 }
+  exit `$code
+} finally { `$holder.Dispose() }
+"@
+    $said = & $shell -NoProfile -File $holderScript 2>&1 | Out-String
+    Check "the fixture under a holder's lock starts at once and leaves its record (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and $said -match 'succeeded: 1') $said
+  } else {
+    Check 'the E2E project is built, for the inherited-hold check (run dotnet build first)' $false
   }
 
   # The history: each run kept with its own log, the last 60 and 30 kept, read back in words.
@@ -181,6 +220,16 @@ try {
     Check 'for this user, only while logged on' ($task.Principal.UserId -like "*$env:USERNAME" -and $task.Principal.LogonType -eq 'Interactive')
     $action = $task.Actions[0]
     Check 'its action runs this script, scheduled, in the checkout' ($action.Execute -eq $shell -and $action.Arguments -like "*$script*-Scheduled*-Invocation task*" -and $action.Arguments -like "*$state*" -and $action.WorkingDirectory -eq $repo) "$($action.Execute) $($action.Arguments) in $($action.WorkingDirectory)"
+    # Installed and not yet run: the status says so with the install's date; three days on, it names the night missed.
+    $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check 'a fresh install reads "no scheduled run yet" with its date' ($status -like "*No scheduled run yet, installed $(Get-Date -Format 'yyyy-MM-dd')*") $status
+    $mark = Join-Path $state 'installed.json'
+    $was = Get-Content -LiteralPath $mark -Raw
+    Set-Content -LiteralPath $mark -Value (@{ at = (Get-Date).AddDays(-3).ToUniversalTime().ToString('o'); task = $taskName } | ConvertTo-Json -Compress)
+    $night = (Get-Date).Date.AddHours(3); if ((Get-Date) -lt $night.AddHours(2)) { $night = $night.AddDays(-1) }
+    $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check 'a night with no record is named by its date' ($status -like "*No result for $($night.ToString('yyyy-MM-dd'))*") $status
+    Set-Content -LiteralPath $mark -Value $was
     $before = @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count
     Push-Location $env:TEMP
     try { Start-ScheduledTask -TaskName $taskName } finally { Pop-Location }

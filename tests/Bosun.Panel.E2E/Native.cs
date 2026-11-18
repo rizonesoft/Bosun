@@ -93,6 +93,13 @@ static partial class Native
     /// <summary>Moves the pointer to a point in screen pixels.</summary>
     public static void MoveTo(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE)]);
 
+    /// <summary>One injected pointer move to where the pointer already is: input every low-level hook sees, that moves nothing.</summary>
+    public static void MoveInPlace()
+    {
+        var at = Cursor();
+        Send([Mouse(at.X, at.Y, MOUSEEVENTF_MOVE)]);
+    }
+
     public static void LeftDown(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN)]);
 
     public static void LeftUp(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP)]);
