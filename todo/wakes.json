@@ -16,5 +16,15 @@
       "-c",
       "import os, pathlib, sys; p = pathlib.Path(os.environ.get('LOCALAPPDATA', '')) / 'Bosun' / 'smoke' / 'input-history.jsonl'; sys.exit(0 if p.exists() and any('\"mode\":\"scheduled\"' in line.replace(' ', '') for line in p.read_text(encoding='utf-8', errors='replace').splitlines()) else 1)"
     ]
+  },
+  {
+    "section": "D03 T02 §4",
+    "need": "third-party",
+    "check": [
+      "pwsh",
+      "-NoProfile",
+      "-Command",
+      "if (Get-Process Code -ErrorAction Ignore) { exit 0 } else { exit 1 }"
+    ]
   }
 ]
