@@ -71,7 +71,7 @@ public class ToastE2ETests
             RealInput.Key(handle, Native.VK_TAB);
             Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, dismissFirst), Ui.Short, "Tab from Show less to Dismiss");
             RealInput.Key(handle, Native.VK_TAB);
-            Ui.Until(() => Ui.Focused()?.Current.Name == "The whole message", Ui.Short, "Tab on to the whole message");
+            Ui.UntilFocused(f => f.Current.Name == "The whole message", Ui.Short, "Tab on to the whole message");
             Thread.Sleep(TimeSpan.FromSeconds(7.5));
             var dismiss = Ui.Get(window, "Dismiss");
             for (var press = 0; press < 40 && !(Ui.Focused() is { } f && Automation.Compare(f, dismiss)); press++)

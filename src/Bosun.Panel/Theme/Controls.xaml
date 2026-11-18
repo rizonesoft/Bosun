@@ -1822,13 +1822,13 @@
                             </DockPanel>
                             <!-- Its first three lines; expanded, the whole message in a scroll bounded by Size.ToastText, so
                                  three expanded toasts still fit the smallest window with every Dismiss on screen (D02 T04 §7). -->
-                            <ScrollViewer x:Name="WordsScroll" Margin="2,8,4,0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
-                                          Focusable="False" IsTabStop="False">
+                            <shell:ToastMessage x:Name="WordsScroll" Margin="2,8,4,0" VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled"
+                                                Focusable="False" IsTabStop="False" AutomationProperties.HelpText="{Binding Message}">
                                 <TextBlock x:Name="Words" Text="{Binding Message}" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                            LineHeight="19" LineStackingStrategy="BlockLineHeight" MaxHeight="57"
                                            ToolTip="{Binding Message}" AutomationProperties.HelpText="{Binding Message}"
                                            AutomationProperties.Name="{Binding Spoken}" a:LiveRegion.Announce="True"/>
-                            </ScrollViewer>
+                            </shell:ToastMessage>
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>

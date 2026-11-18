@@ -164,7 +164,7 @@ public class ToastTests
             Assert.True(card.IsCut);
             ((Button)card.Template.FindName("ShowMore", card)).Command.Execute(null);
             PageRenderer.Settle(page);
-            var scroll = (ScrollViewer)card.Template.FindName("WordsScroll", card);
+            var scroll = (ToastMessage)card.Template.FindName("WordsScroll", card);
             var words = (TextBlock)card.Template.FindName("Words", card);
             Assert.True(scroll.ScrollableHeight > 0, "a very long message scrolls inside the card");
             Assert.True(scroll.Focusable && scroll.IsTabStop, "the keyboard can reach the message to scroll it");
@@ -175,6 +175,47 @@ public class ToastTests
             Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);                // its end is reached
             var dismiss = (Button)card.Template.FindName("Dismiss", card);
             Assert.True(dismiss.IsVisible && dismiss.TransformToAncestor(page).Transform(new Point()).Y >= 0);
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Expanded_the_message_is_in_the_automation_tree_under_its_name_with_the_message_as_help()
+    {
+        // WPF leaves a template's ScrollViewer and text out of the automation tree, so the opened message took the
+        // keyboard and no screen reader could find it (found by the E2E, D02 T04 §7).
+        var message = string.Join(" ", Enumerable.Range(1, 120).Select(i => $"word{i}"));
+        Drawn(message, (card, page) =>
+        {
+            var scroll = (ToastMessage)card.Template.FindName("WordsScroll", card);
+            var peer = UIElementAutomationPeer.CreatePeerForElement(scroll);
+            Assert.False(peer.IsControlElement(), "a collapsed message is not a stop of its own: the toast's text says it");
+            ((Button)card.Template.FindName("ShowMore", card)).Command.Execute(null);
+            PageRenderer.Settle(page);
+            Assert.True(peer.IsControlElement() && peer.IsContentElement());
+            Assert.Equal("The whole message", peer.GetName());
+            Assert.Equal(message, peer.GetHelpText());
+            Assert.True(peer.IsKeyboardFocusable());
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Each_toast_in_the_shell_is_a_list_item_named_by_what_it_says()
+    {
+        PageRenderer.InPage("Dark", () =>
+        {
+            var (shell, _) = Shell();
+            shell.Toasts.Show(LogSeverity.Fail, "Save failed: the file is read-only.");
+            return new ShellView { DataContext = shell };
+        }, page =>
+        {
+            PageRenderer.Settle(page);
+            var view = ShellSupport.Under<ShellView>(page).Single();
+            var list = (ItemsControl)view.FindName("Toasts");
+            var items = UIElementAutomationPeer.CreatePeerForElement(list).GetChildren();
+            var item = Assert.Single(items);
+            Assert.Equal("Failed: Save failed: the file is read-only.", item.GetName());
             return 0;
         });
     }

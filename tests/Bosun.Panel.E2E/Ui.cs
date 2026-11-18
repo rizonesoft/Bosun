@@ -32,6 +32,33 @@ static class Ui
 
     public static readonly TimeSpan Short = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Waits until the keyboard focus is on an element <paramref name="wanted"/> accepts, or fails naming where the
+    /// focus was instead, its type, name and automation id, so a keyboard path that goes astray says where it went.
+    /// </summary>
+    public static void UntilFocused(Func<AutomationElement, bool> wanted, TimeSpan limit, string what)
+    {
+        var end = DateTime.UtcNow + limit;
+        string seen = "nothing";
+        while (true)
+        {
+            try
+            {
+                if (Focused() is { } focus)
+                {
+                    if (wanted(focus)) return;
+                    seen = $"{focus.Current.ControlType.ProgrammaticName} '{focus.Current.Name}' ({focus.Current.AutomationId})";
+                }
+            }
+            catch (ElementNotAvailableException)
+            {
+                // the element went away while it was read: ask again
+            }
+            if (DateTime.UtcNow > end) throw new TimeoutException($"waited {limit.TotalSeconds:0.#} s for {what}; the focus was on {seen}");
+            Thread.Sleep(50);
+        }
+    }
+
     /// <summary>Asks until true, for at most <paramref name="limit"/>: whether it became true, without failing the test.</summary>
     public static bool Wait(Func<bool> probe, TimeSpan limit)
     {

@@ -167,6 +167,12 @@
         <StackPanel x:Name="ToastStack" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20">
             <ItemsControl x:Name="Toasts" ItemsSource="{Binding Toasts.Shown}" Focusable="False" IsTabStop="False"
                           AutomationProperties.Name="Results">
+                <!-- Each toast's list item says what it is ("Failed: ..."), not its type's name (D02 T04 §7). -->
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Spoken}"/>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <shell:ToastCard Margin="0,8,0,0" Host="{Binding DataContext.Toasts, RelativeSource={RelativeSource AncestorType=shell:ShellView}}"/>
