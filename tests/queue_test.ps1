@@ -185,6 +185,22 @@ Remove-Item (Join-Path $work 'flood.bin')
 # --- The slot records (D01 T01 §1): who holds each slot and who waits, read from the real files ---
 Check (-not (Records)) "every job above left no record behind, the command that couldn't start and the one the write budget stopped included ($((Records).Name -join ', '))"
 
+# A slot above a lowered limit (D03 T02 §3): two jobs hold both slots under --slots 2; asked with --slots 1, status still
+# lists the second slot, its holder named and the slot marked above the limit, and a job started under --slots 1 waits
+# for a slot rather than taking the second. The holders run out by themselves, so no record is left behind.
+$hi = 0..1 | ForEach-Object { Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work "high$_.txt")),'6000' -PassThru -WindowStyle Hidden }
+$null = Wait-Until { @(Records | Where-Object Name -like 'slot-*').Count -eq 2 }
+$st = & $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json
+$above = @($st.slots | Where-Object index -eq 1)
+Check ($st.slots.Count -eq 2 -and -not $st.slots[0].above_limit -and $above.Count -eq 1 -and $above[0].above_limit -and $above[0].busy -and $hi.Id -contains $above[0].holder.pid) "a holder of a slot above a lowered limit is still listed, marked above it ($($st.slots.Count) slots)"
+$late = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'late.txt')),'100' -PassThru -WindowStyle Hidden
+$null = Wait-Until { @((& $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json).waiters | Where-Object pid -eq $late.Id).Count -eq 1 }
+$st = & $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json
+$waiting = @($st.waiters | Where-Object pid -eq $late.Id)
+Check ($waiting.Count -eq 1 -and $waiting[0].waiting_for -eq 'slot') "a job under the lowered limit waits for a slot, not the one above it"
+$hi + $late | ForEach-Object { $null = $_.WaitForExit(20000); if (-not $_.HasExited) { & taskkill.exe /T /F /PID $_.Id *> $null } }
+$null = Wait-Until { -not (Records) }
+
 # A holder names its pid, command, repo and side while it runs; a second job waits with a record of its own; a third
 # that times out runs without a slot and leaves nothing; and the waiter becomes the holder when the slot frees.
 $recRepo = Join-Path $work 'recrepo'

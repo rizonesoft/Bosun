@@ -676,6 +676,32 @@ static void status_json() {
     CHECK(s3["holder"]["running_s"].kind == Json::Null && s3["holder"]["waited_s"].n == 10 && s3["holder"]["min_guest_mb"].n == 3072);
     const Json& s4 = s["slots"].item(4);
     CHECK(s4["busy"].kind == Json::Null && s4["holder"].kind == Json::Null);
+    CHECK(s0["above_limit"].kind == Json::Bool && !s0["above_limit"].b && !s4["above_limit"].b);  // no limit given: none above
+
+    // D03 T02 §3: a holder of a slot above a lowered limit keeps it listed, marked above the limit.
+    dm::SlotRecord high = rec("holder", 30, "2026-11-13T04:00:00Z");
+    high.slot = 1;
+    dm::SlotRecord gone = rec("holder", 31, "2026-11-13T04:00:00Z");
+    gone.slot = 5;
+    CHECK(dm::slots_to_probe(1, {{high, dm::RecordState::Live}}) == 2);
+    CHECK(dm::slots_to_probe(1, {{high, dm::RecordState::Unknown}}) == 2);
+    CHECK(dm::slots_to_probe(1, {{gone, dm::RecordState::Stale}}) == 1);  // a stale record names nothing
+    CHECK(dm::slots_to_probe(3, {{high, dm::RecordState::Live}}) == 3);
+    dm::SlotRecord far = rec("holder", 32, "2026-11-13T04:00:00Z");
+    far.slot = 200;
+    CHECK(dm::slots_to_probe(1, {{far, dm::RecordState::Live}}) == 64);
+    dm::StatusInput lowered;
+    lowered.ns = "Bosun";
+    lowered.at = in.at;
+    lowered.busy = {true, true};
+    lowered.limit = 1;
+    lowered.records = {{high, dm::RecordState::Live}};
+    auto low = json(dm::status_json(lowered));
+    CHECK(low.has_value());
+    if (low) {
+        CHECK(!(*low)["slots"].item(0)["above_limit"].b);
+        CHECK((*low)["slots"].item(1)["above_limit"].b && (*low)["slots"].item(1)["holder"]["pid"].n == 30);
+    }
     // Waiters: oldest first, the stale and the superseded left out, each with its reason, limits and wait so far.
     CHECK(s["waiters"].items.size() == 2);
     CHECK(s["waiters"].item(0)["pid"].n == 21 && s["waiters"].item(0)["waiting_for"].s == "slot" && s["waiters"].item(0)["waited_s"].n == 90);

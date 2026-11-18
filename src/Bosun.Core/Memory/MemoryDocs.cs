@@ -57,6 +57,11 @@ public sealed record SlotDoc
 {
     [JsonPropertyName("index")] public required int Index { get; init; }
     [JsonPropertyName("busy")] public required bool? Busy { get; init; }
+    /// <summary>
+    /// A slot at or past the configured count, still listed while a holder keeps it (D03 T02 §3). Optional, so a status
+    /// an older bosun.exe wrote still reads, as within the limit.
+    /// </summary>
+    [JsonPropertyName("above_limit")] public bool AboveLimit { get; init; }
     [JsonPropertyName("holder")] public required QueueRecordDoc? Holder { get; init; }
 }
 

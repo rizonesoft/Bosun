@@ -759,7 +759,9 @@ int cmd_status(const Options& o) {
     RecordsPass pass = sweep_records(o);
     int busy = 0;
     std::vector<std::optional<bool>> held;
-    for (int i = 0; i < o.slots; ++i) {
+    // A slot above a lowered limit is still probed while a holder's record names it, so its job never vanishes.
+    const int probed = dm::slots_to_probe(o.slots, pass.seen);
+    for (int i = 0; i < probed; ++i) {
         HANDLE h = open_slot(o.ns, i);
         if (!h) {  // can't be told; the text count has always treated it as free
             held.push_back(std::nullopt);
@@ -790,6 +792,7 @@ int cmd_status(const Options& o) {
         in.ns = narrow(o.ns);
         in.at = utc_now();
         in.busy = held;
+        in.limit = o.slots;
         in.records = pass.seen;
         in.records_readable = pass.readable;
         in.records_skipped = pass.skipped;

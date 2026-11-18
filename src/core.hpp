@@ -957,6 +957,9 @@ struct GuestFigures {
 struct StatusInput {
     std::string ns, at;                     // the queue namespace; now, UTC
     std::vector<std::optional<bool>> busy;  // per slot: its mutex held, free, or unknown when it couldn't be probed
+    // The configured number of slots (D03 T02 §3): a slot at or past it is still listed while a holder keeps it, marked
+    // above the limit; 0 means all are within it.
+    int limit = 0;
     std::vector<SeenRecord> records;        // every record the reader pass parsed, with its state
     bool records_readable = true;
     int records_skipped = 0;                // .json files it couldn't read or parse
@@ -967,6 +970,17 @@ struct StatusInput {
     std::string windows_logger = "not running";  // dm::logger_state
     std::optional<std::string> wsl_logger;  // "running", "not running" or "unknown"; none from a Windows call
 };
+
+// How many slots status probes (D03 T02 §3): the configured count, or one past the highest slot a live or unknown holder
+// record names, so a holder of a slot above a lowered limit is still listed until it lets go. Capped at the limit's
+// own ceiling, 64.
+inline int slots_to_probe(int configured, const std::vector<SeenRecord>& records) {
+    int n = configured;
+    for (const auto& s : records)
+        if (s.record.kind == "holder" && s.state != RecordState::Stale && s.record.slot && *s.record.slot >= 0 && *s.record.slot + 1 > n)
+            n = *s.record.slot + 1;
+    return n > 64 ? 64 : n;
+}
 
 struct StatusView {
     std::vector<std::optional<SeenRecord>> holders;  // per slot
@@ -1018,7 +1032,8 @@ inline std::string status_json(const StatusInput& in) {
     o << "{\"schema_version\":1,\"ns\":\"" << json_escape(in.ns) << "\",\"at\":\"" << json_escape(in.at) << "\",\"slots\":[";
     for (size_t i = 0; i < in.busy.size(); ++i) {
         if (i) o << ",";
-        o << "{\"index\":" << i << ",\"busy\":" << (!in.busy[i] ? "null" : *in.busy[i] ? "true" : "false") << ",\"holder\":";
+        o << "{\"index\":" << i << ",\"busy\":" << (!in.busy[i] ? "null" : *in.busy[i] ? "true" : "false")
+          << ",\"above_limit\":" << (in.limit > 0 && static_cast<int>(i) >= in.limit ? "true" : "false") << ",\"holder\":";
         if (!v.holders[i]) {
             o << "null}";
             continue;
