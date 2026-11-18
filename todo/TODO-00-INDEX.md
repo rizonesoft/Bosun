@@ -22,5 +22,5 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | 00 | 00-workspace/TODO-02-dotnet-foundation.md | .NET 11 solution, build props and projects, its build measured for memory and speed (2026-11-13) |
 | 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers (2026-11-13) |
 | 02 | 02-shell/TODO-01-brand-and-theme.md | Generated theme, icon pipeline and control templates (2026-11-15) |
-| 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, tray (2026-11-16) |
+| 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, tray, one desktop owner for the smoke (2026-11-18) |
 | 02 | 02-shell/TODO-03-premium-components.md | Mica shell, Lucide glyphs and premium components (2026-11-16) |
