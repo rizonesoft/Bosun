@@ -121,6 +121,10 @@ jobs:
         run: pwsh tests\render_pages_test.ps1
       - name: Window capture self-test
         run: pwsh tests\capture_window_test.ps1
+      # The runner's test runs one fixture test of the smoke under a holder's lock (it sends no input): the smoke is
+      # built for it here, as the build job builds it.
+      - name: Build the end-to-end smoke
+        run: dotnet build tests/Bosun.Panel.E2E -nologo -maxCpuCount:2
       - name: Real-input smoke runner test
         run: pwsh tests\smoke_input_test.ps1
 
