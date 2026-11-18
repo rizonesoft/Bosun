@@ -385,7 +385,14 @@ public sealed class InstancesPage : PageBase
                 continue;
             }
             if (side.Reading.IsStale) notices.Add(side.Reading.Why ?? $"{side.Name} has not reported lately.");
-            foreach (var problem in doc.Problems) notices.Add($"{side.Name}: its {SourceWord(problem.Source)} could not be read: {problem.Why}");
+            // One notice a source, however many problems its scanner listed (a session folder of a thousand damaged
+            // records is one thing to fix): the first problem's words, and how many more there are (round 1).
+            foreach (var source in doc.Problems.GroupBy(p => p.Source, StringComparer.Ordinal))
+            {
+                var more = source.Count() - 1;
+                var also = more == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $" (and {more:N0} more)");
+                notices.Add($"{side.Name}: its {SourceWord(source.Key)} could not be read: {source.First().Why}{also}");
+            }
             if (doc.Unreadable > 0)
                 notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));
         }

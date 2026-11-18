@@ -213,6 +213,50 @@ public class OverviewPageTests
     }
 
     [Fact]
+    public void A_stale_Windows_snapshot_saying_the_VM_stopped_never_hides_a_current_guest_sample()
+    {
+        // Round 1: the Windows logger stopped after it saw a stopped VM; WSL started since, and its guest logger writes.
+        On(() =>
+        {
+            var rig = new OverviewRig(new FakeMemory
+            {
+                Windows = Stale(WindowsSnapshot(vmRunning: false), TimeSpan.FromMinutes(5), "Windows"),
+                Guest = Fresh(GuestSnapshot()),
+            });
+            var guest = rig.Page.Guest;
+            Assert.NotEqual(OverviewPage.WslNotRunning, guest.Said);
+            Assert.Equal(6.0 / 14.0, guest.Fraction);
+            Assert.Equal("6.0 GB available of 14.0 GB", guest.Note);
+
+            // A stale Windows snapshot and a stale guest: whether the VM runs is not known, so neither is said.
+            rig.Memory.Guest = Stale(GuestSnapshot(), TimeSpan.FromMinutes(20), "WSL");
+            rig.Advance(TimeSpan.FromSeconds(5));
+            Assert.NotEqual(OverviewPage.WslNotRunning, guest.Said);
+            Assert.Equal("Not current: The WSL logger last wrote 20 minutes ago.", guest.Warning);
+        });
+    }
+
+    [Fact]
+    public void A_sample_with_more_available_than_total_is_Not_available_never_a_Safe_verdict()
+    {
+        // Round 1: 32,768 MB available of 4,096 MB read as Safe with a full gauge.
+        On(() =>
+        {
+            var rig = new OverviewRig(new FakeMemory
+            {
+                Windows = Fresh(WindowsSnapshot(available: 32768, total: 4096)),
+                Guest = Fresh(GuestSnapshot(available: 20000, total: 14336)),
+            });
+            Assert.IsType<NotAvailable>(rig.Page.Windows.Value);
+            Assert.Null(rig.Page.Windows.Fraction);
+            Assert.NotEqual("Safe", rig.Page.Windows.Word);
+            Assert.Equal(OverviewPage.Impossible("Windows", 32768, 4096), rig.Page.Windows.Note);
+            Assert.IsType<NotAvailable>(rig.Page.Guest.Value);
+            Assert.Equal(OverviewPage.Impossible("WSL", 20000, 14336), rig.Page.Guest.Note);
+        });
+    }
+
+    [Fact]
     public void A_snapshot_that_cant_be_read_is_Not_available_with_its_reason_on_an_empty_track_never_0()
     {
         On(() =>
@@ -287,6 +331,36 @@ public class OverviewPageTests
             rig.GoTo("instances");
             foreach (var notice in ((InstancesPage)rig.PageOf("instances")).Notices) Assert.Contains(notice, card.Warning);
         });
+    }
+
+    [Fact]
+    public void An_instances_scan_with_only_stale_reports_and_failures_is_Not_available_never_a_measured_0()
+    {
+        // Round 1: a stale WSL report and bosun.exe unavailable showed "0" beside the failures.
+        On(() =>
+        {
+            var rig = new OverviewRig(instances: new FakeInstances
+            {
+                Answer = View(null, Failed("windows", null, "bosun instances --json could not be started."),
+                    StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), I("claude", 300, side: "wsl"))),
+            });
+            var card = rig.Page.Instances;
+            Assert.IsType<NotAvailable>(card.Value);
+            Assert.NotEqual("0", card.Said);
+            Assert.Contains("bosun instances --json could not be started.", card.Said);
+            Assert.Contains("WSL (Ubuntu) last reported 12 minutes ago", card.Said);
+        });
+    }
+
+    [Fact]
+    public void Ten_thousand_problems_from_one_source_are_one_notice_saying_how_many_more()
+    {
+        // Round 1: 10,000 problems each became a notice, copied on the UI thread into one warning.
+        var problems = Enumerable.Range(0, 10_000).Select(i => new Bosun.Core.Instances.SourceProblemDoc { Source = "processes", Why = $"x{i}" }).ToList();
+        var side = new Bosun.Core.Instances.SideReading("wsl", "Ubuntu",
+            Reading<Bosun.Core.Instances.InstancesDoc>.Of(Doc("wsl", "Ubuntu", [], problems), InstanceFixtures.Now));
+        var notices = InstancesPage.NoticesOf(View(null, Win(), side));
+        Assert.Equal(["WSL (Ubuntu): its process list could not be read: x0 (and 9,999 more)"], notices);
     }
 
     [Fact]

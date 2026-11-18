@@ -105,7 +105,7 @@ public class NeedsYouTests
             Assert.Equal(PressureNeeds.PressureWord, row.State);
             var since = rig.Check!.Since!.Value;                                      // when the check saw it begin
             Assert.Equal(since, row.Row.FirstSeen);
-            Assert.Equal(PressureNeeds.EpisodeWords(since, 2048), row.What);
+            Assert.Equal(PressureNeeds.EpisodeWords(since, 2048, 2048), row.What);
             Assert.Contains("fell under the 2,048 MB alert threshold and has not recovered past 3,072 MB", row.What);
             Assert.Equal("Memory", row.Where);
             Assert.Equal((1, "Memory, 1 needs you"), rig.Badge("memory"));
@@ -113,7 +113,7 @@ public class NeedsYouTests
 
             // The recovery band: over the floor, not yet 1 GB over it. Still an episode, and its words still true.
             Check(Fresh(WindowsSnapshot(available: 2900)));
-            Assert.Equal(PressureNeeds.EpisodeWords(since, 2048), Assert.Single(table.Lines).What);
+            Assert.Equal(PressureNeeds.EpisodeWords(since, 2048, 2048), Assert.Single(table.Lines).What);
             Assert.Equal(TrayState.Pressure, rig.Icon.State);
 
             // A stale sample decides nothing: the episode stays, and the check's problem is a row of its own.
@@ -146,6 +146,30 @@ public class NeedsYouTests
             Assert.Equal(TrayState.Normal, rig.Icon.State);
 
             Assert.Equal(reads, rig.Memory.WindowsReads);                             // the hidden Overview read nothing itself
+        });
+    }
+
+    [Fact]
+    public void A_threshold_lowered_during_an_episode_keeps_what_the_episode_fell_under()
+    {
+        // Round 1: a 4,096 MB floor, 3,800 MB available; the floor lowered to 3,072 MB with 3,800 MB still available.
+        // The episode lasts (recovery needs over 4,096 MB), and its row must not claim memory fell under 3,072 MB.
+        On(() =>
+        {
+            Reading<SnapshotDoc> reading = Fresh(WindowsSnapshot(available: 9000));
+            var rig = new OverviewRig().WithTray(() => reading);
+            Assert.True(rig.Store.Update(s => s with { PressureFloorMb = 4096 }).Succeeded);
+            reading = Fresh(WindowsSnapshot(available: 3800));
+            rig.RunCheck();
+            var since = rig.Check!.Since!.Value;
+            Assert.Contains("fell under the 4,096 MB alert threshold and has not recovered past 5,120 MB", Assert.Single(rig.Page.Table.Lines).What);
+
+            Assert.True(rig.Store.Update(s => s with { PressureFloorMb = 3072 }).Succeeded);
+            rig.RunCheck();
+            var what = Assert.Single(rig.Page.Table.Lines).What;
+            Assert.Equal(PressureNeeds.EpisodeWords(since, 4096, 3072), what);
+            Assert.Contains("fell under the 4,096 MB alert threshold and has not recovered past 4,096 MB", what);
+            Assert.DoesNotContain("under the 3,072 MB", what);
         });
     }
 

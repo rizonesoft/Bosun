@@ -414,6 +414,12 @@ public sealed class OverviewPage : PageBase
             Windows.ShowNotAvailable("The Windows logger did not measure total and available memory.", gauge: true, NotCurrent(reading, "Windows"));
             return;
         }
+        if (available > total)
+        {
+            // Impossible counters are never a Safe verdict (round 1).
+            Windows.ShowNotAvailable(Impossible("Windows", available, total), gauge: true, NotCurrent(reading, "Windows"));
+            return;
+        }
         var (word, state) = WindowsWord(available, FloorMb);
         Windows.ShowGaugeOf(available / 1024.0, total / 1024.0, word, state, Room(available, total), NotCurrent(reading, "Windows"));
     }
@@ -425,8 +431,11 @@ public sealed class OverviewPage : PageBase
     private void DrawGuest()
     {
         if (_guest is not { } guest) return;
-        // Whether the VM runs is the Windows side's to say; with no Windows snapshot it is not known.
-        bool? running = _windows?.Value is { } windows ? windows.WslVm is { Running: true } : null;
+        // Whether the VM runs: a current guest sample proves it does; otherwise a current Windows snapshot says. A stale
+        // Windows snapshot says nothing about now (round 1: its old "stopped" hid a running guest), so it is not known.
+        bool? running = guest is { HasValue: true, IsStale: false } ? true
+            : _windows is { Value: { } windows, IsStale: false } ? windows.WslVm is { Running: true }
+            : null;
         if (running == false)
         {
             var note = guest.Value is { } last ? LastSample(guest, last)
@@ -447,8 +456,17 @@ public sealed class OverviewPage : PageBase
             Guest.ShowNotAvailable("The WSL logger did not measure the guest's total and available memory.", gauge: true, NotCurrent(guest, "WSL"));
             return;
         }
+        if (available > total)
+        {
+            Guest.ShowNotAvailable(Impossible("WSL", available, total), gauge: true, NotCurrent(guest, "WSL"));
+            return;
+        }
         Guest.ShowGaugeOf(available / 1024.0, total / 1024.0, "Free", StatusKind.Neutral, Room(available, total), NotCurrent(guest, "WSL"));
     }
+
+    /// <summary>The words for a sample whose available memory is more than its total: a logger fault, never a reading.</summary>
+    public static string Impossible(string side, long available, long total) => string.Create(CultureInfo.InvariantCulture,
+        $"The {side} logger reported {available:N0} MB available of {total:N0} MB in all, which can't be: its sample is not used.");
 
     /// <summary>A stopped VM's last sample, with its age: "Last sample 12 minutes ago: 6.0 GB available of 14.0 GB".</summary>
     private static string LastSample(Reading<SnapshotDoc> reading, SnapshotDoc doc)
@@ -484,7 +502,9 @@ public sealed class OverviewPage : PageBase
             return;
         }
         var notices = InstancesPage.NoticesOf(scan);
-        if (!scan.Sides.Any(s => s.Reading.HasValue))
+        // A count needs a current side: stale reports and failed reads together establish nothing, so the card says
+        // why instead of a measured 0 (round 1).
+        if (!scan.Sides.Any(s => s.Reading is { HasValue: true, IsStale: false }))
         {
             Instances.ShowNotAvailable(string.Join(" ", notices.Count > 0 ? notices : ["Nothing could be read."]), gauge: false);
             return;

@@ -218,6 +218,8 @@ public sealed class InstanceClientTests : IDisposable
         { "source", "names the source 'disk', which no scanner reads" },
         { "foreign", "is a wsl claude in the windows document" },
         { "distro", "names the distro 'a/b'" },
+        // Round 1: a report's own distro name is bounded too, never 128 KiB copied into every notice.
+        { "long-distro", "it names the distro '" + new string('u', 64) + "...'" },
         { "text", "is not its document" },
     };
 
@@ -236,6 +238,7 @@ public sealed class InstanceClientTests : IDisposable
             case "source": doc["problems"] = new JsonArray(new JsonObject { ["source"] = "disk", ["why"] = "x" }); break;
             case "foreign": first["side"] = "wsl"; break;
             case "distro": doc["instances"]![3]!["guest_distro"] = "a/b"; break;
+            case "long-distro": doc["distro"] = new string('u', 128 * 1024); break;
         }
         var text = wrong == "text" ? "{not json" : doc.ToJsonString();
         var view = await Fake(Answer(Write("doc.json", text))).ReadAsync(Token);

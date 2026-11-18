@@ -21,11 +21,16 @@ public sealed record InstancesDoc : ICheckedDoc
     [JsonPropertyName("unreadable")] public required long Unreadable { get; init; }
     [JsonPropertyName("problems")] public required IReadOnlyList<SourceProblemDoc> Problems { get; init; }
 
+    /// <summary>A WSL distro's name: letters, digits, dot, underscore and hyphen, at most 64.</summary>
+    private static readonly System.Text.RegularExpressions.Regex DistroName = new("^[A-Za-z0-9._-]{1,64}$");
+
     public string? Fault()
     {
         if (Lists.NullIn(("instances", Instances), ("problems", Problems)) is { } nulls) return nulls;
         if (Side is not ("windows" or "wsl")) return $"its side is '{Side}', not windows or wsl";
         if (Unreadable < 0) return "its unreadable count is negative";
+        // A distro's name, as WSL allows it: never a 128 KiB string copied into every notice (round 1).
+        if (Distro is { } d && !DistroName.IsMatch(d)) return $"it names the distro '{(d.Length > 64 ? d[..64] + "..." : d)}'";
         foreach (var i in Instances)
         {
             if (!Kinds.Contains(i.Kind)) return $"instance {i.Pid} is of kind '{i.Kind}', which no scanner writes";
@@ -34,7 +39,7 @@ public sealed record InstancesDoc : ICheckedDoc
             if (i.Kind != "job" && i.Side != Side) return $"instance {i.Pid} is a {i.Side} {i.Kind} in the {Side} document";
             if (i.Pid <= 0) return $"an instance has the pid {i.Pid}";
             if (i.PrivateMb < 0) return $"instance {i.Pid}'s memory is negative";
-            if (i.GuestDistro is { } g && !System.Text.RegularExpressions.Regex.IsMatch(g, "^[A-Za-z0-9._-]{1,64}$")) return $"instance {i.Pid} names the distro '{g}'";
+            if (i.GuestDistro is { } g && !DistroName.IsMatch(g)) return $"instance {i.Pid} names the distro '{(g.Length > 64 ? g[..64] + "..." : g)}'";
         }
         foreach (var p in Problems)
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";

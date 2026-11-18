@@ -33,6 +33,12 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
     /// <summary>When the episode under way began, by this check's clock; null with none.</summary>
     public DateTimeOffset? Since { get; private set; }
 
+    /// <summary>
+    /// The alert threshold free memory fell under when the episode under way began, in MB; null with none. The episode's
+    /// own history: a threshold saved during it changes when it ends (<see cref="FloorMb"/>), never what it began as.
+    /// </summary>
+    public long? EpisodeFloorMb { get; private set; }
+
     /// <summary>The alert threshold the last check judged against, in MB: the stored one, read at every check.</summary>
     public long FloorMb { get; private set; } = settings.Current.PressureFloorMb;
 
@@ -78,11 +84,13 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
         {
             case PressureChange.Started:
                 Since = _clock.GetUtcNow();
+                EpisodeFloorMb = floor;
                 tray.Pressure = true;
                 _owed = Notify(available!.Value, floor, quietly: false) == Delivery.Refused;
                 break;
             case PressureChange.Ended:
                 Since = null;
+                EpisodeFloorMb = null;
                 tray.Pressure = false;
                 _owed = false;
                 log.Info(string.Create(CultureInfo.InvariantCulture, $"Memory pressure ended: {available:N0} MB available, over the {floor:N0} MB alert threshold again."));

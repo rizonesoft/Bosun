@@ -41,9 +41,13 @@ public sealed class PressureNeeds : INeedsYouProvider
         Take();
     }
 
-    /// <summary>The row an episode is: when it began, the floor it fell under and the level it must come back over.</summary>
-    public static string EpisodeWords(DateTimeOffset since, long floorMb) => string.Create(CultureInfo.InvariantCulture,
-        $"Memory pressure since {since.ToLocalTime():HH:mm}: free memory fell under the {floorMb:N0} MB alert threshold and has not recovered past {floorMb + PressureWatch.Hysteresis:N0} MB.");
+    /// <summary>
+    /// The row an episode is: when it began, the threshold it fell under then, and the level it must come back over now
+    /// (the threshold saved since, if it changed, and the recovery band: round 1, a lowered threshold rewrote what the
+    /// episode fell under).
+    /// </summary>
+    public static string EpisodeWords(DateTimeOffset since, long enteredUnderMb, long floorNowMb) => string.Create(CultureInfo.InvariantCulture,
+        $"Memory pressure since {since.ToLocalTime():HH:mm}: free memory fell under the {enteredUnderMb:N0} MB alert threshold and has not recovered past {floorNowMb + PressureWatch.Hysteresis:N0} MB.");
 
     /// <summary>The row a check that can't decide is, with its reason.</summary>
     public static string ProblemWords(string why) => $"The memory check can't read free memory: {why}";
@@ -55,7 +59,7 @@ public sealed class PressureNeeds : INeedsYouProvider
         if (check.InEpisode)
         {
             var since = check.Since ?? _clock.GetUtcNow();
-            rows.Add(new NeedsYouRow("pressure", PressureWord, EpisodeWords(since, check.FloorMb), Where, Section, NeedsSeverity.Urgent, since) { SaidByTray = true });
+            rows.Add(new NeedsYouRow("pressure", PressureWord, EpisodeWords(since, check.EpisodeFloorMb ?? check.FloorMb, check.FloorMb), Where, Section, NeedsSeverity.Urgent, since) { SaidByTray = true });
         }
         if (check.Problem is { } why)
         {
