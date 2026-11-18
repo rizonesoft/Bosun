@@ -94,12 +94,12 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 21 | Checklist items: 142
+Sections: 21 | Checklist items: 148
 
 | Status | Reference   | Deliverable                                                      | Needs | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----- | ----- |
 | [x]    | D02 T02 §11 | One desktop owner across smoke runs and captures                 | none  | 7     |
-| [ ]    | D02 T02 §12 | Real-input smoke opt-in and on a nightly schedule                | none  | 6     |
+| [ ]    | D02 T02 §12 | Real-input smoke opt-in and on a nightly schedule                | none  | 12    |
 | [x]    | D02 T04 §1  | One focus outline per control, with focus renders                | none  | 9     |
 | [x]    | D02 T04 §2  | Field insets, error border and label spacing                     | none  | 7     |
 | [x]    | D02 T04 §3  | Spacing scale, section headings and Settings in cards            | none  | 7     |
@@ -161,4 +161,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 81/104 verified sections, 4 ready to run now.
 
-Checklist: 785/893 items completed (includes Commit items).
+Checklist: 785/899 items completed (includes Commit items).
