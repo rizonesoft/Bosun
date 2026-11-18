@@ -163,9 +163,11 @@ public sealed class QueueClient : IQueueSource
 
     private Reading<JobHistory> History(int count, CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(_logs)) return Reading<JobHistory>.Of(new JobHistory([], 0, []), _clock.GetUtcNow());
+        // Listed directly: a folder that is not there is no history yet; one that can't be listed (a file where the
+        // folder goes, no access) is said, never shown as an empty history.
         string[] files;
         try { files = Directory.GetFiles(_logs, "jobs-*.jsonl"); }
+        catch (DirectoryNotFoundException) { return Reading<JobHistory>.Of(new JobHistory([], 0, []), _clock.GetUtcNow()); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return Reading<JobHistory>.Fail(ReadingProblem.Unreadable, $"The job logs in {_logs} can't be listed: {e.Message}");

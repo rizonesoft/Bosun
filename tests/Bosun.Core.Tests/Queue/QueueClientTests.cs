@@ -189,6 +189,17 @@ public sealed class QueueClientTests : IDisposable
     }
 
     [Fact]
+    public async Task A_log_folder_that_cannot_be_listed_is_said_never_shown_as_an_empty_history()
+    {
+        // Round 2: a file where the folder goes read as "no job has finished yet".
+        var notAFolder = Path.Combine(_dir, "logs-file");
+        File.WriteAllText(notAFolder, "not a folder");
+        var reading = await new QueueClient(null, "", notAFolder).HistoryAsync(200, TestContext.Current.CancellationToken);
+        Assert.Equal(ReadingProblem.Unreadable, reading.Problem);
+        Assert.Contains("can't be listed", reading.Why, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_file_bosun_run_is_appending_to_is_read_up_to_its_last_whole_line()
     {
         var token = TestContext.Current.CancellationToken;

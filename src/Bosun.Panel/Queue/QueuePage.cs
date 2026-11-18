@@ -428,10 +428,14 @@ public sealed class QueuePage : PageBase
     public const string NoChanges = "There are no changes to save";
 
     /// <summary>Why Save can't run now, or null when it can.</summary>
+    /// <summary>Why bosun will not write the limits file now (it can't be read or is damaged); null when it will.</summary>
+    private string? _fileRefusesSave;
+
     public string? SaveReason()
     {
         if (_saving) return Saving;
         if (!_formReady) return NotRead;
+        if (_fileRefusesSave is { } refuses) return refuses;
         if (Fields.All(f => !f.IsEditable)) return NothingEditable;
         if (!HasUnsavedEdits) return NoChanges;
         return null;
@@ -548,7 +552,10 @@ public sealed class QueuePage : PageBase
         if (!doc.Readable) problems.Add($"The limits file {doc.Path} can't be read: {doc.Error ?? "no reason given"}.");
         else if (!doc.Valid) problems.Add($"The limits file {doc.Path} is not valid: {doc.Error ?? "no reason given"}.");
         foreach (var refused in doc.Refused) problems.Add($"Its {refused.Key} was refused: {refused.Error}.");
-        if (!trusted) problems.Add("The values below are the defaults in force, not saved values. A save writes a new file.");
+        // bosun will not overwrite a file it can't read or that is damaged (exit 74): saving waits on the person fixing
+        // or removing it, and each field still says where its own value comes from.
+        _fileRefusesSave = trusted ? null : $"bosun will not overwrite {doc.Path} while it {(doc.Readable ? "is damaged" : "can't be read")}: fix or remove it, then save.";
+        if (_fileRefusesSave is { } refuses) problems.Add(refuses);
         FileNotice = problems.Count == 0 ? null : string.Join(" ", problems);
         foreach (var field in Fields)
         {
@@ -751,7 +758,7 @@ public sealed class QueuePage : PageBase
             Raise(nameof(IsSaving));
             Edited();
         }
-    }, () => _formReady && !_saving && field.IsEditable && field.Saved is not null);
+    }, () => _formReady && !_saving && _fileRefusesSave is null && field.IsEditable && field.Saved is not null);
 
     /// <summary>Back to the values last read: the person's edits and what was said about them go.</summary>
     public override void Discard()

@@ -334,15 +334,26 @@ public class QueuePageTests
             Assert.True(h.Slots.IsEditable);
             Assert.Equal("BOSUN_SLOTS is ignored: BOSUN_SLOTS=abc is not a whole number from 1 to 64", h.Slots.VariableNote);
 
-            // The file unreadable, invalid, or with a refused value: said above the form, and the values as defaults in force.
+            // The file unreadable, invalid, or with a refused value: said above the form. bosun will not overwrite a file it
+            // can't read or that is damaged (exit 74), so Save and Use the default wait on it being fixed (round 2), and each
+            // field still says where its own value comes from.
             source.Limits = Reading<ConfigDoc>.Of(Config(readable: false, error: "it can't be read"), Now);
             h.Refresh();
             Assert.Contains("can't be read: it can't be read.", h.Page.FileNotice, StringComparison.Ordinal);
-            Assert.Contains("defaults in force, not saved values", h.Page.FileNotice, StringComparison.Ordinal);
+            Assert.Contains("bosun will not overwrite", h.Page.FileNotice, StringComparison.Ordinal);
+            Assert.DoesNotContain("writes a new file", h.Page.FileNotice, StringComparison.Ordinal);
             Assert.Equal("The default in force, 2, not a saved value", h.Slots.Source);
+            h.Wait.Text = "60";
+            Assert.StartsWith("bosun will not overwrite", h.Page.SaveReason(), StringComparison.Ordinal);
+            Assert.False(h.Page.Save.CanExecute(null));
+            h.Page.Discard();
+            source.Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(4, "environment", null), readable: false, error: "it can't be read"), Now);
+            h.Refresh();
+            Assert.StartsWith("Set by BOSUN_SLOTS", h.Slots.Source, StringComparison.Ordinal);   // its own source, never called a default
             source.Limits = Reading<ConfigDoc>.Of(Config(valid: false, error: "line 1: not JSON"), Now);
             h.Refresh();
             Assert.Contains("is not valid: line 1: not JSON.", h.Page.FileNotice, StringComparison.Ordinal);
+            Assert.Contains("while it is damaged", h.Page.FileNotice, StringComparison.Ordinal);
             source.Limits = Reading<ConfigDoc>.Of(Config(refused: """{"key":"slots","error":"slots must be a whole number from 1 to 64"}"""), Now);
             h.Refresh();
             Assert.Equal("Its slots was refused: slots must be a whole number from 1 to 64.", h.Page.FileNotice);
