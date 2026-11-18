@@ -249,6 +249,21 @@ public class DiagnosticsTests
     public void A_section_header_is_the_whole_line_never_a_prefix(string text, long? mb) =>
         Assert.Equal(mb, WslConfigParser.ParseCap(text).Value!.Mb);
 
+    [Theory]
+    [InlineData("[wsl2]\nmemory=8GB\"\n")]     // round 7: read as 8 GB
+    [InlineData("[wsl2]\nmemory=\"8GB\n")]
+    [InlineData("[wsl2]\nmemory=8\"GB\n")]
+    public void An_unmatched_quote_is_a_reason_never_a_cap(string text)
+    {
+        var fact = WslConfigParser.ParseCap(text);
+        Assert.False(fact.IsRead);
+        Assert.Contains("quote with no partner", fact.Reason);
+    }
+
+    [Fact]
+    public void A_quoted_value_is_read_inside_its_quotes() =>
+        Assert.Equal(8192L, WslConfigParser.ParseCap("[wsl2]\nmemory=\"8GB\"\n").Value!.Mb);
+
     // ---- SMBIOS type 17 ----
 
     [Fact]

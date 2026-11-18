@@ -9,6 +9,9 @@ namespace Bosun.Panel.Optimise;
 /// <summary>The real registry, opened read-only, by hive and view. Nothing here writes.</summary>
 public sealed class RegistryKeySource : IRegistrySource
 {
+    /// <summary>What a value read after its deletion gives: an object no registry value can be.</summary>
+    internal static readonly object Vanished = new();
+
     public IReadOnlyDictionary<string, object?>? ReadKey(RunHive hive, RunView view, string path)
     {
         using var baseKey = RegistryKey.OpenBaseKey(
@@ -16,8 +19,22 @@ public sealed class RegistryKeySource : IRegistrySource
             view == RunView.Registry32 ? RegistryView.Registry32 : RegistryView.Registry64);
         using var key = baseKey.OpenSubKey(path);
         if (key is null) return null;
+        return Collect(key.GetValueNames(), (name, missing) => key.GetValue(name, missing, RegistryValueOptions.DoNotExpandEnvironmentNames));
+    }
+
+    /// <summary>
+    /// Each listed value read by name. A value deleted between the listing and its read (an uninstaller at work) is
+    /// gone, and is skipped, never kept as an entry with no command (round 7): the default marks it, as no registry
+    /// value can be.
+    /// </summary>
+    internal static Dictionary<string, object?> Collect(IEnumerable<string> names, Func<string, object, object?> read)
+    {
         var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in key.GetValueNames()) values[name] = key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+        foreach (var name in names)
+        {
+            var value = read(name, Vanished);
+            if (!ReferenceEquals(value, Vanished)) values[name] = value;
+        }
         return values;
     }
 }

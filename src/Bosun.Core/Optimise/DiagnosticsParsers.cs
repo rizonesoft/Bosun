@@ -76,10 +76,15 @@ public static class WslConfigParser
             if (eq < 0 || !line[..eq].Trim().Equals("memory", StringComparison.OrdinalIgnoreCase)) continue;
             var v = line[(eq + 1)..];
             var cut = v.IndexOfAny(['#', ';']);
-            value = (cut >= 0 ? v[..cut] : v).Trim().Trim('"');
+            value = (cut >= 0 ? v[..cut] : v).Trim();
+            // Quotes come in a pair around the whole value, and are then dropped; a lone quote is a typo in the
+            // person's file, which is said, never read past (round 7: memory=8GB" read as 8 GB).
+            if (value.Length >= 2 && value[0] == '"' && value[^1] == '"') value = value[1..^1].Trim();
         }
 
         if (value is null) return Fact<WslCap>.Read(new WslCap(null));
+        if (value.Contains('"'))
+            return Fact<WslCap>.Unavailable($"The .wslconfig memory value '{value}' has a quote with no partner, so it is not a size WSL accepts.");
         return ToMb(value) is { } mb
             ? Fact<WslCap>.Read(new WslCap(mb))
             : Fact<WslCap>.Unavailable($"The .wslconfig memory value '{value}' is not a size WSL accepts.");

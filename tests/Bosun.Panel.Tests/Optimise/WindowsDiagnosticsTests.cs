@@ -354,6 +354,15 @@ public class WindowsDiagnosticsTests
         Assert.Contains("kept growing", fault.Message);
     }
 
+    [Fact]
+    public void A_run_value_deleted_between_the_listing_and_its_read_is_skipped_never_an_entry_with_no_command()
+    {
+        // Round 7: an uninstaller removing its value mid-read left a row with a missing command.
+        var values = RegistryKeySource.Collect(["Discord", "Gone", "Steam"], (name, missing) => name == "Gone" ? missing : $"{name}.exe");
+        Assert.Equal(["Discord", "Steam"], values.Keys.Order());
+        Assert.Equal("Steam.exe", values["Steam"]);
+    }
+
     /// <summary>A comment that never ends, as a multi-gigabyte one would be: it stops the test if the bound fails.</summary>
     private sealed class EndlessComment : TextReader
     {
