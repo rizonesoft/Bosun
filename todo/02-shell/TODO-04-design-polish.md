@@ -308,17 +308,19 @@ The Memory page's scroll bar sits on the cards' right border, and the Decision c
 
 **Chrome:** the Memory page.
 
+**Corrected 2026-11-18:** checked against the tree before the build. `MemoryScroll` (`MemoryView.xaml:49`) takes WPF's own `ScrollViewer` template, which sets the scroll bar (10 px, the theme's `ScrollBar` style) straight against the content, so the cards' right borders meet it; a right margin on the content would leave the gutter when there is no scroll bar too. The gutter belongs to the scroll area: a shared `Scroll.Gutter` style whose template keeps a gap from the space scale between content and bar only while the bar shows. The evidence lines are written in `Decision.cs` (`Decide`), most in lower case ("committed memory peaked at...", "counted since...", "the peak commit: not measured"), so they are capitalised where they are made, not by the view. The list is labelled with a visible "What the verdict rests on" (today only its automation name). The checkpoint gains `DecisionTests` (`tests/Bosun.Core.Tests/Memory/DecisionTests.cs`), which the item names.
+
 **Build order:**
 
 1. Give the page's scroll bar a gutter. Done when: no card's border meets the scroll bar.
 2. Draw the evidence as a list. Done when: the Decision renders show a marker per line.
 
-- [ ] Reserve a gutter for `MemoryScroll`'s scroll bar in `src/Bosun.Panel/Memory/MemoryView.xaml` (the content's right margin the scroll bar's width plus a gap). Done when: a test finds every card's right edge left of the scroll bar's left edge. Cheaper substitute: a hidden scroll bar.
-- [ ] Draw the Decision evidence as a list with a marker and a line height from the tokens, each line starting with a capital, in `MemoryView.xaml` and `src/Bosun.Core/Memory/Decision.cs`. Done when: `DecisionTests` reads capitalised lines and the Decision renders show a marker per line.
+- [ ] Add a `Scroll.Gutter` style for `ScrollViewer` to `src/Bosun.Panel/Theme/Controls.xaml`: content, then a gap of `S.S` from the space scale, then the vertical scroll bar, the gap there only while the bar shows; use it on `MemoryScroll` in `src/Bosun.Panel/Memory/MemoryView.xaml`. Done when: a `MemoryPageTests` case at a window short enough to scroll finds every card's right edge at least the gap left of the scroll bar's left edge, and at one tall enough not to scroll finds the cards reaching the content's right edge, with no gutter left. Cheaper substitute: a hidden scroll bar, or a margin that stays when there is no bar.
+- [ ] Write each evidence line of `Decision.Decide` (`src/Bosun.Core/Memory/Decision.cs`) starting with a capital, and draw the Decision card's evidence in `MemoryView.xaml` under a visible label, "What the verdict rests on" (`FieldLabel`), as a list with a marker per line in `B.TextDim` and the `Note` text's line height. Done when: `DecisionTests` reads every evidence line of every verdict (not yet, withheld, more, enough, incomplete) starting with a capital, `DecisionCardTests` finds the label and one marker beside each line, and the Decision renders show it. Cheaper substitute: capitalising in the view, or a dash typed into each string.
 - [ ] Redraw the Memory renders in every theme. Done when: each is looked at.
 - [ ] Commit: `memory: the scroll bar has its gutter and the evidence is a list`
 
-**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DecisionCardTests" --filter-class "*MemoryPageTests"` exits 0.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DecisionCardTests" --filter-class "*MemoryPageTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DecisionTests"` exit 0.
 
 ## 9. Placeholder copy, the Activity heading and the idle scroll thumb
 
