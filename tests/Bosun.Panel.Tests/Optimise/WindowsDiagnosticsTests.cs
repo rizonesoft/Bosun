@@ -312,6 +312,43 @@ public class WindowsDiagnosticsTests
         Assert.Contains((RunHive.LocalMachine, RunView.Registry32, WindowsDiagnostics.Run), m.Registry.Opened);
     }
 
+    // ---- the readers themselves ----
+
+    [Fact]
+    public void A_long_commented_wslconfig_still_gives_its_cap_and_too_many_settings_are_refused()
+    {
+        // Round 4: a file over 64 KB of comments was refused although its cap was plain.
+        var comments = string.Concat(Enumerable.Repeat("# a comment line that says nothing about memory at all\n", 4000));
+        var text = ProfileFiles.Settings(new StringReader("[wsl2]\n" + comments + "  ; indented comment\nmemory=4GB\n" + comments), ".wslconfig");
+        Assert.Equal("[wsl2]\nmemory=4GB\n", text);
+        Assert.Equal(new WslCap(4096), WslConfigParser.ParseCap(text).Value);
+
+        // One comment line longer than the bound is read past, kept nothing.
+        Assert.Equal("[wsl2]\n", ProfileFiles.Settings(new StringReader("#" + new string('x', 200_000) + "\n[wsl2]"), ".wslconfig"));
+
+        var settings = string.Concat(Enumerable.Repeat("key=value\n", 10_000));
+        var refused = Assert.Throws<IOException>(() => ProfileFiles.Settings(new StringReader(settings), ".wslconfig"));
+        Assert.Contains("more than 64 KB of settings", refused.Message);
+    }
+
+    [Fact]
+    public void A_firmware_table_that_grows_between_reads_is_read_again_and_one_that_keeps_growing_is_an_IOException()
+    {
+        // Round 4: an answer larger than the buffer sliced past it and threw past the guard.
+        var sizes = new Queue<uint>([4096, 4097, 4097]);
+        var table = Win32FirmwareTable.Read((_, _, buffer, size) =>
+        {
+            var answer = sizes.Dequeue();
+            if (buffer is not null && answer <= size) Array.Fill(buffer, (byte)1, 0, (int)answer);
+            return answer;
+        });
+        Assert.Equal(4097, table.Length);
+
+        var growing = 4096u;
+        var fault = Assert.Throws<IOException>(() => Win32FirmwareTable.Read((_, _, _, _) => growing++));
+        Assert.Contains("kept growing", fault.Message);
+    }
+
     // ---- this machine ----
 
     [Fact]
