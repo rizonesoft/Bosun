@@ -499,6 +499,8 @@ One real launch proves the parts work together: the process starts, every page o
 
 ## 11. One desktop owner across smoke runs and captures
 
+> **Started:** 2026-11-18T00:53:25Z
+
 Filed 2026-11-18 at the operator's request ("be careful with the smoke tests that the tests do not clash, for example running 2 interface tests at the same time"). Inside one smoke run the tests already take turns (`tests/Bosun.Panel.E2E/TestAssembly.cs`, parallelization off), but nothing stops a second process: two smoke runs from two sessions, an Antigravity run beside a Claude one, or `scripts/capture-window.ps1` started while a smoke presses keys. Each takes the foreground, the pointer and the keyboard, so the two take each other's windows and a test fails on the other's input, or worse, keys land in the wrong window. The desktop gets one owner at a time: a named mutex per logon session, held for a whole smoke run and for each capture, with a record naming its holder, since a mutex can't name its owner (the queue's pattern, `D01 T01 §1`).
 
 **Phase:** 3
