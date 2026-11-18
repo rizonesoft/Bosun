@@ -23,14 +23,18 @@ static class InputWatch
     private static string _file = "";
     private static DateTime _latest = DateTime.MinValue;
     private static readonly AutoResetEvent Wake = new(false);
+    private static EventWaitHandle? _person;
     private static readonly object Gate = new();
     private static readonly SortedSet<int> SmokeHeld = [];   // under Gate: the hooks change it, the writer reads it
     private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105,
         WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208;
     private static HookProc? _keys, _mouse;   // held, so the collector never takes a callback Windows still calls
 
-    public static int Run(string file)
+    /// <param name="person">A named event (manual reset) set the moment a person's input comes, inside the hook: a kernel
+    /// object, so the runner hears of a person at once, whatever the disk is doing with the record.</param>
+    public static int Run(string file, string? person = null)
     {
+        _person = person is null ? null : new EventWaitHandle(false, EventResetMode.ManualReset, person);
         _file = Path.GetFullPath(file);
         var thread = GetCurrentThreadId();
 
@@ -105,7 +109,7 @@ static class InputWatch
         lock (Gate)
         {
             var changed = false;
-            if (!smoke) { _latest = DateTime.UtcNow; changed = true; }
+            if (!smoke) { _latest = DateTime.UtcNow; changed = true; _person?.Set(); }
             if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
             if (changed) Wake.Set();
         }

@@ -304,7 +304,9 @@ function Read-Watch {
 # watcher that has ended keeps no record any more: what it last wrote may be stale, so nothing is let go of then.
 function Release-Held {
     if (-not $watch) { return }
-    if ($watch.HasExited) { Say "nothing let go of: the input watcher had ended, so what it last saw held may be stale"; return }
+    # A watcher that has ended keeps no record: what it last wrote is trusted only if no person came since the start
+    # (the event says so, set the moment one did), for then everything it listed is the smoke's own.
+    if ($watch.HasExited -and $personSeen -and $personSeen.WaitOne(0)) { Say "nothing let go of: the input watcher had ended after a person came, so what it last saw held may be theirs"; return }
     $record = Read-Watch
     if ($null -eq $record) { Say "nothing let go of: the input watcher's record could not be read"; return }
     $keys = @("$($record[1])".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
@@ -347,6 +349,7 @@ function Finish([string]$outcome, [string]$reason, [int]$code) {
 $script:exitCode = 1
 $holder = $null
 $watch = $null
+$personSeen = $null
 # This run's own: two runs started in one second never share it, and a run removes only the one it made.
 $watchFile = Join-Path $StateFolder "watch-$stamp-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).txt"
 $savedHeld = $env:BOSUN_DESKTOP_HELD
@@ -407,7 +410,11 @@ try {
     # on demand too, for what the smoke holds down; only the nightly run stops for a person (on demand, the operator
     # chose to hand over the desk).
     $info = [Diagnostics.ProcessStartInfo]::new($watcherExe)
-    $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile)
+    # A person is also told by a named event the watcher sets inside its hook, the moment it comes: no disk on that path,
+    # so a write the disk holds up never hides a person. This run makes the event, so it is there before the watcher is.
+    $personName = "Local\bosun-smoke-person-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $personSeen = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $personName)
+    $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile); $info.ArgumentList.Add($personName)
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
     $watch = [Diagnostics.Process]::Start($info)
     $watch.StandardInput.Close()
@@ -426,6 +433,7 @@ try {
         # The watcher keeps what the smoke holds in both modes, so a run never goes on without it.
         if ($watch.HasExited) { return 'watcher' }
         if (-not $Scheduled) { return $null }
+        if ($personSeen.WaitOne(0)) { return 'person' }
         if (Locked) { return 'locked' }
         $record = Read-Watch
         if ($null -eq $record) { return 'unreadable' }
@@ -491,6 +499,7 @@ try {
         if (-not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
         Remove-Item -LiteralPath $watchFile -ErrorAction Ignore
     }
+    if ($personSeen) { $personSeen.Dispose() }
     $env:BOSUN_DESKTOP_HELD = $savedHeld
     $env:BOSUN_SMOKE_INPUT = $savedInput
     if ($holder) { $holder.Dispose() }

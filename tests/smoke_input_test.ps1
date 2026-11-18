@@ -46,7 +46,12 @@ if ($which -and $which -eq $class) {
   }
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
   if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
-  if ($word -eq 'hold' -or $word -eq 'hold-crash') {
+  if ($word -eq 'person-dies') {
+    # A person comes (the watcher's event, as its hook sets it), then the watcher ends.
+    ([Threading.EventWaitHandle]::OpenExisting((Get-Content -LiteralPath (Join-Path $state 'watcher.event') -Raw).Trim())).Set() | Out-Null
+    Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force
+  }
+  if ($word -eq 'hold' -or $word -eq 'hold-crash' -or $word -eq 'hold-dies') {
     # F24 pressed and never let go, as a drag ended between its button-down and button-up.
     Add-Type 'using System; using System.Runtime.InteropServices; public static class F24 { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(10)] public ushort scan; [FieldOffset(12)] public int flags; [FieldOffset(16)] public int time; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Down() { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
     if ([F24]::Down() -eq 1) {
@@ -57,6 +62,8 @@ if ($which -and $which -eq $class) {
       Set-Content -LiteralPath "$record.tmp" -Value @((@(Get-Content -LiteralPath $record) + @('none'))[0], '135')
       Move-Item -LiteralPath "$record.tmp" -Destination $record -Force
     }
+    # The watcher dies while the key is held, as a watcher ended mid-drag.
+    if ($word -eq 'hold-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
     # A test host that dies holding it, before it ever lets go, its report cut off.
     if ($word -eq 'hold-crash') { Set-Content -LiteralPath (Join-Path $dir $file) -Value '<TestRun><Results><UnitTestResult testName='; exit 3 }
     Start-Sleep 120
@@ -90,6 +97,7 @@ Set-Content -LiteralPath (Join-Path $fakes 'watcher.ps1') -Encoding utf8 -Value 
 $state = $env:STANDIN_STATE
 if ((Get-Content -LiteralPath (Join-Path $state 'mode.txt') -Raw).Trim() -eq 'watcher-fails') { [Console]::Error.WriteLine('the hooks could not be set'); exit 70 }
 Set-Content -LiteralPath (Join-Path $state 'watcher.pid') -Value $PID
+if ($args.Count -gt 2) { Set-Content -LiteralPath (Join-Path $state 'watcher.event') -Value $args[2] }
 Set-Content -LiteralPath $args[1] -Value none
 'watching'
 Start-Sleep 600
@@ -163,7 +171,10 @@ try {
   $run = Invoke-Run 'watcher-fails' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
   Check "a watcher that never starts fails the night before any class (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher did not start*' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
-  Check "a watcher that ends during a class stops the run, letting go of nothing on its stale record (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1 -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended*') $run.Said
+  Check "a watcher that ends during a class stops the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
+  # One that ends after a person came is trusted for nothing: what it last listed may be theirs.
+  $run = Invoke-Run 'person-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
+  Check "a watcher that ends after a person came lets go of nothing (exit $($run.Code))" ($run.Code -eq 1 -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended after a person came*') $run.Said
   # The watcher ends with the runner, however the runner ends: killed alone, with no finally run.
   $state = Join-Path $dir 'state-killed'
   New-Item -ItemType Directory -Force -Path $state | Out-Null
@@ -216,6 +227,22 @@ try {
     $real.StandardInput.WriteLine('person'); $real.StandardInput.Flush()
     $ended = $real.WaitForExit(5000)
     Check "the real watcher ends when its record cannot be written ($ready, exit $(if ($ended) { $real.ExitCode } else { 'none: still running' }))" ($ready -eq 'watching' -and $ended -and $real.ExitCode -eq 71)
+    # And it says a person is there through the named event at once, with no disk in the way.
+    $eventName = "Local\bosun-smoke-test-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $seen = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $eventName)
+    try {
+      $info = [System.Diagnostics.ProcessStartInfo]::new($watcherExe)
+      $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add((Join-Path $dir 'watch-event.txt')); $info.ArgumentList.Add($eventName)
+      $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
+      $real = [System.Diagnostics.Process]::Start($info); $started.Add($real)
+      $ready = $real.StandardOutput.ReadLine()
+      $before = $seen.WaitOne(0)
+      $real.StandardInput.WriteLine('person'); $real.StandardInput.Flush()
+      Check "the real watcher sets the person event the moment a person comes ($ready, before: $before)" ($ready -eq 'watching' -and -not $before -and $seen.WaitOne(3000))
+    } finally {
+      if ($real -and -not $real.HasExited) { $real.Kill($true) }
+      $seen.Dispose()
+    }
   } else {
     Check 'Bosun.TestChild is built, for the watcher check (run dotnet build first)' $false
   }
@@ -223,6 +250,10 @@ try {
   # On demand too: the watcher runs for what the smoke holds, though it stops nothing for a person.
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha'
   Check "an on-demand run lets go of what its crashed class held (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+
+  # A watcher that ends while the smoke holds a key, nobody having come: its last list is the smoke's own, let go of.
+  $run = Invoke-Run 'hold-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
+  Check "a watcher that ends with no person come leaves its list to be let go of (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
 
   # On demand the watcher is kept too: one that ends stops the run.
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' -Pauses @('Bosun.Panel.E2E.Alpha 60')
