@@ -61,6 +61,14 @@ public class OverviewShellTests
             Assert.Equal(["Windows available: 20.0 GB, Safe. Open Memory", "WSL guest available: 6.0 GB, Free. Open Memory",
                 "Queue: 1 running, 2 waiting. Open Queue", "Dev instances: 5. Open Instances"], cards.Select(AutomationProperties.GetName));
             Assert.True(cards.All(c => c.ActualHeight >= 32 && c.IsVisible), "every card is a visible 32 px target");
+            // The gap between cards is the theme's M space, never a literal (round 2): each card starts M after the last ends.
+            var gap = (double)view.FindResource("S.M");
+            for (var i = 1; i < cards.Count; i++)
+            {
+                var end = cards[i - 1].TranslatePoint(new System.Windows.Point(cards[i - 1].ActualWidth, 0), view).X;
+                var start = cards[i].TranslatePoint(new System.Windows.Point(0, 0), view).X;
+                Assert.Equal(gap, start - end, 0.5);
+            }
             var gauges = ShellSupport.Under<RadialGauge>(view).Where(g => g.IsVisible).ToList();
             Assert.Equal([20.0 / 32.0, 6.0 / 14.0], gauges.Select(g => g.Fraction));
             var texts = PageRenderer.TextsOf(view);

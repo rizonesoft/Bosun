@@ -118,13 +118,17 @@
             <Grid x:Name="Cards" Margin="{DynamicResource Gap.Below.L}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
+                <!-- The gutters are the M space token (a GridLength can't take a resource, so a spacer holds each). -->
+                <Border Grid.Column="1" Width="{DynamicResource S.M}"/>
+                <Border Grid.Column="3" Width="{DynamicResource S.M}"/>
+                <Border Grid.Column="5" Width="{DynamicResource S.M}"/>
                 <Button x:Name="WindowsCard" Grid.Column="0" Style="{StaticResource CardButton}"
                         DataContext="{Binding Windows}" Content="{Binding}" ContentTemplate="{StaticResource CardBody}" Command="{Binding Open}"
                         AutomationProperties.Name="{Binding OpenName}" AutomationProperties.HelpText="{Binding Help}" ToolTip="Open the Memory page"/>
