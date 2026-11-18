@@ -317,7 +317,11 @@ function Finish([string]$outcome, [string]$reason, [int]$code) {
     Add-History ([pscustomobject]$entry)
     # The last 30 logs and their results kept. A run's results go first and its log only once they are gone: the log
     # is what the next run finds, so results that could not be removed (a file held open) are tried again then.
-    Get-ChildItem -LiteralPath $StateFolder -Filter 'input-*.log' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | ForEach-Object {
+    # Only the runner's own: regular files named as it names its logs (input-yyyyMMdd-HHmmss, with -n after a clash),
+    # so nothing else in the state folder, nor a results folder of another's making, is ever removed.
+    Get-ChildItem -LiteralPath $StateFolder -Filter 'input-*.log' -File |
+        Where-Object { $_.Name -match '^input-\d{8}-\d{6}(-\d+)?\.log$' } |
+        Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | ForEach-Object {
         $old = Join-Path $StateFolder "results-$($_.BaseName.Substring(6))"
         try {
             if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction Stop }

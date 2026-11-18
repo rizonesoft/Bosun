@@ -464,13 +464,19 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   $heldPath = Join-Path $state 'results-20200101-000001/build.log'
   Set-Content -LiteralPath $heldPath -Value held
   (Get-Item (Join-Path $state 'input-20200101-000001.log')).LastWriteTime = (Get-Date).AddDays(-40)
+  # A log of another's making, older than all: retention leaves it and the folder named for it alone.
+  Set-Content -LiteralPath (Join-Path $state 'input-import.log') -Value 'not the runner''s'
+  New-Item -ItemType Directory -Force -Path (Join-Path $state 'results-import') | Out-Null
+  Set-Content -LiteralPath (Join-Path $state 'results-import/keep.txt') -Value keep
+  (Get-Item (Join-Path $state 'input-import.log')).LastWriteTime = (Get-Date).AddDays(-60)
   $held = [IO.File]::Open($heldPath, 'Open', 'Read', 'Read')
   try { $c = Invoke-Run 'pass' -State $state } finally { $held.Dispose() }
   Check 'results held open stay, with their log, for the next run' ((Test-Path -LiteralPath (Join-Path $state 'input-20200101-000001.log')) -and (Test-Path -LiteralPath $heldPath))
   $d = Invoke-Run 'pass' -State $state
   Check 'and the next run removes them' (-not (Test-Path -LiteralPath (Join-Path $state 'results-20200101-000001')) -and -not (Test-Path -LiteralPath (Join-Path $state 'input-20200101-000001.log')))
   Check 'the history keeps its last 60 entries' (@(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl')).Count -eq 60)
-  Check 'the logs keep their last 30' (@(Get-ChildItem -LiteralPath $state -Filter 'input-*.log').Count -eq 30 -and (Test-Path -LiteralPath $c.Last.log))
+  Check 'the logs keep their last 30' (@(Get-ChildItem -LiteralPath $state -Filter 'input-*.log' | Where-Object Name -ne 'input-import.log').Count -eq 30 -and (Test-Path -LiteralPath $c.Last.log))
+  Check "a log and folder not of the runner's making are left alone" ((Test-Path -LiteralPath (Join-Path $state 'input-import.log')) -and (Test-Path -LiteralPath (Join-Path $state 'results-import/keep.txt')))
   $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
   # Of the 70 filler nights and the four runs since, the last 60 entries are kept: 56 nights skipped in a row.
   Check 'the status reads the last scheduled run, the skips in a row and the last on-demand run' ($status -like '*last scheduled run: skipped*the desktop was locked*' -and $status -like '*Skipped 56 nights in a row*' -and $status -like '*Last on-demand run: passed 5 of 5*' -and $status -like '*is not installed*') $status
