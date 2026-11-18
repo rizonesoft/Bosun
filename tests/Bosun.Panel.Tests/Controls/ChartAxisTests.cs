@@ -96,6 +96,31 @@ public class ChartAxisTests
     }
 
     [Fact]
+    public void With_no_reading_the_only_value_said_is_the_pressure_line_s_beside_the_line()
+    {
+        // With nothing measured the scale's top is the line plus a tenth, a value no reading has: it was labelled
+        // ("2.2 GB") and crowded the line's own label down (TODO-04 closeout render sweep, 2026-11-18). A span with no
+        // reading in it, and a span with readings that were all gaps, are the same.
+        HistoryPoint[][] cases = [[], [new HistoryPoint(DateTime.UtcNow.AddHours(-2), null, null), new HistoryPoint(DateTime.UtcNow.AddHours(-1), null, null)]];
+        foreach (var points in cases)
+        {
+            PageRenderer.InPage<int>("Dark", () => new SeriesChart
+            {
+                Points = points, FloorMb = 2048, Width = 600, Height = 220, RangeName = HistoryRange.Day.Name,
+                From = DateTime.UtcNow.AddHours(-24), To = DateTime.UtcNow,
+            }, page =>
+            {
+                var chart = ShellSupport.Under<SeriesChart>(page).Single();
+                var values = chart.Labels.Where(l => l.Text.EndsWith(" GB", StringComparison.Ordinal)).ToList();
+                var only = Assert.Single(values);
+                Assert.Equal("2.0 GB", only.Text);
+                Assert.InRange(only.Box.Top + only.Box.Height / 2, chart.FloorY - 1, chart.FloorY + 1);   // beside its line
+                return 0;
+            }, 640, 280);
+        }
+    }
+
+    [Fact]
     public void With_nothing_read_and_no_span_there_is_no_axis_and_no_made_up_times()
     {
         PageRenderer.InPage<int>("Dark", () => new SeriesChart { Points = [], FloorMb = 2048, Width = 600, Height = 220, RangeName = HistoryRange.Day.Name }, page =>

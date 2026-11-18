@@ -204,9 +204,12 @@ public class SeriesChart : FrameworkElement
         var face = new Typeface(TryFindResource("F.Ui") as FontFamily ?? new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         var ink = Label ?? TryFindResource("B.TextDim") as Brush ?? new SolidColorBrush();
         FormattedText Text(string text) => new(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, face, size, ink, dpi);
+        // With nothing measured the scale's top is only the line plus a tenth, a value no reading has: it is not said,
+        // and the line's value sits beside the line, uncrowded (TODO-04 closeout, 2026-11-18).
+        var measured = points.Any(p => p.LowestMb is not null);
         var topText = Text(MemoryPage.GbText(TopMb / 1024.0) + " GB");
         var floorText = Text(MemoryPage.GbText(FloorMb / 1024.0) + " GB");
-        var gutter = Math.Ceiling(Math.Max(topText.Width, floorText.Width)) + 8;
+        var gutter = Math.Ceiling(Math.Max(measured ? topText.Width : 0, floorText.Width)) + 8;
         Plot = new Rect(gutter, 0, Math.Max(0, ActualWidth - gutter), plotHeight);
         Runs = Layout(points, Plot, TopMb, from, to);
         FloorY = TopMb > 0 ? plotHeight - plotHeight * FloorMb / TopMb : double.NaN;
@@ -246,10 +249,15 @@ public class SeriesChart : FrameworkElement
             labels.Add((text, new Rect(at, new Size(formatted.Width, formatted.Height))));
         }
         // The top value right-aligned in the gutter at the top; the line's value beside where the line is, kept clear of it.
-        Put(topText.Text, topText, new Point(gutter - 8 - topText.Width, 0));
+        var below = 0.0;
+        if (measured)
+        {
+            Put(topText.Text, topText, new Point(gutter - 8 - topText.Width, 0));
+            below = topText.Height + 2;
+        }
         if (!double.IsNaN(FloorY))
         {
-            var y = Math.Clamp(FloorY - floorText.Height / 2, topText.Height + 2, Math.Max(topText.Height + 2, plotHeight - floorText.Height));
+            var y = Math.Clamp(FloorY - floorText.Height / 2, below, Math.Max(below, plotHeight - floorText.Height));
             Put(floorText.Text, floorText, new Point(gutter - 8 - floorText.Width, y));
         }
 
