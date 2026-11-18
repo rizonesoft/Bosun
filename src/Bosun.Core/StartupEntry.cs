@@ -47,10 +47,11 @@ public interface IRunKey
     void Delete(string name);
 
     /// <summary>
-    /// What Windows' start-up record (<c>Explorer\StartupApproved\Run</c>) says of the entry: true when it is on,
-    /// false when Windows has it turned off, null when Windows has no record of it (which is on).
+    /// What Windows' start-up record (<c>Explorer\StartupApproved\Run</c>) says of the entry, decoded by
+    /// <see cref="Optimise.StartupApproval.FromValue"/>, the one decoder Diagnostics uses too (D05 T02 §1 round 2):
+    /// on, turned off by Windows, no record (which is on), or a record that can't be read, never taken as on.
     /// </summary>
-    bool? Approved(string name);
+    Optimise.StartupApproval Approval(string name);
 }
 
 /// <summary>
@@ -72,7 +73,13 @@ public sealed class StartupEntry(IRunKey key, string programPath)
             if (key.Read(Name) is not { } value) return new StartupRead(StartupState.Off);
             // What Windows would start, not merely that there is a value: paths differ only by case on Windows.
             if (!string.Equals(value.Trim(), Command, StringComparison.OrdinalIgnoreCase)) return new StartupRead(StartupState.OtherProgram, value);
-            return new StartupRead(key.Approved(Name) == false ? StartupState.DisabledByWindows : StartupState.On);
+            var approval = key.Approval(Name);
+            return approval.State switch
+            {
+                Optimise.ApprovalState.TurnedOffByWindows => new StartupRead(StartupState.DisabledByWindows),
+                Optimise.ApprovalState.Unreadable => new StartupRead(StartupState.Unavailable, $"Windows' start-up record for the entry can't be read: {approval.Reason}"),
+                _ => new StartupRead(StartupState.On),
+            };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or SecurityException)
         {

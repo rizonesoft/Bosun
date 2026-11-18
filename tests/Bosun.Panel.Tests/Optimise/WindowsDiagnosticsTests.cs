@@ -250,6 +250,20 @@ public class WindowsDiagnosticsTests
     }
 
     [Fact]
+    public void A_pagefile_value_of_the_wrong_type_is_a_reason_never_an_empty_configuration()
+    {
+        // Round 2: a DWORD PagingFiles read as no pagefile configured.
+        var m = new Machine();
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm)["PagingFiles"] = 7;
+        var pagefile = m.Reader.Read().Pagefile;
+        Assert.False(pagefile.IsRead);
+        Assert.Contains("PagingFiles is a Int32", pagefile.Reason);
+
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm).Remove("PagingFiles");
+        Assert.True(m.Reader.Read().Pagefile.IsRead);                     // absent is still an empty configuration
+    }
+
+    [Fact]
     public void An_absent_approval_record_is_told_apart_from_an_unreadable_one()
     {
         var m = new Machine();

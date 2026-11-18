@@ -64,7 +64,13 @@ public sealed class FakeRunKey : IRunKey
         Values.Remove(name);
     }
 
-    public bool? Approved(string name) => FailRead is null ? (ApprovedBy.TryGetValue(name, out var on) ? on : null) : throw FailRead;
+    /// <summary>A record as the registry would hold it, decoded as the real key decodes it: wins over <c>ApprovedBy</c>.</summary>
+    public Dictionary<string, object> RawApproval { get; } = [];
+
+    public Bosun.Core.Optimise.StartupApproval Approval(string name) => FailRead is not null ? throw FailRead
+        : RawApproval.TryGetValue(name, out var raw) ? Bosun.Core.Optimise.StartupApproval.FromValue(raw)
+        : ApprovedBy.TryGetValue(name, out var on) ? new Bosun.Core.Optimise.StartupApproval(on ? Bosun.Core.Optimise.ApprovalState.On : Bosun.Core.Optimise.ApprovalState.TurnedOffByWindows)
+        : Bosun.Core.Optimise.StartupApproval.NoRecord;
 }
 
 /// <summary>Windows' theme as a test says it is.</summary>

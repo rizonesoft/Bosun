@@ -35,7 +35,13 @@ public sealed class FakeRunKey : IRunKey
         if (!ForgetWrites) Values.Remove(name);
     }
 
-    public bool? Approved(string name) => FailRead is null ? (ApprovedBy.TryGetValue(name, out var on) ? on : null) : throw FailRead;
+    /// <summary>A record as the registry would hold it, decoded as the real key decodes it: wins over <c>ApprovedBy</c>.</summary>
+    public Dictionary<string, object> RawApproval { get; } = [];
+
+    public Bosun.Core.Optimise.StartupApproval Approval(string name) => FailRead is not null ? throw FailRead
+        : RawApproval.TryGetValue(name, out var raw) ? Bosun.Core.Optimise.StartupApproval.FromValue(raw)
+        : ApprovedBy.TryGetValue(name, out var on) ? new Bosun.Core.Optimise.StartupApproval(on ? Bosun.Core.Optimise.ApprovalState.On : Bosun.Core.Optimise.ApprovalState.TurnedOffByWindows)
+        : Bosun.Core.Optimise.StartupApproval.NoRecord;
 }
 
 /// <summary>
@@ -85,6 +91,10 @@ public class StartupEntryTests
 
         key.ApprovedBy[StartupEntry.Name] = true;
         Assert.Equal(StartupState.On, entry.Read().State);
+        key.RawApproval[StartupEntry.Name] = new byte[] { 2 };   // not Windows' record (D05 T02 §1 round 2): never on
+        Assert.Equal(StartupState.Unavailable, entry.Read().State);
+        Assert.Contains("12 Windows writes", entry.Read().Reason);
+        key.RawApproval.Clear();
         key.ApprovedBy.Remove(StartupEntry.Name); // no record at all is on
         Assert.Equal(StartupState.On, entry.Read().State);
 

@@ -222,7 +222,7 @@ public class ThemeServiceTests
         var entry = new StartupEntry(key, @"C:\Program Files\Bosun\Bosun.Panel.exe");
 
         Assert.Null(key.Read(StartupEntry.Name)); // no key yet
-        Assert.Null(key.Approved(StartupEntry.Name));
+        Assert.Equal(Bosun.Core.Optimise.ApprovalState.NoRecord, key.Approval(StartupEntry.Name).State);
         key.Delete(StartupEntry.Name); // nothing to delete is not a fault
         Assert.Equal(StartupState.Off, entry.Read().State);
 
@@ -236,11 +236,18 @@ public class ThemeServiceTests
         using (var record = scratch.Make("StartupApproved"))
         {
             record.SetValue(StartupEntry.Name, new byte[] { 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
-            Assert.False(key.Approved(StartupEntry.Name));
+            Assert.Equal(Bosun.Core.Optimise.ApprovalState.TurnedOffByWindows, key.Approval(StartupEntry.Name).State);
             Assert.Equal(StartupState.DisabledByWindows, entry.Read().State);
             record.SetValue(StartupEntry.Name, new byte[] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
-            Assert.True(key.Approved(StartupEntry.Name));
+            Assert.Equal(Bosun.Core.Optimise.ApprovalState.On, key.Approval(StartupEntry.Name).State);
             Assert.Equal(StartupState.On, entry.Read().State);
+
+            // Round 2 (D05 T02 §1): a lone 02 is not Windows' record, so Settings says it can't read it, as
+            // Diagnostics does, never on.
+            record.SetValue(StartupEntry.Name, new byte[] { 2 }, RegistryValueKind.Binary);
+            Assert.Equal(Bosun.Core.Optimise.ApprovalState.Unreadable, key.Approval(StartupEntry.Name).State);
+            Assert.Equal(StartupState.Unavailable, entry.Read().State);
+            record.SetValue(StartupEntry.Name, new byte[] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
         }
 
         Assert.True(entry.Set(false).Succeeded);

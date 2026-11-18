@@ -1,3 +1,4 @@
+using Bosun.Core.Optimise;
 using Bosun.Core;
 using Microsoft.Win32;
 
@@ -32,12 +33,12 @@ public sealed class RegistryRunKey(string runPath = RegistryRunKey.Run, string a
     }
 
     /// <summary>
-    /// Windows keeps twelve bytes per entry it has a view on: the first is even (02) while the entry is on and odd
-    /// (03) once the person has turned it off in Settings or Task Manager. No value means Windows has no view: on.
+    /// Windows' record of the entry, decoded by the one decoder Diagnostics uses (<see cref="StartupApproval.FromValue"/>):
+    /// no key or no value is no record, which is on.
     /// </summary>
-    public bool? Approved(string name)
+    public StartupApproval Approval(string name)
     {
         using var key = Registry.CurrentUser.OpenSubKey(approvedPath);
-        return key?.GetValue(name) is byte[] { Length: > 0 } state ? (state[0] & 1) == 0 : null;
+        return StartupApproval.FromValue(key?.GetValue(name));
     }
 }

@@ -110,10 +110,15 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
     private static object? Find(IReadOnlyDictionary<string, object?> values, string name) =>
         values.FirstOrDefault(kv => string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
 
+    /// <summary>
+    /// A multi-string value's lines: none when the value is not there; a value of another type is the registry's fault,
+    /// said, never read as an empty configuration (round 2).
+    /// </summary>
     private static string[] Lines(IReadOnlyDictionary<string, object?> values, string name) => Find(values, name) switch
     {
+        null => [],
         string[] many => many,
         string one => [one],
-        _ => [],
+        var other => throw new IOException($"{name} is a {other.GetType().Name}, not the list of files Windows writes."),
     };
 }
