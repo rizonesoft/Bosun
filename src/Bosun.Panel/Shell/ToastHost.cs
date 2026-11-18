@@ -47,9 +47,10 @@ public sealed class Toast : Observable
 
 /// <summary>
 /// The window's toasts (D02 T03 §9, design/SPEC.md §19 Toast): a panel action's result where the person is looking, at
-/// most three at once, the Activity pane keeping the record. A new toast takes the place of the oldest that is not a
-/// FAIL; when all three are FAILs the newcomer is only counted ("2 more in the Activity pane"), since a FAIL stays until
-/// dismissed. A toast that is not a FAIL goes after 6 s, paused while the pointer is over it or the keyboard is in it,
+/// most three at once, the Activity pane keeping the record. A new toast takes the place of the oldest that is neither
+/// a FAIL nor held (opened in full, under the pointer or holding the keyboard, D02 T04 §7); when every one is, the
+/// newcomer is only counted ("2 more in the Activity pane"), since a FAIL stays until dismissed and a held toast is
+/// being read. A toast that is not a FAIL goes after 6 s, paused while the pointer is over it or the keyboard is in it,
 /// and on with the time it had left when neither holds. Its timer runs on the shell's clock; its expiry is handed to the
 /// UI thread and does nothing for a toast already dismissed or dropped. While the window is hidden nothing is shown:
 /// the stack is dropped, results are only logged, and nothing comes back when it is shown again.
@@ -75,7 +76,7 @@ public sealed class ToastHost : Observable
     /// <summary>The toasts on screen, oldest first.</summary>
     public ObservableCollection<Toast> Shown { get; } = [];
 
-    /// <summary>Results not shown because three FAILs fill the stack; their lines are in the Activity pane.</summary>
+    /// <summary>Results not shown because FAILs and held toasts fill the stack; their lines are in the Activity pane.</summary>
     public int Overflow
     {
         get => _overflow;
