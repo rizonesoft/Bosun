@@ -38,6 +38,18 @@ public class ProcessRunnerTests
     // ---- arguments, output, input ----
 
     [Fact]
+    public async Task A_start_asked_not_to_activate_carries_that_show_command_and_a_default_start_none()
+    {
+        // STARTF_USESHOWWINDOW (0x1) with SW_SHOWNOACTIVATE (4): the panel's smoke starts it so (D02 T02 §12).
+        var asked = await Runner.RunAsync(Ask("startup-show") with { Show = StartShow.NoActivate }, TestContext.Current.CancellationToken);
+        var parts = asked.StandardOutput.Trim().Split(' ');
+        Assert.Equal(0x1, int.Parse(parts[0]) & 0x1);
+        Assert.Equal("4", parts[1]);
+        var plain = (await Run("startup-show")).StandardOutput.Trim().Split(' ');
+        Assert.Equal(0, int.Parse(plain[0]) & 0x1);
+    }
+
+    [Fact]
     public async Task Arguments_arrive_exactly_as_given()
     {
         string[] sent =

@@ -98,7 +98,9 @@ function Add-History($entry) {
     $key = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($history)).ToLowerInvariant()))).Substring(0, 16)
     $gate = [Threading.Mutex]::new($false, "Local\bosun-smoke-history-$key")
     try {
-        try { [void]$gate.WaitOne() } catch [Threading.AbandonedMutexException] { }  # a writer that died: the file was replaced whole or not at all
+        # A writer that died holding the gate hands it over (abandoned): this one now holds it, and the file it left was
+        # replaced whole or not at all, so the write goes on, said.
+        try { [void]$gate.WaitOne() } catch [Threading.AbandonedMutexException] { Write-Warning "smoke-input: a run writing $history ended without letting go of it; its write was whole or not made, and this one goes on" }
         $lines = @(Read-History | ForEach-Object { $_ | ConvertTo-Json -Compress }) + @($entry | ConvertTo-Json -Compress)
         $lines = @($lines | Select-Object -Last 60)
         $temporary = "$history.$PID.tmp"

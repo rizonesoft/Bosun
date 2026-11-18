@@ -138,6 +138,11 @@ internal sealed class ChildProcess : IDisposable
             var startup = new STARTUPINFOEX { lpAttributeList = attributes };
             startup.StartupInfo.cb = Marshal.SizeOf<STARTUPINFOEX>();
             startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            if (request.Show == StartShow.NoActivate)
+            {
+                startup.StartupInfo.dwFlags |= STARTF_USESHOWWINDOW;
+                startup.StartupInfo.wShowWindow = SW_SHOWNOACTIVATE;
+            }
             startup.StartupInfo.hStdInput = childIn.DangerousGetHandle();
             startup.StartupInfo.hStdOutput = childOut.DangerousGetHandle();
             startup.StartupInfo.hStdError = childErr.DangerousGetHandle();
@@ -236,6 +241,8 @@ internal sealed class ChildProcess : IDisposable
 
     private const int HANDLE_FLAG_INHERIT = 1;
     private const int STARTF_USESTDHANDLES = 0x100;
+    private const int STARTF_USESHOWWINDOW = 0x1;
+    private const short SW_SHOWNOACTIVATE = 4;
     private const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
     private const uint CREATE_NO_WINDOW = 0x08000000;

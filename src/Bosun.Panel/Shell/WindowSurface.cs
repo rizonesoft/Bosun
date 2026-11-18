@@ -38,9 +38,15 @@ public static class WindowActivation
     /// <summary>A minimised window is restored, a hidden one shown, and it is activated, in that order.</summary>
     public static void BringForward(IWindowSurface window)
     {
+        Show(window);
+        window.Activate();
+    }
+
+    /// <summary>A minimised window is restored and a hidden one shown, leaving the window in front where it is.</summary>
+    public static void Show(IWindowSurface window)
+    {
         if (window.IsMinimised) window.Restore();
         if (!window.IsVisible) window.Show();
-        window.Activate();
     }
 
     /// <summary>

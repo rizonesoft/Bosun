@@ -23,6 +23,19 @@ public sealed record ProcessRequest(string Program, IReadOnlyList<string> Argume
 
     /// <summary>How much of stdout, and of stderr, is kept; the rest is read and dropped.</summary>
     public int MaxOutputBytes { get; init; } = 1024 * 1024;
+
+    /// <summary>How the program is asked to show its first window (STARTUPINFO's show command).</summary>
+    public StartShow Show { get; init; } = StartShow.Default;
+}
+
+/// <summary>The show command a program is started with.</summary>
+public enum StartShow
+{
+    /// <summary>None given: the program shows its window as it would for any start.</summary>
+    Default,
+
+    /// <summary><c>SW_SHOWNOACTIVATE</c>: shown, and the window in front stays in front.</summary>
+    NoActivate,
 }
 
 /// <summary>How a call ended.</summary>

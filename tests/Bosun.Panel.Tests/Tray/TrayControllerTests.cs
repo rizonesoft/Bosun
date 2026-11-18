@@ -34,6 +34,21 @@ public class TrayControllerTests
     }
 
     [Fact]
+    public void Started_without_activation_the_window_is_shown_and_left_behind_and_a_later_open_brings_it_forward()
+    {
+        // D02 T02 §12: a start asking that the window not be activated (LaunchShow) shows it without taking the
+        // foreground; the person opening it later from the tray still brings it forward.
+        OnUi(() =>
+        {
+            var f = new TrayFixture().Start(activate: false);
+            Assert.Equal(["show"], f.Window.Calls);
+            Assert.True(f.Overview.IsShown);
+            f.Controller.Open();
+            Assert.Equal(["show", "activate"], f.Window.Calls);
+        });
+    }
+
+    [Fact]
     public void Started_for_the_tray_there_is_an_icon_and_no_window_until_it_is_asked_for_and_the_page_is_hidden_with_it()
     {
         OnUi(() =>

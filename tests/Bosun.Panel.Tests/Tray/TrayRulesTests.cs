@@ -18,10 +18,10 @@ public class TrayRulesTests
         Assert.Contains("window.Closed += (_, _) => Shutdown();", make, StringComparison.Ordinal);     // and a window that really closed ends the panel
         Assert.Contains("var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());", make, StringComparison.Ordinal);
         Assert.Contains("windowShown: !inTray", make, StringComparison.Ordinal); // no page is on screen in a window that is not
-        Assert.Contains("tray.Start(window, inTray);", make, StringComparison.Ordinal);
+        Assert.Contains("tray.Start(window, inTray, activates);", make, StringComparison.Ordinal);
         // The memory pressure check starts after the tray, so its notification has somewhere to go (D03 T01 §4).
         var check = make.IndexOf("tray.StartPressureCheck(", StringComparison.Ordinal);
-        Assert.True(check > make.IndexOf("tray.Start(window, inTray);", StringComparison.Ordinal), "the pressure check is started after the tray");
+        Assert.True(check > make.IndexOf("tray.Start(window, inTray, activates);", StringComparison.Ordinal), "the pressure check is started after the tray");
 
         // Closing the window no longer ends the application by itself.
         Assert.Contains("ShutdownMode = ShutdownMode.OnExplicitShutdown;", app, StringComparison.Ordinal);

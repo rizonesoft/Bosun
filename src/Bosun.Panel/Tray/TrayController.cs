@@ -64,7 +64,9 @@ public sealed class TrayController : IDisposable
     /// Puts the icon in the tray and the window on screen, or, started for the tray, leaves the window hidden until
     /// it is asked for. A refused icon is said in the Activity pane, and the window is then shown in any case.
     /// </summary>
-    public void Start(IWindowSurface window, bool inTray)
+    /// <param name="activate">Whether the first open takes the foreground: false when the program that started the panel
+    /// asked that its window not be activated (<see cref="Shell.LaunchShow"/>). Later opens always do.</param>
+    public void Start(IWindowSurface window, bool inTray, bool activate = true)
     {
         _window = window;
         _icon.Menu = Tray.Menu;
@@ -78,7 +80,12 @@ public sealed class TrayController : IDisposable
         else _shell.Log.Warn("Windows did not add Bosun Panel's icon to the notification area, so closing the window exits the panel.");
 
         if (HasTray && inTray) _shell.WindowHidden();
-        else Open();
+        else if (activate) Open();
+        else
+        {
+            WindowActivation.Show(window);
+            _shell.WindowShown();
+        }
     }
 
     /// <summary>

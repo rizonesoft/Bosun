@@ -131,6 +131,10 @@ sealed class PanelProcess : IDisposable
                 ["BOSUN_PANEL_DATA"] = data, ["BOSUN_PANEL_INSTANCE"] = instance, ["LOCALAPPDATA"] = local,
             },
             WorkingDirectory = data,
+            // Not activated outside the real-input run (D02 T02 §12): a panel a default test starts leaves the person's
+            // window in front, even when the desk has been idle past Windows' foreground lock and a new window could take
+            // it. A real-input test, opted in, starts it as a person's start does: in front, for its keys.
+            Show = SmokeInput.OptedIn && SmokeInput.ThisTestMay ? StartShow.Default : StartShow.NoActivate,
         };
         try
         {

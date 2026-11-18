@@ -100,9 +100,11 @@ public partial class App : Application
             else made.Log.Info(previewLine);
         }
         var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes);
+        var activates = LaunchShow.FirstWindowActivates();
         _window = WindowStart.Open(made, shell =>
         {
-            var window = new MainWindow(shell) { TakeClose = tray.TakeClose };
+            // Shown as the program that started the panel asked: a start without activation leaves its window in front.
+            var window = new MainWindow(shell) { TakeClose = tray.TakeClose, ShowActivated = activates };
             // A window that really closed (there is no tray to hide in) ends the panel.
             window.Closed += (_, _) => Shutdown();
             MainWindow = window;
@@ -117,7 +119,7 @@ public partial class App : Application
             return window;
         }, window =>
         {
-            tray.Start(window, inTray);
+            tray.Start(window, inTray, activates);
             // After the tray, so a pressure already present at launch has somewhere to be said (D03 T01 §4).
             tray.StartPressureCheck(token => memory.SnapshotAsync("windows", token));
         });

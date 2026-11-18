@@ -224,9 +224,9 @@ public sealed class TrayFixture
         Controller = new TrayController(Shell, icon ?? Icon, Notifier, Store, Exits.Add, Needs, QueueWords, refreshes);
     }
 
-    public TrayFixture Start(bool inTray = false)
+    public TrayFixture Start(bool inTray = false, bool activate = true)
     {
-        Controller.Start(Window, inTray);
+        Controller.Start(Window, inTray, activate);
         return this;
     }
 

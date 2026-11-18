@@ -144,6 +144,10 @@ switch (args[0])
         return 0;
     case "exit":
         return int.Parse(args[1]);
+    case "startup-show":
+        // The show command this process was started with: "<STARTUPINFO dwFlags> <wShowWindow>".
+        Write(stdout, Bosun.TestChild.StartupShow.Read());
+        return 0;
     case "cwd":
         Write(stdout, Environment.CurrentDirectory);
         return 0;
