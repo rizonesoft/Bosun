@@ -119,6 +119,22 @@ jobs:
         run: pwsh tests\dotnet_nodes_test.ps1
       - name: Page renders are written whole or not at all
         run: pwsh tests\render_pages_test.ps1
+
+  # The desktop's script tests, apart from the others so each job stays well inside its time limit and the two run at
+  # once: the scripts job reached its 20 minutes on 2026-11-18 with every step passed, and was cancelled.
+  desktop-scripts:
+    name: Desktop script tests on Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Build
+        run: pwsh scripts\build.ps1
+      - name: Build the .NET solution
+        run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
       - name: Window capture self-test
         run: pwsh tests\capture_window_test.ps1
       # The runner's test runs one fixture test of the smoke under a holder's lock (it sends no input): the smoke is
