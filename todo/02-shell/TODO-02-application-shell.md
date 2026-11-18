@@ -547,6 +547,8 @@ Decisions, each with what reversing it costs:
 
 ## 12. Real-input smoke opt-in and on a nightly schedule
 
+> **Started:** 2026-11-18T06:57:38Z
+
 Filed 2026-11-18 at the operator's request: the end-to-end smoke borrows the operator's mouse and keyboard for its real-input tests (the caption buttons and the snap layouts flyout, the splitter's drag, the tray icon, the Tab, Space and shortcut paths), a few seconds at a time, while they work. The operator decided: the default smoke never touches the pointer or the keyboard and runs whenever a change needs it, as now; the real-input tests are opt-in, run on demand and on a schedule between 03:00 and 05:00. Real input needs an unlocked desktop nobody is using, so the scheduled run starts only on one and otherwise records that it skipped, never waking, unlocking or taking a desktop in use.
 
 **Phase:** 3
