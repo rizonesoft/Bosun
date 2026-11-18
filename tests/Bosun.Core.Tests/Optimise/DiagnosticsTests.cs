@@ -383,6 +383,22 @@ public class DiagnosticsTests
 
     // Two documented part numbers at different ratings for each maker's format.
     [Theory]
+    [InlineData("HX437C19FB3A/16", 3733)]   // round 5: 37 is 3733 in Kingston's table, never 37 x 100
+    [InlineData("KF437C19RBK2/16", 3733)]
+    [InlineData("KF426C16BBK2/16", 2666)]
+    [InlineData("BLM2K8G44C19U4B", null)]   // Ballistix MAX's BLM prefix is not the BL format this decoder reads
+    [InlineData("BL2K8G44C19U4B", 4400)]
+    public void A_speed_code_decodes_only_by_its_maker_s_table(string partNumber, int? rating) =>
+        Assert.Equal(rating, RatedSpeed.Of(partNumber));
+
+    [Theory]
+    [InlineData("KF435C18BBK2/16")]   // 35 is no code Kingston lists: unknown, never 3500
+    [InlineData("HX439C19FB3/16")]
+    [InlineData("BL2K8G38C16U4B")]    // 38 is no Ballistix code
+    public void A_code_a_maker_s_table_lacks_is_unknown_never_a_multiple(string partNumber) =>
+        Assert.Null(RatedSpeed.Of(partNumber));
+
+    [Theory]
     [InlineData("CMK32GX4M2D3600C18", 3600)]
     [InlineData("CMK16GX4M2B3200C16", 3200)]
     [InlineData("CMG16GX4M2D3600C18", 3600)]
