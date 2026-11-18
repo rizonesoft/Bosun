@@ -549,6 +549,8 @@ Decisions, each with what reversing it costs:
 
 > **Started:** 2026-11-18T06:57:38Z
 
+**Corrected 2026-11-18 (operator):** the nightly window is 03:00 to 06:00 (it was 03:00 to 05:00): 06:00 is the deadline, the task's time limit is three hours, and a night's result is a run begun in that window. Where the items below say 05:00, read 06:00; `scripts/smoke-input.ps1` holds the window as `$WindowOpens` and `$WindowCloses`.
+
 Filed 2026-11-18 at the operator's request: the end-to-end smoke borrows the operator's mouse and keyboard for its real-input tests (the caption buttons and the snap layouts flyout, the splitter's drag, the tray icon, the Tab, Space and shortcut paths), a few seconds at a time, while they work. The operator decided: the default smoke never touches the pointer or the keyboard and runs whenever a change needs it, as now; the real-input tests are opt-in, run on demand and on a schedule between 03:00 and 05:00. Real input needs an unlocked desktop nobody is using, so the scheduled run starts only on one and otherwise records that it skipped, never waking, unlocking or taking a desktop in use.
 
 **Phase:** 3

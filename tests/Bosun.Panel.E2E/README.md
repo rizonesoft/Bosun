@@ -12,12 +12,12 @@ That command never takes your mouse or keyboard (D02 T02 §12, the operator's de
 
 ```powershell
 pwsh scripts/smoke-input.ps1             # now: it takes the desk for a few minutes
-pwsh scripts/smoke-input.ps1 -Install    # every night at 03:00, on an idle, unlocked desktop
+pwsh scripts/smoke-input.ps1 -Install    # every night from 03:00 to 06:00, on an idle, unlocked desktop
 pwsh scripts/smoke-input.ps1 -Status     # the last results, in words
 pwsh scripts/smoke-input.ps1 -Uninstall  # no more nightly runs
 ```
 
-The nightly run starts only on an unlocked desktop nobody has used for 15 minutes, and stops at the first sign of a person (input Windows did not mark as the smoke's own, or the desktop locked) or at 05:00, ending the class in flight. It never wakes the machine, so a night the machine slept or nobody was logged on has no result, which `-Status` says with its date. Every run is kept in `%LOCALAPPDATA%\Bosun\smoke\input-history.jsonl` with its own log.
+The nightly run starts only on an unlocked desktop nobody has used for 15 minutes, and stops at the first sign of a person (input Windows did not mark as the smoke's own, or the desktop locked) or at 06:00, ending the class in flight. It never wakes the machine, so a night the machine slept or nobody was logged on has no result, which `-Status` says with its date. Every run is kept in `%LOCALAPPDATA%\Bosun\smoke\input-history.jsonl` with its own log.
 
 ## Which screen it runs on
 

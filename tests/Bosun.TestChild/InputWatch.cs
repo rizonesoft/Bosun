@@ -5,14 +5,16 @@ namespace Bosun.TestChild;
 
 /// <summary>
 /// Watches for a person at the desk while the real-input smoke runs (D02 T02 §12). Low-level keyboard and mouse hooks
-/// see every input, and Windows marks each the smoke sends (SendInput) as injected (LLKHF_INJECTED, LLMHF_INJECTED):
-/// any input without that mark is a person, and its time is written to a file the runner reads between classes.
+/// see every input. The smoke's own is injected (LLKHF_INJECTED, LLMHF_INJECTED) and carries its mark in dwExtraInfo
+/// (Native.SmokeTag in tests/Bosun.Panel.E2E, the same value as <see cref="SmokeTag"/>); anything else is a person,
+/// injected or not (a remote-control tool injects too), and its time is written to a file the runner reads.
 /// A line "person" on stdin stands in for one, so the runner's tests can show it. It watches four hours at most.
 /// </summary>
 static class InputWatch
 {
     private const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14;
     private const uint LLKHF_INJECTED = 0x10, LLMHF_INJECTED = 0x01, WM_QUIT = 0x0012;
+    private const long SmokeTag = 0x42534E31; // "BSN1", as Native.SmokeTag
 
     private static string _file = "";
     private static DateTime _written = DateTime.MinValue, _latest = DateTime.MinValue;
@@ -26,12 +28,20 @@ static class InputWatch
 
         _keys = (code, wParam, lParam) =>
         {
-            if (code >= 0 && (Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam).flags & LLKHF_INJECTED) == 0) Seen();
+            if (code >= 0)
+            {
+                var stroke = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+                if (!Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra)) Seen();
+            }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
         _mouse = (code, wParam, lParam) =>
         {
-            if (code >= 0 && (Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam).flags & LLMHF_INJECTED) == 0) Seen();
+            if (code >= 0)
+            {
+                var pointer = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                if (!Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra)) Seen();
+            }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
         var module = GetModuleHandle(null);
@@ -66,6 +76,9 @@ static class InputWatch
         }
         return 0;
     }
+
+    /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
+    private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() == SmokeTag;
 
     /// <summary>A person's input now: written at most once a second, the latest time always kept.</summary>
     private static void Seen()

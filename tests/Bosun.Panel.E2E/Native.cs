@@ -93,12 +93,22 @@ static partial class Native
     /// <summary>Moves the pointer to a point in screen pixels.</summary>
     public static void MoveTo(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE)]);
 
-    /// <summary>One injected pointer move to where the pointer already is: input every low-level hook sees, that moves nothing.</summary>
-    public static void MoveInPlace()
+    /// <summary>
+    /// One injected pointer move to where the pointer already is: input every low-level hook sees, that moves nothing.
+    /// Untagged, it stands for input another program injects (a remote-control tool), which the watcher counts as a person.
+    /// </summary>
+    public static void MoveInPlace(bool tagged = true)
     {
         var at = Cursor();
-        Send([Mouse(at.X, at.Y, MOUSEEVENTF_MOVE)]);
+        Send([Mouse(at.X, at.Y, MOUSEEVENTF_MOVE)], tagged);
     }
+
+    /// <summary>
+    /// The mark on every event the smoke sends (dwExtraInfo), so the real-input runner's watcher (Bosun.TestChild
+    /// watch-input, which holds the same value) tells the smoke's own input from anything else, injected or not: Windows'
+    /// injected flag says how input came, not who sent it.
+    /// </summary>
+    public const long SmokeTag = 0x42534E31; // "BSN1"
 
     public static void LeftDown(int x, int y) => Send([Mouse(x, y, MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN)]);
 
@@ -123,8 +133,14 @@ static partial class Native
 
     private static long _sent;
 
-    private static void Send(INPUT[] inputs)
+    private static void Send(INPUT[] inputs, bool tagged = true)
     {
+        if (tagged)
+            for (var i = 0; i < inputs.Length; i++)
+            {
+                if (inputs[i].type == INPUT_MOUSE) inputs[i].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
+                else inputs[i].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
+            }
         Interlocked.Add(ref _sent, inputs.Length);
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != inputs.Length) throw new InvalidOperationException($"Windows took {sent} of {inputs.Length} input events (error {Marshal.GetLastPInvokeError()})");

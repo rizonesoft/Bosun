@@ -97,7 +97,7 @@ function Invoke-Run([string]$Mode, [string[]]$Extra = @(), [string]$State = '', 
   $env:STANDIN_STATE = $State
   $env:BOSUN_DESKTOP_LOCK = $lockName
   try {
-    $said = & $shell -NoProfile -File $script -StateFolder $State -Dotnet (Join-Path $fakes 'dotnet.cmd') -Watcher (Join-Path $fakes 'watcher.cmd') -TestProbes @Extra 2>&1 | Out-String
+    $said = & $shell -NoProfile -File $script -StateFolder $State -Dotnet (Join-Path $fakes 'dotnet.cmd') -Watcher (Join-Path $fakes 'watcher.cmd') -TestProbes -NoQueue @Extra 2>&1 | Out-String
     $code = $LASTEXITCODE
   } finally { Remove-Item Env:STANDIN_STATE, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore }
   $records = @(if (Test-Path -LiteralPath (Join-Path $State 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $State 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } })
@@ -145,14 +145,42 @@ try {
   Check "a watcher that never starts fails the night before any class (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher did not start*' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
   Check "a watcher that ends during a class stops the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
-  # The window has two ends: a scheduled run started before it (03:00, two hours before its deadline) is a skip.
-  $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(3).ToString('s'))
+  # The watcher ends with the runner, however the runner ends: killed alone, with no finally run.
+  $state = Join-Path $dir 'state-killed'
+  New-Item -ItemType Directory -Force -Path $state | Out-Null
+  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
+  Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
+  Set-Content -LiteralPath (Join-Path $state 'pauses.txt') -Value 'Bosun.Panel.E2E.Alpha 60'
+  Set-Content -LiteralPath (Join-Path $state 'probe-idle') -Value 3600
+  $env:STANDIN_STATE = $state; $env:BOSUN_DESKTOP_LOCK = $lockName
+  $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
+  foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-Watcher', (Join-Path $fakes 'watcher.cmd'), '-TestProbes', '-NoQueue', '-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))) { $info.ArgumentList.Add($a) }
+  $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+  $runner = [System.Diagnostics.Process]::Start($info); $started.Add($runner)
+  try {
+    for ($i = 0; $i -lt 150 -and -not (Test-Path -LiteralPath (Join-Path $state 'classes.txt')); $i++) { Start-Sleep -Milliseconds 200 }
+    $watcherPid = [int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)
+    $runner.Kill()
+    $runner.WaitForExit(10000) | Out-Null
+    $gone = $false
+    for ($i = 0; $i -lt 50 -and -not $gone; $i++) { $gone = -not (Get-Process -Id $watcherPid -ErrorAction Ignore); if (-not $gone) { Start-Sleep -Milliseconds 100 } }
+    Check 'a runner killed alone takes its watcher with it' $gone
+  } finally {
+    Remove-Item Env:STANDIN_STATE, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore
+    if (-not $runner.HasExited) { & taskkill.exe /T /F /PID $runner.Id *> $null }
+  }
+  # Each run keeps a watcher file of its own: a run refused the lock beside a running one leaves the running one's alone.
+  $watchFiles = @(Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' -ErrorAction Ignore)
+  Check "a run's watcher file is its own, named for it ($(@($watchFiles).Count) left by the killed run)" (@($watchFiles).Count -le 1 -and (@($watchFiles | Where-Object { $_.Name -match '^watch-\d{8}-\d{6}-\d+-[0-9a-f]{8}\.txt$' }).Count -eq @($watchFiles).Count))
+
+  # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
+  $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
   Check "a scheduled run started before its window is skipped (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
   # Finding the tests keeps the deadline too.
   $run = Invoke-Run 'list-stall' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(15).ToString('s'))
   Check "discovery that stalls past the deadline is ended and recorded (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and "$($run.Last.reason)" -like '*finding the tests*') $run.Said
 
-  # 05:00 is a deadline: a class still running then is ended with what it started, and the counts so far kept.
+  # The window's close is a deadline: a class still running then is ended with what it started, and the counts so far kept.
   $state = Join-Path $dir 'state-deadline'
   $run = Invoke-Run 'sleep Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(25).ToString('s')) -State $state
   $child = [int](Get-Content -LiteralPath (Join-Path $state 'child.txt') -Raw)
@@ -173,7 +201,7 @@ try {
   Set-Content -LiteralPath (Join-Path $state 'probe-idle') -Value 3600
   $env:STANDIN_STATE = $state; $env:BOSUN_DESKTOP_LOCK = $lockName
   $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
-  foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-Watcher', (Join-Path $fakes 'watcher.cmd'), '-TestProbes')) { $info.ArgumentList.Add($a) }
+  foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-Watcher', (Join-Path $fakes 'watcher.cmd'), '-TestProbes', '-NoQueue')) { $info.ArgumentList.Add($a) }
   $info.UseShellExecute = $false; $info.CreateNoWindow = $true
   $long = [System.Diagnostics.Process]::Start($info); $started.Add($long)
   try {
@@ -238,7 +266,7 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   $started.Add($hold)
   try {
     for ($i = 0; $i -lt 100 -and -not (Test-Path -LiteralPath $holdFile); $i++) { Start-Sleep -Milliseconds 100 }
-    # 05:00 coming while the run waits for the desktop is the deadline, not a desk in use.
+    # The deadline coming while the run waits for the desktop is the deadline, not a desk in use.
     $env:BOSUN_DESKTOP_WAIT_S = '60'
     $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(6).ToString('s'))
     Check "the deadline reached while waiting for the desktop is stopped-deadline (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and "$($run.Last.reason)" -like '*while it waited for the desktop*') $run.Said
@@ -249,7 +277,7 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     $env:BOSUN_DESKTOP_LOCK = $lockName
     $many = foreach ($i in 1..6) {
       $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
-      foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-TestProbes')) { $info.ArgumentList.Add($a) }
+      foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-TestProbes', '-NoQueue')) { $info.ArgumentList.Add($a) }
       $info.UseShellExecute = $false; $info.CreateNoWindow = $true
       $p = [System.Diagnostics.Process]::Start($info); $started.Add($p); $p
     }
@@ -293,14 +321,14 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
   Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
   # The state folder is not among these: -Install writes it into the task from its own -StateFolder.
-  $taskArgs = "-Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes"
+  $taskArgs = "-Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes -NoQueue"
   # The colon form: a value that starts with a dash would be read as a parameter of its own.
   $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName "-TaskArguments:$taskArgs" 2>&1 | Out-String
   try {
     $task = Get-ScheduledTask -TaskName $taskName
     $trigger = $task.Triggers[0]
     Check 'the task runs daily at 03:00' ($trigger.CimClass.CimClassName -eq 'MSFT_TaskDailyTrigger' -and $trigger.DaysInterval -eq 1 -and ([DateTime]$trigger.StartBoundary).ToString('HH:mm') -eq '03:00') $said
-    Check 'never woken, never run late, ended after two hours' (-not $task.Settings.WakeToRun -and -not $task.Settings.StartWhenAvailable -and $task.Settings.ExecutionTimeLimit -eq 'PT2H')
+    Check 'never woken, never run late, ended when the window closes, three hours on' (-not $task.Settings.WakeToRun -and -not $task.Settings.StartWhenAvailable -and $task.Settings.ExecutionTimeLimit -eq 'PT3H')
     Check 'for this user, only while logged on' ($task.Principal.UserId -like "*$env:USERNAME" -and $task.Principal.LogonType -eq 'Interactive')
     $action = $task.Actions[0]
     Check 'its action runs this script, scheduled, in the checkout' ($action.Execute -eq $shell -and $action.Arguments -like "*$script*-Scheduled*-Invocation task*" -and $action.Arguments -like "*$state*" -and $action.WorkingDirectory -eq $repo) "$($action.Execute) $($action.Arguments) in $($action.WorkingDirectory)"
@@ -310,12 +338,12 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     $mark = Join-Path $state 'installed.json'
     $was = Get-Content -LiteralPath $mark -Raw
     Set-Content -LiteralPath $mark -Value (@{ at = (Get-Date).AddDays(-3).ToUniversalTime().ToString('o'); task = $taskName } | ConvertTo-Json -Compress)
-    $night = (Get-Date).Date.AddHours(3); if ((Get-Date) -lt $night.AddHours(2)) { $night = $night.AddDays(-1) }
+    $night = (Get-Date).Date.AddHours(3); if ((Get-Date) -lt $night.AddHours(3)) { $night = $night.AddDays(-1) }
     $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
     Check 'a night with no record is named by its date' ($status -like "*No result for $($night.ToString('yyyy-MM-dd'))*") $status
     # A scheduled run started by hand after the window, on the night missed, is not that night's result.
     $history = Join-Path $state 'input-history.jsonl'
-    Set-Content -LiteralPath $history -Value (@{ at = $night.Date.AddHours(9).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'stopped-deadline'; reason = 'it began after 05:00'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress)
+    Set-Content -LiteralPath $history -Value (@{ at = $night.Date.AddHours(9).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'stopped-deadline'; reason = 'it began after its deadline, 06:00'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress)
     $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
     Check 'a late run on a missed night still leaves it named as missed' ($status -like "*No result for $($night.ToString('yyyy-MM-dd'))*") $status
     # Skipped nights are counted by date: a night with no result between two skipped ones ends the count.
@@ -336,6 +364,9 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName *> $null
   }
   Check 'uninstalled, the task is gone' (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore))
+  # Removing a task that is not there is already done; the install record goes with it.
+  $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+  Check "uninstalling again says it is removed (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and $said -like '*Removed*' -and -not (Test-Path -LiteralPath (Join-Path $state 'installed.json'))) $said
 
   # The help names the commands that enable, inspect and remove the schedule, and exit 4's meaning stays capture's.
   $help = Get-Help $script -Full | Out-String

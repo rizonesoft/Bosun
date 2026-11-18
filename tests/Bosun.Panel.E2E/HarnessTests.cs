@@ -35,12 +35,23 @@ public class HarnessTests
             // The watcher writes at most once a second: past that, a move it counted would be in the file.
             Thread.Sleep(1500);
             Assert.Equal("none", File.ReadAllText(file).Trim());
+            // Injected but without the smoke's mark (a remote-control tool's input) is a person.
+            var injected = DateTime.UtcNow;
+            Native.MoveInPlace(tagged: false);
+            var until = DateTime.UtcNow.AddSeconds(5);
+            string seenInjected;
+            while ((seenInjected = File.ReadAllText(file).Trim()) == "none" && DateTime.UtcNow < until) Thread.Sleep(100);
+            Assert.True(DateTime.TryParse(seenInjected, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var other) && other.ToUniversalTime() >= injected.AddSeconds(-1),
+                $"an untagged injected move was not seen as a person (the watcher wrote '{seenInjected}')");
+            // The watcher writes at most once a second; the stand-in below must be later than that.
+            Thread.Sleep(1200);
             var before = DateTime.UtcNow;
             watcher.StandardInput.WriteLine("person");
             watcher.StandardInput.Flush();
             var deadline = DateTime.UtcNow.AddSeconds(5);
             string said;
-            while ((said = File.ReadAllText(file).Trim()) == "none" && DateTime.UtcNow < deadline) Thread.Sleep(100);
+            // Waiting for a time other than the untagged move's, which the file already holds.
+            while ((said = File.ReadAllText(file).Trim()) == seenInjected && DateTime.UtcNow < deadline) Thread.Sleep(100);
             Assert.True(DateTime.TryParse(said, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var seen), $"the watcher wrote '{said}'");
             Assert.True(seen.ToUniversalTime() >= before.AddSeconds(-1), $"a person at {seen:o}, before the stand-in at {before:o}");
         }

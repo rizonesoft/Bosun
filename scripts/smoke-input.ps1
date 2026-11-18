@@ -7,10 +7,10 @@
     mouse and keyboard while they run, so they are opt-in: the default smoke skips them (they run only with
     BOSUN_SMOKE_INPUT=1, which this script sets), and this script runs them.
 
-    Run with no switch, it runs them now. With -Scheduled (the nightly task, 03:00 to 05:00), it runs only on a
+    Run with no switch, it runs them now. With -Scheduled (the nightly task, 03:00 to 06:00), it runs only on a
     desktop that is unlocked and has had no input for 15 minutes, and stops at the first sign of a person: input
     Windows did not mark as the smoke's own (a watcher's low-level hooks), or the desktop locked. It never wakes the
-    machine, unlocks it or takes a desktop in use. 05:00 is its deadline: a class still running then is ended, its
+    machine, unlocks it or takes a desktop in use. 06:00 is its deadline: a class still running then is ended, its
     whole process tree with it.
 
     It holds the desktop lock (Local\bosun-desktop, D02 T02 §11) from before its first class to after its last, so no
@@ -41,16 +41,22 @@ param(
     # How the run was started, kept in its record: 'task' from the nightly task, else 'shell'.
     [ValidateSet('shell', 'task')][string]$Invocation = 'shell',
     [int]$IdleMinutes = 15,
-    # Local time the scheduled run must end by; 05:00 today when not given.
+    # Local time the scheduled run must end by; the window's close (06:00) today when not given.
     [string]$Deadline = '',
     # For this script's own tests: stand-ins for dotnet and the input watcher, and the lock and idle probes read from
     # files in the state folder (probe-locked, probe-idle) instead of the desktop.
     [string]$Dotnet = 'dotnet',
     [string]$Watcher = '',
-    [switch]$TestProbes
+    [switch]$TestProbes,
+    # For this script's own tests: a stand-in build is not a heavy job, and must not wait behind real ones in the queue.
+    [switch]$NoQueue
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# The nightly window, in local hours: the task starts at its opening, and the run must be done by its close (the
+# operator's choice, 2026-11-18). Everything that speaks of the window reads these.
+$WindowOpens = 3
+$WindowCloses = 6
 $repo = Split-Path $PSScriptRoot -Parent
 $project = Join-Path $repo 'tests\Bosun.Panel.E2E'
 $history = Join-Path $StateFolder 'input-history.jsonl'
@@ -119,7 +125,7 @@ function Format-Outcome($e) {
         'skipped-outside-window' { "skipped at ${at}: $($e.reason)" }
         'stopped-in-use'  { "stopped at ${at}: $($e.reason) ($($e.passed) of $($e.discovered) passed before it)" }
         'stopped-locked'  { "stopped at ${at}: the desktop was locked ($($e.passed) of $($e.discovered) passed before it)" }
-        'stopped-deadline' { "stopped at ${at}: 05:00 came ($($e.passed) of $($e.discovered) passed before it)" }
+        'stopped-deadline' { "stopped at ${at}: its deadline came ($($e.passed) of $($e.discovered) passed before it)" }
         default           { "$($e.outcome) at $at" }
     }
 }
@@ -135,13 +141,13 @@ function Show-Status {
         "No scheduled run yet, installed $since."
     }
     if ($nightly.Count -gt 0) { "Real-input smoke, last scheduled run: $(Format-Outcome $nightly[-1])." }
-    # A night's result is a scheduled run that began in that night's window, 03:00 to 05:00: a scheduled run started
+    # A night's result is a scheduled run that began in that night's window, 03:00 to 06:00: a scheduled run started
     # later the same day (a missed trigger run by hand from Task Scheduler) is not the night's, and a night with none
     # has no result. The latest run of a night is its result.
     $nights = @{}
     foreach ($e in $nightly) {
         $at = ([DateTime]$e.at).ToLocalTime()
-        if ($at.TimeOfDay -ge [TimeSpan]::FromHours(3) -and $at.TimeOfDay -lt [TimeSpan]::FromHours(5)) { $nights[$at.Date] = $e }
+        if ($at.TimeOfDay -ge [TimeSpan]::FromHours($WindowOpens) -and $at.TimeOfDay -lt [TimeSpan]::FromHours($WindowCloses)) { $nights[$at.Date] = $e }
     }
     # Skipped nights in a row: consecutive trigger dates, back from the latest night with a result, each skipped. A
     # night with no result ends the count, as a night that ran does.
@@ -154,8 +160,8 @@ function Show-Status {
     if ($task) {
         # The last 03:00 whose window has closed since the install: a night with no result is a night the machine slept,
         # was off or nobody was logged on, when nothing could write one.
-        $last = (Get-Date).Date.AddHours(3)
-        if ((Get-Date) -lt $last.AddHours(2)) { $last = $last.AddDays(-1) }
+        $last = (Get-Date).Date.AddHours($WindowOpens)
+        if ((Get-Date) -lt (Get-Date).Date.AddHours($WindowCloses)) { $last = $last.AddDays(-1) }
         $since = if (Test-Path -LiteralPath $installed) { ([DateTime](Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).at).ToLocalTime() } else { $last }
         if ($last -gt $since -and -not $nights.ContainsKey($last.Date)) { "No result for $($last.ToString('yyyy-MM-dd')): the machine was asleep, off or logged off at 03:00." }
     }
@@ -172,9 +178,9 @@ if ($Install) {
     $arguments = "-NoProfile -WindowStyle Hidden -File $(ConvertTo-CommandLineArgument $PSCommandPath) -Scheduled -Invocation task -StateFolder $(ConvertTo-CommandLineArgument ([IO.Path]::GetFullPath($StateFolder)))"
     if ($TaskArguments) { $arguments += " $TaskArguments" }
     $action = New-ScheduledTaskAction -Execute $shell -Argument $arguments -WorkingDirectory $repo
-    $trigger = New-ScheduledTaskTrigger -Daily -At '03:00'
-    # Never woken, never run late for a missed night, ended after two hours whatever it is doing.
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew
+    $trigger = New-ScheduledTaskTrigger -Daily -At ([DateTime]::Today.AddHours($WindowOpens))
+    # Never woken, never run late for a missed night, ended when the window closes whatever it is doing.
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours ($WindowCloses - $WindowOpens)) -MultipleInstances IgnoreNew
     $settings.WakeToRun = $false
     $settings.StartWhenAvailable = $false
     $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
@@ -182,11 +188,17 @@ if ($Install) {
     $temporary = "$installed.$PID.tmp"
     [IO.File]::WriteAllText($temporary, (@{ at = (Get-Date).ToUniversalTime().ToString('o'); task = $TaskName } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $temporary -Destination $installed -Force
-    "Installed '$TaskName': the real-input smoke runs daily at 03:00 on an idle, unlocked desktop. pwsh scripts/smoke-input.ps1 -Status says how it went."
+    "Installed '$TaskName': the real-input smoke runs nightly from $('{0:d2}:00' -f $WindowOpens) to $('{0:d2}:00' -f $WindowCloses) on an idle, unlocked desktop. pwsh scripts/smoke-input.ps1 -Status says how it went."
     exit 0
 }
 if ($Uninstall) {
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Ignore
+    # A task that is not there is already removed; one that could not be removed stays recorded as installed, and the
+    # script says so with exit 1, never that the nightly run has stopped.
+    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore) {
+        try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop }
+        catch { "Could not remove '$TaskName': $($_.Exception.Message). The nightly run is still installed."; exit 1 }
+    }
+    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore) { "Could not remove '$TaskName': it is still registered. The nightly run is still installed."; exit 1 }
     Remove-Item -LiteralPath $installed -ErrorAction Ignore
     "Removed '$TaskName': the real-input smoke no longer runs at night."
     exit 0
@@ -194,6 +206,9 @@ if ($Uninstall) {
 
 # ---- a run -------------------------------------------------------------------------------------------------------
 
+# Everything this run starts (the watcher with its hooks, each class's tree) ends when this process does, however it
+# ends: killed, its window closed, the task's time limit reached, where no finally gets to run (job-measure.ps1).
+Stop-TreeWithThisWindow
 $mode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $started = (Get-Date).ToUniversalTime()
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -204,14 +219,14 @@ New-Item -ItemType Directory -Force -Path $results | Out-Null
 function Say([string]$line) { $line; Add-Content -LiteralPath $log -Value "$((Get-Date).ToString('HH:mm:ss')) $line" }
 $end = $null
 if ($Scheduled) {
-    $end = if ($Deadline) { [DateTime]::Parse($Deadline, [Globalization.CultureInfo]::InvariantCulture) } else { (Get-Date).Date.AddHours(5) }
+    $end = if ($Deadline) { [DateTime]::Parse($Deadline, [Globalization.CultureInfo]::InvariantCulture) } else { (Get-Date).Date.AddHours($WindowCloses) }
 }
 # The seconds left to the deadline, for a step's timeout; 0 (none) for a run on demand.
 function Remaining { if ($end) { [Math]::Max(1, [int][Math]::Ceiling(($end - (Get-Date)).TotalSeconds)) } else { 0 } }
 function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
-# The nightly window is the two hours before the deadline (03:00 to 05:00): a scheduled run started earlier, by hand
-# from Task Scheduler or a clock that moved, is a night outside it.
-function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours(-2) }
+# The nightly window is the hours before the deadline (03:00 to 06:00): a scheduled run started earlier, by hand from
+# Task Scheduler or a clock that moved, is a night outside it.
+function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($WindowOpens - $WindowCloses) }
 function Locked { if ($TestProbes) { Test-Path -LiteralPath (Join-Path $StateFolder 'probe-locked') } else { [SmokeInputDesk]::Locked() } }
 function IdleSeconds {
     $probe = Join-Path $StateFolder 'probe-idle'
@@ -247,7 +262,8 @@ function Finish([string]$outcome, [string]$reason, [int]$code) {
 $script:exitCode = 1
 $holder = $null
 $watch = $null
-$watchFile = Join-Path $StateFolder "watch-$stamp.txt"
+# This run's own: two runs started in one second never share it, and a run removes only the one it made.
+$watchFile = Join-Path $StateFolder "watch-$stamp-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).txt"
 $savedHeld = $env:BOSUN_DESKTOP_HELD
 $savedInput = $env:BOSUN_SMOKE_INPUT
 # The run is a function, so a `return` at any step ends the run, not the script: the script then exits with the code
@@ -255,8 +271,8 @@ $savedInput = $env:BOSUN_SMOKE_INPUT
 function Invoke-Smoke {
 try {
     Say "Real-input smoke, $mode, started"
-    if (PastDeadline) { Finish 'stopped-deadline' 'it began after 05:00' 1; return }
-    if (BeforeWindow) { Finish 'skipped-outside-window' "it started at $((Get-Date).ToString('HH:mm')), before the window that opens at $($end.AddHours(-2).ToString('HH:mm'))" 0; return }
+    if (PastDeadline) { Finish 'stopped-deadline' "it began after its deadline, $($end.ToString('HH:mm'))" 1; return }
+    if (BeforeWindow) { Finish 'skipped-outside-window' "it started at $((Get-Date).ToString('HH:mm')), before the window that opens at $($end.AddHours($WindowOpens - $WindowCloses).ToString('HH:mm'))" 0; return }
 
     # The desktop lock, held to the end: a smoke or capture started meanwhile waits for this run, and this run's own
     # classes work under its hold (BOSUN_DESKTOP_HELD), never waiting on it.
@@ -269,7 +285,7 @@ try {
     } finally { $waiter.Dispose() }
     if (-not $holder) {
         $who = [Bosun.Desktop.DesktopLock]::Describe($settingsNow.Name, [Bosun.Desktop.DesktopLock]::RecordFolder())
-        if (PastDeadline) { Finish 'stopped-deadline' "05:00 came while it waited for the desktop, in use by $who" 1; return }
+        if (PastDeadline) { Finish 'stopped-deadline' "its deadline ($($end.ToString('HH:mm'))) came while it waited for the desktop, in use by $who" 1; return }
         if ($Scheduled) { Finish 'skipped-in-use' "the desktop was in use by $who" 0 } else { Finish 'failed' "the desktop lock was held by $who" 1 }
         return
     }
@@ -281,16 +297,16 @@ try {
     # A full build is a heavy job: it waits its turn in the Bosun queue when there is one, and uses the two nodes the
     # gate and CI build with (docs/build-performance.md). Its wait counts against the deadline.
     $buildArgs = @('build', $project, '-nologo', '-maxCpuCount:2')
-    $queued = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
+    $queued = -not $NoQueue -and [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
     $build = Measure-Job -FilePath $(if ($queued) { 'bosun' } else { $Dotnet }) -ArgumentList $(if ($queued) { @('run', '--', $Dotnet) + $buildArgs } else { $buildArgs }) -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds (Remaining)
-    if ($build.TimedOut) { Finish 'stopped-deadline' 'the build ran into 05:00' 1; return }
+    if ($build.TimedOut) { Finish 'stopped-deadline' "the build ran into its deadline, $($end.ToString('HH:mm'))" 1; return }
     if ($build.ExitCode -ne 0) { Finish 'failed' "the build failed (exit $($build.ExitCode)); see $(Join-Path $results 'build.log')" 1; return }
 
     # Which tests there are, by name: what ran is reconciled against this.
     $env:BOSUN_SMOKE_INPUT = '1'
     $listing = Join-Path $results 'tests.json'
     $list = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--list-tests', 'json', '--filter-trait', 'Input=Real') -WorkingDirectory $repo -OutputPath $listing -TimeoutSeconds (Remaining)
-    if ($list.TimedOut) { Finish 'stopped-deadline' 'finding the tests ran into 05:00' 1; return }
+    if ($list.TimedOut) { Finish 'stopped-deadline' "finding the tests ran into its deadline, $($end.ToString('HH:mm'))" 1; return }
     if ($list.ExitCode -ne 0) { Finish 'failed' "the tests could not be listed (exit $($list.ExitCode))" 1; return }
     $text = Get-Content -LiteralPath $listing -Raw
     $json = $text.Substring([Math]::Max(0, $text.IndexOf('{')))
@@ -337,7 +353,7 @@ try {
     }
     function Stop-For([string]$why, [string]$when) {
         switch ($why) {
-            'deadline'   { Finish 'stopped-deadline' "05:00 came $when" 1 }
+            'deadline'   { Finish 'stopped-deadline' "its deadline ($($end.ToString('HH:mm'))) came $when" 1 }
             'locked'     { Finish 'stopped-locked' "the desktop was locked $when" 1 }
             'person'     { Finish 'stopped-in-use' "a person used the desk $when" 1 }
             'watcher'    { Finish 'failed' "the input watcher ended (exit $($watch.ExitCode)) $when, so the run stopped unwatched" 1 }
@@ -381,8 +397,10 @@ try {
     if ($classFailures) { $problems += "a class's run failed: $($classFailures -join ', ')" }
     if ($problems) { Finish 'failed' ($problems -join '; ') 1 } else { Finish 'passed' '' 0 }
 } finally {
-    if ($watch -and -not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
-    Remove-Item -LiteralPath $watchFile -ErrorAction Ignore
+    if ($watch) {
+        if (-not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
+        Remove-Item -LiteralPath $watchFile -ErrorAction Ignore
+    }
     $env:BOSUN_DESKTOP_HELD = $savedHeld
     $env:BOSUN_SMOKE_INPUT = $savedInput
     if ($holder) { $holder.Dispose() }
