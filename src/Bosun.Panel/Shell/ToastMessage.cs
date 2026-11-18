@@ -1,5 +1,6 @@
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace Bosun.Panel.Shell;
 
@@ -13,6 +14,22 @@ namespace Bosun.Panel.Shell;
 public sealed class ToastMessage : ScrollViewer
 {
     protected override AutomationPeer OnCreateAutomationPeer() => new Peer(this);
+
+    /// <summary>
+    /// Home and End go to the message's first and last lines. A <see cref="ScrollViewer"/> takes plain Home and End to
+    /// its left and right edges (only Ctrl with them goes to the top and the bottom), and a message never scrolls
+    /// sideways, so End did nothing a reader could see (found by its test, D02 T04 §7).
+    /// </summary>
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (!e.Handled && Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Home or Key.End)
+        {
+            if (e.Key == Key.Home) ScrollToTop(); else ScrollToBottom();
+            e.Handled = true;
+            return;
+        }
+        base.OnKeyDown(e);
+    }
 
     private sealed class Peer(ToastMessage owner) : ScrollViewerAutomationPeer(owner)
     {

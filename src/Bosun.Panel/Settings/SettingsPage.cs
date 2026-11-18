@@ -350,7 +350,7 @@ public sealed class SettingsPage : PageBase
     public override Task<ActionOutcome> SaveAsync()
     {
         var saved = new List<string>();
-        var failed = new List<string>();
+        var failed = new List<(string Setting, string Reason)>();
 
         // A threshold that can't be one is refused before anything is written: nothing of the page is saved, here or
         // through the question asked on leaving it, and the field says why.
@@ -371,7 +371,7 @@ public sealed class SettingsPage : PageBase
                 Notice = null;
                 saved.Add($"theme {_selectedTheme.Name}");
             }
-            else failed.Add(outcome.Reason ?? "The theme did not read back as it was saved.");
+            else failed.Add(("the theme", outcome.Reason ?? "The theme did not read back as it was saved."));
         }
 
         if (_notifyMemoryPressure != _storedNotify)
@@ -383,7 +383,7 @@ public sealed class SettingsPage : PageBase
                 _storedNotify = wanted;
                 saved.Add($"memory pressure notifications {(wanted ? "on" : "off")}");
             }
-            else failed.Add(outcome.Reason ?? "The notification setting did not read back as it was saved.");
+            else failed.Add(("memory pressure notifications", outcome.Reason ?? "The notification setting did not read back as it was saved."));
         }
 
         if (FloorFault(_floorText, out var floor) is null && floor != _storedFloor)
@@ -395,7 +395,7 @@ public sealed class SettingsPage : PageBase
                 PressureFloorText = floor.ToString(CultureInfo.InvariantCulture); // as stored: "04096" reads back as "4096"
                 saved.Add(string.Create(CultureInfo.InvariantCulture, $"pressure alert threshold {floor} MB"));
             }
-            else failed.Add(outcome.Reason ?? "The pressure alert threshold did not read back as it was saved.");
+            else failed.Add(("the pressure alert threshold", outcome.Reason ?? "The pressure alert threshold did not read back as it was saved."));
         }
 
         if (_startWithWindows != _storedStart)
@@ -407,7 +407,7 @@ public sealed class SettingsPage : PageBase
                 TakeStart(now);
                 saved.Add($"Start with Windows {(_startWithWindows ? "on" : "off")}");
             }
-            else failed.Add(outcome.Reason ?? now.Reason ?? "Start with Windows did not read back as it was saved.");
+            else failed.Add(("Start with Windows", outcome.Reason ?? now.Reason ?? "Start with Windows did not read back as it was saved."));
         }
 
         Edited();
@@ -419,10 +419,25 @@ public sealed class SettingsPage : PageBase
             Status = done ?? "Nothing to save.";
             return Task.FromResult(saved.Count == 0 ? ActionOutcome.Done : ActionOutcome.DoneWith(string.Join(", ", saved)));
         }
-        var reason = string.Join(" ", failed);
+        var reason = Failures(failed);
         Status = (done is null ? "" : done + " ") + "Not saved: " + reason;
         return Task.FromResult(ActionOutcome.Failed((done is null ? "" : done + " ") + reason));
     }
+
+    /// <summary>
+    /// What could not be saved, each reason once: settings refused for the same reason (a settings file that can't be
+    /// written refuses each) share one sentence that names them, where it was said once for each (D02 T04 §7, found
+    /// by its E2E: "panel.json could not be saved: Access to the path is denied." three times over). A reason that
+    /// stands alone is said as it is.
+    /// </summary>
+    internal static string Failures(IReadOnlyList<(string Setting, string Reason)> failed) =>
+        string.Join(" ", failed.GroupBy(f => f.Reason).Select(g => g.Count() == 1
+            ? g.Key
+            : $"{g.Key.TrimEnd('.')} (for {Listed(g.Select(f => f.Setting).ToList())})."));
+
+    /// <summary>"a", "a and b", "a, b and c".</summary>
+    static string Listed(IReadOnlyList<string> items) =>
+        items.Count == 1 ? items[0] : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];
 
     /// <summary>Back to what the file and the Run key hold now: read again, not remembered.</summary>
     public override void Discard()

@@ -62,6 +62,16 @@ sealed class PanelProcess : IDisposable
     public static PanelProcess Start(params string[] arguments) =>
         Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]), "e2e-" + Guid.NewGuid().ToString("N")[..12]);
 
+    /// <summary>
+    /// A panel of its own whose data folder's name is <paramref name="length"/> characters long: a message that names
+    /// its settings file is then as long as one from a deep profile or OneDrive folder (D02 T04 §7, a toast that scrolls).
+    /// </summary>
+    public static PanelProcess StartDeep(int length, params string[] arguments)
+    {
+        var name = Guid.NewGuid().ToString("N")[..12] + "-" + new string('d', Math.Max(0, length - 13));
+        return Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), name), "e2e-" + Guid.NewGuid().ToString("N")[..12]);
+    }
+
     /// <summary>A panel of its own with more environment: a contrast preview's file, say (D02 T03 §11).</summary>
     public static PanelProcess StartWith(IReadOnlyDictionary<string, string?> environment, params string[] arguments) =>
         Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]), "e2e-" + Guid.NewGuid().ToString("N")[..12], extra: environment);

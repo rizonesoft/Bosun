@@ -40,15 +40,16 @@ public class ToastE2ETests
     [Fact]
     public void A_long_failure_opens_in_full_by_keyboard_and_stays_until_dismissed()
     {
-        // D02 T04 §7: a save the settings file refuses (made read-only here) fails with a reason for each setting,
-        // longer than three lines. Tab reaches Show more, Space opens it, the toast stays past its 6 s, and Dismiss closes it.
-        using var panel = PanelProcess.Start();
+        // D02 T04 §7: a save the settings file refuses (made read-only here) fails naming the file by its whole path, in
+        // a data folder as deep as a long profile or OneDrive path, so the message runs past the five lines it opens to.
+        // Tab reaches Show more, Space opens it, Tab reaches the message, Down and End scroll it to its last line, the
+        // toast stays past its 6 s, and Dismiss closes it.
+        using var panel = PanelProcess.StartDeep(150);
         var (window, handle) = KeyboardTests.OnSettings(panel);
         var file = Path.Combine(panel.DataFolder, "panel.json");
         File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
         try
         {
-            // Three settings changed, each refused with its own reason: together longer than three lines.
             var notify = Ui.Get(window, "NotifyMemoryPressure");
             ((TogglePattern)notify.GetCurrentPattern(TogglePattern.Pattern)).Toggle();
             var floor = Ui.Get(window, "PressureFloor");
@@ -72,6 +73,17 @@ public class ToastE2ETests
             Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, dismissFirst), Ui.Short, "Tab from Show less to Dismiss");
             RealInput.Key(handle, Native.VK_TAB);
             Ui.UntilFocused(f => f.Current.Name == "The whole message", Ui.Short, "Tab on to the whole message");
+            var message = Ui.Focused()!;
+            Assert.Contains(file, message.Current.HelpText);                                   // the whole of it, to a screen reader too
+            // Real keys scroll it, read through UI Automation's own scroll pattern (completion review): Down moves it a
+            // line, End reaches its last.
+            var scroll = (ScrollPattern)message.GetCurrentPattern(ScrollPattern.Pattern);
+            Assert.True(scroll.Current.VerticallyScrollable, $"the opened message runs past its five lines: \"{message.Current.HelpText}\"");
+            Assert.Equal(0, scroll.Current.VerticalScrollPercent, 1);
+            RealInput.Key(handle, Native.VK_DOWN);
+            Ui.Until(() => scroll.Current.VerticalScrollPercent > 0, Ui.Short, "Down to scroll the message");
+            RealInput.Key(handle, Native.VK_END);
+            Ui.Until(() => Math.Abs(scroll.Current.VerticalScrollPercent - 100) < 0.5, Ui.Short, "End to reach the message's last line");
             Thread.Sleep(TimeSpan.FromSeconds(7.5));
             var dismiss = Ui.Get(window, "Dismiss");
             for (var press = 0; press < 40 && !(Ui.Focused() is { } f && Automation.Compare(f, dismiss)); press++)

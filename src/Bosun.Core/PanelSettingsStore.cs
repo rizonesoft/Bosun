@@ -192,7 +192,9 @@ public sealed class PanelSettingsStore
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             TryDeleteTemporary();
-            return SaveOutcome.Failed($"{Path.GetFileName(FilePath)} could not be saved: {e.Message}");
+            // The whole path: the person who has to fix a read-only file or a full disk needs to know which one,
+            // and where (D02 T04 §7).
+            return SaveOutcome.Failed($"{FilePath} could not be saved: {e.Message}");
         }
 
         Set(settings, SettingsState.Loaded, null); // tells the listeners

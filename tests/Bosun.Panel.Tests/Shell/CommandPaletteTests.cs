@@ -564,6 +564,53 @@ public class CommandPaletteTests
         }, 1360, 860);
     }
 
+    [Theory]
+    [InlineData("Dark")]
+    [InlineData("Light")]
+    [InlineData("HighContrast")]
+    public void The_search_is_one_field_with_no_inner_border_its_icon_inside_and_its_text_clear_of_it(string theme)
+    {
+        // Measured unfocused, so a border drawn whether focused or not can't cancel out as it does in FocusOutlineTests
+        // (D02 T04 §7 completion review).
+        PageRenderer.InPage(theme, () =>
+        {
+            var (shell, _, _) = WithActions();
+            return new ShellView { DataContext = shell };
+        }, page =>
+        {
+            var view = ShellSupport.Under<ShellView>(page).Single();
+            ((ShellViewModel)view.DataContext).Palette.Open();
+            PageRenderer.Settle(page);
+            var palette = ShellSupport.Under<CommandPaletteView>(page).Single();
+            var search = (TextBox)palette.FindName("Search");
+            Assert.Equal(new Thickness(0), search.BorderThickness);
+            Assert.All(ShellSupport.Under<Border>(search), b => Assert.Equal(new Thickness(0), b.BorderThickness));
+            var field = search.TransformToAncestor(page).TransformBounds(new Rect(search.RenderSize));
+            var glyph = (FrameworkElement)search.Template.FindName("SearchGlyph", search);
+            var icon = glyph.TransformToAncestor(page).TransformBounds(new Rect(glyph.RenderSize));
+            Assert.True(field.Contains(icon), $"the icon {icon} is inside the field {field}");
+            // Where the first character is drawn, padding and all, not where its host begins.
+            ((ShellViewModel)view.DataContext).Palette.Query = "s";
+            PageRenderer.Settle(page);
+            var first = search.TranslatePoint(search.GetRectFromCharacterIndex(0).TopLeft, page);
+            Assert.True(first.X >= icon.Right + 4, $"the text starts at {first.X}, clear of the icon ending at {icon.Right}");
+            ((ShellViewModel)view.DataContext).Palette.Query = "";
+            PageRenderer.Settle(page);
+            // No line of another colour runs along the field's edges: each edge pixel is the colour just inside it.
+            var pixels = PageRenderer.Pixels(page);
+            var width = (int)page.Width;
+            uint At(double x, double y) => pixels[(int)y * width + (int)x];
+            var inside = At(field.Right - 6, field.Top + 3);
+            for (var x = icon.Right + 8; x < field.Right - 2; x += 8)
+            {
+                Assert.Equal(inside, At(x, field.Top + 0.5));
+                Assert.Equal(inside, At(x, field.Bottom - 0.5));
+            }
+            Assert.Equal(inside, At(field.Right - 0.5, (field.Top + field.Bottom) / 2));
+            return 0;
+        }, 1360, 860);
+    }
+
     sealed class FakeAnimation(bool on) : IWindowsAnimation
     {
         public bool On { get; private set; } = on;

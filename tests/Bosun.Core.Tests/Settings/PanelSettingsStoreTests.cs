@@ -311,9 +311,9 @@ public class PanelSettingsStoreTests
 
     public static TheoryData<string, string> Faults => new()
     {
-        { "write", "panel.json could not be saved: the disk is full" },
-        { "read-back", "panel.json could not be saved: the new settings did not read back as they were written" },
-        { "replace", "panel.json could not be saved: the file is read-only" },
+        { "write", "could not be saved: the disk is full" },
+        { "read-back", "could not be saved: the new settings did not read back as they were written" },
+        { "replace", "could not be saved: the file is read-only" },
     };
 
     [Theory]
@@ -335,7 +335,7 @@ public class PanelSettingsStoreTests
         var outcome = store.Save(Chosen);
 
         Assert.False(outcome.Succeeded);
-        Assert.Equal(reason, outcome.Reason);
+        Assert.Equal($"{scratch.Settings} {reason}", outcome.Reason);                     // the file named by its whole path
         Assert.Equal(onDisk, File.ReadAllBytes(scratch.Settings)); // the old file, byte for byte
         Assert.Equal(["panel.json"], Directory.GetFiles(scratch.Path).Select(Path.GetFileName)); // no temporary file left
         Assert.Equal(before, store.Current);
@@ -360,7 +360,7 @@ public class PanelSettingsStoreTests
         var outcome = store.Save(Chosen);
 
         Assert.False(outcome.Succeeded);
-        Assert.StartsWith("panel.json could not be saved: ", outcome.Reason);
+        Assert.StartsWith(Path.Combine(scratch.File("data"), "panel.json") + " could not be saved: ", outcome.Reason);
         Assert.Equal(PanelSettings.Defaults, store.Current);
     }
 

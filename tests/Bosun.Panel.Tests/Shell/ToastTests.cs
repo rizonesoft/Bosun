@@ -180,6 +180,35 @@ public class ToastTests
     }
 
     [Fact]
+    public void Expanded_the_keyboard_scrolls_the_message_down_and_to_its_last_line()
+    {
+        // Key presses through the message area's own keyboard handling, in a real (hidden) source: Down moves it a
+        // line, End reaches its end, Home goes back (completion review). That Tab reaches it at all is the E2E's.
+        var message = string.Join(" ", Enumerable.Range(1, 120).Select(i => $"word{i}"));
+        Drawn(message, (card, page) =>
+        {
+            ((Button)card.Template.FindName("ShowMore", card)).Command.Execute(null);
+            PageRenderer.Settle(page);
+            var scroll = (ToastMessage)card.Template.FindName("WordsScroll", card);
+            var source = PresentationSource.FromVisual(scroll)!;
+            void Press(Key key)
+            {
+                scroll.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
+                PageRenderer.Settle(page);
+            }
+            Assert.Equal(0, scroll.VerticalOffset);
+            Press(Key.Down);
+            Assert.True(scroll.VerticalOffset > 0, "Down scrolls the message");
+            Press(Key.End);
+            Assert.True(scroll.ScrollableHeight > 0);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);              // its last line
+            Press(Key.Home);
+            Assert.Equal(0, scroll.VerticalOffset, 0.5);
+            return 0;
+        });
+    }
+
+    [Fact]
     public void Expanded_the_message_is_in_the_automation_tree_under_its_name_with_the_message_as_help()
     {
         // WPF leaves a template's ScrollViewer and text out of the automation tree, so the opened message took the

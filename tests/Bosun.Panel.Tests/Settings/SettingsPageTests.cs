@@ -97,6 +97,27 @@ public class SettingsPageTests
     // ---- a save that only half took ----
 
     [Fact]
+    public void Settings_the_file_refuses_for_one_reason_share_one_sentence_that_names_them()
+    {
+        // The file refuses each setting alike: the reason is said once, naming the settings, where it was said three
+        // times over (found by D02 T04 §7's E2E).
+        OnUi(() =>
+        {
+            var f = new SettingsFixture().Open();
+            f.Page.SelectedTheme = f.Option(ThemeChoice.Dark);
+            f.Page.NotifyMemoryPressure = !f.Page.NotifyMemoryPressure;
+            f.Page.PressureFloorText = "3072";
+            f.Files.FailWrite = new IOException("the disk is full");
+
+            var outcome = f.Page.SaveAsync().Result;
+
+            Assert.False(outcome.Succeeded);
+            Assert.Equal($"{SettingsFixture.FilePath} could not be saved: the disk is full (for the theme, memory pressure notifications and the pressure alert threshold).",
+                outcome.Reason);
+        });
+    }
+
+    [Fact]
     public void When_the_file_s_save_fails_and_the_run_key_s_works_the_one_is_saved_and_the_other_stays_an_edit_with_its_reason()
     {
         OnUi(() =>
@@ -109,8 +130,8 @@ public class SettingsPageTests
             var outcome = f.Page.SaveAsync().Result;
 
             Assert.False(outcome.Succeeded);
-            Assert.Equal("Saved and read back: Start with Windows on. panel.json could not be saved: the disk is full", outcome.Reason);
-            Assert.Equal("Saved and read back: Start with Windows on. Not saved: panel.json could not be saved: the disk is full", f.Page.Status);
+            Assert.Equal($"Saved and read back: Start with Windows on. {SettingsFixture.FilePath} could not be saved: the disk is full", outcome.Reason);
+            Assert.Equal($"Saved and read back: Start with Windows on. Not saved: {SettingsFixture.FilePath} could not be saved: the disk is full", f.Page.Status);
             Assert.True(f.Key.Values.ContainsKey(StartupEntry.Name)); // this one took
             Assert.Equal(ThemeChoice.FollowWindows, f.Store.Current.Theme); // this one did not
             Assert.True(f.Page.HasUnsavedEdits);                            // and is still an edit

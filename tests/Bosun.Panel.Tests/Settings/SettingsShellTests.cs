@@ -98,7 +98,7 @@ public class SettingsShellTests
 
             Assert.Equal(300, shell.ActivityHeight); // the person's pane is not put back
             var warn = shell.Activity.Single(entry => entry.Severity == LogSeverity.Warn);
-            Assert.Equal("The Activity pane's height was not saved: panel.json could not be saved: the disk is full", warn.Message);
+            Assert.Equal($"The Activity pane's height was not saved: {SettingsFixture.FilePath} could not be saved: the disk is full", warn.Message);
             Assert.Equal(132, f.OnDisk().ActivityPaneHeight);
 
             shell.ActivityHeight = 300; // the same height again is no change: nothing more is written or said
