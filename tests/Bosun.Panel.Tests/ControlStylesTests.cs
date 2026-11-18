@@ -707,6 +707,7 @@ public partial class ControlStylesTests
         ["Section.Heading"] = "text: a section's heading (D02 T04 §3)",
         ["Hint"] = "text: a control's short explanation (D02 T04 §3)",
         ["Card"] = "a surface that holds controls, never focused itself: its controls are the targets (D02 T04 §3)",
+        ["Scroll.Gutter"] = "a page's scroll area, never focused itself (Focusable false): its bar and its content are the targets (D02 T04 §8)",
         ["Cell.Text"] = "text",
         ["Cell.Number"] = "text",
         ["ScrollBar"] = "a scroll bar is driven by the wheel, the keys and its page's own keyboard path, and is 10 px by design",
