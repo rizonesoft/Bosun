@@ -92,7 +92,8 @@ public static class SmokeInputDesk {
     public static bool IsDown(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
 
     // Lets go of each of these that is down: mouse buttons (1 left, 2 right, 4 middle) with a button-up, any other key
-    // with a key-up. A class ended mid-drag or mid-chord cannot let go itself. Returns the keys it let go of.
+    // with a key-up. A class ended mid-drag or mid-chord cannot let go itself. Returns the keys it let go of. The caller
+    // passes only what the watcher saw the smoke press and not let go of, never a key a person holds.
     public static int[] Release(int[] keys) {
         var released = new System.Collections.Generic.List<int>();
         foreach (var key in keys) {
@@ -205,14 +206,19 @@ function Show-Status {
 # ---- the task ----------------------------------------------------------------------------------------------------
 
 if ($Status) { Show-Status; exit 0 }
-# Whether a task is this script's own: its action runs this script. Install and uninstall touch no other task.
-function Test-OwnTask($task) { @($task.Actions | Where-Object { "$($_.Arguments)" -like "*$PSCommandPath*" }).Count -gt 0 }
+# Whether a task is this script's own: one action, and that action this script's nightly invocation as -Install writes
+# it. Install and uninstall touch no other task, nor one an action was added to.
+$OwnArguments = "-NoProfile -WindowStyle Hidden -File $(ConvertTo-CommandLineArgument $PSCommandPath) -Scheduled -Invocation task"
+function Test-OwnTask($task) {
+    $actions = @($task.Actions)
+    $actions.Count -eq 1 -and "$($actions[0].Execute)" -like '*pwsh.exe' -and "$($actions[0].Arguments)".StartsWith("$OwnArguments ", [StringComparison]::OrdinalIgnoreCase)
+}
 if ($Install) {
     $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore
     if ($existing -and -not (Test-OwnTask $existing)) { "A task named '$TaskName' is already there and does not run this script: it is left alone. Choose another -TaskName."; exit 1 }
     $shell = (Get-Process -Id $PID).Path
     # The state folder goes in the task's own arguments, so the nightly run writes where -Status here will read.
-    $arguments = "-NoProfile -WindowStyle Hidden -File $(ConvertTo-CommandLineArgument $PSCommandPath) -Scheduled -Invocation task -StateFolder $(ConvertTo-CommandLineArgument ([IO.Path]::GetFullPath($StateFolder)))"
+    $arguments = "$OwnArguments -StateFolder $(ConvertTo-CommandLineArgument ([IO.Path]::GetFullPath($StateFolder)))"
     if ($TaskArguments) { $arguments += " $TaskArguments" }
     $action = New-ScheduledTaskAction -Execute $shell -Argument $arguments -WorkingDirectory $repo
     $trigger = New-ScheduledTaskTrigger -Daily -At ([DateTime]::Today.AddHours($WindowOpens))
@@ -271,11 +277,14 @@ function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
 # The nightly window is the hours before the deadline (03:00 to 06:00): a scheduled run started earlier, by hand from
 # Task Scheduler or a clock that moved, is a night outside it.
 function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($WindowOpens - $WindowCloses) }
-# The buttons and keys a real-input test may hold: the mouse buttons, Shift, Ctrl, Alt and both Windows keys. For the
-# script's own tests, only F24, which nothing uses, so a test never touches the keys of a person at the desk.
-$HeldKeys = if ($TestProbes) { @(0x87) } else { @(1, 2, 4, 0x10, 0x11, 0x12, 0x5B, 0x5C) }
+# What the ended class left down: the keys and buttons the watcher saw the smoke press and not let go of (its .held
+# file), so a button a person holds, the one whose press stopped the run, is never let go of for them.
 function Release-Held {
-    $let = @([SmokeInputDesk]::Release([int[]]$HeldKeys))
+    $held = "$watchFile.held"
+    $said = if (Test-Path -LiteralPath $held) { (Get-Content -LiteralPath $held -Raw) } else { '' }
+    $keys = @("$said".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+    if (-not $keys) { return }
+    $let = @([SmokeInputDesk]::Release([int[]]$keys))
     if ($let.Count) { Say "let go of what the ended class held down: $(($let | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', ')" }
 }
 function Locked { if ($TestProbes) { Test-Path -LiteralPath (Join-Path $StateFolder 'probe-locked') } else { [SmokeInputDesk]::Locked() } }
@@ -452,7 +461,7 @@ try {
 } finally {
     if ($watch) {
         if (-not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
-        Remove-Item -LiteralPath $watchFile -ErrorAction Ignore
+        Remove-Item -LiteralPath $watchFile, "$watchFile.held" -ErrorAction Ignore
     }
     $env:BOSUN_DESKTOP_HELD = $savedHeld
     $env:BOSUN_SMOKE_INPUT = $savedInput

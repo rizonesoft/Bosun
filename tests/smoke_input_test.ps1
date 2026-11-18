@@ -45,7 +45,11 @@ if ($which -and $which -eq $class) {
   if ($word -eq 'hold') {
     # F24 pressed and never let go, as a drag ended between its button-down and button-up.
     Add-Type 'using System; using System.Runtime.InteropServices; public static class F24 { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(10)] public ushort scan; [FieldOffset(12)] public int flags; [FieldOffset(16)] public int time; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Down() { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
-    if ([F24]::Down() -eq 1) { Set-Content -LiteralPath (Join-Path $state 'held.txt') -Value 'down' }
+    if ([F24]::Down() -eq 1) {
+      Set-Content -LiteralPath (Join-Path $state 'held.txt') -Value 'down'
+      # What the real watcher writes when the smoke presses a key and does not let go of it.
+      Set-Content -LiteralPath ((Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName + '.held') -Value '135'
+    }
     Start-Sleep 120
   }
   if ($word -eq 'sleep') {
@@ -376,15 +380,20 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName *> $null
   }
   Check 'uninstalled, the task is gone' (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore))
-  # A task of the same name that is not this script's is left alone, by -Install and by -Uninstall.
-  $foreign = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c rem not the smoke'
-  Register-ScheduledTask -TaskName $taskName -Action $foreign -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(1)) -Force | Out-Null
-  try {
-    $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName 2>&1 | Out-String
-    Check "-Install leaves a task of the same name that is not its own (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Get-ScheduledTask -TaskName $taskName).Actions[0].Execute -eq 'cmd.exe') $said
-    $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
-    Check "-Uninstall leaves it too (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore)) $said
-  } finally { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Ignore }
+  # A task of the same name that is not this script's is left alone, by -Install and by -Uninstall: one that runs
+  # something else, and one that runs the smoke with an action of its own beside it.
+  $smokeAction = New-ScheduledTaskAction -Execute $shell -Argument "-NoProfile -WindowStyle Hidden -File `"$script`" -Scheduled -Invocation task -StateFolder `"$state`""
+  foreach ($case in @(
+      @{ name = 'runs something else'; actions = @(New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c rem not the smoke') },
+      @{ name = 'has an action beside the smoke'; actions = @($smokeAction, (New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c rem mine')) })) {
+    Register-ScheduledTask -TaskName $taskName -Action $case.actions -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(1)) -Force | Out-Null
+    try {
+      $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+      Check "-Install leaves a task of the same name that $($case.name) (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and @((Get-ScheduledTask -TaskName $taskName).Actions).Count -eq $case.actions.Count) $said
+      $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+      Check "-Uninstall leaves it too (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore)) $said
+    } finally { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Ignore }
+  }
   # Removing a task that is not there is already done; the install record goes with it.
   $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
   Check "uninstalling again says it is removed (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and $said -like '*Removed*' -and -not (Test-Path -LiteralPath (Join-Path $state 'installed.json'))) $said

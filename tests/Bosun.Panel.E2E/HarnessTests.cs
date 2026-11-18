@@ -35,6 +35,13 @@ public class HarnessTests
             // The watcher writes at most once a second: past that, a move it counted would be in the file.
             Thread.Sleep(1500);
             Assert.Equal("none", File.ReadAllText(file).Trim());
+            // What the smoke presses and does not let go of is listed; a person pressing it takes it off (it is theirs).
+            var held = file + ".held";
+            Assert.Equal("", File.ReadAllText(held).Trim());
+            Native.KeyDown(Native.VK_F24);
+            Assert.True(Ui.Wait(() => File.ReadAllText(held).Trim() == "135", TimeSpan.FromSeconds(3)), $"the smoke's F24 is listed held ('{File.ReadAllText(held)}')");
+            Native.KeyUp(Native.VK_F24);
+            Assert.True(Ui.Wait(() => File.ReadAllText(held).Trim() == "", TimeSpan.FromSeconds(3)), "let go of, it is off the list");
             // Injected but without the smoke's mark (a remote-control tool's input) is a person.
             var injected = DateTime.UtcNow;
             Native.MoveInPlace(tagged: false);

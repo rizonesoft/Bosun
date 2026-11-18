@@ -8,6 +8,9 @@ namespace Bosun.TestChild;
 /// see every input. The smoke's own is injected (LLKHF_INJECTED, LLMHF_INJECTED) and carries its mark in dwExtraInfo
 /// (Native.SmokeTag in tests/Bosun.Panel.E2E, the same value as <see cref="SmokeTag"/>); anything else is a person,
 /// injected or not (a remote-control tool injects too), and its time is written to a file the runner reads.
+/// Beside it, <c>&lt;file&gt;.held</c> lists the keys and buttons the smoke pressed and has not let go of (virtual-key codes,
+/// comma-separated): a class ended mid-drag leaves them down, and the runner lets go of those, never one a person
+/// holds (a person pressing a key the smoke holds takes it off the list).
 /// A line "person" on stdin stands in for one, so the runner's tests can show it. It watches four hours at most.
 /// </summary>
 static class InputWatch
@@ -19,6 +22,9 @@ static class InputWatch
     private static string _file = "";
     private static DateTime _written = DateTime.MinValue, _latest = DateTime.MinValue;
     private static readonly object Gate = new();
+    private static readonly SortedSet<int> SmokeHeld = [];   // touched only on the hook thread
+    private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105,
+        WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208;
     private static HookProc? _keys, _mouse;   // held, so the collector never takes a callback Windows still calls
 
     public static int Run(string file)
@@ -31,7 +37,10 @@ static class InputWatch
             if (code >= 0)
             {
                 var stroke = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                if (!Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra)) Seen();
+                var smoke = Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra);
+                if (!smoke) Seen();
+                var message = (uint)wParam.ToInt64();
+                Track((int)stroke.vkCode, message is WM_KEYDOWN or WM_SYSKEYDOWN, message is WM_KEYUP or WM_SYSKEYUP, smoke);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -40,7 +49,11 @@ static class InputWatch
             if (code >= 0)
             {
                 var pointer = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                if (!Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra)) Seen();
+                var smoke = Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra);
+                if (!smoke) Seen();
+                var message = (uint)wParam.ToInt64();
+                var button = message switch { WM_LBUTTONDOWN or WM_LBUTTONUP => 1, WM_RBUTTONDOWN or WM_RBUTTONUP => 2, WM_MBUTTONDOWN or WM_MBUTTONUP => 4, _ => 0 };
+                if (button != 0) Track(button, message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN, message is WM_LBUTTONUP or WM_RBUTTONUP or WM_MBUTTONUP, smoke);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -55,6 +68,7 @@ static class InputWatch
         // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
         // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
         Write(null);
+        WriteHeld();
         // A person stood in for: each "person" line on stdin is one input not marked injected.
         new Thread(() =>
         {
@@ -75,6 +89,23 @@ static class InputWatch
             UnhookWindowsHookEx(mouse);
         }
         return 0;
+    }
+
+    /// <summary>
+    /// Keeps the list of what the smoke holds down: its own press adds a key, any release of it, or a person's press of
+    /// it (the key is the person's now), takes it off. Written whenever it changes.
+    /// </summary>
+    private static void Track(int key, bool down, bool up, bool smoke)
+    {
+        var changed = down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
+        if (changed) WriteHeld();
+    }
+
+    private static void WriteHeld()
+    {
+        var temporary = _file + ".held.tmp";
+        File.WriteAllText(temporary, string.Join(",", SmokeHeld));
+        File.Move(temporary, _file + ".held", overwrite: true);
     }
 
     /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
