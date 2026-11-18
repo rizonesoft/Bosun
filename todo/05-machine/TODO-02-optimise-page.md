@@ -43,6 +43,8 @@ title: "TODO-02 -- Optimise"
 
 ## 1. Diagnostics
 
+> **Started:** 2026-11-18T21:38:04Z
+
 Read-only first. Every recommendation starts from a measured fact.
 
 **Corrected 2026-11-18** against the tree before building. Each correction says what the plan said before:
