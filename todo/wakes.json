@@ -7,5 +7,14 @@
       "-c",
       "import pathlib, sys; sys.exit(0 if any(p.read_text(encoding='utf-8', errors='replace').splitlines()[2:3] == ['class: rate-limit'] for p in pathlib.Path('build/review-failures').glob('*.txt')) else 1)"
     ]
+  },
+  {
+    "section": "D02 T02 §12",
+    "need": "third-party",
+    "check": [
+      "python",
+      "-c",
+      "import os, pathlib, sys; p = pathlib.Path(os.environ.get('LOCALAPPDATA', '')) / 'Bosun' / 'smoke' / 'input-history.jsonl'; sys.exit(0 if p.exists() and any('\"mode\":\"scheduled\"' in line.replace(' ', '') for line in p.read_text(encoding='utf-8', errors='replace').splitlines()) else 1)"
+    ]
   }
 ]
