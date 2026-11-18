@@ -87,13 +87,14 @@ public class DecisionCardTests
     }
 
     /// <summary>The Memory page drawn in the shell at this window size, once its reads are in.</summary>
-    static void Drawn(int width, int height, Action<System.Windows.Controls.Border, MemoryPage> read, Source? source = null)
+    static void Drawn(int width, int height, Action<System.Windows.Controls.Border, MemoryPage> read, Source? source = null,
+        Bosun.Core.PanelSettingsStore? settings = null)
     {
         Func<System.Windows.FrameworkElement, Task>? ready = null;
         MemoryPage? shown = null;
         Bosun.Panel.Tests.Render.PageRenderer.InPage("Dark", () =>
         {
-            var (view, isReady) = Rendered(source ?? new Source(), page => shown = page);
+            var (view, isReady) = Rendered(source ?? new Source(), page => shown = page, settings);
             ready = isReady;
             return view;
         }, root =>
@@ -147,6 +148,65 @@ public class DecisionCardTests
             Assert.Equal(Box(presenter, root).Right, Box(decision, root).Right, 1.0);       // no gutter left without a bar
             Assert.Equal(Box(scroll, root).Right, Box(presenter, root).Right, 1.0);
         });
+    }
+
+    [Fact]
+    public void The_row_of_three_and_a_full_width_card_each_end_the_gap_short_of_the_bar_and_reach_the_edge_once_it_goes()
+    {
+        // Measured apart, the row as one (its last card) and the Decision card, and the same view made tall enough that
+        // the bar goes (§8 completion review).
+        Drawn(960, 600, (root, _) =>
+        {
+            var scroll = MemoryScroll(root);
+            var bar = (System.Windows.Controls.Primitives.ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            var presenter = (System.Windows.FrameworkElement)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+            var gap = (double)root.FindResource("S.S");
+            var row = Cards(scroll).Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Overlapping builds");
+            var decision = Cards(scroll).Single(c => System.Windows.Automation.AutomationProperties.GetName(c) == "Decision");
+            Assert.True(bar.IsVisible);
+            Assert.Equal(Box(bar, root).Left - gap, Box(row, root).Right, 1.0);
+            Assert.Equal(Box(bar, root).Left - gap, Box(decision, root).Right, 1.0);
+            root.Height = 2400;                                                                  // the same view, taller
+            Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            Bosun.Panel.Tests.Render.PageRenderer.Settle(root);
+            Assert.False(bar.IsVisible, "the bar goes once the page fits");
+            Assert.Equal(Box(scroll, root).Right, Box(presenter, root).Right, 1.0);
+            Assert.Equal(Box(presenter, root).Right, Box(row, root).Right, 1.0);
+            Assert.Equal(Box(presenter, root).Right, Box(decision, root).Right, 1.0);
+        });
+    }
+
+    [Fact]
+    public void The_drawn_evidence_goes_after_a_failed_first_read_and_while_reading_at_a_new_threshold_and_comes_back()
+    {
+        // The drawn label and list, not only the page's model (§8 completion review).
+        var settings = new SettingsFixture().Open();
+        var source = new Source { Fortnight = Reading<ReportDoc>.Fail(ReadingProblem.Failed, "bosun report ran past 60 s.") };
+        Drawn(1360, 2400, (root, page) =>
+        {
+            var list = Bosun.Panel.Tests.Shell.ShellSupport.Under<System.Windows.Controls.StackPanel>(root).Single(s => s.Name == "EvidenceList");
+            void Until(Func<bool> done) { for (var i = 0; i < 40 && !done(); i++) Bosun.Panel.Tests.Render.PageRenderer.Settle(root); Bosun.Panel.Tests.Render.PageRenderer.Settle(root); }
+            Assert.True(page.DecisionFailed);
+            Assert.Null(page.Decision);
+            Assert.False(list.IsVisible, "no list after a first read that failed");
+            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(), Now);
+            page.RefreshNow!.Execute(null);
+            Until(() => page.Decision is not null);
+            Assert.True(list.IsVisible, "back once a read succeeds");
+            // A new threshold reads again: while it does, no verdict and no list; then both, at the new line.
+            source.HoldFortnight = new TaskCompletionSource();
+            source.Fortnight = Reading<ReportDoc>.Of(ReportOf(lowMb: 4096), Now);
+            Assert.True(settings.Store.Update(s => s with { PressureFloorMb = 4096 }).Succeeded);
+            Until(() => page.Decision is null);
+            Assert.Null(page.Decision);
+            Assert.False(list.IsVisible, "no list while reading at the new threshold");
+            var held = source.HoldFortnight!;
+            source.HoldFortnight = null;
+            held.SetResult();
+            Until(() => page.Decision is not null);
+            Assert.True(list.IsVisible, "back at the new threshold");
+            Assert.Contains("0 minutes below the 4.0 GB pressure line", Bosun.Panel.Tests.Render.PageRenderer.TextsOf(list));
+        }, source, settings.Store);
     }
 
     [Fact]

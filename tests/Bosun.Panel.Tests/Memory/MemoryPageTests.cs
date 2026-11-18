@@ -416,11 +416,12 @@ public class MemoryPageTests
         for (var i = 0; i < 6; i++) Pump();
     }
 
-    internal static (System.Windows.FrameworkElement View, Func<System.Windows.FrameworkElement, Task> Ready) Rendered(Source source, Action<MemoryPage>? then = null)
+    internal static (System.Windows.FrameworkElement View, Func<System.Windows.FrameworkElement, Task> Ready) Rendered(Source source, Action<MemoryPage>? then = null,
+        Bosun.Core.PanelSettingsStore? settings = null)
     {
         var scheduler = new RefreshScheduler(() => Now.UtcDateTime, new Driver());
         var log = Shells.Log();
-        var page = new MemoryPage(source, scheduler, log);
+        var page = new MemoryPage(source, scheduler, log, settings);
         var shell = new ShellViewModel(Sections.All(new Dictionary<string, PageBase> { ["memory"] = page }), log);
         shell.Show(shell.Sections.Single(s => s.Key == "memory"));
         return (new ShellView { DataContext = shell }, async _ =>

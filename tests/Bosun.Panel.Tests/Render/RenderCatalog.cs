@@ -381,7 +381,19 @@ public static partial class RenderCatalog
             });
             ready = isReady;
             return view;
-        }) { Shows = "Showing the verdict from", Ready = view => ready!(view), Height = 1100 };
+        }) { Shows = "Showing the verdict from", Ready = async view => { await ready!(view); ShowDecision(view); }, Height = 1100 };
+    }
+
+    /// <summary>
+    /// Scrolls the Memory page to its end, where the Decision card is, so a render whose subject is the verdict shows
+    /// the card and every evidence row whole (D02 T04 §8 completion review: the list was cut off below the viewport).
+    /// </summary>
+    private static void ShowDecision(FrameworkElement view)
+    {
+        var scroll = Shell.ShellSupport.Under<System.Windows.Controls.ScrollViewer>(view).Single(s => s.Name == "MemoryScroll");
+        scroll.UpdateLayout();
+        scroll.ScrollToBottom();
+        scroll.UpdateLayout();
     }
 
     private static RenderCase InstancesCase(string name, Instances.FakeInstances source, string shows)
@@ -403,7 +415,8 @@ public static partial class RenderCatalog
             var (view, isReady) = Memory.MemoryPageTests.Rendered(source, then);
             ready = isReady;
             return view;
-        }) { Shows = shows, Ready = view => ready!(view), Height = tall ? 1100 : PageRenderer.Height };  // tall: down to the Decision card
+        }) { Shows = shows, Ready = tall ? async view => { await ready!(view); ShowDecision(view); } : view => ready!(view),
+            Height = tall ? 1100 : PageRenderer.Height };  // tall: the Decision card, scrolled into view whole
     }
 
     /// <summary>The shell on the Settings page with the palette open and <paramref name="query"/> typed.</summary>

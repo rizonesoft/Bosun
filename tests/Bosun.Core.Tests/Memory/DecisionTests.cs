@@ -67,6 +67,23 @@ public class DecisionTests
     }
 
     [Fact]
+    public void The_evidence_holds_each_figure_a_withheld_or_early_verdict_rests_on()
+    {
+        // Read alone, the list accounts for the verdict (D02 T04 §8 completion review): the files and rows an incomplete
+        // history lost, and the days a verdict needs.
+        var lost = DecisionRule.Decide(Report(complete: false, rejected: 7));
+        Assert.Equal(DecisionKind.Withheld, lost.Kind);
+        Assert.Contains("1 of 28 log files could not be read", lost.Evidence);
+        Assert.Contains("7 rows rejected as not valid samples", lost.Evidence);
+        var one = DecisionRule.Decide(Report(rejected: 1));
+        Assert.Contains("1 row rejected as not valid samples", one.Evidence);
+        Assert.DoesNotContain(one.Evidence, e => e.Contains("could not be read", StringComparison.Ordinal));
+        var early = DecisionRule.Decide(Report(days: 3));
+        Assert.Equal(DecisionKind.NotYet, early.Kind);
+        Assert.Equal(["3 days of Windows samples", "7 days needed for a verdict"], early.Evidence);
+    }
+
+    [Fact]
     public void Fewer_than_7_days_of_Windows_samples_gives_no_verdict_and_says_how_many()
     {
         var d = DecisionRule.Decide(Report(days: 6, lowMinutes: 500));                      // even with pressure

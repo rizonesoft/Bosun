@@ -49,11 +49,24 @@ public static class DecisionRule
         if (w.CapacitySince is { Length: > 0 } since && w.TotalMb is { } now)
             evidence.Add($"Counted since the memory changed to {Gb(now)} ({since[..Math.Min(10, since.Length)]})");
         if (days < MinimumDays)
+        {
+            // Each figure the verdict rests on is in the list, the bar it is measured against too (D02 T04 §8).
+            evidence.Add($"{MinimumDays} days needed for a verdict");
             return new(DecisionKind.NotYet, $"Not yet: {days} of the {MinimumDays} days a verdict needs are logged. Leave the logger running.", evidence);
+        }
         // A rejected row is a sample thrown away, perhaps the very minute of pressure: as incomplete as a file unread.
-        if (!report.Read.Complete || report.Read.RejectedRows > 0 || report.Read.UnreadableFiles > 0)
+        var read = report.Read;
+        if (!read.Complete || read.RejectedRows > 0 || read.UnreadableFiles > 0)
+        {
+            if (read.UnreadableFiles > 0)
+                evidence.Add($"{read.UnreadableFiles} of {read.Files} log {(read.Files == 1 ? "file" : "files")} could not be read");
+            if (read.RejectedRows > 0)
+                evidence.Add($"{read.RejectedRows} {(read.RejectedRows == 1 ? "row" : "rows")} rejected as not valid samples");
+            if (read.UnreadableFiles == 0 && read.RejectedRows == 0)
+                evidence.Add("The history was not read to its end");
             return new(DecisionKind.Withheld,
-                $"No verdict: the history is incomplete: {ReadLoss.Words(report.Read)}.", evidence);
+                $"No verdict: the history is incomplete: {ReadLoss.Words(read)}.", evidence);
+        }
 
         var reasons = new List<string>();
         var unknown = new List<string>();
