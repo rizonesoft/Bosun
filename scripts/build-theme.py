@@ -202,9 +202,11 @@ def render(groups: dict, theme: str) -> str:
         lines.append(f'    <Thickness x:Key="Gap.After.{key}">0,0,{v},0</Thickness>')
         # A table bleeds its cells' leading space into its card, so its text still starts at the card's edge (D02 T04 §4).
         lines.append(f'    <Thickness x:Key="Bleed.Before.{key}">-{v},0,0,0</Thickness>')
-    # A table cell's padding: XS before its text, clear of an inside focus ring, and M after it to the next column.
+    # A table cell's padding: XS before its text, clear of an inside focus ring, M after it to the next column, and XS
+    # above and below, so a 32 px button in a row stands clear of the row's divider instead of touching it.
     space = groups["space"]
-    lines.append(f'    <Thickness x:Key="Cell.Pad">{number("space.XS", space["XS"])},0,{number("space.M", space["M"])},0</Thickness>')
+    xs, m = number("space.XS", space["XS"]), number("space.M", space["M"])
+    lines.append(f'    <Thickness x:Key="Cell.Pad">{xs},{xs},{m},{xs}</Thickness>')
     lines += ["", "    <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->"]
     for key, value in groups["elevation"].items():
         lines.append(f'    <DropShadowEffect x:Key="Elevation.{key}" BlurRadius="{number(f"elevation.{key}.Blur", value["Blur"])}" '

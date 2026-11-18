@@ -293,7 +293,7 @@ public partial class ControlStylesTests
 
     [Theory]
     [MemberData(nameof(Themes))]
-    public void Scroll_bars_are_10_px_with_a_thumb_in_the_themes_line_colour_and_the_horizontal_one_drags_and_pages(string theme)
+    public void Scroll_bars_are_12_px_with_a_round_ended_thumb_that_widens_in_use_and_the_horizontal_one_drags_and_pages(string theme)
     {
         ScrollViewer viewer = null!;
         Live(theme, () => viewer = new ScrollViewer
@@ -306,14 +306,56 @@ public partial class ControlStylesTests
             var vertical = bars.Single(b => b.Orientation == Orientation.Vertical);
             var horizontal = bars.Single(b => b.Orientation == Orientation.Horizontal);
 
-            Assert.Equal(10, vertical.ActualWidth);
+            Assert.Equal(12, vertical.ActualWidth);
             Assert.Equal(viewer.ViewportHeight, vertical.ActualHeight);
             var grip = Under<Thumb>(vertical).Single();
-            Assert.Equal(Token(theme, "Line"), Paint(((Border)grip.Template.FindName("th", grip)).Background));
+            var bar = (Border)grip.Template.FindName("th", grip);
+            Assert.Equal(Token(theme, "TextMute"), Paint(bar.Background));
             Assert.DoesNotContain(Under<RepeatButton>(vertical), b => b.Focusable); // no stepper a keyboard would stop on
 
-            // Steward's bar stays 10 px wide when it lies down; this one is as wide as its space.
-            Assert.Equal(10, horizontal.ActualHeight);
+            // Round ends, never a long pointed ellipse: the drawn bar's corner radius is half its own width, at rest
+            // and in use (the operator, 2026-11-18: a pill radius of 999 on a 6 px bar drew a stretched ellipse,
+            // since WPF clamps it along the bar's length as well as across it).
+            static void RoundEnded(Border drawn, double across)
+            {
+                Assert.Equal(across / 2, drawn.CornerRadius.TopLeft);
+                Assert.Equal(across / 2, drawn.CornerRadius.BottomRight);
+                Assert.True(drawn.CornerRadius.TopLeft * 2 <= across, "a radius over half the width is clamped into an ellipse");
+            }
+            Assert.Equal(4, bar.ActualWidth);
+            RoundEnded(bar, bar.ActualWidth);
+            Assert.Equal(Colors.Transparent, Paint(((Border)vertical.Template.FindName("track", vertical)).Background));
+
+            // In use (the pointer over the bar, or a drag) the bar widens to 8 px: every trigger that sets its width
+            // sets the radius that keeps its ends round. Read from the templates, since a test can't hover the pointer.
+            static void WidensRound(Thumb thumb, DependencyProperty across)
+            {
+                var widened = new List<List<Setter>>();
+                foreach (var trigger in thumb.Template.Triggers)
+                {
+                    var all = trigger switch { Trigger t => t.Setters, DataTrigger d => d.Setters, _ => [] };
+                    var setters = all.OfType<Setter>().Where(s => s.TargetName == "th").ToList();
+                    if (setters.Any(s => s.Property == across)) widened.Add(setters);
+                }
+                Assert.Equal(2, widened.Count);                             // the pointer over the bar, and a drag
+                foreach (var setters in widened)
+                {
+                    var width = (double)setters.Single(s => s.Property == across).Value;
+                    Assert.Equal(8, width);
+                    var radius = setters.Single(s => s.Property == Border.CornerRadiusProperty).Value;
+                    if (radius is DynamicResourceExtension token) radius = thumb.FindResource(token.ResourceKey);
+                    Assert.Equal(new CornerRadius(width / 2), (CornerRadius)radius);
+                }
+            }
+            WidensRound(grip, FrameworkElement.WidthProperty);
+
+            // The bar stays 12 px when it lies down, its thumb as round; it is as wide as its space.
+            Assert.Equal(12, horizontal.ActualHeight);
+            var lying = Under<Thumb>(horizontal).Single();
+            var lyingBar = (Border)lying.Template.FindName("th", lying);
+            Assert.Equal(4, lyingBar.ActualHeight);
+            RoundEnded(lyingBar, lyingBar.ActualHeight);
+            WidensRound(lying, FrameworkElement.HeightProperty);
             Assert.Equal(viewer.ViewportWidth, horizontal.ActualWidth);
             Assert.True(horizontal.ActualWidth > 200);
             var slider = Under<Thumb>(horizontal).Single();
@@ -616,6 +658,34 @@ public partial class ControlStylesTests
         }, width: 900, height: 400);
     }
 
+    [Theory]
+    [MemberData(nameof(Themes))]
+    public void A_32_px_button_in_a_table_row_stands_clear_of_the_rows_divider(string theme)
+    {
+        // The operator, 2026-11-18: the Overview's Open button touched the lines above and below its row, since a
+        // cell had no space above or below its content and a row is 32 px, the button's own height.
+        DataGrid grid = null!;
+        Live(theme, () =>
+        {
+            grid = new DataGrid { ItemsSource = new[] { "Memory" } };
+            var factory = new FrameworkElementFactory(typeof(Button));
+            factory.SetResourceReference(FrameworkElement.StyleProperty, "Btn.Small");
+            factory.SetValue(ContentControl.ContentProperty, "Open");
+            grid.Columns.Add(new DataGridTemplateColumn { Header = "Open", CellTemplate = new DataTemplate { VisualTree = factory } });
+            return grid;
+        }, page =>
+        {
+            var row = (DataGridRow)grid.ItemContainerGenerator.ContainerFromIndex(0);
+            var button = Under<Button>(row).Single();
+            Assert.True(button.ActualHeight >= 32, "the button is still a 32 px target");
+            var top = button.TranslatePoint(new Point(0, 0), row).Y;
+            var bottom = row.ActualHeight - row.BorderThickness.Bottom - (top + button.ActualHeight);
+            var space = (double)grid.FindResource("S.XS");
+            Assert.True(top >= space, $"{top} px above the button, under the {space} px of space a cell keeps");
+            Assert.True(bottom >= space, $"{bottom} px between the button and the row's divider, under {space} px");
+        });
+    }
+
     [Fact]
     public void No_popup_in_the_styles_animates_by_itself()
     {
@@ -729,8 +799,9 @@ public partial class ControlStylesTests
         ["Scroll.Gutter"] = "a page's scroll area, never focused itself (Focusable false): its bar and its content are the targets (D02 T04 §8)",
         ["Cell.Text"] = "text",
         ["Cell.Number"] = "text",
-        ["ScrollBar"] = "a scroll bar is driven by the wheel, the keys and its page's own keyboard path, and is 10 px by design",
+        ["ScrollBar"] = "a scroll bar is driven by the wheel, the keys and its page's own keyboard path, and is 12 px by design",
         ["ScrollThumb"] = "a part of the scroll bar",
+        ["ScrollThumb.Horizontal"] = "a part of the scroll bar",
         ["ScrollPage"] = "a part of the scroll bar",
         ["LogBox/ListBoxItem"] = "a log line is read, not acted on: it is not focusable",
         ["CountBadge"] = "a rail row's count, drawn inside the row and never focused: the row is the target",
@@ -966,7 +1037,7 @@ public partial class ControlStylesTests
             Assert.Equal([controls["NavList"], controls["LogBox"], controls["LogBox"]], lists.Select(list => list.Style));
             // The first log is longer than its space, so it scrolls with the styled bar; the second has room to spare and
             // shows none (D02 T04 §9).
-            Assert.Contains(Under<ScrollBar>(lists[1]), bar => bar.IsVisible && bar.ActualWidth == 10);
+            Assert.Contains(Under<ScrollBar>(lists[1]), bar => bar.IsVisible && bar.ActualWidth == 12);
             Assert.DoesNotContain(Under<ScrollBar>(lists[2]), bar => bar.IsVisible);
         }, width: PageRenderer.Width, height: PageRenderer.Height);
 

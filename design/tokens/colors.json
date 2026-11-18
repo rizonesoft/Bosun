@@ -58,7 +58,7 @@
     "DangerLine": "#55C2281C",
     "InfoLine": "#551F5FBF"
   },
-  "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999, "Mark": 4},
+  "radius": {"Card": 12, "Control": 8, "Sheet": 12, "Overlay": 14, "Pill": 999, "Mark": 4, "Scroll": 2, "ScrollInUse": 4, "ScrollTrack": 6},
   "elevation": {
     "Card": {"Blur": 20, "Depth": 6, "OpacityDark": 0.22, "OpacityLight": 0.07},
     "Overlay": {"Blur": 44, "Depth": 16, "OpacityDark": 0.42, "OpacityLight": 0.18}

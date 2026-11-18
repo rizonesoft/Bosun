@@ -70,7 +70,7 @@ public class ThemeTests
             {
                 var space = tokens.RootElement.GetProperty("space");
                 var (xs, m) = (space.GetProperty("XS").GetDouble(), space.GetProperty("M").GetDouble());
-                Want("Cell.Pad", v => v is Thickness t && t == new Thickness(xs, 0, m, 0), $"Thickness {xs},0,{m},0");
+                Want("Cell.Pad", v => v is Thickness t && t == new Thickness(xs, xs, m, xs), $"Thickness {xs},{xs},{m},{xs}");
             }
             // D02 T03 §1: each elevation a frozen shadow straight down, black, at this theme's opacity, and the motion.
             var opacity = theme == "dark" ? "OpacityDark" : "OpacityLight";

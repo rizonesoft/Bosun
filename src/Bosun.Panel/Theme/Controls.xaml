@@ -680,21 +680,58 @@
     <!-- Scroll bars. The stock one is light chrome with stepper buttons, the loudest thing on a dark page. Its thumb
          and the track either side are named, so a screen reader can say what each is (D03 T02 §2: the smoke found
          them unnamed once a page first scrolled). -->
+    <!-- The thumb is a thin rounded bar that widens while the pointer is over the bar or it is dragged, as Windows 11
+         draws one: 4 px at rest, 8 px in use, its corner radius always half its width, so its ends are round. (A pill
+         radius of 999 on a bar 6 px wide is clamped by WPF along the bar's length too, and drew a long pointed ellipse.)
+         The whole 12 px of the bar is the grip, the space round the drawn bar transparent. -->
     <Style x:Key="ScrollThumb" TargetType="Thumb">
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
-                    <!-- Transparent around the thumb, so the whole 10 px is the grip. -->
                     <Border Background="Transparent">
-                        <Border x:Name="th" Margin="2" Background="{DynamicResource B.Line}"
-                                CornerRadius="{DynamicResource R.Pill}"/>
+                        <Border x:Name="th" Width="4" Margin="0,2" HorizontalAlignment="Center" CornerRadius="{DynamicResource R.Scroll}"
+                                Background="{DynamicResource B.TextMute}"/>
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextMute}"/>
-                        </Trigger>
+                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ScrollBar}}" Value="True">
+                            <Setter TargetName="th" Property="Width" Value="8"/>
+                            <Setter TargetName="th" Property="CornerRadius" Value="{DynamicResource R.ScrollInUse}"/>
+                        </DataTrigger>
                         <Trigger Property="IsDragging" Value="True">
-                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextMute}"/>
+                            <Setter TargetName="th" Property="Width" Value="8"/>
+                            <Setter TargetName="th" Property="CornerRadius" Value="{DynamicResource R.ScrollInUse}"/>
+                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextDim}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextDim}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The same thumb lying down, for a horizontal bar. -->
+    <Style x:Key="ScrollThumb.Horizontal" TargetType="Thumb">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border Background="Transparent">
+                        <Border x:Name="th" Height="4" Margin="2,0" VerticalAlignment="Center" CornerRadius="{DynamicResource R.Scroll}"
+                                Background="{DynamicResource B.TextMute}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ScrollBar}}" Value="True">
+                            <Setter TargetName="th" Property="Height" Value="8"/>
+                            <Setter TargetName="th" Property="CornerRadius" Value="{DynamicResource R.ScrollInUse}"/>
+                        </DataTrigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="th" Property="Height" Value="8"/>
+                            <Setter TargetName="th" Property="CornerRadius" Value="{DynamicResource R.ScrollInUse}"/>
+                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextDim}"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="th" Property="Background" Value="{DynamicResource B.TextDim}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -754,12 +791,14 @@
 
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Width" Value="10"/>
-        <Setter Property="MinWidth" Value="10"/>
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="MinWidth" Value="12"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
                     <Grid Background="{TemplateBinding Background}">
+                        <!-- The track, drawn only while the pointer is over the bar: at rest a page shows only the thumb. -->
+                        <Border x:Name="track" CornerRadius="{DynamicResource R.ScrollTrack}" Background="Transparent"/>
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.Thumb>
                                 <Thumb Style="{StaticResource ScrollThumb}" AutomationProperties.Name="Scroll position"/>
@@ -772,23 +811,29 @@
                             </Track.DecreaseRepeatButton>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="track" Property="Background" Value="{DynamicResource B.Hover}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
         <Style.Triggers>
-            <!-- A horizontal bar is as wide as its space and 10 px high: the width above is the vertical bar's. -->
+            <!-- A horizontal bar is as wide as its space and 12 px high: the width above is the vertical bar's. -->
             <Trigger Property="Orientation" Value="Horizontal">
                 <Setter Property="Width" Value="Auto"/>
                 <Setter Property="MinWidth" Value="0"/>
-                <Setter Property="Height" Value="10"/>
-                <Setter Property="MinHeight" Value="10"/>
+                <Setter Property="Height" Value="12"/>
+                <Setter Property="MinHeight" Value="12"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ScrollBar">
                             <Grid Background="{TemplateBinding Background}">
+                                <Border x:Name="track" CornerRadius="{DynamicResource R.ScrollTrack}" Background="Transparent"/>
                                 <Track x:Name="PART_Track" IsDirectionReversed="False">
                                     <Track.Thumb>
-                                        <Thumb Style="{StaticResource ScrollThumb}" AutomationProperties.Name="Scroll position"/>
+                                        <Thumb Style="{StaticResource ScrollThumb.Horizontal}" AutomationProperties.Name="Scroll position"/>
                                     </Track.Thumb>
                                     <Track.IncreaseRepeatButton>
                                         <RepeatButton Style="{StaticResource ScrollPage}" Command="ScrollBar.PageRightCommand" AutomationProperties.Name="Page right"/>
@@ -798,6 +843,11 @@
                                     </Track.DecreaseRepeatButton>
                                 </Track>
                             </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="track" Property="Background" Value="{DynamicResource B.Hover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>

@@ -69,6 +69,9 @@
     <CornerRadius x:Key="R.Overlay">14</CornerRadius>
     <CornerRadius x:Key="R.Pill">999</CornerRadius>
     <CornerRadius x:Key="R.Mark">4</CornerRadius>
+    <CornerRadius x:Key="R.Scroll">2</CornerRadius>
+    <CornerRadius x:Key="R.ScrollInUse">4</CornerRadius>
+    <CornerRadius x:Key="R.ScrollTrack">6</CornerRadius>
 
     <!-- Sizes: a settings form's readable width -->
     <sys:Double x:Key="Size.Form">560</sys:Double>
@@ -119,7 +122,7 @@
     <Thickness x:Key="Gap.Before.XL">24,0,0,0</Thickness>
     <Thickness x:Key="Gap.After.XL">0,0,24,0</Thickness>
     <Thickness x:Key="Bleed.Before.XL">-24,0,0,0</Thickness>
-    <Thickness x:Key="Cell.Pad">4,0,12,0</Thickness>
+    <Thickness x:Key="Cell.Pad">4,4,12,4</Thickness>
 
     <!-- Elevation: a shadow straight down, black, at this theme's opacity; frozen, so it is shared and never re-tracked -->
     <DropShadowEffect x:Key="Elevation.Card" BlurRadius="20" ShadowDepth="6" Direction="270" Color="#FF000000" Opacity="0.07" po:Freeze="True"/>
