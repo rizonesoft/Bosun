@@ -107,6 +107,12 @@ public class QueueSlotTile : Control
     /// </summary>
     public const string AboveLimit = "Above the slot limit: kept until its job ends, and no new job gets it";
 
+    /// <summary>
+    /// Said on a free slot past the configured count (the limit lowered from three to one while slot 3's job runs lists
+    /// slot 2 too): it is free, but a new job is given only a slot within the limit.
+    /// </summary>
+    public const string FreeAboveLimit = "above the limit: no new job takes it";
+
     private static DependencyPropertyKey Text(string name, string initial) =>
         DependencyProperty.RegisterReadOnly(name, typeof(string), typeof(QueueSlotTile), new FrameworkPropertyMetadata(initial));
 
@@ -132,7 +138,7 @@ public class QueueSlotTile : Control
     /// <summary>"may have ended" when the holder's process couldn't be checked, else empty.</summary>
     public string Doubt => (string)GetValue(DoubtProperty);
 
-    /// <summary><see cref="AboveLimit"/> for a slot past the configured count, else empty.</summary>
+    /// <summary><see cref="AboveLimit"/> or <see cref="FreeAboveLimit"/> for a slot past the configured count, else empty.</summary>
     public string Limit => (string)GetValue(LimitProperty);
 
     /// <summary>The pill's kind for the state.</summary>
@@ -206,7 +212,8 @@ public class QueueSlotTile : Control
         }.Where(t => t is not null)));
         tile.SetValue(DoubtKey, holder is { State: "unknown" } ? "may have ended" : "");
         // Only a slot still held: a free one above the limit has no job to keep it.
-        tile.SetValue(LimitKey, slot is { AboveLimit: true, Busy: true } ? AboveLimit : "");
+        // A held one keeps its job until it ends; a free one is taken by no new job: each said, never shown as plain Free.
+        tile.SetValue(LimitKey, slot is { AboveLimit: true } ? state == SlotState.Free ? FreeAboveLimit : AboveLimit : "");
         if (was != tile.SpokenName && UIElementAutomationPeer.FromElement(tile) is { } peer)
             peer.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, was, tile.SpokenName);
     }

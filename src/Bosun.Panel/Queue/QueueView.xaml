@@ -137,7 +137,7 @@
                                     <Button x:Name="UseDefault" DockPanel.Dock="Right" Content="Use the default" Style="{DynamicResource Btn.Small}"
                                             MinHeight="32" Margin="{DynamicResource Gap.Before.S}" Command="{Binding UseDefault}"
                                             ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="{Binding UseDefaultName}"
-                                            ToolTip="Removes the saved value, so the variable or the default applies"/>
+                                            ToolTip="{Binding UseDefaultTip}" AutomationProperties.HelpText="{Binding UseDefaultTip}"/>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBox x:Name="Value" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource Field}"
                                                  Width="120" IsReadOnly="{Binding IsLocked}" theme:FieldState.Invalid="{Binding HasError}"
@@ -157,7 +157,7 @@
                 </ItemsControl>
                 <StackPanel Orientation="Horizontal">
                     <Button x:Name="Save" Content="Save" Style="{DynamicResource Btn.Primary}" Command="{Binding Save}"
-                            ToolTip="Saves the changed limits through bosun config and reads them back"/>
+                            ToolTipService.ShowOnDisabled="True" ToolTip="{Binding SaveTip}" AutomationProperties.HelpText="{Binding SaveTip}"/>
                     <Button x:Name="Discard" Content="Discard" Style="{DynamicResource Btn}" Command="{Binding DiscardChanges}"
                             Margin="{DynamicResource Gap.Before.S}" ToolTip="Puts the form back to the limits last read"/>
                 </StackPanel>

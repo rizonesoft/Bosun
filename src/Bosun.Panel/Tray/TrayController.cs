@@ -37,6 +37,8 @@ public sealed class TrayController : IDisposable
         _settings = settings;
         _exit = exit;
         _queue = queue;
+        // The read an opening starts can end while the menu is still up: the open menu's Queue line follows it.
+        if (queue is not null) queue.Changed += QueueChanged;
         Tray = new TrayViewModel(notifier, OpenAsync, OpenQueueAsync, ExitAsync, needs, queue);
         // Its Pause or Resume and Exit, in the command palette too (D02 T03 §8): the menu's own lines.
         // A pause running out changes the menu by itself: noticed on the panel's one scheduler, never a timer of its own,
@@ -72,12 +74,9 @@ public sealed class TrayController : IDisposable
     {
         _window = window;
         // Each opening of the menu, and only that, may read the queue once (D03 T02 §3): the line shows the last words
-        // at once, and the read gives the next opening its words. Nothing reads it on a timer (design/SPEC.md §1).
-        _icon.Menu = () =>
-        {
-            _queue?.MenuOpening();
-            return Tray.Menu();
-        };
+        // at once, and changes in the open menu when the read ends. Nothing reads it on a timer (design/SPEC.md §1).
+        _icon.Menu = Tray.Menu;
+        _icon.MenuOpening += MenuOpening;
         _icon.Opened += Open;
         _icon.NotificationShown += NoticeWasShown;
         if (_icon.Install(Tray.State, Tray.Tooltip))
@@ -108,6 +107,13 @@ public sealed class TrayController : IDisposable
         var check = new PressureCheck(read, _settings, Tray, _notifier, _shell.Log);
         _refreshes.Register("Memory pressure check", PressureCheck.Interval, check.RunAsync).Start();
         return check;
+    }
+
+    private void MenuOpening() => _queue?.MenuOpening();
+
+    private void QueueChanged()
+    {
+        if (!_disposed) _icon.MenuChanged();
     }
 
     private void ShowState()
@@ -229,6 +235,8 @@ public sealed class TrayController : IDisposable
         _notifier.Sink = null;
         _icon.Opened -= Open;
         _icon.NotificationShown -= NoticeWasShown;
+        _icon.MenuOpening -= MenuOpening;
+        if (_queue is not null) _queue.Changed -= QueueChanged;
         _icon.Dispose();
     }
 }

@@ -35,6 +35,12 @@ public interface ITrayIcon : INotificationSink, IDisposable
 
     /// <summary>Gives the menu as it reads now; asked each time the menu is opened. The chosen line is run.</summary>
     Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
+
+    /// <summary>Raised as the menu opens, before <see cref="Menu"/> is asked: once for each opening.</summary>
+    event Action? MenuOpening;
+
+    /// <summary>What <see cref="Menu"/> gives has changed: a menu that is open shows the new words in place.</summary>
+    void MenuChanged();
 }
 
 /// <summary>What a message from the tray icon means.</summary>
@@ -86,7 +92,11 @@ public sealed class NativeTrayIcon : ITrayIcon
 
     public event Action? NotificationShown;
 
+    public event Action? MenuOpening;
+
     public Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
+
+    private IReadOnlyList<TrayMenuItem>? _open; // the lines of the menu on screen now, as it shows them
 
     public bool IsInstalled => _installed;
 
@@ -162,12 +172,35 @@ public sealed class NativeTrayIcon : ITrayIcon
 
     private void ShowMenu()
     {
+        MenuOpening?.Invoke();
         if (Menu?.Invoke() is not { Count: > 0 } items) return;
-        // The menu's commands are numbered from 1: Windows gives 0 for a menu that was dismissed.
-        var chosen = _shell.TrackMenu([.. items.Select((item, index) => (index + 1, item.Text))]);
+        _open = items;
+        int? chosen;
+        try
+        {
+            // The menu's commands are numbered from 1: Windows gives 0 for a menu that was dismissed.
+            chosen = _shell.TrackMenu([.. items.Select((item, index) => (index + 1, item.Text))]);
+            items = _open;
+        }
+        finally
+        {
+            _open = null;
+        }
         if (chosen is >= 1 && chosen <= items.Count) _ = items[chosen.Value - 1].Run();
         // Cancelled (Escape, a click away): the focus goes back to the notification area, where the keyboard left it.
         else _shell.ReturnFocus();
+    }
+
+    /// <summary>
+    /// The menu's words changed while it may be open (the Queue line's read ended): each line of the open menu whose
+    /// words differ is changed in place, its id kept, so one opening moves from the last words to the new ones.
+    /// </summary>
+    public void MenuChanged()
+    {
+        if (_open is not { } shown || Menu?.Invoke() is not { } now || now.Count != shown.Count) return;
+        for (var i = 0; i < now.Count; i++)
+            if (now[i].Id == shown[i].Id && now[i].Text != shown[i].Text) _shell.ChangeMenuItem(i + 1, now[i].Text);
+        _open = now;
     }
 
     /// <summary>A tooltip no longer than Windows keeps, cut at a word with an ellipsis when it is.</summary>

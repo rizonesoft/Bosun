@@ -66,7 +66,7 @@ public class QueueShellTests
                 tiles.Select(t => UIElementAutomationPeer.CreatePeerForElement(t).GetName()));
             var waiting = ShellSupport.Under<WaitingLineView>(queue).Select(l => UIElementAutomationPeer.CreatePeerForElement(l).GetName()).ToList();
             Assert.Equal(2, waiting.Count);
-            Assert.StartsWith("1. Office: dotnet build. Waiting for memory: slot 2 opens when 6.0 GB is free", waiting[0], StringComparison.Ordinal);
+            Assert.StartsWith("1. Office: dotnet build. Waiting for memory: a slot after the first opens when 6.0 GB is free", waiting[0], StringComparison.Ordinal);
             Assert.StartsWith("2. Office: dotnet test. Waiting for a free slot", waiting[1], StringComparison.Ordinal);
             var grid = ShellSupport.Under<DataGrid>(queue).Single(g => g.Name == "HistoryTable");
             Assert.Equal(["Command", "Repo", "Side", "Slot", "Waited", "Ran", "Exit", "Admission", "Ended"], grid.Columns.Select(c => (string)c.Header));
@@ -170,6 +170,46 @@ public class QueueShellTests
             Assert.Equal(("abc", "cba"), Order("Ran"));       // 0.5 s, 3 s, 20 s
             Assert.Equal(("cab", "bac"), Order("Slot"));      // 1, 2, 10
             Assert.Equal(["10", "2", "1"], grid.Items.Cast<HistoryLine>().Select(l => l.Slot));       // one-based, as the tiles number them
+        });
+    }
+
+    [Fact]
+    public void Disabled_Save_and_Use_the_default_say_why_at_the_control()
+    {
+        var source = new FakeQueueSource
+        {
+            Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3), floor: FloorLimit(0, "environment")), Now),
+        };
+        InShell(source, (view, shell, page, border) =>
+        {
+            Wait(shell.GoToAsync(shell.Sections.Single(s => s.Key == "queue")));
+            Draw(border);
+            var queue = ShellSupport.Under<QueueView>(border).Single();
+            Button Reset(string label) => ShellSupport.Under<Button>(queue).Single(b => b.Name == "UseDefault" && AutomationProperties.GetName(b) == $"Use the default for {label}");
+            var save = ShellSupport.Under<Button>(queue).Single(b => b.Name == "Save");
+            Assert.True(Reset("Slots").IsEnabled);
+            Assert.Equal(LimitField.UseDefaultDescription, Reset("Slots").ToolTip);
+            Assert.False(Reset("Maximum wait").IsEnabled);
+            Assert.Equal("Maximum wait is already the default", Reset("Maximum wait").ToolTip);
+            Assert.True(ToolTipService.GetShowOnDisabled(Reset("Maximum wait")));
+            Assert.Equal("Memory floor for each slot after the first is set by BOSUN_MIN_AVAIL_MB, so it can't be changed here",
+                Reset("Memory floor for each slot after the first").ToolTip);
+            Assert.False(save.IsEnabled);
+            Assert.Equal(QueuePage.NoChanges, save.ToolTip);
+            Assert.True(ToolTipService.GetShowOnDisabled(save));
+
+            // While a save runs, each says so.
+            var held = new TaskCompletionSource();
+            source.HoldLimits.Enqueue(held);
+            page.Field("max_wait_s").Text = "60";
+            Draw(border);
+            Assert.Equal(QueuePage.SaveDescription, save.ToolTip);
+            var saving = page.SaveAsync();
+            Draw(border);
+            Assert.Equal(QueuePage.Saving, save.ToolTip);
+            Assert.Equal(QueuePage.Saving, Reset("Slots").ToolTip);
+            held.SetResult();
+            Wait(saving);
         });
     }
 }

@@ -37,12 +37,18 @@ public interface ITrayShell : IDisposable
 
     /// <summary>Shows a popup menu at the pointer and waits for it. The id of the line chosen, or null when it was dismissed.</summary>
     int? TrackMenu(IReadOnlyList<(int Id, string Text)> items);
+
+    /// <summary>
+    /// Changes one line's words in the menu that is open now, its id kept (D03 T02 §3: the Queue line's read ends while
+    /// the menu is up); nothing when no menu is open.
+    /// </summary>
+    void ChangeMenuItem(int id, string text);
 }
 
 /// <summary>A native popup menu, built from lines of text and readable back, as Windows holds it.</summary>
 public sealed class NativeMenu : IDisposable
 {
-    private const uint MF_STRING = 0, MF_BYPOSITION = 0x400;
+    private const uint MF_STRING = 0, MF_BYCOMMAND = 0, MF_BYPOSITION = 0x400;
 
     public NativeMenu(IReadOnlyList<(int Id, string Text)> items)
     {
@@ -53,6 +59,9 @@ public sealed class NativeMenu : IDisposable
     }
 
     public IntPtr Handle { get; private set; }
+
+    /// <summary>Changes the words of the line with <paramref name="id"/>, keeping its id. False when Windows refused.</summary>
+    public bool Change(int id, string text) => ModifyMenuW(Handle, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)(uint)id, text);
 
     /// <summary>The menu's lines as Windows holds them now.</summary>
     public IReadOnlyList<(int Id, string Text)> Items()
@@ -80,6 +89,10 @@ public sealed class NativeMenu : IDisposable
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AppendMenuW(IntPtr menu, uint flags, UIntPtr id, string text);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ModifyMenuW(IntPtr menu, uint position, uint flags, UIntPtr id, string text);
 
     [DllImport("user32.dll")]
     private static extern int GetMenuItemCount(IntPtr menu);
@@ -209,6 +222,8 @@ public sealed class Win32TrayShell : ITrayShell
         Shell_NotifyIconW(NIM_SETFOCUS, ref data);
     }
 
+    private NativeMenu? _open;
+
     public int? TrackMenu(IReadOnlyList<(int Id, string Text)> items)
     {
         using var menu = new NativeMenu(items);
@@ -216,10 +231,22 @@ public sealed class Win32TrayShell : ITrayShell
         // Windows' own rule for a tray menu: the window is brought to the front first, or the menu does not close
         // when the person clicks away, and it is sent a message after, so the next click on the icon is not lost.
         SetForegroundWindow(_source.Handle);
-        var chosen = TrackPopupMenuEx(menu.Handle, TPM_RIGHTBUTTON | TPM_NONOTIFY | TPM_RETURNCMD, at.X, at.Y, _source.Handle, IntPtr.Zero);
-        PostMessageW(_source.Handle, 0, IntPtr.Zero, IntPtr.Zero);
-        return chosen == 0 ? null : chosen;
+        // While Windows tracks it, its modal loop still runs the panel's dispatcher, so a read that ends then can change
+        // a line of this menu (ChangeMenuItem).
+        _open = menu;
+        try
+        {
+            var chosen = TrackPopupMenuEx(menu.Handle, TPM_RIGHTBUTTON | TPM_NONOTIFY | TPM_RETURNCMD, at.X, at.Y, _source.Handle, IntPtr.Zero);
+            PostMessageW(_source.Handle, 0, IntPtr.Zero, IntPtr.Zero);
+            return chosen == 0 ? null : chosen;
+        }
+        finally
+        {
+            _open = null;
+        }
     }
+
+    public void ChangeMenuItem(int id, string text) => _open?.Change(id, text);
 
     public void Dispose()
     {

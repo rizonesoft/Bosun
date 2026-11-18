@@ -183,7 +183,7 @@ public class QueuePageTests
             Assert.Equal([0, 1], page.Slots.Select(s => s.Index));
             Assert.Equal([SlotState.Running, SlotState.Free], page.Slots.Select(QueueSlotTile.StateOf));
             var (lines, _) = WaitingRow.Read(page.Status);
-            Assert.Equal(["Waiting for memory: slot 2 opens when 6.0 GB is free; 4.5 GB is free now", "Waiting for a free slot"], lines.Select(l => l.Why));
+            Assert.Equal(["Waiting for memory: a slot after the first opens when 6.0 GB is free; 4.5 GB is free now", "Waiting for a free slot"], lines.Select(l => l.Why));
             Assert.Equal(["Office: dotnet build", "Office: dotnet test"], lines.Select(l => l.Job));
             Assert.Equal("1 running, 2 waiting", page.LiveWords);
             Assert.Null(page.Idle);
@@ -229,7 +229,8 @@ public class QueuePageTests
         var timedOut = new HistoryLine(Job(slot: null, exit: 1, timedOut: true, waited: 900));
         Assert.Equal(("None", "1", HistoryLine.TimedOut, "15 min"), (timedOut.Slot, timedOut.Exit, timedOut.Admission, timedOut.Waited));
         var cancelled = new HistoryLine(Job(slot: null, exit: -1073741510, ran: 0, timedOut: false));
-        Assert.Equal(("None", "0xC000013A (stopped by Ctrl+C)", HistoryLine.Cancelled, "0 s"), (cancelled.Slot, cancelled.Exit, cancelled.Admission, cancelled.Ran));
+        Assert.Equal(("None", "0xC000013A", HistoryLine.Cancelled, "0 s"), (cancelled.Slot, cancelled.Exit, cancelled.Admission, cancelled.Ran));
+        Assert.Equal("Exit code 0xC000013A (stopped by Ctrl+C)", cancelled.ExitWhy);   // the cell's code, its name in its tooltip
         // A Windows status reads in hex as Windows writes it, named where it is a common one; a small code is its number.
         Assert.Equal(("0", "1", "0xC0000005 (access violation)", "0xC0000135"), (HistoryLine.ExitWords(0), HistoryLine.ExitWords(1), HistoryLine.ExitWords(-1073741819), HistoryLine.ExitWords(-1073741515)));
         var wsl = new HistoryLine(Job(side: "wsl", slot: 1, exit: null, ran: 0.5));
@@ -292,7 +293,8 @@ public class QueuePageTests
             source.Limits = Reading<ConfigDoc>.Fail(ReadingProblem.Failed, "bosun config get --json did not answer within 20 s and was stopped.");
             h.Refresh();
             Assert.Null(h.Page.StatusNotice);
-            Assert.Equal("The limits could not be read: bosun config get --json did not answer within 20 s and was stopped.", h.Page.LimitsNotice);
+            // Read well before, so the form keeps those values, said as last read (completion review item 11).
+            Assert.Equal($"Last read at {Now.ToLocalTime():HH:mm}; the limits can't be read now: bosun config get --json did not answer within 20 s and was stopped.", h.Page.LimitsNotice);
             Assert.Equal(2, h.Page.Slots.Count);
 
             source.Status = Reading<StatusDoc>.Fail(ReadingProblem.NotInstalled, "bosun.exe is not installed.");
@@ -318,7 +320,7 @@ public class QueuePageTests
             Assert.Equal(["slots", "min_avail_mb", "max_wait_s", "min_guest_mb"], h.Page.Fields.Select(f => f.Key));
             Assert.Equal(["Slots", "Memory floor for each slot after the first", "Maximum wait", "Guest memory floor"], h.Page.Fields.Select(f => f.Label));
             Assert.Equal(("3", "From 1 to 64. Saved: 3."), (h.Slots.Text, h.Slots.Detail));
-            Assert.Equal(("seconds", "0 means no limit."), (h.Wait.Unit, h.Wait.Hint));
+            Assert.Equal(("seconds", QueuePage.WaitHint), (h.Wait.Unit, h.Wait.Hint));
             Assert.Equal("The default, 6144", h.Page.Field("min_avail_mb").Source);
             Assert.Null(h.Page.FileNotice);
 
@@ -480,6 +482,7 @@ public class QueuePageTests
             Assert.Contains("not confirmed", failed.Reason, StringComparison.Ordinal);
 
             source.ReadBack = () => Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3)), Now);
+            h.Refresh();                                                   // a fresh read: the form is current again
             h.Slots.Text = "1";
             var mismatched = h.Save();
             Assert.False(mismatched.Succeeded);
@@ -598,6 +601,206 @@ public class QueuePageTests
         {
             Assert.Equal(QueuePage.NotRead, u.Page.SaveReason());
             Assert.False(u.Page.Save.CanExecute(null));
+        });
+    }
+
+    // ---- completion review ----
+
+    [Fact]
+    public void A_memory_wait_names_no_slot_number_and_a_free_slot_above_the_limit_is_said_as_no_new_job_takes_it()
+    {
+        // Three slots, slots 1 and 2 held, slot 3 free and memory-gated: the waiter's words name no wrong slot.
+        var three = Status($"{Held(0, Holder(0))},{Held(1, Holder(1))},{Free(2)}", Waiter(500, "\"memory\"", "6144", command: "dotnet build"));
+        OnPage(new FakeQueueSource { Status = Reading<StatusDoc>.Of(three, Now) }, h =>
+        {
+            var (lines, _) = WaitingRow.Read(h.Page.Status);
+            Assert.Equal("Waiting for memory: a slot after the first opens when 6.0 GB is free; 4.5 GB is free now", lines.Single().Why);
+            Assert.DoesNotContain("slot 2", lines.Single().Why, StringComparison.Ordinal);
+        });
+        // Three slots lowered to one while slot 3's job runs: status lists slot 2 too, free and above the limit.
+        var lowered = Status($"{Held(0, Holder(0))},{Held(1, null, busy: false, above: true)},{Held(2, Holder(2), above: true)}");
+        OnPage(new FakeQueueSource { Status = Reading<StatusDoc>.Of(lowered, Now) }, h =>
+        {
+            Assert.Contains("Slot 2: Free, above the limit: no new job takes it.", h.Page.Doubts);
+            Assert.Contains(h.Page.Doubts, d => d.StartsWith("Slot 3 is above the slot limit", StringComparison.Ordinal));
+            Assert.Equal("2 running", h.Page.LiveWords);
+        });
+    }
+
+    [Fact]
+    public void The_hints_say_what_bosun_s_admission_does_with_each_limit()
+    {
+        OnPage(new FakeQueueSource(), h =>
+        {
+            Assert.Equal([QueuePage.SlotsHint, QueuePage.FloorHint, QueuePage.WaitHint, QueuePage.GuestHint], h.Page.Fields.Select(f => f.Hint));
+            Assert.Equal("The first slot has no floor: a job takes any later slot only while this much memory is free.", h.Page.Field("min_avail_mb").Hint);
+            Assert.Equal("A job waiting longer starts without a slot, past the slot and memory limits. 0 means it waits with no limit.", h.Wait.Hint);
+            Assert.Equal("A WSL job in a slot after the first starts only while the WSL guest has this much free, or once the maximum wait runs out.",
+                h.Page.Field("min_guest_mb").Hint);
+        });
+    }
+
+    [Fact]
+    public void A_write_that_failed_on_a_healthy_file_is_said_in_the_tool_s_words_never_as_a_damaged_file()
+    {
+        const string full = @"can't write a temporary file beside C:\Users\me\AppData\Local\Bosun\config.json (error 112); it is unchanged";
+        var source = new FakeQueueSource();
+        source.SaveAnswers["slots"] = _ => Reading<LimitSave>.Of(new LimitSave("slots", LimitSaveOutcome.NotWritten, null, full), Now);
+        OnPage(source, h =>
+        {
+            h.Slots.Text = "1";
+            var outcome = h.Save();
+            Assert.True(outcome is { Succeeded: false, IsWarning: true });
+            Assert.Equal($"Not every limit was saved: bosun did not write the limits file: {full}.", h.Page.FormNotice);
+            Assert.DoesNotContain("damaged", h.Page.FormNotice, StringComparison.Ordinal);
+            Assert.DoesNotContain("can't be read", h.Page.FormNotice, StringComparison.Ordinal);
+            Assert.Null(h.Page.FileNotice);                                // the read says the file is fine
+            Assert.Equal("1", h.Slots.Text);                               // the draft kept
+            Assert.True(h.Page.HasUnsavedEdits);
+        });
+    }
+
+    [Fact]
+    public void A_save_s_read_back_keeps_an_edit_made_while_it_was_pending_whether_it_matches_mismatches_or_is_unreadable()
+    {
+        foreach (var answer in new[] { "matching", "mismatched", "unreadable" })
+        {
+            var source = new FakeQueueSource();
+            OnPage(source, h =>
+            {
+                if (answer == "mismatched") source.ReadBack = () => Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3)), Now);
+                if (answer == "unreadable") source.ReadBack = () => Reading<ConfigDoc>.Of(Config(readable: false, valid: false, error: "denied"), Now);
+                h.Slots.Text = "1";
+                var held = new TaskCompletionSource();
+                source.HoldLimits.Enqueue(held);
+                var save = h.Page.SaveAsync();
+                Settle();
+                Assert.False(save.IsCompleted);                            // waiting on its read-back
+                h.Slots.Text = "5";                                        // the person types a newer value meanwhile
+                held.SetResult();
+                var outcome = Wait(save);
+                Assert.Equal("5", h.Slots.Text);                           // never replaced by what the read-back says
+                Assert.True(h.Page.HasUnsavedEdits);
+                if (answer == "matching") Assert.True(outcome.Succeeded);
+                if (answer == "mismatched") Assert.Equal("Saved, but read back as 3, so it is not confirmed.", h.Slots.Error);
+                if (answer == "unreadable") Assert.Contains("not confirmed", outcome.Reason, StringComparison.Ordinal);
+            });
+        }
+        // Not edited meanwhile: a matching read-back shows the value read.
+        var plain = new FakeQueueSource();
+        OnPage(plain, h =>
+        {
+            h.Slots.Text = "01";
+            Assert.True(h.Save().Succeeded);
+            Assert.Equal(("1", false), (h.Slots.Text, h.Page.HasUnsavedEdits));
+        });
+    }
+
+    [Fact]
+    public void Use_the_default_s_read_back_keeps_an_edit_made_while_it_ran()
+    {
+        var source = new FakeQueueSource { Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3)), Now) };
+        OnPage(source, h =>
+        {
+            var held = new TaskCompletionSource();
+            source.HoldLimits.Enqueue(held);
+            var reset = ((Bosun.Panel.Mvvm.AsyncCommand)h.Slots.UseDefault!).ExecuteAsync();
+            Settle();
+            h.Slots.Text = "7";
+            held.SetResult();
+            Wait(reset);
+            Settle();
+            Assert.Equal(("7", (long?)null, "The default, 2"), (h.Slots.Text, h.Slots.Saved, h.Slots.Source));
+            Assert.True(h.Page.HasUnsavedEdits);
+        });
+    }
+
+    [Fact]
+    public void A_failed_read_after_a_good_one_marks_the_form_stale_and_holds_Save_and_Use_the_default_until_a_fresh_read()
+    {
+        var source = new FakeQueueSource { Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3)), Now) };
+        OnPage(source, h =>
+        {
+            source.Limits = Reading<ConfigDoc>.Fail(ReadingProblem.Failed, "bosun config get --json did not answer within 20 s and was stopped.");
+            h.Refresh();
+            var stale = $"Last read at {Now.ToLocalTime():HH:mm}; the limits can't be read now: bosun config get --json did not answer within 20 s and was stopped.";
+            Assert.Equal(stale, h.Page.LimitsNotice);
+            Assert.Equal(("3", "Saved: 3"), (h.Slots.Text, h.Slots.Source)); // the values last read, kept
+            h.Slots.Text = "4";
+            Assert.Equal(stale, h.Page.SaveReason());
+            Assert.False(h.Page.Save.CanExecute(null));
+            Assert.Equal(stale, h.Slots.UseDefaultReason);
+            Assert.False(h.Slots.UseDefault!.CanExecute(null));
+            var refused = h.Save();                                      // the page's own SaveAsync applies the same reason
+            Assert.Equal((false, stale), (refused.Succeeded, refused.Reason));
+            Assert.DoesNotContain(source.Calls, c => c.StartsWith("set", StringComparison.Ordinal));
+
+            source.Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3)), Now);
+            h.Refresh();
+            Assert.Null(h.Page.LimitsNotice);
+            Assert.Null(h.Page.SaveReason());
+            Assert.Equal("4", h.Slots.Text);                               // the draft kept through it all
+        });
+    }
+
+    [Fact]
+    public void Leaving_with_a_draft_after_the_file_is_found_damaged_keeps_the_person_and_the_draft()
+    {
+        var source = new FakeQueueSource();
+        OnPage(source, h =>
+        {
+            source.Limits = Reading<ConfigDoc>.Of(Config(valid: false, error: "line 1: not JSON"), Now);
+            h.Refresh();
+            h.Slots.Text = "1";
+            Assert.True(h.Page.HasUnsavedEdits);
+            h.Shell.AskToLeave = _ => Task.FromResult(LeaveChoice.Save);
+            Assert.False(Wait(h.Shell.GoToAsync(h.Other)));
+            Assert.Same(h.Page, h.Shell.Page);
+            Assert.Equal("1", h.Slots.Text);
+            Assert.Contains("bosun will not overwrite", h.Page.SaveFailure, StringComparison.Ordinal);
+            Assert.DoesNotContain(source.Calls, c => c.StartsWith("set", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
+    public void Each_Use_the_default_is_in_Ctrl_K_with_why_it_can_t_run()
+    {
+        var source = new FakeQueueSource { Limits = Reading<ConfigDoc>.Of(Config(slots: SlotsLimit(3, "file", 3), floor: FloorLimit(0, "environment")), Now) };
+        OnPage(source, h =>
+        {
+            PaletteRow Row(string name)
+            {
+                h.Shell.Palette.Open();
+                h.Shell.Palette.Query = "Use the default";
+                var row = h.Shell.Palette.Rows.Single(r => r.Name == name);
+                h.Shell.Palette.Close();
+                return row;
+            }
+            Assert.Equal(["Use the default for Slots", "Use the default for Memory floor for each slot after the first", "Use the default for Maximum wait",
+                "Use the default for Guest memory floor"], h.Page.PaletteCommands.Where(c => c.Name.StartsWith("Use the default", StringComparison.Ordinal)).Select(c => c.Name));
+            Assert.Null(Row("Use the default for Slots").Reason);
+            Assert.Equal("Maximum wait is already the default", Row("Use the default for Maximum wait").Reason);
+            Assert.Equal("Memory floor for each slot after the first is set by BOSUN_MIN_AVAIL_MB, so it can't be changed here",
+                Row("Use the default for Memory floor for each slot after the first").Reason);
+
+            // Run from the palette: the same command as the button.
+            h.Shell.Palette.Open();
+            h.Shell.Palette.Query = "Use the default";
+            Assert.True(Wait(h.Shell.Palette.RunAsync(h.Shell.Palette.Rows.Single(r => r.Name == "Use the default for Slots"))));
+            Settle();
+            Assert.Contains("unset slots", source.Calls);
+            Assert.Equal("Slots is already the default", h.Slots.UseDefaultReason);
+
+            // While a save runs: every one is held with why.
+            var held = new TaskCompletionSource();
+            source.HoldLimits.Enqueue(held);
+            h.Wait.Text = "60";
+            var save = h.Page.SaveAsync();
+            Settle();
+            Assert.Equal(QueuePage.Saving, h.Page.Field("min_guest_mb").UseDefaultReason);
+            Assert.Equal(QueuePage.Saving, Row("Use the default for Guest memory floor").Reason);
+            held.SetResult();
+            Wait(save);
         });
     }
 }

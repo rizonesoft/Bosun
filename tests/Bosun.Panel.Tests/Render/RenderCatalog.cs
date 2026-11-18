@@ -191,7 +191,7 @@ public static partial class RenderCatalog
                 + $"{Bosun.Panel.Tests.Queue.QueueFixtures.Held(2, null)},{Bosun.Panel.Tests.Queue.QueueFixtures.Held(3, Bosun.Panel.Tests.Queue.QueueFixtures.Holder(3, repo: "\"Steward\"", command: "npm test"), above: true)}",
                 $"{Bosun.Panel.Tests.Queue.QueueFixtures.Waiter(500, "\"memory\"", "6144", command: "dotnet build")},{Bosun.Panel.Tests.Queue.QueueFixtures.Waiter(501, "\"slot\"", command: "dotnet test")}"), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
             History = QueueHistory(),
-        }, "Waiting for memory: slot 2 opens when 6.0 GB is free"),
+        }, "Waiting for memory: a slot after the first opens when 6.0 GB is free"),
         QueueCase("idle", new Bosun.Panel.Tests.Queue.FakeQueueSource
         {
             Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.IdleStatus(), Bosun.Panel.Tests.Queue.QueueFixtures.Now),

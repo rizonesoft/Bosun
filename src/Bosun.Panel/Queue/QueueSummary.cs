@@ -26,6 +26,7 @@ public sealed class QueueSummary(IQueueSource source, ActivityLog log) : IQueueS
 
     private string? _failure;
     private Task? _reading;
+    private long _asked, _applied;
 
     /// <summary>The words now: <see cref="Checking"/> until the first reading, null while the queue can't be read.</summary>
     public string? Words { get; private set; } = Checking;
@@ -49,8 +50,15 @@ public sealed class QueueSummary(IQueueSource source, ActivityLog log) : IQueueS
         _reading = ReadAsync();
     }
 
+    /// <summary>
+    /// A ticket for a reading about to start, the page's or its own: a reading is taken only if no reading begun after
+    /// it has been taken already, so a slow tray read that ends after a newer page reading can't replace it.
+    /// </summary>
+    public long Begin() => ++_asked;
+
     private async Task ReadAsync()
     {
+        var ticket = Begin();
         Reading<StatusDoc> reading;
         try
         {
@@ -61,13 +69,18 @@ public sealed class QueueSummary(IQueueSource source, ActivityLog log) : IQueueS
         {
             reading = Reading<StatusDoc>.Fail(ReadingProblem.Failed, string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message);
         }
-        Take(reading);
+        Take(reading, ticket);
     }
 
-    /// <summary>A reading of the status, the page's or its own, becomes the words.</summary>
-    public void Take(Reading<StatusDoc> reading)
+    /// <summary>A reading of the status taken now, with a ticket of its own.</summary>
+    public void Take(Reading<StatusDoc> reading) => Take(reading, Begin());
+
+    /// <summary>A reading of the status, the page's or its own, becomes the words, unless a newer one has.</summary>
+    public void Take(Reading<StatusDoc> reading, long ticket)
     {
         ArgumentNullException.ThrowIfNull(reading);
+        if (ticket <= _applied) return;
+        _applied = ticket;
         var words = reading.Value is { } status ? WordsOf(status) : null;
         if (reading.Value is null)
         {
@@ -132,9 +145,10 @@ public sealed class QueueSummary(IQueueSource source, ActivityLog log) : IQueueS
                     said.Add(string.Create(CultureInfo.InvariantCulture, $"Slot {n} is held, but no record says which job holds it."));
                     break;
             }
-            // Only a slot still held: a free one above the limit has no job to keep it.
             if (slot.AboveLimit && slot.Busy == true)
                 said.Add(string.Create(CultureInfo.InvariantCulture, $"Slot {n} is above the slot limit: its job keeps it until it ends, and no new job gets it."));
+            else if (slot.AboveLimit && slot.Busy == false)
+                said.Add(string.Create(CultureInfo.InvariantCulture, $"Slot {n}: Free, {QueueSlotTile.FreeAboveLimit}."));
         }
         return said;
     }

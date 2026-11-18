@@ -16,7 +16,7 @@ public sealed record WaitingLine(int Place, string Job, string Why, string Meta,
 /// <summary>
 /// The jobs waiting for a slot, in the order they will get one (D02 T03 §6, design/SPEC.md §19 Queue slot), from
 /// <c>bosun status --json</c>: each line its place, repo and command, side and waited time, and why it waits in words. A
-/// job held by memory names its own floor, the limit its job was given ("Waiting for memory: slot 2 opens when 6.0 GB
+/// job held by memory names its own floor, the limit its job was given ("Waiting for memory: a slot after the first opens when 6.0 GB
 /// is free; 4.5 GB is free now"), and a figure that couldn't be read says so, never 0. What a record doesn't say is said
 /// as unknown, never guessed. Records the tool couldn't read are said too: none read is never "Nothing waiting", and
 /// some skipped keeps the jobs it has with how many it couldn't read.
@@ -66,7 +66,7 @@ public class WaitingRow : Control
                 var floor = waiter.MinAvailMb is > 0 ? waiter.MinAvailMb : status.Memory.MinAvailMb > 0 ? status.Memory.MinAvailMb : null;
                 var free = status.Memory.AvailableMb is { } mb && mb >= 0 ? $"{QueueWords.Gb(mb)} is free now" : "free memory is not available";
                 return floor is { } f
-                    ? $"Waiting for memory: slot 2 opens when {QueueWords.Gb(f)} is free; {free}"
+                    ? $"Waiting for memory: a slot after the first opens when {QueueWords.Gb(f)} is free; {free}"
                     : $"Waiting for memory, its floor not recorded; {free}";
             case null or "":
                 return "Waiting for a reason not recorded";

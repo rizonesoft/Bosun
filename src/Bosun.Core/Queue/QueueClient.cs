@@ -41,8 +41,12 @@ public enum LimitSaveOutcome
     /// <summary>Another save held the config (exit 75): nothing was changed.</summary>
     Busy,
 
-    /// <summary>The file can't be read or is damaged, so it was not overwritten (exit 74).</summary>
-    Damaged,
+    /// <summary>
+    /// The file was not written (exit 74): it can't be read or is damaged, so bosun would not overwrite it, or the write
+    /// itself failed (a full disk, a temporary file refused, a replace blocked by a lock) on a healthy file.
+    /// <see cref="LimitSave.Message"/> is the tool's own words, which name the operation that failed.
+    /// </summary>
+    NotWritten,
 }
 
 /// <summary>One limit's save: its outcome, the value now saved (null when unset), and the tool's words.</summary>
@@ -54,7 +58,8 @@ public sealed class QueueClient : IQueueSource
     public const int MaxConfigBytes = 64 * 1024;
 
     /// <summary>
-    /// The most of one job log read, from its end: a line is a few hundred bytes, so 200 jobs fit many times over, and a
+    /// How much of one job log is read at a time, from its end back: a line is usually a few hundred bytes, so one chunk
+    /// mostly holds 200 jobs many times over, and a log of long command lines is read a chunk further back at a time, so a
     /// large or damaged log never fills the panel's memory.
     /// </summary>
     public const int MaxLogTailBytes = 4 * 1024 * 1024;
@@ -111,7 +116,7 @@ public sealed class QueueClient : IQueueSource
         var outcome = reply.Ok ? LimitSaveOutcome.Saved : exit switch
         {
             75 => LimitSaveOutcome.Busy,
-            74 => LimitSaveOutcome.Damaged,
+            74 => LimitSaveOutcome.NotWritten,
             _ => LimitSaveOutcome.Refused,
         };
         return Reading<LimitSave>.Of(new LimitSave(reply.Key.Length > 0 ? reply.Key : key, outcome, reply.Ok ? reply.Saved : null, reply.Ok ? "saved" : reply.Error ?? "refused, with no reason given"), _clock.GetUtcNow());
@@ -149,8 +154,8 @@ public sealed class QueueClient : IQueueSource
     }
 
     /// <summary>
-    /// The job logs, newest file first (each is named for its UTC day), read until <paramref name="count"/> valid records
-    /// are found; the records ordered newest first by their millisecond end where a line has one, else by its end in
+    /// The job logs, newest file first (each is named for its UTC day), each read from its end back until <paramref name="count"/>
+    /// valid records are found; the records ordered newest first by their millisecond end where a line has one, else by its end in
     /// seconds. A file is read while <c>bosun run</c> may append to it: only its complete lines are taken, and a line
     /// that is not a record is passed over and counted. A missing folder is an empty history; a file that can't be read
     /// is said by name, the others kept.
@@ -181,37 +186,73 @@ public sealed class QueueClient : IQueueSource
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (jobs.Count >= count) break;
-            string text;
-            var cut = false;
             try
             {
-                using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                // The newest jobs are at its end: only the last MaxLogTailBytes are read, the first line of that cut off.
-                if (stream.Length > MaxLogTailBytes)
-                {
-                    stream.Seek(-MaxLogTailBytes, SeekOrigin.End);
-                    cut = true;
-                }
-                using var reader = new StreamReader(stream, Encoding.UTF8);
-                text = reader.ReadToEnd();
+                var (found, skipped) = ReadBack(file, count - jobs.Count, cancellationToken);
+                jobs.AddRange(found);
+                passedOver += skipped;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 unreadable.Add($"{Path.GetFileName(file)}: {e.Message}");
-                continue;
             }
-            // Only whole lines: a line still being appended has no newline yet, and is read next time.
-            var end = text.LastIndexOf('\n');
-            var whole = end < 0 ? "" : text[..end];
-            // A tail begins inside a line: that part line is not a record, and not counted as one passed over.
-            if (cut)
+        }
+        var newest = jobs.OrderByDescending(EndOf).Take(count).ToList();
+        return Reading<JobHistory>.Of(new JobHistory(newest, passedOver, unreadable), _clock.GetUtcNow());
+    }
+
+    /// <summary>
+    /// One job log read from its end back, <see cref="MaxLogTailBytes"/> at a time, until <paramref name="needed"/> valid
+    /// records are found or its start is reached: the newest jobs are at its end, and one day of long command lines can
+    /// hold more than one chunk's worth of the newest. The line cut at a chunk's start is joined to the end of the chunk
+    /// before it; the last line, still being appended by <c>bosun run</c> (no newline yet), is not read. Memory holds the
+    /// records found and one chunk.
+    /// </summary>
+    private static (List<JobLineDoc> Jobs, int PassedOver) ReadBack(string file, int needed, CancellationToken cancellationToken)
+    {
+        var jobs = new List<JobLineDoc>();
+        var passedOver = 0;
+        using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var position = stream.Length;
+        var carry = Array.Empty<byte>();   // the start of a line whose earlier part is in the chunk before
+        var unfinished = true;             // the bytes after the file's last newline are a line still being written
+        while (position > 0 && jobs.Count < needed)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var start = Math.Max(0, position - MaxLogTailBytes);
+            var size = (int)(position - start);
+            var data = new byte[size + carry.Length];
+            stream.Seek(start, SeekOrigin.Begin);
+            stream.ReadExactly(data, 0, size);
+            carry.CopyTo(data, size);
+            position = start;
+            var to = data.Length;
+            if (unfinished)
             {
-                var first = whole.IndexOf('\n');
-                whole = first < 0 ? "" : whole[(first + 1)..];
+                var last = Array.LastIndexOf(data, (byte)'\n');
+                if (last < 0)
+                {
+                    carry = [];
+                    continue;
+                }
+                to = last;
+                unfinished = false;
             }
-            foreach (var line in whole.Split('\n'))
+            var from = 0;
+            if (start > 0)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var cut = Array.IndexOf(data, (byte)'\n', 0, to);
+                if (cut < 0)
+                {
+                    carry = data[..to];
+                    continue;
+                }
+                carry = data[..cut];
+                from = cut + 1;
+            }
+            else carry = [];
+            foreach (var line in Encoding.UTF8.GetString(data, from, to - from).Split('\n'))
+            {
                 if (line.Trim().Length == 0) continue;
                 try
                 {
@@ -221,8 +262,7 @@ public sealed class QueueClient : IQueueSource
                 catch (JsonException) { passedOver++; }
             }
         }
-        var newest = jobs.OrderByDescending(EndOf).Take(count).ToList();
-        return Reading<JobHistory>.Of(new JobHistory(newest, passedOver, unreadable), _clock.GetUtcNow());
+        return (jobs, passedOver);
     }
 
     /// <summary>A job's end in milliseconds: its own where it has one, else its end in whole seconds.</summary>

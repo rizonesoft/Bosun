@@ -59,8 +59,9 @@ public sealed class HistoryLine
         RanSeconds = job.RanS;
         Ran = Seconds(job.RanS);
         ExitSort = job.ExitCode;
-        Exit = job.ExitCode is { } code ? ExitWords(code) : NotKnown;
-        ExitWhy = job.ExitCode is null ? "Not known: the job's exit code was not recorded (a WSL job's may not be)" : $"Exit code {Exit}";
+        // The cell holds the code (a Windows status in hex fits it); its name is in the cell's tooltip and spoken words.
+        Exit = job.ExitCode is { } code ? ExitWords(code).Split(' ')[0] : NotKnown;
+        ExitWhy = job.ExitCode is { } said ? $"Exit code {ExitWords(said)}" : "Not known: the job's exit code was not recorded (a WSL job's may not be)";
         Admission = job.TimedOutIntoQueue ? TimedOut : SlotSort is { } given ? string.Create(CultureInfo.InvariantCulture, $"Ran in slot {given}") : Cancelled;
         EndedSort = QueueClient.EndOf(job);
         Ended = DateTimeOffset.TryParse(job.EndedAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ended)
@@ -109,6 +110,19 @@ public sealed class HistoryLine
         if (seconds < 60) return seconds.ToString("0.#", CultureInfo.InvariantCulture) + " s";
         return QueueWords.Elapsed((long)Math.Round(seconds)) ?? NotKnown;
     }
+}
+
+/// <summary>What a reading of the limits may do to a field's text.</summary>
+internal enum TextRule
+{
+    /// <summary>Keep the person's edit and what was said about it; a field with neither shows the value read.</summary>
+    KeepEdit,
+
+    /// <summary>Show the value read: a save or reset whose value the field still holds as submitted.</summary>
+    Replace,
+
+    /// <summary>Touch no text: a reading that did not read the file confirms nothing a field holds.</summary>
+    KeepText,
 }
 
 /// <summary>
@@ -239,6 +253,22 @@ public sealed class LimitField : Observable
 
     public string UseDefaultName => $"Use the default for {Label}";
 
+    /// <summary>The variable that can set it (BOSUN_SLOTS); empty until the limits are read.</summary>
+    public string Variable { get; private set; } = "";
+
+    public const string UseDefaultDescription = "Removes the saved value, so the variable or the default applies";
+
+    /// <summary>Why Use the default can't run now, from the page; null when it can.</summary>
+    internal Func<string?>? WhyNoDefault { get; set; }
+
+    /// <summary>Why Use the default can't run now, or null when it can: the palette's reason and the button's tooltip.</summary>
+    public string? UseDefaultReason => WhyNoDefault?.Invoke();
+
+    /// <summary>The button's tooltip: why it can't run while it can't, else what it does.</summary>
+    public string UseDefaultTip => UseDefaultReason ?? UseDefaultDescription;
+
+    internal void RefreshTip() => Raise(nameof(UseDefaultTip));
+
     /// <summary>Why the text is not a value to send, or null with the value.</summary>
     internal string? Fault(out long value)
     {
@@ -252,10 +282,10 @@ public sealed class LimitField : Observable
     }
 
     /// <summary>
-    /// A reading of the limit. The person's text and what was said about it are kept when <paramref name="keepEdit"/>
-    /// and the field has an edit or an error; otherwise the field shows the value in force.
+    /// A reading of the limit: its range, source and value in force. The text follows <paramref name="rule"/>: an edit
+    /// kept, the value read shown, or no text touched; a field set by a variable always shows the variable's value.
     /// </summary>
-    internal void Take(LimitDoc limit, bool fileTrusted, bool keepEdit)
+    internal void Take(LimitDoc limit, bool fileTrusted, TextRule rule)
     {
         var edited = IsDirty || _error is not null;
         _known = true;
@@ -273,10 +303,11 @@ public sealed class LimitField : Observable
             _ => $"From the {limit.Source}",
         };
         VariableNote = limit.VariableError is { } bad ? $"{limit.Variable} is ignored: {bad}" : null;
+        Variable = limit.Variable;
         _baseline = limit.Value.ToString(CultureInfo.InvariantCulture);
         Raise(nameof(Baseline));
         RaiseEditable();
-        if (keepEdit && edited && !_readOnly)
+        if (!_readOnly && (rule == TextRule.KeepText || (rule == TextRule.KeepEdit && edited)))
         {
             Raise(nameof(IsDirty));
             return;
@@ -316,6 +347,16 @@ public sealed class QueuePage : PageBase
 {
     public const string Purpose = "Who holds the build slots, who is waiting, and the limits.";
 
+    // What each limit does, as bosun's admission does it (src/app.cpp acquire_slot, dm::slot_admits; wsl/bosun's guest
+    // wait): the first slot has no memory floor, and a positive maximum wait lets a job start without a slot.
+    public const string SlotsHint = "How many build jobs run at once.";
+
+    public const string FloorHint = "The first slot has no floor: a job takes any later slot only while this much memory is free.";
+
+    public const string WaitHint = "A job waiting longer starts without a slot, past the slot and memory limits. 0 means it waits with no limit.";
+
+    public const string GuestHint = "A WSL job in a slot after the first starts only while the WSL guest has this much free, or once the maximum wait runs out.";
+
     /// <summary>The idle queue's words, in the live area: the history and the form stay beside it.</summary>
     public const string IdleNote = "Nothing is running or waiting. Jobs started with bosun run show here.";
 
@@ -340,12 +381,17 @@ public sealed class QueuePage : PageBase
         Words = new QueueSummary(source, log);
         Fields =
         [
-            new LimitField("slots", "Slots", "", "How many build jobs run at once.", Edited),
-            new LimitField("min_avail_mb", "Memory floor for each slot after the first", "MB", "A job takes the second slot or later only while this much memory is free.", Edited),
-            new LimitField("max_wait_s", "Maximum wait", "seconds", "0 means no limit.", Edited),
-            new LimitField("min_guest_mb", "Guest memory floor", "MB", "A WSL job starts only while the WSL guest has this much free.", Edited),
+            new LimitField("slots", "Slots", "", SlotsHint, Edited),
+            new LimitField("min_avail_mb", "Memory floor for each slot after the first", "MB", FloorHint, Edited),
+            new LimitField("max_wait_s", "Maximum wait", "seconds", WaitHint, Edited),
+            new LimitField("min_guest_mb", "Guest memory floor", "MB", GuestHint, Edited),
         ];
-        foreach (var field in Fields) field.UseDefault = UseDefaultCommand(field);
+        foreach (var field in Fields)
+        {
+            field.UseDefault = UseDefaultCommand(field);
+            var each = field;
+            field.WhyNoDefault = () => UseDefaultReason(each);
+        }
         _save = log.Command("Save queue limits", SaveAsync, () => SaveReason() is null);
         _discard = log.Command("Discard queue limit changes", () =>
         {
@@ -416,7 +462,27 @@ public sealed class QueuePage : PageBase
             if (State != PageState.Data) yield break;
             yield return new PageCommand("Save queue limits", GlyphAction.Save, _save) { Reason = SaveReason };
             yield return new PageCommand("Discard queue limit changes", GlyphAction.Discard, _discard) { Reason = () => _saving ? Saving : "There are no changes to discard" };
+            foreach (var limit in Fields)
+                if (limit.UseDefault is { } reset) yield return new PageCommand(limit.UseDefaultName, GlyphAction.Discard, reset) { Reason = () => limit.UseDefaultReason };
         }
+    }
+
+    public const string SaveDescription = "Saves the changed limits through bosun config and reads them back";
+
+    /// <summary>The Save button's tooltip: why it can't run while it can't, else what it does.</summary>
+    public string SaveTip => SaveReason() ?? SaveDescription;
+
+    /// <summary>Why <paramref name="field"/>'s Use the default can't run now, or null when it can.</summary>
+    public string? UseDefaultReason(LimitField field)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        if (_saving) return Saving;
+        if (!_formReady) return NotRead;
+        if (_limitsStale is { } stale) return stale;
+        if (_fileRefusesSave is { } refuses) return refuses;
+        if (!field.IsEditable) return field.IsReadOnly ? $"{field.Label} is set by {field.Variable}, so it can't be changed here" : $"{field.Label} is not available";
+        if (field.Saved is null) return $"{field.Label} is already the default";
+        return null;
     }
 
     public const string Saving = "A save of the limits is under way";
@@ -427,14 +493,18 @@ public sealed class QueuePage : PageBase
 
     public const string NoChanges = "There are no changes to save";
 
-    /// <summary>Why Save can't run now, or null when it can.</summary>
     /// <summary>Why bosun will not write the limits file now (it can't be read or is damaged); null when it will.</summary>
     private string? _fileRefusesSave;
 
+    /// <summary>After a good read, why the limits can't be read now and when they last were; null while they are current.</summary>
+    private string? _limitsStale;
+
+    /// <summary>Why Save can't run now, or null when it can: the button, Ctrl+K and the question asked on leaving alike.</summary>
     public string? SaveReason()
     {
         if (_saving) return Saving;
         if (!_formReady) return NotRead;
+        if (_limitsStale is { } stale) return stale;
         if (_fileRefusesSave is { } refuses) return refuses;
         if (Fields.All(f => !f.IsEditable)) return NothingEditable;
         if (!HasUnsavedEdits) return NoChanges;
@@ -448,9 +518,14 @@ public sealed class QueuePage : PageBase
     private void Edited()
     {
         Raise(nameof(HasUnsavedEdits));
+        Raise(nameof(SaveTip));
         _save.Refresh();
         _discard.Refresh();
-        foreach (var field in Fields) (field.UseDefault as AsyncCommand)?.Refresh();
+        foreach (var field in Fields)
+        {
+            (field.UseDefault as AsyncCommand)?.Refresh();
+            field.RefreshTip();
+        }
     }
 
     // ---- reading ----
@@ -459,20 +534,21 @@ public sealed class QueuePage : PageBase
     {
         // Numbered as it starts: a reading that ends after a newer one (a save's read-back) is not applied over it.
         var seq = ++_asked;
+        var ticket = Words.Begin();     // the tray's words take this reading only if no newer one was applied
         var status = _source.StatusAsync(token);
         var history = _source.HistoryAsync(HistoryCount, token);
         var limits = _source.LimitsAsync(token);
         await Task.WhenAll(status, history, limits);
         var (s, h, l) = (status.Result, history.Result, limits.Result);
-        return () => Apply(seq, s, h, l);
+        return () => Apply(seq, ticket, s, h, l);
     }
 
-    private void Apply(long seq, Reading<StatusDoc> status, Reading<JobHistory> history, Reading<ConfigDoc> limits)
+    private void Apply(long seq, long ticket, Reading<StatusDoc> status, Reading<JobHistory> history, Reading<ConfigDoc> limits)
     {
         if (seq > _statusSeq)
         {
             _statusSeq = seq;
-            TakeStatus(status);
+            TakeStatus(status, ticket);
         }
         if (seq > _historySeq)
         {
@@ -482,7 +558,7 @@ public sealed class QueuePage : PageBase
         if (seq > _limitsSeq)
         {
             _limitsSeq = seq;
-            TakeLimits(limits, keepEdits: true, saved: new HashSet<string>());
+            TakeLimits(limits, _ => TextRule.KeepEdit);
         }
         if (!status.HasValue && !history.HasValue && !limits.HasValue)
         {
@@ -493,9 +569,9 @@ public sealed class QueuePage : PageBase
         ShowData();
     }
 
-    private void TakeStatus(Reading<StatusDoc> reading)
+    private void TakeStatus(Reading<StatusDoc> reading, long ticket)
     {
-        Words.Take(reading);
+        Words.Take(reading, ticket);
         var doc = reading.Value;
         Status = doc;
         Slots.Clear();
@@ -537,15 +613,24 @@ public sealed class QueuePage : PageBase
         HistoryNotice = said.Count == 0 ? null : string.Join(" ", said);
     }
 
-    /// <param name="saved">Fields a save just confirmed: they take the value read back whatever their text.</param>
-    private void TakeLimits(Reading<ConfigDoc> reading, bool keepEdits, IReadOnlySet<string> saved)
+    /// <param name="rule">What the reading may do to each field's text, decided now, as it is applied.</param>
+    private void TakeLimits(Reading<ConfigDoc> reading, Func<LimitField, TextRule> rule)
     {
         if (reading.Value is not { } doc)
         {
-            LimitsNotice = $"The limits could not be read: {reading.Why}";
+            if (_formReady && _lastRead is { } at)
+            {
+                // After a good read: the fields keep the values last read, said as such, and nothing is written over a file
+                // that can't be read now until a fresh read says what it holds.
+                _limitsStale = $"Last read at {at.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture)}; the limits can't be read now: {reading.Why}";
+                LimitsNotice = _limitsStale;
+            }
+            else LimitsNotice = $"The limits could not be read: {reading.Why}";
             Edited();
             return;
         }
+        _limitsStale = null;
+        _lastRead = reading.ReadAt ?? Clock.GetUtcNow();
         LimitsNotice = null;
         var trusted = doc.Readable && doc.Valid;
         var problems = new List<string>();
@@ -559,21 +644,29 @@ public sealed class QueuePage : PageBase
         FileNotice = problems.Count == 0 ? null : string.Join(" ", problems);
         foreach (var field in Fields)
         {
-            if (doc.Limits.TryGetValue(field.Key, out var limit)) field.Take(limit, trusted, keepEdits && !saved.Contains(field.Key));
+            // A reading that did not read the file replaces no text: its values are defaults, not what the file holds.
+            if (doc.Limits.TryGetValue(field.Key, out var limit)) field.Take(limit, trusted, trusted ? rule(field) : TextRule.KeepText);
             else field.Missing();
         }
         FormReady = true;
         Edited();
     }
 
-    private async Task<Reading<ConfigDoc>> ReadBackAsync(IReadOnlySet<string> saved)
+    private DateTimeOffset? _lastRead;
+
+    /// <summary>
+    /// A save's or reset's read-back, applied unless a newer reading was. <paramref name="replaces"/> is asked, as it is
+    /// applied and not before it was awaited, which fields may show the value read: a field edited while it was pending
+    /// keeps the person's text.
+    /// </summary>
+    private async Task<Reading<ConfigDoc>> ReadBackAsync(Func<LimitField, ConfigDoc, bool> replaces)
     {
         var seq = ++_asked;
         var back = await _source.LimitsAsync();
         if (seq > _limitsSeq)
         {
             _limitsSeq = seq;
-            TakeLimits(back, keepEdits: true, saved);
+            TakeLimits(back, field => back.Value is { } doc && replaces(field, doc) ? TextRule.Replace : TextRule.KeepEdit);
         }
         return back;
     }
@@ -592,6 +685,13 @@ public sealed class QueuePage : PageBase
         if (_saving) return ActionOutcome.Warning(Saving);
         var changed = Fields.Where(f => f.IsDirty).OrderBy(f => SaveOrder.ToList().IndexOf(f.Key)).ToList();
         if (changed.Count == 0) return ActionOutcome.Done;
+        // The button's own eligibility, for every way in (the button, Ctrl+K and the question asked on leaving): a file
+        // bosun won't overwrite, or limits that can't be read now, keep the draft and the person here, with why.
+        if (SaveReason() is { } why)
+        {
+            SaveStatus = "Not saved: " + why;
+            return ActionOutcome.Warning(why);
+        }
         var faults = changed.Where(f => f.Fault(out _) is not null).ToList();
         if (faults.Count > 0)
         {
@@ -657,16 +757,21 @@ public sealed class QueuePage : PageBase
                     problems.Add($"{field.Label} was not saved: {stopped}");
                     break;
                 default:
-                    stopped = $"the limits file can't be read or is damaged, so it was not overwritten ({save.Message})";
+                    // Exit 74: the tool's own words name what failed (a damaged file it won't overwrite, a full disk, a
+                    // temporary file refused, a replace blocked by a lock); only a read says the file is damaged.
+                    stopped = $"bosun did not write the limits file: {save.Message.TrimEnd('.')}";
                     problems.Add($"{field.Label} was not saved: {stopped}");
                     break;
             }
         }
         if (stopped is not null) FormNotice = $"Not every limit was saved: {stopped}.";
 
-        // Read back whatever happened: a refusal of one field leaves the others saved, and the file is what says so.
-        var keys = sent.Where(s => submitted.Any(x => x.Field == s.Field && x.Text == s.Field.Text)).Select(s => s.Field.Key).ToHashSet();
-        var back = await ReadBackAsync(keys);
+        // Read back whatever happened: a refusal of one field leaves the others saved, and the file is what says so. Which
+        // fields show the value read is decided as it is applied: a field confirmed and still holding what was submitted.
+        var texts = submitted.ToDictionary(x => x.Field, x => x.Text);
+        var values = sent.ToDictionary(x => x.Field, x => x.Value);
+        var back = await ReadBackAsync((field, doc) => values.TryGetValue(field, out var value) && field.Text == texts[field]
+            && doc.Limits.GetValueOrDefault(field.Key) is { Saved: { } read } && read == value);
         var confirmed = new List<string>();
         if (back.Value is { Readable: false } or { Valid: false })
         {
@@ -695,8 +800,7 @@ public sealed class QueuePage : PageBase
                 else
                 {
                     var read = limit?.Saved is { } other ? other.ToString(CultureInfo.InvariantCulture) : "nothing saved";
-                    // The person's value is put back as their edit, with why: the file did not keep it.
-                    field.Text = value.ToString(CultureInfo.InvariantCulture);
+                    // The person's newest text stays (the read-back replaced it only where it was confirmed), with why.
                     field.Error = $"Saved, but read back as {read}, so it is not confirmed.";
                     problems.Add($"{field.Label} read back as {read}, not {value}");
                 }
@@ -727,6 +831,7 @@ public sealed class QueuePage : PageBase
         Edited();
         try
         {
+            var before = field.Text;
             var reading = await _source.UnsetLimitAsync(field.Key);
             if (reading.Value is not { } unset) return ActionOutcome.Failed(reading.Why ?? "the tool gave no answer");
             if (unset.Outcome != LimitSaveOutcome.Saved)
@@ -734,7 +839,7 @@ public sealed class QueuePage : PageBase
                 FormNotice = $"{field.Label} was not put back to its default: {unset.Message}";
                 return ActionOutcome.Warning(unset.Message);
             }
-            var back = await ReadBackAsync(new HashSet<string> { field.Key });
+            var back = await ReadBackAsync((f, doc) => f == field && f.Text == before && doc.Limits.GetValueOrDefault(f.Key) is { Saved: null });
             if (back.Value is { Readable: false } or { Valid: false })
             {
                 // A get can answer and still not have read the file: its null saved value confirms nothing.
@@ -758,7 +863,7 @@ public sealed class QueuePage : PageBase
             Raise(nameof(IsSaving));
             Edited();
         }
-    }, () => _formReady && !_saving && _fileRefusesSave is null && field.IsEditable && field.Saved is not null);
+    }, () => UseDefaultReason(field) is null);
 
     /// <summary>Back to the values last read: the person's edits and what was said about them go.</summary>
     public override void Discard()

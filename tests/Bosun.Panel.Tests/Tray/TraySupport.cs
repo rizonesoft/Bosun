@@ -40,7 +40,21 @@ public sealed class FakeTrayIcon : ITrayIcon
 
     public event Action? NotificationShown;
 
+    public event Action? MenuOpening;
+
     public Func<IReadOnlyList<TrayMenuItem>>? Menu { get; set; }
+
+    /// <summary>How many times the menu's words were said to have changed.</summary>
+    public int MenuChanges { get; private set; }
+
+    public void MenuChanged() => MenuChanges++;
+
+    /// <summary>The person opens the menu: its lines as they show at once.</summary>
+    public IReadOnlyList<TrayMenuItem> OpenMenu()
+    {
+        MenuOpening?.Invoke();
+        return Menu!();
+    }
 
     public bool Install(TrayState state, string tooltip)
     {
@@ -69,7 +83,7 @@ public sealed class FakeTrayIcon : ITrayIcon
     public void Click() => Opened?.Invoke();
 
     /// <summary>The person opens the menu and chooses a line by its id.</summary>
-    public Task Choose(string id) => Menu!().Single(item => item.Id == id).Run();
+    public Task Choose(string id) => OpenMenu().Single(item => item.Id == id).Run();
 
     public void Dispose()
     {
@@ -142,11 +156,33 @@ public sealed class FakeTrayShell : ITrayShell
 
     public void ReturnFocus() => Calls.Add("focus");
 
+    /// <summary>Runs while the menu is open, as Windows' menu loop runs the panel's dispatcher.</summary>
+    public Action? WhileOpen { get; set; }
+
+    /// <summary>Each line changed in the open menu: its id and new words.</summary>
+    public List<(int Id, string Text)> Changes { get; } = [];
+
+    private bool _open;
+
     public int? TrackMenu(IReadOnlyList<(int Id, string Text)> items)
     {
         Calls.Add("menu");
         Menus.Add(items);
+        _open = true;
+        try
+        {
+            WhileOpen?.Invoke();
+        }
+        finally
+        {
+            _open = false;
+        }
         return Chooses;
+    }
+
+    public void ChangeMenuItem(int id, string text)
+    {
+        if (_open) Changes.Add((id, text));
     }
 
     /// <summary>Windows sends the icon's window a message.</summary>
@@ -188,6 +224,15 @@ public sealed class FakeQueue : IQueueSummary
     public int Openings { get; private set; }
 
     public void MenuOpening() => Openings++;
+
+    public event Action? Changed;
+
+    /// <summary>The words change, as a read that ended changes them.</summary>
+    public void Say(string? words)
+    {
+        Words = words;
+        Changed?.Invoke();
+    }
 }
 
 /// <summary>

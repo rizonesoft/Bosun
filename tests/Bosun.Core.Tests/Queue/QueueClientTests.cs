@@ -100,8 +100,11 @@ public sealed class QueueClientTests : IDisposable
         var busy = (await Fake(["config", "set", "slots", "3", "--json"], "{\"schema_version\":1,\"ok\":false,\"key\":\"slots\",\"error\":\"another config save is still running, so nothing was changed; try again\"}\n", 75).SetLimitAsync("slots", 3, token)).Value!;
         Assert.Equal(LimitSaveOutcome.Busy, busy.Outcome);
         var damaged = (await Fake(["config", "set", "slots", "3", "--json"], "{\"schema_version\":1,\"ok\":false,\"key\":\"slots\",\"error\":\"C:\\\\x\\\\config.json is damaged (bad), so it isn't overwritten; fix or remove it\"}\n", 74).SetLimitAsync("slots", 3, token)).Value!;
-        Assert.Equal(LimitSaveOutcome.Damaged, damaged.Outcome);
+        Assert.Equal(LimitSaveOutcome.NotWritten, damaged.Outcome);
         Assert.Contains("is damaged", damaged.Message, StringComparison.Ordinal);
+        // Exit 74 on a healthy file: the write itself failed, and the tool's words name the operation, kept as they are.
+        var full = (await Fake(["config", "set", "slots", "3", "--json"], "{\"schema_version\":1,\"ok\":false,\"key\":\"slots\",\"error\":\"can't write a temporary file beside C:\\\\x\\\\config.json (error 112); it is unchanged\"}\n", 74).SetLimitAsync("slots", 3, token)).Value!;
+        Assert.Equal((LimitSaveOutcome.NotWritten, "can't write a temporary file beside C:\\x\\config.json (error 112); it is unchanged"), (full.Outcome, full.Message));
         var unset = (await Fake(["config", "unset", "max_wait_s", "--json"], "{\"schema_version\":1,\"ok\":true,\"key\":\"max_wait_s\",\"saved\":null}\n").UnsetLimitAsync("max_wait_s", token)).Value!;
         Assert.Equal((LimitSaveOutcome.Saved, (long?)null), (unset.Outcome, unset.Saved));
         // Any other exit, or a get that does not exit 0, is a failure of the call, with the tool's words.
@@ -186,6 +189,26 @@ public sealed class QueueClientTests : IDisposable
         Assert.Equal("job 299", history.Jobs[0].Command);
         // Only the tail was read: of the junk, at most the tail's worth less the jobs, never the whole file.
         Assert.True(history.PassedOver < QueueClient.MaxLogTailBytes / 1024, $"{history.PassedOver} lines passed over, more than the tail holds");
+    }
+
+    [Fact]
+    public async Task One_day_of_long_commands_past_one_chunk_gives_its_own_newest_200_before_the_day_before()
+    {
+        // Completion review: each ~30 KB, the newest 200 span more than one 4 MB read, and the tail alone held ~139 of
+        // them, so the rest came from yesterday's older jobs.
+        Jobs("2026-11-17", Enumerable.Range(0, 50).Select(i => Job("2026-11-17T10:00:00Z", 1000 + i, Ms("2026-11-17T10:00:00Z") + i)));
+        var path = Path.Combine(Logs, "jobs-2026-11-18.jsonl");
+        var pad = new string('a', 30 * 1024);
+        using (var writer = new StreamWriter(path, false, new UTF8Encoding(false)))
+            for (var i = 0; i < 260; i++)
+                writer.Write(Job("2026-11-18T10:00:00Z", i, Ms("2026-11-18T10:00:00Z") + i).Replace("\"command\":\"job " + i + "\"", "\"command\":\"job " + i + " " + pad + "\"", StringComparison.Ordinal) + "\n");
+        Assert.True(200L * pad.Length > QueueClient.MaxLogTailBytes, "the newest 200 span more than one chunk");
+        var history = (await new QueueClient(null, "", Logs).HistoryAsync(200, TestContext.Current.CancellationToken)).Value!;
+        Assert.Equal(200, history.Jobs.Count);
+        Assert.Equal(0, history.PassedOver);                                // no line cut at a chunk's start is read as junk
+        Assert.StartsWith("job 259 ", history.Jobs[0].Command, StringComparison.Ordinal);
+        Assert.StartsWith("job 60 ", history.Jobs[199].Command, StringComparison.Ordinal); // all from the newest day
+        Assert.Equal(Enumerable.Range(60, 200).Reverse(), history.Jobs.Select(j => int.Parse(j.Command.Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture)));
     }
 
     [Fact]

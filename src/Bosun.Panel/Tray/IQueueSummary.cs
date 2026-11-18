@@ -8,7 +8,10 @@ public interface IQueueSummary
 
     /// <summary>
     /// The tray's menu is opening: the summary may read the queue once, never on a timer (design/SPEC.md §1). The menu
-    /// shows <see cref="Words"/> as they are now; a read this starts gives the words the next opening shows.
+    /// shows <see cref="Words"/> as they are now; a read this starts gives the open menu its words when it ends.
     /// </summary>
     void MenuOpening();
+
+    /// <summary>Raised when <see cref="Words"/> changes: a menu that is open shows the new words in place.</summary>
+    event Action? Changed;
 }

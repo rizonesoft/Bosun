@@ -183,6 +183,19 @@ public class QueueVisualTests
     }
 
     [Fact]
+    public void A_free_slot_above_the_limit_says_no_new_job_takes_it_seen_and_said()
+    {
+        // Completion review: lowered from three slots to one with slot 3 held, slot 2 is listed free and read "Free".
+        PageRenderer.InPage("Dark", () => new QueueSlotTile { Slot = Slot("""{"index":1,"busy":false,"above_limit":true,"holder":null}""") }, page =>
+        {
+            var tile = ShellSupport.Under<QueueSlotTile>(page).Single();
+            Assert.Equal("Slot 2, Free, above the limit: no new job takes it", Said(tile));
+            Assert.Contains(QueueSlotTile.FreeAboveLimit, PageRenderer.TextsOf(tile));
+            return 0;
+        });
+    }
+
+    [Fact]
     public void An_unavailable_slot_says_why_seen_and_said()
     {
         // Completion review: "Not available" alone gave no reason.
@@ -319,17 +332,17 @@ public class QueueVisualTests
         {
             var row = ShellSupport.Under<WaitingRow>(page).Single();
             Assert.Equal([
-                new WaitingLine(1, "Office: dotnet test", "Waiting for memory: slot 2 opens when 8.0 GB is free; 4.5 GB is free now", "WSL, waited 3 min", false),
-                new WaitingLine(2, "Recto: dotnet test", "Waiting for memory: slot 2 opens when 4.0 GB is free; 4.5 GB is free now", "Windows, waited 3 min", false),
+                new WaitingLine(1, "Office: dotnet test", "Waiting for memory: a slot after the first opens when 8.0 GB is free; 4.5 GB is free now", "WSL, waited 3 min", false),
+                new WaitingLine(2, "Recto: dotnet test", "Waiting for memory: a slot after the first opens when 4.0 GB is free; 4.5 GB is free now", "Windows, waited 3 min", false),
                 new WaitingLine(3, "Office: dotnet test", "Waiting for a free slot", "WSL, waited 30 s", false),
             ], row.Lines);                                                                      // each its own floor, not the 6.0 GB default
             var texts = PageRenderer.TextsOf(page);
-            Assert.Contains("Waiting for memory: slot 2 opens when 8.0 GB is free; 4.5 GB is free now", texts);
+            Assert.Contains("Waiting for memory: a slot after the first opens when 8.0 GB is free; 4.5 GB is free now", texts);
             Assert.DoesNotContain(WaitingRow.NothingWaiting, texts);
             var lines = ShellSupport.Under<WaitingLineView>(row).ToList();
             Assert.Equal(3, lines.Count);
             var peer = UIElementAutomationPeer.CreatePeerForElement(lines[0]);
-            Assert.Equal(("1. Office: dotnet test. Waiting for memory: slot 2 opens when 8.0 GB is free; 4.5 GB is free now. WSL, waited 3 min",
+            Assert.Equal(("1. Office: dotnet test. Waiting for memory: a slot after the first opens when 8.0 GB is free; 4.5 GB is free now. WSL, waited 3 min",
                 AutomationControlType.ListItem), (peer.GetName(), peer.GetAutomationControlType()));
             Assert.Null(peer.GetChildren());                                                    // each line said once
             Assert.Equal("Waiting, 3 jobs", Said(row));
@@ -349,7 +362,7 @@ public class QueueVisualTests
         Assert.Equal("", notice);
 
         var fallback = WaitingRow.Read(Doc(FreeSlot, Waiter(11, "\"memory\"")));
-        Assert.Equal("Waiting for memory: slot 2 opens when 6.0 GB is free; 4.5 GB is free now", fallback.Lines[0].Why); // no floor of its own
+        Assert.Equal("Waiting for memory: a slot after the first opens when 6.0 GB is free; 4.5 GB is free now", fallback.Lines[0].Why); // no floor of its own
 
         PageRenderer.InPage("Dark", () => new WaitingRow { Status = status }, page =>
         {
