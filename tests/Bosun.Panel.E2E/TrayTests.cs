@@ -14,7 +14,8 @@ public class TrayTests
     private const string Tooltip = "Bosun Panel: normal"; // TrayViewModel.NormalTooltip
     private const string Pause = "Pause notifications for 1 hour";
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task The_icon_its_menu_a_click_and_the_first_close_s_notification_each_do_their_work()
     {
         using var panel = PanelProcess.Start("--tray");

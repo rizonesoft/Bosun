@@ -13,7 +13,8 @@ namespace Bosun.Panel.E2E;
 /// </summary>
 public class CaptureTests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task The_panel_in_front_is_captured_at_its_size_and_the_pair_verifies()
     {
         using var panel = PanelProcess.Start();
@@ -30,7 +31,8 @@ public class CaptureTests
         Assert.True(verify.ExitCode == 0, $"-Verify accepts the pair: {verify.StandardOutput}{verify.StandardError}");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task A_covered_panel_is_refused_with_exit_3_and_nothing_written()
     {
         using var panel = PanelProcess.Start();
@@ -42,7 +44,8 @@ public class CaptureTests
         await Refused(panel);
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task A_panel_in_the_background_is_refused_with_exit_3_and_nothing_written()
     {
         using var panel = PanelProcess.Start();

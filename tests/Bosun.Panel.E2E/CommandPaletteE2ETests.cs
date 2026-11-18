@@ -27,7 +27,8 @@ public class CommandPaletteE2ETests
 
     static bool Shown(AutomationElement window) => Ui.Find(window, Search) is { Current.IsOffscreen: false };
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Ctrl_K_opens_it_from_three_pages_typing_and_Enter_go_to_a_page()
     {
         using var panel = PanelProcess.Start();
@@ -55,7 +56,8 @@ public class CommandPaletteE2ETests
         Ui.Until(() => Ui.Focused() is { } f && Automation.Compare(f, floor) && f.Current.HasKeyboardFocus, Ui.Short, "Esc to give the keyboard back to the threshold field");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void The_arrows_move_the_selection_and_a_row_that_cannot_run_says_why_and_stays()
     {
         using var panel = PanelProcess.Start();

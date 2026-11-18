@@ -11,6 +11,9 @@ using Xunit;
 // so a second smoke run or a capture-window.ps1 capture waits for it rather than taking its windows.
 [assembly: AssemblyFixture(typeof(Bosun.Panel.E2E.DesktopFixture))]
 
+// A default test never leaves a panel in front, which would take the operator's keyboard (D02 T02 §12).
+[assembly: Bosun.Panel.E2E.ForegroundKept]
+
 namespace Bosun.Panel.E2E;
 
 /// <summary>

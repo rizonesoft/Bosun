@@ -31,7 +31,8 @@ public class PlacementTests
 
     static void Become(AutomationElement window, WindowVisualState state) => Ready(window).SetWindowVisualState(state);
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task Moved_then_hidden_its_place_is_kept_and_a_minimised_maximised_window_is_kept_maximised()
     {
         using var panel = PanelProcess.Start();

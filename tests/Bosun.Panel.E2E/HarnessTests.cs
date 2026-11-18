@@ -11,6 +11,51 @@ namespace Bosun.Panel.E2E;
 public class HarnessTests
 {
     [Fact]
+    public void Outside_the_real_input_run_every_way_of_taking_the_desktop_is_refused_and_nothing_is_sent()
+    {
+        // D02 T02 §12: a test without [Trait("Input", "Real")] can't send a key, click, move the pointer or bring a
+        // panel forward, whatever the run, so the default smoke never takes the operator's mouse or keyboard.
+        using var panel = PanelProcess.Start();
+        var window = panel.Window();
+        var handle = new IntPtr(window.Current.NativeWindowHandle);
+        var pointer = Native.Cursor();
+        var refusals = new List<string>
+        {
+            Assert.Throws<RealInputRefused>(() => RealInput.Key(handle, Native.VK_TAB)).Message,
+            Assert.Throws<RealInputRefused>(() => RealInput.ClickOnWindow(handle, 10, 10)).Message,
+            Assert.Throws<RealInputRefused>(() => RealInput.MoveOnIcon(window)).Message,
+            Assert.Throws<RealInputRefused>(() => panel.Front()).Message,
+        };
+        Assert.All(refusals, said => Assert.Contains("[Trait(\"Input\", \"Real\")]", said));
+        Assert.Equal(pointer, Native.Cursor());                                              // the pointer never moved
+    }
+
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
+    public void A_default_test_that_leaves_a_panel_it_started_in_front_is_failed()
+    {
+        // A second launch activates the first panel, taking the foreground with no RealInput call: the hook after each
+        // default test catches it (D02 T02 §12). Proved here in the real-input run, as the activation takes the desktop.
+        using var panel = PanelProcess.Start();
+        var window = panel.Window();
+        var handle = new IntPtr(window.Current.NativeWindowHandle);
+        using (panel.StartAgain()) { }
+        Ui.Until(() => Native.GetForegroundWindow() == handle, Ui.Short, "the second launch to bring the first panel forward");
+        var opted = Environment.GetEnvironmentVariable(SmokeInput.Variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(SmokeInput.Variable, null);                    // as a default run
+            var hook = new ForegroundKeptAttribute();
+            var refused = Assert.Throws<RealInputRefused>(() => hook.After(typeof(HarnessTests).GetMethod(nameof(A_default_test_that_leaves_a_panel_it_started_in_front_is_failed))!, null!));
+            Assert.Contains("in the foreground", refused.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SmokeInput.Variable, opted);
+        }
+    }
+
+    [Fact]
     public void A_test_s_process_and_what_it_started_end_with_it()
     {
         var others = OtherPanels();
@@ -43,7 +88,8 @@ public class HarnessTests
         Directory.Delete(started.DataFolder, recursive: true); // the test's own leftover, now that it is let go
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Input_is_refused_when_its_target_is_not_the_panel()
     {
         using var panel = PanelProcess.Start();
@@ -68,7 +114,8 @@ public class HarnessTests
         Assert.Equal((0, 0), cover.Heard());
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Input_is_refused_while_a_modifier_is_held()
     {
         using var panel = PanelProcess.Start();

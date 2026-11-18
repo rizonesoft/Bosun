@@ -8,7 +8,8 @@ namespace Bosun.Panel.E2E;
 /// <summary>A second launch with the first panel's window minimised: it hands over and exits, and the first comes back.</summary>
 public class LaunchTests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public async Task A_second_launch_restores_the_first_window_and_exits()
     {
         using var panel = PanelProcess.Start();

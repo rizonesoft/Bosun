@@ -24,6 +24,7 @@ static class RealInput
     /// <summary>A key, to the panel's window only.</summary>
     public static void Key(IntPtr panel, int virtualKey)
     {
+        SmokeInput.Require("RealInput.Key");
         RequireForeground(panel, "a key");
         Native.Key(virtualKey);
     }
@@ -31,6 +32,7 @@ static class RealInput
     /// <summary>A key with a modifier held, to the panel's window only.</summary>
     public static void Chord(IntPtr panel, int modifier, int virtualKey)
     {
+        SmokeInput.Require("RealInput.Chord");
         RequireForeground(panel, "a key");
         Native.Chord(modifier, virtualKey);
     }
@@ -38,6 +40,7 @@ static class RealInput
     /// <summary>The pointer onto a point of the panel's window.</summary>
     public static void MoveOnWindow(IntPtr panel, int x, int y)
     {
+        SmokeInput.Require("RealInput.MoveOnWindow");
         RequireWindowAt(panel, x, y, "the pointer");
         Native.MoveTo(x, y);
     }
@@ -45,6 +48,7 @@ static class RealInput
     /// <summary>A right click on a point of the panel's window.</summary>
     public static void RightClickOnWindow(IntPtr panel, int x, int y)
     {
+        SmokeInput.Require("RealInput.RightClickOnWindow");
         RequireWindowAt(panel, x, y, "a right click");
         Native.RightClick(x, y);
     }
@@ -52,6 +56,7 @@ static class RealInput
     /// <summary>A left click on a point of the panel's window.</summary>
     public static void ClickOnWindow(IntPtr panel, int x, int y)
     {
+        SmokeInput.Require("RealInput.ClickOnWindow");
         RequireWindowAt(panel, x, y, "a click");
         Native.LeftDown(x, y);
         Native.LeftUp(x, y);
@@ -60,6 +65,7 @@ static class RealInput
     /// <summary>A left-button drag that starts on the panel's window; the button is let go wherever it ends.</summary>
     public static void DragOnWindow(IntPtr panel, int fromX, int fromY, int toX, int toY, int steps = 12)
     {
+        SmokeInput.Require("RealInput.DragOnWindow");
         RequireWindowAt(panel, fromX, fromY, "a drag");
         Native.LeftDown(fromX, fromY);
         try
@@ -79,12 +85,14 @@ static class RealInput
     /// <summary>The pointer onto, or a right click on, a Bosun Panel icon in the notification area.</summary>
     public static void MoveOnIcon(AutomationElement icon)
     {
+        SmokeInput.Require("RealInput.MoveOnIcon");
         var (x, y) = RequireIcon(icon, "the pointer");
         Native.MoveTo(x, y);
     }
 
     public static void ClickIcon(AutomationElement icon)
     {
+        SmokeInput.Require("RealInput.ClickIcon");
         var (x, y) = RequireIcon(icon, "a click");
         Native.MoveTo(x, y);
         Native.LeftDown(x, y);
@@ -93,6 +101,7 @@ static class RealInput
 
     public static void RightClickIcon(AutomationElement icon)
     {
+        SmokeInput.Require("RealInput.RightClickIcon");
         var (x, y) = RequireIcon(icon, "a right click");
         Native.MoveTo(x, y);
         Native.RightClick(x, y);
@@ -101,6 +110,7 @@ static class RealInput
     /// <summary>A left click on a line of a popup menu that the panel's process opened.</summary>
     public static void ClickMenuLine(int panelProcess, AutomationElement line)
     {
+        SmokeInput.Require("RealInput.ClickMenuLine");
         RequireNothingHeld("a click");
         var (x, y) = Ui.Centre(line);
         var root = Native.RootAt(x, y);
@@ -116,6 +126,7 @@ static class RealInput
     /// </summary>
     public static void KeyToOwnMenu(int panelProcess, int virtualKey)
     {
+        SmokeInput.Require("RealInput.KeyToOwnMenu");
         RequireNothingHeld("a key");
         var foreground = Native.GetForegroundWindow();
         if (Native.ProcessOf(foreground) != panelProcess)
@@ -126,6 +137,7 @@ static class RealInput
     /// <summary>Puts the pointer back where it was when the returned value is disposed.</summary>
     public static IDisposable KeepPointer()
     {
+        SmokeInput.Require("RealInput.KeepPointer");
         var was = Native.Cursor();
         return new Restore(() => Native.MoveTo(was.X, was.Y));
     }

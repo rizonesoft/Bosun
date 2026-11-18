@@ -64,7 +64,8 @@ public class BackdropTests
 
     private const int VK_MENU = 0x12, VK_SPACE = 0x20, VK_F4 = 0x73, VK_ESCAPE = 0x1B;
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Each_caption_mark_is_drawn_once_and_the_keyboard_loses_nothing()
     {
         // Found on the first capture: in Mica Windows drew its own caption buttons under the panel's. Without the system

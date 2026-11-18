@@ -9,7 +9,8 @@ namespace Bosun.Panel.E2E;
 /// <summary>A screen reader's side of a live region: the event a client subscribed to the window receives.</summary>
 public class LiveRegionTests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Saving_a_setting_is_heard_from_the_status_line_and_reads_back()
     {
         var runBefore = RunValue();

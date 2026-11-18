@@ -52,7 +52,8 @@ public class RailTests
         Assert.True(panel.Running, "the panel still runs after every page has been shown");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void The_unsaved_changes_question_holds_the_keyboard_and_keeps_or_drops_the_edit()
     {
         using var panel = PanelProcess.Start();

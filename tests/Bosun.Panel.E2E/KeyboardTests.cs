@@ -12,7 +12,8 @@ namespace Bosun.Panel.E2E;
 /// </summary>
 public class KeyboardTests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Tab_moves_the_keyboard_and_draws_the_focus_ring()
     {
         using var panel = PanelProcess.Start();
@@ -35,7 +36,8 @@ public class KeyboardTests
         Ui.Until(() => (after = AccentPixels(area)) - before >= outline, Ui.Short, $"the focus ring to be drawn ({before} accent pixels before Tab)");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_field_given_the_keyboard_by_Tab_shows_one_outline_not_two()
     {
         // D02 T04 §1: the field turned its own border accent as well as drawing the ring 2 px outside it, two outlines.
@@ -62,7 +64,8 @@ public class KeyboardTests
         Assert.True(AccentPixels(border) < middle.Width / 10, $"the field's own border is accent too ({AccentPixels(border)} of {middle.Width} pixels): two outlines");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_check_box_with_the_keyboard_and_the_pointer_keeps_its_ring_and_its_check()
     {
         // D02 T04 §1: hover turns the box's border accent and focus draws the ring outside the whole control; both at
@@ -95,7 +98,8 @@ public class KeyboardTests
         }
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Space_toggles_a_focused_check_box()
     {
         using var panel = PanelProcess.Start();
@@ -115,7 +119,8 @@ public class KeyboardTests
     /// and End move the selection and the keyboard by real keys alone. The panel has no combo box any more, so this
     /// replaces the closed combo box test; the combo box's style keeps its own tests (ControlStylesTests).
     /// </summary>
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void The_arrow_keys_Home_and_End_move_the_theme_choice_by_keyboard_alone()
     {
         using var panel = PanelProcess.Start();

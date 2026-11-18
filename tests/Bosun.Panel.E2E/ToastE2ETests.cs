@@ -10,7 +10,8 @@ namespace Bosun.Panel.E2E;
 /// </summary>
 public class ToastE2ETests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_saved_change_shows_a_toast_the_keyboard_dismisses()
     {
         using var panel = PanelProcess.Start();
@@ -37,7 +38,8 @@ public class ToastE2ETests
         Ui.Invoke(Ui.Get(window, "Save"));
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_long_failure_opens_in_full_by_keyboard_and_stays_until_dismissed()
     {
         // D02 T04 §7: a save the settings file refuses (made read-only here) fails naming the file by its whole path, in

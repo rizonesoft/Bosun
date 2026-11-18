@@ -42,7 +42,8 @@ public class ContrastTests
         return n;
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_real_Tab_draws_the_focus_ring_in_the_highlight_and_the_chosen_segment_is_highlight_on_highlight()
     {
         using var panel = Previewing();
@@ -68,7 +69,8 @@ public class ContrastTests
         Ui.Until(() => (after = Count(around, Highlight)) - before >= outline, Ui.Short, $"the focus ring in the highlight ({before} highlight pixels before Tab)");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void The_command_palettes_selected_row_is_highlight_on_highlight()
     {
         using var panel = Previewing();

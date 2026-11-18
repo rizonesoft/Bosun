@@ -34,7 +34,8 @@ public class RailInputTests
     /// <summary>Whether two screen colours are plainly different (the bar against the row's own fill).</summary>
     static bool Differs(Color a, Color b) => Math.Abs(a.R - b.R) + Math.Abs(a.G - b.G) + Math.Abs(a.B - b.B) > 60;
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_click_and_the_Down_arrow_each_select_a_page_show_it_and_take_the_marker_to_its_row()
     {
         using var panel = PanelProcess.Start();

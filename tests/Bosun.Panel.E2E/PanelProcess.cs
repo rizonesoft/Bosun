@@ -72,6 +72,12 @@ sealed class PanelProcess : IDisposable
         return Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), name), "e2e-" + Guid.NewGuid().ToString("N")[..12]);
     }
 
+    /// <summary>
+    /// Every process this run started, so a test can be held off the foreground: one of them owning it after a default
+    /// test means that test took the operator's keyboard (D02 T02 §12, <see cref="ForegroundKeptAttribute"/>).
+    /// </summary>
+    public static readonly HashSet<int> Started = [];
+
     /// <summary>A panel of its own whose stored settings hold this Activity pane height, as a restart restores it.</summary>
     public static PanelProcess StartWithPane(double height)
     {
@@ -128,7 +134,9 @@ sealed class PanelProcess : IDisposable
         };
         try
         {
-            return new PanelProcess(ChildProcess.Start(request, new StartGate()), data, instance, program, shown) { _ownsFolder = ownsFolder };
+            var started = new PanelProcess(ChildProcess.Start(request, new StartGate()), data, instance, program, shown) { _ownsFolder = ownsFolder };
+            lock (Started) Started.Add(started.Id);
+            return started;
         }
         catch
         {
@@ -166,6 +174,8 @@ sealed class PanelProcess : IDisposable
     /// <summary>The panel's window, shown and given the foreground through UI Automation (no key or click is sent).</summary>
     public AutomationElement Front()
     {
+        // Taking the foreground takes the keyboard: what the operator types lands in the panel (D02 T02 §12).
+        SmokeInput.Require("PanelProcess.Front");
         var window = Window();
         var handle = new IntPtr(window.Current.NativeWindowHandle);
         // No window owns the foreground while the desktop is locked or a secure screen is up: no test can take it then,

@@ -7,7 +7,8 @@ namespace Bosun.Panel.E2E;
 /// <summary>The window's own chrome under a real pointer: the snap layouts on the maximise button, and the splitter.</summary>
 public class WindowTests
 {
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Holding_the_pointer_on_maximise_shows_the_snap_layouts_and_clicks_maximise_then_restore()
     {
         using var panel = PanelProcess.Start();
@@ -39,7 +40,8 @@ public class WindowTests
         Ui.Until(() => Ui.Get(window, "Maximise").Current.Name == "Maximise", Ui.Short, "the button to be named Maximise again");
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void Dragging_the_splitter_resizes_the_Activity_pane_within_its_limits()
     {
         using var panel = PanelProcess.Start();
@@ -72,7 +74,8 @@ public class WindowTests
         HeadingAndALineShow(window);
     }
 
-    [Fact]
+    [RealInputFact]
+    [Trait(SmokeInput.Trait, SmokeInput.Real)]
     public void A_pane_stored_at_its_least_height_shows_its_heading_and_a_whole_line_when_the_panel_starts()
     {
         // The panel restores the stored height at its start: at 64 px, the heading and one line of the log still show.
