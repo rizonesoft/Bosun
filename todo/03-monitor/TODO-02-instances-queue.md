@@ -187,6 +187,13 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 
 An editor is one process tree however many windows it has open, and the scanner (§1) puts it in the repo of the folder it was launched from, so a VS Code with windows on three repos shows in none of them, or in the wrong one. Each window's folder is in the editor's own state, never in its processes. Filed 2026-11-16 by the completion review of `D03 T02 §1` (`docs/reviews/03-monitor/D03-T02-s1.md`, Part 1 item 2).
 
+**Corrected 2026-11-18** against this machine before building (the plan said to read `storage.json`'s `windowsState`):
+
+- VS Code writes `%APPDATA%\Code\User\globalStorage\storage.json` `windowsState` (`lastActiveWindow`, `openedWindows`) when it exits, not while it runs: here it was written at 2026-11-18 22:25:12, as VS Code closed, with `openedWindows` empty. It says which folders a closed editor will reopen, never which are open now, so it can't place a running editor's windows.
+- The VS Code fork "Antigravity IDE" (`%APPDATA%\Antigravity IDE`) keeps the same file, last written 2026-10-31 and empty. The running Antigravity (`%LOCALAPPDATA%\Programs\antigravity\Antigravity.exe`, data in `%APPDATA%\Antigravity`, `app_storage.json`) is the agent app, not a VS Code fork: it has no window state of this kind, and its agents are already listed by §1.
+- Neither keeps `Backups\workspaces.json`, the other on-disk record of open windows.
+- The live record is the running editor's own: `code --status` asks its main process and prints each window with its folders (a remote window's as `vscode-remote://wsl+<distro>/...`), so a WSL window comes from the Windows editor too and the WSL scanner needs no change. It starts nothing when no editor runs, but it counts each folder's files, so it is run with a bound and only while an editor process exists. Its exact output is read on a running editor in the first item, the one thing this machine can't show while no VS Code runs.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** no
@@ -196,9 +203,9 @@ An editor is one process tree however many windows it has open, and the scanner 
 1. Find where each editor records its windows' folders. Done when: this section names the file and field for each, read from the installed versions.
 2. List an editor once per open folder. Done when: an editor with windows on two repos is in both.
 
-- [ ] Read where VS Code (`%APPDATA%\Code\User\globalStorage\storage.json`, `windowsState`), Antigravity and VS Code Server in WSL record each open window's folder, on this machine's installed versions, and write the file, field and version of each into this section. Done when: the three are named here with the version read, or one that keeps no such record is named with why. Cheaper substitute: the launch folder, which §1 already has.
-- [ ] Add `dm::editor_windows` to `src/core.hpp` (and its mirror in `wsl/bosun_log.py`), reading that state into one folder per open window, a remote or unsaved window kept as no folder. Done when: `tests/test_core.cpp` and `tests/test_bosun_log.py` read a fixture state of two windows on two repos, one empty window and a malformed file (a `problems` entry, never a crash).
-- [ ] List an editor in `cmd_instances` (`src/app.cpp`) and the WSL scanner once per window folder, each row its window's `cwd` and `repo`, its memory on the first row only so no memory is counted twice. Done when: `tests/instances_test.ps1` with a fixture state file for its editor copy finds it in both repos, launched from outside both.
+- [ ] Run `code --status` (and the Antigravity IDE's own CLI's `--status`, if installed) against a running editor with windows on two folders, one of them a WSL remote, and write its version, the exact lines that name each window and folder, and its time to answer into this section. Done when: the format and timing are recorded here with the version read, or the editor whose CLI has no `--status` is named with why. Cheaper substitute: the launch folder, which §1 already has, or `storage.json`, which is written only at exit.
+- [ ] Add `dm::editor_windows` to `src/core.hpp`, parsing `--status` output into one folder per window (a WSL remote folder as its distro and guest path, a window with no folder kept as none). Done when: `tests/test_core.cpp` parses recorded fixture output of two windows on two repos, a WSL remote window, an empty window and output it can't read (a `problems` entry, never a crash).
+- [ ] List an editor in `cmd_instances` (`src/app.cpp`) once per window folder, asking its CLI only while its process runs, with a bound (a timeout stops the CLI's whole tree, and the editor is listed by its launch folder with a `problems` entry saying why), each row its window's `cwd` and `repo` (a WSL window's on its distro), its memory on the first row only so no memory is counted twice. Done when: `tests/instances_test.ps1`, with a stand-in CLI printing the fixture output, finds one editor in both repos, launched from outside both, and a stand-in that hangs is stopped at the bound with its problem said.
 - [ ] Group an editor's rows by repo in `InstanceClient.Merge` (`src/Bosun.Core/Instances/InstanceClient.cs`), the same pid in two groups. Done when: `InstanceClientTests` shows one editor in two repo groups with its memory once.
 - [ ] Commit: `instances: an editor in every repo it has open`
 
