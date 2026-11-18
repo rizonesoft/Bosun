@@ -225,14 +225,18 @@ $mode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $started = (Get-Date).ToUniversalTime()
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 # The log's name is reserved by making the file, which only one process can do: two runs in one second never share it.
+# A name whose results folder is already there is passed over, and the folder is made new, never adopted: retention
+# later removes it with the log, so it must hold nothing but this run's.
 $log = $null
 for ($n = 1; -not $log; $n++) {
-    $name = Join-Path $StateFolder $(if ($n -eq 1) { "input-$stamp.log" } else { "input-$stamp-$n.log" })
+    $suffix = if ($n -eq 1) { $stamp } else { "$stamp-$n" }
+    $name = Join-Path $StateFolder "input-$suffix.log"
+    if (Test-Path -LiteralPath (Join-Path $StateFolder "results-$suffix")) { continue }
     try { [IO.File]::Open($name, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite).Dispose(); $log = $name }
     catch [IO.IOException] { if (-not (Test-Path -LiteralPath $name)) { throw } }
 }
 $results = Join-Path $StateFolder "results-$([IO.Path]::GetFileNameWithoutExtension($log).Substring(6))"
-New-Item -ItemType Directory -Force -Path $results | Out-Null
+New-Item -ItemType Directory -Path $results | Out-Null
 function Say([string]$line) { $line; Add-Content -LiteralPath $log -Value "$((Get-Date).ToString('HH:mm:ss')) $line" }
 $end = $null
 if ($Scheduled) {

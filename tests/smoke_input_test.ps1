@@ -273,6 +273,14 @@ try {
         [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
         Check "a test's own release of a key a person holds is stopped in the hook" ([F24State]::Down())
       } finally { [void][F24Send]::Key($true, 0) }
+      # Unguarded too (on demand), a person's press that came first stays theirs: the smoke's press and release of the
+      # same key after it leave it down.
+      try {
+        [void][F24Send]::Key($false, 0); Start-Sleep -Milliseconds 200
+        [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
+        [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
+        Check "a person's press that came first is not ended by the smoke's release" ([F24State]::Down())
+      } finally { [void][F24Send]::Key($true, 0) }
       if (-not $real.HasExited) { $real.Kill($true) }
       # Guarded (the nightly run), once a person has come no new press of the smoke's passes: a person's F24 down, the
       # smoke's down and up after it, and the person's key is still down (unguarded, the smoke's up would let it go).
@@ -449,6 +457,14 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     Remove-Item -LiteralPath $holdFile -ErrorAction Ignore
     $hold.WaitForExit(10000) | Out-Null
   }
+
+  # A results folder already there for a run's name is never adopted: the run takes the next name.
+  $own = Join-Path $dir 'state-adopt'
+  New-Item -ItemType Directory -Force -Path $own | Out-Null
+  foreach ($i in 0..5) { New-Item -ItemType Directory -Force -Path (Join-Path $own "results-$((Get-Date).AddSeconds($i).ToString('yyyyMMdd-HHmmss'))") | ForEach-Object { Set-Content -LiteralPath (Join-Path $_.FullName 'keep.txt') -Value keep } }
+  $e = Invoke-Run 'pass' -State $own
+  $adopted = @(Get-ChildItem -LiteralPath $own -Directory -Filter 'results-*' | Where-Object { (Test-Path -LiteralPath (Join-Path $_.FullName 'keep.txt')) -and @(Get-ChildItem -LiteralPath $_.FullName).Count -gt 1 })
+  Check "a results folder already there is not adopted ($([IO.Path]::GetFileName($e.Last.log)))" ($e.Last.outcome -eq 'passed' -and $adopted.Count -eq 0) $e.Said
 
   # The history: each run kept with its own log, the last 60 and 30 kept, read back in words.
   $state = Join-Path $dir 'state-history'

@@ -32,6 +32,7 @@ static class InputWatch
     private static bool _guard, _personCame;   // under Gate
     private static readonly object Gate = new();
     private static readonly SortedSet<int> SmokeHeld = [];   // under Gate: the hooks change it, the writer reads it
+    private static readonly HashSet<int> PersonHeld = [];    // under Gate: keys a person holds down now
     private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105,
         WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_RBUTTONDOWN = 0x204, WM_RBUTTONUP = 0x205, WM_MBUTTONDOWN = 0x207, WM_MBUTTONUP = 0x208;
     private static HookProc? _keys, _mouse;   // held, so the collector never takes a callback Windows still calls
@@ -141,7 +142,14 @@ static class InputWatch
             if (smoke && _guard && _personCame && !(up && key != 0 && SmokeHeld.Contains(key))) return true;
             var changed = false;
             if (!smoke) { _latest = DateTime.UtcNow; changed = true; _personCame = true; _person?.Set(); }
-            if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
+            // A person's press and release are kept too: a smoke press of a key a person already holds is never the
+            // smoke's, so its release of that key is stopped above and the person's press is not ended under them.
+            if (key != 0 && !smoke)
+            {
+                if (down) PersonHeld.Add(key);
+                if (up) PersonHeld.Remove(key);
+            }
+            if (key != 0) changed |= down && smoke ? !PersonHeld.Contains(key) && SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
             if (changed) Wake.Set();
             return false;
         }
