@@ -121,6 +121,8 @@ jobs:
         run: pwsh tests\render_pages_test.ps1
       - name: Window capture self-test
         run: pwsh tests\capture_window_test.ps1
+      - name: Real-input smoke runner test
+        run: pwsh tests\smoke_input_test.ps1
 
   linux:
     name: Test the WSL side on Linux
