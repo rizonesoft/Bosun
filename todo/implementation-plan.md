@@ -98,7 +98,7 @@ Sections: 20 | Checklist items: 135
 
 | Status | Reference   | Deliverable                                                      | Needs | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----- | ----- |
-| [ ]    | D02 T02 §11 | One desktop owner across smoke runs and captures                 | none  | 7     |
+| [x]    | D02 T02 §11 | One desktop owner across smoke runs and captures                 | none  | 7     |
 | [x]    | D02 T04 §1  | One focus outline per control, with focus renders                | none  | 9     |
 | [x]    | D02 T04 §2  | Field insets, error border and label spacing                     | none  | 7     |
 | [x]    | D02 T04 §3  | Spacing scale, section headings and Settings in cards            | none  | 7     |
@@ -158,6 +158,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 77/103 verified sections, 7 ready to run now.
+Progress: 78/103 verified sections, 6 ready to run now.
 
-Checklist: 773/886 items completed (includes Commit items).
+Checklist: 774/886 items completed (includes Commit items).

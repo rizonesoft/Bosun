@@ -1,0 +1,95 @@
+{
+  "ref": "D02 T02 \u00a711",
+  "title": "One desktop owner across smoke runs and captures",
+  "implementation_sha": "50e0b807b4539be481e88aeb4cc60f0b2cc477e4",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T02-s11.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T02-s11.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-shell/D02-T02-s11.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-class \"*DesktopLockTests\" --filter-class \"*TestAssemblyTests\" --filter-class \"*CaptureTests\" -> 33 of 33 passed",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> 65 of 66; the one failure is D02 T04 \u00a77 ToastE2ETests, filed to that section",
+    "pwsh tests/capture_window_test.ps1 -> all passed",
+    "python scripts/ci_status.py --gate --sha 50e0b807b453 -> build.yml and plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44220137896)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T02-s11.md",
+    "verdict": "filed",
+    "candidate": "861c339094c1fc373cf9bd3ad04e29df74bd62af",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D02 T04 \u00a77"
+    ]
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 returned only two P3s (one handle across a wait, the stop test synchronised on the wait), both fixed in 861c339 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T02-s11.md",
+    "candidate": "b7ca8af788d7a3c3644310fd71d900f588a540bd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "b7ca8af788d7a3c3644310fd71d900f588a540bd",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

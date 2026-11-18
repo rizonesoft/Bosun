@@ -2,7 +2,7 @@
 schema_version: 1
 id: application-shell
 domain: 02-shell
-status: active
+status: done
 title: "TODO-02 -- The application shell"
 ---
 
@@ -52,7 +52,7 @@ title: "TODO-02 -- The application shell"
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [x] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [x] |
-| 10 | §11 | One desktop owner across smoke runs and captures | §10 | [ ] |
+| 10 | §11 | One desktop owner across smoke runs and captures | §10 | [x] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -537,9 +537,12 @@ Decisions, each with what reversing it costs:
 - [x] Take the lock in `scripts/capture-window.ps1` before launching or attaching and hold it until after teardown, on every way out (`try`/`finally`, the script's one thread): the same name and wait rules (a bad value exits 2), the same record (`process_start` from `(Get-Process -Id $PID).StartTime.ToFileTimeUtc()`), the waiting line on stderr, and a wait that runs out exiting 4 naming the holder before anything is launched (0, 1, 2 and 3 keep their meanings). The lock is skipped only when `BOSUN_DESKTOP_HELD` passes all four checks above; `-Verify` and the argument checks (exit 2) run before the lock and take none. Done when: `tests/capture_window_test.ps1`, on a `BOSUN_DESKTOP_LOCK` of its own, reads: a capture of a program that never shows a window (`-WaitSeconds 5`) as the first owner, its record naming the capture's pid and a probe's `WaitOne(0)` refused while it waits, then a second capture started meanwhile with a 20 s wait saying whom it waits for and getting the lock once the first exits 1; the same after the first is killed mid-wait; a capture with a 1 s wait while a child holds the lock exiting 4 naming the child's pid, with nothing launched; `BOSUN_DESKTOP_HELD` from a genuine holding parent letting a capture through without waiting, while one naming a live ancestor that doesn't hold the lock, a live process that isn't an ancestor, a dead pid, or another lock name waits; `BOSUN_DESKTOP_WAIT_S=x` and a bad `BOSUN_DESKTOP_LOCK` exiting 2; and, with the lock held throughout, `-Verify` on a known pair exiting 0 and a bad argument exiting 2. Cheaper substitute: retrying the foreground check until the other run ends.
 - [x] Put the self-test's own drills on a lock of their own in `Invoke-SelfTest` (`scripts/capture-window.ps1`): it sets `BOSUN_DESKTOP_LOCK` to `selftest-<pid>` for the captures it runs (the pair-lock, cancellation and process-tree drills, `scripts/capture-window.ps1:573`, `:587`, `:631`) and restores it after, so they never wait on a smoke or capture that holds the caller's lock, and every existing self-test check stays. Done when: `tests/capture_window_test.ps1` runs `-SelfTest` while a child holds the caller's lock and reads `self-test: all pass` within its usual time.
 - [x] Say in `tests/Bosun.Panel.E2E/README.md` that a run owns the desktop through `Local\bosun-desktop`, how long a second run waits and what it says, where the holder's record is (`%LOCALAPPDATA%\Bosun\run\<session>\desktop\bosun-desktop.json`) and what `BOSUN_DESKTOP_WAIT_S`, `BOSUN_DESKTOP_HELD` and `BOSUN_DESKTOP_LOCK` do; and in `capture-window.ps1`'s help the lock, the record and exit 4. Done when: `TestAssemblyTests` reads the README's record path, with `<session>` replaced by this session's, equal to the path the fixture's holder wrote, and `tests/capture_window_test.ps1` finds exit 4 and the record path in `Get-Help` of the script.
-- [ ] Commit: `smoke: one desktop owner at a time across smoke runs and captures`
+- [x] Commit: `smoke: one desktop owner at a time across smoke runs and captures`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` exits 0 in a desktop session, with `DesktopLockTests` and `TestAssemblyTests` passing; `pwsh tests/capture_window_test.ps1` exits 0; and the two real runs above are quoted in the commit.
+
+> **Verified:** 2026-11-18 | §11 | 50e0b807b4539be481e88aeb4cc60f0b2cc477e4
+> **Review:** `docs/reviews/d02-t02-s11.json`
 
 ## Verification
 
