@@ -1,0 +1,82 @@
+{
+  "ref": "D02 T04 \u00a78",
+  "title": "Memory page scroll gutter and the Decision evidence list",
+  "implementation_sha": "d5f6aa4be3c53216684985f148d20bcb2d25fef4",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s8.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 871 of 871 (DecisionCardTests and MemoryPageTests among them)",
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class \"*DecisionTests\" -> 16 of 16",
+    "python scripts/ci_status.py --gate --sha d5f6aa4be3c5 -> build.yml and plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44238228377)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s8.md",
+    "verdict": "completed",
+    "candidate": "1c032e0d05e3611f582e8f1d37cb58a5b744fe32",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "cap_outcome": "round 1 returned only a P3 (a cancelled or failed draw read as drawn in the tests), fixed in 1c032e0 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s8.md",
+    "candidate": "57e1e17c33816f1ae564368a03e0174f31cd0b05",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "57e1e17c33816f1ae564368a03e0174f31cd0b05",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

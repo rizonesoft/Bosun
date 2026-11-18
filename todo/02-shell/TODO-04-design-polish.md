@@ -61,7 +61,7 @@ title: "TODO-04 -- Design polish"
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [x] |
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [x] |
 | 7 | §7 | Expandable toasts and a clean palette search field | §1 | [x] |
-| 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [ ] |
+| 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [x] |
 | 9 | §9 | Placeholder copy, the Activity heading and the idle scroll thumb | -- | [ ] |
 
 ## 1. One focus outline per control, with focus renders
@@ -323,9 +323,12 @@ The Memory page's scroll bar sits on the cards' right border, and the Decision c
 - [x] Write each evidence line of `DecisionRule.Decide` (`src/Bosun.Core/Memory/Decision.cs`) starting with a capital or a figure ("Counted since the memory changed to...", "Committed memory peaked at...", "The peak commit: not measured"; "6 days of Windows samples" as it is). Done when: `DecisionTests` reads every line starting with a capital or a digit on each path that writes one: not yet, each withheld cause (incomplete history, a figure not measured), the capacity-change line, more memory with a figure not measured, and enough; and keeps its assertions of the figures, units and qualifiers. Cheaper substitute: capitalising in the view.
 - [x] Draw the Decision card's evidence in `MemoryView.xaml` under a visible label, "What the verdict rests on" (`FieldLabel`), as a list with a decorative marker per line in `B.TextDim` aligned to the line's first line of text, and the `Note` text's line height; the label and list shown only while there is evidence (none during the first read, after a first read that failed, or while reading again at a changed pressure line), and kept beside the stale-data message when an earlier verdict stands after a failed refresh. Done when: `DecisionCardTests` reads the drawn rows' texts, in order, equal to a known report's evidence; a wrapped row's whole text shown, not trimmed; one marker per row, its top within the row's first line, out of the automation tree while the row's text is in it once; the label and list gone and back across those states, and kept beside the stale message; and the Decision renders show it. Cheaper substitute: a dash typed into each string.
 - [x] Redraw the Memory renders in every theme. Done when: each is looked at.
-- [ ] Commit: `memory: the scroll bar has its gutter and the evidence is a list`
+- [x] Commit: `memory: the scroll bar has its gutter and the evidence is a list`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*DecisionCardTests" --filter-class "*MemoryPageTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DecisionTests"` exit 0.
+
+> **Verified:** 2026-11-18 | §8 | d5f6aa4be3c53216684985f148d20bcb2d25fef4
+> **Review:** `docs/reviews/d02-t04-s8.json`
 
 ## 9. Placeholder copy, the Activity heading and the idle scroll thumb
 
