@@ -59,7 +59,7 @@ public class HarnessTests
         using var panel = PanelProcess.Start();
         var window = panel.Window();
         var handle = new IntPtr(window.Current.NativeWindowHandle);
-        var pointer = Native.Cursor();
+        var sent = Native.Sent;
         var refusals = new List<string>
         {
             Assert.Throws<RealInputRefused>(() => RealInput.Key(handle, Native.VK_TAB)).Message,
@@ -68,7 +68,10 @@ public class HarnessTests
             Assert.Throws<RealInputRefused>(() => panel.Front()).Message,
         };
         Assert.All(refusals, said => Assert.Contains("[Trait(\"Input\", \"Real\")]", said));
-        Assert.Equal(pointer, Native.Cursor());                                              // the pointer never moved
+        // Nothing sent, counted where every input leaves (the pointer's place would also move for a person at the desk),
+        // and the panel was not brought to the front.
+        Assert.Equal(sent, Native.Sent);
+        Assert.NotEqual(panel.Id, Native.ProcessOf(Native.GetForegroundWindow()));
     }
 
     [RealInputFact]

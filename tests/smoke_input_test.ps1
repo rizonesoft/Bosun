@@ -248,7 +248,7 @@ try {
   try {
     $task = Get-ScheduledTask -TaskName $taskName
     $trigger = $task.Triggers[0]
-    Check 'the task runs daily at 03:00' ($trigger.CimClass.CimClassName -eq 'MSFT_TaskDailyTrigger' -and ([DateTime]$trigger.StartBoundary).ToString('HH:mm') -eq '03:00') $said
+    Check 'the task runs daily at 03:00' ($trigger.CimClass.CimClassName -eq 'MSFT_TaskDailyTrigger' -and $trigger.DaysInterval -eq 1 -and ([DateTime]$trigger.StartBoundary).ToString('HH:mm') -eq '03:00') $said
     Check 'never woken, never run late, ended after two hours' (-not $task.Settings.WakeToRun -and -not $task.Settings.StartWhenAvailable -and $task.Settings.ExecutionTimeLimit -eq 'PT2H')
     Check 'for this user, only while logged on' ($task.Principal.UserId -like "*$env:USERNAME" -and $task.Principal.LogonType -eq 'Interactive')
     $action = $task.Actions[0]

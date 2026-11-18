@@ -118,8 +118,14 @@ static partial class Native
         return input;
     }
 
+    /// <summary>Every input event this process has handed Windows: what the smoke sent, told from what a person did.</summary>
+    public static long Sent => Interlocked.Read(ref _sent);
+
+    private static long _sent;
+
     private static void Send(INPUT[] inputs)
     {
+        Interlocked.Add(ref _sent, inputs.Length);
         var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
         if (sent != inputs.Length) throw new InvalidOperationException($"Windows took {sent} of {inputs.Length} input events (error {Marshal.GetLastPInvokeError()})");
     }
