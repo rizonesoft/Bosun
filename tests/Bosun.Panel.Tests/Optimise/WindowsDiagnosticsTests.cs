@@ -326,6 +326,11 @@ public class WindowsDiagnosticsTests
         // One comment line longer than the bound is read past, kept nothing.
         Assert.Equal("[wsl2]\n", ProfileFiles.Settings(new StringReader("#" + new string('x', 200_000) + "\n[wsl2]"), ".wslconfig"));
 
+        // Round 6: leading whitespace is never counted, and a file past the scan bound is said, not scanned on.
+        Assert.Equal("[wsl2]\nmemory=8GB\n", ProfileFiles.Settings(new StringReader(new string(' ', 65_537) + "\n[wsl2]\n   memory=8GB\n"), ".wslconfig"));
+        var huge = Assert.Throws<IOException>(() => ProfileFiles.Settings(new EndlessComment(), ".wslconfig"));
+        Assert.Contains("longer than 16 MB", huge.Message);
+
         var settings = string.Concat(Enumerable.Repeat("key=value\n", 10_000));
         var refused = Assert.Throws<IOException>(() => ProfileFiles.Settings(new StringReader(settings), ".wslconfig"));
         Assert.Contains("more than 64 KB of settings", refused.Message);
@@ -347,6 +352,14 @@ public class WindowsDiagnosticsTests
         var growing = 4096u;
         var fault = Assert.Throws<IOException>(() => Win32FirmwareTable.Read((_, _, _, _) => growing++));
         Assert.Contains("kept growing", fault.Message);
+    }
+
+    /// <summary>A comment that never ends, as a multi-gigabyte one would be: it stops the test if the bound fails.</summary>
+    private sealed class EndlessComment : TextReader
+    {
+        private long _read;
+
+        public override int Read() => _read++ == 0 ? '#' : _read < 64L * 1024 * 1024 ? 'x' : -1;
     }
 
     // ---- this machine ----

@@ -241,6 +241,14 @@ public class DiagnosticsTests
         Assert.Contains("not a size WSL accepts", fact.Reason);
     }
 
+    [Theory]
+    [InlineData("[wsl2]backup\nmemory=8GB\n", null)]          // round 6: a prefix is no header
+    [InlineData("[wsl2x]\nmemory=8GB\n", null)]
+    [InlineData("[wsl2] # the VM\nmemory=8GB\n", 8192L)]       // a header with a comment is the section
+    [InlineData("[ WSL2 ]\nmemory=8GB\n", 8192L)]
+    public void A_section_header_is_the_whole_line_never_a_prefix(string text, long? mb) =>
+        Assert.Equal(mb, WslConfigParser.ParseCap(text).Value!.Mb);
+
     // ---- SMBIOS type 17 ----
 
     [Fact]

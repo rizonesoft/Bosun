@@ -32,6 +32,12 @@ public sealed partial class ProfileFiles : IProfileFiles
     /// </summary>
     public const int MaxKeptChars = 64 * 1024;
 
+    /// <summary>
+    /// The most of a profile file read at all, in characters: a <c>.wslconfig</c> is kilobytes, so past this the file
+    /// is said to be too large rather than scanned on (round 6: a multi-gigabyte comment held the read up).
+    /// </summary>
+    public const long MaxScannedChars = 16L * 1024 * 1024;
+
     public string? ReadText(string path)
     {
         try
@@ -61,8 +67,11 @@ public sealed partial class ProfileFiles
         var comment = false;     // the line so far is a comment: read past, nothing kept
         var started = false;     // a non-blank character was seen on this line
         int c;
+        long scanned = 0;
         while ((c = reader.Read()) != -1)
         {
+            if (++scanned > MaxScannedChars)
+                throw new IOException($"{path} is longer than {MaxScannedChars / (1024 * 1024)} MB, more than a .wslconfig can be, so it is not read.");
             var ch = (char)c;
             if (ch == '\n')
             {
@@ -72,7 +81,10 @@ public sealed partial class ProfileFiles
                 continue;
             }
             if (comment) continue;
-            if (!started && !char.IsWhiteSpace(ch))
+            // Whitespace before a line's first character is neither kept nor counted (round 6: 65,537 leading
+            // spaces counted against the bound before the line was known to be blank).
+            if (!started && char.IsWhiteSpace(ch)) continue;
+            if (!started)
             {
                 started = true;
                 if (ch is '#' or ';')

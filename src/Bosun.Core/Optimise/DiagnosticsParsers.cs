@@ -62,7 +62,12 @@ public static class WslConfigParser
             if (line.Length == 0 || line[0] is '#' or ';') continue;
             if (line[0] == '[')
             {
-                inWsl2 = line.TrimEnd().StartsWith("[wsl2]", StringComparison.OrdinalIgnoreCase);
+                // The whole header, never a prefix (round 6: "[wsl2]backup" read as [wsl2]): the name in brackets,
+                // then nothing but an optional comment.
+                var close = line.IndexOf(']');
+                var rest = close < 0 ? "x" : line[(close + 1)..].TrimStart();
+                inWsl2 = close > 0 && line[1..close].Trim().Equals("wsl2", StringComparison.OrdinalIgnoreCase)
+                    && (rest.Length == 0 || rest[0] is '#' or ';');
                 continue;
             }
 
