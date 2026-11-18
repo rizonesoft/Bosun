@@ -46,7 +46,7 @@
     <!-- The page frame gives a page the window's height and no more (Shell/ShellView.xaml, PageHost): the cards, the
          chart, the table and the Decision card are taller than a small window, so they scroll here, and the Decision
          card is never out of reach below the frame (D03 T02 §2 completion review). -->
-    <ScrollViewer x:Name="MemoryScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+    <ScrollViewer x:Name="MemoryScroll" Style="{DynamicResource Scroll.Gutter}">
     <StackPanel>
         <TextBlock x:Name="HistoryNote" Text="{Binding HistoryNote}" Style="{StaticResource Warning}"/>
 
@@ -201,14 +201,45 @@
                         </Style>
                     </TextBlock.Style>
                 </TextBlock>
-                <ItemsControl x:Name="Evidence" ItemsSource="{Binding Decision.Evidence}" Focusable="False" IsTabStop="False"
-                              AutomationProperties.Name="What the verdict rests on">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding}" Style="{StaticResource Note}" Margin="0,1,0,1"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <!-- What the verdict rests on, a labelled list with a marker per line (D02 T04 §8): shown with evidence only,
+                     and kept beside the stale-data message while an earlier verdict stands. The marker is the line's own
+                     text style, so it sits on the first line of a row that wraps, and is decorative: a screen reader says
+                     each row's words once. -->
+                <StackPanel x:Name="EvidenceList">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Decision}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Decision.Evidence.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock x:Name="EvidenceLabel" Text="What the verdict rests on" Style="{DynamicResource FieldLabel}"/>
+                    <ItemsControl x:Name="Evidence" ItemsSource="{Binding Decision.Evidence}" Focusable="False" IsTabStop="False"
+                                  AutomationProperties.Name="What the verdict rests on">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- The list's item says the line (its name is the line itself); what is drawn is seen only, so a
+                                     screen reader says each line once and never the marker. -->
+                                <controls:Decorative Margin="{DynamicResource Gap.Below.XS}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="Marker" Text="&#x2022;" Style="{StaticResource Note}" TextWrapping="NoWrap"
+                                                   VerticalAlignment="Top" Margin="{DynamicResource Gap.After.S}"/>
+                                        <TextBlock x:Name="Line" Grid.Column="1" Text="{Binding}" Style="{StaticResource Note}" VerticalAlignment="Top"/>
+                                    </Grid>
+                                </controls:Decorative>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
             </StackPanel>
         </Border>
     </StackPanel>

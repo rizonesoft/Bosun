@@ -47,7 +47,7 @@ public static class DecisionRule
                 ["Update the tools (pwsh scripts/install.ps1) so the report carries its evidence."]);
         evidence.Add($"{days} {(days == 1 ? "day" : "days")} of Windows samples");
         if (w.CapacitySince is { Length: > 0 } since && w.TotalMb is { } now)
-            evidence.Add($"counted since the memory changed to {Gb(now)} ({since[..Math.Min(10, since.Length)]})");
+            evidence.Add($"Counted since the memory changed to {Gb(now)} ({since[..Math.Min(10, since.Length)]})");
         if (days < MinimumDays)
             return new(DecisionKind.NotYet, $"Not yet: {days} of the {MinimumDays} days a verdict needs are logged. Leave the logger running.", evidence);
         // A rejected row is a sample thrown away, perhaps the very minute of pressure: as incomplete as a file unread.
@@ -66,7 +66,7 @@ public static class DecisionRule
         if (w.PeakCommitRatio is { } ratio)
         {
             // One decimal, so 89.9% beside "enough" is never shown as the 90% that would have meant "more".
-            evidence.Add($"committed memory peaked at {(Math.Floor(Math.Round(ratio * 1000, 6)) / 10).ToString("0.0", CultureInfo.InvariantCulture)}% of its limit");
+            evidence.Add($"Committed memory peaked at {(Math.Floor(Math.Round(ratio * 1000, 6)) / 10).ToString("0.0", CultureInfo.InvariantCulture)}% of its limit");
             if (ratio >= CommitPressure) reasons.Add("committed memory reached 90% of its limit");
         }
         else unknown.Add("the peak commit");
@@ -79,7 +79,9 @@ public static class DecisionRule
         else if (report.Wsl.Samples > 0) unknown.Add("WSL out-of-memory kills");
 
         // A figure not measured is said even when another reason already carries the verdict.
-        foreach (var figure in unknown) evidence.Add($"{figure}: not measured");
+        // Each evidence line opens with a capital or a figure, read as a list (D02 T04 §8); the verdict below keeps
+        // the figures as words inside its sentence.
+        foreach (var figure in unknown) evidence.Add($"{char.ToUpperInvariant(figure[0])}{figure[1..]}: not measured");
         if (reasons.Count > 0) return new(DecisionKind.More, $"More memory would help: {string.Join("; ", reasons)}.", evidence);
         if (unknown.Count > 0) return new(DecisionKind.Withheld, $"No verdict: {string.Join(" and ", unknown)} not measured.", evidence);
         var installed = w.TotalMb is { } total ? Gb(total) : "The installed memory";

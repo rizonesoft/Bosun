@@ -704,6 +704,43 @@
         </Setter>
     </Style>
 
+    <!-- A page's scroll area whose bar keeps its own gutter (D02 T04 §8): the content, a gap from the space scale, then
+         the bar, the gap there only while the bar shows, so a card's border never meets the bar and a page that fits
+         keeps its full width. WPF's own template sets the bar straight against the content. -->
+    <Style x:Key="Scroll.Gutter" TargetType="ScrollViewer">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollViewer">
+                    <Grid Background="{TemplateBinding Background}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ScrollContentPresenter x:Name="PART_ScrollContentPresenter" Grid.Column="0" Margin="{TemplateBinding Padding}"
+                                                CanContentScroll="{TemplateBinding CanContentScroll}"/>
+                        <Border x:Name="Gutter" Grid.Column="1" Width="{DynamicResource S.S}"/>
+                        <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="2" Orientation="Vertical"
+                                   Maximum="{TemplateBinding ScrollableHeight}" ViewportSize="{TemplateBinding ViewportHeight}"
+                                   Value="{TemplateBinding VerticalOffset}" Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                   AutomationProperties.Name="Scroll the page"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="ComputedVerticalScrollBarVisibility" Value="Collapsed">
+                            <Setter TargetName="Gutter" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                        <Trigger Property="ComputedVerticalScrollBarVisibility" Value="Hidden">
+                            <Setter TargetName="Gutter" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Width" Value="10"/>

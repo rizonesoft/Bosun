@@ -34,6 +34,38 @@ public class DecisionTests
             ["repos"] = Array.Empty<object>(), ["series"] = Array.Empty<object>(),
         }), MemoryJson.Default.ReportDoc)!;
 
+    public static TheoryData<string, DecisionKind> EveryPath => new()
+    {
+        { "not yet", DecisionKind.NotYet },
+        { "the tools too old to count days", DecisionKind.Withheld },
+        { "an incomplete history", DecisionKind.Withheld },
+        { "a figure not measured", DecisionKind.Withheld },
+        { "the memory changed", DecisionKind.Enough },
+        { "more, with a figure not measured", DecisionKind.More },
+        { "enough", DecisionKind.Enough },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryPath))]
+    public void Each_evidence_line_opens_with_a_capital_or_a_figure_on_every_path_that_writes_one(string path, DecisionKind kind)
+    {
+        // Read as a list on the Decision card (D02 T04 §8): "Committed memory peaked...", "6 days of Windows samples".
+        var report = path switch
+        {
+            "not yet" => Report(days: 3, since: "2026-11-15T08:00:00Z"),
+            "the tools too old to count days" => Report(days: null),
+            "an incomplete history" => Report(complete: false),
+            "a figure not measured" => Report(commit: null, oom: null),
+            "the memory changed" => Report(since: "2026-11-05T08:00:00Z", total: 65536),
+            "more, with a figure not measured" => Report(lowMinutes: 12, commit: null, oom: null),
+            _ => Report(),
+        };
+        var d = DecisionRule.Decide(report);
+        Assert.Equal(kind, d.Kind);
+        Assert.NotEmpty(d.Evidence);
+        Assert.All(d.Evidence, line => Assert.True(char.IsUpper(line[0]) || char.IsDigit(line[0]), $"{path}: \"{line}\""));
+    }
+
     [Fact]
     public void Fewer_than_7_days_of_Windows_samples_gives_no_verdict_and_says_how_many()
     {
@@ -57,7 +89,7 @@ public class DecisionTests
         // A reason that was measured still stands beside one that wasn't.
         var partly = DecisionRule.Decide(Report(lowMinutes: 12, commit: null));
         Assert.Equal(DecisionKind.More, partly.Kind);
-        Assert.Contains("the peak commit: not measured", partly.Evidence);                  // said, though the verdict stands
+        Assert.Contains("The peak commit: not measured", partly.Evidence);                  // said, though the verdict stands
     }
 
     [Theory]
@@ -69,7 +101,7 @@ public class DecisionTests
         var d = DecisionRule.Decide(Report(lowMinutes: minutes, commit: commit, oom: oom));
         Assert.Equal((DecisionKind.More, verdict), (d.Kind, d.Verdict));
         Assert.Contains($"{minutes} {(minutes == 1 ? "minute" : "minutes")} below the 2.0 GB pressure line", d.Evidence);
-        Assert.Contains(FormattableString.Invariant($"committed memory peaked at {commit * 100:0.0}% of its limit"), d.Evidence);
+        Assert.Contains(FormattableString.Invariant($"Committed memory peaked at {commit * 100:0.0}% of its limit"), d.Evidence);
     }
 
     [Fact]
@@ -78,7 +110,7 @@ public class DecisionTests
         Assert.Equal("32.0 GB has been enough so far.", DecisionRule.Decide(Report()).Verdict);
         var bigger = DecisionRule.Decide(Report(total: 65536, since: "2026-11-05T10:00:05"));
         Assert.Equal("64.0 GB has been enough so far.", bigger.Verdict);
-        Assert.Contains("counted since the memory changed to 64.0 GB (2026-11-05)", bigger.Evidence);
+        Assert.Contains("Counted since the memory changed to 64.0 GB (2026-11-05)", bigger.Evidence);
         Assert.Equal("The installed memory has been enough so far.", DecisionRule.Decide(Report(total: null)).Verdict);
     }
 
@@ -87,8 +119,8 @@ public class DecisionTests
     {
         var d = DecisionRule.Decide(Report(commit: 0.8999));
         Assert.Equal(DecisionKind.Enough, d.Kind);
-        Assert.Contains("committed memory peaked at 89.9% of its limit", d.Evidence);
-        Assert.Contains("committed memory peaked at 90.0% of its limit", DecisionRule.Decide(Report(commit: 0.9)).Evidence);
+        Assert.Contains("Committed memory peaked at 89.9% of its limit", d.Evidence);
+        Assert.Contains("Committed memory peaked at 90.0% of its limit", DecisionRule.Decide(Report(commit: 0.9)).Evidence);
     }
 
     [Fact]
