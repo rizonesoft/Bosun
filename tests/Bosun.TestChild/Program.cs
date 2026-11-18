@@ -16,6 +16,9 @@ using System.Text.Json;
 //   tree <file> <ms>            start a grandchild (`beat <file>`), then sleep
 //   orphan <file>               start the same grandchild, wait until it has written, then exit: it is left with no parent
 //   beat <file>                 write this process's id as the file's first line, then a line every 100 ms
+//   hold-desktop <name> <folder> take the desktop lock <name> with its record in <folder> (D02 T02 §11), write `held`,
+//                               wait for a file `release` (at most 60 s), release it and write `released`
+//   probe-desktop <name>        write `taken` or `free` to `probe`: whether the lock is held elsewhere at this moment
 //
 // `beat` writes at most 100 lines (ten seconds) and exits, so a grandchild nothing stops still ends.
 var stdout = Console.OpenStandardOutput();
@@ -161,6 +164,34 @@ switch (args[0])
             Thread.Sleep(100);
         }
         return 0;
+    case "hold-desktop":
+        using (Bosun.Desktop.DesktopLock.Acquire(args[1], args[2], TimeSpan.FromSeconds(60)))
+        {
+            File.WriteAllText("held", Environment.ProcessId.ToString());
+            for (var waited = 0; waited < 1200 && !File.Exists("release"); waited++) Thread.Sleep(50);
+        }
+        File.WriteAllText("released", "");
+        return 0;
+    case "probe-desktop":
+        File.WriteAllText("probe", Probe(args[1]));
+        return 0;
     default:
         return 64;
+}
+
+static string Probe(string name)
+{
+    using var mutex = new Mutex(false, @"Local\" + name);
+    bool owned;
+    try
+    {
+        owned = mutex.WaitOne(0);
+    }
+    catch (AbandonedMutexException)
+    {
+        owned = true;
+    }
+    if (!owned) return "taken";
+    mutex.ReleaseMutex();
+    return "free";
 }

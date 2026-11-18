@@ -16,6 +16,10 @@
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The desktop lock (D02 T02 §11): one source, which capture-window.ps1 loads with Add-Type. -->
+    <Compile Include="..\..\scripts\lib\DesktopLock.cs" Link="DesktopLock.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- Started as a process; built before the tests and never referenced. -->
     <ProjectReference Include="..\..\src\Bosun.Panel\Bosun.Panel.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Bosun.TestChild\Bosun.TestChild.csproj" ReferenceOutputAssembly="false" />

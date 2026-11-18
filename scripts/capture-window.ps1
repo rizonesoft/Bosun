@@ -36,6 +36,21 @@
     What it started is stopped as one job, on every way out, also when no
     window ever appeared.
 
+    ONE DESKTOP OWNER AT A TIME. A capture holds the lock the end-to-end smoke
+    holds (the mutex Local\bosun-desktop, D02 T02 §11) from before its launch
+    or attach to after its teardown. One that finds it taken says whom it
+    waits for and waits BOSUN_DESKTOP_WAIT_S seconds (900 when unset). The
+    holder's record is
+    %LOCALAPPDATA%\Bosun\run\<session>\desktop\bosun-desktop.json. A capture
+    the smoke starts works under the smoke's hold (BOSUN_DESKTOP_HELD), and
+    BOSUN_DESKTOP_LOCK names another lock, for tests. -Verify and -SelfTest
+    take no lock.
+
+    Exit codes: 0 captured (or a pair verified); 1 refused or failed (no
+    window, a pair another capture is writing, a write that failed); 2 bad
+    arguments or settings; 3 the target was not in the foreground, or was
+    covered; 4 the desktop lock was not free within its wait.
+
 .PARAMETER Path
     Executable to launch. One of -Path or -WindowTitle is required.
 
@@ -699,7 +714,14 @@ Start-Sleep -Seconds 90
     return 0
 }
 
-if ($SelfTest) { exit (Invoke-SelfTest) }
+if ($SelfTest) {
+    # The self-test's own captures (the pair-lock, cancellation and process-tree drills) take a lock of their own, so
+    # they never wait on a smoke or a capture holding the caller's (D02 T02 §11).
+    $callerLock = $env:BOSUN_DESKTOP_LOCK
+    $env:BOSUN_DESKTOP_LOCK = "selftest-$PID"
+    try { $code = Invoke-SelfTest } finally { $env:BOSUN_DESKTOP_LOCK = $callerLock }
+    exit $code
+}
 
 if ($Verify) {
     $why = Test-PairBinding ([System.IO.Path]::GetFullPath($Verify))
@@ -723,6 +745,7 @@ try {
     Write-Host "capture-window: refused: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
+$script:DesktopHolder = $null   # the desktop lock, once taken below (D02 T02 §11); the finally at the end releases it
 function Exit-Capture([int]$Code) {
     # The finally below releases the pair on this way out as on every other.
     exit $Code
@@ -743,6 +766,30 @@ if (-not $Path -and -not $WindowTitle -and -not $ProcessId) {
     Write-Host "capture-window: give -Path, -WindowTitle, -ProcessId, or a combination." -ForegroundColor Red
     Write-Host "  Without a target this would capture whichever window came first." -ForegroundColor Red
     Exit-Capture 2
+}
+
+# One desktop owner at a time (D02 T02 §11): a capture takes the foreground, so it holds the lock the end-to-end
+# smoke holds, from before the launch or attach to after the teardown (the finally at the end releases it). A
+# capture the smoke starts works under the smoke's hold (BOSUN_DESKTOP_HELD); any other waits, says whom for, and
+# at the bound exits 4 with nothing launched. The rules live in one source, scripts/lib/DesktopLock.cs.
+if (-not ('Bosun.Desktop.DesktopLock' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'lib\DesktopLock.cs') }
+$desktopFolder = [Bosun.Desktop.DesktopLock]::RecordFolder()
+try {
+    $desktop = [Bosun.Desktop.DesktopSettings]::FromEnvironment()
+} catch {
+    Write-Host "capture-window: refused: $(($_.Exception.InnerException ?? $_.Exception).Message)" -ForegroundColor Red
+    Exit-Capture 2
+}
+if (-not [Bosun.Desktop.DesktopLock]::InheritsHold($desktop.Name, $desktopFolder)) {
+    try {
+        $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::Acquire($desktop.Name, $desktopFolder, $desktop.Wait,
+            [Action[string]] { param($said) [Console]::Error.WriteLine("capture-window: $said") }, $null)
+    } catch {
+        $why = $_.Exception.InnerException ?? $_.Exception
+        if ($why -isnot [Bosun.Desktop.DesktopLockException]) { throw }
+        Write-Host "capture-window: refused: $($why.Message)" -ForegroundColor Red
+        Exit-Capture 4
+    }
 }
 
 Add-Type -AssemblyName System.Drawing
@@ -1109,7 +1156,11 @@ Exit-Capture 0
     try {
         if ((Get-Variable job -Scope Script -ErrorAction Ignore) -and $script:job -ne [IntPtr]::Zero) { Stop-Ours }
     } finally {
-        # Released whatever the cleanup above did.
-        if ($script:PairLock) { $script:PairLock.ReleaseMutex(); $script:PairLock.Dispose(); $script:PairLock = $null }
+        # Released whatever the cleanup above did: the desktop once what was started has gone, then the pair.
+        try {
+            if ($script:DesktopHolder) { $script:DesktopHolder.Dispose(); $script:DesktopHolder = $null }
+        } finally {
+            if ($script:PairLock) { $script:PairLock.ReleaseMutex(); $script:PairLock.Dispose(); $script:PairLock = $null }
+        }
     }
 }

@@ -6,4 +6,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The desktop lock's helpers (hold-desktop, probe-desktop) take the one lock source the smoke and capture-window.ps1 use. -->
+    <Compile Include="..\..\scripts\lib\DesktopLock.cs" Link="DesktopLock.cs" />
+  </ItemGroup>
 </Project>
