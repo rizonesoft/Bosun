@@ -262,6 +262,31 @@ public class ToastTests
     }
 
     [Fact]
+    public void A_held_toast_is_never_the_one_a_newcomer_takes_the_place_of()
+    {
+        // Opened in full, under the pointer or holding the keyboard, a toast is being read: a newcomer takes the
+        // place of the oldest toast nobody holds, and when every one is held it is counted, not shown (§7 round 1).
+        OnUi(() =>
+        {
+            var host = Shell().Shell.Toasts;
+            host.Show(LogSeverity.Info, "a");
+            host.Show(LogSeverity.Info, "b");
+            host.Show(LogSeverity.Info, "c");
+            host.Expand(host.Shown[0], true);
+            host.Show(LogSeverity.Info, "d");
+            Assert.Equal(["a", "c", "d"], Words(host));                                     // b went, not the opened a
+            host.HoldByPointer(host.Shown[1], true);
+            host.HoldByFocus(host.Shown[2], true);
+            host.Show(LogSeverity.Info, "e");
+            Assert.Equal(["a", "c", "d"], Words(host));                                     // all three held
+            Assert.Equal("1 more in the Activity pane", host.OverflowText);
+            host.Expand(host.Shown[0], false);
+            host.Show(LogSeverity.Info, "f");
+            Assert.Equal(["c", "d", "f"], Words(host));                                     // a, let go, is the oldest free
+        });
+    }
+
+    [Fact]
     public void Three_FAILs_stay_and_newcomers_are_counted_not_shown()
     {
         OnUi(() =>

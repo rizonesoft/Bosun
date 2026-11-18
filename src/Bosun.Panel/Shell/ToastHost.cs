@@ -109,7 +109,9 @@ public sealed class ToastHost : Observable
         var toast = new Toast(severity, message);
         if (Shown.Count >= Cap)
         {
-            if (Shown.FirstOrDefault(t => !t.IsFail) is not { } oldest)
+            // The oldest that is neither a FAIL nor being read: opened in full, under the pointer or holding the keyboard
+            // (D02 T04 §7). When every one is, the newcomer is counted, as when all are FAILs.
+            if (Shown.FirstOrDefault(t => !t.IsFail && !t.Expanded && !t.Pointer && !t.Focus) is not { } oldest)
             {
                 Overflow++;
                 return;
