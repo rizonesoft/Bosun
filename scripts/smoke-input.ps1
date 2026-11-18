@@ -428,6 +428,9 @@ try {
         $trx = "$($class.Split('.')[-1]).trx"
         $run = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--filter-class', $class, '--filter-trait', 'Input=Real',
             '--results-directory', $results, '--report-xunit-trx', '--report-xunit-trx-filename', $trx) -WorkingDirectory $repo -OutputPath (Join-Path $results "$trx.log") -StopWhen { StopReason }
+        # A class that was ended, or whose host failed, may have left a button or a key down (a drag, a chord): let go
+        # of what the smoke still holds first, before anything that could end the run here.
+        Release-Held
         # The class's report, read whole or not at all: one ended mid-write is not a report.
         $rows = @()
         $report = Join-Path $results $trx
@@ -435,9 +438,6 @@ try {
             try { $rows = @(([xml](Get-Content -LiteralPath $report -Raw)).TestRun.Results.UnitTestResult | Where-Object { $_ }) }
             catch { if (-not $run.TimedOut) { Finish 'failed' "the report of $class could not be read: $($_.Exception.Message)" 1; return } }
         }
-        # A class that was ended, or whose host failed, may have left a button or a key down (a drag, a chord): let go
-        # of what the smoke still holds before anything else, however the class ended.
-        Release-Held
         if ($run.TimedOut) { Stop-For $(if ($run.StoppedBy) { $run.StoppedBy } else { 'deadline' }) "during $class, which was ended"; return }
         foreach ($result in $rows) {
             $name = $result.testName
@@ -461,6 +461,8 @@ try {
     if ($problems) { Finish 'failed' ($problems -join '; ') 1 } else { Finish 'passed' '' 0 }
 } finally {
     if ($watch) {
+        # Whatever ended the run, nothing the smoke holds is left down for the person who comes back.
+        try { Release-Held } catch { Write-Warning "smoke-input: what the smoke held could not be let go of: $($_.Exception.Message)" }
         if (-not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
         Remove-Item -LiteralPath $watchFile, "$watchFile.held" -ErrorAction Ignore
     }

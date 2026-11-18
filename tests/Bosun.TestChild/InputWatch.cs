@@ -123,8 +123,9 @@ static class InputWatch
 
     /// <summary>
     /// The writer, on a thread of its own: each time it is woken it writes what changed, the latest person's time and
-    /// the held list, each whole through a temporary file. A write that fails is said and tried again on the next wake,
-    /// or after a second, so a stalled disk delays the record and never the hooks.
+    /// the held list, each whole through a temporary file. A stalled disk delays the record and never the hooks. A write
+    /// that fails ends the watcher (exit 71): a record it can no longer keep must not go on saying nobody is there, and
+    /// the runner stops a run whose watcher has ended.
     /// </summary>
     private static void Writer()
     {
@@ -145,8 +146,11 @@ static class InputWatch
                 if (latest != written) { Write(latest); written = latest; }
                 if (held != heldWritten) { WriteHeld(held); heldWritten = held; }
             }
-            catch (IOException failed) { Console.Error.WriteLine($"watch-input: the record could not be written yet: {failed.Message}"); }
-            catch (UnauthorizedAccessException failed) { Console.Error.WriteLine($"watch-input: the record could not be written yet: {failed.Message}"); }
+            catch (Exception failed) when (failed is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"watch-input: the record could not be written, so the watcher ends: {failed.Message}");
+                Environment.Exit(71);
+            }
         }
     }
 

@@ -50,8 +50,8 @@ if ($which -and $which -eq $class) {
       # What the real watcher writes when the smoke presses a key and does not let go of it.
       Set-Content -LiteralPath ((Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Where-Object Name -notlike '*.held' | Select-Object -First 1).FullName + '.held') -Value '135'
     }
-    # A test host that dies holding it, before it ever lets go.
-    if ($word -eq 'hold-crash') { exit 3 }
+    # A test host that dies holding it, before it ever lets go, its report cut off.
+    if ($word -eq 'hold-crash') { Set-Content -LiteralPath (Join-Path $dir $file) -Value '<TestRun><Results><UnitTestResult testName='; exit 3 }
     Start-Sleep 120
   }
   if ($word -eq 'sleep') {
@@ -193,6 +193,25 @@ try {
   # The same when the class's host dies holding it: its failure is recorded, and the key is let go of before the next.
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
   Check "a key held by a class whose host died is let go of (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'failed' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+
+  # The real watcher ends when it can no longer keep its record (its folder gone, as a full or failed disk would), so
+  # the runner's "the watcher ended" stop takes over; it never goes on with an old "none" on file.
+  $watcherExe = Join-Path $repo 'build/dotnet/bin/Bosun.TestChild/debug/Bosun.TestChild.exe'
+  if (Test-Path -LiteralPath $watcherExe) {
+    $gone = Join-Path $dir 'watch-gone'
+    New-Item -ItemType Directory -Force -Path $gone | Out-Null
+    $info = [System.Diagnostics.ProcessStartInfo]::new($watcherExe)
+    $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add((Join-Path $gone 'watch.txt'))
+    $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
+    $real = [System.Diagnostics.Process]::Start($info); $started.Add($real)
+    $ready = $real.StandardOutput.ReadLine()
+    Remove-Item -LiteralPath $gone -Recurse -Force
+    $real.StandardInput.WriteLine('person'); $real.StandardInput.Flush()
+    $ended = $real.WaitForExit(5000)
+    Check "the real watcher ends when its record cannot be written ($ready, exit $(if ($ended) { $real.ExitCode } else { 'none: still running' }))" ($ready -eq 'watching' -and $ended -and $real.ExitCode -eq 71)
+  } else {
+    Check 'Bosun.TestChild is built, for the watcher check (run dotnet build first)' $false
+  }
 
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
