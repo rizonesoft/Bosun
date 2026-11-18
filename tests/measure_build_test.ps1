@@ -11,9 +11,15 @@ $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
 }
-function Test-Running([int]$id) { [bool](Get-Process -Id $id -ErrorAction Ignore) }
-function Wait-Gone([int]$id) {
-  foreach ($n in 1..50) { if (-not (Test-Running $id)) { return $true }; Start-Sleep -Milliseconds 100 }
+# A process is its id and its start time ("<id> <start>"): an id alone is given to another process once it has exited.
+function Test-Running([string]$who) {
+  $id, $start = $who -split ' '
+  $p = Get-Process -Id ([int]$id) -ErrorAction Ignore
+  [bool]($p -and $start -and $p.StartTime.ToFileTimeUtc() -eq [long]$start)
+}
+function Read-Child([string]$pidFile) { if (Test-Path -LiteralPath $pidFile) { (Get-Content -LiteralPath $pidFile -Raw).Trim() } else { '' } }
+function Wait-Gone([string]$who) {
+  foreach ($n in 1..50) { if (-not (Test-Running $who)) { return $true }; Start-Sleep -Milliseconds 100 }
   $false
 }
 
@@ -37,7 +43,7 @@ try {
 
   # A child that sleeps on, started by a parent that waits for it (timeout) or does not (parent exits first).
   $child = Join-Path $dir 'child.ps1'
-  Set-Content -LiteralPath $child -Value 'param($pidFile) Set-Content -LiteralPath $pidFile -Value $PID; Start-Sleep 120'
+  Set-Content -LiteralPath $child -Value 'param($pidFile) Set-Content -LiteralPath $pidFile -Value "$PID $((Get-Process -Id $PID).StartTime.ToFileTimeUtc())"; Start-Sleep 120'
   $parent = Join-Path $dir 'parent.ps1'
   Set-Content -LiteralPath $parent -Value @'
 param($child, $pidFile, [switch]$Wait)
@@ -48,15 +54,15 @@ exit 0
 '@
   $pidFile = Join-Path $dir 'child-timeout.pid'
   $r = Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-File', $parent, $child, $pidFile, '-Wait' -TimeoutSeconds 8
-  $childId = if (Test-Path -LiteralPath $pidFile) { [int](Get-Content -LiteralPath $pidFile) } else { 0 }
-  Check 'a command over its limit is reported as timed out' ($r.TimedOut -and $r.ExitCode -eq -1 -and $childId -gt 0) "(timed out $($r.TimedOut), child $childId)"
-  Check 'a timed-out command leaves no child running' ($childId -gt 0 -and (Wait-Gone $childId))
+  $childId = Read-Child $pidFile
+  Check 'a command over its limit is reported as timed out' ($r.TimedOut -and $r.ExitCode -eq -1 -and [bool]$childId) "(timed out $($r.TimedOut), child $childId)"
+  Check 'a timed-out command leaves no child running' ([bool]$childId -and (Wait-Gone $childId))
 
   $pidFile = Join-Path $dir 'child-orphan.pid'
   $r = Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-File', $parent, $child, $pidFile -TimeoutSeconds 60
-  $childId = if (Test-Path -LiteralPath $pidFile) { [int](Get-Content -LiteralPath $pidFile) } else { 0 }
-  Check 'a parent that exits before its child still returns its own result' (-not $r.TimedOut -and $r.ExitCode -eq 0 -and $childId -gt 0) "(exit $($r.ExitCode), child $childId)"
-  Check 'a child left behind by its parent is ended with the job' ($childId -gt 0 -and (Wait-Gone $childId))
+  $childId = Read-Child $pidFile
+  Check 'a parent that exits before its child still returns its own result' (-not $r.TimedOut -and $r.ExitCode -eq 0 -and [bool]$childId) "(exit $($r.ExitCode), child $childId)"
+  Check 'a child left behind by its parent is ended with the job' ([bool]$childId -and (Wait-Gone $childId))
 
   # Interrupted (Ctrl+C in a console is a stopped pipeline): the job ends at once, not when the command would have.
   $pidFile = Join-Path $dir 'child-interrupted.pid'
@@ -65,10 +71,10 @@ exit 0
   [void]$shell.AddScript({ param($library, $parent, $child, $pidFile) . $library; Measure-Job -FilePath pwsh -ArgumentList '-NoProfile', '-File', $parent, $child, $pidFile, '-Wait' -TimeoutSeconds 300 }).AddArgument($library).AddArgument($parent).AddArgument($child).AddArgument($pidFile)
   $running = $shell.BeginInvoke()
   foreach ($n in 1..150) { if (Test-Path -LiteralPath $pidFile) { break }; Start-Sleep -Milliseconds 100 }
-  $childId = if (Test-Path -LiteralPath $pidFile) { [int](Get-Content -LiteralPath $pidFile) } else { 0 }
+  $childId = Read-Child $pidFile
   $clock = [Diagnostics.Stopwatch]::StartNew()
   $shell.Stop()
-  $gone = $childId -gt 0 -and (Wait-Gone $childId)
+  $gone = [bool]$childId -and (Wait-Gone $childId)
   Check 'an interrupted command and its child are ended at once, long before its limit' ($gone -and $clock.Elapsed.TotalSeconds -lt 10 -and $running.IsCompleted) "(child $childId, gone $gone, $([int]$clock.Elapsed.TotalSeconds) s)"
   $shell.Dispose()
 
@@ -308,7 +314,7 @@ exit $LASTEXITCODE
   Set-Content -LiteralPath (Join-Path $dn 'worker.ps1') -Value @'
 param($flag, $here, $n)
 $hold = [byte[]]::new(100MB); [Array]::Fill($hold, [byte]1)
-Set-Content -LiteralPath (Join-Path $here "worker$n.pid") -Value $PID
+Set-Content -LiteralPath (Join-Path $here "worker$n.pid") -Value "$PID $((Get-Process -Id $PID).StartTime.ToFileTimeUtc())"
 $until = (Get-Date).AddMinutes(2)
 while ((Get-Date) -lt $until) {
   $ask = Join-Path $here "ask$n.txt"
@@ -326,7 +332,13 @@ switch ($args[0]) {
   'msbuild' { if ($args -contains '-p:UseSharedCompilation=false') { 'false' } else { '' }; exit 0 }
   'clean' { foreach ($o in $outs) { if (-not ($mode -eq 'clean-leaves' -and $o -eq $outs[2])) { Remove-Item -LiteralPath $o -ErrorAction Ignore } }; Set-Content -LiteralPath (Join-Path $here 'cleaned.txt') -Value 'yes'; exit 0 }
 }
-function Alive($n) { $f = Join-Path $here "worker$n.pid"; (Test-Path -LiteralPath $f) -and [bool](Get-Process -Id ([int](Get-Content -LiteralPath $f)) -ErrorAction Ignore) }
+function Alive($n) {
+  $f = Join-Path $here "worker$n.pid"
+  if (-not (Test-Path -LiteralPath $f)) { return $false }
+  $id, $start = (Get-Content -LiteralPath $f -Raw).Trim() -split ' '
+  $p = Get-Process -Id ([int]$id) -ErrorAction Ignore
+  return [bool]($p -and $start -and $p.StartTime.ToFileTimeUtc() -eq [long]$start)
+}
 # Another build on the machine: a worker of this SDK started through WMI, so it is in none of the measuring script's jobs.
 if ($mode -eq 'outside' -and -not (Test-Path -LiteralPath (Join-Path $here 'worker7.pid'))) {
   $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
@@ -375,8 +387,21 @@ exit $LASTEXITCODE
   Set-Content -LiteralPath $fakeDotnet -Value "@pwsh -NoProfile -File `"%~dp0fake-dotnet.ps1`" %*"
   $rsp = Join-Path $dn 'Directory.Build.rsp'
   Set-Content -LiteralPath $rsp -Value @('# the repository''s settings', '-nodeReuse:false', '-maxCpuCount:4')
-  function Get-WorkerIds { @(Get-ChildItem -LiteralPath $dn -Filter 'worker*.pid' -ErrorAction Ignore | ForEach-Object { [int](Get-Content -LiteralPath $_.FullName) }) }
-  $workerIds = [Collections.Generic.List[int]]::new()
+  # A worker is its id and its start time: an id alone is given to another process once the worker has exited, and
+  # was read as a worker still running (red on CI at b4298e8, pid 7132 alive 15 s after its worker had gone).
+  function Get-WorkerIds {
+    @(Get-ChildItem -LiteralPath $dn -Filter 'worker*.pid' -ErrorAction Ignore | ForEach-Object {
+      $id, $start = (Get-Content -LiteralPath $_.FullName -Raw).Trim() -split ' '
+      if ($start) { "$([int]$id) $([long]$start)" }
+    })
+  }
+  function Test-Worker([string]$worker) {
+    $id, $start = $worker -split ' '
+    $p = Get-Process -Id ([int]$id) -ErrorAction Ignore
+    return [bool]($p -and $p.StartTime.ToFileTimeUtc() -eq [long]$start)
+  }
+  function Stop-Worker([string]$worker) { if (Test-Worker $worker) { Stop-Process -Id ([int]($worker -split ' ')[0]) -Force -ErrorAction Ignore } }
+  $workerIds = [Collections.Generic.List[string]]::new()
   function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments, [string]$shim) {
     Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value $mode
     foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
@@ -431,7 +456,7 @@ exit $LASTEXITCODE
   Check 'a server the shutdown leaves running is refused before measuring' ($run.Exit -eq 1 -and $run.Text -match 'stopping them with' -and $run.Text -match 'before measuring: 1 compiler server' -and (Test-DataUnchanged)) "($($run.Text))"
   $run = Invoke-DotnetMeasure 'shutdown-fails' @('-Label', 'dotnet-bad', '-Decision', 'kept')
   Check 'a shutdown that fails is refused' ($run.Exit -eq 1 -and $run.Text -match "'dotnet build-server shutdown' failed with exit code 5 \(error: could not reach the servers\)" -and (Test-DataUnchanged)) "($($run.Text))"
-  foreach ($id in Get-WorkerIds) { Stop-Process -Id $id -Force -ErrorAction Ignore }  # the outside worker is this test's own
+  foreach ($worker in Get-WorkerIds) { Stop-Worker $worker }  # the outside worker is this test's own
   Remove-Item -LiteralPath (Join-Path $dn 'worker7.pid') -ErrorAction Ignore
   $run = Invoke-DotnetMeasure 'warm-noop' @('-Label', 'dotnet-bad', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true')
   Check 'a warm build that compiles nothing is refused' ($run.Exit -eq 1 -and $run.Text -match "step 'one file changed, after a build' did not rewrite out1\.dll" -and (Test-DataUnchanged)) "($($run.Text))"
@@ -455,7 +480,7 @@ exit $LASTEXITCODE
   # worker left running lives its two minutes; one on its way out is gone in moments: give the exits fifteen seconds.
   $alive = @()
   foreach ($i in 1..75) {
-    $alive = @($workerIds | Select-Object -Unique | Where-Object { Get-Process -Id $_ -ErrorAction Ignore })
+    $alive = @($workerIds | Select-Object -Unique | Where-Object { Test-Worker $_ })
     if (-not $alive) { break }
     Start-Sleep -Milliseconds 200
   }
@@ -463,7 +488,7 @@ exit $LASTEXITCODE
 
 } finally {
   # Every worker the fakes started ends with the test, whatever happened to it.
-  if ($dn -and (Test-Path -LiteralPath $dn)) { foreach ($id in @($workerIds) + @(Get-WorkerIds)) { Stop-Process -Id $id -Force -ErrorAction Ignore } }
+  if ($dn -and (Test-Path -LiteralPath $dn)) { foreach ($worker in @($workerIds) + @(Get-WorkerIds)) { Stop-Worker $worker } }
   Remove-Item Env:BOSUN_MEASURE_QUEUED -ErrorAction Ignore
   Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Ignore
 }
