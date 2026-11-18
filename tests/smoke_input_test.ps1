@@ -29,6 +29,7 @@ $tests = @(Get-Content -LiteralPath (Join-Path $state 'tests.txt') | Where-Objec
 if ($args[0] -eq 'build') { if ($word -eq 'build-fails') { 'error: the build broke'; exit 1 }; 'Build succeeded.'; exit 0 }
 if ($args -contains '--list-tests') {
   if ($word -eq 'none') { $tests = @() }
+  if ($word -eq 'list-stall') { Start-Sleep 120 }
   @{ version = '1.0'; testContainers = @(@{ tests = @($tests | ForEach-Object { @{ displayName = $_ } }) }) } | ConvertTo-Json -Depth 6
   exit 0
 }
@@ -36,18 +37,21 @@ $class = $args[[array]::IndexOf($args, '--filter-class') + 1]
 $dir = $args[[array]::IndexOf($args, '--results-directory') + 1]
 $file = $args[[array]::IndexOf($args, '--report-xunit-trx-filename') + 1]
 Add-Content -LiteralPath (Join-Path $state 'classes.txt') -Value $class
-$pause = @(Get-Content -LiteralPath (Join-Path $state 'pauses.txt') -ErrorAction Ignore | Where-Object { ($_ -split ' ')[0] -eq $class })
-if ($pause) { Start-Sleep -Seconds ([int]($pause[0] -split ' ')[1]) }
 $mine = @($tests | Where-Object { ($_ -replace '\.[^.]+$', '') -eq $class })
 if ($which -and $which -eq $class) {
   if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
+  if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
   if ($word -eq 'sleep') {
+    # A report begun and never finished: the class is ended mid-write.
+    Set-Content -LiteralPath (Join-Path $dir $file) -Value '<TestRun><Results><UnitTestResult testName='
     $child = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 120' -NoNewWindow -PassThru
     Set-Content -LiteralPath (Join-Path $state 'child.txt') -Value $child.Id
     Start-Sleep 120
   }
 }
+$pause = @(Get-Content -LiteralPath (Join-Path $state 'pauses.txt') -ErrorAction Ignore | Where-Object { ($_ -split ' ')[0] -eq $class })
+if ($pause) { Start-Sleep -Seconds ([int]($pause[0] -split ' ')[1]) }
 $rows = foreach ($t in $mine) {
   $outcome = 'Passed'
   if ($word -eq 'omit' -and $t -eq $which) { continue }
@@ -57,11 +61,20 @@ $rows = foreach ($t in $mine) {
   if ($word -eq 'repeat' -and $t -eq $which) { "<UnitTestResult testName=`"$t`" outcome=`"Passed`" />" }
 }
 Set-Content -LiteralPath (Join-Path $dir $file) -Value "<TestRun><Results>$($rows -join '')</Results></TestRun>"
+# A test host that fails after its report is written whole.
+if ($word -eq 'exit1' -and $which -eq $class) { exit 1 }
 exit 0
 '@
 Set-Content -LiteralPath (Join-Path $fakes 'dotnet.cmd') -Value "@`"$shell`" -NoProfile -File `"$(Join-Path $fakes 'dotnet.ps1')`" %*"
 # The stand-in watcher: it starts its file as the real one does and keeps it; a case writes a person's time into it.
-Set-Content -LiteralPath (Join-Path $fakes 'watcher.ps1') -Encoding utf8 -Value 'Set-Content -LiteralPath $args[1] -Value none; Start-Sleep 600'
+Set-Content -LiteralPath (Join-Path $fakes 'watcher.ps1') -Encoding utf8 -Value @'
+$state = $env:STANDIN_STATE
+if ((Get-Content -LiteralPath (Join-Path $state 'mode.txt') -Raw).Trim() -eq 'watcher-fails') { [Console]::Error.WriteLine('the hooks could not be set'); exit 70 }
+Set-Content -LiteralPath (Join-Path $state 'watcher.pid') -Value $PID
+Set-Content -LiteralPath $args[1] -Value none
+'watching'
+Start-Sleep 600
+'@
 Set-Content -LiteralPath (Join-Path $fakes 'watcher.cmd') -Value "@`"$shell`" -NoProfile -File `"$(Join-Path $fakes 'watcher.ps1')`" %*"
 
 $tests = @(
@@ -72,12 +85,13 @@ $tests = @(
 $started = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 
 # A run of the script, in a state folder of the case's own (or the one given), its output and exit code.
-function Invoke-Run([string]$Mode, [string[]]$Extra = @(), [string]$State = '', [hashtable]$Probes = @{}) {
+function Invoke-Run([string]$Mode, [string[]]$Extra = @(), [string]$State = '', [hashtable]$Probes = @{}, [string[]]$Pauses = @()) {
   if (-not $State) { $State = Join-Path $dir ('state-' + [guid]::NewGuid().ToString('N').Substring(0, 8)) }
   New-Item -ItemType Directory -Force -Path $State | Out-Null
   Set-Content -LiteralPath (Join-Path $State 'mode.txt') -Value $Mode
   Set-Content -LiteralPath (Join-Path $State 'tests.txt') -Value $tests
-  Remove-Item -LiteralPath (Join-Path $State 'classes.txt'), (Join-Path $State 'probe-locked'), (Join-Path $State 'probe-idle') -ErrorAction Ignore
+  Remove-Item -LiteralPath (Join-Path $State 'classes.txt'), (Join-Path $State 'probe-locked'), (Join-Path $State 'probe-idle'), (Join-Path $State 'pauses.txt') -ErrorAction Ignore
+  if ($Pauses) { Set-Content -LiteralPath (Join-Path $State 'pauses.txt') -Value $Pauses }
   if ($Probes.locked) { Set-Content -LiteralPath (Join-Path $State 'probe-locked') -Value 'locked' }
   Set-Content -LiteralPath (Join-Path $State 'probe-idle') -Value $(if ($Probes.ContainsKey('idle')) { $Probes.idle } else { 3600 })
   $env:STANDIN_STATE = $State
@@ -103,7 +117,8 @@ try {
       @{ mode = 'skip Bosun.Panel.E2E.Gamma.Two'; says = 'did not pass: Bosun.Panel.E2E.Gamma.Two (NotExecuted)' },
       @{ mode = 'fail Bosun.Panel.E2E.Gamma.One'; says = 'did not pass: Bosun.Panel.E2E.Gamma.One (Failed)' },
       @{ mode = 'none'; says = 'no real-input test was found' },
-      @{ mode = 'build-fails'; says = 'the build failed' })) {
+      @{ mode = 'build-fails'; says = 'the build failed' },
+      @{ mode = 'exit1 Bosun.Panel.E2E.Beta'; says = "a class's run failed: Bosun.Panel.E2E.Beta (exit 1)" })) {
     $run = Invoke-Run $case.mode
     Check "'$($case.mode)' is failed with exit 1, saying so" ($run.Code -eq 1 -and $run.Last.outcome -eq 'failed' -and "$($run.Last.reason)" -like "*$($case.says)*") $run.Said
   }
@@ -114,16 +129,32 @@ try {
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Probes @{ idle = 60 }
   Check "a desk used a minute ago skips the night (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-in-use' -and $run.Last.mode -eq 'scheduled') $run.Said
 
-  # A person or a lock during a class stops the run before the next, whatever the moment between classes shows.
-  $run = Invoke-Run 'person Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
-  Check "a person during a class stops the run before the next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-in-use' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
-  $run = Invoke-Run 'lock Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
-  Check "a desktop locked during a class stops the run before the next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-locked' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 2) $run.Said
+  # A person or a lock during a class ends that class at once, not at its end, and nothing after it runs.
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $run = Invoke-Run 'person Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
+  $took = $clock.Elapsed.TotalSeconds
+  Check "a person during a class ends it at once ($([int]$took) s of its 60, exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-in-use' -and "$($run.Last.reason)" -like '*during Bosun.Panel.E2E.Alpha*' -and $took -lt 40 -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
+  $clock.Restart()
+  $run = Invoke-Run 'lock Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Beta 60')
+  $took = $clock.Elapsed.TotalSeconds
+  Check "a desktop locked during a class ends it at once ($([int]$took) s, exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-locked' -and $took -lt 40 -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 2) $run.Said
+  # The watcher fails closed: one that never says it is ready, or ends during the run, stops the run unwatched.
+  $run = Invoke-Run 'watcher-fails' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
+  Check "a watcher that never starts fails the night before any class (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher did not start*' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
+  $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
+  Check "a watcher that ends during a class stops the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
+  # The window has two ends: a scheduled run started before it (03:00, two hours before its deadline) is a skip.
+  $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(3).ToString('s'))
+  Check "a scheduled run started before its window is skipped (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
+  # Finding the tests keeps the deadline too.
+  $run = Invoke-Run 'list-stall' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(15).ToString('s'))
+  Check "discovery that stalls past the deadline is ended and recorded (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and "$($run.Last.reason)" -like '*finding the tests*') $run.Said
 
   # 05:00 is a deadline: a class still running then is ended with what it started, and the counts so far kept.
   $state = Join-Path $dir 'state-deadline'
   $run = Invoke-Run 'sleep Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(25).ToString('s')) -State $state
   $child = [int](Get-Content -LiteralPath (Join-Path $state 'child.txt') -Raw)
+  # Its report was left half written: the deadline is still what is recorded.
   Check "a class running at the deadline is ended, recorded with the counts so far (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and $run.Last.passed -eq 2) $run.Said
   Check 'and what that class started is gone with it' (-not (Get-Process -Id $child -ErrorAction Ignore))
   # The on-demand run has no deadline: at any hour it runs whole.

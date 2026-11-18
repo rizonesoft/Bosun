@@ -107,6 +107,7 @@ function Format-Outcome($e) {
         'failed'          { "failed at ${at}: $($e.reason)" }
         'skipped-locked'  { "skipped at ${at}: the desktop was locked" }
         'skipped-in-use'  { "skipped at ${at}: $($e.reason)" }
+        'skipped-outside-window' { "skipped at ${at}: $($e.reason)" }
         'stopped-in-use'  { "stopped at ${at}: $($e.reason) ($($e.passed) of $($e.discovered) passed before it)" }
         'stopped-locked'  { "stopped at ${at}: the desktop was locked ($($e.passed) of $($e.discovered) passed before it)" }
         'stopped-deadline' { "stopped at ${at}: 05:00 came ($($e.passed) of $($e.discovered) passed before it)" }
@@ -183,7 +184,12 @@ $end = $null
 if ($Scheduled) {
     $end = if ($Deadline) { [DateTime]::Parse($Deadline, [Globalization.CultureInfo]::InvariantCulture) } else { (Get-Date).Date.AddHours(5) }
 }
+# The seconds left to the deadline, for a step's timeout; 0 (none) for a run on demand.
+function Remaining { if ($end) { [Math]::Max(1, [int][Math]::Ceiling(($end - (Get-Date)).TotalSeconds)) } else { 0 } }
 function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
+# The nightly window is the two hours before the deadline (03:00 to 05:00): a scheduled run started earlier, by hand
+# from Task Scheduler or a clock that moved, is a night outside it.
+function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours(-2) }
 function Locked { if ($TestProbes) { Test-Path -LiteralPath (Join-Path $StateFolder 'probe-locked') } else { [SmokeInputDesk]::Locked() } }
 function IdleSeconds {
     $probe = Join-Path $StateFolder 'probe-idle'
@@ -193,6 +199,7 @@ function IdleSeconds {
 
 $discovered = @()
 $ran = @{}
+$classFailures = @()
 $entry = [ordered]@{ at = $started.ToString('o'); mode = $mode; invocation = $Invocation; outcome = ''; reason = ''; discovered = 0; passed = 0; failed = 0; skipped = 0; log = $log }
 function Finish([string]$outcome, [string]$reason, [int]$code) {
     $entry.outcome = $outcome
@@ -223,6 +230,7 @@ function Invoke-Smoke {
 try {
     Say "Real-input smoke, $mode, started"
     if (PastDeadline) { Finish 'stopped-deadline' 'it began after 05:00' 1; return }
+    if (BeforeWindow) { Finish 'skipped-outside-window' "it started at $((Get-Date).ToString('HH:mm')), before the window that opens at $($end.AddHours(-2).ToString('HH:mm'))" 0; return }
 
     # The desktop lock, held to the end: a smoke or capture started meanwhile waits for this run, and this run's own
     # classes work under its hold (BOSUN_DESKTOP_HELD), never waiting on it.
@@ -243,14 +251,15 @@ try {
     # The watcher, from the start: a person's input from now on is told from the smoke's own by Windows' mark.
     $watcherExe = if ($Watcher) { $Watcher } else { Join-Path $repo 'build\dotnet\bin\Bosun.TestChild\debug\Bosun.TestChild.exe' }
 
-    $build = Measure-Job -FilePath $Dotnet -ArgumentList @('build', $project, '-nologo') -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds $(if ($end) { [Math]::Max(1, [int]($end - (Get-Date)).TotalSeconds) } else { 0 })
+    $build = Measure-Job -FilePath $Dotnet -ArgumentList @('build', $project, '-nologo') -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds (Remaining)
     if ($build.TimedOut) { Finish 'stopped-deadline' 'the build ran into 05:00' 1; return }
     if ($build.ExitCode -ne 0) { Finish 'failed' "the build failed (exit $($build.ExitCode)); see $(Join-Path $results 'build.log')" 1; return }
 
     # Which tests there are, by name: what ran is reconciled against this.
     $env:BOSUN_SMOKE_INPUT = '1'
     $listing = Join-Path $results 'tests.json'
-    $list = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--list-tests', 'json', '--filter-trait', 'Input=Real') -WorkingDirectory $repo -OutputPath $listing
+    $list = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--list-tests', 'json', '--filter-trait', 'Input=Real') -WorkingDirectory $repo -OutputPath $listing -TimeoutSeconds (Remaining)
+    if ($list.TimedOut) { Finish 'stopped-deadline' 'finding the tests ran into 05:00' 1; return }
     if ($list.ExitCode -ne 0) { Finish 'failed' "the tests could not be listed (exit $($list.ExitCode))" 1; return }
     $text = Get-Content -LiteralPath $listing -Raw
     $json = $text.Substring([Math]::Max(0, $text.IndexOf('{')))
@@ -260,45 +269,72 @@ try {
     $classes = @($discovered | ForEach-Object { ($_ -replace '\(.*$', '') -replace '\.[^.]+$', '' } | Select-Object -Unique)
     Say "$($discovered.Count) real-input tests in $($classes.Count) classes"
 
+    $watchStart = Get-Date
     if ($Scheduled) {
-        # Admitted only on an unlocked desktop nobody has used for a while: before the watcher, Windows' own idle clock.
+        # The watcher first, and ready (both hooks in, its "watching" line read) before the idle clock is read: input
+        # from before then is in Windows' idle clock, input from after it in the watcher's record, so none falls between.
+        # Only the nightly run watches for a person: run on demand, the operator chose to hand over the desk.
+        $info = [Diagnostics.ProcessStartInfo]::new($watcherExe)
+        $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile)
+        $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
+        $watch = [Diagnostics.Process]::Start($info)
+        $watch.StandardInput.Close()
+        $ready = $watch.StandardOutput.ReadLineAsync()
+        if (-not $ready.Wait(10000) -or $ready.Result -ne 'watching') { Finish 'failed' "the input watcher did not start$(if ($watch.HasExited) { " (exit $($watch.ExitCode))" })" 1; return }
+        $watchStart = Get-Date
         if (Locked) { Finish 'skipped-locked' 'the desktop was locked' 0; return }
         $idle = IdleSeconds
         if ($idle -lt $IdleMinutes * 60) { Finish 'skipped-in-use' "the desk was used $([int]($idle / 60)) minutes before, under the $IdleMinutes needed" 0; return }
     }
-    $watchStart = Get-Date
-    if ($Scheduled) {
-        # Only the nightly run watches for a person: run on demand, the operator chose to hand over the desk.
-        $info = [Diagnostics.ProcessStartInfo]::new($watcherExe)
-        $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile)
-        $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true
-        $watch = [Diagnostics.Process]::Start($info)
-        $watch.StandardInput.Close()
-        for ($i = 0; $i -lt 50 -and -not (Test-Path -LiteralPath $watchFile); $i++) { Start-Sleep -Milliseconds 100 }
-        if (-not (Test-Path -LiteralPath $watchFile)) { Finish 'failed' 'the input watcher did not start' 1; return }
+    # Why the run must stop now, or nothing: asked before each class and every 200 ms while one runs. A watcher that
+    # has ended, or a record it cannot read, stops the run as a person would: the run never goes on unwatched.
+    function StopReason {
+        if (PastDeadline) { return 'deadline' }
+        if (-not $Scheduled) { return $null }
+        if (Locked) { return 'locked' }
+        if ($watch.HasExited) { return 'watcher' }
+        $said = $null
+        for ($try = 0; $try -lt 3 -and $null -eq $said; $try++) {
+            try { $said = [IO.File]::ReadAllText($watchFile).Trim() } catch { Start-Sleep -Milliseconds 50 }
+        }
+        if ($null -eq $said) { return 'unreadable' }
+        if ($said -eq 'none') { return $null }
+        $at = [DateTime]::MinValue
+        if (-not [DateTime]::TryParse($said, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)) { return 'unreadable' }
+        if ($at.ToUniversalTime() -gt $watchStart.ToUniversalTime()) { return 'person' }
+        $null
     }
-    function PersonSince([DateTime]$since) {
-        $said = (Get-Content -LiteralPath $watchFile -Raw -ErrorAction Ignore)
-        if (-not $said -or $said.Trim() -eq 'none') { return $false }
-        ([DateTime]::Parse($said.Trim(), [Globalization.CultureInfo]::InvariantCulture)).ToUniversalTime() -gt $since.ToUniversalTime()
+    function Stop-For([string]$why, [string]$when) {
+        switch ($why) {
+            'deadline'   { Finish 'stopped-deadline' "05:00 came $when" 1 }
+            'locked'     { Finish 'stopped-locked' "the desktop was locked $when" 1 }
+            'person'     { Finish 'stopped-in-use' "a person used the desk $when" 1 }
+            'watcher'    { Finish 'failed' "the input watcher ended (exit $($watch.ExitCode)) $when, so the run stopped unwatched" 1 }
+            'unreadable' { Finish 'failed' "the input watcher's record could not be read $when, so the run stopped unwatched" 1 }
+        }
     }
 
     foreach ($class in $classes) {
-        if (PastDeadline) { Finish 'stopped-deadline' "05:00 came before $class" 1; return }
-        if ($Scheduled -and (Locked)) { Finish 'stopped-locked' "the desktop was locked before $class" 1; return }
-        if ($Scheduled -and (PersonSince $watchStart)) { Finish 'stopped-in-use' "a person used the desk before $class" 1; return }
+        $why = StopReason
+        if ($why) { Stop-For $why "before $class"; return }
         Say "running $class"
         $trx = "$($class.Split('.')[-1]).trx"
-        $limit = if ($end) { [Math]::Max(1, [int]($end - (Get-Date)).TotalSeconds) } else { 0 }
         $run = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--filter-class', $class, '--filter-trait', 'Input=Real',
-            '--results-directory', $results, '--report-xunit-trx', '--report-xunit-trx-filename', $trx) -WorkingDirectory $repo -OutputPath (Join-Path $results "$trx.log") -TimeoutSeconds $limit
-        foreach ($result in @(if (Test-Path -LiteralPath (Join-Path $results $trx)) { ([xml](Get-Content -LiteralPath (Join-Path $results $trx) -Raw)).TestRun.Results.UnitTestResult } else { @() })) {
-            if (-not $result) { continue }
+            '--results-directory', $results, '--report-xunit-trx', '--report-xunit-trx-filename', $trx) -WorkingDirectory $repo -OutputPath (Join-Path $results "$trx.log") -StopWhen { StopReason }
+        # The class's report, read whole or not at all: one ended mid-write is not a report.
+        $rows = @()
+        $report = Join-Path $results $trx
+        if (Test-Path -LiteralPath $report) {
+            try { $rows = @(([xml](Get-Content -LiteralPath $report -Raw)).TestRun.Results.UnitTestResult | Where-Object { $_ }) }
+            catch { if (-not $run.TimedOut) { Finish 'failed' "the report of $class could not be read: $($_.Exception.Message)" 1; return } }
+        }
+        if ($run.TimedOut) { Stop-For $(if ($run.StoppedBy) { $run.StoppedBy } else { 'deadline' }) "during $class, which was ended"; return }
+        foreach ($result in $rows) {
             $name = $result.testName
             if ($ran.ContainsKey($name)) { $ran["$name (again)"] = 'Repeated' } else { $ran[$name] = $result.outcome }
         }
-        if ($run.TimedOut) { Finish 'stopped-deadline' "05:00 came during $class, which was ended" 1; return }
-        if ($Scheduled -and (PersonSince $watchStart)) { Finish 'stopped-in-use' "a person used the desk during $class" 1; return }
+        # A class whose run failed fails the run, whatever its report says.
+        if ($run.ExitCode -ne 0) { $classFailures += "$class (exit $($run.ExitCode))" }
     }
 
     # Every discovered test ran once and passed; nothing else ran.
@@ -311,6 +347,7 @@ try {
     if ($repeated) { $problems += "ran twice: $(($repeated -replace ' \(again\)$', '') -join ', ')" }
     if ($notPassed) { $problems += "did not pass: $($notPassed -join ', ')" }
     if ($unexpected) { $problems += "ran but was not found: $($unexpected -join ', ')" }
+    if ($classFailures) { $problems += "a class's run failed: $($classFailures -join ', ')" }
     if ($problems) { Finish 'failed' ($problems -join '; ') 1 } else { Finish 'passed' '' 0 }
 } finally {
     if ($watch -and -not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }

@@ -312,7 +312,10 @@ function Measure-Job {
     # file at -StartedPath when its work begins. Until then it may wait -QueueSeconds; from then on -TimeoutSeconds
     # counts. Without these, -TimeoutSeconds covers the whole run.
     [string]$StartedPath,
-    [int]$QueueSeconds = 0
+    [int]$QueueSeconds = 0,
+    # Asked between waits (every 200 ms): a non-empty answer ends the job, its whole tree, at once, and comes back as
+    # the result's StoppedBy (with TimedOut set, as for any job that was ended).
+    [scriptblock]$StopWhen
   )
   $command = Get-Command -Name $FilePath -CommandType Application -ErrorAction Ignore | Select-Object -First 1
   if (-not $command) { throw "Measure-Job could not start '$FilePath': no such program on PATH or at that path" }
@@ -322,6 +325,7 @@ function Measure-Job {
     # Waited for in short slices, so Ctrl+C (or a stopped pipeline) is seen within one of them: the finally below
     # then ends the job at once. One long native wait would hold PowerShell until the command ended by itself.
     $timedOut = $false
+    $stoppedBy = $null
     $waiting = [bool]$StartedPath
     $began = 0.0
     while (-not $run.Wait(200)) {
@@ -329,9 +333,11 @@ function Measure-Job {
       if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $elapsed }
       if ($waiting) { if ($QueueSeconds -gt 0 -and $elapsed -ge $QueueSeconds) { $timedOut = $true; break } }
       elseif ($TimeoutSeconds -gt 0 -and ($elapsed - $began) -ge $TimeoutSeconds) { $timedOut = $true; break }
+      if ($StopWhen) { $why = & $StopWhen; if ($why) { $stoppedBy = "$why"; $timedOut = $true; break } }
     }
     if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $run.ElapsedSeconds }
     $result = $run.Finish($timedOut)
+    $result | Add-Member -NotePropertyName StoppedBy -NotePropertyValue $stoppedBy -Force
     if ($StartedPath) {
       $result.QueuedSeconds = [Math]::Round($(if ($waiting) { $result.Seconds } else { $began }), 2)
       $result.TimedOutInQueue = $timedOut -and $waiting

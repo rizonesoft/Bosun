@@ -22,15 +22,7 @@ static class InputWatch
     public static int Run(string file)
     {
         _file = Path.GetFullPath(file);
-        Write(null);
         var thread = GetCurrentThreadId();
-        // A person stood in for: each "person" line on stdin is one input not marked injected.
-        new Thread(() =>
-        {
-            for (string? line; (line = Console.In.ReadLine()) is not null;)
-                if (line.Trim() == "person") Seen();
-        }) { IsBackground = true }.Start();
-        new Timer(_ => PostThreadMessage(thread, WM_QUIT, IntPtr.Zero, IntPtr.Zero), null, TimeSpan.FromHours(4), Timeout.InfiniteTimeSpan);
 
         _keys = (code, wParam, lParam) =>
         {
@@ -50,6 +42,17 @@ static class InputWatch
             Console.Error.WriteLine($"watch-input: the input hooks could not be set (error {Marshal.GetLastWin32Error()})");
             return 70;
         }
+        // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
+        // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
+        Write(null);
+        // A person stood in for: each "person" line on stdin is one input not marked injected.
+        new Thread(() =>
+        {
+            for (string? line; (line = Console.In.ReadLine()) is not null;)
+                if (line.Trim() == "person") Seen();
+        }) { IsBackground = true }.Start();
+        // Held to the end: a timer nothing references can be collected, and the four-hour cap would never come.
+        using var quit = new Timer(_ => PostThreadMessage(thread, WM_QUIT, IntPtr.Zero, IntPtr.Zero), null, TimeSpan.FromHours(4), Timeout.InfiniteTimeSpan);
         Console.Out.WriteLine("watching");
         Console.Out.Flush();
         try
