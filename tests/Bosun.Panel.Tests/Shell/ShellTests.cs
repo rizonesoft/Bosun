@@ -77,15 +77,76 @@ public class ShellTests
             Assert.Equal(Sections.Rows.Select(row => (row.Key, row.Title, row.Group)), sections.Select(section => (section.Key, section.Title, section.Group)));
             foreach (var (section, row) in sections.Zip(Sections.Rows))
             {
-                // Not a dead control: a page in its empty state, saying it is not built yet and who builds it.
+                // Not a dead control: a page in its empty state, saying it is coming and what to do meanwhile, in words
+                // for the person using it; the section that builds it is in the model only (D02 T04 §9).
                 var page = Assert.IsType<PlaceholderPage>(section.Page);
                 Assert.Equal((PageState.Empty, row.Owner, row.Summary), (page.State, page.Owner, page.Summary));
-                Assert.Equal($"{row.Title} is not built yet.", page.EmptyReason);
-                Assert.Contains(row.Owner, page.EmptyAction);
+                Assert.Equal($"{row.Title} is coming soon.", page.EmptyReason);
+                Assert.Equal(PlaceholderPage.NextStep, page.EmptyAction);
+                Assert.DoesNotContain(row.Owner, page.EmptyReason + page.EmptyAction);
                 Assert.Equal(row.Title, section.ToString()); // the row's name to a screen reader
             }
             Assert.NotSame(sections[0].Page, Sections.All()[0].Page); // two shells never share a page
         });
+    }
+
+    // ---- the Activity pane (D02 T04 §9) ----
+
+    [Theory]
+    [MemberData(nameof(Themes))]
+    public void The_Activity_pane_has_a_heading_a_screen_reader_finds_above_its_log(string theme)
+    {
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            var heading = (TextBlock)view.FindName("ActivityHeading");
+            Assert.Equal("Activity", heading.Text);
+            Assert.True(heading.IsVisible);
+            Assert.Equal(AutomationHeadingLevel.Level2, AutomationProperties.GetHeadingLevel(heading));
+            var top = heading.TranslatePoint(new Point(0, heading.ActualHeight), view).Y;
+            Assert.True(top <= view.Activity.TranslatePoint(new Point(0, 0), view).Y + 0.5, "the heading is above the log");
+        }, theme);
+    }
+
+    [Fact]
+    public void The_Activity_log_scrolls_only_when_it_overflows_holds_a_place_scrolled_back_and_follows_again_at_the_end()
+    {
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            var scroll = ShellSupport.Under<ScrollViewer>(view.Activity).First();
+            var bar = (System.Windows.Controls.Primitives.ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            Assert.Equal(Visibility.Collapsed, scroll.ComputedVerticalScrollBarVisibility);   // three lines: no bar
+            for (var i = 0; i < 60 && scroll.ComputedVerticalScrollBarVisibility != Visibility.Visible; i++)
+            {
+                shell.Log.Info($"line {i}");
+                PageRenderer.Settle(host);
+            }
+            Assert.Equal(Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            shell.Log.Info("two past the overflow");
+            shell.Log.Info("the newest line");
+            PageRenderer.Settle(host);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);               // following the newest
+            // Back through the bar a person uses, to an older line: a new line leaves the view where it is.
+            System.Windows.Controls.Primitives.ScrollBar.LineUpCommand.Execute(null, bar);
+            System.Windows.Controls.Primitives.ScrollBar.LineUpCommand.Execute(null, bar);
+            PageRenderer.Settle(host);
+            var held = scroll.VerticalOffset;
+            Assert.True(held < scroll.ScrollableHeight - 0.5, "scrolled back to an older line");
+            shell.Log.Info("arrives while scrolled back");
+            PageRenderer.Settle(host);
+            Assert.Equal(held, scroll.VerticalOffset, 0.5);
+            // At the end again, it follows again.
+            System.Windows.Controls.Primitives.ScrollBar.ScrollToBottomCommand.Execute(null, bar);
+            PageRenderer.Settle(host);
+            shell.Log.Info("followed");
+            PageRenderer.Settle(host);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);
+            // The pane made tall enough for every line: the bar goes.
+            shell.ActivityHeight = 400;
+            for (var i = 0; i < 8; i++) { PageRenderer.Settle(host); host.UpdateLayout(); }
+            Assert.True(scroll.ExtentHeight <= scroll.ViewportHeight, $"every line fits ({scroll.ExtentHeight} in {scroll.ViewportHeight})");
+            Assert.True(scroll.ComputedVerticalScrollBarVisibility == Visibility.Collapsed,
+                $"no bar once every line fits (extent {scroll.ExtentHeight}, viewport {scroll.ViewportHeight}, offset {scroll.VerticalOffset}, pane {view.PaneHeight}, logical {scroll.CanContentScroll})");
+        }, height: 1100);
     }
 
     // ---- the layout ----
@@ -115,8 +176,9 @@ public class ShellTests
             // The page, in the frame, and the title bar's words.
             var all = PageRenderer.TextsOf(view);
             Assert.Equal("Bosun Panel", all[0]);
-            Assert.Contains("Overview is not built yet.", all);
-            Assert.Contains("It arrives with D03 T01 §5 of the plan.", all);
+            Assert.Contains("Overview is coming soon.", all);
+            Assert.Contains(PlaceholderPage.NextStep, all);
+            Assert.DoesNotContain(all, text => System.Text.RegularExpressions.Regex.IsMatch(text, @"D\d\d T\d\d §\d"));
             Assert.NotNull(view.AppIcon.Source);
 
             // The Activity pane: its three lines, each starting with its word.
@@ -128,8 +190,8 @@ public class ShellTests
             view.Rail.SelectedIndex = 4;
             PageRenderer.Settle(host);
             Assert.Equal("optimise", shell.Selected.Key);
-            Assert.Contains("Optimise is not built yet.", PageRenderer.TextsOf(view));
-            Assert.DoesNotContain("Overview is not built yet.", PageRenderer.TextsOf(view));
+            Assert.Contains("Optimise is coming soon.", PageRenderer.TextsOf(view));
+            Assert.DoesNotContain("Overview is coming soon.", PageRenderer.TextsOf(view));
         }, theme);
     }
 

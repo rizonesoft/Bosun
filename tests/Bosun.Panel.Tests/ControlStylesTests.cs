@@ -253,6 +253,25 @@ public partial class ControlStylesTests
         });
     }
 
+    [Theory]
+    [MemberData(nameof(Themes))]
+    public void A_log_with_room_to_spare_shows_every_line_and_no_scroll_bar(string theme)
+    {
+        // The LogBox template's bare ScrollViewer showed a bar and its thumb whatever the lines (D02 T04 §9). Every line
+        // is checked within the list first, so a bar hidden over lines it clips can't pass.
+        Live(theme, ControlsGallery.Gallery, page =>
+        {
+            var log = Shell.ShellSupport.Under<ListBox>(page).Single(l => l.Name == "GalleryLog");
+            var box = log.TransformToAncestor(page).TransformBounds(new Rect(log.RenderSize));
+            var rows = Shell.ShellSupport.Under<ListBoxItem>(log).ToList();
+            Assert.Equal(5, rows.Count);
+            Assert.All(rows, row => Assert.True(box.Contains(row.TransformToAncestor(page).TransformBounds(new Rect(row.RenderSize))), "every line within the list"));
+            var scroll = Shell.ShellSupport.Under<ScrollViewer>(log).First();
+            Assert.Equal(Visibility.Collapsed, scroll.ComputedVerticalScrollBarVisibility);
+            Assert.Equal(ScrollBarVisibility.Auto, scroll.VerticalScrollBarVisibility);
+        }, width: PageRenderer.Width, height: 1400);
+    }
+
     [Fact]
     public void A_log_line_is_drawn_and_is_not_a_tab_stop()
     {
@@ -944,9 +963,11 @@ public partial class ControlStylesTests
             Assert.Equal(3, combos.Count);
             foreach (var combo in combos) Assert.NotNull(combo.Template.FindName("Placeholder", combo));
             var lists = Under<ListBox>(gallery).ToList();
-            Assert.Equal([controls["NavList"], controls["LogBox"]], lists.Select(list => list.Style));
-            // The log is longer than its space, so it scrolls with the styled bar.
+            Assert.Equal([controls["NavList"], controls["LogBox"], controls["LogBox"]], lists.Select(list => list.Style));
+            // The first log is longer than its space, so it scrolls with the styled bar; the second has room to spare and
+            // shows none (D02 T04 §9).
             Assert.Contains(Under<ScrollBar>(lists[1]), bar => bar.IsVisible && bar.ActualWidth == 10);
+            Assert.DoesNotContain(Under<ScrollBar>(lists[2]), bar => bar.IsVisible);
         }, width: PageRenderer.Width, height: PageRenderer.Height);
 
         Live(theme, () => gallery = ControlsGallery.Table(), _ =>

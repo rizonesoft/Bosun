@@ -186,15 +186,40 @@ public partial class ShellView : UserControl
 
     private void OnActivityScrolled(object sender, ScrollChangedEventArgs e)
     {
-        // Only the person's own scrolling decides: a line being added changes the extent, not where they are looking.
-        if (e.ExtentHeightChange == 0) _atNewest = e.VerticalOffset >= e.ExtentHeight - e.ViewportHeight - 1;
+        // Only the person's own scrolling decides: a move of the view with the lines and the pane as they were. A line
+        // being added changes the extent; the bar appearing when the lines first overflow changes the viewport, and was
+        // read as the person scrolling back to the top, so the log stopped following (D02 T04 §9).
+        if (e.VerticalChange != 0 && e.ExtentHeightChange == 0 && e.ViewportHeightChange == 0)
+            _atNewest = e.VerticalOffset >= e.ExtentHeight - e.ViewportHeight - 1;
+        // The pane resized while following: the newest line stays the one in view.
+        else if (_atNewest && e.ViewportHeightChange != 0) FollowAfterLayout();
     }
 
     private void OnActivityChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // The newest line stays in view, unless the person has scrolled back to read an older one.
-        if (e.Action == NotifyCollectionChangedAction.Add && _atNewest && Activity.Items.Count > 0)
-            Activity.ScrollIntoView(Activity.Items[^1]);
+        // The newest line stays in view, unless the person has scrolled back to read an older one. Moved there once the
+        // line is laid out, not as it is added: this handler can run before the list has taken the line in, and a line
+        // that still fits at that moment can overflow once laid out, leaving the view behind (D02 T04 §9).
+        if (e.Action == NotifyCollectionChangedAction.Add && _atNewest) FollowAfterLayout();
+    }
+
+    private void FollowAfterLayout() => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+    {
+        if (_atNewest && ActivityScroll() is { } scroll) scroll.ScrollToBottom();
+    });
+
+    /// <summary>The Activity list's own scroll area, from its template (the LogBox style).</summary>
+    private ScrollViewer? ActivityScroll()
+    {
+        if (VisualTreeHelper.GetChildrenCount(Activity) == 0) return null;
+        var stack = new Stack<DependencyObject>([Activity]);
+        while (stack.Count > 0)
+        {
+            var node = stack.Pop();
+            if (node is ScrollViewer scroll) return scroll;
+            for (var i = VisualTreeHelper.GetChildrenCount(node) - 1; i >= 0; i--) stack.Push(VisualTreeHelper.GetChild(node, i));
+        }
+        return null;
     }
 
     // ---- the icon ----

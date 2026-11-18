@@ -55,18 +55,49 @@ public class WindowTests
         RealInput.DragOnWindow(handle, x, y, x, y - (int)(100 * scale));
         Ui.Until(() => Math.Abs(Ui.Box(activity).Height - before - 100 * scale) <= 4 * scale, Ui.Short, $"the pane to grow by 100 px (from {before:0})");
 
-        // Far past each limit: the pane's row stays within 64 to 400 px (src/Bosun.Core/PanelSettings.cs). The list is
-        // the row less its margins (6 px above and below) and the pane's 1 px top line.
+        // Far past each limit: the pane's row stays within 64 to 400 px (src/Bosun.Core/PanelSettings.cs), measured whole,
+        // its heading included (D02 T04 §9): from the splitter's bottom, which reaches 12 px into the pane, to the log's
+        // bottom and the pane's 4 px inset below it.
+        double Pane() => (Ui.Box(activity).Bottom + 4 * scale - (Ui.Box(Ui.Get(window, "PaneSplitter")).Bottom - 12 * scale)) / scale;
         (x, y) = Ui.Centre(Ui.Get(window, "PaneSplitter"));
         RealInput.DragOnWindow(handle, x, y, x, y - (int)(2000 * scale));
-        var tallest = Ui.Box(activity).Height / scale + 13;
+        var tallest = Pane();
         Assert.InRange(tallest, 64, 400.5);
 
         (x, y) = Ui.Centre(Ui.Get(window, "PaneSplitter"));
         RealInput.DragOnWindow(handle, x, y, x, y + (int)(2000 * scale));
-        var shortest = Ui.Box(activity).Height / scale + 13;
-        Assert.InRange(shortest, 63.5, 70);
+        var shortest = Pane();
+        Assert.InRange(shortest, 63.5, 66);
         Assert.True(tallest > shortest + 100, $"the pane went from {shortest:0} to {tallest:0} px");
+        HeadingAndALineShow(window);
+    }
+
+    [Fact]
+    public void A_pane_stored_at_its_least_height_shows_its_heading_and_a_whole_line_when_the_panel_starts()
+    {
+        // The panel restores the stored height at its start: at 64 px, the heading and one line of the log still show.
+        using var panel = PanelProcess.StartWithPane(64);
+        var window = panel.Front();
+        var scale = GetDpiForWindow(new IntPtr(window.Current.NativeWindowHandle)) / 96.0;
+        var activity = Ui.Get(window, "Activity");
+        var pane = (Ui.Box(activity).Bottom + 4 * scale - (Ui.Box(Ui.Get(window, "PaneSplitter")).Bottom - 12 * scale)) / scale;
+        Assert.InRange(pane, 63.5, 66);
+        HeadingAndALineShow(window);
+    }
+
+    /// <summary>The Activity heading, a heading to a screen reader, and one whole log line, both within the pane.</summary>
+    private static void HeadingAndALineShow(AutomationElement window)
+    {
+        var heading = Ui.Get(window, "ActivityHeading");
+        Assert.Equal("Activity", heading.Current.Name);
+        Assert.Equal(AutomationHeadingLevel.Level2, (AutomationHeadingLevel)heading.GetCurrentPropertyValue(AutomationElement.HeadingLevelProperty));
+        var activity = Ui.Get(window, "Activity");
+        var log = Ui.Box(activity);
+        Assert.True(Ui.Box(heading).Bottom <= log.Top + 1, "the heading is above the log");
+        var line = Ui.Until(() => activity.FindFirst(TreeScope.Children, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)),
+            Ui.Short, "a line in the Activity log");
+        var box = Ui.Box(line);
+        Assert.True(box.Top >= log.Top - 1 && box.Bottom <= log.Bottom + 1, $"a whole line shows ({box} in {log})");
     }
 
     /// <summary>The snap layouts flyout: a windowed XAML popup of the shell (explorer.exe).</summary>

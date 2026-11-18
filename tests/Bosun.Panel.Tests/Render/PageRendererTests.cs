@@ -153,6 +153,18 @@ public class PageRendererTests
     }
 
     [Fact]
+    public void A_picture_showing_a_plan_reference_is_refused()
+    {
+        // The window speaks to the person using it (D02 T04 §9): "It arrives with D03 T01 §5 of the plan" was on screen.
+        var leaking = new RenderCase("probe", "leaking", () => new TextBlock { Text = "It arrives with D03 T01 §5 of the plan." });
+        var refusal = Assert.Throws<RenderException>(() => PageRenderer.Render(leaking, "Dark", 600, 200)).Message;
+        Assert.Contains("probe.leaking: the picture shows a plan reference", refusal);
+        Assert.Contains("D03 T01 §5", refusal);
+        var plain = new RenderCase("probe", "plain", () => new TextBlock { Text = "Overview is coming soon." });
+        Assert.NotNull(PageRenderer.Render(plain, "Dark", 600, 200).Png);
+    }
+
+    [Fact]
     public void A_view_that_blocks_its_own_thread_is_given_up_at_its_limit_and_named()
     {
         // A view that waits inside Loaded, or a Ready that waits before it returns its task, holds the very thread

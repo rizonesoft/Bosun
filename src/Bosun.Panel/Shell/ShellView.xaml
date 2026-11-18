@@ -152,9 +152,21 @@
                                           AutomationProperties.Name="Resize the Activity pane"
                                           ToolTip="Drag, or use the arrow keys, to resize the Activity pane"/>
 
-                            <Border Grid.Row="2" BorderBrush="{DynamicResource B.Line}" BorderThickness="0,1,0,0">
-                                <ListBox x:Name="Activity" Style="{DynamicResource LogBox}" ItemsSource="{Binding Activity}"
-                                         Margin="10,6,0,6" AutomationProperties.Name="Activity"/>
+                            <!-- The pane says what it is (D02 T04 §9): a heading a screen reader finds as one, over its log. -->
+                            <Border x:Name="ActivityPane" Grid.Row="2" BorderBrush="{DynamicResource B.Line}" BorderThickness="0,1,0,0">
+                                <!-- At the pane's least height, 64 px (PanelSettings.MinActivityPaneHeight), the line above it, the
+                                     heading and a 32 px log with one whole line fit: 1 + 4 + 19 + 4 + 32 + 4. So the insets are the
+                                     space scale's XS, and so is the heading's gap below, where a page's section heading has M. -->
+                                <Grid Margin="10,4,0,4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock x:Name="ActivityHeading" Text="Activity" Style="{DynamicResource Section.Heading}"
+                                               Margin="{DynamicResource Gap.Below.XS}"/>
+                                    <ListBox x:Name="Activity" Grid.Row="1" Style="{DynamicResource LogBox}" ItemsSource="{Binding Activity}"
+                                             AutomationProperties.Name="Activity"/>
+                                </Grid>
                             </Border>
                         </Grid>
                     </Border>

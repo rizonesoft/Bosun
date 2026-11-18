@@ -72,6 +72,17 @@ sealed class PanelProcess : IDisposable
         return Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), name), "e2e-" + Guid.NewGuid().ToString("N")[..12]);
     }
 
+    /// <summary>A panel of its own whose stored settings hold this Activity pane height, as a restart restores it.</summary>
+    public static PanelProcess StartWithPane(double height)
+    {
+        var data = Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(data);
+        var settings = TestScreen.Settings(TestScreen.Current);
+        File.WriteAllText(Path.Combine(data, "panel.json"), settings.Replace("{\"schema_version\":1,",
+            "{\"schema_version\":1,\"activity_pane_height\":" + height.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",", StringComparison.Ordinal));
+        return Launch(PanelExe, [], data, "e2e-" + Guid.NewGuid().ToString("N")[..12]);
+    }
+
     /// <summary>A panel of its own with more environment: a contrast preview's file, say (D02 T03 §11).</summary>
     public static PanelProcess StartWith(IReadOnlyDictionary<string, string?> environment, params string[] arguments) =>
         Launch(PanelExe, arguments, Path.Combine(ScratchRoot(), Guid.NewGuid().ToString("N")[..12]), "e2e-" + Guid.NewGuid().ToString("N")[..12], extra: environment);
@@ -225,7 +236,13 @@ sealed class PanelProcess : IDisposable
     /// </summary>
     private void RemoveTrayIcon()
     {
-        foreach (var window in Native.WindowsOf(Id).Where(w => Native.TitleOf(w) == "Bosun Panel tray"))
+        // A panel ended moments after its window showed may not have added its icon yet: ended then, the icon it adds
+        // as it goes is left in the notification area with no process behind it, and the next tray test finds two
+        // (D02 T04 §9, after a test that only read the pane at start). So its tray window is given a moment to appear.
+        List<IntPtr> trays = [];
+        for (var tries = 0; tries < 30 && Running && (trays = [.. Native.WindowsOf(Id).Where(w => Native.TitleOf(w) == "Bosun Panel tray")]).Count == 0; tries++)
+            Thread.Sleep(100);
+        foreach (var window in trays)
         {
             var data = new NOTIFYICONDATAW { cbSize = Marshal.SizeOf<NOTIFYICONDATAW>(), hWnd = window, uID = 1, szTip = "", szInfo = "", szInfoTitle = "" };
             Shell_NotifyIconW(NIM_DELETE, ref data);

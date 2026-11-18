@@ -36,7 +36,16 @@ public class RailTests
             Assert.Equal(title, Ui.Selected(rail)?.Current.Name);
             var shown = Settle(window, title);
             Assert.Equal((title, state), shown);
-            if (state == "Empty") Assert.Equal($"{title} is not built yet.", Ui.Get(window, "EmptyReason").Current.Name);
+            if (state == "Empty")
+            {
+                // A placeholder speaks to the person using it (D02 T04 §9): its purpose, that it is coming, and what to do,
+                // with no reference into the plan anywhere on it.
+                var summary = Ui.Get(window, "PageSummary").Current.Name;
+                Assert.False(string.IsNullOrWhiteSpace(summary), $"{title} says what it is for");
+                Assert.Equal($"{title} is coming soon.", Ui.Get(window, "EmptyReason").Current.Name);
+                Assert.Equal("Choose another page from the list on the left; this one arrives in a later version.", Ui.Get(window, "EmptyAction").Current.Name);
+                Assert.DoesNotMatch(@"\bD\d\d T\d\d §\d", summary + Ui.Get(window, "EmptyAction").Current.Name);
+            }
             var nameless = Ui.Nameless(window).ToList();
             Assert.True(nameless.Count == 0, $"{title} has controls without a name:{Environment.NewLine}{string.Join(Environment.NewLine, nameless)}");
         }

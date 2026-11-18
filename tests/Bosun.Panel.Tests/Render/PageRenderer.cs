@@ -63,6 +63,9 @@ public sealed record Rendered(byte[] Png, IReadOnlyList<string> Texts);
 /// </summary>
 public static class PageRenderer
 {
+    /// <summary>A reference into the plan, as the plan writes one ("D03 T01 §5"): never on screen (D02 T04 §9).</summary>
+    public static readonly System.Text.RegularExpressions.Regex PlanReference = new(@"\bD\d\d T\d\d §\d", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     public const int Width = 1360;
     public const int Height = 860;
     /// <summary>The panel's two themes, and Windows' contrast colours over Dark (D02 T03 §10), in Night sky.</summary>
@@ -139,6 +142,10 @@ public static class PageRenderer
         Texts(page, texts);
         if (view.Shows is { } shows && !texts.Any(text => text.Contains(shows, StringComparison.Ordinal)))
             throw new RenderException($"{view.Name}: the picture doesn't show '{shows}', which is what this state is; it shows: {string.Join(" | ", texts)}");
+        // The window speaks to the person using it: a reference into the plan ("D03 T01 §5") is never on screen
+        // (D02 T04 §9), whatever page or state draws it.
+        if (texts.FirstOrDefault(text => PlanReference.IsMatch(text)) is { } leaked)
+            throw new RenderException($"{view.Name}: the picture shows a plan reference, which means nothing to the person using it: '{leaked}'");
 
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));

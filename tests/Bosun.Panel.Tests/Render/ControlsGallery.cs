@@ -61,17 +61,32 @@ public sealed class ControlsGallery : UserControl
         rail.SetResourceReference(StyleProperty, "NavList");
         lists.Children.Add(Column(0, Label("Rail"), rail));
 
-        var mono = new FrameworkElementFactory(typeof(TextBlock));
-        mono.SetBinding(TextBlock.TextProperty, new Binding());
-        mono.SetResourceReference(StyleProperty, "T.Mono");
+        // A factory belongs to one template, so each log has its own line.
+        static FrameworkElementFactory Mono()
+        {
+            var line = new FrameworkElementFactory(typeof(TextBlock));
+            line.SetBinding(TextBlock.TextProperty, new Binding());
+            line.SetResourceReference(StyleProperty, "T.Mono");
+            return line;
+        }
+        // A log longer than its space scrolls with the styled bar; one with room to spare shows none (D02 T04 §9).
         var log = new ListBox
         {
             Height = 96,
-            ItemTemplate = new DataTemplate { VisualTree = mono },
+            ItemTemplate = new DataTemplate { VisualTree = Mono() },
             ItemsSource = Enumerable.Range(1, 12).Select(n => $"12:0{n % 10}:00  INFO  queue: slot {n % 2 + 1} took job {n}").ToArray(),
         };
         log.SetResourceReference(StyleProperty, "LogBox");
-        lists.Children.Add(Column(2, Label("Log"), log));
+        var fits = new ListBox
+        {
+            Height = 112,
+            Margin = new Thickness(0, 8, 0, 0),
+            ItemTemplate = new DataTemplate { VisualTree = Mono() },
+            Name = "GalleryLog",
+            ItemsSource = Enumerable.Range(1, 5).Select(n => $"12:0{n}:00  INFO  queue: slot {n % 2 + 1} took job {n}").ToArray(),
+        };
+        fits.SetResourceReference(StyleProperty, "LogBox");
+        lists.Children.Add(Column(2, Label("Log"), log, Label("Log, with room to spare"), fits));
         stack.Children.Add(lists);
 
         return new ControlsGallery { Content = stack };
