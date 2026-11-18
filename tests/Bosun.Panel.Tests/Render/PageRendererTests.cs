@@ -160,6 +160,9 @@ public class PageRendererTests
         var refusal = Assert.Throws<RenderException>(() => PageRenderer.Render(leaking, "Dark", 600, 200)).Message;
         Assert.Contains("probe.leaking: the picture shows a plan reference", refusal);
         Assert.Contains("D03 T01 §5", refusal);
+        // A field's value is drawn through the field's own text view, not a text block: it is read too (§9 round 1).
+        var field = new RenderCase("probe", "field", () => new TextBox { Text = "D03 T01 §5", Width = 200 });
+        Assert.Contains("probe.field: the picture shows a plan reference", Assert.Throws<RenderException>(() => PageRenderer.Render(field, "Dark", 600, 200)).Message);
         var plain = new RenderCase("probe", "plain", () => new TextBlock { Text = "Overview is coming soon." });
         Assert.NotNull(PageRenderer.Render(plain, "Dark", 600, 200).Png);
     }

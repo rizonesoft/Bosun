@@ -189,8 +189,11 @@ public partial class ShellView : UserControl
         // Only the person's own scrolling decides: a move of the view with the lines and the pane as they were. A line
         // being added changes the extent; the bar appearing when the lines first overflow changes the viewport, and was
         // read as the person scrolling back to the top, so the log stopped following (D02 T04 §9).
-        if (e.VerticalChange != 0 && e.ExtentHeightChange == 0 && e.ViewportHeightChange == 0)
-            _atNewest = e.VerticalOffset >= e.ExtentHeight - e.ViewportHeight - 1;
+        var atEnd = e.VerticalOffset >= e.ExtentHeight - e.ViewportHeight - 1;
+        if (e.VerticalChange != 0 && e.ExtentHeightChange == 0 && e.ViewportHeightChange == 0) _atNewest = atEnd;
+        // The newest line in view, however it came there (a pane made tall enough that every line fits): following
+        // again, so a line added later is not left below (§9 round 1).
+        else if (atEnd && e.ExtentHeightChange == 0) _atNewest = true;
         // The pane resized while following: the newest line stays the one in view.
         else if (_atNewest && e.ViewportHeightChange != 0) FollowAfterLayout();
     }

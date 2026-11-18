@@ -144,7 +144,9 @@ public static class PageRenderer
             throw new RenderException($"{view.Name}: the picture doesn't show '{shows}', which is what this state is; it shows: {string.Join(" | ", texts)}");
         // The window speaks to the person using it: a reference into the plan ("D03 T01 §5") is never on screen
         // (D02 T04 §9), whatever page or state draws it.
-        if (texts.FirstOrDefault(text => PlanReference.IsMatch(text)) is { } leaked)
+        var drawn = new List<string>();
+        DrawnText(page, drawn);
+        if (drawn.FirstOrDefault(text => PlanReference.IsMatch(text)) is { } leaked)
             throw new RenderException($"{view.Name}: the picture shows a plan reference, which means nothing to the person using it: '{leaked}'");
 
         var encoder = new PngBitmapEncoder();
@@ -262,6 +264,18 @@ public static class PageRenderer
     }
 
     /// <summary>Every text a reader of the picture would see, in tree order.</summary>
+    /// <summary>
+    /// Every text the picture draws: text blocks, and the values text fields show through their own text view, which
+    /// <see cref="Texts"/> leaves out (§9 round 1: a field showing a plan reference passed the check).
+    /// </summary>
+    private static void DrawnText(DependencyObject node, List<string> found)
+    {
+        if (node is UIElement { Visibility: not Visibility.Visible }) return;
+        if (node is TextBlock { Text.Length: > 0 } block) found.Add(block.Text);
+        if (node is TextBox { Text.Length: > 0 } field) found.Add(field.Text);
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++) DrawnText(VisualTreeHelper.GetChild(node, i), found);
+    }
+
     private static void Texts(DependencyObject node, List<string> found)
     {
         if (node is UIElement { Visibility: not Visibility.Visible }) return;

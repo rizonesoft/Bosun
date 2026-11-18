@@ -238,14 +238,19 @@ sealed class PanelProcess : IDisposable
     {
         // A panel ended moments after its window showed may not have added its icon yet: ended then, the icon it adds
         // as it goes is left in the notification area with no process behind it, and the next tray test finds two
-        // (D02 T04 §9, after a test that only read the pane at start). So its tray window is given a moment to appear.
-        List<IntPtr> trays = [];
-        for (var tries = 0; tries < 30 && Running && (trays = [.. Native.WindowsOf(Id).Where(w => Native.TitleOf(w) == "Bosun Panel tray")]).Count == 0; tries++)
-            Thread.Sleep(100);
-        foreach (var window in trays)
+        // (D02 T04 §9, after a test that only read the pane at start). The panel makes its tray window and then adds
+        // the icon, so a window found is not yet an icon added: the removal is tried until Windows says an icon went
+        // (§9 round 1), for three seconds at most, then the panel is ended whatever, as before.
+        for (var tries = 0; tries < 30 && Running; tries++)
         {
-            var data = new NOTIFYICONDATAW { cbSize = Marshal.SizeOf<NOTIFYICONDATAW>(), hWnd = window, uID = 1, szTip = "", szInfo = "", szInfoTitle = "" };
-            Shell_NotifyIconW(NIM_DELETE, ref data);
+            var removed = false;
+            foreach (var window in Native.WindowsOf(Id).Where(w => Native.TitleOf(w) == "Bosun Panel tray"))
+            {
+                var data = new NOTIFYICONDATAW { cbSize = Marshal.SizeOf<NOTIFYICONDATAW>(), hWnd = window, uID = 1, szTip = "", szInfo = "", szInfoTitle = "" };
+                removed |= Shell_NotifyIconW(NIM_DELETE, ref data);
+            }
+            if (removed) return;
+            Thread.Sleep(100);
         }
     }
 

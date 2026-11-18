@@ -140,12 +140,57 @@ public class ShellTests
             shell.Log.Info("followed");
             PageRenderer.Settle(host);
             Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);
-            // The pane made tall enough for every line: the bar goes.
+            // Scrolled back, then the pane made tall enough for every line: the bar goes, the newest line is in view, and
+            // the log follows again, so lines that overflow it later are followed (§9 round 1).
+            System.Windows.Controls.Primitives.ScrollBar.LineUpCommand.Execute(null, bar);
+            PageRenderer.Settle(host);
+            Assert.True(scroll.VerticalOffset < scroll.ScrollableHeight - 0.5, "scrolled back before the pane grows");
             shell.ActivityHeight = 400;
             for (var i = 0; i < 8; i++) { PageRenderer.Settle(host); host.UpdateLayout(); }
             Assert.True(scroll.ExtentHeight <= scroll.ViewportHeight, $"every line fits ({scroll.ExtentHeight} in {scroll.ViewportHeight})");
             Assert.True(scroll.ComputedVerticalScrollBarVisibility == Visibility.Collapsed,
                 $"no bar once every line fits (extent {scroll.ExtentHeight}, viewport {scroll.ViewportHeight}, offset {scroll.VerticalOffset}, pane {view.PaneHeight}, logical {scroll.CanContentScroll})");
+            for (var i = 0; i < 80 && scroll.ComputedVerticalScrollBarVisibility != Visibility.Visible; i++)
+            {
+                shell.Log.Info($"after the pane grew {i}");
+                PageRenderer.Settle(host);
+            }
+            shell.Log.Info("the newest, past the overflow");
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);               // followed, not left at the top
+        }, height: 1100);
+    }
+
+    [Fact]
+    public void A_pane_grown_until_every_line_fits_follows_its_newest_line_again()
+    {
+        // §9 round 1, as found: at the least height, lines overflow; scrolled back; the pane grown until every line
+        // fits clamps the view to the top. That move came with the pane's change, and was not taken as the newest line
+        // being in view, so lines that overflowed the pane again were left below.
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            shell.ActivityHeight = 64;
+            PageRenderer.Settle(host);
+            var scroll = ShellSupport.Under<ScrollViewer>(view.Activity).First();
+            var bar = (System.Windows.Controls.Primitives.ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            for (var i = 0; i < 10; i++) shell.Log.Info($"line {i}");
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            for (var i = 0; i < 3; i++) System.Windows.Controls.Primitives.ScrollBar.LineUpCommand.Execute(null, bar);
+            PageRenderer.Settle(host);
+            Assert.True(scroll.VerticalOffset < scroll.ScrollableHeight - 0.5, "scrolled back");
+            shell.ActivityHeight = 400;
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(Visibility.Collapsed, scroll.ComputedVerticalScrollBarVisibility);   // every line fits
+            for (var i = 0; i < 30; i++) shell.Log.Info($"more {i}");
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(Visibility.Visible, scroll.ComputedVerticalScrollBarVisibility);
+            Assert.Equal(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5);               // the newest line in view
         }, height: 1100);
     }
 
