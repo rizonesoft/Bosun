@@ -39,7 +39,11 @@ $file = $args[[array]::IndexOf($args, '--report-xunit-trx-filename') + 1]
 Add-Content -LiteralPath (Join-Path $state 'classes.txt') -Value $class
 $mine = @($tests | Where-Object { ($_ -replace '\.[^.]+$', '') -eq $class })
 if ($which -and $which -eq $class) {
-  if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
+  if ($word -eq 'person') {
+    $record = (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName
+    Set-Content -LiteralPath "$record.tmp" -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o')
+    Move-Item -LiteralPath "$record.tmp" -Destination $record -Force
+  }
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
   if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
   if ($word -eq 'hold' -or $word -eq 'hold-crash') {
@@ -47,8 +51,11 @@ if ($which -and $which -eq $class) {
     Add-Type 'using System; using System.Runtime.InteropServices; public static class F24 { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(10)] public ushort scan; [FieldOffset(12)] public int flags; [FieldOffset(16)] public int time; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Down() { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
     if ([F24]::Down() -eq 1) {
       Set-Content -LiteralPath (Join-Path $state 'held.txt') -Value 'down'
-      # What the real watcher writes when the smoke presses a key and does not let go of it.
-      Set-Content -LiteralPath ((Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Where-Object Name -notlike '*.held' | Select-Object -First 1).FullName + '.held') -Value '135'
+      # What the real watcher writes when the smoke presses a key and does not let go of it: its record's second line.
+      $record = (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName
+      # Whole, through a temporary file and a replace, as the real watcher writes it.
+      Set-Content -LiteralPath "$record.tmp" -Value @((@(Get-Content -LiteralPath $record) + @('none'))[0], '135')
+      Move-Item -LiteralPath "$record.tmp" -Destination $record -Force
     }
     # A test host that dies holding it, before it ever lets go, its report cut off.
     if ($word -eq 'hold-crash') { Set-Content -LiteralPath (Join-Path $dir $file) -Value '<TestRun><Results><UnitTestResult testName='; exit 3 }
@@ -156,7 +163,7 @@ try {
   $run = Invoke-Run 'watcher-fails' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
   Check "a watcher that never starts fails the night before any class (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher did not start*' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
-  Check "a watcher that ends during a class stops the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
+  Check "a watcher that ends during a class stops the run, letting go of nothing on its stale record (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1 -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended*') $run.Said
   # The watcher ends with the runner, however the runner ends: killed alone, with no finally run.
   $state = Join-Path $dir 'state-killed'
   New-Item -ItemType Directory -Force -Path $state | Out-Null
@@ -212,6 +219,10 @@ try {
   } else {
     Check 'Bosun.TestChild is built, for the watcher check (run dotnet build first)' $false
   }
+
+  # On demand too: the watcher runs for what the smoke holds, though it stops nothing for a person.
+  $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha'
+  Check "an on-demand run lets go of what its crashed class held (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
 
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))

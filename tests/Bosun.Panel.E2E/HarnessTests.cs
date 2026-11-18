@@ -26,7 +26,7 @@ public class HarnessTests
         try
         {
             Assert.Equal("watching", watcher.StandardOutput.ReadLine());
-            Assert.Equal("none", File.ReadAllText(file).Trim());
+            Assert.Equal("none", Line(file, 0));
             for (var i = 0; i < 5; i++)
             {
                 Native.MoveInPlace();
@@ -34,20 +34,19 @@ public class HarnessTests
             }
             // The watcher writes at most once a second: past that, a move it counted would be in the file.
             Thread.Sleep(1500);
-            Assert.Equal("none", File.ReadAllText(file).Trim());
+            Assert.Equal("none", Line(file, 0));
             // What the smoke presses and does not let go of is listed; a person pressing it takes it off (it is theirs).
-            var held = file + ".held";
-            Assert.Equal("", File.ReadAllText(held).Trim());
+            Assert.Equal("", Line(file, 1));
             Native.KeyDown(Native.VK_F24);
-            Assert.True(Ui.Wait(() => File.ReadAllText(held).Trim() == "135", TimeSpan.FromSeconds(3)), $"the smoke's F24 is listed held ('{File.ReadAllText(held)}')");
+            Assert.True(Ui.Wait(() => Line(file, 1) == "135", TimeSpan.FromSeconds(3)), $"the smoke's F24 is listed held ('{Line(file, 1)}')");
             Native.KeyUp(Native.VK_F24);
-            Assert.True(Ui.Wait(() => File.ReadAllText(held).Trim() == "", TimeSpan.FromSeconds(3)), "let go of, it is off the list");
+            Assert.True(Ui.Wait(() => Line(file, 1) == "", TimeSpan.FromSeconds(3)), "let go of, it is off the list");
             // Injected but without the smoke's mark (a remote-control tool's input) is a person.
             var injected = DateTime.UtcNow;
             Native.MoveInPlace(tagged: false);
             var until = DateTime.UtcNow.AddSeconds(5);
             string seenInjected;
-            while ((seenInjected = File.ReadAllText(file).Trim()) == "none" && DateTime.UtcNow < until) Thread.Sleep(100);
+            while ((seenInjected = Line(file, 0)) == "none" && DateTime.UtcNow < until) Thread.Sleep(100);
             Assert.True(DateTime.TryParse(seenInjected, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var other) && other.ToUniversalTime() >= injected.AddSeconds(-1),
                 $"an untagged injected move was not seen as a person (the watcher wrote '{seenInjected}')");
             // The watcher writes at most once a second; the stand-in below must be later than that.
@@ -58,7 +57,7 @@ public class HarnessTests
             var deadline = DateTime.UtcNow.AddSeconds(5);
             string said;
             // Waiting for a time other than the untagged move's, which the file already holds.
-            while ((said = File.ReadAllText(file).Trim()) == seenInjected && DateTime.UtcNow < deadline) Thread.Sleep(100);
+            while ((said = Line(file, 0)) == seenInjected && DateTime.UtcNow < deadline) Thread.Sleep(100);
             Assert.True(DateTime.TryParse(said, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var seen), $"the watcher wrote '{said}'");
             Assert.True(seen.ToUniversalTime() >= before.AddSeconds(-1), $"a person at {seen:o}, before the stand-in at {before:o}");
         }
@@ -67,6 +66,13 @@ public class HarnessTests
             if (!watcher.HasExited) watcher.Kill(entireProcessTree: true);
             File.Delete(file);
         }
+    }
+
+    /// <summary>One line of the watcher's record (0: the person's time or "none", 1: what the smoke holds).</summary>
+    private static string Line(string file, int index)
+    {
+        var lines = File.ReadAllText(file).Split('\n');
+        return index < lines.Length ? lines[index].Trim() : "";
     }
 
     [Fact]

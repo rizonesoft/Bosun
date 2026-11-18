@@ -277,12 +277,24 @@ function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
 # The nightly window is the hours before the deadline (03:00 to 06:00): a scheduled run started earlier, by hand from
 # Task Scheduler or a clock that moved, is a night outside it.
 function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($WindowOpens - $WindowCloses) }
-# What the ended class left down: the keys and buttons the watcher saw the smoke press and not let go of (its .held
-# file), so a button a person holds, the one whose press stopped the run, is never let go of for them.
+# The watcher's record, both lines (the person's time, and what the smoke holds), as one read: $null when it cannot be
+# read. The two lines are written together, so they are of one moment.
+function Read-Watch {
+    for ($try = 0; $try -lt 3; $try++) {
+        try { return @(([IO.File]::ReadAllText($watchFile) -split "\r?\n") + @('', '')) }
+        catch { Start-Sleep -Milliseconds 50 }
+    }
+    $null
+}
+# What the ended class left down: the keys and buttons the watcher saw the smoke press and not let go of (its record's
+# second line), so a button a person holds, the one whose press stopped the run, is never let go of for them. A
+# watcher that has ended keeps no record any more: what it last wrote may be stale, so nothing is let go of then.
 function Release-Held {
-    $held = "$watchFile.held"
-    $said = if (Test-Path -LiteralPath $held) { (Get-Content -LiteralPath $held -Raw) } else { '' }
-    $keys = @("$said".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+    if (-not $watch) { return }
+    if ($watch.HasExited) { Say "nothing let go of: the input watcher had ended, so what it last saw held may be stale"; return }
+    $record = Read-Watch
+    if ($null -eq $record) { Say "nothing let go of: the input watcher's record could not be read"; return }
+    $keys = @("$($record[1])".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
     if (-not $keys) { return }
     $let = @([SmokeInputDesk]::Release([int[]]$keys))
     if ($let.Count) { Say "let go of what the ended class held down: $(($let | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', ')" }
@@ -377,18 +389,19 @@ try {
     Say "$($discovered.Count) real-input tests in $($classes.Count) classes"
 
     $watchStart = Get-Date
+    # The watcher first, and ready (both hooks in, its "watching" line read) before the idle clock is read: input from
+    # before then is in Windows' idle clock, input from after it in the watcher's record, so none falls between. It runs
+    # on demand too, for what the smoke holds down; only the nightly run stops for a person (on demand, the operator
+    # chose to hand over the desk).
+    $info = [Diagnostics.ProcessStartInfo]::new($watcherExe)
+    $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile)
+    $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
+    $watch = [Diagnostics.Process]::Start($info)
+    $watch.StandardInput.Close()
+    $ready = $watch.StandardOutput.ReadLineAsync()
+    if (-not $ready.Wait(10000) -or $ready.Result -ne 'watching') { Finish 'failed' "the input watcher did not start$(if ($watch.HasExited) { " (exit $($watch.ExitCode))" })" 1; return }
+    $watchStart = Get-Date
     if ($Scheduled) {
-        # The watcher first, and ready (both hooks in, its "watching" line read) before the idle clock is read: input
-        # from before then is in Windows' idle clock, input from after it in the watcher's record, so none falls between.
-        # Only the nightly run watches for a person: run on demand, the operator chose to hand over the desk.
-        $info = [Diagnostics.ProcessStartInfo]::new($watcherExe)
-        $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile)
-        $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
-        $watch = [Diagnostics.Process]::Start($info)
-        $watch.StandardInput.Close()
-        $ready = $watch.StandardOutput.ReadLineAsync()
-        if (-not $ready.Wait(10000) -or $ready.Result -ne 'watching') { Finish 'failed' "the input watcher did not start$(if ($watch.HasExited) { " (exit $($watch.ExitCode))" })" 1; return }
-        $watchStart = Get-Date
         if (Locked) { Finish 'skipped-locked' 'the desktop was locked' 0; return }
         $idle = IdleSeconds
         if ($idle -lt $IdleMinutes * 60) { Finish 'skipped-in-use' "the desk was used $([int]($idle / 60)) minutes before, under the $IdleMinutes needed" 0; return }
@@ -400,11 +413,9 @@ try {
         if (-not $Scheduled) { return $null }
         if (Locked) { return 'locked' }
         if ($watch.HasExited) { return 'watcher' }
-        $said = $null
-        for ($try = 0; $try -lt 3 -and $null -eq $said; $try++) {
-            try { $said = [IO.File]::ReadAllText($watchFile).Trim() } catch { Start-Sleep -Milliseconds 50 }
-        }
-        if ($null -eq $said) { return 'unreadable' }
+        $record = Read-Watch
+        if ($null -eq $record) { return 'unreadable' }
+        $said = "$($record[0])".Trim()
         if ($said -eq 'none') { return $null }
         $at = [DateTime]::MinValue
         if (-not [DateTime]::TryParse($said, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)) { return 'unreadable' }
@@ -464,7 +475,7 @@ try {
         # Whatever ended the run, nothing the smoke holds is left down for the person who comes back.
         try { Release-Held } catch { Write-Warning "smoke-input: what the smoke held could not be let go of: $($_.Exception.Message)" }
         if (-not $watch.HasExited) { & taskkill.exe /T /F /PID $watch.Id *> $null }
-        Remove-Item -LiteralPath $watchFile, "$watchFile.held" -ErrorAction Ignore
+        Remove-Item -LiteralPath $watchFile -ErrorAction Ignore
     }
     $env:BOSUN_DESKTOP_HELD = $savedHeld
     $env:BOSUN_SMOKE_INPUT = $savedInput

@@ -7,11 +7,11 @@ namespace Bosun.TestChild;
 /// Watches for a person at the desk while the real-input smoke runs (D02 T02 §12). Low-level keyboard and mouse hooks
 /// see every input. The smoke's own is injected (LLKHF_INJECTED, LLMHF_INJECTED) and carries its mark in dwExtraInfo
 /// (Native.SmokeTag in tests/Bosun.Panel.E2E, the same value as <see cref="SmokeTag"/>); anything else is a person,
-/// injected or not (a remote-control tool injects too), and its time is written to a file the runner reads (by a writer
-/// thread, never inside a hook).
-/// Beside it, <c>&lt;file&gt;.held</c> lists the keys and buttons the smoke pressed and has not let go of (virtual-key codes,
-/// comma-separated): a class ended mid-drag leaves them down, and the runner lets go of those, never one a person
-/// holds (a person pressing a key the smoke holds takes it off the list).
+/// injected or not (a remote-control tool injects too).
+/// The record the runner reads is one file of two lines, written whole together (by a writer thread, never inside a
+/// hook): the latest person's time (or "none"), and the keys and buttons the smoke pressed and has not let go of
+/// (virtual-key codes, comma-separated). A class ended mid-drag leaves those down, and the runner lets go of them, never
+/// one a person holds (a person pressing a key the smoke holds takes it off the list).
 /// A line "person" on stdin stands in for one, so the runner's tests can show it. It watches four hours at most.
 /// </summary>
 static class InputWatch
@@ -69,8 +69,7 @@ static class InputWatch
         }
         // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
         // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
-        Write(null);
-        WriteHeld("");
+        Write(null, "");
         new Thread(Writer) { IsBackground = true, Name = "watch-input writer" }.Start();
         // A person stood in for: each "person" line on stdin is one input not marked injected.
         new Thread(() =>
@@ -122,8 +121,8 @@ static class InputWatch
     }
 
     /// <summary>
-    /// The writer, on a thread of its own: each time it is woken it writes what changed, the latest person's time and
-    /// the held list, each whole through a temporary file. A stalled disk delays the record and never the hooks. A write
+    /// The writer, on a thread of its own: each time it is woken it writes the record anew, the latest person's time and
+    /// the held list taken together, through a temporary file. A stalled disk delays the record and never the hooks. A write
     /// that fails ends the watcher (exit 71): a record it can no longer keep must not go on saying nobody is there, and
     /// the runner stops a run whose watcher has ended.
     /// </summary>
@@ -143,8 +142,12 @@ static class InputWatch
             }
             try
             {
-                if (latest != written) { Write(latest); written = latest; }
-                if (held != heldWritten) { WriteHeld(held); heldWritten = held; }
+                if (latest != written || held != heldWritten)
+                {
+                    Write(latest == DateTime.MinValue ? null : latest, held);
+                    written = latest;
+                    heldWritten = held;
+                }
             }
             catch (Exception failed) when (failed is IOException or UnauthorizedAccessException)
             {
@@ -154,18 +157,12 @@ static class InputWatch
         }
     }
 
-    private static void Write(DateTime? at)
+    /// <summary>The record, both lines at once: whoever reads it sees one moment, never a time from one and keys from another.</summary>
+    private static void Write(DateTime? at, string held)
     {
         var temporary = _file + ".tmp";
-        File.WriteAllText(temporary, at is { } t ? t.ToString("o", CultureInfo.InvariantCulture) : "none");
+        File.WriteAllText(temporary, (at is { } t ? t.ToString("o", CultureInfo.InvariantCulture) : "none") + "\n" + held + "\n");
         File.Move(temporary, _file, overwrite: true);
-    }
-
-    private static void WriteHeld(string held)
-    {
-        var temporary = _file + ".held.tmp";
-        File.WriteAllText(temporary, held);
-        File.Move(temporary, _file + ".held", overwrite: true);
     }
 
     private delegate IntPtr HookProc(int code, IntPtr wParam, IntPtr lParam);
