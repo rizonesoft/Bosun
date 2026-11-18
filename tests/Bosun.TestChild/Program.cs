@@ -19,6 +19,8 @@ using System.Text.Json;
 //   hold-desktop <name> <folder> take the desktop lock <name> with its record in <folder> (D02 T02 §11), write `held`,
 //                               wait for a file `release` (at most 60 s), release it and write `released`
 //   probe-desktop <name>        write `taken` or `free` to `probe`: whether the lock is held elsewhere at this moment
+//   watch-input <file>          write the time of the latest input Windows did not mark injected (a person) to <file>
+//                               while it runs, four hours at most; a "person" line on stdin stands in for one (§12)
 //
 // `beat` writes at most 100 lines (ten seconds) and exits, so a grandchild nothing stops still ends.
 var stdout = Console.OpenStandardOutput();
@@ -172,6 +174,8 @@ switch (args[0])
         }
         File.WriteAllText("released", "");
         return 0;
+    case "watch-input":
+        return Bosun.TestChild.InputWatch.Run(args[1]);
     case "probe-desktop":
         File.WriteAllText("probe", Probe(args[1]));
         return 0;

@@ -6,6 +6,19 @@
 bosun run -- dotnet test --project tests/Bosun.Panel.E2E
 ```
 
+## Real input is opt-in
+
+That command never takes your mouse or keyboard (D02 T02 §12, the operator's decision of 2026-11-18). The tests that press keys, click, drag, move the pointer or bring a panel to the front (the caption buttons, the splitter, the tray icon, the Tab and shortcut paths, the captures) carry `[RealInputFact]` and `[Trait("Input", "Real")]`, and they are skipped unless `BOSUN_SMOKE_INPUT=1`; `RealInput` and `PanelProcess.Front()` refuse in any other test, and a default test that leaves a panel it started in the foreground fails (`ForegroundKept`). They run through one script:
+
+```powershell
+pwsh scripts/smoke-input.ps1             # now: it takes the desk for a few minutes
+pwsh scripts/smoke-input.ps1 -Install    # every night at 03:00, on an idle, unlocked desktop
+pwsh scripts/smoke-input.ps1 -Status     # the last results, in words
+pwsh scripts/smoke-input.ps1 -Uninstall  # no more nightly runs
+```
+
+The nightly run starts only on an unlocked desktop nobody has used for 15 minutes, and stops at the first sign of a person (input Windows did not mark as the smoke's own, or the desktop locked) or at 05:00, ending the class in flight. It never wakes the machine, so a night the machine slept or nobody was logged on has no result, which `-Status` says with its date. Every run is kept in `%LOCALAPPDATA%\Bosun\smoke\input-history.jsonl` with its own log.
+
 ## Which screen it runs on
 
 Every panel the smoke starts opens on the test screen, never first on the main one, so a run stays off the screen you are working on (D02 T03 §12). The harness writes each panel's `panel.json` with a window place centred on that screen before the panel starts, and `PanelProcess` fails any test whose panel was first shown elsewhere.

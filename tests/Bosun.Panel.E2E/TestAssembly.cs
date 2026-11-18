@@ -23,16 +23,26 @@ namespace Bosun.Panel.E2E;
 /// </summary>
 public sealed class DesktopFixture : IDisposable
 {
-    private readonly DesktopHold _hold;
+    private readonly DesktopHold? _hold;
     private readonly string? _inherited;
 
     public DesktopFixture()
     {
         Settings = DesktopSettings.FromEnvironment();
-        _hold = Hold(Settings.Name, DesktopLock.RecordFolder(), Settings.Wait);
         _inherited = Environment.GetEnvironmentVariable(DesktopLock.HeldVariable);
+        // Run under a holder of the lock (scripts/smoke-input.ps1 holds it across every class, D02 T02 §12): its hold is
+        // this run's, and waiting on it would wait on its own parent.
+        if (DesktopLock.InheritsHold(Settings.Name, DesktopLock.RecordFolder()))
+        {
+            Inherited = true;
+            return;
+        }
+        _hold = Hold(Settings.Name, DesktopLock.RecordFolder(), Settings.Wait);
         Environment.SetEnvironmentVariable(DesktopLock.HeldVariable, _hold.Holder.HeldValue);
     }
+
+    /// <summary>Whether this run works under a parent's hold of the lock rather than one of its own.</summary>
+    public bool Inherited { get; }
 
     /// <summary>
     /// The run's hold, refused when its record couldn't be written: the captures the smoke runs take its hold only
@@ -50,10 +60,12 @@ public sealed class DesktopFixture : IDisposable
 
     public DesktopSettings Settings { get; }
 
-    public DesktopHolder Holder => _hold.Holder;
+    /// <summary>The run's own hold; none when it works under a parent's (<see cref="Inherited"/>).</summary>
+    public DesktopHolder? Holder => _hold?.Holder;
 
     public void Dispose()
     {
+        if (_hold is null) return;
         Environment.SetEnvironmentVariable(DesktopLock.HeldVariable, _inherited);
         _hold.Dispose();
     }
@@ -74,7 +86,14 @@ public class TestAssemblyTests(DesktopFixture desktop)
         // Another process finds the lock taken, and the record names this test process with its start time.
         Assert.Equal("taken", DesktopLockTests.Probe(desktop.Settings.Name));
         using var me = Process.GetCurrentProcess();
-        var record = DesktopLockTests.Record(desktop.Holder.RecordPath);
+        var record = DesktopLockTests.Record(DesktopLock.RecordPath(desktop.Settings.Name, DesktopLock.RecordFolder()));
+        if (desktop.Inherited)
+        {
+            // Under the real-input runner's hold (D02 T02 §12): the record names the runner, as the hold handed down does.
+            Assert.Equal(DesktopLock.HeldValue(desktop.Settings.Name, record.Pid, record.ProcessStart), Environment.GetEnvironmentVariable(DesktopLock.HeldVariable));
+            Assert.NotEqual(me.Id, record.Pid);
+            return;
+        }
         Assert.Equal(me.Id, record.Pid);
         Assert.Equal((ulong)me.StartTime.ToFileTimeUtc(), record.ProcessStart);
         Assert.Equal(DesktopLock.HeldValue(desktop.Settings.Name, me.Id, record.ProcessStart), Environment.GetEnvironmentVariable(DesktopLock.HeldVariable));
@@ -89,6 +108,6 @@ public class TestAssemblyTests(DesktopFixture desktop)
         using var me = Process.GetCurrentProcess();
         var expanded = documented.Replace("%LOCALAPPDATA%", Environment.GetEnvironmentVariable("LOCALAPPDATA")).Replace("<session>", me.SessionId.ToString());
         Assert.Equal(expanded, DesktopLock.RecordPath(DesktopLock.DefaultName, DesktopLock.RecordFolder()));
-        if (desktop.Settings.Name == DesktopLock.DefaultName) Assert.Equal(expanded, desktop.Holder.RecordPath);
+        if (desktop.Settings.Name == DesktopLock.DefaultName && desktop.Holder is { } holder) Assert.Equal(expanded, holder.RecordPath);
     }
 }

@@ -1,0 +1,205 @@
+# Tests scripts/smoke-input.ps1 (D02 T02 §12) with stand-ins: a dotnet that lists, runs and reports tests as each case
+# tells it, an input watcher that only keeps its file, and the lock and idle probes read from files. It never runs the
+# real smoke or touches the desktop: the lock has a name of its own, the state folder is the test's, and every process
+# a case starts is ended as a tree at the end. Console children start without a window of their own.
+$ErrorActionPreference = 'Stop'
+$repo = Split-Path $PSScriptRoot
+$script = Join-Path $repo 'scripts/smoke-input.ps1'
+$capture = Join-Path $repo 'scripts/capture-window.ps1'
+$shell = (Get-Process -Id $PID).Path
+$failed = [System.Collections.Generic.List[string]]::new()
+function Check([string]$Name, [bool]$Ok, [string]$Said = '') {
+  if ($Ok) { "ok   $Name" } else { "FAIL $Name"; if ($Said) { $Said.TrimEnd() -split "`r?`n" | Select-Object -Last 12 | ForEach-Object { "     | $_" } }; $failed.Add($Name) }
+}
+
+$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
+$dir = Join-Path $scratch ('smoke-input-test-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+$fakes = Join-Path $dir 'fakes'
+New-Item -ItemType Directory -Force -Path $fakes | Out-Null
+$lockName = 'test-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+$taskName = 'Bosun smoke-input test ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+
+# The stand-in dotnet: what it does is in <state>\mode.txt (one word, or a word and a class), the tests it knows in
+# <state>\tests.txt (one full name a line). It writes the results the runner asked for as TRX.
+Set-Content -LiteralPath (Join-Path $fakes 'dotnet.ps1') -Encoding utf8 -Value @'
+$state = $env:STANDIN_STATE
+$mode = (Get-Content -LiteralPath (Join-Path $state 'mode.txt') -Raw).Trim()
+$word, $which = $mode -split ' ', 2
+$tests = @(Get-Content -LiteralPath (Join-Path $state 'tests.txt') | Where-Object { $_.Trim() })
+if ($args[0] -eq 'build') { if ($word -eq 'build-fails') { 'error: the build broke'; exit 1 }; 'Build succeeded.'; exit 0 }
+if ($args -contains '--list-tests') {
+  if ($word -eq 'none') { $tests = @() }
+  @{ version = '1.0'; testContainers = @(@{ tests = @($tests | ForEach-Object { @{ displayName = $_ } }) }) } | ConvertTo-Json -Depth 6
+  exit 0
+}
+$class = $args[[array]::IndexOf($args, '--filter-class') + 1]
+$dir = $args[[array]::IndexOf($args, '--results-directory') + 1]
+$file = $args[[array]::IndexOf($args, '--report-xunit-trx-filename') + 1]
+Add-Content -LiteralPath (Join-Path $state 'classes.txt') -Value $class
+$mine = @($tests | Where-Object { ($_ -replace '\.[^.]+$', '') -eq $class })
+if ($which -and $which -eq $class) {
+  if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
+  if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
+  if ($word -eq 'sleep') {
+    $child = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 120' -NoNewWindow -PassThru
+    Set-Content -LiteralPath (Join-Path $state 'child.txt') -Value $child.Id
+    Start-Sleep 120
+  }
+}
+$rows = foreach ($t in $mine) {
+  $outcome = 'Passed'
+  if ($word -eq 'omit' -and $t -eq $which) { continue }
+  if ($word -eq 'skip' -and $t -eq $which) { $outcome = 'NotExecuted' }
+  if ($word -eq 'fail' -and $t -eq $which) { $outcome = 'Failed' }
+  "<UnitTestResult testName=`"$t`" outcome=`"$outcome`" />"
+  if ($word -eq 'repeat' -and $t -eq $which) { "<UnitTestResult testName=`"$t`" outcome=`"Passed`" />" }
+}
+Set-Content -LiteralPath (Join-Path $dir $file) -Value "<TestRun><Results>$($rows -join '')</Results></TestRun>"
+exit 0
+'@
+Set-Content -LiteralPath (Join-Path $fakes 'dotnet.cmd') -Value "@`"$shell`" -NoProfile -File `"$(Join-Path $fakes 'dotnet.ps1')`" %*"
+# The stand-in watcher: it starts its file as the real one does and keeps it; a case writes a person's time into it.
+Set-Content -LiteralPath (Join-Path $fakes 'watcher.ps1') -Encoding utf8 -Value 'Set-Content -LiteralPath $args[1] -Value none; Start-Sleep 600'
+Set-Content -LiteralPath (Join-Path $fakes 'watcher.cmd') -Value "@`"$shell`" -NoProfile -File `"$(Join-Path $fakes 'watcher.ps1')`" %*"
+
+$tests = @(
+  'Bosun.Panel.E2E.Alpha.First', 'Bosun.Panel.E2E.Alpha.Second',
+  'Bosun.Panel.E2E.Beta.Only',
+  'Bosun.Panel.E2E.Gamma.One', 'Bosun.Panel.E2E.Gamma.Two'
+)
+$started = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+
+# A run of the script, in a state folder of the case's own (or the one given), its output and exit code.
+function Invoke-Run([string]$Mode, [string[]]$Extra = @(), [string]$State = '', [hashtable]$Probes = @{}) {
+  if (-not $State) { $State = Join-Path $dir ('state-' + [guid]::NewGuid().ToString('N').Substring(0, 8)) }
+  New-Item -ItemType Directory -Force -Path $State | Out-Null
+  Set-Content -LiteralPath (Join-Path $State 'mode.txt') -Value $Mode
+  Set-Content -LiteralPath (Join-Path $State 'tests.txt') -Value $tests
+  Remove-Item -LiteralPath (Join-Path $State 'classes.txt'), (Join-Path $State 'probe-locked'), (Join-Path $State 'probe-idle') -ErrorAction Ignore
+  if ($Probes.locked) { Set-Content -LiteralPath (Join-Path $State 'probe-locked') -Value 'locked' }
+  Set-Content -LiteralPath (Join-Path $State 'probe-idle') -Value $(if ($Probes.ContainsKey('idle')) { $Probes.idle } else { 3600 })
+  $env:STANDIN_STATE = $State
+  $env:BOSUN_DESKTOP_LOCK = $lockName
+  try {
+    $said = & $shell -NoProfile -File $script -StateFolder $State -Dotnet (Join-Path $fakes 'dotnet.cmd') -Watcher (Join-Path $fakes 'watcher.cmd') -TestProbes @Extra 2>&1 | Out-String
+    $code = $LASTEXITCODE
+  } finally { Remove-Item Env:STANDIN_STATE, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore }
+  $records = @(if (Test-Path -LiteralPath (Join-Path $State 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $State 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json } })
+  [pscustomobject]@{ Code = $code; Said = $said; State = $State; Last = if ($records) { $records[-1] } else { $null }; Records = $records }
+}
+
+try {
+  # A complete run: every test found ran once and passed, one class at a time.
+  $run = Invoke-Run 'pass'
+  Check "a complete run is passed with exit 0 ($($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'passed' -and $run.Last.passed -eq 5 -and $run.Last.discovered -eq 5 -and $run.Last.mode -eq 'manual') $run.Said
+  Check 'each class ran once, in turn' ((Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')) -join ',' -eq 'Bosun.Panel.E2E.Alpha,Bosun.Panel.E2E.Beta,Bosun.Panel.E2E.Gamma') $run.Said
+
+  # Whatever keeps a run from being whole fails it, with the names and exit 1.
+  foreach ($case in @(
+      @{ mode = 'omit Bosun.Panel.E2E.Alpha.Second'; says = 'did not run: Bosun.Panel.E2E.Alpha.Second' },
+      @{ mode = 'repeat Bosun.Panel.E2E.Beta.Only'; says = 'ran twice: Bosun.Panel.E2E.Beta.Only' },
+      @{ mode = 'skip Bosun.Panel.E2E.Gamma.Two'; says = 'did not pass: Bosun.Panel.E2E.Gamma.Two (NotExecuted)' },
+      @{ mode = 'fail Bosun.Panel.E2E.Gamma.One'; says = 'did not pass: Bosun.Panel.E2E.Gamma.One (Failed)' },
+      @{ mode = 'none'; says = 'no real-input test was found' },
+      @{ mode = 'build-fails'; says = 'the build failed' })) {
+    $run = Invoke-Run $case.mode
+    Check "'$($case.mode)' is failed with exit 1, saying so" ($run.Code -eq 1 -and $run.Last.outcome -eq 'failed' -and "$($run.Last.reason)" -like "*$($case.says)*") $run.Said
+  }
+
+  # The nightly run's guard: a locked or recently used desk is a skip, exit 0, nothing run.
+  $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Probes @{ locked = $true }
+  Check "a locked desktop skips the night (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-locked' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
+  $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Probes @{ idle = 60 }
+  Check "a desk used a minute ago skips the night (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-in-use' -and $run.Last.mode -eq 'scheduled') $run.Said
+
+  # A person or a lock during a class stops the run before the next, whatever the moment between classes shows.
+  $run = Invoke-Run 'person Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
+  Check "a person during a class stops the run before the next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-in-use' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
+  $run = Invoke-Run 'lock Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
+  Check "a desktop locked during a class stops the run before the next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-locked' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 2) $run.Said
+
+  # 05:00 is a deadline: a class still running then is ended with what it started, and the counts so far kept.
+  $state = Join-Path $dir 'state-deadline'
+  $run = Invoke-Run 'sleep Bosun.Panel.E2E.Beta' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(25).ToString('s')) -State $state
+  $child = [int](Get-Content -LiteralPath (Join-Path $state 'child.txt') -Raw)
+  Check "a class running at the deadline is ended, recorded with the counts so far (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and $run.Last.passed -eq 2) $run.Said
+  Check 'and what that class started is gone with it' (-not (Get-Process -Id $child -ErrorAction Ignore))
+  # The on-demand run has no deadline: at any hour it runs whole.
+  $run = Invoke-Run 'pass' @('-Deadline', (Get-Date).AddSeconds(-5).ToString('s'))
+  Check "an on-demand run has no deadline (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'passed') $run.Said
+
+  # The lock is held across the classes: a capture started while the run goes on waits for it and is refused.
+  $state = Join-Path $dir 'state-lock'
+  New-Item -ItemType Directory -Force -Path $state | Out-Null
+  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'sleep Bosun.Panel.E2E.Gamma'
+  Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
+  Set-Content -LiteralPath (Join-Path $state 'probe-idle') -Value 3600
+  $env:STANDIN_STATE = $state; $env:BOSUN_DESKTOP_LOCK = $lockName
+  $info = [System.Diagnostics.ProcessStartInfo]::new($shell)
+  foreach ($a in @('-NoProfile', '-File', $script, '-StateFolder', $state, '-Dotnet', (Join-Path $fakes 'dotnet.cmd'), '-Watcher', (Join-Path $fakes 'watcher.cmd'), '-TestProbes')) { $info.ArgumentList.Add($a) }
+  $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardError = $true
+  $long = [System.Diagnostics.Process]::Start($info); $started.Add($long)
+  try {
+    for ($i = 0; $i -lt 150 -and -not (Test-Path -LiteralPath (Join-Path $state 'child.txt')); $i++) { Start-Sleep -Milliseconds 200 }
+    $env:BOSUN_DESKTOP_WAIT_S = '1'
+    $said = & $shell -NoProfile -File $capture -Path $shell '-LaunchArgs:-NoProfile -Command Start-Sleep 5' -NoNewWindow -WaitSeconds 1 -Out (Join-Path $dir 'capture.png') 2>&1 | Out-String
+    Check "a capture during the run waits for its lock and is refused (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 4 -and $said -like '*smoke-input.ps1*') $said
+  } finally {
+    Remove-Item Env:BOSUN_DESKTOP_WAIT_S, Env:STANDIN_STATE, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore
+    & taskkill.exe /T /F /PID $long.Id *> $null
+  }
+
+  # The history: each run kept with its own log, the last 60 and 30 kept, read back in words.
+  $state = Join-Path $dir 'state-history'
+  $a = Invoke-Run 'pass' -State $state
+  $b = Invoke-Run 'pass' -State $state
+  Check 'two runs in one minute keep two logs' ($a.Last.log -ne $b.Last.log -and (Test-Path -LiteralPath $a.Last.log) -and (Test-Path -LiteralPath $b.Last.log))
+  $lines = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl'))
+  $filler = foreach ($i in 1..70) { (@{ at = (Get-Date).AddDays(-80 + $i).ToUniversalTime().ToString('o'); mode = 'scheduled'; outcome = 'skipped-locked'; reason = 'the desktop was locked'; discovered = 0; passed = 0; failed = 0; skipped = 0; log = '' } | ConvertTo-Json -Compress) }
+  Set-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -Value (@($filler) + $lines)
+  foreach ($i in 1..31) { Set-Content -LiteralPath (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log") -Value old; (Get-Item (Join-Path $state "input-20200101-0000$('{0:d2}' -f $i).log")).LastWriteTime = (Get-Date).AddDays(-30) }
+  $c = Invoke-Run 'pass' -State $state
+  Check 'the history keeps its last 60 entries' (@(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl')).Count -eq 60)
+  Check 'the logs keep their last 30' (@(Get-ChildItem -LiteralPath $state -Filter 'input-*.log').Count -eq 30 -and (Test-Path -LiteralPath $c.Last.log))
+  $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+  # Of the 70 filler nights and the three runs since, the last 60 entries are kept: 57 nights skipped in a row.
+  Check 'the status reads the last scheduled run, the skips in a row and the last on-demand run' ($status -like '*last scheduled run: skipped*the desktop was locked*' -and $status -like '*Skipped 57 nights in a row*' -and $status -like '*Last on-demand run: passed 5 of 5*' -and $status -like '*is not installed*') $status
+
+  # The nightly task: installed as asked, read back whole, started from outside the checkout, and removed.
+  $state = Join-Path $dir 'state-task'
+  New-Item -ItemType Directory -Force -Path $state | Out-Null
+  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
+  Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
+  $taskArgs = "-StateFolder `"$state`" -Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes"
+  # The colon form: a value that starts with a dash would be read as a parameter of its own.
+  $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName "-TaskArguments:$taskArgs" 2>&1 | Out-String
+  try {
+    $task = Get-ScheduledTask -TaskName $taskName
+    $trigger = $task.Triggers[0]
+    Check 'the task runs daily at 03:00' ($trigger.CimClass.CimClassName -eq 'MSFT_TaskDailyTrigger' -and ([DateTime]$trigger.StartBoundary).ToString('HH:mm') -eq '03:00') $said
+    Check 'never woken, never run late, ended after two hours' (-not $task.Settings.WakeToRun -and -not $task.Settings.StartWhenAvailable -and $task.Settings.ExecutionTimeLimit -eq 'PT2H')
+    Check 'for this user, only while logged on' ($task.Principal.UserId -like "*$env:USERNAME" -and $task.Principal.LogonType -eq 'Interactive')
+    $action = $task.Actions[0]
+    Check 'its action runs this script, scheduled, in the checkout' ($action.Execute -eq $shell -and $action.Arguments -like "*$script*-Scheduled*-Invocation task*" -and $action.Arguments -like "*$state*" -and $action.WorkingDirectory -eq $repo) "$($action.Execute) $($action.Arguments) in $($action.WorkingDirectory)"
+    $before = @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count
+    Push-Location $env:TEMP
+    try { Start-ScheduledTask -TaskName $taskName } finally { Pop-Location }
+    $deadline = (Get-Date).AddSeconds(90)
+    while ((Get-Date) -lt $deadline -and @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count -le $before) { Start-Sleep -Milliseconds 500 }
+    $entry = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -ErrorAction Ignore | ForEach-Object { $_ | ConvertFrom-Json })[-1]
+    Check 'started as the task, it records a run of its own' ($entry -and $entry.invocation -eq 'task' -and $entry.mode -eq 'scheduled') ($entry | ConvertTo-Json -Compress)
+  } finally {
+    & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName *> $null
+  }
+  Check 'uninstalled, the task is gone' (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore))
+
+  # The help names the commands that enable, inspect and remove the schedule, and exit 4's meaning stays capture's.
+  $help = Get-Help $script -Full | Out-String
+  Check 'the help names -Install, -Status and -Uninstall' ($help -like '*smoke-input.ps1 -Install*' -and $help -like '*smoke-input.ps1 -Status*' -and $help -like '*smoke-input.ps1 -Uninstall*')
+} finally {
+  foreach ($p in $started) { if (-not $p.HasExited) { & taskkill.exe /T /F /PID $p.Id *> $null } }
+  if (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
+  try { Remove-Item -LiteralPath $dir -Recurse -Force } catch { "the test's folder $dir was left behind: $($_.Exception.Message)" }
+}
+if ($failed.Count) { "$($failed.Count) check(s) failed"; exit 1 }
+'all passed'
