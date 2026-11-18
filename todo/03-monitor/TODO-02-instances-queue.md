@@ -129,26 +129,47 @@ The direct answer to monitoring all the dev instances.
 
 Slots, waiters with a reason, history and limits, all from `D01 T01`.
 
+**Corrected 2026-11-18** against the tree before building. Each correction says what the plan said before:
+
+- The waiter's reason is already worded by `WaitingRow.WhyOf` (`src/Bosun.Panel/Controls/WaitingRow.cs:59`, `D02 T03 §6`: "Waiting for a free slot"; "Waiting for memory: slot 2 opens when 6.0 GB is free; 4.5 GB is free now", from the waiter's `min_avail_mb` and `status.memory.available_mb`). The page shows those words; it adds none of its own. (It said: derive the reason from status JSON.)
+- The slots and waiters come from `bosun status --json`, already typed as `StatusDoc` (`src/Bosun.Core/Memory/MemoryDocs.cs`) and read by `MemoryClient` (`CallAsync(["status","--json"])`), and drawn by `QueueSlotTile` and `WaitingRow` (`D02 T03 §6`). The page reads through a seam of its own, `IQueueSource`, so its tests fake it.
+- History is `%LOCALAPPDATA%\Bosun\logs\jobs-<UTC date>.jsonl`, one line per finished job appended by `bosun run` (`job_line_json`, `src/core.hpp`), with `command`, `repo`, `side`, `slot`, `waited_s`, `ran_s`, `exit_code` (null when not known) and `ended_at`. Nothing in C# reads it today.
+- The limits are four, not three: `slots` (1 to 64), `min_avail_mb` (the second slot's floor), `max_wait_s` (0 to 604800, 0 for no deadline) and `min_guest_mb` (the WSL guest's floor), set by `bosun config set <key> <value> --json` (exit 64 with "<key> must be <range>" for a bad value, 75 while another save holds the config, 74 for a damaged file) and read back by `bosun config get --json` (each key's `value`, `source`, `saved`, `min`, `max`, `default`, `variable`). `bosun` writes `config.json` temp-then-replace and every command reads it, so a saved limit governs the next job. `design/SPEC.md` §5 gains the guest floor in this section's commit. (It said: three fields.)
+- The queue refreshes every 5 s while visible (`design/SPEC.md` §1: "memory and queue 5 s"), `RefreshScheduler.Fast`.
+- The checkpoint used `--filter FullyQualifiedName~`, which Microsoft.Testing.Platform refuses: it is `--filter-class` now.
+
 **Phase:** 3
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §5.
 **Job:** see why a build is waiting, and change the limits.
-**Treatment:** three tables and a form. Cheaper substitute that fails: limits that only apply to the panel.
-**Chrome:** the shell's page frame and `Field` styles.
+**Treatment:** the slot tiles, the waiting list, a history table and a form. Cheaper substitute that fails: limits that only apply to the panel.
+**Chrome:** the shell's page frame (`PageBase`), `QueueSlotTile` and `WaitingRow` (`D02 T03 §6`), and the `Field` styles.
 
 **Build order:**
 
-1. Create `Views/QueueView.xaml`. Done when: live holders and waiters show.
-2. Add history and the limits form. Done when: Save changes real behaviour.
+1. Read the status, the history and the limits through `IQueueSource`. Done when: a fake drives every state.
+2. Build `QueuePage` and `QueueView.xaml`: slots, waiters, history. Done when: live holders and waiters show with their words.
+3. Add the limits form through `bosun config`. Done when: Save changes real behaviour and a refusal shows beside its field.
+4. Give the tray its queue words, register the page, render every state. Done when: the rail opens the page and the renders are looked at.
 
-- [ ] Show each waiter's reason, derived from status JSON. Done when: a memory-gated job says it needs 6 GB and how much is free.
-- [ ] Show job history from `jobs-*.jsonl`. Done when: the last 200 appear, newest first, with exit codes.
-- [ ] Add the limits form through `bosun config set`. Done when: a bad value shows beside its field and the file doesn't change, and a saved slot count governs a real job. Cheaper substitute: the panel writing `config.json` directly.
-- [ ] Give the tray's Queue line its words through `IQueueSummary` (`src/Bosun.Panel/Tray/IQueueSummary.cs`) (**Added 2026-11-15** from `D02 T02 §7`, whose menu shows "Queue: Not available" until the queue can be read). Done when: a test with one job running and two waiting reads the line as that in words, and an unreadable queue reads Not available with the reason in the Activity pane. Cheaper substitute: a count of 0 for a queue that could not be read.
+- [ ] Add `src/Bosun.Core/Queue/QueueClient.cs`: `IQueueSource` with `StatusAsync` (the same `bosun status --json` call and `StatusDoc` as `MemoryClient`, shared, not copied), `HistoryAsync(int count)` and `LimitsAsync()`, implemented by `QueueClient.ForThisUser()` over `BosunTool.Locate`, each returning a `Reading<T>` with its `ReadingProblem` (not installed, failed with the tool's message, invalid). Done when: `QueueClientTests` read each from a fake `bosun` and each failure as its own problem.
+- [ ] Read the history in `QueueClient.HistoryAsync`: the newest `jobs-*.jsonl` files back from today until `count` lines (200) are found, newest first by `ended_at`, a line that is not a record (a torn last line, a hand edit) passed over and counted, never failing the read; a folder with no files is an empty history, not a failure. Done when: a test with three days of files and a torn last line reads the newest 200 in order and says one line was passed over.
+- [ ] Add `LimitsAsync` and `SetLimitAsync(key, value)` over `bosun config get --json` and `bosun config set <key> <value> --json`: a refusal (exit 64) comes back as that key's message, a busy save (75) and a damaged file (74) as the page's own failure with the tool's words. Done when: tests read each exit as its outcome and a set reads the value back through `get`. Cheaper substitute: the panel writing `config.json` itself.
+- [ ] Create `src/Bosun.Panel/Queue/QueuePage.cs` on `PageBase`, refreshing through `RefreshEvery(scheduler, log, RefreshScheduler.Fast, ...)` (5 s while visible, manual Refresh and Retry, nothing while hidden), the result applied on the UI thread. Done when: a `QueuePageTests` case sees one read per tick while shown and none while hidden.
+- [ ] Show the slots through `QueueSlotTile` (one tile per slot, its holder's command, repo, side, waited and running in words) and the waiters through `WaitingRow` with `WhyOf`'s reason, oldest first. Done when: a memory-gated waiter reads "Waiting for memory: slot 2 opens when 6.0 GB is free; 4.5 GB is free now" from a fixture status.
+- [ ] Show the history as a `DataGrid` (Command, Repo, Side, Slot, Waited, Ran, Exit, Ended), the last 200 newest first, an exit code in words ("0", "1", "Not known" for null, "Timed out in the queue" for `timed_out_into_queue`), sortable by its numbers. Done when: a test reads 200 rows newest first with their exit codes, and a null exit reads "Not known", never 0.
+- [ ] Give the page its states: `LoadingShape` for the tiles and table; data; empty ("Nothing is running or waiting. Jobs started with `bosun run` show here.") only when the status was read whole; the status unread with the history read keeps the history and says why above it; nothing readable is `Failed` with the tool's message and Retry. Done when: a test drives each state from the fake.
+- [ ] Add the limits form: four fields (Slots, Memory floor for slot 2 in MB, Maximum wait in seconds with "0 means no limit", Guest memory floor in MB), each showing its range from `get` and where its value comes from when not the file ("set by BOSUN_SLOTS" makes the field read-only, with that reason), and one `Btn.Primary` Save. Done when: the form reads a fixture `get` and shows each field's range and source. Cheaper substitute: fields with no ranges.
+- [ ] Save only the changed fields, each through `SetLimitAsync`, then read all four back through `LimitsAsync`: a refused value shows its tool message beside its field and leaves the file as it was (read back unchanged), a busy or damaged config is said above the form, and every Save writes an Activity line naming what changed (INFO) or what was refused (WARN). Done when: a test saves a bad slot count and sees the message beside the field, the value unchanged on read-back, and a WARN line; and saves a good one and sees it read back and an INFO line.
+- [ ] Hold unsaved edits as the Settings page does: navigating away with an edited field asks Save or Discard through the shell's `AskToLeave`. Done when: a test edits a field and leaving asks.
+- [ ] Show that a saved limit governs real jobs: an integration test sets `slots` to 1 with the real `bosun`, its `LOCALAPPDATA` a test folder of its own (`config.json` is one per user, so the operator's limits are never touched) and its own namespace (`--ns`), holds the one slot, and finds a second `bosun run` waiting for a slot. Done when: that test passes against `build/Release/bosun.exe`, and fails if Save only changes the panel. Cheaper substitute: a limit the panel shows but the queue ignores.
+- [ ] Give the tray's Queue line its words through `IQueueSummary` (`src/Bosun.Panel/Tray/IQueueSummary.cs`) (**Added 2026-11-15** from `D02 T02 §7`, whose menu shows "Queue: Not available" until the queue can be read): a `QueueSummary` over the page's last reading (or its own read while the window is hidden, at the tray's pace), "1 running, 2 waiting", "Idle" when nothing runs or waits, null (so "Not available") when the status can't be read, with the reason in the Activity pane once per change. Done when: a test with one job running and two waiting reads the line as that in words, and an unreadable queue reads Not available with the reason in the Activity pane. Cheaper substitute: a count without words.
+- [ ] Register the page: `pages["queue"]` in `WindowSurface.NewShell`, the client from `App.xaml.cs`, the placeholder row replaced. Done when: the rail's Queue row opens the page in the panel.
+- [ ] Render the page in every state and theme (`RenderCatalog` `QueueCase`): data with a running, a starting and a held slot and a memory-gated waiter, empty, loading, the status failed with history kept, everything failed with Retry, the form with a refusal beside its field, a field set by a variable. Done when: the renders are in `build/renders/` and looked at.
 - [ ] Commit: `queue: page and limits`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~QueueViewModel` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*QueuePageTests" --filter-class "*QueueSummaryTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*QueueClientTests"` exit 0, and fail if the change is reverted; the limits integration test passes against the real `bosun`.
 
 ## 4. Editor windows by repo
 

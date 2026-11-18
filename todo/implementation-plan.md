@@ -94,7 +94,7 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 21 | Checklist items: 148
+Sections: 21 | Checklist items: 158
 
 | Status | Reference   | Deliverable                                                      | Needs       | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----------- | ----- |
@@ -116,7 +116,7 @@ Sections: 21 | Checklist items: 148
 | [x]    | D03 T01 §6  | Decision card and the report's evidence for it                   | none        | 9     |
 | [x]    | D03 T02 §1  | Instance scanner                                                 | none        | 8     |
 | [x]    | D03 T02 §2  | Instances page                                                   | none        | 15    |
-| [ ]    | D03 T02 §3  | Queue page                                                       | none        | 5     |
+| [ ]    | D03 T02 §3  | Queue page                                                       | none        | 15    |
 | [ ]    | D03 T01 §5  | Overview page                                                    | none        | 7     |
 | [ ]    | D03 T02 §4  | Editor windows by repo                                           | none        | 5     |
 
@@ -161,4 +161,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 81/104 verified sections, 3 ready to run now.
 
-Checklist: 795/899 items completed (includes Commit items).
+Checklist: 795/909 items completed (includes Commit items).
