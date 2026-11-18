@@ -317,6 +317,12 @@ public class WindowsDiagnosticsTests
     [Fact]
     public void This_machine_s_four_facts_are_read_without_elevation_and_printed()
     {
+        // Proof of standard-user access only from a standard user (round 3): an elevated run, as a CI runner's is,
+        // proves nothing about it, so it is skipped and says why; the controlled tests above run everywhere.
+        using (var identity = System.Security.Principal.WindowsIdentity.GetCurrent())
+            if (new System.Security.Principal.WindowsPrincipal(identity).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator))
+                Assert.Skip("This process is elevated, so it can't show the facts are read without elevation.");
+
         var reader = new WindowsDiagnostics(new RegistryKeySource(), new ProfileFiles(), new Win32FirmwareTable(), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         var report = reader.Read();
 
@@ -336,7 +342,8 @@ public class WindowsDiagnosticsTests
         TestContext.Current.SendDiagnosticMessage(text.ToString());
 
         Assert.True(report.Pagefile.IsRead, report.Pagefile.Reason);
-        Assert.True(report.WslCap.IsRead, report.WslCap.Reason);
+        // The WSL cap is the person's own file: a bad or absent value is a reason, which is a right answer (round 3).
+        Assert.True(report.WslCap.IsRead || !string.IsNullOrWhiteSpace(report.WslCap.Reason), "the WSL cap is a value or a reason");
         Assert.True(report.Memory.IsRead, report.Memory.Reason);
         Assert.True(report.Startup.IsRead, report.Startup.Reason);
         Assert.NotEmpty(report.Memory.Value!);
