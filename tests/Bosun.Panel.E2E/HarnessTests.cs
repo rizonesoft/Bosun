@@ -270,7 +270,7 @@ sealed class Cover : IDisposable
 
     public static Cover Open(Rect at, bool activate = true)
     {
-        // Shown activated, the cover takes the foreground and the keyboard with it: asked as any focus change is.
+        // An activated cover takes the foreground and the keyboard with it: refused up front outside the real-input run.
         if (activate) SmokeInput.Require("Cover.Open (activated)");
         Cover? made = null;
         var ready = new ManualResetEventSlim();
@@ -281,7 +281,9 @@ sealed class Cover : IDisposable
             dispatcher = Dispatcher.CurrentDispatcher;
             window = new Window
             {
-                Title = "Bosun E2E cover", WindowStyle = WindowStyle.None, Topmost = true, ShowActivated = activate, ShowInTaskbar = false,
+                // Never activated by showing: an activated cover takes the foreground only through the guarded focus
+                // below (RealInput.Focus), which asks at that moment whether a person has come.
+                Title = "Bosun E2E cover", WindowStyle = WindowStyle.None, Topmost = true, ShowActivated = false, ShowInTaskbar = false,
                 WindowStartupLocation = WindowStartupLocation.Manual,
             };
             window.SourceInitialized += (_, _) =>
