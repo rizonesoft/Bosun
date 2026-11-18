@@ -2,7 +2,7 @@
 schema_version: 1
 id: application-shell
 domain: 02-shell
-status: done
+status: active
 title: "TODO-02 -- The application shell"
 ---
 
@@ -52,6 +52,7 @@ title: "TODO-02 -- The application shell"
 | 7 | §8 | Pollers that stop when nothing is looking | §3 | [x] |
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [x] |
+| 10 | §11 | One desktop owner across smoke runs and captures | §10 | [ ] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -495,6 +496,34 @@ One real launch proves the parts work together: the process starts, every page o
 
 > **Verified:** 2026-11-16 | §10 | d1b6f3a6de2d271e0c86732a743ba8d281e97d5f
 > **Review:** `docs/reviews/d02-t02-s10.json`
+
+## 11. One desktop owner across smoke runs and captures
+
+Filed 2026-11-18 at the operator's request ("be careful with the smoke tests that the tests do not clash, for example running 2 interface tests at the same time"). Inside one smoke run the tests already take turns (`tests/Bosun.Panel.E2E/TestAssembly.cs`, parallelization off), but nothing stops a second process: two smoke runs from two sessions, an Antigravity run beside a Claude one, or `scripts/capture-window.ps1` started while a smoke presses keys. Each takes the foreground, the pointer and the keyboard, so the two take each other's windows and a test fails on the other's input, or worse, keys land in the wrong window. The desktop gets one owner at a time: a named mutex per logon session, held for a whole smoke run and for each capture, with a record naming its holder, since a mutex can't name its owner (the queue's pattern, `D01 T01 §1`).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+Decisions, each with what reversing it costs:
+
+- The mutex is `Local\Bosun.Desktop`: the input desktop belongs to one logon session, so two sessions (a console and a remote one) never share a desktop and need not wait on each other. Reversal cost: one name.
+- A second owner waits, bounded (`BOSUN_DESKTOP_WAIT_S`, default 900 seconds, the length of a full smoke run with room), then refuses with the holder's pid, command and start time from the record. Waiting is the right default, since two runs that take turns both pass; a refusal after the bound beats a run that hangs. Reversal cost: a default.
+- A process the holder starts inherits the hold through `BOSUN_DESKTOP_HELD=<holder pid>` and takes no lock of its own, because the smoke itself runs `capture-window.ps1` (`CaptureTests`), which would otherwise wait on its own parent until the bound. The inherited hold counts only while that pid is alive and is an ancestor of the process; anything else takes the lock as usual. Reversal cost: none.
+- A holder that dies leaves an abandoned mutex, which the next owner takes at once (`AbandonedMutexException` is ownership), and its stale record is overwritten by the next holder. Reversal cost: none.
+
+**Build order:**
+
+1. Add the lock and its record to the smoke. Done when: two smoke processes take turns, and the second names the first while it waits.
+2. Take the same lock in `capture-window.ps1`. Done when: a capture during a held lock waits, then refuses naming the holder; a capture the smoke starts runs under the smoke's hold.
+
+- [ ] Add `tests/Bosun.Panel.E2E/DesktopLock.cs` (`DesktopLock.Acquire(TimeSpan wait)`): open or create `Local\Bosun.Desktop`, wait up to the bound (an abandoned mutex is taken), then write `%LOCALAPPDATA%\Bosun\run\desktop.json` (`schema_version` 1, `pid`, `process_start`, `command`, `repo`, `acquired_at`) through a temporary file and replace, only while holding; `Dispose` removes the record if it is still this holder's (pid and start time), then releases. A wait that runs out throws with the record's holder named, or "an unnamed holder" when the record is missing or unreadable. Done when: `DesktopLockTests` holds the lock in a child process and reads a second `Acquire(1 s)` refused naming the child's pid and command; after the child releases, `Acquire` succeeds; after the child is killed holding it, `Acquire` succeeds at once and the record names the new holder. Cheaper substitute: a lock file without a mutex, which a killed holder leaves behind.
+- [ ] Hold the lock for the whole smoke run in an xunit v3 assembly fixture (`tests/Bosun.Panel.E2E/TestAssembly.cs`, `DesktopFixture`), taken before the first test and released after the last, its wait from `BOSUN_DESKTOP_WAIT_S`, and set `BOSUN_DESKTOP_HELD` to the test process's pid for every child it starts. A wait that runs out fails the run with one message naming the holder, never one timeout per test. Done when: two `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*TestAssemblyTests"` started together both pass, the second's output saying it waited for the first's pid; with the lock held elsewhere and `BOSUN_DESKTOP_WAIT_S=2`, the run fails once naming the holder. Cheaper substitute: a note in the README asking people not to run two at once.
+- [ ] Take the lock in `scripts/capture-window.ps1` around launch, capture and teardown (`[System.Threading.Mutex]`, the same name, record and wait), skipped when `BOSUN_DESKTOP_HELD` names a live ancestor; a wait that runs out exits 4 naming the holder (0, 1 and 3 keep their meanings), and `-SelfTest` and `-Verify`, which touch no desktop, take no lock. Done when: `tests/capture_window_test.ps1` holds the mutex from a child started with no window and reads a capture with `BOSUN_DESKTOP_WAIT_S=1` exit 4 naming that child's pid, a capture with `BOSUN_DESKTOP_HELD` set to a live ancestor's pid not waiting, one with a dead pid waiting, and `-SelfTest` passing while the lock is held. Cheaper substitute: retrying the foreground check until the other run ends.
+- [ ] Say in `tests/Bosun.Panel.E2E/README.md` that a run owns the desktop through `Local\Bosun.Desktop`, how long a second run waits, how to see the holder (`desktop.json`) and what `BOSUN_DESKTOP_WAIT_S` and `BOSUN_DESKTOP_HELD` do, and name the exit 4 in `capture-window.ps1`'s help. Done when: both name the mutex and the variables.
+- [ ] Commit: `smoke: one desktop owner at a time across smoke runs and captures`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` exits 0 in a desktop session, with `DesktopLockTests` and `TestAssemblyTests` passing, and `pwsh tests/capture_window_test.ps1` exits 0.
 
 ## Verification
 
