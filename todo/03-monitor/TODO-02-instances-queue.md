@@ -38,7 +38,7 @@ title: "TODO-02 -- Instances and queue"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [x] |
 | 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [x] |
-| 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [ ] |
+| 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [x] |
 | 4 | §4 | Editor windows by repo | §1 | [ ] |
 
 ## 1. Instance scanner
@@ -176,9 +176,12 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 - [x] Give the tray's Queue line its words through `IQueueSummary` (`src/Bosun.Panel/Tray/IQueueSummary.cs`) (**Added 2026-11-15** from `D02 T02 §7`, whose menu shows "Queue: Not available" until the queue can be read): `QueueSummary`, shared with the page (the page's reading while it shows), and read once when the tray menu opens (a read, not a poll: a hidden panel polls nothing, `design/SPEC.md` §1), the line showing the last words at once and updating when the read finishes; "1 running, 2 waiting"; "Idle" only when the status was read whole and nothing runs or waits; null ("Not available") when it can't be read, with the reason in the Activity pane once per change; passed to `TrayController` in `App.xaml.cs`. Done when: tests open the menu before Queue was ever shown, change the queue between openings, open Queue from the menu, see one Activity line per change of failure, and count no queue reads while hidden with the menu closed. Cheaper substitute: a count without words.
 - [x] Register the page: `pages["queue"]` in `WindowStart.NewShell` (`src/Bosun.Panel/Shell/WindowSurface.cs`), the `QueuePage` to `QueueView` data template in `PageFrame.xaml`, the client from `App.xaml.cs`, the placeholder row replaced. Done when: a shell-level test opens Queue through the rail, finds its rendered tiles, waiting rows, history and form, two waiters in order, runs the header's Refresh, and recovers through Retry after a failure.
 - [x] Render the page in every state and theme (`RenderCatalog` `QueueCase`): data with a running, a starting and a held slot, a slot above the limit and a memory-gated waiter; idle with history; loading; the status failed with history and form kept; the limits failed with the queue kept; everything failed with Retry; the form with a refusal beside its field, a field set by a variable, and an ignored variable. Done when: the renders are in `build/renders/` and looked at.
-- [ ] Commit: `queue: page and limits`
+- [x] Commit: `queue: page and limits`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*QueuePageTests" --filter-class "*QueueSummaryTests" --filter-class "*QueueShellTests" --filter-class "*QueueLimitsIntegrationTests"` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*QueueClientTests"` exit 0, and fail if the change is reverted; `pwsh scripts/build.ps1` and `build/Release/test_core.exe` pass with the slot-above-the-limit case, and `pwsh tests/queue_test.ps1 -SkipWsl` passes.
+
+> **Verified:** 2026-11-18 | §3 | 93b50cecca31a3fa241eac51af5ecfe78db6227d
+> **Review:** `docs/reviews/d03-t02-s3.json`
 
 ## 4. Editor windows by repo
 

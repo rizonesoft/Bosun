@@ -1,0 +1,94 @@
+{
+  "ref": "D03 T02 \u00a73",
+  "title": "Queue page",
+  "implementation_sha": "93b50cecca31a3fa241eac51af5ecfe78db6227d",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s3.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 928 of 928 (QueuePageTests, QueueSummaryTests, QueueShellTests, QueueLimitsIntegrationTests against the real bosun)",
+    "dotnet test --project tests/Bosun.Core.Tests --filter-class *QueueClientTests -> 10 of 10",
+    "build/Release/test_core.exe -> ok; pwsh tests/queue_test.ps1 -SkipWsl -> all ok",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> 43 passed, 28 skipped, 0 failed",
+    "CI green at 93b50ce: https://github.com/rizonetech/Bosun/actions/runs/44355737464"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s3.md",
+    "verdict": "completed",
+    "candidate": "a1acb291995cfbd45fff319179744e051b63c409",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 (quality) ended at HIGHEST: P3; its three P3s were all fixed in a1acb29, and nothing was left over",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s3.md",
+    "candidate": "51ab7a48a7c87f18e3ed5bc8e430abbdc8a7c3ef",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "51ab7a48a7c87f18e3ed5bc8e430abbdc8a7c3ef",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
