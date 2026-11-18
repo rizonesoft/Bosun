@@ -1,0 +1,86 @@
+{
+  "ref": "D03 T01 \u00a75",
+  "title": "Overview page",
+  "implementation_sha": "19407da906395f465e078ca5adddce0421a027a9",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T01-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T01-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Panel.Tests (full suite, the Overview and NeedsYou classes included) -> 975 of 975 pass; Bosun.Core.Tests -> 188 of 188 at 19407da",
+    "CI full gate -> build.yml green at 4b783df (https://github.com/rizonetech/Bosun/actions/runs/44407252423), plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44407252508)"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T01-s5.md",
+    "verdict": "completed",
+    "candidate": "80d119c79e9ded21738c753a8c96560a6859422a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 returned HIGHEST P3, the stop rule; its one finding (the card gutters a literal 12) was fixed in 80d119c with a test, and the completion review followed.",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T01-s5.md",
+    "candidate": "a6f8c5a3c89e255de264751b7263525425ddf800",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "a6f8c5a3c89e255de264751b7263525425ddf800",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

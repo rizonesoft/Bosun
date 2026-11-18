@@ -117,7 +117,7 @@ Sections: 21 | Checklist items: 169
 | [x]    | D03 T02 §1  | Instance scanner                                                 | none        | 8     |
 | [x]    | D03 T02 §2  | Instances page                                                   | none        | 15    |
 | [x]    | D03 T02 §3  | Queue page                                                       | none        | 20    |
-| [ ]    | D03 T01 §5  | Overview page                                                    | none        | 11    |
+| [x]    | D03 T01 §5  | Overview page                                                    | none        | 11    |
 | [ ]    | D03 T02 §4  | Editor windows by repo                                           | third-party | 7     |
 
 ### Phase 5: Machine
@@ -159,6 +159,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 82/104 verified sections, 2 ready to run now.
+Progress: 83/104 verified sections, 1 ready to run now.
 
-Checklist: 825/923 items completed (includes Commit items).
+Checklist: 826/923 items completed (includes Commit items).

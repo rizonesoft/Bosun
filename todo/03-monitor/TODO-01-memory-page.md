@@ -2,7 +2,7 @@
 schema_version: 1
 id: memory-page
 domain: 03-monitor
-status: active
+status: done
 title: "TODO-01 -- Memory and overview"
 ---
 
@@ -41,7 +41,7 @@ title: "TODO-01 -- Memory and overview"
 | 2 | §2 | Memory page | §1, D02 T02 §9, D02 T03 §5, D02 T03 §7 | [x] |
 | 3 | §3 | History chart with a table equivalent | §2 | [x] |
 | 4 | §4 | Pressure alerts | §1, D02 T02 §7 | [x] |
-| 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [ ] |
+| 5 | §5 | Overview page | §2, §4, D03 T02 §1, D03 T02 §3 | [x] |
 | 6 | §6 | Decision card and the report's evidence for it | §3 | [x] |
 
 ## 1. Memory readers
@@ -239,9 +239,12 @@ This is what opens first. It only assembles other pages' state, so it is built a
 - [x] Give the tray what needs the operator through `INeedsYouSource` from `NeedsYou` (**Added 2026-11-15** from `D02 T02 §7`, whose tray shows the Needs you state from this source and is tested with its own), passed to `TrayController` in `App.xaml.cs`; it is kept current while the panel runs whatever page shows (the providers' own sources, the pressure check, already run in the tray). Done when: a test with two rows reads the tray's Needs you state and its tooltip saying two things need you, and with none reads Normal.
 - [x] Register the page: `pages["overview"]` in `WindowStart.NewShell` (the rail descriptor in `Sections.cs` kept; `Sections.All` puts the built page in its place), the `OverviewPage` to `OverviewView` template in `PageFrame.xaml`, its sources from `App.xaml.cs`; and update `tests/Bosun.Panel.E2E/RailTests.cs` (Overview in its data state, its data mark) and any other end-to-end test that expects the placeholder (`RailInputTests`, `CommandPaletteE2ETests`, `ContrastTests`). Done when: a shell-level test opens the panel on Overview with its cards and table, and the end-to-end run asserts Overview is selected and showing its data before it selects any rail row, then passes bare.
 - [x] Render the page in every state and theme (`RenderCatalog` `OverviewCase`): data with pressure and a row, nothing needs you, WSL not running, a card not available, loading, failed. Done when: the renders are in `build/renders/` and looked at.
-- [ ] Commit: `overview: page`
+- [x] Commit: `overview: page`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Overview*" --filter-class "*NeedsYou*"` exits 0, and fails if the change is reverted; the bare `bosun run -- dotnet test --project tests/Bosun.Panel.E2E` passes with Overview opened first.
+
+> **Verified:** 2026-11-19 | §5 | 19407da906395f465e078ca5adddce0421a027a9
+> **Review:** `docs/reviews/d03-t01-s5.json`
 
 ## 6. Decision card and the report's evidence for it
 
