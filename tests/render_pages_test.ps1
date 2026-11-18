@@ -61,9 +61,10 @@ try {
   $index = Get-Content -LiteralPath (Join-Path $out 'index.json') -Raw | ConvertFrom-Json
   $pngs = @(Get-ChildItem -LiteralPath $out -Filter '*.png' | Sort-Object Name | ForEach-Object Name)
   Check "the index names every picture and no other ($($pngs.Count))" ((@($index.renders.file | Sort-Object) -join ',') -eq ($pngs -join ','))
-  # The panel's 1360 wide, at least its 860 tall (a page whose last card is below that is drawn taller, D03 T01 §6),
-  # and each PNG the size its index row says, read from the PNG's own header.
-  Check 'each picture is a PNG 1360 wide, at least 860 tall, the size its index says' (-not (@($index.renders | Where-Object { $_.width -ne 1360 -or $_.height -lt 860 })) -and -not ($index.renders | Where-Object {
+  # The panel's 1360 wide, at least its 860 tall (a page whose last card is below that is drawn taller, D03 T01 §6), or
+  # exactly the window's least size, 960 by 600 (MainWindow's MinWidth and MinHeight, a render that proves a state fits
+  # there, D02 T04 §7), and each PNG the size its index row says, read from the PNG's own header.
+  Check 'each picture is a PNG 1360 wide and at least 860 tall, or 960 by 600, the size its index says' (-not (@($index.renders | Where-Object { -not (($_.width -eq 1360 -and $_.height -ge 860) -or ($_.width -eq 960 -and $_.height -eq 600)) })) -and -not ($index.renders | Where-Object {
     $bytes = [IO.File]::ReadAllBytes((Join-Path $out $_.file))
     $w = ([int]$bytes[16] -shl 24) -bor ([int]$bytes[17] -shl 16) -bor ([int]$bytes[18] -shl 8) -bor [int]$bytes[19]
     $h = ([int]$bytes[20] -shl 24) -bor ([int]$bytes[21] -shl 16) -bor ([int]$bytes[22] -shl 8) -bor [int]$bytes[23]

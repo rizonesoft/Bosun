@@ -73,7 +73,7 @@ public class ToastCard : Control
             return;
         }
         var text = new FormattedText(toast.Message, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-            new Typeface(words.FontFamily, words.FontStyle, words.FontWeight, words.FontStretch), words.FontSize, Brushes.Black,
+            new Typeface(words.FontFamily, words.FontStyle, words.FontWeight, words.FontStretch), words.FontSize, words.Foreground,
             VisualTreeHelper.GetDpi(this).PixelsPerDip)
         {
             MaxTextWidth = words.ActualWidth,
