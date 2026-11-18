@@ -76,7 +76,9 @@ public class QueueShellTests
                 boxes.Select(AutomationProperties.GetName));
             var save = ShellSupport.Under<Button>(queue).Single(b => b.Name == "Save");
             Assert.Same(save.FindResource("Btn.Primary"), save.Style);                // the page's one primary action
-            Assert.True(ShellSupport.Under<Button>(queue).Where(b => b.Name == "UseDefault").All(b => b.ActualHeight >= 32), "every Use the default is a 32 px target");
+            var resets = ShellSupport.Under<Button>(queue).Where(b => b.Name == "UseDefault").ToList();
+            Assert.Equal(4, resets.Count);                                            // one per limit (round 3: none would pass All)
+            Assert.True(resets.All(b => b.ActualHeight >= 32), "every Use the default is a 32 px target");
 
             // The header's Refresh reads again.
             var reads = source.StatusReads;
@@ -147,17 +149,26 @@ public class QueueShellTests
             Wait(shell.GoToAsync(shell.Sections.Single(s => s.Key == "queue")));
             Draw(border);
             var grid = ShellSupport.Under<DataGrid>(border).Single(g => g.Name == "HistoryTable");
-            string Order(string header, ListSortDirection direction)
+            // Sorted as a person sorts it: the column's header pressed, once and again
+            // (round 3: setting SortDescriptions in the test would pass with header sorting turned off).
+            (string Ascending, string Descending) Order(string header)
             {
-                var column = grid.Columns.Single(c => (string)c.Header == header);
-                grid.Items.SortDescriptions.Clear();
-                grid.Items.SortDescriptions.Add(new SortDescription(column.SortMemberPath, direction));
-                return string.Concat(grid.Items.Cast<HistoryLine>().Select(l => l.Command));
+                string Press()
+                {
+                    var head = ShellSupport.Under<System.Windows.Controls.Primitives.DataGridColumnHeader>(grid).Single(h => h.Column is { } c && (string)c.Header == header);
+                    // The header's own click, as a person's press runs it (DataGridColumnHeader.OnClick sorts by its column);
+                    // its automation peer offers no Invoke pattern, so the protected method is called as the press calls it.
+                    typeof(System.Windows.Controls.Primitives.ButtonBase).GetMethod("OnClick", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                        .Invoke(head, null);
+                    Draw(border);
+                    return string.Concat(grid.Items.Cast<HistoryLine>().Select(l => l.Command));
+                }
+                return (Press(), Press());
             }
-            Assert.Equal(("cab", "bac"), (Order("Exit", ListSortDirection.Ascending), Order("Exit", ListSortDirection.Descending)));     // 0, 2, 10
-            Assert.Equal(("bac", "cab"), (Order("Waited", ListSortDirection.Ascending), Order("Waited", ListSortDirection.Descending))); // 0.5 s, 3 s, 10 s
-            Assert.Equal(("abc", "cba"), (Order("Ran", ListSortDirection.Ascending), Order("Ran", ListSortDirection.Descending)));       // 0.5 s, 3 s, 20 s
-            Assert.Equal(("cab", "bac"), (Order("Slot", ListSortDirection.Ascending), Order("Slot", ListSortDirection.Descending)));     // 1, 2, 10
+            Assert.Equal(("cab", "bac"), Order("Exit"));      // 0, 2, 10
+            Assert.Equal(("bac", "cab"), Order("Waited"));    // 0.5 s, 3 s, 10 s
+            Assert.Equal(("abc", "cba"), Order("Ran"));       // 0.5 s, 3 s, 20 s
+            Assert.Equal(("cab", "bac"), Order("Slot"));      // 1, 2, 10
             Assert.Equal(["10", "2", "1"], grid.Items.Cast<HistoryLine>().Select(l => l.Slot));       // one-based, as the tiles number them
         });
     }

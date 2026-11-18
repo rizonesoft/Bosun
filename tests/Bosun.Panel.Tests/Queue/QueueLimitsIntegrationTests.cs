@@ -121,9 +121,19 @@ public sealed class QueueLimitsIntegrationTests : IDisposable
         }
     }
 
-    private static void WaitAll(IEnumerable<Process> jobs)
+    /// <summary>
+    /// Each job ended, and ended well (round 3: a job failing at once after admission let the overlap count pass on
+    /// the other alone), and its marks file holds a start and an end for each.
+    /// </summary>
+    private static void WaitAll(IReadOnlyList<Process> jobs, string marks)
     {
-        foreach (var job in jobs) Assert.True(job.WaitForExit(TimeSpan.FromSeconds(60)), "a bosun run job did not end within 60 s");
+        foreach (var job in jobs)
+        {
+            Assert.True(job.WaitForExit(TimeSpan.FromSeconds(60)), "a bosun run job did not end within 60 s");
+            Assert.Equal(0, job.ExitCode);
+        }
+        var lines = File.ReadAllLines(marks).Where(l => l.Length > 0).Select(l => l.Split(' ')[0]).ToList();
+        Assert.Equal((jobs.Count, jobs.Count), (lines.Count(l => l == "start"), lines.Count(l => l == "end")));
     }
 
     /// <summary>Presses the page's Save, as the button does, and waits for it.</summary>
@@ -158,7 +168,7 @@ public sealed class QueueLimitsIntegrationTests : IDisposable
 
             var two = Path.Combine(_home, "two.txt");
             var first = new[] { Job(bosun, sleeper, two, 2500), Job(bosun, sleeper, two, 2500) };
-            WaitAll(first);
+            WaitAll(first, two);
             Assert.Equal(2, MaxOverlap(two));                              // two slots: both at once
 
             page.Field("slots").Text = "1";
@@ -168,7 +178,7 @@ public sealed class QueueLimitsIntegrationTests : IDisposable
 
             var one = Path.Combine(_home, "one.txt");
             var second = new[] { Job(bosun, sleeper, one, 2500), Job(bosun, sleeper, one, 2500) };
-            WaitAll(second);
+            WaitAll(second, one);
             Assert.Equal(1, MaxOverlap(one));                              // one slot: the second job waited for it
 
             // The page's history reads the four jobs back from the test's own job log, one of the last two having waited.
