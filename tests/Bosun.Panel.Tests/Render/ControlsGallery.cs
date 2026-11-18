@@ -80,13 +80,16 @@ public sealed class ControlsGallery : UserControl
         var fits = new ListBox
         {
             Height = 112,
-            Margin = new Thickness(0, 8, 0, 0),
             ItemTemplate = new DataTemplate { VisualTree = Mono() },
             Name = "GalleryLog",
             ItemsSource = Enumerable.Range(1, 5).Select(n => $"12:0{n}:00  INFO  queue: slot {n % 2 + 1} took job {n}").ToArray(),
         };
         fits.SetResourceReference(StyleProperty, "LogBox");
-        lists.Children.Add(Column(2, Label("Log"), log, Label("Log, with room to spare"), fits));
+        // The second log's heading has the space scale's XL above it, as a page's sections do (D02 T04 §3), on what
+        // holds it, so the heading keeps its own gap below.
+        var roomy = new Border { Child = Label("Log, with room to spare") };
+        roomy.SetResourceReference(MarginProperty, "Gap.Above.XL");
+        lists.Children.Add(Column(2, Label("Log"), log, roomy, fits));
         stack.Children.Add(lists);
 
         return new ControlsGallery { Content = stack };

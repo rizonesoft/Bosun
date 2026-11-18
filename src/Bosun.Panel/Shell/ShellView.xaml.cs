@@ -204,6 +204,40 @@ public partial class ShellView : UserControl
         // line is laid out, not as it is added: this handler can run before the list has taken the line in, and a line
         // that still fits at that moment can overflow once laid out, leaving the view behind (D02 T04 §9).
         if (e.Action == NotifyCollectionChangedAction.Add && _atNewest) FollowAfterLayout();
+        // Scrolled back to read, the line being read stays where it is on screen, whatever is added below or let go
+        // above: a full log (UiLogSink.MaxEntries) lets go of its oldest line with each new one, and the view, kept by
+        // the pixel, slid by that line's height onto another (§9 completion review). The line at the top of the view,
+        // and where, is noted before the change is laid out, and put back after.
+        else if (!_atNewest && _anchor is null && TopLine() is { } top)
+        {
+            _anchor = top;
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, KeepAnchor);
+        }
+    }
+
+    private (object Item, double Y)? _anchor;
+
+    /// <summary>The first line in view in the Activity log, and how far below the view's top it starts.</summary>
+    private (object Item, double Y)? TopLine()
+    {
+        if (ActivityScroll() is not { } scroll) return null;
+        foreach (var item in Activity.Items)
+        {
+            if (Activity.ItemContainerGenerator.ContainerFromItem(item) is not FrameworkElement row || !row.IsVisible) continue;
+            var y = row.TranslatePoint(new Point(0, 0), scroll).Y;
+            if (y + row.ActualHeight > 0) return (item, y);
+        }
+        return null;
+    }
+
+    private void KeepAnchor()
+    {
+        var anchor = _anchor;
+        _anchor = null;
+        if (anchor is not { } kept || _atNewest || ActivityScroll() is not { } scroll) return;
+        if (Activity.ItemContainerGenerator.ContainerFromItem(kept.Item) is not FrameworkElement row) return; // let go of
+        var now = row.TranslatePoint(new Point(0, 0), scroll).Y;
+        if (Math.Abs(now - kept.Y) > 0.5) scroll.ScrollToVerticalOffset(scroll.VerticalOffset + now - kept.Y);
     }
 
     private void FollowAfterLayout() => Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>

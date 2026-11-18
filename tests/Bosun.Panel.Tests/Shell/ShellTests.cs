@@ -164,6 +164,43 @@ public class ShellTests
     }
 
     [Fact]
+    public void A_line_being_read_stays_in_place_when_a_full_log_lets_go_of_its_oldest()
+    {
+        // §9 completion review: at UiLogSink.MaxEntries each new line lets go of the oldest, and a view kept by the pixel
+        // slid onto another line under the reader.
+        ShellSupport.InShell(null, (view, shell, host) =>
+        {
+            for (var i = 0; i < UiLogSink.MaxEntries + 20; i++) shell.Log.Info($"line {i}");
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(UiLogSink.MaxEntries, shell.Activity.Count);
+            var scroll = ShellSupport.Under<ScrollViewer>(view.Activity).First();
+            var bar = (System.Windows.Controls.Primitives.ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+            for (var i = 0; i < 40; i++) System.Windows.Controls.Primitives.ScrollBar.PageUpCommand.Execute(null, bar);
+            PageRenderer.Settle(host);
+            Assert.True(scroll.VerticalOffset > 0 && scroll.VerticalOffset < scroll.ScrollableHeight - 0.5, "scrolled back into the middle");
+            (string Text, double Y) Top()
+            {
+                foreach (var entry in shell.Activity)
+                {
+                    if (view.Activity.ItemContainerGenerator.ContainerFromItem(entry) is not FrameworkElement row) continue;
+                    var y = row.TranslatePoint(new Point(0, 0), scroll).Y;
+                    if (y + row.ActualHeight > 0) return (entry.Message, y);
+                }
+                throw new InvalidOperationException("no line in view");
+            }
+            var before = Top();
+            shell.Log.Info("a new line, the oldest let go");
+            PageRenderer.Settle(host);
+            PageRenderer.Settle(host);
+            Assert.Equal(UiLogSink.MaxEntries, shell.Activity.Count);
+            var after = Top();
+            Assert.Equal(before.Text, after.Text);                                             // the same line
+            Assert.Equal(before.Y, after.Y, 0.5);                                             // where it was
+        }, height: 1100);
+    }
+
+    [Fact]
     public void A_pane_grown_until_every_line_fits_follows_its_newest_line_again()
     {
         // §9 round 1, as found: at the least height, lines overflow; scrolled back; the pane grown until every line
