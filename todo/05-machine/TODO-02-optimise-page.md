@@ -45,20 +45,30 @@ title: "TODO-02 -- Optimise"
 
 Read-only first. Every recommendation starts from a measured fact.
 
+**Corrected 2026-11-18** against the tree before building. Each correction says what the plan said before:
+
+- The plan named its sources and not how to read them. `Bosun.Core` is `net11.0` with no package for WMI, and a new dependency is not needed: each fact has a documented source an unelevated process reads. The pagefile is `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management` `PagingFiles` (with `ExistingPageFiles` and `TempPageFile`), the same data `Win32_PageFileSetting` serves. The memory modules are SMBIOS type 17 records from `GetSystemFirmwareTable('RSMB')` (`Speed`, the JEDEC speed the module reports, `Configured Memory Speed`, the speed it runs at, `Part Number`, `Manufacturer`, `Bank Locator`), the data `Win32_PhysicalMemory` serves. The WSL cap is `%USERPROFILE%\.wslconfig` `[wsl2] memory=`. Startup entries are both Run keys (`HKCU` and `HKLM` `...\CurrentVersion\Run`), with `StartupApproved\Run` saying which Windows turned off. (It said `Win32_PageFileSetting`, `Win32_PhysicalMemory` and "the Run key".)
+- As `StartupEntry` does (`src/Bosun.Core/StartupEntry.cs`, with `RegistryRunKey` in the panel), the rules live in `Bosun.Core` behind small interfaces, the readers that need Windows in the panel, so every rule is tested with fixtures.
+- A module's rated speed is not in SMBIOS: its `Speed` is the JEDEC speed (2133 here), and an XMP rating is printed only in the part number (3600 on this kit, `Current state` above). The rated speed is decoded from the part number by each maker's published format, and a part number no rule knows gives no finding, never a guess.
+- The checkpoint used `--filter FullyQualifiedName~`, which Microsoft.Testing.Platform refuses: it is `--filter-class` now.
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Create `src/Bosun.Core/Optimise/Diagnostics.cs`. Done when: pagefile, WSL cap, RAM speed and startup entries are read.
-2. Fixture them. Done when: tests cover each.
+1. Read the four facts behind interfaces, each a value or a reason. Done when: pagefile, WSL cap, memory modules and startup entries are read on this machine without elevation.
+2. Decide the RAM finding from the part number only. Done when: a known kit below its rating is a finding with its evidence, and an unknown one is none.
 
-- [ ] Read `Win32_PageFileSetting`, `.wslconfig`, `Win32_PhysicalMemory` speeds and part numbers, and the Run key. Done when: each reports a value or a reason, and the data needs no elevation. Cheaper substitute: reporting rated speed from memory instead of the part number.
-- [ ] Mark RAM below its rated speed only with the evidence attached. Done when: an unknown part number gives no finding. Cheaper substitute: assuming XMP is off.
+- [ ] Add `src/Bosun.Core/Optimise/Diagnostics.cs`: `Fact<T>` (a value, or the reason it could not be read), and records for the pagefile (each file's path, initial and maximum MB, or system-managed), the WSL cap (`memory=` as MB, or "no cap set: WSL takes half of memory", or the line it could not parse), each memory module (slot, maker, part number, JEDEC and configured MHz) and each startup entry (name, command, scope, and whether Windows turned it off). Done when: `DiagnosticsTests` build each from fixtures, and each failure is a reason, never an exception or a 0. Cheaper substitute: strings shown as read.
+- [ ] Parse the sources in `Bosun.Core`: `PagingFiles` lines (`C:\pagefile.sys 32768 51200`, `?:\pagefile.sys` for system-managed, `C:\pagefile.sys 0 0`), `.wslconfig` (sections, comments, `memory=14GB`, `16384MB`, a bad value), and SMBIOS type 17 records (the structure walk, string sets, an empty slot with size 0, a truncated table). Done when: `DiagnosticsTests` read each fixture, including a truncated SMBIOS table (a reason) and an empty slot (skipped). Cheaper substitute: WMI through a new package.
+- [ ] Read them on Windows in `src/Bosun.Panel/Optimise/WindowsDiagnostics.cs` (registry reads, `GetSystemFirmwareTable`, the profile's `.wslconfig`), with no elevation and each refusal a reason. Done when: a `WindowsDiagnosticsTests` case reads this machine's four facts with values or reasons, and a denied key read is a reason.
+- [ ] Decode a part number's rated speed in `RatedSpeed.Of` (`Bosun.Core/Optimise`) by each maker's published format: Corsair (`CMK32GX4M2D3600C18`: `3600`), G.Skill (`F4-3600C16D-32GVKC`), Kingston Fury (`KF436C18BBK2/32`: `436` is 3600), HyperX (`HX436C18FB3K2/32`), Crucial Ballistix (`BL2K16G36C16U4B`: `36` is 3600), TeamGroup (`TF3D416G3600HC18J`), each with its source in a comment; anything else is unknown. Done when: `DiagnosticsTests` decode each, and a JEDEC-only or unknown part number gives none.
+- [ ] Mark RAM below its rated speed only with the evidence attached: a finding when every module's configured speed is below the rating its part number gives, naming the part number, the rating, the configured and the JEDEC speed; no finding for an unknown part number, a mixed kit whose ratings differ, or a module already at its rating. Done when: `DiagnosticsTests` give the finding for this machine's kit (3600 rated, 2133 configured) with its evidence, and none for each of the others. Cheaper substitute: assuming XMP is off.
 - [ ] Commit: `optimise: diagnostics`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~Diagnostics` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DiagnosticsTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowsDiagnosticsTests"` exit 0, and fail if the change is reverted.
 
 ## 2. Preview, apply, verify, undo framework
 

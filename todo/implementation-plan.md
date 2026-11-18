@@ -122,11 +122,11 @@ Sections: 21 | Checklist items: 169
 
 ### Phase 5: Machine
 
-Sections: 5 | Checklist items: 23
+Sections: 5 | Checklist items: 26
 
 | Status | Reference  | Deliverable                                     | Needs | Items |
 | ------ | ---------- | ----------------------------------------------- | ----- | ----- |
-| [ ]    | D05 T02 §1 | Diagnostics                                     | none  | 3     |
+| [ ]    | D05 T02 §1 | Diagnostics                                     | none  | 6     |
 | [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none  | 4     |
 | [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none  | 7     |
 | [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender       | none  | 3     |
@@ -161,4 +161,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 82/104 verified sections, 2 ready to run now.
 
-Checklist: 825/920 items completed (includes Commit items).
+Checklist: 825/923 items completed (includes Commit items).
