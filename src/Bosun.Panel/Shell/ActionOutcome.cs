@@ -10,13 +10,21 @@ namespace Bosun.Panel.Shell;
 /// </summary>
 public sealed record ActionOutcome
 {
-    private ActionOutcome(bool succeeded, string? reason)
+    private ActionOutcome(bool succeeded, string? reason, bool warning = false)
     {
         Succeeded = succeeded;
         Reason = reason;
+        IsWarning = warning;
     }
 
     public bool Succeeded { get; }
+
+    /// <summary>
+    /// Not done, and not because a tool failed: what was asked was refused or could not be confirmed (a limit the tool
+    /// would not take, D03 T02 §3). Its line is WARN, not FAIL; like any outcome that did not succeed, it keeps a page
+    /// with unsaved edits on screen.
+    /// </summary>
+    public bool IsWarning { get; }
 
     /// <summary>Why it failed, in words for the person; for a done action, an optional detail of what was done.</summary>
     public string? Reason { get; }
@@ -27,6 +35,9 @@ public sealed record ActionOutcome
     public static ActionOutcome DoneWith(string detail) => new(true, Words(detail, nameof(detail)));
 
     public static ActionOutcome Failed(string reason) => new(false, Words(reason, nameof(reason)));
+
+    /// <summary>Not done: refused or not confirmed, with why (<see cref="IsWarning"/>).</summary>
+    public static ActionOutcome Warning(string reason) => new(false, Words(reason, nameof(reason)), warning: true);
 
     private static string Words(string text, string name) =>
         string.IsNullOrWhiteSpace(text) ? throw new ArgumentException("an outcome's words can't be empty", name) : text.Trim();

@@ -33,7 +33,7 @@ Table of instance, repo, side, state, GB and uptime, grouped by repo. State word
 
 ## 5. Queue
 
-Slots table (slot, holder command, repo, side, waited, running). Waiting table (command, repo, side, waiting for, why). History table of finished jobs. Limits form: slots, second-slot memory floor in MB, maximum wait in seconds, and Save, which writes `config.json` and reads it back. Range errors are shown beside the field.
+Slots table (slot, holder command, repo, side, waited, running). Waiting table (command, repo, side, waiting for, why). History table of finished jobs. Limits form: slots, the memory floor in MB for each slot after the first, maximum wait in seconds (0 for no limit), and the WSL guest memory floor in MB, each with its range, where its value comes from (saved, the default, or a variable, which makes it read-only) and "Use the default", and Save, which writes `config.json` through `bosun config` and reads it back. Range errors are shown beside the field.
 
 ## 6. Plan
 

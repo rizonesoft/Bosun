@@ -52,14 +52,15 @@ public sealed class ActivityLog(UiLogSink sink)
     public ToastHost? Toasts { get; set; }
 
     /// <summary>
-    /// Writes the line for an action that ended, INFO when done and FAIL with the reason when it failed, then shows it
-    /// as a toast: the one path for both, so no toast is without its line.
+    /// Writes the line for an action that ended, INFO when done, WARN with the reason when it was refused or not
+    /// confirmed (<see cref="ActionOutcome.Warning"/>) and FAIL with the reason when it failed, then shows it as a toast:
+    /// the one path for all three, so no toast is without its line.
     /// </summary>
     public void Record(string name, ActionOutcome outcome)
     {
         var (severity, message) = outcome.Succeeded
             ? (LogSeverity.Info, outcome.Reason is null ? name : $"{name}: {outcome.Reason}")
-            : (LogSeverity.Fail, $"{name}: {outcome.Reason}");
+            : (outcome.IsWarning ? LogSeverity.Warn : LogSeverity.Fail, $"{name}: {outcome.Reason}");
         sink.Append(severity, message);
         Toasts?.Show(severity, UiLogSink.OneLine(message));
     }

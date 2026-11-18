@@ -165,6 +165,24 @@ public class QueueVisualTests
     }
 
     [Fact]
+    public void A_slot_above_the_limit_that_a_job_still_holds_says_so_in_words_seen_and_said()
+    {
+        // D03 T02 §3: slots lowered to 1 while slot 2's job runs; bosun status still lists it, marked above the limit.
+        PageRenderer.InPage("Dark", () => new QueueSlotTile { Slot = Slot($$"""{"index":1,"busy":true,"above_limit":true,"holder":{{Holder(1)}}}""") }, page =>
+        {
+            var tile = ShellSupport.Under<QueueSlotTile>(page).Single();
+            Assert.Equal($"Slot 2, Running, Recto: cmake --build build, Windows, waited 12 s, running 4 min, {QueueSlotTile.AboveLimit}", Said(tile));
+            Assert.Contains(QueueSlotTile.AboveLimit, PageRenderer.TextsOf(tile));
+            Assert.True(((TextBlock)tile.Template.FindName("limit", tile)).IsVisible);
+            tile.Slot = Slot($$"""{"index":1,"busy":true,"holder":{{Holder(1)}}}""");      // within the limit: nothing said
+            PageRenderer.Settle(page);
+            Assert.False(((TextBlock)tile.Template.FindName("limit", tile)).IsVisible);
+            Assert.DoesNotContain("limit", Said(tile), StringComparison.Ordinal);
+            return 0;
+        });
+    }
+
+    [Fact]
     public void An_unavailable_slot_says_why_seen_and_said()
     {
         // Completion review: "Not available" alone gave no reason.

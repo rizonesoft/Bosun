@@ -1,0 +1,171 @@
+<!-- The Queue page's content (D03 T02 §3, design/SPEC.md §5): the live queue (a tile for each slot, free ones included,
+     what the status could not tell, and the waiting jobs with why), the finished jobs, and the limits form. A part that
+     could not be read says why where it would be, and the others stay. Drawn in the page frame through the implicit
+     DataTemplate for QueuePage (PageFrame.xaml), which is its DataContext. -->
+<UserControl x:Class="Bosun.Panel.Queue.QueueView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:a="clr-namespace:Bosun.Panel.Accessibility"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
+             xmlns:controls="clr-namespace:Bosun.Panel.Controls"
+             Focusable="False">
+    <UserControl.Resources>
+        <!-- Said when there is something to say; gone when there is not. -->
+        <Style x:Key="Said" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Warning" TargetType="TextBlock" BasedOn="{StaticResource Said}">
+            <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="a:LiveRegion.Announce" Value="True"/>
+            <Style.Triggers>
+                <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Dim" TargetType="TextBlock" BasedOn="{StaticResource Said}">
+            <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+            <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+            <Style.Triggers>
+                <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Danger" TargetType="TextBlock" BasedOn="{StaticResource Said}">
+            <Setter Property="Foreground" Value="{DynamicResource B.Danger}"/>
+            <Setter Property="Margin" Value="{DynamicResource Gap.Above.S}"/>
+            <Setter Property="a:LiveRegion.Announce" Value="True"/>
+            <Style.Triggers>
+                <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- The page frame gives a page the window's height and no more: the live queue, the history and the form are taller
+         than a small window, so they scroll here; the history table scrolls inside its own height. -->
+    <ScrollViewer x:Name="QueueScroll" Style="{DynamicResource Scroll.Gutter}">
+    <StackPanel>
+        <!-- Now: the slots, what the status could not tell, and the waiting jobs. -->
+        <Border x:Name="LiveCard" Style="{DynamicResource Card}" AutomationProperties.Name="Now">
+            <StackPanel>
+                <DockPanel>
+                    <TextBlock x:Name="LiveWords" DockPanel.Dock="Right" Text="{Binding LiveWords}" Style="{StaticResource Dim}"
+                               VerticalAlignment="Center" Margin="12,0,0,0"/>
+                    <TextBlock Text="Slots" Style="{DynamicResource Section.Heading}"/>
+                </DockPanel>
+                <TextBlock x:Name="StatusNotice" Text="{Binding StatusNotice}" Style="{StaticResource Warning}"/>
+                <TextBlock x:Name="IdleNote" Text="{Binding Idle}" Style="{StaticResource Said}" Margin="0,0,0,10" a:LiveRegion.Announce="True"/>
+                <ItemsControl x:Name="Tiles" ItemsSource="{Binding Slots}" Focusable="False" IsTabStop="False" AutomationProperties.Name="Slots">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <controls:QueueSlotTile Slot="{Binding}" Width="260" Margin="0,0,12,12"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl x:Name="Doubts" ItemsSource="{Binding Doubts}" Focusable="False" IsTabStop="False"
+                              AutomationProperties.Name="What the queue could not tell">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" Style="{StaticResource Warning}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="Waiting" Style="{DynamicResource Section.Heading}" Margin="0,8,0,4"/>
+                <controls:WaitingRow x:Name="Waiting" Status="{Binding Status}"/>
+            </StackPanel>
+        </Border>
+
+        <!-- The finished jobs, newest first: the exit code and how the job got its slot in columns of their own. -->
+        <Border x:Name="HistoryCard" Style="{DynamicResource Card}" Margin="{DynamicResource Gap.Above.L}" AutomationProperties.Name="Finished jobs">
+            <StackPanel>
+                <TextBlock Text="Finished jobs" Style="{DynamicResource Section.Heading}"/>
+                <TextBlock x:Name="HistoryNotice" Text="{Binding HistoryNotice}" Style="{StaticResource Warning}"/>
+                <DataGrid x:Name="HistoryTable" ItemsSource="{Binding History}" AutoGenerateColumns="False" IsReadOnly="True"
+                          CanUserSortColumns="True" MaxHeight="360" AutomationProperties.Name="Finished jobs, newest first">
+                    <DataGrid.Columns>
+                        <controls:TextColumn Header="Command" Binding="{Binding Command}" SortMemberPath="Command" Width="1.6*"/>
+                        <controls:TextColumn Header="Repo" Binding="{Binding Repo}" SortMemberPath="Repo" Width="0.9*"/>
+                        <controls:TextColumn Header="Side" Binding="{Binding Side}" SortMemberPath="Side" Width="0.7*"/>
+                        <controls:NumberColumn Header="Slot" Binding="{Binding Slot}" SortMemberPath="SlotSort" Width="0.5*"/>
+                        <controls:NumberColumn Header="Waited" Binding="{Binding Waited}" SortMemberPath="WaitedSeconds" Width="0.7*"/>
+                        <controls:NumberColumn Header="Ran" Binding="{Binding Ran}" SortMemberPath="RanSeconds" Width="0.7*"/>
+                        <controls:NumberColumn Header="Exit" Binding="{Binding Exit}" SortMemberPath="ExitSort" Width="*"
+                                               WordPath="ExitIsWord" WhyPath="ExitWhy"/>
+                        <controls:TextColumn Header="Admission" Binding="{Binding Admission}" SortMemberPath="Admission" Width="2.5*"/>
+                        <controls:TextColumn Header="Ended" Binding="{Binding Ended}" SortMemberPath="EndedSort" Width="1.4*"/>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </StackPanel>
+        </Border>
+
+        <!-- The limits, saved through bosun config, which every bosun run reads: four fields, each with its range, where
+             its value comes from, and Use the default; the tool's refusal beside its field. -->
+        <Border x:Name="LimitsCard" Style="{DynamicResource Card}" Margin="{DynamicResource Gap.Above.L}" AutomationProperties.Name="Limits">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="{DynamicResource Size.Form}"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Limits" Style="{DynamicResource Section.Heading}"/>
+                <TextBlock x:Name="LimitsNotice" Text="{Binding LimitsNotice}" Style="{StaticResource Warning}"/>
+                <TextBlock x:Name="FileNotice" Text="{Binding FileNotice}" Style="{StaticResource Warning}"/>
+                <TextBlock x:Name="FormNotice" Text="{Binding FormNotice}" Style="{StaticResource Warning}"/>
+                <ItemsControl x:Name="Fields" ItemsSource="{Binding Fields}" Focusable="False" IsTabStop="False" AutomationProperties.Name="The queue's limits">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,16">
+                                <TextBlock Text="{Binding Label}" Style="{DynamicResource FieldLabel}"/>
+                                <DockPanel>
+                                    <Button x:Name="UseDefault" DockPanel.Dock="Right" Content="Use the default" Style="{DynamicResource Btn.Small}"
+                                            MinHeight="32" Margin="{DynamicResource Gap.Before.S}" Command="{Binding UseDefault}"
+                                            ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="{Binding UseDefaultName}"
+                                            ToolTip="Removes the saved value, so the variable or the default applies"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBox x:Name="Value" Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}" Style="{DynamicResource Field}"
+                                                 Width="120" IsReadOnly="{Binding IsLocked}" theme:FieldState.Invalid="{Binding HasError}"
+                                                 AutomationProperties.Name="{Binding SpokenName}" AutomationProperties.HelpText="{Binding Error}"
+                                                 ToolTip="{Binding Range}"/>
+                                        <TextBlock Text="{Binding Unit}" Foreground="{DynamicResource B.TextDim}" VerticalAlignment="Center"
+                                                   Margin="{DynamicResource Gap.Before.S}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <TextBlock x:Name="Source" Text="{Binding Detail}" Style="{StaticResource Dim}" Margin="{DynamicResource Gap.Above.XS}"/>
+                                <TextBlock x:Name="Hint" Text="{Binding Hint}" Style="{StaticResource Dim}"/>
+                                <TextBlock x:Name="VariableNote" Text="{Binding VariableNote}" Style="{StaticResource Warning}" Margin="{DynamicResource Gap.Above.XS}"/>
+                                <TextBlock x:Name="Error" Text="{Binding Error}" Style="{StaticResource Danger}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="Save" Content="Save" Style="{DynamicResource Btn.Primary}" Command="{Binding Save}"
+                            ToolTip="Saves the changed limits through bosun config and reads them back"/>
+                    <Button x:Name="Discard" Content="Discard" Style="{DynamicResource Btn}" Command="{Binding DiscardChanges}"
+                            Margin="{DynamicResource Gap.Before.S}" ToolTip="Puts the form back to the limits last read"/>
+                </StackPanel>
+                <TextBlock x:Name="SaveStatus" Text="{Binding SaveStatus}" Style="{StaticResource Said}" Foreground="{DynamicResource B.TextDim}"
+                           Margin="{DynamicResource Gap.Above.M}" a:LiveRegion.Announce="True"/>
+            </StackPanel>
+            </Grid>
+        </Border>
+    </StackPanel>
+    </ScrollViewer>
+</UserControl>

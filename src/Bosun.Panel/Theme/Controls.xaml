@@ -1598,6 +1598,9 @@
                                                Foreground="{DynamicResource B.TextDim}" TextWrapping="Wrap"/>
                                     <TextBlock x:Name="doubt" Text="{TemplateBinding Doubt}" FontSize="{DynamicResource T.Caption}"
                                                Foreground="{DynamicResource B.Warn}"/>
+                                    <!-- A slot past the limit a job still holds (D03 T02 §3): said in words, never by colour alone. -->
+                                    <TextBlock x:Name="limit" Text="{TemplateBinding Limit}" FontSize="{DynamicResource T.Caption}"
+                                               Foreground="{DynamicResource B.Warn}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <controls:SlotBar x:Name="bar" VerticalAlignment="Bottom" Active="{TemplateBinding Held}" Fill="{DynamicResource B.Accent}"/>
                             </Grid>
@@ -1615,6 +1618,9 @@
                         <Trigger Property="Doubt" Value="">
                             <Setter TargetName="doubt" Property="Visibility" Value="Collapsed"/>
                         </Trigger>
+                        <Trigger Property="Limit" Value="">
+                            <Setter TargetName="limit" Property="Visibility" Value="Collapsed"/>
+                        </Trigger>
                         <Trigger Property="State" Value="Free">
                             <Setter TargetName="tile" Property="BorderBrush" Value="Transparent"/>
                             <Setter TargetName="tile" Property="Background" Value="Transparent"/>
@@ -1623,6 +1629,7 @@
                         <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
                             <Setter TargetName="timing" Property="Foreground" Value="{DynamicResource B.Text}"/>
                             <Setter TargetName="doubt" Property="Foreground" Value="{DynamicResource B.Text}"/>
+                            <Setter TargetName="limit" Property="Foreground" Value="{DynamicResource B.Text}"/>
                             <Setter TargetName="dash" Property="Stroke" Value="{DynamicResource B.Text}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -1667,7 +1674,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="controls:WaitingRow">
                     <StackPanel>
-                        <ItemsControl ItemsSource="{TemplateBinding Lines}" Focusable="False" IsTabStop="False">
+                        <ItemsControl ItemsSource="{TemplateBinding Lines}" Focusable="False" IsTabStop="False" AutomationProperties.Name="Jobs waiting, oldest first">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="controls:WaitingLine">
                                     <controls:WaitingLineView Content="{Binding}"/>

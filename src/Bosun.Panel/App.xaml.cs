@@ -92,14 +92,18 @@ public partial class App : Application
         // One reader of the memory documents, for the Memory page and the tray's pressure check (D03 T01 §2, §4).
         var memory = Bosun.Core.Memory.MemoryClient.ForThisUser();
         var made = WindowStart.NewShell(Dispatcher, settings, startup, OpenStartupSettings, windowShown: !inTray, theme: theme,
-            refreshes: refreshes, memory: memory, instances: Bosun.Core.Instances.InstanceClient.ForThisUser());
+            refreshes: refreshes, memory: memory, instances: Bosun.Core.Instances.InstanceClient.ForThisUser(), queue: Bosun.Core.Queue.QueueClient.ForThisUser());
         // The preview said where the person will look: in force from which file, or why its file was not used.
         if (previewLine is not null)
         {
             if (previewFailed) made.Log.Warn(previewLine);
             else made.Log.Info(previewLine);
         }
-        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes);
+        // The tray's Queue line shares the Queue page's readings, and reads once when its menu opens (D03 T02 §3).
+        var queueWords = made.Sections.Select(section => section.Page).OfType<Bosun.Panel.Queue.QueuePage>().FirstOrDefault()?.Words;
+        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, queue: queueWords, refreshes: refreshes);
+        // One read as the panel starts, so the menu's first opening has the queue's words, not only "Checking".
+        queueWords?.ReadOnce();
         var activates = LaunchShow.FirstWindowActivates();
         _window = WindowStart.Open(made, shell =>
         {

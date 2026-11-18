@@ -183,6 +183,11 @@ public sealed class FakeNeeds : INeedsYouSource
 public sealed class FakeQueue : IQueueSummary
 {
     public string? Words { get; set; }
+
+    /// <summary>How many times the menu said it was opening.</summary>
+    public int Openings { get; private set; }
+
+    public void MenuOpening() => Openings++;
 }
 
 /// <summary>

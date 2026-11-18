@@ -180,6 +180,58 @@ public static partial class RenderCatalog
             Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.Win(), Instances.InstanceFixtures.Wsl("Ubuntu")),
         }, Bosun.Panel.Instances.InstancesPage.NothingRunning),
         InstancesCase("loading", new Instances.FakeInstances { Hold = new TaskCompletionSource() }, "Instances"),
+        // D03 T02 §3: the Queue page with a running, a starting and a held slot, a slot above the limit and a memory-gated
+        // waiter; idle with history; loading; the status unread with history and form kept; the limits unread with the
+        // queue kept; nothing readable, with Retry; and the form with a refusal beside its field, a field set by a
+        // variable, and an ignored variable.
+        QueueCase("data", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.Status(
+                $"{Bosun.Panel.Tests.Queue.QueueFixtures.Held(0, Bosun.Panel.Tests.Queue.QueueFixtures.Holder(0))},{Bosun.Panel.Tests.Queue.QueueFixtures.Held(1, Bosun.Panel.Tests.Queue.QueueFixtures.Holder(1, "\"starting\"", repo: "\"Office\"", command: "dotnet build Office.slnx"))},"
+                + $"{Bosun.Panel.Tests.Queue.QueueFixtures.Held(2, null)},{Bosun.Panel.Tests.Queue.QueueFixtures.Held(3, Bosun.Panel.Tests.Queue.QueueFixtures.Holder(3, repo: "\"Steward\"", command: "npm test"), above: true)}",
+                $"{Bosun.Panel.Tests.Queue.QueueFixtures.Waiter(500, "\"memory\"", "6144", command: "dotnet build")},{Bosun.Panel.Tests.Queue.QueueFixtures.Waiter(501, "\"slot\"", command: "dotnet test")}"), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+            History = QueueHistory(),
+        }, "Waiting for memory: slot 2 opens when 6.0 GB is free"),
+        QueueCase("idle", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.IdleStatus(), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+            History = QueueHistory(),
+        }, Bosun.Panel.Queue.QueuePage.IdleNote),
+        QueueCase("loading", new Bosun.Panel.Tests.Queue.FakeQueueSource { StatusNeverAnswers = true }, "Queue", tall: false),
+        QueueCase("status-failed", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun status --json ended with exit code 1: the records folder can't be listed."),
+            History = QueueHistory(),
+        }, "The queue could not be read"),
+        QueueCase("limits-failed", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Limits = Bosun.Core.Memory.Reading<Bosun.Core.Queue.ConfigDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun config get --json did not answer within 20 s and was stopped."),
+            History = QueueHistory(),
+        }, "The limits could not be read"),
+        QueueCase("failed", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Fail(Bosun.Core.Memory.ReadingProblem.NotInstalled, QueueNotInstalled),
+            History = Bosun.Core.Memory.Reading<Bosun.Core.Queue.JobHistory>.Fail(Bosun.Core.Memory.ReadingProblem.NotInstalled, QueueNotInstalled),
+            Limits = Bosun.Core.Memory.Reading<Bosun.Core.Queue.ConfigDoc>.Fail(Bosun.Core.Memory.ReadingProblem.NotInstalled, QueueNotInstalled),
+        }, "bosun.exe is not installed", tall: false),
+        QueueCase("form-refused", QueueRefusing(), "max_wait_s must be a whole number from 0 to 604800", async page =>
+        {
+            page.Field("max_wait_s").Text = "999999999";
+            await page.SaveAsync();
+        }),
+        QueueCase("form-variable", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.IdleStatus(), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+            Limits = Bosun.Core.Memory.Reading<Bosun.Core.Queue.ConfigDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.Config(slots: Bosun.Panel.Tests.Queue.QueueFixtures.SlotsLimit(4, "environment", 3),
+                wait: Bosun.Panel.Tests.Queue.QueueFixtures.WaitLimit(60, "file", 60)), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+        }, "Set by BOSUN_SLOTS, so it can't be changed here"),
+        QueueCase("form-ignored-variable", new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.IdleStatus(), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+            Limits = Bosun.Core.Memory.Reading<Bosun.Core.Queue.ConfigDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.Config(
+                slots: Bosun.Panel.Tests.Queue.QueueFixtures.SlotsLimit(2, "default", null, "BOSUN_SLOTS=abc is not a whole number from 1 to 64"),
+                refused: """{"key":"min_guest_mb","error":"min_guest_mb must be a whole number from 0 to 1099511627776"}"""), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+        }, "BOSUN_SLOTS is ignored: BOSUN_SLOTS=abc is not a whole number from 1 to 64"),
         // With memory pressure notifications turned off (D02 T02 §7).
         new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
             "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
@@ -394,6 +446,38 @@ public static partial class RenderCatalog
         scroll.UpdateLayout();
         scroll.ScrollToBottom();
         scroll.UpdateLayout();
+    }
+
+    private const string QueueNotInstalled = "bosun.exe is not installed at C:\\Users\\me\\AppData\\Local\\Bosun\\bin\\bosun.exe. Install it with scripts/install.ps1, or name it with BOSUN_EXE.";
+
+    /// <summary>Finished jobs in each kind: run in a slot, a timed-out wait that failed, a cancelled waiter, and a WSL job with no exit code.</summary>
+    private static Bosun.Core.Memory.Reading<Bosun.Core.Queue.JobHistory> QueueHistory() => Bosun.Core.Memory.Reading<Bosun.Core.Queue.JobHistory>.Of(new Bosun.Core.Queue.JobHistory(
+    [
+        Bosun.Panel.Tests.Queue.QueueFixtures.Job(command: "cmake --build build --config Release", slot: 0, waited: 0.2, ran: 184.5, exit: 0, ended: "2026-11-18T08:58:00Z"),
+        Bosun.Panel.Tests.Queue.QueueFixtures.Job(command: "dotnet test", slot: null, waited: 900, ran: 41, exit: 1, timedOut: true, ended: "2026-11-18T08:50:00Z", repo: "Office"),
+        Bosun.Panel.Tests.Queue.QueueFixtures.Job(command: "npm run build", slot: null, waited: 12.4, ran: 0, exit: -1073741510, ended: "2026-11-18T08:40:00Z", repo: "Steward"),
+        Bosun.Panel.Tests.Queue.QueueFixtures.Job(command: "make test", slot: 1, waited: 3, ran: 62, exit: null, side: "wsl", ended: "2026-11-18T08:30:00Z", repo: "/home/me/app"),
+    ], 0, []), Bosun.Panel.Tests.Queue.QueueFixtures.Now);
+
+    private static Bosun.Panel.Tests.Queue.FakeQueueSource QueueRefusing()
+    {
+        var source = new Bosun.Panel.Tests.Queue.FakeQueueSource
+        {
+            Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Of(Bosun.Panel.Tests.Queue.QueueFixtures.IdleStatus(), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
+        };
+        source.SaveAnswers["max_wait_s"] = _ => Bosun.Panel.Tests.Queue.FakeQueueSource.Refused("max_wait_s", "max_wait_s must be a whole number from 0 to 604800");
+        return source;
+    }
+
+    private static RenderCase QueueCase(string name, Bosun.Panel.Tests.Queue.FakeQueueSource source, string shows, Func<Bosun.Panel.Queue.QueuePage, Task>? then = null, bool tall = true)
+    {
+        Func<FrameworkElement, Task>? ready = null;
+        return new RenderCase("queue", name, () =>
+        {
+            var (view, isReady) = Bosun.Panel.Tests.Queue.QueuePageTests.Rendered(source, then);
+            ready = isReady;
+            return view;
+        }) { Shows = shows, Ready = view => ready!(view), Height = tall ? 1700 : PageRenderer.Height };  // tall: the whole page, form included
     }
 
     private static RenderCase InstancesCase(string name, Instances.FakeInstances source, string shows)

@@ -84,7 +84,7 @@ public static class WindowStart
     public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
         Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true, Bosun.Panel.Theme.ThemeService? theme = null,
         Bosun.Core.RefreshScheduler? refreshes = null, Bosun.Core.Memory.MemoryClient? memory = null,
-        Bosun.Core.Instances.IInstanceSource? instances = null)
+        Bosun.Core.Instances.IInstanceSource? instances = null, Bosun.Core.Queue.IQueueSource? queue = null)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
         var pages = new Dictionary<string, PageBase>
@@ -95,6 +95,8 @@ public static class WindowStart
         if (refreshes is not null && memory is not null) pages["memory"] = new Bosun.Panel.Memory.MemoryPage(memory, refreshes, log, settings);
         // The Instances page, on the same scheduler (D03 T02 §2).
         if (refreshes is not null && instances is not null) pages["instances"] = new Bosun.Panel.Instances.InstancesPage(instances, refreshes, log);
+        // The Queue page, its limits form and the tray's Queue line (D03 T02 §3), on the same scheduler.
+        if (refreshes is not null && queue is not null) pages["queue"] = new Bosun.Panel.Queue.QueuePage(queue, refreshes, log);
         var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
         log.Info("Panel ready");
         if (settings.Notice is { } notice) log.Warn(notice);

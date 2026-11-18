@@ -14,7 +14,7 @@ public class RailTests
     [
         // Memory is built (D03 T01 §2): its data is the seeded snapshot, so it shows Data.
         // Instances is built (D03 T02 §2): the seeded distro's report gives it a row, so it shows Data.
-        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Data"), ("Queue", "Empty"),
+        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Data"), ("Queue", "Data"),
         ("Optimise", "Empty"), ("Settings", "Data"), ("About", "Empty"),
     ];
 
@@ -109,6 +109,7 @@ public class RailTests
         "Settings" => "ThemeBox",
         "Memory" => "ByRepo",
         "Instances" => "Table",
+        "Queue" => "HistoryTable",
         _ => null,
     };
 

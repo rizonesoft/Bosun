@@ -13,7 +13,10 @@ public class TrayRulesTests
         var make = app[app.IndexOf("private void MakeWindow()", StringComparison.Ordinal)..];
         make = make[..make.IndexOf("/// <summary>", StringComparison.Ordinal)];
 
-        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, refreshes: refreshes)", make, StringComparison.Ordinal);
+        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, queue: queueWords, refreshes: refreshes)", make, StringComparison.Ordinal);
+        // The tray's Queue line is the Queue page's own words (D03 T02 §3), not "Not available" for ever.
+        Assert.Contains("OfType<Bosun.Panel.Queue.QueuePage>().FirstOrDefault()?.Words", make, StringComparison.Ordinal);
+        Assert.Contains("queue: Bosun.Core.Queue.QueueClient.ForThisUser()", make, StringComparison.Ordinal);
         Assert.Contains("TakeClose = tray.TakeClose", make, StringComparison.Ordinal);                 // the window's close asks the tray first
         Assert.Contains("window.Closed += (_, _) => Shutdown();", make, StringComparison.Ordinal);     // and a window that really closed ends the panel
         Assert.Contains("var inTray = TrayController.StartsInTray(Environment.GetCommandLineArgs());", make, StringComparison.Ordinal);

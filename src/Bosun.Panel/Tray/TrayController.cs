@@ -23,6 +23,7 @@ public sealed class TrayController : IDisposable
     private readonly PanelSettingsStore _settings;
     private readonly Action<int> _exit;
     private readonly RefreshScheduler? _refreshes;
+    private readonly IQueueSummary? _queue;
     private IWindowSurface? _window;
     private bool _saidThisRun, _awaitingNotice, _updateRefused, _exiting, _disposed;
 
@@ -35,6 +36,7 @@ public sealed class TrayController : IDisposable
         _notifier = notifier;
         _settings = settings;
         _exit = exit;
+        _queue = queue;
         Tray = new TrayViewModel(notifier, OpenAsync, OpenQueueAsync, ExitAsync, needs, queue);
         // Its Pause or Resume and Exit, in the command palette too (D02 T03 §8): the menu's own lines.
         // A pause running out changes the menu by itself: noticed on the panel's one scheduler, never a timer of its own,
@@ -69,7 +71,13 @@ public sealed class TrayController : IDisposable
     public void Start(IWindowSurface window, bool inTray, bool activate = true)
     {
         _window = window;
-        _icon.Menu = Tray.Menu;
+        // Each opening of the menu, and only that, may read the queue once (D03 T02 §3): the line shows the last words
+        // at once, and the read gives the next opening its words. Nothing reads it on a timer (design/SPEC.md §1).
+        _icon.Menu = () =>
+        {
+            _queue?.MenuOpening();
+            return Tray.Menu();
+        };
         _icon.Opened += Open;
         _icon.NotificationShown += NoticeWasShown;
         if (_icon.Install(Tray.State, Tray.Tooltip))

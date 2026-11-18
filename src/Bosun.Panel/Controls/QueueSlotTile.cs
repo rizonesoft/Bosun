@@ -74,12 +74,14 @@ public class QueueSlotTile : Control
     private static readonly DependencyPropertyKey JobKey = Text(nameof(Job), "");
     private static readonly DependencyPropertyKey TimingKey = Text(nameof(Timing), "");
     private static readonly DependencyPropertyKey DoubtKey = Text(nameof(Doubt), "");
+    private static readonly DependencyPropertyKey LimitKey = Text(nameof(Limit), "");
 
     public static readonly DependencyProperty TitleProperty = TitleKey.DependencyProperty;
     public static readonly DependencyProperty WordProperty = WordKey.DependencyProperty;
     public static readonly DependencyProperty JobProperty = JobKey.DependencyProperty;
     public static readonly DependencyProperty TimingProperty = TimingKey.DependencyProperty;
     public static readonly DependencyProperty DoubtProperty = DoubtKey.DependencyProperty;
+    public static readonly DependencyProperty LimitProperty = LimitKey.DependencyProperty;
 
     private static readonly DependencyPropertyKey KindKey = DependencyProperty.RegisterReadOnly(
         nameof(Kind), typeof(StatusKind), typeof(QueueSlotTile), new FrameworkPropertyMetadata(StatusKind.Neutral));
@@ -98,6 +100,12 @@ public class QueueSlotTile : Control
 
     /// <summary>Why a slot is Not available: whether it is in use could not be checked (its lock could not be probed).</summary>
     public const string NotKnown = "whether it is in use could not be checked";
+
+    /// <summary>
+    /// Said on a slot past the configured count that a job still holds (D03 T02 §3, <c>above_limit</c>): the limit was
+    /// lowered while it ran, so it keeps the slot until it ends, and no new job is given it.
+    /// </summary>
+    public const string AboveLimit = "Above the slot limit: kept until its job ends, and no new job gets it";
 
     private static DependencyPropertyKey Text(string name, string initial) =>
         DependencyProperty.RegisterReadOnly(name, typeof(string), typeof(QueueSlotTile), new FrameworkPropertyMetadata(initial));
@@ -124,6 +132,9 @@ public class QueueSlotTile : Control
     /// <summary>"may have ended" when the holder's process couldn't be checked, else empty.</summary>
     public string Doubt => (string)GetValue(DoubtProperty);
 
+    /// <summary><see cref="AboveLimit"/> for a slot past the configured count, else empty.</summary>
+    public string Limit => (string)GetValue(LimitProperty);
+
     /// <summary>The pill's kind for the state.</summary>
     public StatusKind Kind => (StatusKind)GetValue(KindProperty);
 
@@ -134,7 +145,7 @@ public class QueueSlotTile : Control
     public bool Held => (bool)GetValue(HeldProperty);
 
     /// <summary>What a screen reader hears: the tile as one sentence.</summary>
-    public string SpokenName => string.Join(", ", new[] { Title, Word, Job, Timing, Doubt }.Where(t => !string.IsNullOrEmpty(t)));
+    public string SpokenName => string.Join(", ", new[] { Title, Word, Job, Timing, Doubt, Limit }.Where(t => !string.IsNullOrEmpty(t)));
 
     /// <summary>A slot's state from its document.</summary>
     public static SlotState StateOf(SlotDoc? slot) => slot switch
@@ -194,6 +205,7 @@ public class QueueSlotTile : Control
             QueueWords.Elapsed(holder.RunningS) is { } running ? $"running {running}" : null,
         }.Where(t => t is not null)));
         tile.SetValue(DoubtKey, holder is { State: "unknown" } ? "may have ended" : "");
+        tile.SetValue(LimitKey, slot is { AboveLimit: true } ? AboveLimit : "");
         if (was != tile.SpokenName && UIElementAutomationPeer.FromElement(tile) is { } peer)
             peer.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, was, tile.SpokenName);
     }
