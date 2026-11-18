@@ -260,6 +260,10 @@ try {
         $real.StandardInput.WriteLine('release'); $real.StandardInput.Flush()
         $answer = "$($real.StandardOutput.ReadLine())".Trim()
         Check "and leaves one a person took over ('$answer')" ($answer -eq 'released' -and [F24State]::Down())
+        # A release of the watcher's own arriving for a key a person now holds (sent before they took it) is stopped in
+        # the hook as it arrives, so no application sees their key let go of.
+        [void][F24Send]::Key($true, 0x42534E32); Start-Sleep -Milliseconds 200
+        Check 'a late release of a key a person holds is stopped in the hook' ([F24State]::Down())
       } finally { [void][F24Send]::Key($true, 0) }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }

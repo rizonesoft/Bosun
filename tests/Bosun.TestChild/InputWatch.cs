@@ -22,6 +22,8 @@ static class InputWatch
     private const int WH_KEYBOARD_LL = 13, WH_MOUSE_LL = 14;
     private const uint LLKHF_INJECTED = 0x10, LLMHF_INJECTED = 0x01, WM_QUIT = 0x0012;
     private const long SmokeTag = 0x42534E31; // "BSN1", as Native.SmokeTag
+    // The watcher's own releases ("BSN2"): smoke input too, and decided again by the hook as each one arrives.
+    private const long ReleaseTag = 0x42534E32;
 
     private static string _file = "";
     private static DateTime _latest = DateTime.MinValue;
@@ -47,7 +49,9 @@ static class InputWatch
             {
                 var stroke = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
                 var message = (uint)wParam.ToInt64();
-                Input(Smokes((stroke.flags & LLKHF_INJECTED) != 0, stroke.extra), (int)stroke.vkCode, message is WM_KEYDOWN or WM_SYSKEYDOWN, message is WM_KEYUP or WM_SYSKEYUP);
+                var injected = (stroke.flags & LLKHF_INJECTED) != 0;
+                if (Input(Smokes(injected, stroke.extra), (int)stroke.vkCode, message is WM_KEYDOWN or WM_SYSKEYDOWN, message is WM_KEYUP or WM_SYSKEYUP, Releases(injected, stroke.extra)))
+                    return new IntPtr(1);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -58,7 +62,9 @@ static class InputWatch
                 var pointer = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 var message = (uint)wParam.ToInt64();
                 var button = message switch { WM_LBUTTONDOWN or WM_LBUTTONUP => 1, WM_RBUTTONDOWN or WM_RBUTTONUP => 2, WM_MBUTTONDOWN or WM_MBUTTONUP => 4, _ => 0 };
-                Input(Smokes((pointer.flags & LLMHF_INJECTED) != 0, pointer.extra), button, message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN, message is WM_LBUTTONUP or WM_RBUTTONUP or WM_MBUTTONUP);
+                var injected = (pointer.flags & LLMHF_INJECTED) != 0;
+                if (Input(Smokes(injected, pointer.extra), button, message is WM_LBUTTONDOWN or WM_RBUTTONDOWN or WM_MBUTTONDOWN, message is WM_LBUTTONUP or WM_RBUTTONUP or WM_MBUTTONUP, Releases(injected, pointer.extra)))
+                    return new IntPtr(1);
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
@@ -81,7 +87,7 @@ static class InputWatch
         {
             for (string? line; (line = Console.In.ReadLine()) is not null;)
             {
-                if (line.Trim() == "person") Input(smoke: false, key: 0, down: false, up: false);
+                if (line.Trim() == "person") Input(smoke: false, key: 0, down: false, up: false, release: false);
                 if (line.Trim() == "release")
                 {
                     var let = ReleaseHeld();
@@ -116,20 +122,26 @@ static class InputWatch
     /// One event, one change under the lock: a person's time and who holds the key move together, so the writer never
     /// writes a person's press beside a list that still gives the smoke the key they now hold.
     /// </remarks>
-    private static void Input(bool smoke, int key, bool down, bool up)
+    /// <param name="release">The watcher's own release of a key: it passes only while the smoke still holds that key.</param>
+    /// <returns>True when the event is to be stopped here: a release of a key a person took over since it was sent, so
+    /// no application ever sees it let go of under them. The decision is made as the event arrives, under the lock.</returns>
+    private static bool Input(bool smoke, int key, bool down, bool up, bool release)
     {
         lock (Gate)
         {
+            if (release && up && key != 0 && !SmokeHeld.Contains(key)) return true;
             var changed = false;
             if (!smoke) { _latest = DateTime.UtcNow; changed = true; _person?.Set(); }
             if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
             if (changed) Wake.Set();
+            return false;
         }
     }
 
     /// <summary>
-    /// Lets go of each key and button the smoke holds, by its own list: each is checked again just before its release
-    /// is sent, so one a person took since is left to them. Not under the lock while sending, since the hook takes it.
+    /// Lets go of each key and button the smoke holds, by its own list. Each release carries the watcher's own mark, and
+    /// the hook passes it only if the smoke still holds the key as it arrives: one a person took in between is left to
+    /// them. Not under the lock while sending, since the hook takes it.
     /// </summary>
     private static int[] ReleaseHeld()
     {
@@ -145,14 +157,14 @@ static class InputWatch
             {
                 input[0].type = 0;
                 input[0].u.mi.dwFlags = key == 1 ? 0x0004 : key == 2 ? 0x0010 : 0x0040;
-                input[0].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
+                input[0].u.mi.dwExtraInfo = new IntPtr(ReleaseTag);
             }
             else
             {
                 input[0].type = 1;
                 input[0].u.ki.wVk = (ushort)key;
                 input[0].u.ki.dwFlags = 0x0002;
-                input[0].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
+                input[0].u.ki.dwExtraInfo = new IntPtr(ReleaseTag);
             }
             if (SendInput(1, input, Marshal.SizeOf<INPUT>()) == 1) let.Add(key);
         }
@@ -174,7 +186,10 @@ static class InputWatch
     [DllImport("user32.dll")] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
 
     /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
-    private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() == SmokeTag;
+    private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() is SmokeTag or ReleaseTag;
+
+    /// <summary>Whether an input is the watcher's own release.</summary>
+    private static bool Releases(bool injected, IntPtr extra) => injected && extra.ToInt64() == ReleaseTag;
 
     /// <summary>
     /// The writer, on a thread of its own: each time it is woken it writes the record anew, the latest person's time and

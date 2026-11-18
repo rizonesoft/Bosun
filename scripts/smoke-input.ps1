@@ -305,7 +305,10 @@ function Read-Watch {
 $watchMute = $false
 function Release-Held {
     if (-not $watch) { return }
-    if (-not $watch.HasExited -and -not $script:watchMute) {
+    if (-not $watch.HasExited) {
+        # A live watcher is the only one who knows what the smoke holds: if it has not answered before, nothing is let go
+        # of now, and its record on disk is never used while it lives.
+        if ($script:watchMute) { Say "nothing let go of: the input watcher has not answered before"; return }
         $reply = $null
         try {
             $watch.StandardInput.WriteLine('release'); $watch.StandardInput.Flush()
@@ -318,11 +321,12 @@ function Release-Held {
         }
         # An answer that never came leaves its read pending, which no second read may share.
         $script:watchMute = $true
-        if (-not $watch.HasExited) { Say "nothing let go of: the input watcher did not answer"; return }
+        Say "nothing let go of: the input watcher did not answer"
+        return
     }
-    # A watcher that has ended keeps no record: what it last wrote is trusted only if no person came since the start
+    # Only a watcher that has ended reaches here. What it last wrote is trusted only if no person came since the start
     # (the event says so, set the moment one did), for then everything it listed is the smoke's own.
-    if ($watch.HasExited -and $personSeen -and $personSeen.WaitOne(0)) { Say "nothing let go of: the input watcher had ended after a person came, so what it last saw held may be theirs"; return }
+    if ($personSeen -and $personSeen.WaitOne(0)) { Say "nothing let go of: the input watcher had ended after a person came, so what it last saw held may be theirs"; return }
     $record = Read-Watch
     if ($null -eq $record) { Say "nothing let go of: the input watcher's record could not be read"; return }
     $keys = @("$($record[1])".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
