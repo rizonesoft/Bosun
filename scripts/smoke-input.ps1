@@ -80,40 +80,6 @@ public static class SmokeInputDesk {
         if (!GetLastInputInfo(ref info)) return 0;
         return unchecked((uint)Environment.TickCount - info.dwTime) / 1000.0;
     }
-
-    [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy, mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
-    [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort wVk, wScan; public int dwFlags, time; public IntPtr dwExtraInfo; }
-    [StructLayout(LayoutKind.Explicit)] struct UNION { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; }
-    [StructLayout(LayoutKind.Sequential)] struct INPUT { public int type; public UNION u; }
-    [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
-    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
-    // The smoke's own mark (Native.SmokeTag, tests/Bosun.Panel.E2E): the watcher passes these releases over.
-    const long SmokeTag = 0x42534E31;
-
-    public static bool IsDown(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
-
-    // Lets go of each of these that is down: mouse buttons (1 left, 2 right, 4 middle) with a button-up, any other key
-    // with a key-up. A class ended mid-drag or mid-chord cannot let go itself. Returns the keys it let go of. The caller
-    // passes only what the watcher saw the smoke press and not let go of, never a key a person holds.
-    public static int[] Release(int[] keys) {
-        var released = new System.Collections.Generic.List<int>();
-        foreach (var key in keys) {
-            if (!IsDown(key)) continue;
-            var input = new INPUT[1];
-            if (key == 1 || key == 2 || key == 4) {
-                input[0].type = 0;
-                input[0].u.mi.dwFlags = key == 1 ? 0x0004 : key == 2 ? 0x0010 : 0x0040;
-                input[0].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
-            } else {
-                input[0].type = 1;
-                input[0].u.ki.wVk = (ushort)key;
-                input[0].u.ki.dwFlags = 0x0002;
-                input[0].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
-            }
-            if (SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1) released.Add(key);
-        }
-        return released.ToArray();
-    }
 }
 '@
 }
@@ -301,7 +267,7 @@ function Read-Watch {
 }
 # What the ended class left down is let go of by the watcher, from its own list in memory: it alone knows exactly what
 # the smoke holds, a person's press having taken a key off that list in the hook. Asked on its stdin, it answers with
-# what it let go of. Only when it has ended is its last record used, and then only if no person came.
+# what it let go of. A watcher that has ended is asked nothing and its record is not used: nothing is let go of then.
 $watchMute = $false
 function Release-Held {
     if (-not $watch) { return }
@@ -324,15 +290,10 @@ function Release-Held {
         Say "nothing let go of: the input watcher did not answer"
         return
     }
-    # Only a watcher that has ended reaches here. What it last wrote is trusted only if no person came since the start
-    # (the event says so, set the moment one did), for then everything it listed is the smoke's own.
-    if ($personSeen -and $personSeen.WaitOne(0)) { Say "nothing let go of: the input watcher had ended after a person came, so what it last saw held may be theirs"; return }
-    $record = Read-Watch
-    if ($null -eq $record) { Say "nothing let go of: the input watcher's record could not be read"; return }
-    $keys = @("$($record[1])".Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
-    if (-not $keys) { return }
-    $let = @([SmokeInputDesk]::Release([int[]]$keys))
-    if ($let.Count) { Say "let go of what the ended class held down: $(($let | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', ')" }
+    # A watcher that has ended: who holds a key can no longer be told (a dead watcher hears no press, and Windows says
+    # a key is down, not whose), so nothing is let go of. A person's button let go of under them is worse than the
+    # smoke's left down, which one click clears. (A watcher whose record failed let go of the smoke's itself first.)
+    Say "nothing let go of: the input watcher had ended, and who holds a key can no longer be told"
 }
 function Locked { if ($TestProbes) { Test-Path -LiteralPath (Join-Path $StateFolder 'probe-locked') } else { [SmokeInputDesk]::Locked() } }
 function IdleSeconds {

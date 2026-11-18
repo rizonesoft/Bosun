@@ -122,14 +122,15 @@ static class InputWatch
     /// One event, one change under the lock: a person's time and who holds the key move together, so the writer never
     /// writes a person's press beside a list that still gives the smoke the key they now hold.
     /// </remarks>
-    /// <param name="release">The watcher's own release of a key: it passes only while the smoke still holds that key.</param>
-    /// <returns>True when the event is to be stopped here: a release of a key a person took over since it was sent, so
-    /// no application ever sees it let go of under them. The decision is made as the event arrives, under the lock.</returns>
+    /// <param name="release">The watcher's own release of a key.</param>
+    /// <returns>True when the event is to be stopped here: any release the smoke sends (the watcher's, or a test's own
+    /// button-up or key-up) of a key the smoke does not hold, a person having taken it over, so no application sees
+    /// their key let go of under them. Decided as the event arrives, under the lock.</returns>
     private static bool Input(bool smoke, int key, bool down, bool up, bool release)
     {
         lock (Gate)
         {
-            if (release && up && key != 0 && !SmokeHeld.Contains(key)) return true;
+            if (smoke && up && key != 0 && !SmokeHeld.Contains(key)) return true;
             var changed = false;
             if (!smoke) { _latest = DateTime.UtcNow; changed = true; _person?.Set(); }
             if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);

@@ -182,7 +182,7 @@ try {
   Check "a watcher that ends during a class stops the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and @(Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')).Count -eq 1) $run.Said
   # One that ends after a person came is trusted for nothing: what it last listed may be theirs.
   $run = Invoke-Run 'person-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s')) -Pauses @('Bosun.Panel.E2E.Alpha 60')
-  Check "a watcher that ends after a person came lets go of nothing (exit $($run.Code))" ($run.Code -eq 1 -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended after a person came*') $run.Said
+  Check "a watcher that ends after a person came lets go of nothing (exit $($run.Code))" ($run.Code -eq 1 -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended*') $run.Said
   # The watcher ends with the runner, however the runner ends: killed alone, with no finally run.
   $state = Join-Path $dir 'state-killed'
   New-Item -ItemType Directory -Force -Path $state | Out-Null
@@ -264,6 +264,9 @@ try {
         # the hook as it arrives, so no application sees their key let go of.
         [void][F24Send]::Key($true, 0x42534E32); Start-Sleep -Milliseconds 200
         Check 'a late release of a key a person holds is stopped in the hook' ([F24State]::Down())
+        # So is a test's own key-up (the smoke's ordinary mark) once a person holds the key.
+        [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
+        Check "a test's own release of a key a person holds is stopped in the hook" ([F24State]::Down())
       } finally { [void][F24Send]::Key($true, 0) }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }
@@ -277,9 +280,11 @@ try {
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha'
   Check "an on-demand run lets go of what its crashed class held (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
 
-  # A watcher that ends while the smoke holds a key, nobody having come: its last list is the smoke's own, let go of.
+  # A watcher that ends while the smoke holds a key: who holds it can no longer be told, so nothing is let go of.
   $run = Invoke-Run 'hold-dies Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
-  Check "a watcher that ends with no person come leaves its list to be let go of (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+  $leftDown = [F24State]::Down()
+  [void][F24Send]::Key($true, 0)
+  Check "a watcher that ends mid-hold lets go of nothing (exit $($run.Code), F24 left down: $leftDown)" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and $leftDown -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended*') $run.Said
 
   # On demand the watcher is kept too: one that ends stops the run.
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' -Pauses @('Bosun.Panel.E2E.Alpha 60')
