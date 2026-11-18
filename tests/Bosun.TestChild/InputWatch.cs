@@ -55,6 +55,8 @@ static class InputWatch
             }
             return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
         };
+        // The first record before the hooks: once they are in, nothing on this thread may wait on the disk.
+        Write(null, "");
         var module = GetModuleHandle(null);
         var keys = SetWindowsHookEx(WH_KEYBOARD_LL, _keys, module, 0);
         var mouse = SetWindowsHookEx(WH_MOUSE_LL, _mouse, module, 0);
@@ -65,7 +67,6 @@ static class InputWatch
         }
         // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
         // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
-        Write(null, "");
         new Thread(Writer) { IsBackground = true, Name = "watch-input writer" }.Start();
         // A person stood in for: each "person" line on stdin is one input not marked injected.
         new Thread(() =>

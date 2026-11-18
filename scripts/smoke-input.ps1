@@ -41,7 +41,8 @@ param(
     # How the run was started, kept in its record: 'task' from the nightly task, else 'shell'.
     [ValidateSet('shell', 'task')][string]$Invocation = 'shell',
     [int]$IdleMinutes = 15,
-    # Local time the scheduled run must end by; the window's close (06:00) today when not given.
+    # Local time the scheduled run must end by: the window's close (06:00) today, or sooner when given. For the script's
+    # own tests, with -TestProbes, it places the window (the three hours before it), so they can run at any hour.
     [string]$Deadline = '',
     # For this script's own tests: stand-ins for dotnet and the input watcher, and the lock and idle probes read from
     # files in the state folder (probe-locked, probe-idle) instead of the desktop.
@@ -269,14 +270,21 @@ New-Item -ItemType Directory -Force -Path $results | Out-Null
 function Say([string]$line) { $line; Add-Content -LiteralPath $log -Value "$((Get-Date).ToString('HH:mm:ss')) $line" }
 $end = $null
 if ($Scheduled) {
-    $end = if ($Deadline) { [DateTime]::Parse($Deadline, [Globalization.CultureInfo]::InvariantCulture) } else { (Get-Date).Date.AddHours($WindowCloses) }
+    # The window is today's 03:00 to 06:00 whatever the caller says: a -Deadline only brings the end sooner. Only the
+    # script's own tests (-TestProbes) place the window by their deadline, so their runs can happen at any hour.
+    $closes = (Get-Date).Date.AddHours($WindowCloses)
+    $opens = (Get-Date).Date.AddHours($WindowOpens)
+    $asked = if ($Deadline) { [DateTime]::Parse($Deadline, [Globalization.CultureInfo]::InvariantCulture) } else { $null }
+    if ($TestProbes -and $asked) { $end = $asked; $opens = $asked.AddHours($WindowOpens - $WindowCloses) }
+    elseif ($asked -and $asked -lt $closes) { $end = $asked }
+    else { $end = $closes }
 }
 # The seconds left to the deadline, for a step's timeout; 0 (none) for a run on demand.
 function Remaining { if ($end) { [Math]::Max(1, [int][Math]::Ceiling(($end - (Get-Date)).TotalSeconds)) } else { 0 } }
 function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
 # The nightly window is the hours before the deadline (03:00 to 06:00): a scheduled run started earlier, by hand from
 # Task Scheduler or a clock that moved, is a night outside it.
-function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($WindowOpens - $WindowCloses) }
+function BeforeWindow { $null -ne $end -and (Get-Date) -lt $opens }
 # The watcher's record, both lines (the person's time, and what the smoke holds), as one read: $null when it cannot be
 # read. The two lines are written together, so they are of one moment.
 function Read-Watch {
@@ -349,7 +357,7 @@ function Invoke-Smoke {
 try {
     Say "Real-input smoke, $mode, started"
     if (PastDeadline) { Finish 'stopped-deadline' "it began after its deadline, $($end.ToString('HH:mm'))" 1; return }
-    if (BeforeWindow) { Finish 'skipped-outside-window' "it started at $((Get-Date).ToString('HH:mm')), before the window that opens at $($end.AddHours($WindowOpens - $WindowCloses).ToString('HH:mm'))" 0; return }
+    if (BeforeWindow) { Finish 'skipped-outside-window' "it started at $((Get-Date).ToString('HH:mm')), before the window that opens at $($opens.ToString('HH:mm'))" 0; return }
 
     # The desktop lock, held to the end: a smoke or capture started meanwhile waits for this run, and this run's own
     # classes work under its hold (BOSUN_DESKTOP_HELD), never waiting on it.

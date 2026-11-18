@@ -231,6 +231,20 @@ try {
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
   Check "a scheduled run started before its window is skipped (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
+  # A deadline never moves the window: outside the script's own tests, a scheduled run in the day is refused before it
+  # touches the desk, whatever -Deadline it is given. (Between 03:00 and 06:00 the real window is open, so it is not
+  # checked then.)
+  $hour = (Get-Date).Hour
+  if ($hour -lt 3 -or $hour -ge 6) {
+    $state = Join-Path $dir 'state-daytime'
+    New-Item -ItemType Directory -Force -Path $state | Out-Null
+    $env:BOSUN_DESKTOP_LOCK = $lockName
+    try { $said = & $shell -NoProfile -File $script -Scheduled -Deadline (Get-Date).AddHours(1).ToString('s') -StateFolder $state -Dotnet (Join-Path $fakes 'dotnet.cmd') -Watcher (Join-Path $fakes 'watcher.cmd') -NoQueue 2>&1 | Out-String; $code = $LASTEXITCODE }
+    finally { Remove-Item Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore }
+    $last = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })[-1]
+    Check "a daytime -Deadline does not open the window (exit $code, $($last.outcome))" ($last.outcome -in 'stopped-deadline', 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $state 'classes.txt'))) $said
+  }
+
   # Finding the tests keeps the deadline too.
   $run = Invoke-Run 'list-stall' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(15).ToString('s'))
   Check "discovery that stalls past the deadline is ended and recorded (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'stopped-deadline' -and "$($run.Last.reason)" -like '*finding the tests*') $run.Said
