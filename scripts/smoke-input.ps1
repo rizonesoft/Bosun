@@ -396,6 +396,8 @@ try {
     $personName = "Local\bosun-smoke-person-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
     $personSeen = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $personName)
     $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile); $info.ArgumentList.Add($personName)
+    # The nightly run is guarded: once a person comes, the watcher's hook stops every new press the smoke sends.
+    if ($Scheduled) { $info.ArgumentList.Add('guard') }
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
     $watch = [Diagnostics.Process]::Start($info)
     # Stdin stays open: the runner asks the watcher to let go of what the smoke holds on it.

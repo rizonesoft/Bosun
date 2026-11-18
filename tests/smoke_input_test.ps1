@@ -268,6 +268,20 @@ try {
         [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
         Check "a test's own release of a key a person holds is stopped in the hook" ([F24State]::Down())
       } finally { [void][F24Send]::Key($true, 0) }
+      if (-not $real.HasExited) { $real.Kill($true) }
+      # Guarded (the nightly run), once a person has come no new press of the smoke's passes: a person's F24 down, the
+      # smoke's down and up after it, and the person's key is still down (unguarded, the smoke's up would let it go).
+      $info = [System.Diagnostics.ProcessStartInfo]::new($watcherExe)
+      $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add((Join-Path $dir 'watch-guard.txt')); $info.ArgumentList.Add($eventName); $info.ArgumentList.Add('guard')
+      $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
+      $real = [System.Diagnostics.Process]::Start($info); $started.Add($real)
+      [void]$real.StandardOutput.ReadLine()
+      try {
+        [void][F24Send]::Key($false, 0); Start-Sleep -Milliseconds 200
+        [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
+        [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
+        Check "guarded, the smoke's press after a person's is stopped, and so its release" ([F24State]::Down())
+      } finally { [void][F24Send]::Key($true, 0) }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }
       $seen.Dispose()

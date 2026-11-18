@@ -20,7 +20,8 @@ using System.Text.Json;
 //                               wait for a file `release` (at most 60 s), release it and write `released`
 //   probe-desktop <name>        write `taken` or `free` to `probe`: whether the lock is held elsewhere at this moment
 //   watch-input <file> [event]  write the time of the latest input not the smoke's own (a person) to <file>, and set the
-//                               named event [event] the moment one comes
+//                               named event [event] the moment one comes; with "guard", once a person has come, no new
+//                               press of the smoke's passes (the nightly run)
 //                               while it runs, four hours at most; a "person" line on stdin stands in for one (§12)
 //
 // `beat` writes at most 100 lines (ten seconds) and exits, so a grandchild nothing stops still ends.
@@ -180,7 +181,7 @@ switch (args[0])
         File.WriteAllText("released", "");
         return 0;
     case "watch-input":
-        return Bosun.TestChild.InputWatch.Run(args[1], args.Length > 2 ? args[2] : null);
+        return Bosun.TestChild.InputWatch.Run(args[1], args.Length > 2 ? args[2] : null, args.Length > 3 && args[3] == "guard");
     case "probe-desktop":
         File.WriteAllText("probe", Probe(args[1]));
         return 0;

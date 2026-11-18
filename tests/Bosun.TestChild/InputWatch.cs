@@ -29,6 +29,7 @@ static class InputWatch
     private static DateTime _latest = DateTime.MinValue;
     private static readonly AutoResetEvent Wake = new(false);
     private static EventWaitHandle? _person;
+    private static bool _guard, _personCame;   // under Gate
     private static readonly object Gate = new();
     private static readonly SortedSet<int> SmokeHeld = [];   // under Gate: the hooks change it, the writer reads it
     private const uint WM_KEYDOWN = 0x100, WM_KEYUP = 0x101, WM_SYSKEYDOWN = 0x104, WM_SYSKEYUP = 0x105,
@@ -37,8 +38,11 @@ static class InputWatch
 
     /// <param name="person">A named event (manual reset) set the moment a person's input comes, inside the hook: a kernel
     /// object, so the runner hears of a person at once, whatever the disk is doing with the record.</param>
-    public static int Run(string file, string? person = null)
+    /// <param name="guard">The nightly run: once a person has come, the hook stops every new press the smoke sends (its
+    /// releases of keys it already holds still pass), so the smoke never takes a key or button the person is using.</param>
+    public static int Run(string file, string? person = null, bool guard = false)
     {
+        _guard = guard;
         _person = person is null ? null : new EventWaitHandle(false, EventResetMode.ManualReset, person);
         _file = Path.GetFullPath(file);
         var thread = GetCurrentThreadId();
@@ -131,8 +135,10 @@ static class InputWatch
         lock (Gate)
         {
             if (smoke && up && key != 0 && !SmokeHeld.Contains(key)) return true;
+            // Guarded, after a person: no new press of the smoke's gets through, whatever the runner has not yet stopped.
+            if (smoke && down && _guard && _personCame) return true;
             var changed = false;
-            if (!smoke) { _latest = DateTime.UtcNow; changed = true; _person?.Set(); }
+            if (!smoke) { _latest = DateTime.UtcNow; changed = true; _personCame = true; _person?.Set(); }
             if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);
             if (changed) Wake.Set();
             return false;
