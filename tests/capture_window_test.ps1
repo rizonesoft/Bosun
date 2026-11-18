@@ -44,14 +44,31 @@ function Start-Child([string[]]$Arguments, [hashtable]$Environment = @{}) {
   foreach ($key in $Environment.Keys) { $info.Environment[$key] = $Environment[$key] }
   $process = [System.Diagnostics.Process]::Start($info)
   $process | Add-Member -NotePropertyName Out -NotePropertyValue $process.StandardOutput.ReadToEndAsync()
-  $process | Add-Member -NotePropertyName Err -NotePropertyValue $process.StandardError.ReadToEndAsync()
+  # Stderr is read a line at a time, so a test can wait for what a child says while it runs (its waiting line).
+  $process | Add-Member -NotePropertyName ErrLines -NotePropertyValue ([System.Collections.Generic.List[string]]::new())
+  $process | Add-Member -NotePropertyName ErrNext -NotePropertyValue $process.StandardError.ReadLineAsync()
   $started.Add($process)
   return $process
+}
+# Collect the stderr lines a child has written by now; $true once its stderr has ended.
+function Read-ErrLines($Process, [int]$Milliseconds = 0) {
+  while ($Process.ErrNext -and $Process.ErrNext.Wait($Milliseconds)) {
+    $line = $Process.ErrNext.Result
+    if ($null -eq $line) { $Process.ErrNext = $null; break }
+    $Process.ErrLines.Add($line)
+    $Process.ErrNext = $Process.StandardError.ReadLineAsync()
+  }
+  return $null -eq $Process.ErrNext
+}
+# Wait until a child's stderr holds a line like <Pattern>.
+function Wait-Said($Process, [string]$Pattern, [string]$What, [int]$Seconds = 30) {
+  Wait-Until { $null = Read-ErrLines $Process; @($Process.ErrLines | Where-Object { $_ -like $Pattern }).Count -gt 0 } $What $Seconds
 }
 function Wait-Child($Process, [int]$Seconds = 60) {
   if (-not $Process.WaitForExit($Seconds * 1000)) { throw "a child ($($Process.Id)) didn't end within $Seconds s" }
   $Process.WaitForExit()
-  return [pscustomobject]@{ Code = $Process.ExitCode; Said = $Process.Out.Result + $Process.Err.Result }
+  while (-not (Read-ErrLines $Process 1000)) { }
+  return [pscustomobject]@{ Code = $Process.ExitCode; Said = $Process.Out.Result + ($Process.ErrLines -join "`n") }
 }
 function Wait-Until([scriptblock]$Probe, [string]$What, [int]$Seconds = 30) {
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -123,10 +140,19 @@ try {
   $first = Start-Capture (Join-Path $dir 'c.png') $lockEnv 20
   Wait-Until { [Bosun.Desktop.DesktopLock]::Describe($name, $folder) -like "pid $($first.Id) *" } 'the capture to record itself'
   $second = Start-Capture (Join-Path $dir 'd.png') ($lockEnv + @{ BOSUN_DESKTOP_WAIT_S = '40' }) 1
-  Start-Sleep -Seconds 3   # the second reaches its wait: pwsh's start and the lock's Add-Type take about 1.5 s
+  Wait-Said $second '*waiting up to 40 s*' 'the second capture to say it waits'   # it is in its wait, not its start
   & taskkill.exe /T /F /PID $first.Id *> $null
   $two = Wait-Child $second
   Check "a capture killed holding the lock hands it to the one waiting (exit $($two.Code))" ($two.Code -eq 1 -and $two.Said -like "*held by pid $($first.Id) (*" -and $two.Said -like '*no window appeared*')
+
+  # Two captures to one file: the second waits on the desktop's bound, not the pair's 30 s, and is told the holder,
+  # since the desktop lock comes before the pair (completion review).
+  $first = Start-Capture (Join-Path $dir 'same.png') $lockEnv 8
+  Wait-Until { [Bosun.Desktop.DesktopLock]::Describe($name, $folder) -like "pid $($first.Id) *" } 'the capture to record itself'
+  $clock = [System.Diagnostics.Stopwatch]::StartNew()
+  $run = Wait-Child (Start-Capture (Join-Path $dir 'same.png') ($lockEnv + @{ BOSUN_DESKTOP_WAIT_S = '1' }) 1)
+  Check "a second capture to the same file exits 4 at the desktop's 1 s, naming the holder (exit $($run.Code), $([Math]::Round($clock.Elapsed.TotalSeconds, 1)) s)" ($run.Code -eq 4 -and $run.Said -like "*held by pid $($first.Id) (capture-window.ps1)*" -and $clock.Elapsed.TotalSeconds -lt 15) $run.Said
+  $null = Wait-Child $first
 
   # A wait that runs out exits 4, naming the holder, with nothing launched.
   $holder = Start-Holder $name (Join-Path $dir 'h1')
@@ -207,12 +233,17 @@ try {
     $env:BOSUN_DESKTOP_LOCK = $name
     $env:BOSUN_DESKTOP_WAIT_S = '120'
     [void]$ps.AddCommand($script).AddParameter('Path', $shell).AddParameter('LaunchArgs', '-NoProfile -Command Start-Sleep 30').AddParameter('NoNewWindow').AddParameter('WaitSeconds', 1).AddParameter('Out', $stopOut)
-    $async = $ps.BeginInvoke()
-    # It takes its pair (Local\BosunCapturePair-<key>, Enter-PairLock) just before the desktop lock, which a holder
-    # has: once the pair is taken it is waiting, so the stop lands in the wait, not in its start (round 3).
-    $key = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes([System.IO.Path]::GetFullPath($stopOut).ToLowerInvariant()))).Replace('-', '').Substring(0, 32)
-    Wait-Until { Test-Taken "BosunCapturePair-$key" } 'the stopped capture to take its pair'
-    Start-Sleep -Milliseconds 500   # from its pair, through recovery and the lock's Add-Type (already loaded here), to the wait
+    # The capture runs in this process, so its waiting line goes to this process's error stream: caught here, it says
+    # the capture is in its wait, so the stop lands there and not in its start (round 3, completion review).
+    $heard = [System.IO.StringWriter]::new()   # read through the synchronized writer below, which has no text of its own
+    $consoleError = [Console]::Error
+    [Console]::SetError([System.IO.TextWriter]::Synchronized($heard))
+    try {
+      $async = $ps.BeginInvoke()
+      Wait-Until { $heard.ToString() -like '*waiting up to 120 s*' } 'the stopped capture to say it waits'
+    } finally {
+      [Console]::SetError($consoleError)
+    }
     Check 'the capture is still waiting for the lock when it is stopped' (-not $async.IsCompleted)
     $clock.Restart()
     $ps.Stop()
@@ -224,7 +255,7 @@ try {
   New-Item -ItemType File -Path (Join-Path $dir 'h6\release') | Out-Null
   $null = Wait-Child $holder
   $run = Wait-Child (Start-Capture $stopOut $lockEnv 1)
-  Check "and its pair was released: the same file captures next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Said -like '*no window appeared*') $run.Said
+  Check "and nothing it took stays held: the same file captures next (exit $($run.Code))" ($run.Code -eq 1 -and $run.Said -like '*no window appeared*') $run.Said
 
   # The help says what the lock is, where its record is and what exit 4 means.
   $help = Get-Help $script -Full | Out-String

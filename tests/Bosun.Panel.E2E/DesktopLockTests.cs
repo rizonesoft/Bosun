@@ -284,6 +284,71 @@ public class DesktopLockTests
         Assert.Equal(TimeSpan.FromSeconds(86400), DesktopLock.ParseWait("86400"));
         Assert.Equal(TimeSpan.FromSeconds(900), DesktopLock.ParseWait(null));
         Assert.Equal(TimeSpan.FromSeconds(900), DesktopLock.ParseWait(""));
+        // Leading zeros are the same number (completion review).
+        Assert.Equal(TimeSpan.FromSeconds(1), DesktopLock.ParseWait("000001"));
+        Assert.Equal(TimeSpan.Zero, DesktopLock.ParseWait("00000"));
+        Assert.Equal(TimeSpan.FromSeconds(86400), DesktopLock.ParseWait("0086400"));
+        Assert.Throws<DesktopLockException>(() => DesktopLock.ParseWait("0086401"));
+    }
+
+    [Fact]
+    public void A_record_without_a_label_names_no_holder_and_grants_no_hold()
+    {
+        // A live identity is not enough: a record missing its label is not a whole one (completion review). The
+        // hold is checked against this process's real parent, which is alive and an ancestor, so the one thing
+        // that differs between the refused and the granted case is the label.
+        var (name, folder) = (Name(), Folder());
+        var path = DesktopLock.RecordPath(name, folder);
+        using var me = Process.GetCurrentProcess();
+        var parent = DesktopLock.ParentOf(me.Id)!.Value;
+        var parentStart = DesktopLock.StartOf(parent)!.Value;
+        var earlier = Environment.GetEnvironmentVariable(DesktopLock.HeldVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(DesktopLock.HeldVariable, DesktopLock.HeldValue(name, parent, parentStart));
+            foreach (var label in new[] { "", ",\"command\":5", ",\"command\":\"\"", ",\"command\":\"  \"" })
+            {
+                File.WriteAllText(path, $"{{\"schema_version\":1,\"pid\":{parent},\"process_start\":{parentStart}{label}}}");
+                Assert.Equal(DesktopLock.Unnamed, DesktopLock.Describe(name, folder));
+                Assert.False(DesktopLock.InheritsHold(name, folder), "no hold from a record without a label: " + label);
+            }
+            File.WriteAllText(path, $"{{\"schema_version\":1,\"pid\":{parent},\"process_start\":{parentStart},\"command\":\"parent\"}}");
+            Assert.StartsWith($"pid {parent} (parent), started ", DesktopLock.Describe(name, folder));
+            Assert.True(DesktopLock.InheritsHold(name, folder), "the same record with its label grants the hold");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(DesktopLock.HeldVariable, earlier);
+        }
+    }
+
+    [Fact]
+    public async Task A_reader_holding_the_record_across_a_handover_doesn_t_stop_the_successor_publishing()
+    {
+        // Another process with the record open, sharing neither write nor delete (an editor, a scanner): the holder's
+        // removal fails and says so, and the successor's replacement waits it out (completion review).
+        var (name, folder) = (Name(), Folder());
+        var path = DesktopLock.RecordPath(name, folder);
+        var said = new StringWriter();
+        var first = DesktopLock.Acquire(name, folder, TimeSpan.Zero, errors: said);
+        var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        first.Dispose();
+        Assert.Contains("couldn't be removed", said.ToString());
+        var closing = Task.Run(async () => { await Task.Delay(300); reader.Dispose(); }, TestContext.Current.CancellationToken);
+        using (var successor = DesktopLock.Acquire(name, folder, TimeSpan.Zero, errors: said, label: "successor"))
+        {
+            Assert.True(successor.Published, "the successor published once the reader let go: " + said);
+            Assert.Equal("successor", Record(path).Command);
+        }
+        await closing;
+        // Our own reads share delete and write, so they never stand in the way at all.
+        var second = DesktopLock.Acquire(name, folder, TimeSpan.Zero);
+        using (var shared = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            Assert.NotEqual(DesktopLock.Unnamed, DesktopLock.Describe(name, folder));
+            second.Dispose();
+            Assert.False(File.Exists(path));
+        }
     }
 
     [Theory]

@@ -91,11 +91,14 @@ namespace Bosun.Desktop
             {
                 if (c < '0' || c > '9') throw new DesktopLockException($"{WaitVariable} is '{value}'; it takes a whole number of seconds from 0 to {MostWaitSeconds}");
             }
-            if (value.Length > 5 || int.Parse(value, CultureInfo.InvariantCulture) > MostWaitSeconds)
+            // Leading zeros are the same number (000001 is one second); only the digits after them can overflow.
+            var digits = value.TrimStart('0');
+            if (digits.Length == 0) return TimeSpan.Zero;
+            if (digits.Length > 5 || int.Parse(digits, CultureInfo.InvariantCulture) > MostWaitSeconds)
             {
                 throw new DesktopLockException($"{WaitVariable} is '{value}'; it takes a whole number of seconds from 0 to {MostWaitSeconds}");
             }
-            return TimeSpan.FromSeconds(int.Parse(value, CultureInfo.InvariantCulture));
+            return TimeSpan.FromSeconds(int.Parse(digits, CultureInfo.InvariantCulture));
         }
 
         /// <summary>Where this logon session's records go: <c>%LOCALAPPDATA%\Bosun\run\&lt;session&gt;\desktop</c>.</summary>
@@ -206,19 +209,30 @@ namespace Bosun.Desktop
             public string Command = "";
         }
 
-        /// <summary>The record, or null when it is missing, unreadable or not one.</summary>
+        /// <summary>
+        /// The record, or null when it is missing, unreadable, larger than a record can be, or not a whole one (a
+        /// label is part of it). It is opened sharing read, write and delete, so a reader never stops a holder
+        /// removing its record or a successor replacing it.
+        /// </summary>
         internal static Record? ReadRecord(string path)
         {
             try
             {
-                using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+                byte[] bytes;
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                {
+                    if (file.Length > 64 * 1024) return null;
+                    bytes = new byte[file.Length];
+                    file.ReadExactly(bytes);
+                }
+                using var document = JsonDocument.Parse(bytes);
                 var root = document.RootElement;
                 if (root.ValueKind != JsonValueKind.Object) return null;
                 if (!root.TryGetProperty("schema_version", out var version) || version.ValueKind != JsonValueKind.Number || version.GetInt32() != 1) return null;
                 if (!root.TryGetProperty("pid", out var pid) || pid.ValueKind != JsonValueKind.Number) return null;
                 if (!root.TryGetProperty("process_start", out var start) || start.ValueKind != JsonValueKind.Number) return null;
-                var command = root.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : "";
-                return new Record { Pid = pid.GetInt32(), ProcessStart = start.GetUInt64(), Command = command };
+                if (!root.TryGetProperty("command", out var c) || c.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(c.GetString())) return null;
+                return new Record { Pid = pid.GetInt32(), ProcessStart = start.GetUInt64(), Command = c.GetString()! };
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or FormatException or InvalidOperationException or ArgumentException)
             {
@@ -242,6 +256,9 @@ namespace Bosun.Desktop
             }
             return false;
         }
+
+        /// <summary>The id of the process that started <paramref name="pid"/>, or null when it isn't running.</summary>
+        public static int? ParentOf(int pid) => ParentsByPid().TryGetValue(pid, out var parent) ? parent : null;
 
         private static Dictionary<int, int> ParentsByPid()
         {
@@ -398,6 +415,27 @@ namespace Bosun.Desktop
         /// <summary>What this holder hands its children in <c>BOSUN_DESKTOP_HELD</c>.</summary>
         public string HeldValue => DesktopLock.HeldValue(Name, Pid, ProcessStart);
 
+        /// <summary>
+        /// The temporary file over the record, retried for a second while another process holds the old one open
+        /// without sharing its deletion (an editor, a virus scanner), as the queue's records are (src/app.cpp).
+        /// </summary>
+        private void Replace(string temporary)
+        {
+            var waited = Stopwatch.StartNew();
+            while (true)
+            {
+                try
+                {
+                    File.Move(temporary, RecordPath, overwrite: true);
+                    return;
+                }
+                catch (Exception e) when ((e is IOException or UnauthorizedAccessException) && waited.ElapsedMilliseconds < 1000)
+                {
+                    Thread.Sleep(50);
+                }
+            }
+        }
+
         internal void Publish()
         {
             var temporary = RecordPath + "." + Pid.ToString(CultureInfo.InvariantCulture) + ".tmp";
@@ -419,7 +457,7 @@ namespace Bosun.Desktop
                     }
                     File.WriteAllBytes(temporary, stream.ToArray());
                 }
-                File.Move(temporary, RecordPath, overwrite: true);
+                Replace(temporary);
                 Published = true;
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)

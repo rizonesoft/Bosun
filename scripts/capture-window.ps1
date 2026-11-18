@@ -739,59 +739,43 @@ if ($clash) {
     Write-Host "capture-window: refused: $clash" -ForegroundColor Red
     exit 2
 }
-try {
-    $script:PairLock = Enter-PairLock ([System.IO.Path]::GetFullPath($Out))
-} catch {
-    Write-Host "capture-window: refused: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
-}
-$script:DesktopHolder = $null   # the desktop lock, once taken below (D02 T02 §11); the finally at the end releases it
-function Exit-Capture([int]$Code) {
-    # The finally below releases the pair on this way out as on every other.
-    exit $Code
-}
-# Everything from here to the end holds the pair, and the finally at the end
-# releases it however the script stops: an exit, an error, or Ctrl+C, which
-# stops the pipeline without taking any exit path. Run with & in a shell
-# that stays open, the thread that owns the mutex lives on, so nothing but
-# this release frees the pair.
-try {
-$recovered = Restore-Pair ([System.IO.Path]::GetFullPath($Out)) ([System.IO.Path]::ChangeExtension([System.IO.Path]::GetFullPath($Out), '.txt'))
-if ($recovered) { Write-Host "capture-window: $recovered ($Out)" -ForegroundColor Yellow }
-
 # Neither given means "enumerate every window and take the first", which can
 # foreground and save an unrelated application. Refused before anything is
-# enumerated.
+# enumerated, and before any lock is taken.
 if (-not $Path -and -not $WindowTitle -and -not $ProcessId) {
     Write-Host "capture-window: give -Path, -WindowTitle, -ProcessId, or a combination." -ForegroundColor Red
     Write-Host "  Without a target this would capture whichever window came first." -ForegroundColor Red
-    Exit-Capture 2
+    exit 2
 }
 
 # One desktop owner at a time (D02 T02 §11): a capture takes the foreground, so it holds the lock the end-to-end
-# smoke holds, from before the launch or attach to after the teardown (the finally at the end releases it). A
-# capture the smoke starts works under the smoke's hold (BOSUN_DESKTOP_HELD); any other waits, says whom for, and
-# at the bound exits 4 with nothing launched. The rules live in one source, scripts/lib/DesktopLock.cs.
+# smoke holds, from before its pair to after its teardown (the finally at the end releases it). It comes before the
+# pair, so two captures to one file wait on the desktop's bound and are told its holder, and a capture waiting for
+# a smoke never sits on a pair that smoke's own capture needs. A capture the smoke starts works under the smoke's
+# hold (BOSUN_DESKTOP_HELD); any other waits, says whom for, and at the bound exits 4 with nothing launched. The
+# rules live in one source, scripts/lib/DesktopLock.cs.
 if (-not ('Bosun.Desktop.DesktopLock' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'lib\DesktopLock.cs') }
 $desktopFolder = [Bosun.Desktop.DesktopLock]::RecordFolder()
 try {
     $desktop = [Bosun.Desktop.DesktopSettings]::FromEnvironment()
 } catch {
     Write-Host "capture-window: refused: $(($_.Exception.InnerException ?? $_.Exception).Message)" -ForegroundColor Red
-    Exit-Capture 2
+    exit 2
 }
+$script:DesktopHolder = $null   # the desktop lock, once taken; the finally at the end releases it
 if (-not [Bosun.Desktop.DesktopLock]::InheritsHold($desktop.Name, $desktopFolder)) {
     # In attempts of a quarter second, not one long wait: Ctrl+C (or a runspace's Stop) acts only between calls, and
-    # this must stay stoppable, its pair released, for as long as it waits. One waiter, one handle, from the first
-    # attempt to the last, so a holder that dies meanwhile leaves the lock abandoned for this one to take.
+    # this must stay stoppable for as long as it waits. One waiter, one handle, from the first attempt to the last,
+    # so a holder that dies meanwhile leaves the lock abandoned for this one to take. The bound is measured on a
+    # monotonic clock, so a correction of the system clock can't stretch or cut it.
     $waiter = [Bosun.Desktop.DesktopWaiter]::new($desktop.Name, $desktopFolder, 'capture-window.ps1', $null)
     try {
         $script:DesktopHolder = $waiter.TryTake([TimeSpan]::Zero)
         if (-not $script:DesktopHolder -and $desktop.Wait -gt [TimeSpan]::Zero) {
             [Console]::Error.WriteLine("capture-window: $([Bosun.Desktop.DesktopLock]::WaitingMessage($desktop.Name, $desktopFolder, $desktop.Wait))")
-            $deadline = [DateTime]::UtcNow + $desktop.Wait
-            while (-not $script:DesktopHolder -and [DateTime]::UtcNow -lt $deadline) {
-                $slice = [TimeSpan]::FromMilliseconds([Math]::Min(250, [Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)))
+            $waited = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $script:DesktopHolder -and $waited.Elapsed -lt $desktop.Wait) {
+                $slice = [TimeSpan]::FromMilliseconds([Math]::Min(250, [Math]::Max(1, ($desktop.Wait - $waited.Elapsed).TotalMilliseconds)))
                 $script:DesktopHolder = $waiter.TryTake($slice)
             }
         }
@@ -800,9 +784,29 @@ if (-not [Bosun.Desktop.DesktopLock]::InheritsHold($desktop.Name, $desktopFolder
     }
     if (-not $script:DesktopHolder) {
         Write-Host "capture-window: refused: $([Bosun.Desktop.DesktopLock]::RefusedMessage($desktop.Name, $desktopFolder, $desktop.Wait))" -ForegroundColor Red
-        Exit-Capture 4
+        exit 4
     }
 }
+
+try {
+    $script:PairLock = Enter-PairLock ([System.IO.Path]::GetFullPath($Out))
+} catch {
+    Write-Host "capture-window: refused: $($_.Exception.Message)" -ForegroundColor Red
+    if ($script:DesktopHolder) { $script:DesktopHolder.Dispose(); $script:DesktopHolder = $null }
+    exit 1
+}
+function Exit-Capture([int]$Code) {
+    # The finally below releases the pair and the desktop on this way out as on every other.
+    exit $Code
+}
+# Everything from here to the end holds the pair and the desktop, and the finally
+# at the end releases them however the script stops: an exit, an error, or
+# Ctrl+C, which stops the pipeline without taking any exit path. Run with & in a
+# shell that stays open, the thread that owns the mutexes lives on, so nothing
+# but this release frees them.
+try {
+$recovered = Restore-Pair ([System.IO.Path]::GetFullPath($Out)) ([System.IO.Path]::ChangeExtension([System.IO.Path]::GetFullPath($Out), '.txt'))
+if ($recovered) { Write-Host "capture-window: $recovered ($Out)" -ForegroundColor Yellow }
 
 Add-Type -AssemblyName System.Drawing
 
