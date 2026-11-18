@@ -297,6 +297,8 @@ A long toast is cut off with no way to read the rest, and the palette's search b
 
 ## 8. Memory page scroll gutter and the Decision evidence list
 
+> **Started:** 2026-11-18T04:01:00Z
+
 The Memory page's scroll bar sits on the cards' right border, and the Decision card's evidence is loose lower-case fragments. The scroll bar has its own gutter, and the evidence is a labelled list.
 
 **Phase:** 3
