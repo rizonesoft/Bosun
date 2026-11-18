@@ -71,6 +71,9 @@ if ($StepFile) {
     # passed here because `dotnet build` overrides a limit in Directory.Build.rsp.
     New-Step 'dotnet-build' 'dotnet' @('build', 'Bosun.slnx', '-nologo', '-maxCpuCount:2') -Queue
     New-Step 'dotnet-tests' 'dotnet' @('test', '--solution', 'Bosun.slnx', '--no-build') -Queue
+    # The end-to-end smoke sits outside the solution (it is never run here), but is built: tests/smoke_input_test.ps1
+    # runs one of its fixture tests, which sends no input, under a holder's lock (D02 T02 §12).
+    New-Step 'smoke-build' 'dotnet' @('build', 'tests/Bosun.Panel.E2E', '-nologo', '-maxCpuCount:2') -Queue
   )
   foreach ($test in Get-ChildItem -LiteralPath (Join-Path $repo 'tests') -Filter '*_test.ps1' | Sort-Object Name) {
     if ($test.Name -in $NeedsWsl -and -not $Wsl) { continue }

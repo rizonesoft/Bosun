@@ -26,7 +26,7 @@ $state = $env:STANDIN_STATE
 $mode = (Get-Content -LiteralPath (Join-Path $state 'mode.txt') -Raw).Trim()
 $word, $which = $mode -split ' ', 2
 $tests = @(Get-Content -LiteralPath (Join-Path $state 'tests.txt') | Where-Object { $_.Trim() })
-if ($args[0] -eq 'build') { if ($word -eq 'build-fails') { 'error: the build broke'; exit 1 }; 'Build succeeded.'; exit 0 }
+if ($args[0] -eq 'build') { Set-Content -LiteralPath (Join-Path $state 'build-args.txt') -Value ($args -join ' '); if ($word -eq 'build-fails') { 'error: the build broke'; exit 1 }; 'Build succeeded.'; exit 0 }
 if ($args -contains '--list-tests') {
   if ($word -eq 'none') { $tests = @() }
   if ($word -eq 'list-stall') { Start-Sleep 120 }
@@ -108,6 +108,8 @@ try {
   # A complete run: every test found ran once and passed, one class at a time.
   $run = Invoke-Run 'pass'
   Check "a complete run is passed with exit 0 ($($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'passed' -and $run.Last.passed -eq 5 -and $run.Last.discovered -eq 5 -and $run.Last.mode -eq 'manual') $run.Said
+  # The stand-in is a PowerShell script, whose -File parsing splits "-maxCpuCount:2" in two: either form is the limit.
+  Check 'the build is the two-node build the gate uses' ((Get-Content -LiteralPath (Join-Path $run.State 'build-args.txt') -Raw) -match 'build .*Bosun\.Panel\.E2E.* -maxCpuCount[: ]2')
   Check 'each class ran once, in turn' ((Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')) -join ',' -eq 'Bosun.Panel.E2E.Alpha,Bosun.Panel.E2E.Beta,Bosun.Panel.E2E.Gamma') $run.Said
 
   # Whatever keeps a run from being whole fails it, with the names and exit 1.

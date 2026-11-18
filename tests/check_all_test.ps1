@@ -185,7 +185,7 @@ try {
   # The heavy steps wait their turn through `bosun run --`, and -List says which: a step that lost its -Queue would
   # build or test beside another repository's job.
   $queued = @($real -split "`r?`n" | Where-Object { $_ -match '^[\w:-]+: \[queued\] ' } | ForEach-Object { ($_ -split ': ')[0] })
-  Check 'the build, the .NET build and tests and the Python tests are queued, and nothing else' (($queued -join ',') -eq 'build,dotnet-build,dotnet-tests,python-tests') "(queued: $($queued -join ', '))"
+  Check 'the build, the .NET builds and tests and the Python tests are queued, and nothing else' (($queued -join ',') -eq 'build,dotnet-build,dotnet-tests,smoke-build,python-tests') "(queued: $($queued -join ', '))"
   Check 'the .NET steps build the solution once and test what was built' ($real -match '(?m)^dotnet-build: \[queued\] dotnet build Bosun\.slnx -nologo -maxCpuCount:2\r?$' -and $real -match '(?m)^dotnet-tests: \[queued\] dotnet test --solution Bosun\.slnx --no-build')
 
   # CI runs every PowerShell test the gate runs, and the two native checks after its build.

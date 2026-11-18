@@ -251,7 +251,11 @@ try {
     # The watcher, from the start: a person's input from now on is told from the smoke's own by Windows' mark.
     $watcherExe = if ($Watcher) { $Watcher } else { Join-Path $repo 'build\dotnet\bin\Bosun.TestChild\debug\Bosun.TestChild.exe' }
 
-    $build = Measure-Job -FilePath $Dotnet -ArgumentList @('build', $project, '-nologo') -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds (Remaining)
+    # A full build is a heavy job: it waits its turn in the Bosun queue when there is one, and uses the two nodes the
+    # gate and CI build with (docs/build-performance.md). Its wait counts against the deadline.
+    $buildArgs = @('build', $project, '-nologo', '-maxCpuCount:2')
+    $queued = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
+    $build = Measure-Job -FilePath $(if ($queued) { 'bosun' } else { $Dotnet }) -ArgumentList $(if ($queued) { @('run', '--', $Dotnet) + $buildArgs } else { $buildArgs }) -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds (Remaining)
     if ($build.TimedOut) { Finish 'stopped-deadline' 'the build ran into 05:00' 1; return }
     if ($build.ExitCode -ne 0) { Finish 'failed' "the build failed (exit $($build.ExitCode)); see $(Join-Path $results 'build.log')" 1; return }
 
