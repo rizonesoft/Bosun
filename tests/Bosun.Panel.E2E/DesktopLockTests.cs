@@ -290,6 +290,10 @@ public class DesktopLockTests
     [InlineData("Bosun.Desktop")]
     [InlineData("bosun desktop")]
     [InlineData("a/b")]
+    [InlineData("nul")]
+    [InlineData("con")]
+    [InlineData("com1")]
+    [InlineData("lpt9")]
     public void A_lock_name_outside_lower_case_digits_and_hyphens_is_refused(string value)
     {
         Assert.Contains(DesktopLock.LockVariable, Assert.Throws<DesktopLockException>(() => DesktopLock.ParseName(value)).Message);

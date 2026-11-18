@@ -53,6 +53,13 @@ namespace Bosun.Desktop
         public const int MostWaitSeconds = 86400;
         public const string Unnamed = "an unnamed holder";
 
+        private static readonly HashSet<string> ReservedNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "con", "prn", "aux", "nul",
+            "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+            "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+        };
+
         /// <summary>
         /// A name is 1 to 64 of a-z, 0-9 and '-'. Mutex names are case-sensitive and file names are not, so a name
         /// kept to lower case can't put two locks in one record file. Empty or unset is the default.
@@ -67,6 +74,11 @@ namespace Bosun.Desktop
                 {
                     throw new DesktopLockException($"{LockVariable} is '{value}'; a lock name is lower-case letters, digits and '-'");
                 }
+            }
+            // The name is the record's file name too, and Windows keeps these for devices whatever the extension.
+            if (ReservedNames.Contains(value))
+            {
+                throw new DesktopLockException($"{LockVariable} is '{value}', a name Windows keeps for a device, which can't name the lock's record");
             }
             return value;
         }
