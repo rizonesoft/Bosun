@@ -2,7 +2,7 @@
 schema_version: 1
 id: design-polish
 domain: 02-shell
-status: active
+status: done
 title: "TODO-04 -- Design polish"
 ---
 
@@ -62,7 +62,7 @@ title: "TODO-04 -- Design polish"
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [x] |
 | 7 | §7 | Expandable toasts and a clean palette search field | §1 | [x] |
 | 8 | §8 | Memory page scroll gutter and the Decision evidence list | §4 | [x] |
-| 9 | §9 | Placeholder copy, the Activity heading and the idle scroll thumb | -- | [ ] |
+| 9 | §9 | Placeholder copy, the Activity heading and the idle scroll thumb | -- | [x] |
 
 ## 1. One focus outline per control, with focus renders
 
@@ -359,9 +359,12 @@ Placeholder pages show an internal plan reference, the Activity pane has no head
 - [x] Change `src/Bosun.Panel/Shell/PlaceholderPage.cs` to show "{Title} is coming soon." over a next step, "Choose another page from the list on the left; this one arrives in a later version.", the page's purpose staying in the frame's summary above it, its `Owner` kept in the model and out of the UI; update `ShellTests` and the E2E's `RailTests`. Done when: `ShellTests` reads, for each placeholder row, the reason naming its title and the next step, and no text matching a section reference (`D\d\d T\d\d §\d`) in any render (`PageRendererTests` over the render catalogue); and `RailTests` visits Overview, Queue, Optimise and About and reads each one's summary, reason and next step on the shown window. Cheaper substitute: deleting the second line, or one copy for every page.
 - [x] Add a visible "Activity" heading (`ActivityHeading`) above the log in the pane in `src/Bosun.Panel/Shell/ShellView.xaml`, in `Section.Heading` (a level-two heading to a screen reader), and measure the pane whole in the splitter's E2E (`tests/Bosun.Panel.E2E/WindowTests.cs`), not the list plus 13 px. Done when: a `ShellTests` case finds the heading drawn above the list with `AutomationProperties.HeadingLevel` Level2, failing with the heading or its level removed; the smoke finds the element `ActivityHeading` as a heading on the shown window; the splitter keeps its 64 and 400 px limits measured on the whole pane; and at 64 px, after a restart restoring that height too, the heading and one whole log line show.
 - [x] Show the log's vertical scroll bar only when its content overflows: a `ScrollViewer.VerticalScrollBarVisibility` setter of `Auto` in the `LogBox` style, bound through its template's `ScrollViewer`, for the Activity pane and the gallery's log, the gallery's fixture five lines. Done when: `ControlStylesTests` finds the gallery's five lines all within the list and its bar collapsed; and a `ShellTests` case on the real Activity log adds lines until it overflows, finds the bar, uses it (`ScrollBar.LineUpCommand` on the bar) to reach an older line, appends a line and finds the view held where it was, returns to the end and finds the next line followed, then makes the pane tall enough to hold every line and finds the bar gone. Cheaper substitute: hiding the bar everywhere.
-- [ ] Commit: `shell: user-facing placeholders, a headed Activity pane and no idle scroll thumb`
+- [x] Commit: `shell: user-facing placeholders, a headed Activity pane and no idle scroll thumb`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ShellTests" --filter-class "*PageRendererTests"` exits 0, and the E2E smoke passes.
+
+> **Verified:** 2026-11-18 | §9 | 0f6e466dd2d1b8851d9e3ebed980cd7274a8865c
+> **Review:** `docs/reviews/d02-t04-s9.json`
 
 ## Verification
 

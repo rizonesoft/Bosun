@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T04 \u00a79",
+  "title": "Placeholder copy, the Activity heading and the idle scroll thumb",
+  "implementation_sha": "0f6e466dd2d1b8851d9e3ebed980cd7274a8865c",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s9.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-shell/D02-T04-s9.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> 879 of 879 (ShellTests, ControlStylesTests and PageRendererTests among them; every render refused a plan reference)",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> 66 of 67 at 087a2c7, the one failure (CommandPaletteE2ETests, the operator at the keyboard) passing alone; the stored-height and tray tests 2 of 2 three times after ec6996f",
+    "python scripts/ci_status.py --gate --sha 0f6e466dd2d1 -> build.yml and plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44249986452)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s9.md",
+    "verdict": "completed",
+    "candidate": "0a279b36834438b33cfbb40ef8ba0aa1cae76d2d",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "round 2 returned only a P3 (the log scroll block copied into NavList), fixed in 0a279b3 rather than filed; nothing left open",
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s9.md",
+    "candidate": "55535f87f09b59e0c05d042e464fb247c1b9e7ce",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "55535f87f09b59e0c05d042e464fb247c1b9e7ce",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
