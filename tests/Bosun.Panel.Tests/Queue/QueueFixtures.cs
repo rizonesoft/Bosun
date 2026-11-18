@@ -17,7 +17,7 @@ internal static class QueueFixtures
     internal static string Waiter(int pid, string why, string floor = "null", string repo = "\"Office\"", string command = "dotnet test") =>
         $$"""{"schema_version":1,"kind":"waiter","pid":{{pid}},"process_start":133000000001,"started_at":"2026-11-18T08:55:00Z","command":"{{command}}","repo":{{repo}},"side":"windows","session":1,"ns":"Bosun","waiting_for":{{why}},"min_avail_mb":{{floor}},"max_wait_s":3600,"state":"live","waited_s":190}""";
 
-    internal static string Free(int index) => $$"""{"index":{{index}},"busy":false,"holder":null}""";
+    internal static string Free(int index, bool above = false) => $$"""{"index":{{index}},"busy":false,{{(above ? "\"above_limit\":true," : "")}}"holder":null}""";
 
     internal static string Held(int index, string? holder, bool? busy = true, bool above = false) =>
         $$"""{"index":{{index}},"busy":{{(busy is { } b ? (b ? "true" : "false") : "null")}},{{(above ? "\"above_limit\":true," : "")}}"holder":{{holder ?? "null"}}}""";

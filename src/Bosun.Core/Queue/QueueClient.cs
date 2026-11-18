@@ -53,6 +53,12 @@ public sealed class QueueClient : IQueueSource
     /// <summary>The most of a config answer kept: a few hundred bytes.</summary>
     public const int MaxConfigBytes = 64 * 1024;
 
+    /// <summary>
+    /// The most of one job log read, from its end: a line is a few hundred bytes, so 200 jobs fit many times over, and a
+    /// large or damaged log never fills the panel's memory.
+    /// </summary>
+    public const int MaxLogTailBytes = 4 * 1024 * 1024;
+
     private readonly string? _bosun;
     private readonly string _notInstalled;
     private readonly string _logs;
@@ -174,9 +180,16 @@ public sealed class QueueClient : IQueueSource
             cancellationToken.ThrowIfCancellationRequested();
             if (jobs.Count >= count) break;
             string text;
+            var cut = false;
             try
             {
                 using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                // The newest jobs are at its end: only the last MaxLogTailBytes are read, the first line of that cut off.
+                if (stream.Length > MaxLogTailBytes)
+                {
+                    stream.Seek(-MaxLogTailBytes, SeekOrigin.End);
+                    cut = true;
+                }
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 text = reader.ReadToEnd();
             }
@@ -188,8 +201,15 @@ public sealed class QueueClient : IQueueSource
             // Only whole lines: a line still being appended has no newline yet, and is read next time.
             var end = text.LastIndexOf('\n');
             var whole = end < 0 ? "" : text[..end];
+            // A tail begins inside a line: that part line is not a record, and not counted as one passed over.
+            if (cut)
+            {
+                var first = whole.IndexOf('\n');
+                whole = first < 0 ? "" : whole[(first + 1)..];
+            }
             foreach (var line in whole.Split('\n'))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (line.Trim().Length == 0) continue;
                 try
                 {

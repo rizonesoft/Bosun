@@ -44,11 +44,16 @@ public class QueuePageTests
         for (var i = 0; i < 8; i++) Pump();
     }
 
-    /// <summary>Runs a task on this thread's dispatcher until it ends, bounded.</summary>
+    /// <summary>
+    /// Runs a task on this thread's dispatcher until it ends, bounded by time: a task that ends through a thread-pool
+    /// continuation (Wait(Task) below) may need longer than a count of pumps on a slow machine. CI's runner ran 400
+    /// pumps in 53 ms and failed a save that had not yet ended (a81a980).
+    /// </summary>
     internal static T Wait<T>(Task<T> task)
     {
-        for (var i = 0; i < 400 && !task.IsCompleted; i++) Pump();
-        Assert.True(task.IsCompleted, "the task did not end");
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!task.IsCompleted && DateTime.UtcNow < until) Pump();
+        Assert.True(task.IsCompleted, "the task did not end within 10 s");
         return task.GetAwaiter().GetResult();
     }
 
@@ -390,6 +395,53 @@ public class QueuePageTests
             Assert.Equal(["set max_wait_s 60", "set min_guest_mb 1024", "get"], source.Calls);
             Assert.Contains("Save queue limits: max_wait_s 60, min_guest_mb 1024", h.Lines(LogSeverity.Info));
             Assert.False(h.Page.HasUnsavedEdits);
+        });
+    }
+
+    [Fact]
+    public void A_save_sends_the_values_as_submitted_and_keeps_an_edit_made_while_it_runs()
+    {
+        // Round 1: the values were read again after each write, so a field cleared while an earlier one saved was sent
+        // as 0 (no wait limit at all). They are taken once, as submitted, and the later edit is left as the person's.
+        var source = new FakeQueueSource();
+        OnPage(source, h =>
+        {
+            h.Slots.Text = "1";
+            h.Wait.Text = "60";
+            source.SaveAnswers["slots"] = value =>
+            {
+                h.Wait.Text = "";   // the person clears the wait while the slot count saves
+                return Reading<LimitSave>.Of(new LimitSave("slots", LimitSaveOutcome.Saved, value, "saved"), Now);
+            };
+            source.Calls.Clear();
+            h.Press();
+            Assert.Equal(["set slots 1", "set max_wait_s 60"], source.Calls.Where(c => c.StartsWith("set ", StringComparison.Ordinal)));
+            Assert.Equal("", h.Wait.Text);   // their later edit kept, not replaced by the read-back
+        });
+    }
+
+    [Fact]
+    public void A_read_back_that_could_not_read_the_file_confirms_neither_a_save_nor_a_default()
+    {
+        // Round 1: config get can exit 0 and still say the file could not be read, its saved values null.
+        var source = new FakeQueueSource();
+        OnPage(source, h =>
+        {
+            h.Slots.Text = "1";
+            source.ReadBack = () => Reading<ConfigDoc>.Of(QueueFixtures.Config(readable: false, valid: false), Now);
+            var saved = h.Save();
+            Assert.False(saved.Succeeded);
+            Assert.Contains("not confirmed", saved.Reason, StringComparison.Ordinal);
+            Assert.Contains("could not be read back", h.Page.FormNotice, StringComparison.Ordinal);
+        });
+        var reset = new FakeQueueSource { Limits = Reading<ConfigDoc>.Of(QueueFixtures.Config(slots: SlotsLimit(3, "file", 3)), Now) };
+        OnPage(reset, h =>
+        {
+            reset.ReadBack = () => Reading<ConfigDoc>.Of(QueueFixtures.Config(readable: false, valid: false), Now);
+            Wait(((Bosun.Panel.Mvvm.AsyncCommand)h.Slots.UseDefault!).ExecuteAsync());
+            Assert.Contains("not confirmed", h.Page.FormNotice, StringComparison.Ordinal);
+            Assert.Contains(h.Lines(LogSeverity.Warn), l => l.Contains("not confirmed", StringComparison.Ordinal));
+            Assert.DoesNotContain(h.Lines(LogSeverity.Info), l => l.StartsWith(h.Slots.UseDefaultName, StringComparison.Ordinal));
         });
     }
 

@@ -193,6 +193,12 @@ $null = Wait-Until { @(Records | Where-Object Name -like 'slot-*').Count -eq 2 }
 $st = & $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json
 $above = @($st.slots | Where-Object index -eq 1)
 Check ($st.slots.Count -eq 2 -and -not $st.slots[0].above_limit -and $above.Count -eq 1 -and $above[0].above_limit -and $above[0].busy -and $hi.Id -contains $above[0].holder.pid) "a holder of a slot above a lowered limit is still listed, marked above it ($($st.slots.Count) slots)"
+# Its record gone (a holder that could not write one, or one removed), the slot is still found by its mutex.
+$highRecord = Join-Path $recDir 'slot-1.json'
+Remove-Item -LiteralPath $highRecord -ErrorAction Ignore
+$st = & $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json
+$above = @($st.slots | Where-Object index -eq 1)
+Check ($st.slots.Count -eq 2 -and $above.Count -eq 1 -and $above[0].above_limit -and $above[0].busy -eq $true) "a slot above the limit is found by its mutex with its record gone ($($st.slots.Count) slots)"
 $late = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'late.txt')),'100' -PassThru -WindowStyle Hidden
 $null = Wait-Until { @((& $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json).waiters | Where-Object pid -eq $late.Id).Count -eq 1 }
 $st = & $bosun status --ns $ns --slots 1 --json | ConvertFrom-Json

@@ -205,7 +205,8 @@ public class QueueSlotTile : Control
             QueueWords.Elapsed(holder.RunningS) is { } running ? $"running {running}" : null,
         }.Where(t => t is not null)));
         tile.SetValue(DoubtKey, holder is { State: "unknown" } ? "may have ended" : "");
-        tile.SetValue(LimitKey, slot is { AboveLimit: true } ? AboveLimit : "");
+        // Only a slot still held: a free one above the limit has no job to keep it.
+        tile.SetValue(LimitKey, slot is { AboveLimit: true, Busy: true } ? AboveLimit : "");
         if (was != tile.SpokenName && UIElementAutomationPeer.FromElement(tile) is { } peer)
             peer.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, was, tile.SpokenName);
     }

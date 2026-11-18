@@ -83,8 +83,8 @@ public sealed class QueueClientTests : IDisposable
         Assert.True(invalid.Readable && !invalid.Valid);
         var refused = (await Fake(["config", "get", "--json"], Config("\"readable\":true,\"valid\":true,\"error\":null,\"refused\":[{\"key\":\"slots\",\"error\":\"slots must be 1 to 64\"}]")).LimitsAsync(token)).Value!;
         Assert.Equal(("slots", "slots must be 1 to 64"), (refused.Refused[0].Key, refused.Refused[0].Error));
-        var variable = (await Fake(["config", "get", "--json"], Config(slots: "\"value\":3,\"source\":\"variable\",\"saved\":2,\"min\":1,\"max\":64,\"default\":2,\"variable\":\"BOSUN_SLOTS\",\"variable_error\":null")).LimitsAsync(token)).Value!;
-        Assert.Equal(("variable", 3L, (long?)2), (variable.Limits["slots"].Source, variable.Limits["slots"].Value, variable.Limits["slots"].Saved));
+        var variable = (await Fake(["config", "get", "--json"], Config(slots: "\"value\":3,\"source\":\"environment\",\"saved\":2,\"min\":1,\"max\":64,\"default\":2,\"variable\":\"BOSUN_SLOTS\",\"variable_error\":null")).LimitsAsync(token)).Value!;
+        Assert.Equal(("environment", 3L, (long?)2), (variable.Limits["slots"].Source, variable.Limits["slots"].Value, variable.Limits["slots"].Saved));
         var ignored = (await Fake(["config", "get", "--json"], Config(slots: "\"value\":2,\"source\":\"file\",\"saved\":2,\"min\":1,\"max\":64,\"default\":2,\"variable\":\"BOSUN_SLOTS\",\"variable_error\":\"BOSUN_SLOTS=x is not a number\"")).LimitsAsync(token)).Value!;
         Assert.Equal("BOSUN_SLOTS=x is not a number", ignored.Limits["slots"].VariableError);
     }
@@ -167,6 +167,25 @@ public sealed class QueueClientTests : IDisposable
             Assert.Single(history.Unreadable);
             Assert.StartsWith("jobs-2026-11-18.jsonl: ", history.Unreadable[0], StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public async Task A_log_larger_than_the_tail_read_gives_its_newest_jobs_and_no_more_than_the_tail()
+    {
+        // Round 1: a whole daily log was read before the count was kept to, so a large or damaged one filled memory.
+        var path = Path.Combine(Logs, "jobs-2026-11-18.jsonl");
+        using (var writer = new StreamWriter(path, false, new UTF8Encoding(false)))
+        {
+            // Junk of more than the tail, then 300 jobs at the end, as a log grown past its bound.
+            var junk = new string('x', 1024);
+            for (var i = 0; i < (QueueClient.MaxLogTailBytes / 1024) + 64; i++) writer.Write(junk + "\n");
+            for (var i = 0; i < 300; i++) writer.Write(Job("2026-11-18T10:00:00Z", i, Ms("2026-11-18T10:00:00Z") + i) + "\n");
+        }
+        var history = (await new QueueClient(null, "", Logs).HistoryAsync(200, TestContext.Current.CancellationToken)).Value!;
+        Assert.Equal(200, history.Jobs.Count);
+        Assert.Equal("job 299", history.Jobs[0].Command);
+        // Only the tail was read: of the junk, at most the tail's worth less the jobs, never the whole file.
+        Assert.True(history.PassedOver < QueueClient.MaxLogTailBytes / 1024, $"{history.PassedOver} lines passed over, more than the tail holds");
     }
 
     [Fact]

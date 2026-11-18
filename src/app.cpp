@@ -175,6 +175,16 @@ HANDLE open_slot(const std::wstring& ns, int i) {
     return h;
 }
 
+// Whether slot i's mutex exists now: only while some process has a handle to it, a holder above all. Opened, never
+// created, so asking makes no slot (D03 T02 §3: a slot above a lowered limit is found even with its record gone).
+bool slot_exists(const std::wstring& ns, int i) {
+    std::wstring name = L"Local\\" + ns + L".Slot." + std::to_wstring(i);
+    HANDLE h = OpenMutexW(SYNCHRONIZE, FALSE, name.c_str());
+    if (!h) return false;
+    CloseHandle(h);
+    return true;
+}
+
 struct Slot {
     HANDLE handle = nullptr;
     int index = -1;
@@ -759,8 +769,11 @@ int cmd_status(const Options& o) {
     RecordsPass pass = sweep_records(o);
     int busy = 0;
     std::vector<std::optional<bool>> held;
-    // A slot above a lowered limit is still probed while a holder's record names it, so its job never vanishes.
-    const int probed = dm::slots_to_probe(o.slots, pass.seen);
+    // A slot above a lowered limit is still probed while a holder's record names it, or while its mutex exists at all
+    // (a holder whose record is gone still holds it), so its job never vanishes.
+    int probed = dm::slots_to_probe(o.slots, pass.seen);
+    for (int i = probed; i < 64; ++i)
+        if (slot_exists(o.ns, i)) probed = i + 1;
     for (int i = 0; i < probed; ++i) {
         HANDLE h = open_slot(o.ns, i);
         if (!h) {  // can't be told; the text count has always treated it as free

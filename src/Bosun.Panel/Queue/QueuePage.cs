@@ -593,12 +593,18 @@ public sealed class QueuePage : PageBase
             SaveStatus = said;
             return ActionOutcome.Warning(said);
         }
+        // The values as submitted, validated once and taken now: an edit made while the save runs is never sent.
+        var submitted = changed.Select(f =>
+        {
+            f.Fault(out var value);
+            return (Field: f, Value: value, Text: f.Text);
+        }).ToList();
         _saving = true;
         Raise(nameof(IsSaving));
         Edited();
         try
         {
-            return await SaveChangedAsync(changed);
+            return await SaveChangedAsync(submitted);
         }
         finally
         {
@@ -608,16 +614,15 @@ public sealed class QueuePage : PageBase
         }
     }
 
-    private async Task<ActionOutcome> SaveChangedAsync(IReadOnlyList<LimitField> changed)
+    private async Task<ActionOutcome> SaveChangedAsync(IReadOnlyList<(LimitField Field, long Value, string Text)> submitted)
     {
         var sent = new List<(LimitField Field, long Value)>();
         var problems = new List<string>();
         string? stopped = null;
         var toolFailed = false;
         FormNotice = null;
-        foreach (var field in changed)
+        foreach (var (field, value, _) in submitted)
         {
-            field.Fault(out var value);
             if (stopped is not null)
             {
                 problems.Add($"{field.Label} was not saved: {stopped}");
@@ -653,10 +658,20 @@ public sealed class QueuePage : PageBase
         if (stopped is not null) FormNotice = $"Not every limit was saved: {stopped}.";
 
         // Read back whatever happened: a refusal of one field leaves the others saved, and the file is what says so.
-        var keys = sent.Select(s => s.Field.Key).ToHashSet();
+        var keys = sent.Where(s => submitted.Any(x => x.Field == s.Field && x.Text == s.Field.Text)).Select(s => s.Field.Key).ToHashSet();
         var back = await ReadBackAsync(keys);
         var confirmed = new List<string>();
-        if (back.Value is not { } doc)
+        if (back.Value is { Readable: false } or { Valid: false })
+        {
+            // A get can answer and still not have read the file: nothing it says confirms a save.
+            var why = back.Value.Error ?? "the limits file could not be read";
+            if (sent.Count > 0)
+            {
+                FormNotice = $"The limits file could not be read back, so what was saved is not confirmed: {why}";
+                problems.Add($"not confirmed, since the limits file could not be read back ({why}): {string.Join(", ", sent.Select(s => Named(s.Field, s.Value)))}");
+            }
+        }
+        else if (back.Value is not { } doc)
         {
             if (sent.Count > 0)
             {
@@ -713,6 +728,13 @@ public sealed class QueuePage : PageBase
                 return ActionOutcome.Warning(unset.Message);
             }
             var back = await ReadBackAsync(new HashSet<string> { field.Key });
+            if (back.Value is { Readable: false } or { Valid: false })
+            {
+                // A get can answer and still not have read the file: its null saved value confirms nothing.
+                var why = back.Value.Error ?? "the limits file could not be read";
+                FormNotice = $"The limits file could not be read back, so the default for {field.Label} is not confirmed: {why}";
+                return ActionOutcome.Warning($"not confirmed, since the limits file could not be read back ({why})");
+            }
             if (back.Value is not { } doc)
             {
                 FormNotice = $"The limits could not be read back, so the default for {field.Label} is not confirmed: {back.Why}";

@@ -132,7 +132,8 @@ public sealed class QueueSummary(IQueueSource source, ActivityLog log) : IQueueS
                     said.Add(string.Create(CultureInfo.InvariantCulture, $"Slot {n} is held, but no record says which job holds it."));
                     break;
             }
-            if (slot.AboveLimit)
+            // Only a slot still held: a free one above the limit has no job to keep it.
+            if (slot.AboveLimit && slot.Busy == true)
                 said.Add(string.Create(CultureInfo.InvariantCulture, $"Slot {n} is above the slot limit: its job keeps it until it ends, and no new job gets it."));
         }
         return said;

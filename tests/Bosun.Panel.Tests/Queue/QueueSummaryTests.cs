@@ -69,6 +69,17 @@ public class QueueSummaryTests
     }
 
     [Fact]
+    public void A_free_slot_above_the_limit_is_not_said_to_be_kept_by_a_job()
+    {
+        // Round 1: three jobs, the limit lowered to one, the middle one ended: its free slot is listed above the limit,
+        // and only the still-held one is said to be kept until its job ends.
+        var status = Status($"{Held(0, Holder(0))},{Free(1, above: true)},{Held(2, Holder(2), above: true)}");
+        var doubts = QueueSummary.Doubts(status);
+        Assert.DoesNotContain(doubts, d => d.StartsWith("Slot 2 ", StringComparison.Ordinal));
+        Assert.Contains(doubts, d => d.StartsWith("Slot 3 is above the slot limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void The_menu_opened_before_Queue_was_ever_shown_reads_once_and_its_next_opening_has_the_words()
     {
         var source = new FakeQueueSource();
