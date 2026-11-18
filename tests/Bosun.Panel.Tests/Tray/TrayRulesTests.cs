@@ -13,7 +13,10 @@ public class TrayRulesTests
         var make = app[app.IndexOf("private void MakeWindow()", StringComparison.Ordinal)..];
         make = make[..make.IndexOf("/// <summary>", StringComparison.Ordinal)];
 
-        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, queue: queueWords, refreshes: refreshes)", make, StringComparison.Ordinal);
+        Assert.Contains("new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, needs: needs, queue: queueWords, refreshes: refreshes)", make, StringComparison.Ordinal);
+        // What needs the operator is the Overview's Needs you (D03 T01 §5), its pressure rows fed by the tray's own check.
+        Assert.Contains("OfType<Bosun.Panel.Overview.OverviewPage>().FirstOrDefault()?.Needs", make, StringComparison.Ordinal);
+        Assert.Contains("OfType<Bosun.Panel.Overview.PressureNeeds>().FirstOrDefault()?.Watch(check)", make, StringComparison.Ordinal);
         // The tray's Queue line is the Queue page's own words (D03 T02 §3), not "Not available" for ever.
         Assert.Contains("OfType<Bosun.Panel.Queue.QueuePage>().FirstOrDefault()?.Words", make, StringComparison.Ordinal);
         Assert.Contains("queue: Bosun.Core.Queue.QueueClient.ForThisUser()", make, StringComparison.Ordinal);

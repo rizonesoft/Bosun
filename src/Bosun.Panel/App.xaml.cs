@@ -101,7 +101,10 @@ public partial class App : Application
         }
         // The tray's Queue line shares the Queue page's readings, and reads once when its menu opens (D03 T02 §3).
         var queueWords = made.Sections.Select(section => section.Page).OfType<Bosun.Panel.Queue.QueuePage>().FirstOrDefault()?.Words;
-        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, queue: queueWords, refreshes: refreshes);
+        // What needs the operator is the Overview's Needs you (D03 T01 §5), kept current whatever page shows: the tray's
+        // Needs you state counts its rows, and its pressure rows follow the tray's own check.
+        var needs = made.Sections.Select(section => section.Page).OfType<Bosun.Panel.Overview.OverviewPage>().FirstOrDefault()?.Needs;
+        var tray = _tray = new TrayController(made, new NativeTrayIcon(new Win32TrayShell()), new Notifier(settings, made.Log), settings, Shutdown, needs: needs, queue: queueWords, refreshes: refreshes);
         // One read as the panel starts, so the menu's first opening has the queue's words, not only "Checking".
         queueWords?.ReadOnce();
         var activates = LaunchShow.FirstWindowActivates();
@@ -125,7 +128,8 @@ public partial class App : Application
         {
             tray.Start(window, inTray, activates);
             // After the tray, so a pressure already present at launch has somewhere to be said (D03 T01 §4).
-            tray.StartPressureCheck(token => memory.SnapshotAsync("windows", token));
+            tray.StartPressureCheck(token => memory.SnapshotAsync("windows", token),
+                check => needs?.Providers.OfType<Bosun.Panel.Overview.PressureNeeds>().FirstOrDefault()?.Watch(check));
         });
     }
 

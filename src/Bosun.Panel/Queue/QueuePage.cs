@@ -374,11 +374,19 @@ public sealed class QueuePage : PageBase
     private StatusDoc? _status;
     private string? _statusNotice, _liveWords, _idle, _historyNotice, _limitsNotice, _fileNotice, _formNotice, _saveStatus;
 
-    public QueuePage(IQueueSource source, RefreshScheduler scheduler, ActivityLog log) : base("Queue", Purpose)
+    /// <param name="waiting">
+    /// The one owner of the waiter count, shared with the Overview (D03 T01 §5), so this page's badge follows whichever
+    /// page read the queue last; a count of its own when none is given.
+    /// </param>
+    public QueuePage(IQueueSource source, RefreshScheduler scheduler, ActivityLog log, QueueWaiting? waiting = null) : base("Queue", Purpose)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         Words = new QueueSummary(source, log);
+        Waiters = waiting ?? new QueueWaiting();
+        // The rail badge is the shared count's, read on this page or the Overview, on screen or not.
+        Waiting = Waiters.Count;
+        Waiters.Changed += () => Waiting = Waiters.Count;
         Fields =
         [
             new LimitField("slots", "Slots", "", SlotsHint, Edited),
@@ -403,6 +411,9 @@ public sealed class QueuePage : PageBase
 
     /// <summary>The tray's Queue line, sharing this page's readings while it is on screen.</summary>
     public QueueSummary Words { get; }
+
+    /// <summary>The waiter count this page's badge shows, which this page's readings publish to.</summary>
+    public QueueWaiting Waiters { get; }
 
     /// <summary>The status last read, for the waiting list; null while it can't be read.</summary>
     public StatusDoc? Status { get => _status; private set => Set(ref _status, value); }
@@ -535,12 +546,17 @@ public sealed class QueuePage : PageBase
         // Numbered as it starts: a reading that ends after a newer one (a save's read-back) is not applied over it.
         var seq = ++_asked;
         var ticket = Words.Begin();     // the tray's words take this reading only if no newer one was applied
+        var waiters = Waiters.Begin();  // and so does the waiter count, the Overview's readings beside this page's
         var status = _source.StatusAsync(token);
         var history = _source.HistoryAsync(HistoryCount, token);
         var limits = _source.LimitsAsync(token);
         await Task.WhenAll(status, history, limits);
         var (s, h, l) = (status.Result, history.Result, limits.Result);
-        return () => Apply(seq, ticket, s, h, l);
+        return () =>
+        {
+            Waiters.Take(s, waiters);
+            Apply(seq, ticket, s, h, l);
+        };
     }
 
     private void Apply(long seq, long ticket, Reading<StatusDoc> status, Reading<JobHistory> history, Reading<ConfigDoc> limits)
@@ -581,7 +597,6 @@ public sealed class QueuePage : PageBase
             StatusNotice = $"The queue could not be read: {reading.Why}";
             LiveWords = null;
             Idle = null;
-            Waiting = 0;
             return;
         }
         StatusNotice = null;
@@ -590,7 +605,6 @@ public sealed class QueuePage : PageBase
         var words = QueueSummary.WordsOf(doc);
         Idle = words == QueueSummary.Idle ? IdleNote : null;
         LiveWords = Idle is null ? words : null;
-        Waiting = doc.Records.Readable ? doc.Waiters.Count : 0;
     }
 
     private void TakeHistory(Reading<JobHistory> reading)

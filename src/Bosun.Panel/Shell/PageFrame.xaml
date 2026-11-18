@@ -12,6 +12,7 @@
              xmlns:memory="clr-namespace:Bosun.Panel.Memory"
              xmlns:instances="clr-namespace:Bosun.Panel.Instances"
              xmlns:queue="clr-namespace:Bosun.Panel.Queue"
+             xmlns:overview="clr-namespace:Bosun.Panel.Overview"
              xmlns:controls="clr-namespace:Bosun.Panel.Controls"
              Focusable="False">
     <UserControl.Resources>
@@ -28,6 +29,13 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type queue:QueuePage}">
             <queue:QueueView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type overview:OverviewPage}">
+            <overview:OverviewView/>
+        </DataTemplate>
+        <!-- The Needs you table on its own: the Overview draws it under its cards, and the failed state keeps it. -->
+        <DataTemplate DataType="{x:Type overview:NeedsYouTable}">
+            <overview:NeedsYouView/>
         </DataTemplate>
     </UserControl.Resources>
     <!-- Everything the frame draws moves together when the page changes: it fades in and rises 4 px (D02 T03 §7). -->
@@ -155,6 +163,19 @@
                     </Style.Triggers>
                 </Style>
             </StackPanel.Style>
+            <!-- What the page keeps reachable while its data can't be read (PageBase.KeptWhenFailed, D03 T01 §5): the
+                 Overview's Needs you table, so active pressure is never hidden behind a failure. -->
+            <ContentControl x:Name="KeptWhenFailed" Content="{Binding KeptWhenFailed}" Focusable="False" Margin="0,0,0,16">
+                <ContentControl.Style>
+                    <Style TargetType="ContentControl">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding KeptWhenFailed}" Value="{x:Null}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ContentControl.Style>
+            </ContentControl>
             <TextBlock x:Name="FailedHeading" Text="This did not work" FontSize="{DynamicResource T.Subtitle}"
                        FontWeight="SemiBold" Foreground="{DynamicResource B.Danger}"/>
             <ScrollViewer x:Name="FailureScroll" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto"

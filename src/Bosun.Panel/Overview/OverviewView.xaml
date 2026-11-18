@@ -1,0 +1,144 @@
+<!-- The Overview's content (D03 T01 §5, design/SPEC.md §2 and §19): four metric cards, Windows available, WSL guest
+     available, Queue and Dev instances, each one button that opens its page, then the Needs you table. A memory card
+     draws its radial gauge (an empty track with "Not available" when its value can't be read); the others their value
+     large; each a note under it and a warning when it is not current or not whole. Drawn in the page frame through the
+     implicit DataTemplate for OverviewPage (PageFrame.xaml), which is its DataContext. -->
+<UserControl x:Class="Bosun.Panel.Overview.OverviewView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icons="http://metro.mahapps.com/winfx/xaml/iconpacks"
+             xmlns:controls="clr-namespace:Bosun.Panel.Controls"
+             xmlns:memory="clr-namespace:Bosun.Panel.Memory"
+             xmlns:overview="clr-namespace:Bosun.Panel.Overview"
+             xmlns:theme="clr-namespace:Bosun.Panel.Theme"
+             Focusable="False">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Shown"/>
+        <Style x:Key="Note" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="{DynamicResource T.Caption}"/>
+            <Setter Property="Foreground" Value="{DynamicResource B.TextDim}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="{DynamicResource Gap.Above.XS}"/>
+        </Style>
+        <Style x:Key="Warning" TargetType="TextBlock" BasedOn="{StaticResource Note}">
+            <Setter Property="Foreground" Value="{DynamicResource B.Warn}"/>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- A card's value without a gauge, large: the queue in words, the instances counted, "WSL not running". -->
+        <DataTemplate DataType="{x:Type memory:Metric}">
+            <TextBlock Text="{Binding Text}" FontFamily="{DynamicResource F.Display}" FontSize="{DynamicResource T.Title}"
+                       FontWeight="SemiBold" TextWrapping="Wrap" Margin="{DynamicResource Gap.Above.S}"/>
+        </DataTemplate>
+
+        <!-- A metric card as a button (design/SPEC.md §19 rounding, §1 every target named): the card's surface and line,
+             a stronger line under the pointer, the focus ring around it, and in a contrast theme the highlight's line. -->
+        <Style x:Key="CardButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource B.Text}"/>
+            <Setter Property="Background" Value="{DynamicResource B.Surface}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource B.Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="{DynamicResource Inset.L}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Top"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{DynamicResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="card" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{DynamicResource R.Card}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource B.LineStrong}"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource B.Hover}"/>
+                </Trigger>
+                <Trigger Property="theme:HighContrastMode.IsOn" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource B.Text}"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsMouseOver" Value="True"/>
+                        <Condition Property="theme:HighContrastMode.IsOn" Value="True"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="BorderBrush" Value="{DynamicResource B.Accent}"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- What a card draws: its glyph and title, its gauge or its value, its note and its warning. -->
+        <DataTemplate x:Key="CardBody" DataType="{x:Type overview:OverviewCard}">
+            <StackPanel>
+                <DockPanel>
+                    <controls:Decorative DockPanel.Dock="Right" VerticalAlignment="Center" Margin="{DynamicResource Gap.Before.S}">
+                        <icons:PackIconLucide Kind="{x:Static theme:Glyphs.GoToPage}" Width="14" Height="14" Focusable="False"
+                                              Foreground="{DynamicResource B.TextDim}"/>
+                    </controls:Decorative>
+                    <controls:Decorative DockPanel.Dock="Left" Margin="{DynamicResource Gap.After.S}" VerticalAlignment="Center">
+                        <icons:PackIconLucide Kind="{Binding Glyph}" Width="15" Height="15" Focusable="False"
+                                              Foreground="{DynamicResource B.TextDim}"/>
+                    </controls:Decorative>
+                    <TextBlock x:Name="CardTitle" Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <controls:RadialGauge x:Name="Gauge" Value="{Binding GaugeValue}" Maximum="{Binding GaugeMaximum}" Unit="{Binding Unit}"
+                                      Word="{Binding Word}" State="{Binding State}" HorizontalAlignment="Center"
+                                      Margin="{DynamicResource Gap.Above.M}" Visibility="{Binding ShowGauge, Converter={StaticResource Shown}}"/>
+                <ContentControl x:Name="CardValue" Content="{Binding Value}" Style="{DynamicResource Value}"/>
+                <TextBlock x:Name="CardNote" Text="{Binding Note}" Style="{StaticResource Note}"/>
+                <TextBlock x:Name="CardWarning" Text="{Binding Warning}" Style="{StaticResource Warning}"/>
+            </StackPanel>
+            <DataTemplate.Triggers>
+                <!-- With its gauge, the gauge says the value and "Not available": the value is not drawn twice. -->
+                <DataTrigger Binding="{Binding ShowGauge}" Value="True">
+                    <Setter TargetName="CardValue" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <!-- The frame gives a page the window's height and no more (Shell/ShellView.xaml): a long table scrolls here. -->
+    <ScrollViewer x:Name="OverviewScroll" Style="{DynamicResource Scroll.Gutter}">
+        <StackPanel>
+            <!-- Four equal columns with a gap between them: the cards keep one width however wide the window is. -->
+            <Grid x:Name="Cards" Margin="{DynamicResource Gap.Below.L}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="12"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="WindowsCard" Grid.Column="0" Style="{StaticResource CardButton}"
+                        DataContext="{Binding Windows}" Content="{Binding}" ContentTemplate="{StaticResource CardBody}" Command="{Binding Open}"
+                        AutomationProperties.Name="{Binding OpenName}" AutomationProperties.HelpText="{Binding Help}" ToolTip="Open the Memory page"/>
+                <Button x:Name="GuestCard" Grid.Column="2" Style="{StaticResource CardButton}"
+                        DataContext="{Binding Guest}" Content="{Binding}" ContentTemplate="{StaticResource CardBody}" Command="{Binding Open}"
+                        AutomationProperties.Name="{Binding OpenName}" AutomationProperties.HelpText="{Binding Help}" ToolTip="Open the Memory page"/>
+                <Button x:Name="QueueCard" Grid.Column="4" Style="{StaticResource CardButton}"
+                        DataContext="{Binding Queue}" Content="{Binding}" ContentTemplate="{StaticResource CardBody}" Command="{Binding Open}"
+                        AutomationProperties.Name="{Binding OpenName}" AutomationProperties.HelpText="{Binding Help}" ToolTip="Open the Queue page"/>
+                <Button x:Name="InstancesCard" Grid.Column="6" Style="{StaticResource CardButton}"
+                        DataContext="{Binding Instances}" Content="{Binding}" ContentTemplate="{StaticResource CardBody}" Command="{Binding Open}"
+                        AutomationProperties.Name="{Binding OpenName}" AutomationProperties.HelpText="{Binding Help}" ToolTip="Open the Instances page"/>
+            </Grid>
+            <overview:NeedsYouView x:Name="NeedsYou" DataContext="{Binding Table}"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -31,7 +31,7 @@ public sealed class InstanceLine : Observable
         Order = order;
         Instance = i.Kind == "job" ? $"Build job: {i.Command ?? i.Name}" : KindWord(i.Kind);
         InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" : "");
-        Side = i.Side == "windows" ? "Windows" : row.Distro is { } d ? $"WSL ({d})" : i.GuestDistro is { } g ? $"WSL ({g})" : "WSL";
+        Side = SideOf(row);
         IsStale = staleAs is not null;
         StaleWhy = staleWhy;
         State = staleAs ?? StateWords(i);
@@ -128,6 +128,14 @@ public sealed class InstanceLine : Observable
     public string OpenFolderTip => FolderProblem ?? (Target is { } t ? $"Open {t.WindowsPath} in Explorer" : "");
 
     public string OpenTerminalTip => FolderProblem ?? (Target is { } t ? $"Open a terminal in {t.Path}" + (t.Distro is { } d ? $" in WSL ({d})" : "") : "");
+
+    /// <summary>The side an instance runs on, by name: "Windows", "WSL (Ubuntu)", or "WSL" when no distro is known.</summary>
+    public static string SideOf(InstanceRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var i = row.Instance;
+        return i.Side == "windows" ? "Windows" : row.Distro is { } d ? $"WSL ({d})" : i.GuestDistro is { } g ? $"WSL ({g})" : "WSL";
+    }
 
     public static string KindWord(string kind) => kind switch
     {
@@ -299,19 +307,7 @@ public sealed class InstancesPage : PageBase
                 stale[distro] = (r.Why ?? $"WSL ({distro}) has not reported lately.", age, (r.ReadAt ?? now) - age);
             }
 
-        var notices = new List<string>();
-        foreach (var side in view.Sides)
-        {
-            if (side.Reading.Value is not { } doc)
-            {
-                notices.Add($"{side.Name}: {side.Reading.Why}");
-                continue;
-            }
-            if (side.Reading.IsStale) notices.Add(side.Reading.Why ?? $"{side.Name} has not reported lately.");
-            foreach (var problem in doc.Problems) notices.Add($"{side.Name}: its {SourceWord(problem.Source)} could not be read: {problem.Why}");
-            if (doc.Unreadable > 0)
-                notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));
-        }
+        var notices = NoticesOf(view);
 
         var lines = new List<InstanceLine>();
         var groups = view.Merged(keepStale: true);
@@ -371,6 +367,29 @@ public sealed class InstancesPage : PageBase
             return;
         }
         ShowData();
+    }
+
+    /// <summary>
+    /// Every source of a scan that could not be read, is old, or was read in part, a line each by name, as this page
+    /// says them above its table and the Overview's Dev instances card beside its count (D03 T01 §5).
+    /// </summary>
+    public static List<string> NoticesOf(Scan view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        var notices = new List<string>();
+        foreach (var side in view.Sides)
+        {
+            if (side.Reading.Value is not { } doc)
+            {
+                notices.Add($"{side.Name}: {side.Reading.Why}");
+                continue;
+            }
+            if (side.Reading.IsStale) notices.Add(side.Reading.Why ?? $"{side.Name} has not reported lately.");
+            foreach (var problem in doc.Problems) notices.Add($"{side.Name}: its {SourceWord(problem.Source)} could not be read: {problem.Why}");
+            if (doc.Unreadable > 0)
+                notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));
+        }
+        return notices;
     }
 
     private static string SourceWord(string source) => source switch

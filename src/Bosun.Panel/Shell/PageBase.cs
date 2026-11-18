@@ -43,7 +43,8 @@ public abstract class PageBase(string title, string summary) : Observable
     private bool _refreshFailing;
     private string? _staleNote, _staleWhy;
     private DateTimeOffset _staleAt;
-    private int _waiting;
+    private int _waiting, _needsYou;
+    private object? _keptWhenFailed;
 
     public string Title { get; } = string.IsNullOrWhiteSpace(title) ? throw new ArgumentException("a page needs a title", nameof(title)) : title;
 
@@ -58,7 +59,37 @@ public abstract class PageBase(string title, string summary) : Observable
     public int Waiting
     {
         get => _waiting;
-        set => Set(ref _waiting, Math.Max(0, value));
+        set
+        {
+            if (Set(ref _waiting, Math.Max(0, value))) Raise(nameof(Badge));
+        }
+    }
+
+    /// <summary>
+    /// How many rows of the Overview's Needs you table this page owns (D03 T01 §5): set by the shell from the table, so
+    /// a page's rail badge counts what needs the person there as well as what waits. Never below 0.
+    /// </summary>
+    public int NeedsYou
+    {
+        get => _needsYou;
+        set
+        {
+            if (Set(ref _needsYou, Math.Max(0, value))) Raise(nameof(Badge));
+        }
+    }
+
+    /// <summary>The rail badge's count: what waits on this page and what needs the person there (design/SPEC.md §19).</summary>
+    public int Badge => _waiting + _needsYou;
+
+    /// <summary>
+    /// What the page keeps on screen in its failed state, above the tool's message (D03 T01 §5): something that must stay
+    /// reachable when the page's data can't be read, as the Overview's Needs you table keeps active pressure reachable.
+    /// Drawn by the frame through the implicit template for its type; null keeps nothing.
+    /// </summary>
+    public object? KeptWhenFailed
+    {
+        get => _keptWhenFailed;
+        protected set => Set(ref _keptWhenFailed, value);
     }
 
     public PageState State

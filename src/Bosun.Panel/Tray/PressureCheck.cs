@@ -12,9 +12,13 @@ namespace Bosun.Panel.Tray;
 /// honours the notification setting and the hour's pause, and writes the line either way), and a line as it ends. A
 /// reading that decides nothing (no snapshot, one that can't be read or isn't one, a stale one, or one that didn't
 /// measure available memory) keeps the episode as it was and says why in the tray, never a healthy state.
+///
+/// After each check it says what it now holds (<see cref="Checked"/>): the episode, when it began, the floor it was
+/// judged against, and why it could not read memory, for the Overview's Needs you (D03 T01 §5), which is fed by this
+/// check and never by a second one.
 /// </summary>
 public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotDoc>>> read, PanelSettingsStore settings, TrayViewModel tray,
-    Notifier notifier, ActivityLog log)
+    Notifier notifier, ActivityLog log, TimeProvider? clock = null)
 {
     /// <summary>How often it runs: the logger's own interval.</summary>
     public static readonly TimeSpan Interval = TimeSpan.FromSeconds(30);
@@ -25,6 +29,23 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
 
     /// <summary>Whether an episode is under way.</summary>
     public bool InEpisode => _watch.InEpisode;
+
+    /// <summary>When the episode under way began, by this check's clock; null with none.</summary>
+    public DateTimeOffset? Since { get; private set; }
+
+    /// <summary>The alert threshold the last check judged against, in MB: the stored one, read at every check.</summary>
+    public long FloorMb { get; private set; } = settings.Current.PressureFloorMb;
+
+    /// <summary>Why the last check could not read memory, in the reader's own words; null when it read memory.</summary>
+    public string? Problem { get; private set; }
+
+    /// <summary>Whether a check has run to its end.</summary>
+    public bool HasChecked { get; private set; }
+
+    /// <summary>Raised at the end of every check, with what it holds now. On the UI thread.</summary>
+    public event Action? Checked;
+
+    private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
     private string? _said;     // the full reason last written to the Activity pane: written once per change
     private bool _owed;        // an episode whose notification Windows refused: tried again at each check while it lasts
@@ -51,13 +72,17 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
         }
 
         var floor = settings.Current.PressureFloorMb; // read at every check: a saved change applies with no restart
+        FloorMb = floor;
+        Problem = full;
         switch (_watch.Observe(available, floor))
         {
             case PressureChange.Started:
+                Since = _clock.GetUtcNow();
                 tray.Pressure = true;
                 _owed = Notify(available!.Value, floor, quietly: false) == Delivery.Refused;
                 break;
             case PressureChange.Ended:
+                Since = null;
                 tray.Pressure = false;
                 _owed = false;
                 log.Info(string.Create(CultureInfo.InvariantCulture, $"Memory pressure ended: {available:N0} MB available, over the {floor:N0} MB alert threshold again."));
@@ -68,6 +93,8 @@ public sealed class PressureCheck(Func<CancellationToken, Task<Reading<SnapshotD
                 if (_owed && _watch.InEpisode && available is { } now) _owed = Notify(now, floor, quietly: true) == Delivery.Refused;
                 break;
         }
+        HasChecked = true;
+        Checked?.Invoke();
     }
 
     private Delivery Notify(long available, long floor, bool quietly) => notifier.Deliver(NotificationType.MemoryPressure, Title,

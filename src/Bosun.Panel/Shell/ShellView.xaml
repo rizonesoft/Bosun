@@ -89,7 +89,7 @@
                     <ListBox.ItemTemplate>
                         <!-- A rail row (D02 T03 §3): the page's glyph, from the one icon map, in the row's own
                              colour (dim, the accent when selected, the highlight's text in a contrast theme); its title;
-                             and its count badge while the page has something waiting. The glyph and the badge are
+                             and its count badge while the page has something waiting or needing the person. The glyph and the badge are
                              decorative: the row's name says the title and the count, once (ShellView.RowStyle). -->
                         <DataTemplate DataType="{x:Type shell:Section}">
                             <DockPanel>
@@ -100,15 +100,16 @@
                                 </controls:Decorative>
                                 <controls:Decorative x:Name="Badge" DockPanel.Dock="Right" VerticalAlignment="Center">
                                     <Border Style="{DynamicResource CountBadge}">
-                                        <TextBlock Text="{Binding Page.Waiting}"/>
+                                        <TextBlock Text="{Binding Page.Badge}"/>
                                     </Border>
                                 </controls:Decorative>
                                 <TextBlock x:Name="RowTitle" Text="{Binding Title}" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
                             <DataTemplate.Triggers>
-                                <!-- A count only when the page has something waiting (design/SPEC.md §19). -->
-                                <DataTrigger Binding="{Binding Page.Waiting}" Value="0">
+                                <!-- A count only when the page has something waiting, or something that needs the person
+                                     there (design/SPEC.md §19, D03 T01 §5). -->
+                                <DataTrigger Binding="{Binding Page.Badge}" Value="0">
                                     <Setter TargetName="Badge" Property="Visibility" Value="Collapsed"/>
                                 </DataTrigger>
                             </DataTemplate.Triggers>

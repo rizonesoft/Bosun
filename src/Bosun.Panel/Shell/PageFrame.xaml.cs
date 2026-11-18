@@ -40,6 +40,7 @@ public partial class PageFrame : UserControl
         StateArea.SizeChanged += (_, _) => HoldTheMessage();
         Retry.SizeChanged += (_, _) => HoldTheMessage();
         FailedHeading.SizeChanged += (_, _) => HoldTheMessage();
+        KeptWhenFailed.SizeChanged += (_, _) => HoldTheMessage();
         DataContextChanged += (_, e) => PageChanged(e.OldValue as PageBase, e.NewValue as PageBase);
         Loaded += (_, _) => Listen(TryFindResource(Motion.GateKey) as Motion);
         Unloaded += (_, _) =>
@@ -151,12 +152,14 @@ public partial class PageFrame : UserControl
     }
 
     /// <summary>
-    /// Holds the failed state's message to the height left once the heading and Retry have theirs: a long message
+    /// Holds the failed state's message to the height left once what the page keeps, the heading and Retry have theirs: a long message
     /// scrolls there, and Retry is never pushed out of the page by what the tool said.
     /// </summary>
     private void HoldTheMessage()
     {
-        var others = FailedHeading.ActualHeight + FailureScroll.Margin.Top + FailureScroll.Margin.Bottom
+        // What the page keeps counts only while it is drawn: a collapsed one takes no room, its margin included.
+        var kept = KeptWhenFailed.Visibility == Visibility.Visible ? KeptWhenFailed.ActualHeight + KeptWhenFailed.Margin.Top + KeptWhenFailed.Margin.Bottom : 0;
+        var others = kept + FailedHeading.ActualHeight + FailureScroll.Margin.Top + FailureScroll.Margin.Bottom
                      + Retry.ActualHeight + Retry.Margin.Top + Retry.Margin.Bottom;
         // Rounded down: text heights are fractions of a pixel, and a fraction over would put Retry's last pixel
         // outside the frame.

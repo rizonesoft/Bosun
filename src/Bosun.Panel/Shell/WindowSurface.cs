@@ -83,7 +83,7 @@ public static class WindowStart
     /// <param name="windowShown">False when the panel is started for the tray: no page is on screen yet.</param>
     public static ShellViewModel NewShell(System.Windows.Threading.Dispatcher dispatcher, Bosun.Core.PanelSettingsStore settings,
         Bosun.Core.StartupEntry startup, Action openStartupSettings, bool windowShown = true, Bosun.Panel.Theme.ThemeService? theme = null,
-        Bosun.Core.RefreshScheduler? refreshes = null, Bosun.Core.Memory.MemoryClient? memory = null,
+        Bosun.Core.RefreshScheduler? refreshes = null, Bosun.Core.Memory.IMemorySource? memory = null,
         Bosun.Core.Instances.IInstanceSource? instances = null, Bosun.Core.Queue.IQueueSource? queue = null)
     {
         var log = new ActivityLog(new UiLogSink(dispatcher));
@@ -95,9 +95,32 @@ public static class WindowStart
         if (refreshes is not null && memory is not null) pages["memory"] = new Bosun.Panel.Memory.MemoryPage(memory, refreshes, log, settings);
         // The Instances page, on the same scheduler (D03 T02 §2).
         if (refreshes is not null && instances is not null) pages["instances"] = new Bosun.Panel.Instances.InstancesPage(instances, refreshes, log);
+        // The one waiter count (D03 T01 §5): the Queue page's readings and the Overview's both publish to it.
+        var waiting = new Bosun.Panel.Queue.QueueWaiting();
         // The Queue page, its limits form and the tray's Queue line (D03 T02 §3), on the same scheduler.
-        if (refreshes is not null && queue is not null) pages["queue"] = new Bosun.Panel.Queue.QueuePage(queue, refreshes, log);
+        Bosun.Panel.Queue.QueuePage? queuePage = null;
+        if (refreshes is not null && queue is not null) pages["queue"] = queuePage = new Bosun.Panel.Queue.QueuePage(queue, refreshes, log, waiting);
+        // The Overview (D03 T01 §5): its own reads of the same three sources while it is shown, and Needs you, whose
+        // first provider is the tray's pressure check (App gives it the check as the tray starts it).
+        Bosun.Panel.Overview.OverviewPage? overview = null;
+        if (refreshes is not null && memory is not null && instances is not null && queue is not null)
+        {
+            var needs = new Bosun.Panel.Overview.NeedsYou();
+            needs.Add(new Bosun.Panel.Overview.PressureNeeds());
+            pages["overview"] = overview = new Bosun.Panel.Overview.OverviewPage(memory, queue, instances, refreshes, log, needs, waiting, queuePage?.Words, settings);
+        }
         var shell = new ShellViewModel(Sections.All(pages), log, settings, windowShown);
+        if (overview is not null)
+        {
+            overview.Navigate = key => shell.GoToAsync(shell.Sections.Single(section => section.Key == key));
+            // Each rail row's badge adds its page's rows of Needs you to what waits there.
+            void Badges()
+            {
+                foreach (var section in shell.Sections) section.Page.NeedsYou = overview.Needs.For(section.Key);
+            }
+            overview.Needs.Changed += Badges;
+            Badges();
+        }
         log.Info("Panel ready");
         if (settings.Notice is { } notice) log.Warn(notice);
         return shell;

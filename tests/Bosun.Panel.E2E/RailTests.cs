@@ -7,14 +7,15 @@ namespace Bosun.Panel.E2E;
 public class RailTests
 {
     /// <summary>
-    /// The rail as src/Bosun.Panel/Shell/Sections.cs has it today: Settings is built, the rest are placeholders. A page
-    /// in Data is known by a control of its own (<see cref="DataMark"/>).
+    /// The rail as src/Bosun.Panel/Shell/Sections.cs has it today: Optimise and About are placeholders, the rest built. A
+    /// page in Data is known by a control of its own (<see cref="DataMark"/>).
     /// </summary>
     private static readonly (string Title, string State)[] Rows =
     [
         // Memory is built (D03 T01 §2): its data is the seeded snapshot, so it shows Data.
         // Instances is built (D03 T02 §2): the seeded distro's report gives it a row, so it shows Data.
-        ("Overview", "Empty"), ("Memory", "Data"), ("Instances", "Data"), ("Queue", "Data"),
+        // Overview is built (D03 T01 §5): its Windows card reads the seeded snapshot, so it shows Data.
+        ("Overview", "Data"), ("Memory", "Data"), ("Instances", "Data"), ("Queue", "Data"),
         ("Optimise", "Empty"), ("Settings", "Data"), ("About", "Empty"),
     ];
 
@@ -24,6 +25,12 @@ public class RailTests
         using var panel = PanelProcess.Start();
         var window = panel.Window();
         var rail = Ui.Get(window, "Rail");
+        // Before any row is chosen: the panel opens on the Overview, showing the seeded snapshot's figures (D03 T01 §5).
+        // 20,000 of 32,000 MB available, as PanelProcess seeds it, over the default 2,048 MB alert threshold.
+        Ui.Until(() => Ui.Selected(rail)?.Current.Name == "Overview", Ui.Short, "Overview to be the rail's selection at start");
+        Assert.Equal(("Overview", "Data"), Settle(window, "Overview"));
+        Assert.Equal("Windows available: 19.5 GB, Safe. Open Memory", Ui.Get(window, "WindowsCard").Current.Name);
+        Assert.Equal("Overview", Ui.Selected(rail)?.Current.Name);
         // The rail has exactly these rows: a row added without an expectation here fails, by name.
         var onRail = rail.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem))
             .Cast<AutomationElement>().Select(row => row.Current.Name).ToList();
@@ -96,7 +103,7 @@ public class RailTests
         Ui.Select(Row(rail, "Overview"));
         leave = Ui.Until(() => Ui.Find(window, "Leave") is { Current.IsOffscreen: false } card ? card : null, Ui.Short, "the question again");
         Ui.Invoke(Ui.Get(leave, "Discard"));
-        Assert.Equal(("Overview", "Empty"), Settle(window, "Overview"));
+        Assert.Equal(("Overview", "Data"), Settle(window, "Overview"));
         Assert.Equal("Overview", Ui.Selected(rail)?.Current.Name);
         Ui.Select(Row(rail, "Settings"));
         Settle(window, "Settings");
@@ -106,6 +113,7 @@ public class RailTests
     /// <summary>A control each built page draws in its Data state; a page that is not here has none yet.</summary>
     internal static string? DataMark(string title) => title switch
     {
+        "Overview" => "WindowsCard",
         "Settings" => "ThemeBox",
         "Memory" => "ByRepo",
         "Instances" => "Table",

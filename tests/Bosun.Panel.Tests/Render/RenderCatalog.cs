@@ -232,6 +232,26 @@ public static partial class RenderCatalog
                 slots: Bosun.Panel.Tests.Queue.QueueFixtures.SlotsLimit(2, "default", null, "BOSUN_SLOTS=abc is not a whole number from 1 to 64"),
                 refused: """{"key":"min_guest_mb","error":"min_guest_mb must be a whole number from 0 to 1099511627776"}"""), Bosun.Panel.Tests.Queue.QueueFixtures.Now),
         }, "BOSUN_SLOTS is ignored: BOSUN_SLOTS=abc is not a whole number from 1 to 64"),
+        // D03 T01 §5: the Overview with pressure and a row of its own, with nothing needing the person, with WSL stopped,
+        // with a card that can't be read, loading, and with every card failed and the pressure row kept above the failure.
+        OverviewCase("data", () => new Overview.OverviewRig(new Overview.FakeMemory { Windows = Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(available: 1500)) })
+            .WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(available: 1500))).WithRow(), "Memory pressure since"),
+        OverviewCase("nothing", () => new Overview.OverviewRig().WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot())),
+            Bosun.Panel.Overview.NeedsYouTable.Nothing),
+        OverviewCase("wsl-stopped", () => new Overview.OverviewRig(new Overview.FakeMemory
+        {
+            Windows = Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(vmRunning: false)),
+            Guest = Overview.OverviewFixtures.Stale(Overview.OverviewFixtures.GuestSnapshot(), TimeSpan.FromMinutes(20), "WSL"),
+        }).WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot())), Bosun.Panel.Overview.OverviewPage.WslNotRunning),
+        OverviewCase("not-available", () => new Overview.OverviewRig(new Overview.FakeMemory { Windows = Overview.OverviewFixtures.Missing("windows") },
+                new Bosun.Panel.Tests.Queue.FakeQueueSource { Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Fail(Bosun.Core.Memory.ReadingProblem.Failed, "bosun status --json did not answer within 10 s and was stopped.") })
+            .WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot())), "did not answer within 10 s"),
+        OverviewCase("loading", () => new Overview.OverviewRig(new Overview.FakeMemory { NeverAnswers = true }, new Bosun.Panel.Tests.Queue.FakeQueueSource { StatusNeverAnswers = true },
+            new Instances.FakeInstances { Hold = new TaskCompletionSource() }), "Overview", loading: true),
+        OverviewCase("failed", () => new Overview.OverviewRig(new Overview.FakeMemory { Windows = Overview.OverviewFixtures.Missing("windows"), Guest = Overview.OverviewFixtures.Missing("wsl") },
+                new Bosun.Panel.Tests.Queue.FakeQueueSource { Status = Bosun.Core.Memory.Reading<Bosun.Core.Memory.StatusDoc>.Fail(Bosun.Core.Memory.ReadingProblem.NotInstalled, QueueNotInstalled) },
+                new Instances.FakeInstances { Answer = Instances.InstanceFixtures.View(null, Instances.InstanceFixtures.Failed("windows", null, QueueNotInstalled)) })
+            .WithTray(() => Overview.OverviewFixtures.Fresh(Overview.OverviewFixtures.WindowsSnapshot(available: 1000))), "This did not work"),
         // With memory pressure notifications turned off (D02 T02 §7).
         new("settings", "notifications-off", () => Settings(f => f.Files.Put(Bosun.Panel.Tests.Settings.SettingsFixture.FilePath,
             "{\"schema_version\": 1, \"notify_memory_pressure\": false}"))) { Shows = "Notify me about memory pressure" },
@@ -478,6 +498,17 @@ public static partial class RenderCatalog
             ready = isReady;
             return view;
         }) { Shows = shows, Ready = view => ready!(view), Height = tall ? 1700 : PageRenderer.Height };  // tall: the whole page, form included
+    }
+
+    private static RenderCase OverviewCase(string name, Func<Overview.OverviewRig> make, string shows, bool loading = false)
+    {
+        Func<FrameworkElement, Task>? ready = null;
+        return new RenderCase("overview", name, () =>
+        {
+            var (view, isReady) = Overview.OverviewRig.Rendered(make, loading);
+            ready = isReady;
+            return view;
+        }) { Shows = shows, Ready = view => ready!(view) };
     }
 
     private static RenderCase InstancesCase(string name, Instances.FakeInstances source, string shows)

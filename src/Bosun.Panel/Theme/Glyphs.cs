@@ -113,4 +113,7 @@ public static class Glyphs
     public static PackIconLucideKind WslMemory => Actions[GlyphAction.WslMemory];
 
     public static PackIconLucideKind Builds => Actions[GlyphAction.Builds];
+
+    /// <summary>Where a control goes: another page (the Overview's cards and Needs you rows, D03 T01 §5).</summary>
+    public static PackIconLucideKind GoToPage => Actions[GlyphAction.Page];
 }

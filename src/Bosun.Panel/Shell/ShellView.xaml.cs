@@ -23,13 +23,14 @@ public partial class ShellView : UserControl
 
     /// <summary>
     /// The rail's row style with each row's name to a screen reader: its title and, while its page has something
-    /// waiting, the count in words ("Queue, 3 waiting"), following the page live.
+    /// waiting or needing the person, the counts in words ("Queue, 3 waiting", "Memory, 1 needs you"), following the page live.
     /// </summary>
     public static Style RowStyle(Style row)
     {
         var name = new MultiBinding { Converter = new RailRowName() };
         name.Bindings.Add(new Binding(nameof(Section.Title)));
         name.Bindings.Add(new Binding($"{nameof(Section.Page)}.{nameof(PageBase.Waiting)}"));
+        name.Bindings.Add(new Binding($"{nameof(Section.Page)}.{nameof(PageBase.NeedsYou)}"));
         return new Style(typeof(ListBoxItem), row) { Setters = { new Setter(AutomationProperties.NameProperty, name) } };
     }
 
