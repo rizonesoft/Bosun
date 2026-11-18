@@ -1,0 +1,81 @@
+{
+  "ref": "D02 T04 \u00a73",
+  "title": "Spacing scale, section headings and Settings in cards",
+  "implementation_sha": "c2e165e3ff1b9e888d96e0d349b70f03a04f18bf",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-shell/D02-T04-s3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class \"*SettingsLayoutTests\" --filter-class \"*SettingsPageTests\" --filter-class \"*ThemeTests\" --filter-class \"*PageRendererTests\" -> 46 of 46 passed",
+    "python -B -m unittest scripts.tests.test_build_theme -> Ran 11 tests, OK",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.E2E -> 36 of 37; the one failure is D02 T04 \u00a77 ToastE2ETests (Show more), built after this candidate"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-shell/D02-T04-s3.md",
+    "verdict": "completed",
+    "candidate": "74470af5c74ebfc36e24c52b6890180cb5acad88",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "plan": {
+    "report": "docs/reviews/02-shell/D02-T04-s3.md",
+    "candidate": "8144ae24d524c88db3fed17343482587043500af",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "8144ae24d524c88db3fed17343482587043500af",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

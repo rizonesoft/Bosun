@@ -56,7 +56,7 @@ title: "TODO-04 -- Design polish"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | One focus outline per control, with focus renders | -- | [x] |
 | 2 | §2 | Field insets, error border and label spacing | §1 | [x] |
-| 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [ ] |
+| 3 | §3 | Spacing scale, section headings and Settings in cards | §2 | [x] |
 | 4 | §4 | Table alignment and tabular numbers | -- | [x] |
 | 5 | §5 | Chart labels clear of lines and a readable time axis | -- | [x] |
 | 6 | §6 | Deliberate disabled buttons, crisp pills, badge and close glyph | -- | [x] |
@@ -157,9 +157,12 @@ Section headings are smaller and dimmer than the labels under them, sections run
 - [x] Put General and Notifications in two `Card`s (`GeneralCard`, `NotificationsCard`) in `src/Bosun.Panel/Settings/SettingsView.xaml`, each with its `Section.Heading`, at most `Size.Form` wide (**Corrected 2026-11-17** at build: a star column capped at `Size.Form`, where a `MaxWidth` aligned left shrank each card to its content; horizontal gaps take a generated `Gap.Before.*`), the cards `Gap.Above.XL` apart, every hand-typed gap between fields replaced by a `Gap.*`. Done when: `settings.general` shows two cards with their headings and fields inside. Cheaper substitute: a border around the whole column.
 - [x] Add `SettingsLayoutTests` on the drawn Settings view: each heading's size above `FieldLabel`'s and its foreground `B.Text`; the gap between the cards `S.XL`; `GeneralCard` holding the theme choice, Start with Windows and the threshold and `NotificationsCard` the notify box; each card `Size.Form` wide at a wide window and narrower at a narrow one. Done when: they pass, and each fails when its change is removed (the heading's colour or size, the gap, a control moved out of its card, the width).
 - [x] Redraw every Settings render (general, restored, unavailable, half-saved, threshold-error, notifications-off, contrast) in every theme. Done when: each is looked at.
-- [ ] Commit: `settings: sections in cards on one spacing scale`
+- [x] Commit: `settings: sections in cards on one spacing scale`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SettingsLayoutTests" --filter-class "*SettingsPageTests" --filter-class "*ThemeTests" --filter-class "*PageRendererTests"` exits 0, `python -B -m unittest scripts.tests.test_build_theme` passes, and the whole panel suite and the E2E smoke pass before the push.
+
+> **Verified:** 2026-11-18 | §3 | c2e165e3ff1b9e888d96e0d349b70f03a04f18bf
+> **Review:** `docs/reviews/d02-t04-s3.json`
 
 ## 4. Table alignment and tabular numbers
 
