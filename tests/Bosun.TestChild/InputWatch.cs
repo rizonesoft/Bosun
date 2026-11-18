@@ -220,7 +220,8 @@ static class InputWatch
         string heldWritten = "";
         while (true)
         {
-            Wake.WaitOne(TimeSpan.FromSeconds(1));
+            // Woken by each change (Input signals it); nothing to do between them.
+            Wake.WaitOne();
             DateTime latest;
             string held;
             lock (Gate)
