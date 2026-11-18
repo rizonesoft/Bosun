@@ -38,8 +38,9 @@ static class InputWatch
 
     /// <param name="person">A named event (manual reset) set the moment a person's input comes, inside the hook: a kernel
     /// object, so the runner hears of a person at once, whatever the disk is doing with the record.</param>
-    /// <param name="guard">The nightly run: once a person has come, the hook stops every new press the smoke sends (its
-    /// releases of keys it already holds still pass), so the smoke never takes a key or button the person is using.</param>
+    /// <param name="guard">The nightly run: once a person has come, the hook stops everything the smoke sends, presses,
+    /// pointer moves and wheel alike, but its releases of keys it already holds, so the smoke never takes a key, a button
+    /// or the pointer from the person.</param>
     public static int Run(string file, string? person = null, bool guard = false)
     {
         _guard = guard;
@@ -135,8 +136,9 @@ static class InputWatch
         lock (Gate)
         {
             if (smoke && up && key != 0 && !SmokeHeld.Contains(key)) return true;
-            // Guarded, after a person: no new press of the smoke's gets through, whatever the runner has not yet stopped.
-            if (smoke && down && _guard && _personCame) return true;
+            // Guarded, after a person: nothing of the smoke's gets through (no press, move or wheel) but its release of a
+            // key it already holds, whatever the runner has not yet stopped.
+            if (smoke && _guard && _personCame && !(up && key != 0 && SmokeHeld.Contains(key))) return true;
             var changed = false;
             if (!smoke) { _latest = DateTime.UtcNow; changed = true; _personCame = true; _person?.Set(); }
             if (key != 0) changed |= down && smoke ? SmokeHeld.Add(key) : (up || down) && SmokeHeld.Remove(key);

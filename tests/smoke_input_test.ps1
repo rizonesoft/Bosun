@@ -281,6 +281,12 @@ try {
         [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
         [void][F24Send]::Key($true, 0x42534E31); Start-Sleep -Milliseconds 200
         Check "guarded, the smoke's press after a person's is stopped, and so its release" ([F24State]::Down())
+        # And its pointer moves: the smoke's move after a person's leaves the pointer where the person put it.
+        Add-Type 'using System; using System.Runtime.InteropServices; public static class MoveSend { [StructLayout(LayoutKind.Explicit, Size = 40)] struct M { [FieldOffset(0)] public int type; [FieldOffset(8)] public int dx; [FieldOffset(12)] public int dy; [FieldOffset(20)] public int flags; [FieldOffset(32)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, M[] i, int s); [StructLayout(LayoutKind.Sequential)] public struct P { public int X, Y; } [DllImport("user32.dll")] public static extern bool GetCursorPos(out P p); public static uint By(int dx, long tag) { var m = new M[1]; m[0].type = 0; m[0].dx = dx; m[0].flags = 1; m[0].extra = new IntPtr(tag); return SendInput(1, m, Marshal.SizeOf(typeof(M))); } }' -ErrorAction Ignore
+        $at = [MoveSend+P]::new(); [void][MoveSend]::GetCursorPos([ref]$at)
+        [void][MoveSend]::By(40, 0x42534E31); Start-Sleep -Milliseconds 200
+        $then = [MoveSend+P]::new(); [void][MoveSend]::GetCursorPos([ref]$then)
+        Check "guarded, the smoke's pointer move after a person is stopped ($($at.X) -> $($then.X))" ($then.X -eq $at.X)
       } finally { [void][F24Send]::Key($true, 0) }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }
