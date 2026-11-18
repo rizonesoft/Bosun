@@ -94,7 +94,14 @@ function Read-History {
     @(Get-Content -LiteralPath $history | ForEach-Object {
         $n++
         if (-not $_.Trim()) { return }
-        try { $_ | ConvertFrom-Json } catch { Write-Warning "smoke-input: line $n of $history is not a record and is passed over: $($_.Exception.Message)" }
+        $record = try { $_ | ConvertFrom-Json } catch { Write-Warning "smoke-input: line $n of $history is not a record and is passed over: $($_.Exception.Message)"; return }
+        # A record whose time cannot be read is passed over too: status sorts and dates by it.
+        $at = [DateTime]::MinValue
+        if (-not $record.PSObject.Properties['at'] -or -not [DateTime]::TryParse("$($record.at)", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)) {
+            Write-Warning "smoke-input: line $n of $history has no time that can be read and is passed over"
+            return
+        }
+        $record
     })
 }
 
@@ -112,7 +119,7 @@ function Add-History($entry) {
         $lines = @($lines | Select-Object -Last 60)
         $temporary = "$history.$PID.tmp"
         [IO.File]::WriteAllText($temporary, (($lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
-        Move-Item -LiteralPath $temporary -Destination $history -Force
+        [IO.File]::Move($temporary, $history, $true)
     } finally { $gate.ReleaseMutex(); $gate.Dispose() }
 }
 
@@ -131,14 +138,39 @@ function Format-Outcome($e) {
     }
 }
 
+# When the nightly task was installed, from its marker: $null, said, when the marker is missing or cannot be read.
+function Read-Installed {
+    if (-not (Test-Path -LiteralPath $installed)) { return $null }
+    $why = 'it holds no time that can be read'
+    try {
+        $at = [DateTime]::MinValue
+        if ([DateTime]::TryParse("$((Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).at)", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)) { return $at.ToLocalTime() }
+    } catch { $why = $_.Exception.Message }
+    Write-Warning "smoke-input: $installed cannot be read ($why); the install date is not known"
+    $null
+}
+
+# The nightly task, or $null when it is not there; one that cannot be read is said as such, never taken for absent.
+function Get-OwnTask {
+    try { Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop }
+    catch {
+        if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { return $null }
+        $script:taskUnreadable = $_.Exception.Message
+        $null
+    }
+}
+
 function Show-Status {
     $all = Read-History
     $nightly = @($all | Where-Object mode -eq 'scheduled')
     $manual = @($all | Where-Object mode -eq 'manual')
-    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore
-    if (-not $task) { 'The nightly run is not installed: pwsh scripts/smoke-input.ps1 -Install' }
+    $script:taskUnreadable = $null
+    $task = Get-OwnTask
+    $installedAt = Read-Installed
+    if ($script:taskUnreadable) { "The nightly task could not be read: $($script:taskUnreadable)" }
+    elseif (-not $task) { 'The nightly run is not installed: pwsh scripts/smoke-input.ps1 -Install' }
     elseif ($nightly.Count -eq 0) {
-        $since = if (Test-Path -LiteralPath $installed) { ([DateTime](Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).at).ToLocalTime().ToString('yyyy-MM-dd') } else { 'an unknown date' }
+        $since = if ($installedAt) { $installedAt.ToString('yyyy-MM-dd') } else { 'an unknown date' }
         "No scheduled run yet, installed $since."
     }
     if ($nightly.Count -gt 0) { "Real-input smoke, last scheduled run: $(Format-Outcome $nightly[-1])." }
@@ -163,8 +195,16 @@ function Show-Status {
         # was off or nobody was logged on, when nothing could write one.
         $last = (Get-Date).Date.AddHours($WindowOpens)
         if ((Get-Date) -lt (Get-Date).Date.AddHours($WindowCloses)) { $last = $last.AddDays(-1) }
-        $since = if (Test-Path -LiteralPath $installed) { ([DateTime](Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).at).ToLocalTime() } else { $last }
-        if ($last -gt $since -and -not $nights.ContainsKey($last.Date)) { "No result for $($last.ToString('yyyy-MM-dd')): the machine was asleep, off or logged off at 03:00." }
+        $since = if ($installedAt) { $installedAt } else { $last }
+        if ($last -gt $since -and -not $nights.ContainsKey($last.Date)) {
+            # What Task Scheduler says of that night: a start it made that left no record is a run that failed to begin,
+            # not a machine that slept.
+            $info = try { Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop } catch { $null }
+            $ran = $info -and $info.LastRunTime -ge $last -and $info.LastRunTime -lt $last.Date.AddHours($WindowCloses)
+            if ($ran) { "No result for $($last.ToString('yyyy-MM-dd')): the task started at $($info.LastRunTime.ToString('HH:mm')) but recorded nothing (result 0x$('{0:X}' -f $info.LastTaskResult))." }
+            elseif ($info) { "No result for $($last.ToString('yyyy-MM-dd')): the machine was asleep, off or logged off at 03:00 (the task last ran $(if ($info.LastRunTime.Year -gt 2000) { $info.LastRunTime.ToString('yyyy-MM-dd HH:mm') } else { 'never' }))." }
+            else { "No result for $($last.ToString('yyyy-MM-dd')): Task Scheduler could not say whether the task started." }
+        }
     }
     if ($manual.Count -gt 0) { "Last on-demand run: $(Format-Outcome $manual[-1])." }
     elseif ($nightly.Count -eq 0) { 'No run yet: pwsh scripts/smoke-input.ps1 runs the real-input tests now.' }
@@ -194,10 +234,20 @@ if ($Install) {
     $settings.WakeToRun = $false
     $settings.StartWhenAvailable = $false
     $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
-    $temporary = "$installed.$PID.tmp"
-    [IO.File]::WriteAllText($temporary, (@{ at = (Get-Date).ToUniversalTime().ToString('o'); task = $TaskName } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temporary -Destination $installed -Force
+    # The marker first, then the task: an install that fails at either step leaves no task running unrecorded.
+    try {
+        $temporary = "$installed.$PID.tmp"
+        [IO.File]::WriteAllText($temporary, (@{ at = (Get-Date).ToUniversalTime().ToString('o'); task = $TaskName } | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        # A replace of the file itself: Move-Item onto a folder of that name would move the record into it and succeed.
+        [IO.File]::Move($temporary, $installed, $true)
+    } catch {
+        Remove-Item -LiteralPath $temporary -ErrorAction Ignore "Could not install '$TaskName': its record in $StateFolder could not be written ($($_.Exception.Message)). Nothing was scheduled."; exit 1 }
+    try { Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force -ErrorAction Stop | Out-Null }
+    catch {
+        if (-not $existing) { Remove-Item -LiteralPath $installed -ErrorAction Ignore }
+        "Could not install '$TaskName': $($_.Exception.Message)"
+        exit 1
+    }
     "Installed '$TaskName': the real-input smoke runs nightly from $('{0:d2}:00' -f $WindowOpens) to $('{0:d2}:00' -f $WindowCloses) on an idle, unlocked desktop. pwsh scripts/smoke-input.ps1 -Status says how it went."
     exit 0
 }
@@ -367,6 +417,9 @@ try {
         if ($Scheduled) { Finish 'skipped-in-use' "the desktop was in use by $who" 0 } else { Finish 'failed' "the desktop lock was held by $who" 1 }
         return
     }
+    # Children inherit the hold only through its record: a hold whose record could not be written is let go of, and
+    # the run fails, rather than handing down a hold no child can take up.
+    if (-not $holder.Published) { $holder.Dispose(); $holder = $null; Finish 'failed' 'the desktop lock was taken but its record could not be written, so the classes could not work under it' 1; return }
     $env:BOSUN_DESKTOP_HELD = $holder.HeldValue
 
     # The watcher, from the start: a person's input from now on is told from the smoke's own by Windows' mark.
@@ -488,6 +541,13 @@ try {
     if ($unexpected) { $problems += "ran but was not found: $($unexpected -join ', ')" }
     if ($classFailures) { $problems += "a class's run failed: $($classFailures -join ', ')" }
     if ($problems) { Finish 'failed' ($problems -join '; ') 1 } else { Finish 'passed' '' 0 }
+} catch {
+    # Whatever broke the run (a program that could not start, a listing that could not be read) is recorded as its
+    # failure, so no run leaves the history without a word.
+    if (-not $entry.outcome) {
+        try { Finish 'failed' "the run broke: $($_.Exception.Message)" 1 }
+        catch { Write-Warning "smoke-input: the run broke ($($_.Exception.Message)) and could not be recorded"; $script:exitCode = 1 }
+    } else { throw }
 } finally {
     if ($watch) {
         # Whatever ended the run, nothing the smoke holds is left down for the person who comes back.

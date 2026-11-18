@@ -118,6 +118,10 @@ $tests = @(
   'Bosun.Panel.E2E.Gamma.One', 'Bosun.Panel.E2E.Gamma.Two'
 )
 $started = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+# The checks that send keys or a pointer move to the live desktop (F24, a move by 40 pixels) run only where nobody is at
+# it: in CI, or in a run that opted in to real input. Run from the ordinary gate at a desk, they are skipped, said.
+$realDesk = $env:GITHUB_ACTIONS -eq 'true' -or $env:BOSUN_SMOKE_INPUT -eq '1'
+if (-not $realDesk) { 'skip the checks that send input to the desktop: run in CI, or with BOSUN_SMOKE_INPUT=1, for them' }
 function Wait-Until([scriptblock]$Probe, [int]$Seconds) {
   $until = (Get-Date).AddSeconds($Seconds)
   while ((Get-Date) -lt $until) { if (& $Probe) { return $true }; Start-Sleep -Milliseconds 100 }
@@ -216,6 +220,7 @@ try {
   $watchFiles = @(Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' -ErrorAction Ignore)
   Check "a run's watcher file is its own, named for it ($(@($watchFiles).Count) left by the killed run)" (@($watchFiles).Count -le 1 -and (@($watchFiles | Where-Object { $_.Name -match '^watch-\d{8}-\d{6}-\d+-[0-9a-f]{8}\.txt$' }).Count -eq @($watchFiles).Count))
 
+  if ($realDesk) {
   # A class ended while it holds a key down (a drag between button-down and button-up) has it let go of by the runner.
   $run = Invoke-Run 'hold Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(20).ToString('s'))
   Add-Type 'using System.Runtime.InteropServices; public static class F24State { [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k); public static bool Down() { return (GetAsyncKeyState(0x87) & 0x8000) != 0; } }' -ErrorAction Ignore
@@ -224,6 +229,8 @@ try {
   # The same when the class's host dies holding it: its failure is recorded, and the key is let go of before the next.
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddHours(1).ToString('s'))
   Check "a key held by a class whose host died is let go of (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.outcome -eq 'failed' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+
+  }
 
   # The real watcher ends when it can no longer keep its record (its folder gone, as a full or failed disk would), so
   # the runner's "the watcher ended" stop takes over; it never goes on with an old "none" on file.
@@ -252,6 +259,7 @@ try {
       $before = $seen.WaitOne(0)
       $real.StandardInput.WriteLine('person'); $real.StandardInput.Flush()
       Check "the real watcher sets the person event the moment a person comes ($ready, before: $before)" ($ready -eq 'watching' -and -not $before -and $seen.WaitOne(3000))
+      if ($realDesk) {
       # Asked to release, it lets go of what the smoke holds by its own list, and leaves a key a person took over.
       Add-Type 'using System; using System.Runtime.InteropServices; public static class F24Send { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(12)] public int flags; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Key(bool up, long tag) { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].flags = up ? 2 : 0; k[0].extra = new IntPtr(tag); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }' -ErrorAction Ignore
       Add-Type 'using System.Runtime.InteropServices; public static class F24State { [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k); public static bool Down() { return (GetAsyncKeyState(0x87) & 0x8000) != 0; } }' -ErrorAction Ignore
@@ -302,8 +310,10 @@ try {
         $at = [MoveSend+P]::new(); [void][MoveSend]::GetCursorPos([ref]$at)
         [void][MoveSend]::By(40, 0x42534E31); Start-Sleep -Milliseconds 200
         $then = [MoveSend+P]::new(); [void][MoveSend]::GetCursorPos([ref]$then)
-        Check "guarded, the smoke's pointer move after a person is stopped ($($at.X) -> $($then.X))" ($then.X -eq $at.X)
+        # The smoke's move is 40 pixels: anything near it got through; a pixel or two is a person's hand on the mouse.
+        Check "guarded, the smoke's pointer move after a person is stopped ($($at.X) -> $($then.X))" ([Math]::Abs($then.X - $at.X) -lt 20)
       } finally { [void][F24Send]::Key($true, 0) }
+      }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }
       $seen.Dispose()
@@ -312,6 +322,7 @@ try {
     Check 'Bosun.TestChild is built, for the watcher check (run dotnet build first)' $false
   }
 
+  if ($realDesk) {
   # On demand too: the watcher runs for what the smoke holds, though it stops nothing for a person.
   $run = Invoke-Run 'hold-crash Bosun.Panel.E2E.Alpha'
   Check "an on-demand run lets go of what its crashed class held (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
@@ -322,9 +333,32 @@ try {
   [void][F24Send]::Key($true, 0)
   Check "a watcher that ends mid-hold lets go of nothing (exit $($run.Code), F24 left down: $leftDown)" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*the input watcher ended*' -and $leftDown -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*nothing let go of: the input watcher had ended*') $run.Said
 
+  }
+
   # On demand the watcher is kept too: one that ends stops the run.
   $run = Invoke-Run 'watcher-dies Bosun.Panel.E2E.Alpha' -Pauses @('Bosun.Panel.E2E.Alpha 60')
   Check "an on-demand run whose watcher ends stops (exit $($run.Code))" ($run.Code -eq 1 -and $run.Last.mode -eq 'manual' -and "$($run.Last.reason)" -like '*the input watcher ended*') $run.Said
+
+  # A run that breaks (a program that cannot start) is recorded as failed, with why.
+  $state = Join-Path $dir 'state-broken'
+  New-Item -ItemType Directory -Force -Path $state | Out-Null
+  Set-Content -LiteralPath (Join-Path $state 'mode.txt') -Value 'pass'
+  Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
+  $env:BOSUN_DESKTOP_LOCK = $lockName
+  try { $said = & $shell -NoProfile -File $script -StateFolder $state -Dotnet (Join-Path $dir 'no-such-dotnet.exe') -Watcher (Join-Path $fakes 'watcher.cmd') -TestProbes -NoQueue 2>&1 | Out-String; $code = $LASTEXITCODE }
+  finally { Remove-Item Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore }
+  $last = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -ErrorAction Ignore | ForEach-Object { $_ | ConvertFrom-Json })
+  Check "a run that breaks is recorded as failed, with why (exit $code)" ($code -eq 1 -and $last.Count -eq 1 -and $last[-1].outcome -eq 'failed' -and "$($last[-1].reason)" -like '*the run broke*') $said
+
+  # A lock whose record cannot be written is let go of, and the run fails, never handing down a hold no child can use.
+  $local = Join-Path $dir 'local-blocked'
+  $session = (Get-Process -Id $PID).SessionId
+  New-Item -ItemType Directory -Force -Path (Join-Path $local "Bosun/run/$session") | Out-Null
+  Set-Content -LiteralPath (Join-Path $local "Bosun/run/$session/desktop") -Value 'a file where the record folder goes'
+  $wasLocal = $env:LOCALAPPDATA
+  $env:LOCALAPPDATA = $local
+  try { $run = Invoke-Run 'pass' } finally { $env:LOCALAPPDATA = $wasLocal }
+  Check "a lock whose record cannot be written fails the run (exit $($run.Code))" ($run.Code -eq 1 -and "$($run.Last.reason)" -like '*its record could not be written*' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
 
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
@@ -495,6 +529,8 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   Check "a log and folder not of the runner's making are left alone" ((Test-Path -LiteralPath (Join-Path $state 'input-import.log')) -and (Test-Path -LiteralPath (Join-Path $state 'results-import/keep.txt')))
   $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
   # Of the 70 filler nights and the four runs since, the last 60 entries are kept: 56 nights skipped in a row.
+  # A record that is not one, or has no time that can be read, is passed over: the rest still reads.
+  Add-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -Value @('{"mode":"scheduled","at":"not a time","outcome":"passed"}', 'not json at all')
   Check 'the status reads the last scheduled run, the skips in a row and the last on-demand run' ($status -like '*last scheduled run: skipped*the desktop was locked*' -and $status -like '*Skipped 56 nights in a row*' -and $status -like '*Last on-demand run: passed 5 of 5*' -and $status -like '*is not installed*') $status
 
   # The nightly task: installed as asked, read back whole, started from outside the checkout, and removed.
@@ -504,6 +540,11 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
   Set-Content -LiteralPath (Join-Path $state 'tests.txt') -Value $tests
   # The state folder is not among these: -Install writes it into the task from its own -StateFolder.
   $taskArgs = "-Dotnet `"$(Join-Path $fakes 'dotnet.cmd')`" -Watcher `"$(Join-Path $fakes 'watcher.cmd')`" -TestProbes -NoQueue"
+  # An install whose record cannot be written schedules nothing.
+  $blocked = Join-Path $dir 'state-install-blocked'
+  New-Item -ItemType Directory -Force -Path (Join-Path $blocked 'installed.json') | Out-Null
+  $said = & $shell -NoProfile -File $script -Install -StateFolder $blocked -TaskName $taskName 2>&1 | Out-String
+  Check "an install whose record cannot be written schedules nothing (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and -not (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore)) $said
   # The colon form: a value that starts with a dash would be read as a parameter of its own.
   $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName "-TaskArguments:$taskArgs" 2>&1 | Out-String
   try {
@@ -517,6 +558,13 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     # Installed and not yet run: the status says so with the install's date; three days on, it names the night missed.
     $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
     Check 'a fresh install reads "no scheduled run yet" with its date' ($status -like "*No scheduled run yet, installed $(Get-Date -Format 'yyyy-MM-dd')*") $status
+    # A marker that cannot be read leaves the status readable, its date said to be unknown.
+    $mark = Join-Path $state 'installed.json'
+    $kept = Get-Content -LiteralPath $mark -Raw
+    Set-Content -LiteralPath $mark -Value 'not json'
+    $status = & $shell -NoProfile -File $script -Status -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check 'a marker that cannot be read leaves the status readable' ($status -like '*No scheduled run yet, installed an unknown date*') $status
+    Set-Content -LiteralPath $mark -Value $kept
     $mark = Join-Path $state 'installed.json'
     $was = Get-Content -LiteralPath $mark -Raw
     Set-Content -LiteralPath $mark -Value (@{ at = (Get-Date).AddDays(-3).ToUniversalTime().ToString('o'); task = $taskName } | ConvertTo-Json -Compress)
