@@ -119,43 +119,15 @@ namespace Bosun.Desktop
         /// </summary>
         public static DesktopHolder Acquire(string name, string folder, TimeSpan wait, Action<string>? onWaiting = null, TextWriter? errors = null, string? label = null)
         {
-            var holder = TryAcquire(name, folder, TimeSpan.Zero, label, errors);
+            using var waiter = new DesktopWaiter(name, folder, label, errors);
+            var holder = waiter.TryTake(TimeSpan.Zero);
             if (holder is not null) return holder;
             if (wait > TimeSpan.Zero)
             {
                 onWaiting?.Invoke(WaitingMessage(name, folder, wait));
-                holder = TryAcquire(name, folder, wait, label, errors);
+                holder = waiter.TryTake(wait);
             }
             return holder ?? throw new DesktopLockException(RefusedMessage(name, folder, wait), timedOut: true);
-        }
-
-        /// <summary>
-        /// One attempt: the lock held, or null when it stayed taken for <paramref name="wait"/>. A caller that must
-        /// stay interruptible (capture-window.ps1, where Ctrl+C acts only between calls) waits in short attempts.
-        /// </summary>
-        public static DesktopHolder? TryAcquire(string name, string folder, TimeSpan wait, string? label = null, TextWriter? errors = null)
-        {
-            ParseName(name);
-            var mutex = new Mutex(false, @"Local\" + name);
-            var owned = false;
-            try
-            {
-                owned = Take(mutex, wait);
-                if (!owned)
-                {
-                    mutex.Dispose();
-                    return null;
-                }
-                var holder = new DesktopHolder(mutex, name, folder, errors ?? Console.Error, label);
-                holder.Publish();
-                return holder;
-            }
-            catch
-            {
-                if (owned) mutex.ReleaseMutex();
-                mutex.Dispose();
-                throw;
-            }
         }
 
         /// <summary>What a process that finds the lock taken says, once, before it waits.</summary>
@@ -165,18 +137,6 @@ namespace Bosun.Desktop
         /// <summary>What a process says when its wait ran out.</summary>
         public static string RefusedMessage(string name, string folder, TimeSpan wait) =>
             $"the desktop is held by {Describe(name, folder)}, and {(int)wait.TotalSeconds} s ({WaitVariable}) went by without it";
-
-        private static bool Take(Mutex mutex, TimeSpan wait)
-        {
-            try
-            {
-                return mutex.WaitOne(wait);
-            }
-            catch (AbandonedMutexException)
-            {
-                return true;  // its holder died holding it: this thread owns it now
-            }
-        }
 
         /// <summary>The holder its record names, when that process still runs with that start time; otherwise "an unnamed holder".</summary>
         public static string Describe(string name, string folder)
@@ -330,6 +290,72 @@ namespace Bosun.Desktop
 
         [DllImport("kernel32.dll")]
         private static extern bool CloseHandle(IntPtr handle);
+    }
+
+    /// <summary>
+    /// A wait for the lock in as many attempts as the caller likes, on one handle kept open from the first attempt to
+    /// the last: a holder that dies between two attempts leaves the mutex abandoned, never destroyed and made afresh,
+    /// so the waiter sees what happened. A caller that must stay interruptible (capture-window.ps1, where Ctrl+C acts
+    /// only between calls) waits in short attempts. Disposing it closes the handle unless an attempt took the lock,
+    /// which then belongs to the holder it returned.
+    /// </summary>
+    public sealed class DesktopWaiter : IDisposable
+    {
+        private readonly string _name;
+        private readonly string _folder;
+        private readonly string? _label;
+        private readonly TextWriter _errors;
+        private Mutex? _mutex;
+
+        public DesktopWaiter(string name, string folder, string? label = null, TextWriter? errors = null)
+        {
+            DesktopLock.ParseName(name);
+            (_name, _folder, _label, _errors) = (name, folder, label, errors ?? Console.Error);
+            _mutex = new Mutex(false, @"Local\" + name);
+        }
+
+        /// <summary>The lock held, or null when it stayed taken for <paramref name="wait"/>.</summary>
+        public DesktopHolder? TryTake(TimeSpan wait)
+        {
+            var mutex = _mutex ?? throw new InvalidOperationException("this waiter already took the lock or was disposed");
+            bool owned;
+            try
+            {
+                owned = mutex.WaitOne(wait);
+            }
+            catch (AbandonedMutexException)
+            {
+                owned = true;  // its holder died holding it: this thread owns it now
+            }
+            if (!owned) return null;
+            DesktopHolder holder;
+            try
+            {
+                holder = new DesktopHolder(mutex, _name, _folder, _errors, _label);
+            }
+            catch
+            {
+                mutex.ReleaseMutex();
+                throw;
+            }
+            _mutex = null;  // the holder's now: it releases and closes it
+            try
+            {
+                holder.Publish();
+            }
+            catch
+            {
+                holder.Dispose();
+                throw;
+            }
+            return holder;
+        }
+
+        public void Dispose()
+        {
+            _mutex?.Dispose();
+            _mutex = null;
+        }
     }
 
     /// <summary>

@@ -782,15 +782,21 @@ try {
 }
 if (-not [Bosun.Desktop.DesktopLock]::InheritsHold($desktop.Name, $desktopFolder)) {
     # In attempts of a quarter second, not one long wait: Ctrl+C (or a runspace's Stop) acts only between calls, and
-    # this must stay stoppable, its pair released, for as long as it waits.
-    $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::TryAcquire($desktop.Name, $desktopFolder, [TimeSpan]::Zero, 'capture-window.ps1', $null)
-    if (-not $script:DesktopHolder -and $desktop.Wait -gt [TimeSpan]::Zero) {
-        [Console]::Error.WriteLine("capture-window: $([Bosun.Desktop.DesktopLock]::WaitingMessage($desktop.Name, $desktopFolder, $desktop.Wait))")
-        $deadline = [DateTime]::UtcNow + $desktop.Wait
-        while (-not $script:DesktopHolder -and [DateTime]::UtcNow -lt $deadline) {
-            $slice = [TimeSpan]::FromMilliseconds([Math]::Min(250, [Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)))
-            $script:DesktopHolder = [Bosun.Desktop.DesktopLock]::TryAcquire($desktop.Name, $desktopFolder, $slice, 'capture-window.ps1', $null)
+    # this must stay stoppable, its pair released, for as long as it waits. One waiter, one handle, from the first
+    # attempt to the last, so a holder that dies meanwhile leaves the lock abandoned for this one to take.
+    $waiter = [Bosun.Desktop.DesktopWaiter]::new($desktop.Name, $desktopFolder, 'capture-window.ps1', $null)
+    try {
+        $script:DesktopHolder = $waiter.TryTake([TimeSpan]::Zero)
+        if (-not $script:DesktopHolder -and $desktop.Wait -gt [TimeSpan]::Zero) {
+            [Console]::Error.WriteLine("capture-window: $([Bosun.Desktop.DesktopLock]::WaitingMessage($desktop.Name, $desktopFolder, $desktop.Wait))")
+            $deadline = [DateTime]::UtcNow + $desktop.Wait
+            while (-not $script:DesktopHolder -and [DateTime]::UtcNow -lt $deadline) {
+                $slice = [TimeSpan]::FromMilliseconds([Math]::Min(250, [Math]::Max(1, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)))
+                $script:DesktopHolder = $waiter.TryTake($slice)
+            }
         }
+    } finally {
+        $waiter.Dispose()
     }
     if (-not $script:DesktopHolder) {
         Write-Host "capture-window: refused: $([Bosun.Desktop.DesktopLock]::RefusedMessage($desktop.Name, $desktopFolder, $desktop.Wait))" -ForegroundColor Red

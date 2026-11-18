@@ -208,7 +208,12 @@ try {
     $env:BOSUN_DESKTOP_WAIT_S = '120'
     [void]$ps.AddCommand($script).AddParameter('Path', $shell).AddParameter('LaunchArgs', '-NoProfile -Command Start-Sleep 30').AddParameter('NoNewWindow').AddParameter('WaitSeconds', 1).AddParameter('Out', $stopOut)
     $async = $ps.BeginInvoke()
-    Start-Sleep -Seconds 3
+    # It takes its pair (Local\BosunCapturePair-<key>, Enter-PairLock) just before the desktop lock, which a holder
+    # has: once the pair is taken it is waiting, so the stop lands in the wait, not in its start (round 3).
+    $key = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes([System.IO.Path]::GetFullPath($stopOut).ToLowerInvariant()))).Replace('-', '').Substring(0, 32)
+    Wait-Until { Test-Taken "BosunCapturePair-$key" } 'the stopped capture to take its pair'
+    Start-Sleep -Milliseconds 500   # from its pair, through recovery and the lock's Add-Type (already loaded here), to the wait
+    Check 'the capture is still waiting for the lock when it is stopped' (-not $async.IsCompleted)
     $clock.Restart()
     $ps.Stop()
     Check "a capture waiting for the lock stops when stopped ($([Math]::Round($clock.Elapsed.TotalSeconds, 1)) s)" ($async.IsCompleted -and $clock.Elapsed.TotalSeconds -lt 5)
