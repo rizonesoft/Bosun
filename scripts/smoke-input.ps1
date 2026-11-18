@@ -79,6 +79,39 @@ public static class SmokeInputDesk {
         if (!GetLastInputInfo(ref info)) return 0;
         return unchecked((uint)Environment.TickCount - info.dwTime) / 1000.0;
     }
+
+    [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy, mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort wVk, wScan; public int dwFlags, time; public IntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Explicit)] struct UNION { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; }
+    [StructLayout(LayoutKind.Sequential)] struct INPUT { public int type; public UNION u; }
+    [DllImport("user32.dll")] static extern uint SendInput(uint count, INPUT[] inputs, int size);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
+    // The smoke's own mark (Native.SmokeTag, tests/Bosun.Panel.E2E): the watcher passes these releases over.
+    const long SmokeTag = 0x42534E31;
+
+    public static bool IsDown(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
+
+    // Lets go of each of these that is down: mouse buttons (1 left, 2 right, 4 middle) with a button-up, any other key
+    // with a key-up. A class ended mid-drag or mid-chord cannot let go itself. Returns the keys it let go of.
+    public static int[] Release(int[] keys) {
+        var released = new System.Collections.Generic.List<int>();
+        foreach (var key in keys) {
+            if (!IsDown(key)) continue;
+            var input = new INPUT[1];
+            if (key == 1 || key == 2 || key == 4) {
+                input[0].type = 0;
+                input[0].u.mi.dwFlags = key == 1 ? 0x0004 : key == 2 ? 0x0010 : 0x0040;
+                input[0].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
+            } else {
+                input[0].type = 1;
+                input[0].u.ki.wVk = (ushort)key;
+                input[0].u.ki.dwFlags = 0x0002;
+                input[0].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
+            }
+            if (SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1) released.Add(key);
+        }
+        return released.ToArray();
+    }
 }
 '@
 }
@@ -172,7 +205,11 @@ function Show-Status {
 # ---- the task ----------------------------------------------------------------------------------------------------
 
 if ($Status) { Show-Status; exit 0 }
+# Whether a task is this script's own: its action runs this script. Install and uninstall touch no other task.
+function Test-OwnTask($task) { @($task.Actions | Where-Object { "$($_.Arguments)" -like "*$PSCommandPath*" }).Count -gt 0 }
 if ($Install) {
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore
+    if ($existing -and -not (Test-OwnTask $existing)) { "A task named '$TaskName' is already there and does not run this script: it is left alone. Choose another -TaskName."; exit 1 }
     $shell = (Get-Process -Id $PID).Path
     # The state folder goes in the task's own arguments, so the nightly run writes where -Status here will read.
     $arguments = "-NoProfile -WindowStyle Hidden -File $(ConvertTo-CommandLineArgument $PSCommandPath) -Scheduled -Invocation task -StateFolder $(ConvertTo-CommandLineArgument ([IO.Path]::GetFullPath($StateFolder)))"
@@ -194,7 +231,9 @@ if ($Install) {
 if ($Uninstall) {
     # A task that is not there is already removed; one that could not be removed stays recorded as installed, and the
     # script says so with exit 1, never that the nightly run has stopped.
-    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore) {
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction Ignore
+    if ($existing -and -not (Test-OwnTask $existing)) { "The task named '$TaskName' does not run this script: it is left alone."; exit 1 }
+    if ($existing) {
         try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop }
         catch { "Could not remove '$TaskName': $($_.Exception.Message). The nightly run is still installed."; exit 1 }
     }
@@ -212,8 +251,13 @@ Stop-TreeWithThisWindow
 $mode = if ($Scheduled) { 'scheduled' } else { 'manual' }
 $started = (Get-Date).ToUniversalTime()
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$log = Join-Path $StateFolder "input-$stamp.log"
-for ($n = 2; Test-Path -LiteralPath $log; $n++) { $log = Join-Path $StateFolder "input-$stamp-$n.log" }
+# The log's name is reserved by making the file, which only one process can do: two runs in one second never share it.
+$log = $null
+for ($n = 1; -not $log; $n++) {
+    $name = Join-Path $StateFolder $(if ($n -eq 1) { "input-$stamp.log" } else { "input-$stamp-$n.log" })
+    try { [IO.File]::Open($name, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite).Dispose(); $log = $name }
+    catch [IO.IOException] { if (-not (Test-Path -LiteralPath $name)) { throw } }
+}
 $results = Join-Path $StateFolder "results-$([IO.Path]::GetFileNameWithoutExtension($log).Substring(6))"
 New-Item -ItemType Directory -Force -Path $results | Out-Null
 function Say([string]$line) { $line; Add-Content -LiteralPath $log -Value "$((Get-Date).ToString('HH:mm:ss')) $line" }
@@ -227,6 +271,13 @@ function PastDeadline { $null -ne $end -and (Get-Date) -ge $end }
 # The nightly window is the hours before the deadline (03:00 to 06:00): a scheduled run started earlier, by hand from
 # Task Scheduler or a clock that moved, is a night outside it.
 function BeforeWindow { $null -ne $end -and (Get-Date) -lt $end.AddHours($WindowOpens - $WindowCloses) }
+# The buttons and keys a real-input test may hold: the mouse buttons, Shift, Ctrl, Alt and both Windows keys. For the
+# script's own tests, only F24, which nothing uses, so a test never touches the keys of a person at the desk.
+$HeldKeys = if ($TestProbes) { @(0x87) } else { @(1, 2, 4, 0x10, 0x11, 0x12, 0x5B, 0x5C) }
+function Release-Held {
+    $let = @([SmokeInputDesk]::Release([int[]]$HeldKeys))
+    if ($let.Count) { Say "let go of what the ended class held down: $(($let | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', ')" }
+}
 function Locked { if ($TestProbes) { Test-Path -LiteralPath (Join-Path $StateFolder 'probe-locked') } else { [SmokeInputDesk]::Locked() } }
 function IdleSeconds {
     $probe = Join-Path $StateFolder 'probe-idle'
@@ -375,6 +426,8 @@ try {
             try { $rows = @(([xml](Get-Content -LiteralPath $report -Raw)).TestRun.Results.UnitTestResult | Where-Object { $_ }) }
             catch { if (-not $run.TimedOut) { Finish 'failed' "the report of $class could not be read: $($_.Exception.Message)" 1; return } }
         }
+        # A class that was ended may have left a button or a key down (a drag, a chord): let go of them first.
+        if ($run.TimedOut) { Release-Held }
         if ($run.TimedOut) { Stop-For $(if ($run.StoppedBy) { $run.StoppedBy } else { 'deadline' }) "during $class, which was ended"; return }
         foreach ($result in $rows) {
             $name = $result.testName

@@ -42,6 +42,12 @@ if ($which -and $which -eq $class) {
   if ($word -eq 'person') { Set-Content -LiteralPath (Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' | Select-Object -First 1).FullName -Value (Get-Date).ToUniversalTime().AddSeconds(1).ToString('o') }
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
   if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
+  if ($word -eq 'hold') {
+    # F24 pressed and never let go, as a drag ended between its button-down and button-up.
+    Add-Type 'using System; using System.Runtime.InteropServices; public static class F24 { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(10)] public ushort scan; [FieldOffset(12)] public int flags; [FieldOffset(16)] public int time; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Down() { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
+    if ([F24]::Down() -eq 1) { Set-Content -LiteralPath (Join-Path $state 'held.txt') -Value 'down' }
+    Start-Sleep 120
+  }
   if ($word -eq 'sleep') {
     # A report begun and never finished: the class is ended mid-write.
     Set-Content -LiteralPath (Join-Path $dir $file) -Value '<TestRun><Results><UnitTestResult testName='
@@ -173,6 +179,11 @@ try {
   $watchFiles = @(Get-ChildItem -LiteralPath $state -Filter 'watch-*.txt' -ErrorAction Ignore)
   Check "a run's watcher file is its own, named for it ($(@($watchFiles).Count) left by the killed run)" (@($watchFiles).Count -le 1 -and (@($watchFiles | Where-Object { $_.Name -match '^watch-\d{8}-\d{6}-\d+-[0-9a-f]{8}\.txt$' }).Count -eq @($watchFiles).Count))
 
+  # A class ended while it holds a key down (a drag between button-down and button-up) has it let go of by the runner.
+  $run = Invoke-Run 'hold Bosun.Panel.E2E.Alpha' @('-Scheduled', '-Deadline', (Get-Date).AddSeconds(20).ToString('s'))
+  Add-Type 'using System.Runtime.InteropServices; public static class F24State { [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k); public static bool Down() { return (GetAsyncKeyState(0x87) & 0x8000) != 0; } }' -ErrorAction Ignore
+  Check "a key held by an ended class is let go of (exit $($run.Code), held: $(Test-Path -LiteralPath (Join-Path $run.State 'held.txt')))" ($run.Last.outcome -eq 'stopped-deadline' -and (Test-Path -LiteralPath (Join-Path $run.State 'held.txt')) -and -not [F24State]::Down() -and (Get-Content -LiteralPath $run.Last.log -Raw) -like '*let go of*0x87*') $run.Said
+
   # The window has two ends: a scheduled run started before it (03:00, three hours before its 06:00 deadline) is a skip.
   $run = Invoke-Run 'pass' @('-Scheduled', '-Deadline', (Get-Date).AddHours(4).ToString('s'))
   Check "a scheduled run started before its window is skipped (exit $($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'skipped-outside-window' -and -not (Test-Path -LiteralPath (Join-Path $run.State 'classes.txt'))) $run.Said
@@ -284,6 +295,7 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     foreach ($p in $many) { $p.WaitForExit(60000) | Out-Null }
     $kept = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     Check "six refused runs at once keep six records ($($kept.Count))" ($kept.Count -eq 6 -and @($kept | Where-Object { $_.reason -like '*lock was held by*hold.ps1*' }).Count -eq 6)
+    Check 'and six logs of their own' (@($kept.log | Select-Object -Unique).Count -eq 6)
   } finally {
     Remove-Item Env:BOSUN_DESKTOP_WAIT_S, Env:BOSUN_DESKTOP_LOCK -ErrorAction Ignore
     Remove-Item -LiteralPath $holdFile -ErrorAction Ignore
@@ -364,6 +376,15 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName *> $null
   }
   Check 'uninstalled, the task is gone' (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore))
+  # A task of the same name that is not this script's is left alone, by -Install and by -Uninstall.
+  $foreign = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c rem not the smoke'
+  Register-ScheduledTask -TaskName $taskName -Action $foreign -Trigger (New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(1)) -Force | Out-Null
+  try {
+    $said = & $shell -NoProfile -File $script -Install -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check "-Install leaves a task of the same name that is not its own (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Get-ScheduledTask -TaskName $taskName).Actions[0].Execute -eq 'cmd.exe') $said
+    $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
+    Check "-Uninstall leaves it too (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Get-ScheduledTask -TaskName $taskName -ErrorAction Ignore)) $said
+  } finally { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Ignore }
   # Removing a task that is not there is already done; the install record goes with it.
   $said = & $shell -NoProfile -File $script -Uninstall -StateFolder $state -TaskName $taskName 2>&1 | Out-String
   Check "uninstalling again says it is removed (exit $LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and $said -like '*Removed*' -and -not (Test-Path -LiteralPath (Join-Path $state 'installed.json'))) $said
