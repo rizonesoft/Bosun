@@ -2,7 +2,7 @@
 schema_version: 1
 id: application-shell
 domain: 02-shell
-status: done
+status: active
 title: "TODO-02 -- The application shell"
 ---
 
@@ -53,6 +53,7 @@ title: "TODO-02 -- The application shell"
 | 8 | §9 | Off-screen page rendering for review | D02 T01 §1 | [x] |
 | 9 | §10 | End-to-end smoke through UI Automation | §4, §9 | [x] |
 | 10 | §11 | One desktop owner across smoke runs and captures | §10 | [x] |
+| 11 | §12 | Real-input smoke opt-in and on a nightly schedule | §11 | [ ] |
 
 ## 1. Startup, single instance and crash handling
 
@@ -543,6 +544,36 @@ Decisions, each with what reversing it costs:
 
 > **Verified:** 2026-11-18 | §11 | 50e0b807b4539be481e88aeb4cc60f0b2cc477e4
 > **Review:** `docs/reviews/d02-t02-s11.json`
+
+## 12. Real-input smoke opt-in and on a nightly schedule
+
+Filed 2026-11-18 at the operator's request: the end-to-end smoke borrows the operator's mouse and keyboard for its real-input tests (the caption buttons and the snap layouts flyout, the splitter's drag, the tray icon, the Tab, Space and shortcut paths), a few seconds at a time, while they work. The operator decided: the default smoke never touches the pointer or the keyboard and runs whenever a change needs it, as now; the real-input tests are opt-in, run on demand and on a schedule between 03:00 and 05:00. Real input needs an unlocked desktop nobody is using, so the scheduled run starts only on one and otherwise records that it skipped, never waking, unlocking or taking a desktop in use.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+Decisions, each with what reversing it costs:
+
+- A test that sends real input carries the xunit trait `Input=Real` (`[Trait("Input", "Real")]`, on its class or method); the default smoke run filters it out (`--filter-not-trait "Input=Real"`), and the input set is that trait alone. Reversal cost: one trait.
+- The scheduled run is a Windows scheduled task, `Bosun real-input smoke`, at 03:00 daily for the current user, running `scripts/smoke-input.ps1 -Scheduled`, which gives up at 05:00. It runs only while the user is logged on (the desktop it needs is theirs), never wakes the machine, and is created and removed by `scripts/smoke-input.ps1 -Install` and `-Uninstall`. It is not a run of the plan: it starts no session and resumes nothing (the owner's rule of 2026-11-12). Reversal cost: `-Uninstall`.
+- It starts only on a desktop that is unlocked (a window owns the foreground) and idle for 15 minutes or more (`GetLastInputInfo`), checked again before each test class, so a person who comes back mid-run gets their desktop back at the next class. Reversal cost: a number.
+- Each run, run or skipped, writes one record to `%LOCALAPPDATA%\Bosun\smoke\input-last.json` (`at`, `outcome`: `passed`, `failed`, `skipped-locked`, `skipped-in-use` or `stopped-in-use`, the counts, and the log's path), through a temporary file and replace; the log goes to `%LOCALAPPDATA%\Bosun\smoke\input-<date>.log`, the last 14 kept.
+
+**Build order:**
+
+1. Tag the real-input tests and keep them out of the default smoke. Done when: the default run touches neither pointer nor keyboard, and the input set runs alone.
+2. Add the on-demand and scheduled runner with its guard and record. Done when: a run on a locked or busy desktop skips and says so, and an idle one runs.
+3. Install the schedule and surface the last result. Done when: the task exists at 03:00 and the last result is readable from one command.
+
+- [ ] Tag every test that sends real input in `tests/Bosun.Panel.E2E` (through `RealInput`: keys, clicks, drags, pointer moves) with `[Trait("Input", "Real")]`, and change the default smoke command in `tests/Bosun.Panel.E2E/README.md` and every checkpoint that names it to `--filter-not-trait "Input=Real"`. Done when: a test in `HarnessTests` reads, by reflection over the assembly, that every test method whose body reaches `RealInput` carries the trait and no other does, failing for an untagged one; and a default run on this desktop leaves the pointer where it was and sends no key (`RealInput` refuses outside the input set, its refusal counted as zero in the default run). Cheaper substitute: deleting the real-input tests.
+- [ ] Add `scripts/smoke-input.ps1`: with no switch it runs the input set now; with `-Scheduled` it first checks the desktop is unlocked and idle 15 minutes, else writes `skipped-locked` or `skipped-in-use` and exits 0, and gives up at 05:00 local; it writes the record and the log as above, keeping the last 14 logs. Done when: `tests/smoke_input_test.ps1` (console children with no window) reads, with the lock and idle checks stubbed through `-ProbeLocked` and `-ProbeIdleSeconds`, each skip's record and exit 0, a passed and a failed run's record from a stand-in `dotnet`, the record written whole (a reader never sees half), the 15th log removed, and a run past its deadline stopped with `stopped-in-use` or the deadline named. Cheaper substitute: a scheduled task that runs the tests whatever the desktop.
+- [ ] Add `-Install` and `-Uninstall` to `scripts/smoke-input.ps1` (the task `Bosun real-input smoke`, daily at 03:00, run only when the user is logged on, not woken), and `-Status`, which prints the last record in words ("Real-input smoke: passed 18 of 18 at 03:04 today" or "skipped 3 nights: the desktop was locked"). Done when: the test installs it under a task name of its own, reads it back with `Get-ScheduledTask` (trigger 03:00 daily, logon type interactive, no wake), uninstalls it and finds it gone; and `-Status` words each outcome. Cheaper substitute: a note asking the operator to run it.
+- [ ] Say in `tests/Bosun.Panel.E2E/README.md` and `AGENTS.md` which tests send real input, that they are opt-in, how to run them now (`pwsh scripts/smoke-input.ps1`), the 03:00 schedule and its guard, and how to read the last result (`-Status`). Done when: both name the trait, the command and the schedule.
+- [ ] Install the schedule on this machine (`pwsh scripts/smoke-input.ps1 -Install`) and record its first result. Done when: `Get-ScheduledTask -TaskName "Bosun real-input smoke"` finds it, and `-Status` reads the first night's record (passed, failed or a named skip).
+- [ ] Commit: `smoke: real-input tests opt-in and on a nightly schedule`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.E2E --filter-not-trait "Input=Real"` exits 0 without moving the pointer, `pwsh scripts/smoke-input.ps1` passes on an idle desktop, and `pwsh tests/smoke_input_test.ps1` exits 0.
 
 ## Verification
 

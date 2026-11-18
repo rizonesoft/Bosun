@@ -94,11 +94,12 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 20 | Checklist items: 136
+Sections: 21 | Checklist items: 142
 
 | Status | Reference   | Deliverable                                                      | Needs | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----- | ----- |
 | [x]    | D02 T02 §11 | One desktop owner across smoke runs and captures                 | none  | 7     |
+| [ ]    | D02 T02 §12 | Real-input smoke opt-in and on a nightly schedule                | none  | 6     |
 | [x]    | D02 T04 §1  | One focus outline per control, with focus renders                | none  | 9     |
 | [x]    | D02 T04 §2  | Field insets, error border and label spacing                     | none  | 7     |
 | [x]    | D02 T04 §3  | Spacing scale, section headings and Settings in cards            | none  | 7     |
@@ -158,6 +159,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 80/103 verified sections, 4 ready to run now.
+Progress: 80/104 verified sections, 5 ready to run now.
 
-Checklist: 781/887 items completed (includes Commit items).
+Checklist: 781/893 items completed (includes Commit items).
