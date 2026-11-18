@@ -100,6 +100,14 @@ Set-Content -LiteralPath (Join-Path $state 'watcher.pid') -Value $PID
 if ($args.Count -gt 2) { Set-Content -LiteralPath (Join-Path $state 'watcher.event') -Value $args[2] }
 Set-Content -LiteralPath $args[1] -Value none
 'watching'
+# Asked to let go of what the smoke holds, it does as the real one does, from the list the case left in its record.
+Add-Type 'using System; using System.Runtime.InteropServices; public static class Up { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(12)] public int flags; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Key(int vk) { var k = new K[1]; k[0].type = 1; k[0].vk = (ushort)vk; k[0].flags = 2; k[0].extra = new IntPtr(0x42534E31); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }'
+for ($line = [Console]::In.ReadLine(); $null -ne $line; $line = [Console]::In.ReadLine()) {
+  if ($line.Trim() -ne 'release') { continue }
+  $held = @((@(Get-Content -LiteralPath $args[1]) + @('', ''))[1] -split ',' | Where-Object { $_ -match '^\d+$' })
+  $let = @($held | Where-Object { [Up]::Key([int]$_) -eq 1 })
+  "released $($let -join ',')"
+}
 Start-Sleep 600
 '@
 Set-Content -LiteralPath (Join-Path $fakes 'watcher.cmd') -Value "@`"$shell`" -NoProfile -File `"$(Join-Path $fakes 'watcher.ps1')`" %*"
@@ -239,6 +247,20 @@ try {
       $before = $seen.WaitOne(0)
       $real.StandardInput.WriteLine('person'); $real.StandardInput.Flush()
       Check "the real watcher sets the person event the moment a person comes ($ready, before: $before)" ($ready -eq 'watching' -and -not $before -and $seen.WaitOne(3000))
+      # Asked to release, it lets go of what the smoke holds by its own list, and leaves a key a person took over.
+      Add-Type 'using System; using System.Runtime.InteropServices; public static class F24Send { [StructLayout(LayoutKind.Explicit, Size = 40)] struct K { [FieldOffset(0)] public int type; [FieldOffset(8)] public ushort vk; [FieldOffset(12)] public int flags; [FieldOffset(24)] public IntPtr extra; } [DllImport("user32.dll")] static extern uint SendInput(uint n, K[] i, int s); public static uint Key(bool up, long tag) { var k = new K[1]; k[0].type = 1; k[0].vk = 0x87; k[0].flags = up ? 2 : 0; k[0].extra = new IntPtr(tag); return SendInput(1, k, Marshal.SizeOf(typeof(K))); } }' -ErrorAction Ignore
+      Add-Type 'using System.Runtime.InteropServices; public static class F24State { [DllImport("user32.dll")] static extern short GetAsyncKeyState(int k); public static bool Down() { return (GetAsyncKeyState(0x87) & 0x8000) != 0; } }' -ErrorAction Ignore
+      try {
+        [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
+        $real.StandardInput.WriteLine('release'); $real.StandardInput.Flush()
+        $answer = "$($real.StandardOutput.ReadLine())".Trim()
+        Check "the real watcher lets go of the smoke's key when asked ('$answer')" ($answer -eq 'released 135' -and -not [F24State]::Down())
+        [void][F24Send]::Key($false, 0x42534E31); Start-Sleep -Milliseconds 200
+        [void][F24Send]::Key($false, 0); Start-Sleep -Milliseconds 200
+        $real.StandardInput.WriteLine('release'); $real.StandardInput.Flush()
+        $answer = "$($real.StandardOutput.ReadLine())".Trim()
+        Check "and leaves one a person took over ('$answer')" ($answer -eq 'released' -and [F24State]::Down())
+      } finally { [void][F24Send]::Key($true, 0) }
     } finally {
       if ($real -and -not $real.HasExited) { $real.Kill($true) }
       $seen.Dispose()

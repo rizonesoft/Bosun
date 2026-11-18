@@ -12,6 +12,9 @@ namespace Bosun.TestChild;
 /// hook): the latest person's time (or "none"), and the keys and buttons the smoke pressed and has not let go of
 /// (virtual-key codes, comma-separated). A class ended mid-drag leaves those down, and the runner lets go of them, never
 /// one a person holds (a person pressing a key the smoke holds takes it off the list).
+/// A line "release" on stdin has the watcher let go of what the smoke holds, from its own list in memory (exact: a
+/// person's press takes a key off it in the hook, at once), and answer "released &lt;keys&gt;". A watcher whose record can no
+/// longer be written lets go of the same before it ends.
 /// A line "person" on stdin stands in for one, so the runner's tests can show it. It watches four hours at most.
 /// </summary>
 static class InputWatch
@@ -72,11 +75,20 @@ static class InputWatch
         // Only now, with both hooks in, is the watcher ready: the file and the line say so, and the runner reads the
         // line as the proof (a watcher whose hooks failed exits 70 having written nothing).
         new Thread(Writer) { IsBackground = true, Name = "watch-input writer" }.Start();
-        // A person stood in for: each "person" line on stdin is one input not marked injected.
+        // The runner's requests on stdin: "release" (let go of what the smoke holds), and "person", standing in for one
+        // input not marked injected.
         new Thread(() =>
         {
             for (string? line; (line = Console.In.ReadLine()) is not null;)
+            {
                 if (line.Trim() == "person") Input(smoke: false, key: 0, down: false, up: false);
+                if (line.Trim() == "release")
+                {
+                    var let = ReleaseHeld();
+                    Console.Out.WriteLine("released " + string.Join(",", let));
+                    Console.Out.Flush();
+                }
+            }
         }) { IsBackground = true }.Start();
         // Held to the end: a timer nothing references can be collected, and the four-hour cap would never come.
         using var quit = new Timer(_ => PostThreadMessage(thread, WM_QUIT, IntPtr.Zero, IntPtr.Zero), null, TimeSpan.FromHours(4), Timeout.InfiniteTimeSpan);
@@ -115,6 +127,52 @@ static class InputWatch
         }
     }
 
+    /// <summary>
+    /// Lets go of each key and button the smoke holds, by its own list: each is checked again just before its release
+    /// is sent, so one a person took since is left to them. Not under the lock while sending, since the hook takes it.
+    /// </summary>
+    private static int[] ReleaseHeld()
+    {
+        int[] keys;
+        lock (Gate) keys = [.. SmokeHeld];
+        var let = new List<int>();
+        foreach (var key in keys)
+        {
+            lock (Gate)
+                if (!SmokeHeld.Contains(key)) continue;
+            var input = new INPUT[1];
+            if (key is 1 or 2 or 4)
+            {
+                input[0].type = 0;
+                input[0].u.mi.dwFlags = key == 1 ? 0x0004 : key == 2 ? 0x0010 : 0x0040;
+                input[0].u.mi.dwExtraInfo = new IntPtr(SmokeTag);
+            }
+            else
+            {
+                input[0].type = 1;
+                input[0].u.ki.wVk = (ushort)key;
+                input[0].u.ki.dwFlags = 0x0002;
+                input[0].u.ki.dwExtraInfo = new IntPtr(SmokeTag);
+            }
+            if (SendInput(1, input, Marshal.SizeOf<INPUT>()) == 1) let.Add(key);
+        }
+        return [.. let];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT { public int dx, dy, mouseData, dwFlags, time; public IntPtr dwExtraInfo; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT { public ushort wVk, wScan; public int dwFlags, time; public IntPtr dwExtraInfo; }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT { public int type; public INPUTUNION u; }
+
+    [DllImport("user32.dll")] private static extern uint SendInput(uint count, INPUT[] inputs, int size);
+
     /// <summary>Whether an input is the smoke's own: injected, and carrying its mark.</summary>
     private static bool Smokes(bool injected, IntPtr extra) => injected && extra.ToInt64() == SmokeTag;
 
@@ -150,6 +208,8 @@ static class InputWatch
             catch (Exception failed) when (failed is IOException or UnauthorizedAccessException)
             {
                 Console.Error.WriteLine($"watch-input: the record could not be written, so the watcher ends: {failed.Message}");
+                // What the smoke holds is let go of first: the runner, told only that the watcher ended, cannot know it.
+                ReleaseHeld();
                 Environment.Exit(71);
             }
         }

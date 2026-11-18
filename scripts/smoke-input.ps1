@@ -299,11 +299,27 @@ function Read-Watch {
     }
     $null
 }
-# What the ended class left down: the keys and buttons the watcher saw the smoke press and not let go of (its record's
-# second line), so a button a person holds, the one whose press stopped the run, is never let go of for them. A
-# watcher that has ended keeps no record any more: what it last wrote may be stale, so nothing is let go of then.
+# What the ended class left down is let go of by the watcher, from its own list in memory: it alone knows exactly what
+# the smoke holds, a person's press having taken a key off that list in the hook. Asked on its stdin, it answers with
+# what it let go of. Only when it has ended is its last record used, and then only if no person came.
+$watchMute = $false
 function Release-Held {
     if (-not $watch) { return }
+    if (-not $watch.HasExited -and -not $script:watchMute) {
+        $reply = $null
+        try {
+            $watch.StandardInput.WriteLine('release'); $watch.StandardInput.Flush()
+            $reply = $watch.StandardOutput.ReadLineAsync()
+        } catch { Say "the input watcher could not be asked to let go: $($_.Exception.Message)" }
+        if ($reply -and $reply.Wait(3000) -and "$($reply.Result)".StartsWith('released')) {
+            $let = @("$($reply.Result)".Substring(8).Trim() -split ',' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+            if ($let.Count) { Say "let go of what the ended class held down: $(($let | ForEach-Object { '0x{0:X2}' -f $_ }) -join ', ')" }
+            return
+        }
+        # An answer that never came leaves its read pending, which no second read may share.
+        $script:watchMute = $true
+        if (-not $watch.HasExited) { Say "nothing let go of: the input watcher did not answer"; return }
+    }
     # A watcher that has ended keeps no record: what it last wrote is trusted only if no person came since the start
     # (the event says so, set the moment one did), for then everything it listed is the smoke's own.
     if ($watch.HasExited -and $personSeen -and $personSeen.WaitOne(0)) { Say "nothing let go of: the input watcher had ended after a person came, so what it last saw held may be theirs"; return }
@@ -417,7 +433,7 @@ try {
     $info.ArgumentList.Add('watch-input'); $info.ArgumentList.Add($watchFile); $info.ArgumentList.Add($personName)
     $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
     $watch = [Diagnostics.Process]::Start($info)
-    $watch.StandardInput.Close()
+    # Stdin stays open: the runner asks the watcher to let go of what the smoke holds on it.
     $ready = $watch.StandardOutput.ReadLineAsync()
     if (-not $ready.Wait(10000) -or $ready.Result -ne 'watching') { Finish 'failed' "the input watcher did not start$(if ($watch.HasExited) { " (exit $($watch.ExitCode))" })" 1; return }
     $watchStart = Get-Date
