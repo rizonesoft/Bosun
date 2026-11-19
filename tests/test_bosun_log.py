@@ -481,6 +481,19 @@ class HostReading(unittest.TestCase):
         self.assertEqual(dl.read_host(self.dir, NOW)[0], 3000)
 
 
+def setUpModule():
+    # The throttles under test take their locks under a root of their own, never the running service's /run/user/<uid>.
+    global _RUN_USER_ROOT
+    _RUN_USER_ROOT = tempfile.mkdtemp(prefix="bosun-run-user-")
+    for uid in (1000, 1001, os.getuid() if hasattr(os, "getuid") else 1000):
+        os.makedirs(os.path.join(_RUN_USER_ROOT, str(uid)), exist_ok=True)
+    dl.RUN_USER = _RUN_USER_ROOT
+
+
+def tearDownModule():
+    shutil.rmtree(_RUN_USER_ROOT, ignore_errors=True)
+
+
 class ThrottleCase(unittest.TestCase):
     """The throttle through its real entry (run_once) on files in a folder, with a stand-in for systemctl."""
 
@@ -785,6 +798,29 @@ class ThrottleOwner(ThrottleCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, second.state_name)))
         self.assertFalse(os.path.exists(os.path.join(self.dir, second.status_name)))
         self.assertIsNone(second.stop())                                     # a logger that never owned restores nothing
+
+
+class ThrottleReviewRound11(ThrottleCase):
+    def test_the_lock_is_the_managers_own_from_the_uid_never_the_environment(self):
+        # Round 11: an unset XDG_RUNTIME_DIR put a second logger's lock in /tmp, a lock of its own.
+        old = os.environ.pop("XDG_RUNTIME_DIR", None)
+        self.addCleanup(lambda: old is None or os.environ.__setitem__("XDG_RUNTIME_DIR", old))
+        throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", uid=4242)
+        self.assertFalse(throttle.own())                      # no such manager here: ownership is declined, never /tmp
+        self.assertEqual(throttle.lock_dir, os.path.join(dl.RUN_USER, "4242"))
+        self.assertEqual(throttle.run_once(now=NOW)["state"], "not_owner")
+
+    def test_a_policy_that_can_not_be_read_keeps_an_operators_hold(self):
+        # Round 11: one unreadable sample of the policy cleared the hold, and Bosun lowered the operator's cap again.
+        self.tick(1000)
+        self.slice.value = 1 * GB                             # the operator's
+        self.assertEqual(self.tick(1000), "left_alone")
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w", encoding="utf-8") as f:
+            f.write("{broken")                                # unreadable for one sample
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.policy()                                         # readable again, still under pressure
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 1 * GB)
 
 
 class ThrottleStop(ThrottleCase):

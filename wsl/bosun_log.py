@@ -692,6 +692,10 @@ def limit_text(value):
 # the same process would refuse itself), and a process that owns the throttle owns it for every Throttle it makes.
 _OWNED = {}
 
+# Where systemd keeps each user manager's runtime folder, /run/user/<uid>. A module setting, so a test can give its
+# throttles a root of their own and never take the running service's lock.
+RUN_USER = "/run/user"
+
 
 class Throttle:
     """Lowers `unit`'s MemoryHigh under Windows pressure and restores it. `systemctl` is the hands on the slice, apart so a
@@ -702,7 +706,10 @@ class Throttle:
         # One owner per user manager and slice (round 10: two loggers of one user raced on one record and lost the
         # original). The owner holds an exclusive lock for its life, in the user's own runtime folder (local, never the
         # Windows log folder, where locks don't hold); a logger without it samples but never throttles or reports.
-        self.lock_dir = lock_dir or os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+        # From the uid, never the environment (round 11: an unset XDG_RUNTIME_DIR sent a second logger of the same manager
+        # to /tmp, a different lock): systemd keeps each user manager's runtime folder at /run/user/<uid>. Without it there
+        # is no manager to own, and own() declines.
+        self.lock_dir = lock_dir  # None: the manager's own folder under RUN_USER, from the uid, decided in own()
         self.lock_fd = None
         # `systemctl --user` controls the slice of the user manager of this uid, so the record is this uid's too (round 8).
         self.uid = os.getuid() if uid is None else uid
@@ -957,6 +964,10 @@ class Throttle:
         """An operator took the slice over: nothing is touched until the episode ends (Windows over the floor plus the band) or
         the switch goes off, and then the take-over is forgotten so Bosun may act again, only ever lowering."""
         seen = limit_text(self.operator["seen"])
+        if policy is None and policy_why is not None:
+            # The policy could not be read this sample (round 11): that ends nothing. The hold stays until a policy read off,
+            # the file gone, or Windows recovered.
+            return self.report("left_alone", f"{self.unit} was set to {seen} by someone else and stays left alone; the policy could not be read ({policy_why})")
         if not on:
             self.save_state(None)
             return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"))
@@ -986,6 +997,8 @@ class Throttle:
         """True while this logger holds the throttle's lock for its user and slice, taken on first use and kept."""
         if self.lock_fd is not None:
             return True
+        if self.lock_dir is None:
+            self.lock_dir = os.path.join(RUN_USER, str(self.uid))
         path = os.path.join(self.lock_dir, f"bosun-throttle-u{self.uid}-{self.unit}.lock")
         if path in _OWNED:
             self.lock_fd = _OWNED[path]
