@@ -761,6 +761,32 @@ class ThrottleRecordAndRace(ThrottleCase):
             self.assertEqual(self.slice.sets(), [], lowered)
 
 
+class ThrottleOwner(ThrottleCase):
+    def test_a_second_logger_of_the_same_user_never_throttles_or_writes(self):
+        # Round 10: two loggers of one user raced on one record and lost the original. One owns; the other only samples.
+        lock_dir = tempfile.mkdtemp(prefix="bosun-lock-")
+        self.addCleanup(shutil.rmtree, lock_dir, True)
+        path = os.path.join(lock_dir, "bosun-throttle-u1000-bosun-jobs.slice.lock")
+        holder = subprocess.Popen([sys.executable, "-c",
+                                   "import fcntl, os, sys, time\n"
+                                   "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+                                   "fcntl.flock(fd, fcntl.LOCK_EX)\n"
+                                   "print('held', flush=True)\n"
+                                   "time.sleep(60)\n", path], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        second = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", uid=1000, lock_dir=lock_dir)
+        self.policy()
+        self.host(1000)
+        result = second.run_once(now=NOW)
+        self.assertEqual(result["state"], "not_owner")
+        self.assertEqual(self.slice.calls, [])                               # not even a read of the slice
+        self.assertFalse(os.path.exists(os.path.join(self.dir, second.state_name)))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, second.status_name)))
+        self.assertIsNone(second.stop())                                     # a logger that never owned restores nothing
+
+
 class ThrottleStop(ThrottleCase):
     def test_a_stopping_service_puts_its_own_lowering_back(self):
         # Round 6: a stopped service left a running job throttled until another logger started.

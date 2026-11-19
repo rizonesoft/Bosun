@@ -9,6 +9,7 @@ usage: bosun_log.py <log_dir> [--interval 30] [--once]
 import datetime
 import json
 import os
+import fcntl
 import re
 import shlex
 import signal
@@ -687,12 +688,22 @@ def limit_text(value):
     return f"{value // MB} MB" if value % MB == 0 else f"{value} bytes"
 
 
+# The throttle locks this process holds, by path: ownership is per process (a flock is per open file, so a second open in
+# the same process would refuse itself), and a process that owns the throttle owns it for every Throttle it makes.
+_OWNED = {}
+
+
 class Throttle:
     """Lowers `unit`'s MemoryHigh under Windows pressure and restores it. `systemctl` is the hands on the slice, apart so a
     test can stand in for it; `unit` is bosun-jobs.slice, or a disposable slice in the integration test."""
 
-    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None, uid=None):
+    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None, uid=None, lock_dir=None):
         self.log_dir, self.systemctl, self.unit = log_dir, systemctl, unit
+        # One owner per user manager and slice (round 10: two loggers of one user raced on one record and lost the
+        # original). The owner holds an exclusive lock for its life, in the user's own runtime folder (local, never the
+        # Windows log folder, where locks don't hold); a logger without it samples but never throttles or reports.
+        self.lock_dir = lock_dir or os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+        self.lock_fd = None
         # `systemctl --user` controls the slice of the user manager of this uid, so the record is this uid's too (round 8).
         self.uid = os.getuid() if uid is None else uid
         # The identity comes from the installer (BOSUN_DISTRO in the unit), then from WSL. With neither, or a name that is
@@ -898,8 +909,8 @@ class Throttle:
         """The service is stopping: a limit Bosun lowered, and still holds as it set it, is put back now (round 6: a stopped
         service left a running job throttled until another logger started). A limit an operator took over, or none, is
         left as it is."""
-        if self.identity_fault:
-            return None
+        if self.identity_fault or self.lock_fd is None:
+            return None  # a logger that never owned the throttle restores nothing
         self.state, self.operator, self.state_fault = self.safe_load_state()
         if self.state_fault or self.state is None:
             return None
@@ -971,7 +982,31 @@ class Throttle:
         self.last = doc
         return doc
 
+    def own(self):
+        """True while this logger holds the throttle's lock for its user and slice, taken on first use and kept."""
+        if self.lock_fd is not None:
+            return True
+        path = os.path.join(self.lock_dir, f"bosun-throttle-u{self.uid}-{self.unit}.lock")
+        if path in _OWNED:
+            self.lock_fd = _OWNED[path]
+            return True
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        except OSError:
+            return False
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+        self.lock_fd = _OWNED[path] = fd
+        return True
+
     def run_once(self, now=None):
+        if not self.own():
+            # Another logger of this user owns the throttle: this one changes nothing and writes no status, so the owner's
+            # record and status are never touched by a second writer.
+            return {"state": "not_owner", "detail": "another Bosun logger of this user owns the pressure throttle"}
         now = now or datetime.datetime.now(datetime.timezone.utc)
         policy, policy_why = read_policy(self.log_dir)
         host_mb, host_why = read_host(self.log_dir, now)
