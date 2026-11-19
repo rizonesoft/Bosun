@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "wsl"))
@@ -930,7 +931,9 @@ class ThrottleOnARealSlice(unittest.TestCase):
     """Lowers and restores a disposable bosun-test.slice for real: its memory.high in the kernel's own cgroup file. Not
     skipped where a systemd user session exists, and it fails rather than skips when that session can't run a scope."""
 
-    UNIT = "bosun-test.slice"
+    # Each run its own slice (round 3: one shared name let two concurrent runs read and stop each other's), named with a
+    # single dash so systemd nests it directly under bosun.slice, as the job slice is.
+    UNIT = None
 
     @classmethod
     def setUpClass(cls):
@@ -939,7 +942,8 @@ class ThrottleOnARealSlice(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="bosun-real-slice-")
-        self.scope = f"bosun-test-sleep-{os.getpid()}"
+        self.UNIT = f"bosun-t{os.getpid()}r{uuid.uuid4().hex[:8]}.slice"
+        self.scope = f"bosun-test-sleep-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self.addCleanup(self.cleanup)
         uid = os.getuid()
         self.cgroup = f"/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/bosun.slice/{self.UNIT}"
