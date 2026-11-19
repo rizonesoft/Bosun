@@ -151,7 +151,7 @@ public sealed class ElevatedHelperTests : IDisposable
             ("S-1-5-21-1-2-3-1002", "relative"),
             ("S-1-12-1-1-2-3-4", @"C:\Users\work"),
         ]);
-        Assert.Equal([new AccountFolder("S-1-5-21-1-2-3-1001", @"C:\Users\one\AppData\Local\Bosun"), new AccountFolder("S-1-12-1-1-2-3-4", @"C:\Users\work\AppData\Local\Bosun")], folders);
+        Assert.Equal([new AccountFolder("S-1-5-21-1-2-3-1001", @"C:\Users\one\AppData\Local\Bosun", @"C:\Users\one"), new AccountFolder("S-1-12-1-1-2-3-4", @"C:\Users\work\AppData\Local\Bosun", @"C:\Users\work")], folders);
     }
 
     [Fact]

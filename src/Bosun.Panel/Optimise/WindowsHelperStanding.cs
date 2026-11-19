@@ -25,7 +25,7 @@ public sealed class WindowsHelperStanding(Func<string, string?> environment) : I
     public IReadOnlyList<AccountFolder> Accounts()
     {
         var variable = environment(PanelPaths.Variable);
-        var own = new AccountFolder(CurrentSid, PanelPaths.Data(variable));
+        var own = new AccountFolder(CurrentSid, PanelPaths.Data(variable), string.IsNullOrEmpty(variable) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : null);
         if (!string.IsNullOrEmpty(variable)) return [own];
         return [own, .. FromProfiles(ReadProfileList()).Where(a => !string.Equals(a.Sid, own.Sid, StringComparison.OrdinalIgnoreCase))];
     }
@@ -34,7 +34,7 @@ public sealed class WindowsHelperStanding(Func<string, string?> environment) : I
     public static IReadOnlyList<AccountFolder> FromProfiles(IEnumerable<(string Sid, string ProfilePath)> profiles) =>
         [.. profiles
             .Where(p => (p.Sid.StartsWith("S-1-5-21-", StringComparison.Ordinal) || p.Sid.StartsWith("S-1-12-1-", StringComparison.Ordinal)) && Path.IsPathFullyQualified(p.ProfilePath))
-            .Select(p => new AccountFolder(p.Sid, Path.Combine(p.ProfilePath, "AppData", "Local", "Bosun")))];
+            .Select(p => new AccountFolder(p.Sid, Path.Combine(p.ProfilePath, "AppData", "Local", "Bosun"), p.ProfilePath))];
 
     private static IEnumerable<(string Sid, string ProfilePath)> ReadProfileList()
     {

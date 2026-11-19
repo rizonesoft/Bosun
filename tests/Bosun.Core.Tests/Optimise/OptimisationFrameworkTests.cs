@@ -346,6 +346,23 @@ public sealed class OptimisationFrameworkTests : IDisposable
     }
 
     [Fact]
+    public void Undo_given_a_confirmed_restore_value_refuses_a_backup_that_restores_another_and_writes_nothing()
+    {
+        var item = new FakeItem();
+        var (runner, _, _) = Runner();
+        var applied = runner.Apply(item, Preview(item)); // 1 to 2
+        Assert.Equal("2", item.Value);
+
+        var refused = runner.Undo(item, applied.Backup!, "9");
+
+        Assert.Equal(ChangeStatus.NotChanged, refused.Status);
+        Assert.False(refused.Written);
+        Assert.Contains("restores '1', not the '9' that was confirmed", refused.Message);
+        Assert.Equal("2", item.Value);
+        Assert.Equal(ChangeStatus.Restored, runner.Undo(item, applied.Backup!, "1").Status);
+    }
+
+    [Fact]
     public void Undo_twice_restores_each_exact_value_because_an_undo_is_itself_backed_up()
     {
         var item = new FakeItem();

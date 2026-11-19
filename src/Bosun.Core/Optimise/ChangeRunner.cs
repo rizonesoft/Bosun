@@ -137,11 +137,13 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
 
     /// <summary>
     /// Restores the value <paramref name="backup"/> holds, the backup of the change being reversed, never "the
-    /// newest". The Undo is itself backed up first, so it can be undone.
+    /// newest". The Undo is itself backed up first, so it can be undone. When <paramref name="confirmedRestore"/> is given
+    /// it is the value the person was shown that this Undo restores, compared with the very backup record read here for
+    /// the restore: any other value is refused with nothing written.
     /// </summary>
-    public ChangeResult Undo(IOptimisation item, BackupRef backup)
+    public ChangeResult Undo(IOptimisation item, BackupRef backup, string? confirmedRestore = null)
     {
-        var can = CheckUndo(item, backup, out var record, out var validated);
+        var can = CheckUndo(item, backup, out var record, out var validated, confirmedRestore);
         if (!can.Allowed) return Refuse(item, item.Target, can.Reason!);
         var current = validated!; // the value CheckUndo read and accepted: never read again unguarded
 
@@ -179,7 +181,7 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         return Finish(item, undo, undoBackup, error, ChangeStatus.Restored, "restored");
     }
 
-    private Eligibility CheckUndo(IOptimisation item, BackupRef? backup, out Backup? record, out string? validated)
+    private Eligibility CheckUndo(IOptimisation item, BackupRef? backup, out Backup? record, out string? validated, string? confirmedRestore = null)
     {
         record = null;
         validated = null;
@@ -194,6 +196,8 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             return Eligibility.No($"The backup can't be trusted: {e.Message}");
         }
         if (record.Target != item.Target) return Eligibility.No("That backup is for another setting");
+        if (confirmedRestore is not null && record.Before != confirmedRestore)
+            return Eligibility.No($"Not restored: this backup restores '{record.Before}', not the '{confirmedRestore}' that was confirmed");
         var now = ReadGuarded(item);
         if (!now.IsRead) return Eligibility.No($"The setting could not be read: {now.Reason}");
         // Already holding the value this backup would restore: a prepared backup, or a write that did not stay.

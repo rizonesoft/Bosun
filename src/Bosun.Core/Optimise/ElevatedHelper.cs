@@ -1,7 +1,10 @@
 namespace Bosun.Core.Optimise;
 
 /// <summary>One account's panel data folder, as the helper's host resolves it for that account's SID.</summary>
-public sealed record AccountFolder(string Sid, string DataFolder);
+/// <param name="Sid">The account's SID.</param>
+/// <param name="DataFolder">The account's panel data folder.</param>
+/// <param name="ProfileRoot">The profile folder Windows records for the SID, when the folder is the profile's own: no folder from it down to the data folder may be a junction or link. Null when the data folder was named by the environment.</param>
+public sealed record AccountFolder(string Sid, string DataFolder, string? ProfileRoot = null);
 
 /// <summary>
 /// What the elevated helper stands on (D05 T02 §6), apart so a test can satisfy it without a real elevation or a
@@ -73,7 +76,7 @@ public static class ElevatedHelper
         var account = holders[0];
         // Before anything is written: a data folder (or its helper or backups folder) that a junction or link sends
         // elsewhere is refused. Nothing is written, not even a result, because there is no safe place to put one.
-        if (FolderConfinement.Problem(account.DataFolder) is not null) return ExitRefused;
+        if (FolderConfinement.Problem(account.DataFolder, account.ProfileRoot) is not null) return ExitRefused;
         files = new ConfinedFiles(files ?? new PanelSettingsFiles(), account.DataFolder);
         var helperFiles = new HelperFiles(account.DataFolder, files);
         var recorder = new Recorder(helperFiles, command);
@@ -146,7 +149,7 @@ public static class ElevatedHelper
             }
             if (record.Target != item.Target) return recorder.Refuse("The confirmed backup is for another setting");
             if (record.Before != request.RestoreValue) return recorder.Refuse($"The value this backup restores is '{record.Before}', not the '{request.RestoreValue}' that was confirmed");
-            result = runner.Undo(item, reference);
+            result = runner.Undo(item, reference, request.RestoreValue);
         }
         recorder.Finish(result);
         return ExitFor(result.Status);

@@ -49,6 +49,7 @@ public sealed class ElevatedHelperTests : IDisposable
         public bool Explode;
         public int Writes;
         public int Reads;
+        public int UnavailableReads;
 
         public string Id => id;
         public string Title => Explode ? throw new InvalidOperationException("the title faults") : "Disposable setting";
@@ -58,6 +59,11 @@ public sealed class ElevatedHelperTests : IDisposable
         public Fact<string> Read()
         {
             Reads++;
+            if (UnavailableReads > 0)
+            {
+                UnavailableReads--;
+                return Fact<string>.Unavailable("busy");
+            }
             return Fact<string>.Read(Value);
         }
 
@@ -276,6 +282,30 @@ public sealed class ElevatedHelperTests : IDisposable
         var undone = await coordinator.UndoAsync(item, first.Backup, "1", TestContext.Current.CancellationToken);
         Assert.Equal(ChangeStatus.Restored, undone.Status);
         Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public async Task A_direct_undo_checks_the_confirmed_value_against_the_backup_the_runner_restores_from_even_when_the_first_read_failed()
+    {
+        // Round 3: the eligibility read reported the setting unavailable, so the direct path skipped the confirmed-value
+        // check, and the runner (whose own read then succeeded) restored the backup that held another value.
+        var item = new Item(id: "plain.item", elevated: false);
+        var coordinator = Coordinator(item, new FakeElevation(_ => 0), new RecordingLog(), out _);
+        item.After = "3";
+        item.Value = "1";
+        await coordinator.ApplyAsync(item, item.Propose().Value!, TestContext.Current.CancellationToken);
+        item.Value = "2";
+        var second = await coordinator.ApplyAsync(item, item.Propose().Value!, TestContext.Current.CancellationToken);
+        Assert.Equal("3", item.Value);
+        var writes = item.Writes;
+
+        item.UnavailableReads = 1;
+        var refused = await coordinator.UndoAsync(item, second.Backup, "1", TestContext.Current.CancellationToken);
+
+        Assert.False(refused.Written);
+        Assert.Contains("restores '2', not the '1' that was confirmed", refused.Message);
+        Assert.Equal("3", item.Value);
+        Assert.Equal(writes, item.Writes);
     }
 
     [Fact]
@@ -912,5 +942,98 @@ public sealed class ElevatedHelperTests : IDisposable
 
         Assert.Equal(1, elevation.Calls);
         AssertCancelledCleanly(result, log);
+    }
+
+    // ---- review round 3 (D05 T02 §6) ----
+
+    [Fact]
+    public void A_profile_whose_local_folder_is_a_junction_is_refused_and_nothing_is_written_through_it()
+    {
+        var item = new Item();
+        var profile = Folder("profile");
+        var redirected = Folder("redirected-local");
+        Directory.CreateDirectory(Path.Combine(profile, "AppData"));
+        Directory.CreateDirectory(redirected);
+        Junction(Path.Combine(profile, "AppData", "Local"), redirected);
+        var data = Path.Combine(profile, "AppData", "Local", "Bosun");
+        var request = new HelperRequest(Invocation(), HelperFiles.Apply, item.Id, UserSid, data, item.Target, item.Propose().Value, null, null);
+        new HelperFiles(data).WriteRequest(request); // the panel's own write follows the junction
+        var before = Directory.GetFileSystemEntries(redirected, "*", SearchOption.AllDirectories).Order().ToArray();
+        var standing = new Standing(true, AdminSid, new AccountFolder(UserSid, data, profile));
+
+        var exit = ElevatedHelper.Run(Args(request.Operation, request.ItemId, request.Invocation), standing, RegistryOf(item));
+
+        Assert.Equal(ElevatedHelper.ExitRefused, exit);
+        Assert.Equal(before, Directory.GetFileSystemEntries(redirected, "*", SearchOption.AllDirectories).Order().ToArray());
+        Assert.Equal("1", item.Value);
+        Assert.Contains("junction or link", FolderConfinement.Problem(data, profile));
+        var clean = Folder("clean-profile");
+        Directory.CreateDirectory(Path.Combine(clean, "AppData", "Local", "Bosun"));
+        Assert.Null(FolderConfinement.Problem(Path.Combine(clean, "AppData", "Local", "Bosun"), clean));
+    }
+
+    /// <summary>Between the confinement's check and the helper's create, the helper folder is replaced by a junction to another folder.</summary>
+    private sealed class SwappingFiles(string helperFolder, string elsewhere) : PanelSettingsFiles
+    {
+        public override void WriteNew(string path, byte[] bytes, Func<string, bool>? finalPathAllowed)
+        {
+            Directory.Move(helperFolder, helperFolder + ".gone");
+            Junction(helperFolder, elsewhere);
+            base.WriteNew(path, bytes, finalPathAllowed);
+        }
+    }
+
+    [Fact]
+    public void A_folder_swapped_for_a_junction_between_the_check_and_the_create_never_receives_the_write()
+    {
+        var data = Path.Combine(Folder("race"), "data");
+        var helper = Path.Combine(data, "helper");
+        Directory.CreateDirectory(helper);
+        var elsewhere = Folder("race-elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        var files = new ConfinedFiles(new SwappingFiles(helper, elsewhere), data);
+
+        Assert.Throws<IOException>(() => files.WriteNew(Path.Combine(helper, "result.tmp"), [1, 2, 3]));
+
+        Assert.Empty(Directory.GetFileSystemEntries(elsewhere));
+    }
+
+    /// <summary>Tries, just before the move, to put a junction where the held folder is.</summary>
+    private sealed class SwappingMoves(string folder, string elsewhere) : PanelSettingsFiles
+    {
+        public bool Swapped;
+
+        public override void Replace(string from, string to)
+        {
+            try
+            {
+                Directory.Move(folder, folder + ".gone");
+                Junction(folder, elsewhere);
+                Swapped = true;
+            }
+            catch (IOException)
+            {
+                // the folder is held open by the confinement: it can't be renamed, so it can't be swapped
+            }
+            base.Replace(from, to);
+        }
+    }
+
+    [Fact]
+    public void A_move_into_a_folder_that_is_swapped_for_a_junction_never_lands_outside()
+    {
+        var data = Path.Combine(Folder("move"), "data");
+        var helper = Path.Combine(data, "helper");
+        Directory.CreateDirectory(helper);
+        File.WriteAllText(Path.Combine(helper, "a.tmp"), "a");
+        var elsewhere = Folder("move-elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        var inner = new SwappingMoves(helper, elsewhere);
+
+        new ConfinedFiles(inner, data).Replace(Path.Combine(helper, "a.tmp"), Path.Combine(helper, "a.json"));
+
+        Assert.False(inner.Swapped);
+        Assert.Empty(Directory.GetFileSystemEntries(elsewhere));
+        Assert.True(File.Exists(Path.Combine(helper, "a.json")));
     }
 }

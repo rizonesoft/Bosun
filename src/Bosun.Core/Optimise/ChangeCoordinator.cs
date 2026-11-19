@@ -40,23 +40,8 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         var can = runner.CanUndo(item, backup);
         if (!can.NeedsAdministrator)
         {
-            // The same check the elevated helper makes (round 2): the backup restores the value the person was shown, or
-            // nothing is written. Two backups of one target can both be eligible; only the confirmed one is undone.
-            if (backup is not null && can.Allowed)
-            {
-                string? restores;
-                try
-                {
-                    restores = backups.Read(backup).Before;
-                }
-                catch (BackupException e)
-                {
-                    return Refused(item, $"Not restored: {e.Message}");
-                }
-                if (restores != confirmedRestoreValue)
-                    return Refused(item, $"Not restored: this backup restores '{restores}', not the '{confirmedRestoreValue}' that was confirmed");
-            }
-            return runner.Undo(item, backup!);
+            // The confirmed restore value is checked by the runner against the backup record it reads for the restore.
+            return runner.Undo(item, backup!, confirmedRestoreValue);
         }
         var request = new HelperRequest(HelperFiles.NewInvocation(), HelperFiles.Undo, item.Id, initiatorSid, dataFolder, item.Target, null, backup!.Name, confirmedRestoreValue);
         return await ElevatedAsync(item, request, cancellationToken);

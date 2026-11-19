@@ -64,10 +64,31 @@ public class PanelSettingsFiles
     /// existing file (or a hard link to another one) is never opened, truncated or written. For a temporary file in a folder
     /// somebody else can write to.
     /// </summary>
-    public virtual void WriteNew(string path, byte[] bytes)
+    public virtual void WriteNew(string path, byte[] bytes) => WriteNew(path, bytes, null);
+
+    /// <summary>
+    /// As <see cref="WriteNew(string, byte[])"/>, bound to where the file really is: once it is created, and before any
+    /// content is written, the open handle's final path (links followed) is given to <paramref name="finalPathAllowed"/>.
+    /// When that says no the file is deleted through the handle and <see cref="IOException"/> is thrown, so nothing is
+    /// ever written to a place the path only led to after it was checked. Where the platform can't ask a handle for its
+    /// path the file is created as without a check.
+    /// </summary>
+    public virtual void WriteNew(string path, byte[] bytes, Func<string, bool>? finalPathAllowed)
     {
         if (Path.GetDirectoryName(path) is { Length: > 0 } folder) Directory.CreateDirectory(folder);
-        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        var bound = finalPathAllowed is not null && OperatingSystem.IsWindows();
+        using var stream = bound
+            ? Optimise.NativeFiles.CreateExclusive(path)
+            : new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        if (bound)
+        {
+            var final = Optimise.NativeFiles.FinalPath(stream.SafeFileHandle);
+            if (!finalPathAllowed!(final))
+            {
+                Optimise.NativeFiles.DeleteOnClose(stream);
+                throw new IOException($"'{final}' is outside the folder this write is confined to: nothing was written there");
+            }
+        }
         stream.Write(bytes);
         stream.Flush(flushToDisk: true);
     }
