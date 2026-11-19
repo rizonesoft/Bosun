@@ -1154,7 +1154,8 @@ public sealed class ElevatedHelperTests : IDisposable
         Assert.Equal(ChangeStatus.NotChanged, result.Status);
         Assert.False(result.Written);
         Assert.Contains("cancelled", result.Message);
-        Assert.Empty(Directory.GetFiles(new HelperFiles(_user).Folder, "*.request.json"));
+        var folder = new HelperFiles(_user).Folder;
+        Assert.Empty(Directory.Exists(folder) ? Directory.GetFiles(folder, "*.request.json") : []);
         Assert.Contains(log.Steps, s => s.Outcome == "Cancelled before the prompt opened");
     }
 
@@ -1171,6 +1172,7 @@ public sealed class ElevatedHelperTests : IDisposable
 
         AssertCancelledCleanly(result, log);
         Assert.Equal(0, elevation.Calls);
+        Assert.False(Directory.Exists(new HelperFiles(_user).Folder));   // nothing written, not even the request (round 13)
         Assert.DoesNotContain(log.Steps, s => s.Outcome.Contains("Waiting for the administrator prompt"));
         Assert.Equal("1", item.Value);
     }

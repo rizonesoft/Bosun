@@ -72,6 +72,9 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
     private async Task<ChangeResult> ElevatedAsync(IOptimisation item, HelperRequest request, CancellationToken cancellationToken)
     {
         var verb = request.Operation == HelperFiles.Apply ? "changed" : "restored";
+        // Already cancelled: nothing is written at all, not even the request (round 13). The check after the write stays,
+        // for a cancellation that arrives while it is written.
+        if (cancellationToken.IsCancellationRequested) return CancelledBeforePrompt(item, request);
         try
         {
             files.WriteRequest(request);
