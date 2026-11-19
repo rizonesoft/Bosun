@@ -27,6 +27,12 @@ public sealed class MemoryFiles : PanelSettingsFiles
         Files[path] = bytes;
     }
 
+    public override void WriteNew(string path, byte[] bytes)
+    {
+        if (FailWrite is not null) throw FailWrite;
+        if (!Files.TryAdd(path, bytes)) throw new IOException("the file exists");
+    }
+
     public override void Replace(string from, string to)
     {
         if (FailWrite is not null) throw FailWrite;

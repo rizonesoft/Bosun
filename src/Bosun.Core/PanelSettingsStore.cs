@@ -59,6 +59,19 @@ public class PanelSettingsFiles
         stream.Flush(flushToDisk: true);
     }
 
+    /// <summary>
+    /// Writes a file that must not be there yet, through to the disk: <see cref="IOException"/> when the path is taken, so an
+    /// existing file (or a hard link to another one) is never opened, truncated or written. For a temporary file in a folder
+    /// somebody else can write to.
+    /// </summary>
+    public virtual void WriteNew(string path, byte[] bytes)
+    {
+        if (Path.GetDirectoryName(path) is { Length: > 0 } folder) Directory.CreateDirectory(folder);
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        stream.Write(bytes);
+        stream.Flush(flushToDisk: true);
+    }
+
     /// <summary>Puts one file in another's place in one step: a reader sees the old file or the new one, never half of either.</summary>
     public virtual void Replace(string from, string to) => File.Move(from, to, overwrite: true);
 

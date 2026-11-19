@@ -55,6 +55,46 @@ public class PressurePolicyTests
         Assert.False(read.Enabled);
     }
 
+    [Fact]
+    public void A_file_already_at_the_old_fixed_temporary_name_is_never_opened_or_written()
+    {
+        using var scratch = new Scratch();
+        var old = Path.Combine(scratch.Path, PressurePolicy.FileName + ".tmp");
+        File.WriteAllText(old, "someone else's file");
+
+        Assert.True(PressurePolicy.Write(scratch.Path, Chosen).Succeeded);
+
+        Assert.Equal("someone else's file", File.ReadAllText(old));
+        Assert.True(PressurePolicy.TryParse(File.ReadAllBytes(Path.Combine(scratch.Path, PressurePolicy.FileName)), out var read, out _));
+        Assert.Equal(PressurePolicy.From(Chosen), read);
+    }
+
+    [Fact]
+    public void The_temporary_file_is_made_new_and_never_over_an_existing_path()
+    {
+        using var scratch = new Scratch();
+        var taken = Path.Combine(scratch.Path, "taken");
+        File.WriteAllText(taken, "kept");
+        Assert.Throws<IOException>(() => new PanelSettingsFiles().WriteNew(taken, [1, 2, 3]));
+        Assert.Equal("kept", File.ReadAllText(taken));
+
+        var names = new List<string>();
+        var recording = new Recording(names);
+        Assert.True(PressurePolicy.Write(scratch.Path, Chosen, recording).Succeeded);
+        Assert.True(PressurePolicy.Write(scratch.Path, Chosen, recording).Succeeded);
+        Assert.Equal(2, names.Distinct().Count());                       // a fresh name each time
+        Assert.DoesNotContain(PressurePolicy.FileName + ".tmp", names.Select(Path.GetFileName));
+    }
+
+    private sealed class Recording(List<string> names) : PanelSettingsFiles
+    {
+        public override void WriteNew(string path, byte[] bytes)
+        {
+            names.Add(path);
+            base.WriteNew(path, bytes);
+        }
+    }
+
     private sealed class Failing : PanelSettingsFiles
     {
         public string? Fail;

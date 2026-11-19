@@ -490,7 +490,7 @@ class ThrottleCase(unittest.TestCase):
         quiet.start()
         self.addCleanup(quiet.stop)
         self.slice = FakeSlice(8 * GB)
-        self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice")
+        self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
         self.policy()
 
     def policy(self, **change):
@@ -514,11 +514,11 @@ class ThrottleCase(unittest.TestCase):
         return self.throttle.run_once(now=NOW)["state"]
 
     def status(self):
-        with open(os.path.join(self.dir, dl.STATUS_FILE), encoding="utf-8") as f:
+        with open(os.path.join(self.dir, self.throttle.status_name), encoding="utf-8") as f:
             return json.load(f)
 
     def state_file(self):
-        with open(os.path.join(self.dir, dl.STATE_FILE), encoding="utf-8") as f:
+        with open(os.path.join(self.dir, self.throttle.state_name), encoding="utf-8") as f:
             return json.load(f)["lowered"]
 
 
@@ -574,8 +574,8 @@ class ThrottleTrigger(ThrottleCase):
         os.remove(os.path.join(self.dir, dl.POLICY_FILE))
         self.assertEqual(self.tick(100), "off")
         self.assertEqual(self.slice.calls, [])
-        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATUS_FILE)))   # a machine that never opted in gets no file
-        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.status_name)))   # a machine that never opted in gets no file
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.state_name)))
 
 
 class ThrottleLimits(ThrottleCase):
@@ -601,7 +601,7 @@ class ThrottleLimits(ThrottleCase):
             self.assertEqual(self.tick(1000), "idle")
             self.assertEqual(self.slice.value, existing)
             self.assertEqual(self.slice.sets(), [])
-            self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+            self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.state_name)))
 
     def test_the_original_survives_repeated_low_samples(self):
         for _ in range(4):
@@ -628,7 +628,7 @@ class ThrottleFailures(ThrottleCase):
         self.assertIn("MemoryHigh", self.status()["detail"])
         self.assertIn("not delegated", self.status()["detail"])
         self.assertEqual(self.slice.sets(), [])
-        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.state_name)))
         self.slice.fail_show = False
         self.assertEqual(self.tick(1000), "lowered")
 
@@ -704,16 +704,16 @@ class ThrottleFailures(ThrottleCase):
         real = dl.write_snapshot
 
         def refuse_state(log_dir, text, name="current-wsl.json", **kw):
-            return False if name == dl.STATE_FILE else real(log_dir, text, name=name, **kw)
+            return False if name == self.throttle.state_name else real(log_dir, text, name=name, **kw)
         with unittest.mock.patch.object(dl, "write_snapshot", refuse_state):
             self.assertEqual(self.tick(1000), "error")
-        self.assertIn(dl.STATE_FILE, self.status()["detail"])
+        self.assertIn(self.throttle.state_name, self.status()["detail"])
         self.assertEqual(self.slice.sets(), [])
 
     def test_a_record_that_can_not_be_read_stops_action_until_it_is_fixed(self):
-        with open(os.path.join(self.dir, dl.STATE_FILE), "w") as f:
+        with open(os.path.join(self.dir, self.throttle.state_name), "w") as f:
             f.write("{broken")
-        throttle = dl.Throttle(self.dir, self.slice)
+        throttle = dl.Throttle(self.dir, self.slice, distro="alpha")
         self.assertEqual(throttle.run_once(now=NOW)["state"], "error")
         self.host(100)
         self.assertEqual(throttle.run_once(now=NOW)["state"], "error")
@@ -751,7 +751,7 @@ class ThrottleDisableAndOperator(ThrottleCase):
 
     def test_a_logger_restart_after_throttling_still_restores_the_original(self):
         self.tick(1000)
-        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice")  # a new process reads only the record
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")  # a new process reads only the record
         self.assertEqual(restarted.state["original"], 8 * GB)
         self.assertEqual(restarted.run_once(now=NOW)["state"], "lowered")      # still under pressure: kept
         self.host(9000)
@@ -784,6 +784,145 @@ class ThrottleDisableAndOperator(ThrottleCase):
         self.policy(enabled=False)
         self.assertEqual(self.tick(1000), "left_alone")
         self.assertEqual(self.slice.value, 3 * GB)
+
+
+class ThrottleReviewRound1(ThrottleCase):
+    """The seven findings of D05 T02 section 5's round 1, each a test that fails without its fix."""
+
+    def other(self, distro, value):
+        slice_ = FakeSlice(value)
+        return slice_, dl.Throttle(self.dir, slice_, unit="bosun-jobs.slice", distro=distro)
+
+    def test_each_distro_has_its_own_record_and_a_restart_restores_only_its_own_original(self):
+        beta_slice, beta = self.other("beta", dl.INFINITY)
+        alpha_slice = self.slice
+        alpha_slice.value = alpha_slice.initial = 4 * GB
+        self.host(1000)
+        self.assertEqual(self.throttle.run_once(now=NOW)["state"], "lowered")
+        self.assertEqual(beta.run_once(now=NOW)["state"], "lowered")     # written last, as the finding has it
+        self.assertNotEqual(self.throttle.state_name, beta.state_name)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "pressure-state-alpha.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "pressure-status-beta.json")))
+        restarted = dl.Throttle(self.dir, alpha_slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertEqual(restarted.state["original"], 4 * GB)
+        self.host(9000)
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "restored")
+        self.assertEqual(alpha_slice.value, 4 * GB)                       # not infinity, which is beta's
+        self.assertEqual(beta_slice.value, self.LIMIT)                    # and beta's slice was never touched by alpha
+        self.assertEqual(beta.state["original"], dl.INFINITY)
+
+    def test_a_record_of_another_distro_is_never_acted_on(self):
+        self.tick(1000)
+        path = os.path.join(self.dir, self.throttle.state_name)
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        doc["distro"] = "beta"
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        sets = len(self.slice.sets())
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertIsNone(restarted.state)
+        self.host(9000)
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "error")
+        self.assertEqual(len(self.slice.sets()), sets)
+
+    def test_the_distro_comes_from_the_environment_wsl_gives_and_is_validated(self):
+        with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}):
+            self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, "pressure-state-Ubuntu-24.04.json")
+        with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "../evil"}):
+            self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, "pressure-state-default.json")
+
+    def test_an_operators_take_over_is_kept_for_the_whole_episode_and_forgotten_after_it(self):
+        self.assertEqual(self.tick(1000), "lowered")
+        self.slice.value = 3 * GB
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.tick(1000), "left_alone")                   # the finding: this sample lowered it again
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual((self.slice.value, len(self.slice.sets())), (3 * GB, sets))
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "left_alone")  # even through a logger restart
+        self.assertEqual(self.tick(3000), "left_alone")                   # inside the band: the episode is not over
+        self.assertEqual(self.tick(9000), "idle")                         # over the floor plus the band: forgotten
+        self.assertEqual(self.slice.value, 3 * GB)
+        self.assertEqual(self.tick(1000), "lowered")                      # a new episode, and only ever a lowering
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_an_operators_take_over_is_forgotten_when_the_switch_goes_off(self):
+        self.tick(1000)
+        self.slice.value = 3 * GB
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.policy(enabled=False)
+        self.assertEqual(self.tick(1000), "off")
+        self.policy(enabled=True)
+        self.assertEqual(self.tick(1000), "lowered")
+
+    def test_an_unverified_lowering_never_restores_over_an_operators_change(self):
+        done = []
+
+        def flaky(args):
+            result = self.slice(args)
+            if args[0] == "set-property" and not done:   # the connection drops after the lowering write
+                done.append(1)
+                self.slice.fail_show = self.slice.refuse_set = True
+            return result
+        self.throttle.systemctl = flaky
+        self.assertEqual(self.tick(1000), "error")
+        self.assertTrue(self.state_file()["unverified"])
+        self.slice.fail_show = self.slice.refuse_set = False
+        self.slice.value = 512 * 1024 * 1024                              # the operator's stricter cap
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual((self.slice.value, len(self.slice.sets())), (512 * 1024 * 1024, sets))
+        self.assertIsNone(self.state_file())
+        self.assertIn("someone changed it", self.status()["detail"])
+
+    def test_deeply_nested_json_is_an_unreadable_file_in_every_read_never_an_exception(self):
+        deep = "[" * 2000 + "]" * 2000
+        for name in (dl.POLICY_FILE, "current-windows.json", self.throttle.state_name):
+            with open(os.path.join(self.dir, name), "w") as f:
+                f.write(deep)
+        # Whether json.loads raises RecursionError for 2,000 brackets depends on the interpreter (3.14 does not), so the
+        # raise is also forced: what is under test is that the logger treats it as an unreadable file.
+        for loads in (json.loads, unittest.mock.Mock(side_effect=RecursionError("maximum recursion depth exceeded"))):
+            with unittest.mock.patch.object(dl.json, "loads", loads):
+                self.assertIsNone(dl.read_policy(self.dir)[0])
+                self.assertIsNone(dl.read_host(self.dir, NOW)[0])
+                throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")   # start-up does not raise
+                self.assertIsNotNone(throttle.state_fault)
+                self.assertEqual(throttle.run_once(now=NOW)["state"], "error")
+        with unittest.mock.patch.object(dl.json, "loads", side_effect=RecursionError("deep")):
+            self.assertIn("not JSON", dl.read_policy(self.dir)[1])
+            self.assertIn("not JSON", dl.read_host(self.dir, NOW)[1])
+        self.assertEqual(self.slice.sets(), [])
+
+    def test_a_start_up_that_raises_on_the_record_is_a_fault_not_a_stopped_service(self):
+        with unittest.mock.patch.object(dl, "read_small_json", side_effect=RecursionError("deep")):
+            throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertIn("can't be read", throttle.state_fault)
+
+    def test_a_record_unreadable_at_start_is_read_again_at_the_next_sample(self):
+        self.tick(1000)
+        path = os.path.join(self.dir, self.throttle.state_name)
+        with open(path, encoding="utf-8") as f:
+            good = f.read()
+        with open(path, "w") as f:
+            f.write("{broken")
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertIsNotNone(restarted.state_fault)
+        with open(path, "w") as f:
+            f.write(good)                                                 # readable again
+        self.host(9000)
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_windows_sample_dated_in_the_future_starts_nothing(self):
+        self.assertEqual(self.tick(1000, age=-86400), "idle")
+        self.assertIn("future", self.throttle.last["detail"])
+        self.assertEqual(self.slice.sets(), [])
+        self.assertEqual(dl.read_host(self.dir, NOW), (None, "the Windows snapshot is dated in the future"))
+        self.host(1000, age=-60)                                          # within the clock-skew allowance
+        self.assertEqual(dl.read_host(self.dir, NOW)[0], 1000)
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")

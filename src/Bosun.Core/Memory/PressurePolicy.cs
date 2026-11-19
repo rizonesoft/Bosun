@@ -74,7 +74,7 @@ public sealed record PressurePolicy(bool Enabled, long FloorMb, long RecoveryBan
     }
 
     /// <summary>
-    /// Writes the policy into <paramref name="logsFolder"/> through a temporary file beside it, read back and compared,
+    /// Writes the policy into <paramref name="logsFolder"/> through a new, uniquely named temporary file beside it (never an existing path), read back and compared,
     /// and only then put in its place in one step (as `panel.json` is saved), so the logger reads the old policy or the new
     /// one, never half of either. Whatever fails, the file there is as it was. This is the code the Settings save calls.
     /// </summary>
@@ -82,11 +82,13 @@ public sealed record PressurePolicy(bool Enabled, long FloorMb, long RecoveryBan
     {
         files ??= new PanelSettingsFiles();
         var path = Path.Combine(logsFolder, FileName);
-        var temporary = path + ".tmp";
+        // A name nobody can predict, made new: the logs folder is shared, so a temporary file at a fixed name could be a link to
+        // another file, which a write would truncate.
+        var temporary = Path.Combine(logsFolder, $".{FileName}.{Guid.NewGuid():N}.tmp");
         var bytes = Serialize(policy);
         try
         {
-            files.Write(temporary, bytes);
+            files.WriteNew(temporary, bytes);
             if (!files.Read(temporary, bytes.Length).AsSpan().SequenceEqual(bytes))
                 throw new IOException("the policy did not read back as it was written");
             files.Replace(temporary, path);
