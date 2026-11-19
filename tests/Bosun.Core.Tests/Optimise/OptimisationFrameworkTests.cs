@@ -472,18 +472,25 @@ public sealed class OptimisationFrameworkTests : IDisposable
     }
 
     [Fact]
-    public void A_write_that_errors_without_changing_anything_says_so_and_still_offers_undo()
+    public void A_write_that_errors_without_changing_anything_says_so_keeps_its_backup_and_offers_no_undo_it_cannot_run()
     {
+        // Round 11 (D05 T02 §6): Undo was offered here although CanUndo refuses it, since the setting already holds the
+        // value the backup would restore. UndoOffered means CanUndo will accept it, so the offer follows CanUndo.
         var item = new FakeItem { ThrowBeforeWrite = true };
-        var (runner, _, _) = Runner();
+        var (runner, _, store) = Runner();
 
         var result = runner.Apply(item, Preview(item));
 
         Assert.Equal(ChangeStatus.NotChanged, result.Status);
         Assert.Equal("1", result.ValueNow);
         Assert.True(result.Written);
-        Assert.True(result.UndoOffered);
+        Assert.NotNull(result.Backup);
+        Assert.Equal("1", store.Read(result.Backup!).Before);         // the backup is kept
+        Assert.False(runner.CanUndo(item, result.Backup).Ready);
+        Assert.False(result.UndoOffered);
         Assert.Contains("still reads '1'", result.Message);
+        Assert.Contains("nothing to undo", result.Message);
+        Assert.DoesNotContain("Undo is offered", result.Message);
     }
 
     [Fact]
@@ -547,7 +554,9 @@ public sealed class OptimisationFrameworkTests : IDisposable
 
         Assert.Equal(ChangeStatus.NotChanged, result.Status);
         Assert.Equal("1", result.ValueNow);
-        Assert.True(result.UndoOffered);
+        // The setting still reads its value before the change: nothing to undo, and none offered that CanUndo would refuse.
+        Assert.False(result.UndoOffered);
+        Assert.False(runner.CanUndo(item, result.Backup).Ready);
     }
 
     private sealed class LyingVerify(FakeItem inner) : IOptimisation
@@ -577,7 +586,11 @@ public sealed class OptimisationFrameworkTests : IDisposable
         Assert.NotEqual(ChangeStatus.Restored, result.Status);
         Assert.Equal("2", result.ValueNow);
         Assert.Contains("Not restored", result.Message);
-        Assert.True(result.UndoOffered);
+        // Nothing was restored, so this Undo has nothing of its own to undo (round 11: it was offered and CanUndo refused
+        // it); the way back is still the original change's own Undo, which stays offered.
+        Assert.False(result.UndoOffered);
+        Assert.False(runner.CanUndo(item, result.Backup).Ready);
+        Assert.True(runner.CanUndo(item, applied.Backup).Ready);
     }
 
     [Fact]

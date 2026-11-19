@@ -181,7 +181,8 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
                 return Unverified(item, $"the helper reported {told}, but {why}", bound, now);
             }
             if (final.Status == ChangeStatus.NotChanged && untouched)
-                return new ChangeResult(ChangeStatus.NotChanged, final.Message, bound is not null && bound.Name == final.Backup ? bound.Ref : null, final.Written, now);
+                // The setting still reads its value before the run: there is nothing to undo, whatever the helper said (round 11).
+                return new ChangeResult(ChangeStatus.NotChanged, final.Message, bound is not null && bound.Name == final.Backup ? bound.Ref : null, final.Written, now, UndoWithheld: true);
             if (final.Status == ChangeStatus.CouldNotVerify)
             {
                 var withheld = final.UndoWithheld || (bound is not null && !runner.CanUndo(item, bound.Ref).Ready);

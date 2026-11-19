@@ -239,7 +239,9 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         var changedAgain = third && verifiedOk;
         var noEvidence = third && !changedAgain && !(verified.IsRead && verified.Value == now.Value);
         var outcomeLost = third && !changedAgain && !noEvidence && !KeepOutcome(item, backup, now.Value!);
-        var withheld = changedAgain || noEvidence || outcomeLost;
+        // Nothing was changed: the setting still reads the value its backup holds, so there is nothing to undo (round 11).
+        var unchanged = !(now.IsRead && now.Value == done.After) && now.IsRead && now.Value == done.Before;
+        var withheld = changedAgain || noEvidence || outcomeLost || unchanged;
         var original = success == ChangeStatus.Changed ? "original value" : "value before this undo";
 
         var holdsNew = now.IsRead && now.Value == done.After;
@@ -278,7 +280,9 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
                 ? $"Bosun cannot tell its own partial write from a later edit, so Undo is not offered; the {original} '{done.Before}' is kept in backup {backup.Name}; restore it by hand"
                 : outcomeLost
                     ? $"Bosun could not record what the write left; the {original} '{done.Before}' is kept in backup {backup.Name}; restore it by hand or apply again once the setting is read"
-                    : $"Undo is offered from backup {backup.Name}";
+                    : unchanged
+                        ? $"There is nothing to undo; the backup {backup.Name} is kept"
+                        : $"Undo is offered from backup {backup.Name}";
         var message = $"{words}. {recovery}.";
         Say(item, "Verify", status == success ? ChangeLevel.Info : ChangeLevel.Fail, verifiedOk ? "The item read the new value back" : "The item's own verification did not confirm it", backup.Name, done.Target);
         Say(item, "Result", status == success ? ChangeLevel.Info : status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, backup.Name, done.Target);

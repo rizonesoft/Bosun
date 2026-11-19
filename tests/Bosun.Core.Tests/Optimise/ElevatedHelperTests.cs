@@ -47,6 +47,7 @@ public sealed class ElevatedHelperTests : IDisposable
         public string Value = "1";
         public string After = "2";
         public bool Explode;
+        public bool ApplyThrows; // Apply throws before writing anything
         public int Writes;
         public int Reads;
         public int UnavailableReads;
@@ -69,7 +70,11 @@ public sealed class ElevatedHelperTests : IDisposable
 
         public Fact<Proposal> Propose() => Fact<Proposal>.Read(new Proposal(target, Value, After));
 
-        public void Apply(string expectedBefore, string after) => Write(expectedBefore, after);
+        public void Apply(string expectedBefore, string after)
+        {
+            if (ApplyThrows) throw new IOException("the disposable item refuses to write");
+            Write(expectedBefore, after);
+        }
 
         public Fact<string> Verify(Proposal proposal) => Fact<string>.Read(Value);
 
@@ -277,6 +282,22 @@ public sealed class ElevatedHelperTests : IDisposable
         Assert.Equal(ElevatedHelper.ExitNoRequest, retry);
         Assert.Equal("1", item.Value);
         Assert.Empty(Directory.GetFiles(new HelperFiles(_user).Folder, "*.claimed.json"));
+    }
+
+    [Fact]
+    public async Task An_elevated_write_that_errors_and_changes_nothing_offers_no_undo_it_cannot_run()
+    {
+        // Round 11: through the helper, an Apply that threw with the setting unchanged came back NotChanged, Written, with
+        // a backup and Undo offered, which CanUndo then refused.
+        var item = new Item { ApplyThrows = true };
+        var coordinator = Coordinator(item, RealHelper(item), new RecordingLog(), out _);
+
+        var result = await coordinator.ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.Equal("1", item.Value);
+        Assert.False(result.UndoOffered);
+        Assert.False(coordinator.CanUndo(item, result.Backup).Ready);
     }
 
     [Fact]
