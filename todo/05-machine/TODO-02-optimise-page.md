@@ -170,23 +170,31 @@ These are later speedups rather than memory fixes, so they are reported, not pus
 
 Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 to build it now with automatic action off, so nothing acts until they set thresholds from `bosun report --days 7`, possible from 2026-11-14.
 
+**Corrected 2026-11-19** against this machine before building. Each correction says what the plan said before:
+
+- `user.slice` is the wrong target, and out of reach. Read in WSL on 2026-11-19: a shell or agent started through `wsl.exe` runs in the cgroup `/non-systemd`, outside `user.slice` altogether, and `/sys/fs/cgroup/user.slice/memory.high` is root's (9,663,676,416 bytes now, set by the root drop-in `/etc/systemd/system/user.slice.d/50-memory.conf`), which the logger, a systemd user unit (`bosun-log.service`, `wsl/install.sh`), can't write. What the logger can reach is its own user manager's subtree: `user@1000.service` has `memory` delegated (`DelegateControllers=cpu memory pids`, `wsl/enable-write-budget.sh`), and `bosun run` puts each queued job in a scope under its `app.slice` (`wsl/bosun`). So the monitor lowers `app.slice`'s `MemoryHigh` (`systemctl --user set-property --runtime`), throttling queued builds, the work that makes the peaks, and restores it after. (It said `user.slice`.)
+- The thresholds and the off switch are the panel's settings (`PanelSettings`), on Windows; the WSL logger can't read them there, so the panel writes them as a small policy file into the shared logs folder, which the logger already writes to, temp-then-replace, and the logger reads it each sample. No file, or the switch off, is no action. (It said the settings alone.)
+- The checkpoint named `test_core.exe pressure`, but the rules live in the WSL logger (Python) and the panel (C#): it is their tests now.
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Add thresholds and an off switch to `src/Bosun.Core/PanelSettings.cs`. Done when: automatic action is off by default and reads back.
-2. Add the monitor. Done when: `MemoryHigh` lowers under pressure, and memory priority applies to named background apps.
+1. Measure what the monitor would act on. Done when: how fast WSL gives memory back is recorded, from the logs.
+2. The policy: thresholds, listed apps and an off switch, saved by the panel and read by the logger. Done when: off by default, read back on both sides.
+3. The two actions, each only while the switch is on. Done when: `app.slice` is lowered and restored on a disposable slice, and a listed app's memory priority reads back.
 
-- [ ] Measure how quickly WSL returns memory, from the logs and a controlled test. Done when: the measured figure is recorded in `docs/specs/2026-11-07-bosun-design.md`. Cheaper substitute: picking thresholds from memory.
-- [ ] Lower the live `user.slice` `MemoryHigh` in `wsl/bosun_log.py` under pressure, restoring it after. Done when: a controlled test on a disposable slice shows it lowered and restored. Cheaper substitute: killing work under pressure.
-- [ ] Set low memory priority through `SetProcessInformation` for operator-listed apps. Done when: the priority reads back, and nothing is killed or trimmed. Cheaper substitute: a working-set cleaner, rejected in the design.
-- [ ] Add the pressure thresholds and listed apps to Settings, with `PanelSettings` as store, warning below the 6 GB queue floor by default. Done when: a test reads them back, and no action runs while the switch is off. Cheaper substitute: thresholds set in code.
-- [ ] Keep the listed apps in `PanelSettings` empty by default. Done when: a fresh install lowers the priority of nothing.
+- [ ] Measure how quickly WSL returns memory to Windows from the logs: the WSL VM's private memory against the guest's own use in the history `bosun report` reads, over the 2026-11-12 to 2026-11-19 samples, with `.wslconfig`'s reclaim setting (`autoMemoryReclaim`, absent here: WSL's default) read and stated. Done when: the figure (how long after the guest frees memory the VM's footprint falls, and by how much) is recorded in `docs/specs/2026-11-07-bosun-design.md` with the samples it came from, or the reason the logs can't show it. Cheaper substitute: picking thresholds from memory.
+- [ ] Add the policy to `PanelSettings` (`src/Bosun.Core/PanelSettings.cs`): an automatic-action switch, off by default; the `app.slice` limit to apply under pressure; and the listed apps for low memory priority, empty by default; saved and read back by `PanelSettingsStore`. Done when: `PanelSettingsStoreTests` read each back, a fresh store has the switch off and no apps, and a bad value is refused with why. Cheaper substitute: thresholds set in code.
+- [ ] Write the policy into the logs folder as `pressure-policy.json` (temp-then-replace, read back) whenever the settings change, in `src/Bosun.Core/Memory/PressurePolicy.cs`. Done when: a test reads the file back after a save, and finds the switch off in a fresh one. Cheaper substitute: the logger reading `panel.json` across the boundary.
+- [ ] Lower `app.slice`'s `MemoryHigh` in `wsl/bosun_log.py` while Windows' available memory is under the policy's floor, through `systemctl --user set-property --runtime app.slice MemoryHigh=`, and restore the value it read first once pressure ends, only while the switch is on; the previous value kept in the logger's state so a restart restores it. Done when: `tests/test_bosun_log.py` with a stand-in `systemctl` sees it lowered under pressure, restored after, nothing done with the switch off or no policy file, and the original restored after a logger restart; and a controlled test on a disposable user slice (`bosun-test.slice`) reads `memory.high` lowered and restored. Cheaper substitute: killing work under pressure.
+- [ ] Set low memory priority through `SetProcessInformation` (`ProcessMemoryPriority`, `MEMORY_PRIORITY_LOW`) for each running process of a listed app, from the panel's pressure check, only while the switch is on, and never on any other process. Done when: a Panel test on a child process it starts reads its priority back as low, and nothing is set with the switch off or the app not listed; nothing is killed or trimmed. Cheaper substitute: a working-set cleaner, rejected in the design.
+- [ ] Add the switch, the `app.slice` limit and the listed apps to the Settings page, warning when the floor is under the 6 GB queue floor. Done when: a Settings test saves each and reads it back, and the warning shows for 5 GB. Cheaper substitute: settings only in the file.
 - [ ] Commit: `machine: pressure monitor and memory priority`
 
-**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe pressure` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `python -m unittest tests.test_bosun_log` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStoreTests" --filter-class "*PressurePolicyTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPriorityTests"` exit 0, and fail if the change is reverted.
 
 ## 6. Elevated change helper
 

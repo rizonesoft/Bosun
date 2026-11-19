@@ -122,13 +122,13 @@ Sections: 21 | Checklist items: 169
 
 ### Phase 5: Machine
 
-Sections: 7 | Checklist items: 40
+Sections: 7 | Checklist items: 41
 
 | Status | Reference  | Deliverable                                      | Needs | Items |
 | ------ | ---------- | ------------------------------------------------ | ----- | ----- |
 | [x]    | D05 T02 §1 | Diagnostics                                      | none  | 6     |
 | [x]    | D05 T02 §2 | Preview, apply, verify, undo framework           | none  | 8     |
-| [ ]    | D05 T02 §5 | Pressure monitor and background memory priority  | none  | 6     |
+| [ ]    | D05 T02 §5 | Pressure monitor and background memory priority  | none  | 7     |
 | [ ]    | D05 T02 §6 | Elevated change helper                           | none  | 5     |
 | [ ]    | D05 T02 §7 | Changes made before Bosun, with honest baselines | none  | 4     |
 | [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries       | none  | 8     |
@@ -163,4 +163,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 85/106 verified sections, 3 ready to run now.
 
-Checklist: 840/937 items completed (includes Commit items).
+Checklist: 840/938 items completed (includes Commit items).
