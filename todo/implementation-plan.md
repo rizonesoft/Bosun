@@ -122,7 +122,7 @@ Sections: 21 | Checklist items: 169
 
 ### Phase 5: Machine
 
-Sections: 9 | Checklist items: 58
+Sections: 9 | Checklist items: 62
 
 | Status | Reference  | Deliverable                                             | Needs | Items |
 | ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
@@ -133,7 +133,7 @@ Sections: 9 | Checklist items: 58
 | [ ]    | D05 T02 §7 | Changes made before Bosun, with honest baselines        | none  | 7     |
 | [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries              | none  | 9     |
 | [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender               | none  | 3     |
-| [ ]    | D05 T02 §8 | Low memory priority for listed apps during pressure     | none  | 4     |
+| [ ]    | D05 T02 §8 | Low memory priority for listed apps during pressure     | none  | 8     |
 | [ ]    | D05 T02 §9 | Pressure automation settings, previewed before enabling | none  | 6     |
 
 ### Phase 7: Release
@@ -166,4 +166,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 86/109 verified sections, 2 ready to run now.
 
-Checklist: 854/958 items completed (includes Commit items).
+Checklist: 854/962 items completed (includes Commit items).
