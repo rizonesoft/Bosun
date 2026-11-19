@@ -2,6 +2,8 @@
 """WSL memory sampler. Writes the same CSV format as the Windows logger.
 
 usage: bosun_log.py <log_dir> [--interval 30] [--once]
+       --once samples and reports only: it never runs the pressure throttle, which only the running service does, so
+       one process owns the slice and a one-shot run can't lower it and leave the service blind to it.
        bosun_log.py instances [--json]
 """
 import datetime
@@ -777,17 +779,21 @@ class Throttle:
             got = self.read_limit()
         except Failure as e:
             return self.abort_lowering(str(e))
+        if got != limit and got != current:
+            # Neither what Bosun just wrote nor the original: someone else set it between the write and the read, so it is the
+            # operator's. Not rolled back; held off for the rest of this episode, as decide_lowered does for a third value.
+            self.save_state(None, {"unit": self.unit, "seen": got})
+            return self.report("left_alone", f"{self.unit} reads {limit_text(got)} after Bosun wrote {limit_text(limit)}: someone else changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if got != limit:
-            return self.abort_lowering(f"{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}", seen=got)
+            return self.abort_lowering(f"{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}")
         return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor")
 
-    def abort_lowering(self, why, seen=None):
+    def abort_lowering(self, why):
         if self.restore_now():
             return self.report("error", f"{why}; {self.unit} is as it was")
-        # Not verified back: kept as ours, so the next sample tries to put the original back. `seen` is the value Bosun's own
-        # read showed after its write, so that one is known to be Bosun's effect; any other value is an operator's.
+        # Not verified back: kept as ours, so the next sample tries to put the original back; any other value is an operator's.
         try:
-            self.save_state(dict(self.state, unverified=True, seen=seen))
+            self.save_state(dict(self.state, unverified=True))
         except Failure:
             pass
         return self.report("error", f"{why}; the original could not be put back yet and is kept, and each sample tries again")
@@ -802,8 +808,9 @@ class Throttle:
     def decide(self, policy, policy_why, host_mb, host_why, total_mb):
         if self.identity_fault:
             return self.report("error", self.identity_fault)
-        if self.state_fault:  # retried each sample: a record unreadable once is not unreadable for the logger's life
-            self.state, self.operator, self.state_fault = self.safe_load_state()
+        # The record is re-read from disk for every decision, never trusted from memory: another process may have written it
+        # (or dropped it), and a fault is retried each sample too, as a record unreadable once is not unreadable for good.
+        self.state, self.operator, self.state_fault = self.safe_load_state()
         if self.state_fault:
             return self.report("error", f"{self.state_fault}, so nothing is changed until it is fixed or removed")
         on = policy is not None and policy["enabled"]
@@ -833,10 +840,8 @@ class Throttle:
             self.restore_written = False
             self.save_state(None)
             return self.report("restored", f"{self.unit} is already back at {limit_text(current)}")
-        ours = (state["applied"], state.get("seen")) if state.get("unverified") else (state["applied"],)
-        if current not in ours:
-            # The slice reads neither Bosun's value nor the original (nor, after an unverified write, the value Bosun's own
-            # read saw): an operator took it over, and it is theirs for the rest of this pressure episode.
+        if current != state["applied"]:
+            # The slice reads neither Bosun's value nor the original: an operator took it over, and it is theirs for the rest of this pressure episode.
             self.save_state(None, {"unit": self.unit, "seen": current})
             return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, neither what Bosun set ({limit_text(state['applied'])}) nor the original ({limit_text(state['original'])}): someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if state.get("unverified"):
@@ -904,10 +909,11 @@ def main(argv):
     throttle = Throttle(log_dir)
     while True:
         sample(log_dir, cache, interval)
-        try:
-            throttle.run_once()
-        except Exception as e:  # nothing the throttle does may stop the sampling
-            print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
+        if not once:  # a one-shot run never throttles: only the service owns the slice and its record
+            try:
+                throttle.run_once()
+            except Exception as e:  # nothing the throttle does may stop the sampling
+                print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
         if once:
             return 0
         if time.monotonic() - last_clear > 3600:

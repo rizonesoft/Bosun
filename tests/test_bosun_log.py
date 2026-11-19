@@ -648,19 +648,21 @@ class ThrottleFailures(ThrottleCase):
         self.assertIn("after the write", self.status()["detail"])
         self.assertIsNone(self.state_file())
         self.slice.ignore_set = False
-        self.slice.set_to = str(5 * GB)                                # a write that lands somewhere else
-        self.assertEqual(self.tick(1000), "error")
-        self.assertEqual(self.slice.value, 8 * GB)                     # put back by its original, verified by a read
+        self.slice.set_to = str(5 * GB)                                # a write that lands somewhere else: the operator's (round 5)
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 5 * GB)                     # not rolled back
         self.assertIsNone(self.state_file())
 
     def test_an_original_that_can_not_be_put_back_is_kept_and_retried_until_it_is(self):
-        self.slice.set_to = str(5 * GB)
         original_set = self.slice.__call__
 
         def stubborn(args):
             if args[0] == "set-property" and self.slice.refuse_set is False and args[3] == "MemoryHigh=%d" % (8 * GB):
                 return 1, "busy"                                       # lowering works, putting the original back does not
-            return original_set(args)
+            code = original_set(args)
+            if args[0] == "set-property":
+                self.slice.fail_show = True                            # and the verification read after the write fails
+            return code
         self.throttle.systemctl = stubborn
         self.assertEqual(self.tick(1000), "error")
         self.assertEqual(self.state_file()["original"], 8 * GB)
@@ -668,7 +670,7 @@ class ThrottleFailures(ThrottleCase):
         self.assertEqual(self.tick(1000), "error")                     # still kept, never taken for an operator's change
         self.assertEqual(self.state_file()["original"], 8 * GB)
         self.throttle.systemctl = self.slice
-        self.slice.set_to = None
+        self.slice.fail_show = False
         self.assertEqual(self.tick(1000), "restored")
         self.assertEqual(self.slice.value, 8 * GB)
         self.assertIsNone(self.state_file())
@@ -1025,6 +1027,45 @@ class InstallScript(unittest.TestCase):
             done, unit = self.run_install(**env)
             self.assertNotEqual(done.returncode, 0, env)
             self.assertIsNone(unit, env)
+
+
+class ThrottleReviewRound5(ThrottleCase):
+    """The two findings of D05 T02 section 5's round 5, each a test that fails without its fix."""
+
+    def test_a_once_run_samples_and_reports_but_never_throttles(self):
+        with open(os.path.join(self.dir, "current-windows.json"), "w", encoding="utf-8") as f:   # under the floor, dated now: main reads the real clock
+            json.dump({"schema_version": 1, "side": "windows", "memory": {"available_mb": 1000, "total_mb": 32000},
+                       "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, f)
+        real = dl.Throttle
+        with unittest.mock.patch.object(dl, "sample", lambda *a, **k: None),                 unittest.mock.patch.object(dl, "Throttle", lambda log_dir: real(log_dir, self.slice, unit="bosun-jobs.slice", distro="alpha")):
+            self.assertEqual(dl.main(["bosun_log.py", self.dir, "--once"]), 0)
+        self.assertEqual(self.slice.sets(), [])
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.state_name)))
+        self.assertIn("--once", dl.__doc__)
+
+    def test_a_record_written_by_another_process_is_honoured_and_restored_on_recovery(self):
+        self.assertEqual(self.tick(9000), "idle")                         # the service's first sample: no record
+        other = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.host(1000)
+        self.assertEqual(other.run_once(now=NOW)["state"], "lowered")     # another process lowers the slice and saves the record
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.assertEqual(self.tick(1000), "lowered")                      # the service sees it, in memory it had none
+        self.assertEqual(self.tick(9000), "restored")                     # and puts the original back on recovery
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_a_stricter_limit_set_between_the_write_and_the_read_is_the_operators_not_rolled_back(self):
+        self.slice.value = self.slice.initial = dl.INFINITY
+        self.slice.set_to = str(1 * GB)                                   # Bosun writes 2 GiB; the read returns the operator's 1 GiB
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 1 * GB)
+        self.assertEqual(len(self.slice.sets()), 1)                       # no restore write
+        self.assertEqual(self.throttle.operator["seen"], 1 * GB)
+        self.assertIsNone(self.state_file())
+        self.assertEqual(self.tick(1000), "left_alone")                   # held for the episode
+        self.assertEqual((self.slice.value, len(self.slice.sets())), (1 * GB, 1))
+        self.assertIn("someone else", self.status()["detail"])
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")
