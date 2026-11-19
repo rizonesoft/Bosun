@@ -133,6 +133,8 @@ public class PressurePolicyTests
     [InlineData("{\"schema_version\":1,\"enabled\":\"yes\",\"floor_mb\":1,\"recovery_band_mb\":1,\"job_limit_mb\":1}")]
     [InlineData("{\"schema_version\":1,\"enabled\":true,\"floor_mb\":1.5,\"recovery_band_mb\":1,\"job_limit_mb\":1}")]
     [InlineData("{\"schema_version\":1,\"enabled\":true,\"floor_mb\":1,\"recovery_band_mb\":1}")]
+    [InlineData("{\"schema_version\":\"1\",\"enabled\":true,\"floor_mb\":2048,\"recovery_band_mb\":1024,\"job_limit_mb\":4096}")] // round 2: threw
+    [InlineData("{\"schema_version\":1,\"enabled\":true,\"floor_mb\":2048,\"recovery_band_mb\":1024,\"job_limit_mb\":512}")]  // round 2: the WSL reader refuses it
     public void A_file_that_is_not_a_policy_is_refused_with_why(string text)
     {
         Assert.False(PressurePolicy.TryParse(Encoding.UTF8.GetBytes(text), out _, out var fault));

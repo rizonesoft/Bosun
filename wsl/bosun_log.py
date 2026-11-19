@@ -629,7 +629,8 @@ def read_host(log_dir, now):
     doc, why = read_small_json(os.path.join(log_dir, "current-windows.json"), 4 * 1024 * 1024)
     if doc is None:
         return None, why or "there is no Windows snapshot yet"
-    if not isinstance(doc, dict) or doc.get("schema_version") != 1 or doc.get("side") != "windows":
+    # A whole number, never JSON true, which Python counts equal to 1 (round 2), as the policy reader checks.
+    if not isinstance(doc, dict) or not whole_number(doc.get("schema_version")) or doc["schema_version"] != 1 or doc.get("side") != "windows":
         return None, "the Windows snapshot is not one this logger reads"
     try:
         at = datetime.datetime.strptime(doc.get("at"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)

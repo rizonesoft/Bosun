@@ -47,7 +47,8 @@ public sealed record PressurePolicy(bool Enabled, long FloorMb, long RecoveryBan
             using var document = JsonDocument.Parse(bytes.ToArray());
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { fault = "it is not a JSON object"; return false; }
-            if (!root.TryGetProperty("schema_version", out var version) || !version.TryGetInt32(out var number) || number != SchemaVersion)
+            // Its kind first: TryGetInt32 throws on a string (round 2), and the contract is false with why.
+            if (!root.TryGetProperty("schema_version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != SchemaVersion)
             {
                 fault = $"its schema_version is not {SchemaVersion}";
                 return false;
@@ -58,7 +59,17 @@ public sealed record PressurePolicy(bool Enabled, long FloorMb, long RecoveryBan
                 return false;
             }
             long Whole(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) ? n : throw new FormatException(key);
-            policy = new PressurePolicy(enabled.GetBoolean(), Whole("floor_mb"), Whole("recovery_band_mb"), Whole("job_limit_mb"));
+            var read = new PressurePolicy(enabled.GetBoolean(), Whole("floor_mb"), Whole("recovery_band_mb"), Whole("job_limit_mb"));
+            // The rules the WSL reader applies to the same file (wsl/bosun_log.py read_policy), so a policy this accepts is
+            // one the logger acts on (round 2: a 512 MB job limit passed here and was refused there).
+            if (read.FloorMb <= 0) { fault = "its floor_mb is zero or less"; return false; }
+            if (read.RecoveryBandMb < 0) { fault = "its recovery_band_mb is negative"; return false; }
+            if (read.JobLimitMb < PanelSettings.MinJobLimitMb)
+            {
+                fault = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"its job_limit_mb is under the least allowed, {PanelSettings.MinJobLimitMb} MB");
+                return false;
+            }
+            policy = read;
             return true;
         }
         catch (JsonException)

@@ -461,7 +461,7 @@ class HostReading(unittest.TestCase):
         os.remove(os.path.join(self.dir, "current-windows.json"))
         self.assertEqual(dl.read_host(self.dir, NOW)[0], None)
         self.assertIn("no Windows snapshot", dl.read_host(self.dir, NOW)[1])
-        for change in ({"side": "wsl"}, {"schema_version": 2}, {"at": "yesterday"}, {"at": None}, {"memory": None},
+        for change in ({"side": "wsl"}, {"schema_version": 2}, {"schema_version": True}, {"at": "yesterday"}, {"at": None}, {"memory": None},
                        {"memory": {"available_mb": None, "total_mb": 1}}, {"memory": {"available_mb": -1, "total_mb": 5}},
                        {"memory": {"available_mb": 9000, "total_mb": 8000}}, {"memory": {"available_mb": True, "total_mb": 8000}}):
             self.put(**change)
