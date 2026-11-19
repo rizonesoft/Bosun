@@ -170,6 +170,8 @@ These are later speedups rather than memory fixes, so they are reported, not pus
 
 ## 5. Pressure monitor: queued jobs throttled under pressure
 
+> **Started:** 2026-11-19T04:02:26Z
+
 Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 to build it now with automatic action off, so nothing acts until they set thresholds from `bosun report --days 7`, possible from 2026-11-14.
 
 **Corrected 2026-11-19** against this machine before building. Each correction says what the plan said before:
