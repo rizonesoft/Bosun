@@ -101,7 +101,9 @@ public static class WslConfigParser
         while (digits > 0 && !char.IsAsciiDigit(v[digits - 1])) digits--;
         if (digits == 0) return null;
         var unit = v[digits..].Trim().ToUpperInvariant();
-        if (!decimal.TryParse(v[..digits], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var n) || n <= 0) return null;
+        // Whole numbers only, as WSL's own parser and Microsoft's documentation take them (completion review:
+        // 1.5GB read as 1,536 MB, a value WSL does not accept).
+        if (!decimal.TryParse(v[..digits], NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n <= 0) return null;
         var bytes = unit switch
         {
             "" or "B" => 1m,

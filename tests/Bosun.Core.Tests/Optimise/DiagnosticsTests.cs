@@ -232,6 +232,8 @@ public class DiagnosticsTests
     [InlineData("[wsl2]\nmemory=0\n")]
     [InlineData("[wsl2]\nmemory=12XB\n")]
     [InlineData("[wsl2]\nmemory=\n")]
+    [InlineData("[wsl2]\nmemory=1.5GB\n")]                     // completion review: WSL takes whole numbers
+    [InlineData("[wsl2]\nmemory=12.0GB\n")]
     [InlineData("[wsl2]\nmemory=100000000000000000000GB\n")]   // round 1: overflowed and lost all four facts
     [InlineData("[wsl2]\nmemory=79228162514264337593543950335TB\n")]
     public void A_bad_value_is_a_reason_naming_it_never_a_cap_or_zero(string text)
@@ -263,6 +265,22 @@ public class DiagnosticsTests
     [Fact]
     public void A_quoted_value_is_read_inside_its_quotes() =>
         Assert.Equal(8192L, WslConfigParser.ParseCap("[wsl2]\nmemory=\"8GB\"\n").Value!.Mb);
+
+    [Theory]
+    [InlineData(new string[] { @"?:\pagefile.sys" }, new string[0], true)]                   // completion review: none active is proved
+    [InlineData(new string[] { @"?:\pagefile.sys" }, new string[] { @"D:\pagefile.sys" }, false)]  // Windows chose D:
+    [InlineData(new string[] { @"?:\pagefile.sys" }, new string[] { @"D:\other.sys" }, true)]
+    [InlineData(new string[] { @"C:\pagefile.sys" }, new string[] { @"C:\pagefile.sys", @"D:\pagefile.sys" }, true)]
+    public void A_pending_change_is_proved_against_the_active_files_wildcard_drive_included(string[] configured, string[] active, bool pending) =>
+        Assert.Equal(pending, new Pagefile(configured.Select(p => new PagefileConfig(p, null, null, p.StartsWith("?:"))).ToList(), active, false).PendingRestart);
+
+    [Fact]
+    public void An_approval_value_that_could_not_be_read_is_unreadable_never_on()
+    {
+        var approval = StartupApproval.FromValue(new UnreadableValue("access is denied"));
+        Assert.Equal(ApprovalState.Unreadable, approval.State);
+        Assert.Contains("access is denied", approval.Reason);
+    }
 
     // ---- SMBIOS type 17 ----
 

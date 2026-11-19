@@ -101,7 +101,12 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
             var approvals = approved is null ? null : Index(approved);
             foreach (var (name, value) in run)
             {
-                var command = value as string ?? $"(a {value?.GetType().Name ?? "missing"} value, not text)";
+                var command = value switch
+                {
+                    string text => text,
+                    UnreadableValue unreadable => $"(the command could not be read: {unreadable.Why})",
+                    _ => $"(a {value?.GetType().Name ?? "missing"} value, not text)",
+                };
                 var approval = approvedFailure is not null
                     ? StartupApproval.Unreadable(approvedFailure)
                     : StartupApproval.FromValue(approvals?.GetValueOrDefault(name));
@@ -129,6 +134,7 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
     {
         null => null,
         int flag => flag,
+        UnreadableValue unreadable => throw new IOException($"{name} could not be read: {unreadable.Why}."),
         var other => throw new IOException($"{name} is a {other.GetType().Name}, not the number Windows writes."),
     };
 
@@ -140,6 +146,7 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
     {
         null => [],
         string[] many => many,
+        UnreadableValue unreadable => throw new IOException($"{name} could not be read: {unreadable.Why}."),
         string one => [one],
         var other => throw new IOException($"{name} is a {other.GetType().Name}, not the list of files Windows writes."),
     };

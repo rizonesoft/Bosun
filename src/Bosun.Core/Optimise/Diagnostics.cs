@@ -46,20 +46,35 @@ public sealed record Pagefile(IReadOnlyList<PagefileConfig> Configured, IReadOnl
     public bool IsEmpty => Configured.Count == 0;
 
     /// <summary>
-    /// The files the configuration names are not the files in use: a change waits on a restart. When Windows chooses
-    /// the drive (<c>?:</c>) the registry cannot say what it will pick, so that is never reported as pending.
+    /// The files the configuration names are not the files in use: a change waits on a restart. A file on a drive
+    /// Windows chooses (<c>?:</c>) matches an active file of its name on any drive, and with no such file active the
+    /// mismatch is proved, so it is pending too (completion review: an empty active list was read as consistent).
     /// </summary>
     public bool PendingRestart
     {
         get
         {
-            if (Configured.Any(c => c.Path.StartsWith("?:", StringComparison.Ordinal))) return false;
-            var want = Configured.Select(c => c.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var have = Active.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            return !want.SetEquals(have);
+            var unclaimed = Active.ToList();
+            foreach (var want in Configured)
+            {
+                var wildcard = want.Path.StartsWith("?:", StringComparison.Ordinal);
+                var match = unclaimed.FindIndex(have => wildcard
+                    ? have.Length >= 2 && have[1] == ':' && string.Equals(have[2..], want.Path[2..], StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(have, want.Path, StringComparison.OrdinalIgnoreCase));
+                if (match < 0) return true;
+                unclaimed.RemoveAt(match);
+            }
+            return unclaimed.Count > 0;
         }
     }
 }
+
+/// <summary>
+/// A registry value that is listed but could not be read (its query failed for a reason other than its deletion),
+/// with why. Kept, so a reader says it can't read the value, never takes it as absent (completion review: a failed
+/// approval query was dropped as deleted and read as no record, which is on).
+/// </summary>
+public sealed record UnreadableValue(string Why);
 
 /// <summary>
 /// The WSL memory cap as <c>.wslconfig</c> configures it, read as a file with WSL never started. It is not the
@@ -132,6 +147,7 @@ public sealed record StartupApproval(ApprovalState State, string? Reason = null)
     {
         null => NoRecord,
         byte[] record => FromRecord(record),
+        UnreadableValue unreadable => Unreadable($"The approval record could not be read: {unreadable.Why}"),
         var other => Unreadable($"The approval record is a {other.GetType().Name}, not the binary record Windows writes."),
     };
 

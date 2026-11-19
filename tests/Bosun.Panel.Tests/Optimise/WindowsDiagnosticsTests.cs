@@ -250,6 +250,20 @@ public class WindowsDiagnosticsTests
     }
 
     [Fact]
+    public void A_registry_value_that_could_not_be_read_is_said_for_a_command_an_approval_and_the_pagefile()
+    {
+        var m = new Machine();
+        m.Registry.Key(RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.Run)["Locked"] = new UnreadableValue("denied");
+        m.Registry.Key(RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.ApprovedRun)["Discord"] = new UnreadableValue("denied");
+        var items = m.Reader.ReadStartup().Items;
+        Assert.Equal("(the command could not be read: denied)", items.Single(i => i.Name == "Locked").Command);
+        Assert.Equal(ApprovalState.Unreadable, items.Single(i => i.Name == "Discord").Approval.State);
+
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm)["PagingFiles"] = new UnreadableValue("denied");
+        Assert.Contains("PagingFiles could not be read: denied", m.Reader.Read().Pagefile.Reason);
+    }
+
+    [Fact]
     public void A_pagefile_value_of_the_wrong_type_is_a_reason_never_an_empty_configuration()
     {
         // Round 2: a DWORD PagingFiles read as no pagefile configured.
@@ -389,9 +403,14 @@ public class WindowsDiagnosticsTests
     public void A_run_value_deleted_between_the_listing_and_its_read_is_skipped_never_an_entry_with_no_command()
     {
         // Round 7: an uninstaller removing its value mid-read left a row with a missing command.
-        var values = RegistryKeySource.Collect(["Discord", "Gone", "Steam"], (name, missing) => name == "Gone" ? missing : $"{name}.exe");
-        Assert.Equal(["Discord", "Steam"], values.Keys.Order());
+        var values = RegistryKeySource.Collect(["Discord", "Gone", "Locked", "Steam"],
+            (name, missing) => name is "Gone" or "Locked" ? missing : $"{name}.exe",
+            name => name == "Locked");                                         // still listed: its query failed
+        Assert.Equal(["Discord", "Locked", "Steam"], values.Keys.Order());
         Assert.Equal("Steam.exe", values["Steam"]);
+        // Completion review: a failed query is kept as unreadable, never dropped as deleted (an approval would read on).
+        Assert.IsType<UnreadableValue>(values["Locked"]);
+        Assert.Equal(ApprovalState.Unreadable, StartupApproval.FromValue(values["Locked"]).State);
     }
 
     /// <summary>A comment that never ends, as a multi-gigabyte one would be: it stops the test if the bound fails.</summary>
@@ -436,7 +455,8 @@ public class WindowsDiagnosticsTests
         Assert.True(report.WslCap.IsRead || !string.IsNullOrWhiteSpace(report.WslCap.Reason), "the WSL cap is a value or a reason");
         Assert.True(report.Memory.IsRead, report.Memory.Reason);
         Assert.True(report.Startup.IsRead, report.Startup.Reason);
-        Assert.NotEmpty(report.Memory.Value!);
+        // A firmware with no memory device records is a valid answer (completion review): no modules, no finding.
+        if (report.Memory.Value!.Count == 0) Assert.Null(report.RamFinding);
         // A part number is optional in SMBIOS (round 1): a machine whose modules give none has no finding, and passes.
         if (report.Memory.Value!.Any(module => string.IsNullOrEmpty(module.PartNumber))) Assert.Null(report.RamFinding);
     }

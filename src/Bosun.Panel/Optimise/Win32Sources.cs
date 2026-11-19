@@ -19,21 +19,24 @@ public sealed class RegistryKeySource : IRegistrySource
             view == RunView.Registry32 ? RegistryView.Registry32 : RegistryView.Registry64);
         using var key = baseKey.OpenSubKey(path);
         if (key is null) return null;
-        return Collect(key.GetValueNames(), (name, missing) => key.GetValue(name, missing, RegistryValueOptions.DoNotExpandEnvironmentNames));
+        return Collect(key.GetValueNames(), (name, missing) => key.GetValue(name, missing, RegistryValueOptions.DoNotExpandEnvironmentNames),
+            name => key.GetValueNames().Contains(name, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
-    /// Each listed value read by name. A value deleted between the listing and its read (an uninstaller at work) is
-    /// gone, and is skipped, never kept as an entry with no command (round 7): the default marks it, as no registry
-    /// value can be.
+    /// Each listed value read by name. The registry answers the default both for a value deleted since the listing and
+    /// for a query that failed, so a default is checked against the key again: a value no longer listed was deleted
+    /// (an uninstaller at work) and is skipped, never an entry with no command (round 7); one still listed could not
+    /// be read and is kept as <see cref="UnreadableValue"/>, never taken as absent (completion review).
     /// </summary>
-    internal static Dictionary<string, object?> Collect(IEnumerable<string> names, Func<string, object, object?> read)
+    internal static Dictionary<string, object?> Collect(IEnumerable<string> names, Func<string, object, object?> read, Func<string, bool> stillListed)
     {
         var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in names)
         {
             var value = read(name, Vanished);
             if (!ReferenceEquals(value, Vanished)) values[name] = value;
+            else if (stillListed(name)) values[name] = new UnreadableValue($"the registry would not give the value {name}, though it lists it");
         }
         return values;
     }
