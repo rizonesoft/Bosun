@@ -96,15 +96,26 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
                 approvedFailure = $"{label} approvals could not be read: {e.Message}";
             }
 
+            // Indexed once by name, as Windows compares value names (case-insensitively): each entry's approval is
+            // one lookup, never a scan of every approval (round 8: 10,000 of each was 100 million comparisons).
+            var approvals = approved is null ? null : Index(approved);
             foreach (var (name, value) in run)
             {
                 var command = value as string ?? $"(a {value?.GetType().Name ?? "missing"} value, not text)";
                 var approval = approvedFailure is not null
                     ? StartupApproval.Unreadable(approvedFailure)
-                    : StartupApproval.FromValue(approved is null ? null : Find(approved, name));
+                    : StartupApproval.FromValue(approvals?.GetValueOrDefault(name));
                 items.Add(new StartupItem(name, command, hive, view, approval));
             }
         }
+    }
+
+    /// <summary>A key's values by name, compared as Windows compares value names; the first of two that differ only by case is kept.</summary>
+    internal static Dictionary<string, object?> Index(IReadOnlyDictionary<string, object?> values)
+    {
+        var index = new Dictionary<string, object?>(values.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in values) index.TryAdd(name, value);
+        return index;
     }
 
     private static object? Find(IReadOnlyDictionary<string, object?> values, string name) =>

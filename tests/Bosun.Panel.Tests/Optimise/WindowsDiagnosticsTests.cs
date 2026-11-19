@@ -355,6 +355,31 @@ public class WindowsDiagnosticsTests
     }
 
     [Fact]
+    public void Ten_thousand_entries_and_approvals_are_matched_by_lookup_case_insensitively()
+    {
+        // Round 8: each entry scanned every approval, 100 million comparisons for 10,000 of each.
+        var m = new Machine();
+        m.Registry.Keys.Clear();
+        var run = m.Registry.Key(RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.Run);
+        var approved = m.Registry.Key(RunHive.CurrentUser, RunView.Registry64, WindowsDiagnostics.ApprovedRun);
+        for (var i = 0; i < 10_000; i++)
+        {
+            run[$"App{i}"] = $"app{i}.exe";
+            approved[$"Other{i}"] = new byte[12];
+        }
+        var on = new byte[12];
+        on[0] = 0x03;
+        approved["APP7"] = on;                                       // matched as Windows matches names, by case
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var items = m.Reader.ReadStartup().Items;
+        watch.Stop();
+        Assert.Equal(10_000, items.Count);
+        Assert.Equal(ApprovalState.TurnedOffByWindows, items.Single(i => i.Name == "App7").Approval.State);
+        Assert.Equal(ApprovalState.NoRecord, items.Single(i => i.Name == "App8").Approval.State);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"matching took {watch.Elapsed}");
+    }
+
+    [Fact]
     public void A_run_value_deleted_between_the_listing_and_its_read_is_skipped_never_an_entry_with_no_command()
     {
         // Round 7: an uninstaller removing its value mid-read left a row with a missing command.
