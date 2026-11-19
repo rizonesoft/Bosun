@@ -35,7 +35,7 @@ title: "TODO-02 -- Optimise"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Diagnostics | D02 T02 §3 | [ ] |
+| 1 | §1 | Diagnostics | D02 T02 §3 | [x] |
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [ ] |
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
@@ -72,13 +72,23 @@ Read-only first. Every recommendation starts from a measured fact.
 - [x] Read them on Windows in `src/Bosun.Panel/Optimise/WindowsDiagnostics.cs` through small seams (a registry view, a file reader, a firmware table reader), with no elevation: both hives, the 64- and 32-bit views of the machine `Run` key and `StartupApproved\Run` and `Run32`, the profile's `.wslconfig` read as a file with WSL never started, and `GetSystemFirmwareTable('RSMB')`. Done when: `WindowsDiagnosticsTests` with controlled seams read exact values for all four facts, keep three when the fourth is denied, tell same-named entries apart by hive, view and command with their approvals, tell an absent approval record from an unreadable one, and fail if a reader is disconnected or always answers unavailable; and one case reads this machine's four facts and prints them.
 - [x] Decode a part number's rated speed in `RatedSpeed.Of` (`Bosun.Core/Optimise`) by each maker's published format, each with its source in a comment and two documented part numbers at different ratings: Corsair (`CMK32GX4M2D3600C18`: 3600, `CMK16GX4M2B3200C16`: 3200), G.Skill (`F4-3600C16D-32GVKC`: 3600, `F4-3200C16D-16GVK`: 3200), Kingston Fury (`KF436C18BBK2/32`: 3600, `KF432C16BBK2/16`: 3200), HyperX (`HX436C18FB3K2/32`: 3600, `HX432C16PB3K2/16`: 3200), Crucial Ballistix (`BL2K16G36C16U4B`: 3600, `BL2K8G32C16U4B`: 3200), TeamGroup (`TF3D416G3600HC18J`: 3600, `TF3D416G3200HC16F`: 3200); a near-match of each (a prefix with no speed field, a JEDEC module's number) is unknown. Done when: `DiagnosticsTests` decode each pair and leave each near-match unknown.
 - [x] Mark RAM below its rated speed only with the evidence attached: a finding when every populated module has a decoded rating and a known configured speed below it, naming each module's part number, rating, configured and maximum speed in MT/s; no finding for an unknown part number, an unknown (0) configured speed, a mixed kit whose ratings differ, an empty inventory, or a module already at its rating. Done when: `DiagnosticsTests` give the finding, with each evidence field asserted, for this machine's kit by its recorded part number and raw SMBIOS speed fields (written into this section when read), and none for each of the others. Cheaper substitute: assuming XMP is off.
-- [ ] Commit: `optimise: diagnostics`
+- [x] Commit: `optimise: diagnostics`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DiagnosticsTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowsDiagnosticsTests"` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-19 | §1 | 81d80ce41dbab42df9584fdcd25b68eb82801607
+> **Review:** `docs/reviews/d05-t02-s1.json`
 
 ## 2. Preview, apply, verify, undo framework
 
 Machine changes are the panel's riskiest actions, so all of them go through one path that can't skip a step.
+
+**Corrected 2026-11-19** against the tree before building. Each correction says what the plan said before:
+
+- The Activity pane is the panel's (`src/Bosun.Panel/Shell/ActivityLog.cs`), so the framework in `Bosun.Core` reports each step through a small `IChangeLog` the panel adapts to it, as the other Core clients report through their callers. (It said "Activity logs each step" with no seam.)
+- A backup is the change's undo, so it is written as every persistent file here is, to a temporary file in the folder then replaced, and read back before anything changes; an Apply whose backup can't be written and read back is refused. (It named the folder only.)
+- "One fixed command" is the panel's own executable with one verb, `Bosun.Panel.exe --optimise-apply <item id> <request file>`, started with the `runas` verb only for an item that needs it. The elevated process trusts nothing it is handed: it reads the request, checks the item is one it knows and each value is inside that item's own allowed range, writes its own backup, applies, verifies and exits with a code the panel reads. A request it refuses changes nothing. (It said `runas` with one fixed command, unnamed.)
+- The checkpoint used `--filter FullyQualifiedName~`, which Microsoft.Testing.Platform refuses: it is `--filter-class` now.
 
 **Phase:** 5
 **Needs:** none
@@ -86,15 +96,18 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 
 **Build order:**
 
-1. Create `IOptimisation`. Done when: an item can't apply without a saved backup.
-2. Add per-action elevation. Done when: only that action prompts UAC.
+1. The one path: Preview, a read-back backup, Apply, Verify, and Undo when Verify fails. Done when: an item can't apply without a saved backup, and a failing verify offers undo.
+2. Per-action elevation through one fixed command. Done when: only an action that needs it prompts UAC, and a refusal changes nothing.
+3. The changes already made are shown as applied, with honest baselines. Done when: an unknown original says so.
 
-- [ ] Define Preview, Apply, Verify and Undo in `src/Bosun.Core/Optimise/IOptimisation.cs`, with backups in `%LOCALAPPDATA%\Bosun\backups\`. Done when: a failing verify automatically offers undo, and Activity logs each step. Cheaper substitute: applying and hoping.
-- [ ] Run elevated steps through `runas` with one fixed command, not a general elevated helper, behind an `IElevation` seam. Done when: a faked refusal leaves no change in a test. A real UAC prompt is proven in `D99 T01 §5`. Cheaper substitute: elevating the whole panel.
-- [ ] Show Discord, Creative Cloud and pagefile as Applied, recording the current values as their baseline. Done when: the original values, where unknown, say so instead of being invented. Cheaper substitute: claiming a backup exists from the old session.
+- [ ] Define `IOptimisation` in `src/Bosun.Core/Optimise/IOptimisation.cs` (an id, a title, whether it needs elevation, `Preview` giving the exact change as before and after, `Apply`, `Verify` reading the setting back, `Undo` from a backup) and `ChangeRunner`, the only way to run one: Preview, then the backup written to `%LOCALAPPDATA%\Bosun\backups\<id>-<UTC time>.json` through a temporary file replaced and read back, then Apply, then Verify; a failed Verify returns a result offering Undo, never a silent success; each step reported through `IChangeLog`. Done when: `OptimisationFrameworkTests` with a fake item see Apply refused when the backup write or its read-back fails (nothing changed), the steps in order in the log, a failing Verify offering Undo, and Undo restoring the backed-up value. Cheaper substitute: applying and hoping.
+- [ ] Keep backups whole: a backup is never overwritten (a new one per apply), an Undo reads the newest for its item and refuses a damaged one with why, and an Undo is itself backed up first, so it can be undone. Done when: `OptimisationFrameworkTests` undo twice, refuse a truncated backup, and find the files intact after a failed write. Cheaper substitute: one backup per item, overwritten.
+- [ ] Add `IElevation` (`Bosun.Core`) and its Windows form in the panel: `ShellExecute` with the `runas` verb on `Bosun.Panel.exe --optimise-apply <item id> <request file>`, for an item that needs elevation only; the request file written as backups are; UAC refused (error 1223) is "Not changed: you declined the administrator prompt", with nothing changed. Done when: `OptimisationFrameworkTests` with a fake refusal find no change and no backup claimed as applied, and an item that needs no elevation never calls `IElevation`. A real UAC prompt is proven in `D99 T01 §5`. Cheaper substitute: elevating the whole panel.
+- [ ] Handle `--optimise-apply` in `src/Bosun.Panel/App.xaml.cs` before any window: read the request, refuse an unknown item or a value outside that item's allowed range (a request edited between the panel writing it and the elevated process reading it can do no more than the item allows), then run the item through `ChangeRunner` and exit with a code the panel maps to words. Done when: `OptimisationFrameworkTests` run the entry point on a valid request, a tampered value, an unknown item and a missing file, each with its exit code and nothing changed for the refusals. Cheaper substitute: a general elevated helper that runs what it is told.
+- [ ] Show the changes made on 2026-11-07 (Discord and Creative Cloud startup entries turned off, the pagefile moved to `C:` at 32 to 50 GB) as Applied, each recording today's value as its baseline backup and saying its original is not known (the backups were kept only in that session's scratchpad). Done when: `OptimisationFrameworkTests` read each as Applied with "original not known" and an Undo that offers only the baseline, never an invented original. Cheaper substitute: claiming a backup exists from the old session.
 - [ ] Commit: `optimise: change framework`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~OptimisationFramework` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*OptimisationFrameworkTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OptimisationFrameworkTests"` exit 0, and fail if the change is reverted.
 
 ## 3. Optimise page, WSL cap and startup entries
 

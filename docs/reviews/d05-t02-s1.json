@@ -1,0 +1,121 @@
+{
+  "ref": "D05 T02 \u00a71",
+  "title": "Diagnostics",
+  "implementation_sha": "81d80ce41dbab42df9584fdcd25b68eb82801607",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/05-machine/D05-T02-s1.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Core.Tests (DiagnosticsTests in it) -> 293 of 293; dotnet test --project tests/Bosun.Panel.Tests (WindowsDiagnosticsTests in it) -> 996 of 996, at 81d80ce",
+    "CI full gate -> build.yml green at 81d80ce (https://github.com/rizonetech/Bosun/actions/runs/44428924353), plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44428924268)"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-machine/D05-T02-s1.md",
+    "verdict": "completed",
+    "candidate": "d81de844ea0b01835bd8fc116dc4f8fd6cf6b76b",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 9,
+  "cap_outcome": "Round 9 returned HIGHEST P3, the stop rule; its one finding (a TempPageFile of the wrong type read as absent) was fixed in d81de84 with a test, and the completion review followed.",
+  "plan": {
+    "report": "docs/reviews/05-machine/D05-T02-s1.md",
+    "candidate": "c2fed07589e862b89c224d7a4bcf7d37c6f1eb12",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "c2fed07589e862b89c224d7a4bcf7d37c6f1eb12",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

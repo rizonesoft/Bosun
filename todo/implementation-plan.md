@@ -122,12 +122,12 @@ Sections: 21 | Checklist items: 169
 
 ### Phase 5: Machine
 
-Sections: 5 | Checklist items: 26
+Sections: 5 | Checklist items: 28
 
 | Status | Reference  | Deliverable                                     | Needs | Items |
 | ------ | ---------- | ----------------------------------------------- | ----- | ----- |
-| [ ]    | D05 T02 §1 | Diagnostics                                     | none  | 6     |
-| [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none  | 4     |
+| [x]    | D05 T02 §1 | Diagnostics                                     | none  | 6     |
+| [ ]    | D05 T02 §2 | Preview, apply, verify, undo framework          | none  | 6     |
 | [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries      | none  | 7     |
 | [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender       | none  | 3     |
 | [ ]    | D05 T02 §5 | Pressure monitor and background memory priority | none  | 6     |
@@ -159,6 +159,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 83/104 verified sections, 1 ready to run now.
+Progress: 84/104 verified sections, 1 ready to run now.
 
-Checklist: 831/923 items completed (includes Commit items).
+Checklist: 832/925 items completed (includes Commit items).
