@@ -46,7 +46,7 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
     {
         var values = registry.ReadKey(RunHive.LocalMachine, RunView.Registry64, MemoryManagement)
             ?? throw new IOException("The Memory Management key is not in the registry.");
-        return new RawPagefile(Lines(values, "PagingFiles"), Lines(values, "ExistingPageFiles"), Find(values, "TempPageFile") is int temp ? temp : null);
+        return new RawPagefile(Lines(values, "PagingFiles"), Lines(values, "ExistingPageFiles"), Flag(values, "TempPageFile"));
     }
 
     public string? ReadWslConfig() => files.ReadText(Path.Combine(profilePath, ".wslconfig"));
@@ -120,6 +120,17 @@ public sealed class WindowsDiagnostics(IRegistrySource registry, IProfileFiles f
 
     private static object? Find(IReadOnlyDictionary<string, object?> values, string name) =>
         values.FirstOrDefault(kv => string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
+
+    /// <summary>
+    /// A DWORD flag: null when the value is not there; a value of another type is the registry's fault, said, as for
+    /// the file lists, never read as absent (round 9).
+    /// </summary>
+    private static int? Flag(IReadOnlyDictionary<string, object?> values, string name) => Find(values, name) switch
+    {
+        null => null,
+        int flag => flag,
+        var other => throw new IOException($"{name} is a {other.GetType().Name}, not the number Windows writes."),
+    };
 
     /// <summary>
     /// A multi-string value's lines: none when the value is not there; a value of another type is the registry's fault,

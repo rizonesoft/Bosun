@@ -261,6 +261,12 @@ public class WindowsDiagnosticsTests
 
         m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm).Remove("PagingFiles");
         Assert.True(m.Reader.Read().Pagefile.IsRead);                     // absent is still an empty configuration
+
+        // Round 9: a TempPageFile of the wrong type is a reason too, never read as no temporary pagefile.
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm)["TempPageFile"] = "1";
+        Assert.Contains("TempPageFile is a String", m.Reader.Read().Pagefile.Reason);
+        m.Registry.Key(RunHive.LocalMachine, RunView.Registry64, Mm).Remove("TempPageFile");
+        Assert.False(m.Reader.Read().Pagefile.Value!.TemporaryInUse);
     }
 
     [Fact]
