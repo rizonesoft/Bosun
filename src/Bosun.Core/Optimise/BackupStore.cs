@@ -155,7 +155,10 @@ public sealed partial class BackupStore
             using var document = JsonDocument.Parse(bytes);
             var root = document.RootElement;
             string? Get(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            return root.ValueKind == JsonValueKind.Object && Get("item_id") == backup.ItemId && Get("backup") == backup.Name && Get("target") == backup.Target ? Get("observed") : null;
+            // The same schema version the backup reader requires (round 2): an outcome of another version is not read.
+            var versioned = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schema_version", out var version)
+                && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number == SchemaVersion;
+            return versioned && Get("item_id") == backup.ItemId && Get("backup") == backup.Name && Get("target") == backup.Target ? Get("observed") : null;
         }
         catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException or JsonException)
         {

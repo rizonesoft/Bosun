@@ -740,6 +740,22 @@ public sealed class OptimisationFrameworkTests : IDisposable
     }
 
     [Fact]
+    public void An_outcome_of_another_schema_version_is_not_read_as_the_partial_write()
+    {
+        // Round 2: an outcome record's schema_version was not checked, so one of another version vouched for a value.
+        var item = new FakeItem { Partial = "3" };
+        var (runner, _, store) = Runner();
+        var result = runner.Apply(item, Preview(item));
+        var outcome = store.PathOf(result.Backup!) + ".outcome.json";
+        Assert.True(File.Exists(outcome));
+        File.WriteAllText(outcome, File.ReadAllText(outcome).Replace("\"schema_version\": 1", "\"schema_version\": 999"));
+
+        Assert.False(runner.CanUndo(item, result.Backup).Allowed);           // "3" is no longer vouched for
+        Assert.False(runner.Undo(item, result.Backup!).Written);
+        Assert.Equal("3", item.Value);
+    }
+
+    [Fact]
     public void A_backup_with_an_undecodable_string_is_refused_with_a_reason_not_thrown()
     {
         var item = new FakeItem();
