@@ -448,8 +448,8 @@ public sealed class ElevatedHelperTests : IDisposable
         var named = lines.Select(l => l[(l.IndexOf(", ", StringComparison.Ordinal) + 2)..l.IndexOf(" (", StringComparison.Ordinal)]).ToArray();
         Assert.Equal(["Administrator", "Administrator", "Started", "Backup", "Write returned", "Verify", "Result",
                       "Administrator", "Administrator", "Started", "Backup", "Write returned", "Verify", "Result"], named);
-        Assert.Equal("INFO Test setting, Administrator (test:disposable-file): Waiting for the administrator prompt", lines[0]);
-        Assert.Equal("INFO Test setting, Administrator (test:disposable-file): Applying", lines[1]);
+        Assert.Equal($"INFO Test setting, Administrator ({Target}): Waiting for the administrator prompt", lines[0]);
+        Assert.Equal($"INFO Test setting, Administrator ({Target}): Applying", lines[1]);
         Assert.All(lines, l => Assert.StartsWith("INFO ", l));
     }
 
@@ -476,7 +476,7 @@ public sealed class ElevatedHelperTests : IDisposable
         Assert.True(verify.UndoOffered);
         Assert.Equal("applied", valueAfterVerify); // it was written; only its read-back disagreed
         Assert.StartsWith("FAIL Test setting, Verify", verifyLines.Single(l => l.Contains(", Verify (")));
-        Assert.StartsWith("FAIL Test setting, Result (test:disposable-file): Could not be verified: it now reads 'applied' but its verification read 'unexpected'. Undo is offered from backup " + verify.Backup!.Name, verifyLines[^1]);
+        Assert.StartsWith($"FAIL Test setting, Result ({Target}): Could not be verified: it now reads 'applied' but its verification read 'unexpected'. Undo is offered from backup " + verify.Backup!.Name, verifyLines[^1]);
 
         Assert.Equal(ChangeStatus.NotChanged, faulted.Status); // it faulted before any backup: nothing was written
         Assert.Contains("The administrator helper failed: InvalidOperationException: the test item's title faults", faulted.Message);
