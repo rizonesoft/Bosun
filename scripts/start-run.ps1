@@ -9,7 +9,7 @@
 #                                                 model (non-orchestrator models also receive -Effort)
 #   pwsh scripts/start-run.ps1 -Effort high       start either runner at another effort
 #   pwsh scripts/start-run.ps1 -InstallShortcut   write both desktop shortcuts for this checkout, "Bosun Claude
-#                                                 campaign" and "Bosun Carbon campaign", each running one line above
+#                                                 campaign" and "Bosun Gemini campaign", each running one line above
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start Claude Code on another model
 #
@@ -62,7 +62,7 @@ $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
 $launchers = @(
   @{ Agent = 'claude'; Name = 'Bosun Claude campaign'; Icon = 'bosun-campaign-claude.ico'; Fill = '#D97757'; Mark = 'claude.svg'
      Description = 'Start the unattended Bosun campaign in Claude Code' },
-  @{ Agent = 'antigravity'; Name = 'Bosun Carbon campaign'; Icon = 'bosun-campaign-carbon.ico'; Fill = '#4C8DF6'; Mark = 'gemini.svg'
+  @{ Agent = 'antigravity'; Name = 'Bosun Gemini campaign'; Icon = 'bosun-campaign-carbon.ico'; Fill = '#4C8DF6'; Mark = 'gemini.svg'
      Description = 'Start the unattended Bosun campaign in Google Antigravity on Gemini 4 Neon (medium effort)' }
 )
 

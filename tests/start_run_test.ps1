@@ -21,7 +21,7 @@ try {
   foreach ($name in $earlier) { Set-Content -LiteralPath (Join-Path $work $name) -Value 'an earlier shortcut' }
   $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $work -IconDir $icons) -join "`n"
   $link = Join-Path $work 'Bosun Claude campaign.lnk'
-  $carbonLink = Join-Path $work 'Bosun Carbon campaign.lnk'
+  $carbonLink = Join-Path $work 'Bosun Gemini campaign.lnk'
   Check ($LASTEXITCODE -eq 0 -and (Test-Path $link) -and (Test-Path $carbonLink)) "both shortcuts are written where asked ($out)"
   Check (-not ($earlier | Where-Object { Test-Path -LiteralPath (Join-Path $work $_) })) 'the shortcuts'' earlier names are removed'
   $shell = New-Object -ComObject WScript.Shell
@@ -72,7 +72,7 @@ try {
   New-Item -ItemType Directory -Force $plainDir | Out-Null
   $out = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $plainDir -IconDir $blocked) -join "`n"
   $plainIcon = "$(Join-Path $repo 'resources\bosun.ico'),0"
-  $fallbacks = @(foreach ($n in 'Bosun Claude campaign', 'Bosun Carbon campaign') { $at = Join-Path $plainDir "$n.lnk"; if (Test-Path -LiteralPath $at) { $shell.CreateShortcut($at).IconLocation } else { 'missing' } })
+  $fallbacks = @(foreach ($n in 'Bosun Claude campaign', 'Bosun Gemini campaign') { $at = Join-Path $plainDir "$n.lnk"; if (Test-Path -LiteralPath $at) { $shell.CreateShortcut($at).IconLocation } else { 'missing' } })
   Check ($LASTEXITCODE -eq 0 -and $fallbacks.Count -eq 2 -and -not ($fallbacks | Where-Object { $_ -ne $plainIcon }) -and $out -match 'could not be rendered') "a badge that can't be rendered leaves both shortcuts with the plain Bosun icon and says so ($($fallbacks -join '; '))"
 
   $state = Join-Path $work 'state.json'
