@@ -62,6 +62,9 @@ public class PanelSettingsFiles
     /// <summary>Puts one file in another's place in one step: a reader sees the old file or the new one, never half of either.</summary>
     public virtual void Replace(string from, string to) => File.Move(from, to, overwrite: true);
 
+    /// <summary>Puts a file in a place nothing is in: <see cref="IOException"/> when the place is taken, so a file kept is never written over.</summary>
+    public virtual void MoveNew(string from, string to) => File.Move(from, to, overwrite: false);
+
     public virtual void Delete(string path) => File.Delete(path);
 }
 

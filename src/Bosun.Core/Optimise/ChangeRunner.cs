@@ -1,0 +1,260 @@
+namespace Bosun.Core.Optimise;
+
+/// <summary>How a change or an Undo ended, read from the target after the write and never from the item's own say.</summary>
+public enum ChangeStatus
+{
+    /// <summary>Applied, verified and read again: the target holds the proposal's after value.</summary>
+    Changed,
+
+    /// <summary>Undone, verified and read again: the target holds the backed-up value.</summary>
+    Restored,
+
+    /// <summary>The target reads the value it held before this operation. Nothing was done, or what was written did not stay.</summary>
+    NotChanged,
+
+    /// <summary>The target could not be read, reads neither value, or the item's own verification failed. See <see cref="ChangeResult.Message"/>.</summary>
+    CouldNotVerify,
+}
+
+/// <summary>
+/// The outcome of <see cref="ChangeRunner.Apply"/> or <see cref="ChangeRunner.Undo"/>.
+/// </summary>
+/// <param name="Status">How it ended.</param>
+/// <param name="Message">The outcome in words, "Undo is offered" included whenever <see cref="UndoOffered"/>.</param>
+/// <param name="Backup">The exact backup of this operation: what reverses it. Null when nothing was written.</param>
+/// <param name="Written">True when a write may have happened: false only for a refusal before any write.</param>
+/// <param name="ValueNow">What the target read after the operation, when it could be read.</param>
+public sealed record ChangeResult(ChangeStatus Status, string Message, BackupRef? Backup, bool Written, string? ValueNow)
+{
+    /// <summary>True whenever a write may have happened and its backup exists: the person can always get back.</summary>
+    public bool UndoOffered => Written && Backup is not null;
+}
+
+/// <summary>Whether a change or an Undo can run now, and when it can't, why: one answer for the row and the palette alike.</summary>
+public sealed record Eligibility(bool Allowed, string? Reason)
+{
+    public static Eligibility Yes { get; } = new(true, null);
+
+    public static Eligibility No(string reason) => new(false, reason);
+}
+
+/// <summary>
+/// The only way a machine setting is changed (D05 T02 §2): a confirmed proposal, a read-back backup bound to its
+/// target, the write, the item's verification, and the target read again; every step reported to the
+/// <see cref="IChangeLog"/>. It trusts nothing an item returns after a write: the outcome is what the target reads.
+/// </summary>
+/// <param name="backups">Where backups are kept.</param>
+/// <param name="log">Where each step is said.</param>
+/// <param name="elevated">True only in the elevated helper (D05 T02 §6): an item that needs elevation is refused otherwise.</param>
+public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool elevated = false)
+{
+    /// <summary>What the item would change now. The confirmation the person gives is for this proposal, whole.</summary>
+    public Fact<Proposal> Preview(IOptimisation item)
+    {
+        var proposal = Propose(item);
+        if (proposal.IsRead) Say(item, "Preview", ChangeLevel.Info, $"Would change '{proposal.Value!.Before}' to '{proposal.Value.After}'", null);
+        else Say(item, "Preview", ChangeLevel.Warn, proposal.Reason!, null);
+        return proposal;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="confirmed"/> can be applied now: reads the target again, so the answer is the one
+    /// <see cref="Apply"/> will reach. Null is no preview yet.
+    /// </summary>
+    public Eligibility CanApply(IOptimisation item, Proposal? confirmed)
+    {
+        if (confirmed is null) return Eligibility.No("Preview it first");
+        var fresh = Propose(item);
+        if (!fresh.IsRead) return Eligibility.No($"The setting could not be read: {fresh.Reason}");
+        var now = fresh.Value!;
+        // Edited: not the proposal the item makes now, whatever was shown. Compared before the before value so an
+        // edited value is never mistaken for a setting that changed.
+        if (confirmed.Target != item.Target || confirmed.Target != now.Target || confirmed.After != now.After)
+            return Eligibility.No("That is not what this item proposes now. Preview it again");
+        if (confirmed.Before != now.Before) return Eligibility.No("The setting changed since the preview");
+        if (confirmed.Before == confirmed.After) return Eligibility.No("Nothing to change: the setting already holds that value");
+        return NeedsAdministrator(item) ?? Eligibility.Yes;
+    }
+
+    /// <summary>
+    /// Whether the change <paramref name="backup"/> belongs to can be undone now. Null is no change to undo. The
+    /// backup is read (well formed, this item, this target) and the target must still hold what the change wrote.
+    /// </summary>
+    public Eligibility CanUndo(IOptimisation item, BackupRef? backup) => CheckUndo(item, backup, out _);
+
+    /// <summary>Changes the setting to <paramref name="confirmed"/>, or refuses and changes nothing.</summary>
+    public ChangeResult Apply(IOptimisation item, Proposal confirmed)
+    {
+        var can = CanApply(item, confirmed);
+        if (!can.Allowed) return Refuse(item, confirmed?.Target ?? item.Target, can.Reason!);
+
+        BackupRef backup;
+        try
+        {
+            backup = backups.Write(item.Id, BackupStore.Apply, confirmed);
+        }
+        catch (BackupException e)
+        {
+            return Refuse(item, confirmed.Target, $"Not changed: {e.Message}");
+        }
+        Say(item, "Backup", ChangeLevel.Info, "Written and read back", backup.Name, confirmed.Target);
+
+        Exception? error = null;
+        try
+        {
+            item.Apply(confirmed);
+        }
+        catch (Exception e)
+        {
+            error = e;
+            Say(item, "Write", ChangeLevel.Fail, $"The write reported an error: {e.Message}", backup.Name, confirmed.Target);
+        }
+        return Finish(item, confirmed, backup, error, ChangeStatus.Changed, "changed");
+    }
+
+    /// <summary>
+    /// Restores the value <paramref name="backup"/> holds, the backup of the change being reversed, never "the
+    /// newest". The Undo is itself backed up first, so it can be undone.
+    /// </summary>
+    public ChangeResult Undo(IOptimisation item, BackupRef backup)
+    {
+        var can = CheckUndo(item, backup, out var record);
+        if (!can.Allowed) return Refuse(item, item.Target, can.Reason!);
+        var current = item.Read().Value!; // CheckUndo has read it
+
+        var undo = new Proposal(item.Target, current, record!.Before);
+        BackupRef undoBackup;
+        try
+        {
+            undoBackup = backups.Write(item.Id, BackupStore.Undo, undo);
+        }
+        catch (BackupException e)
+        {
+            return Refuse(item, item.Target, $"Not restored: {e.Message}");
+        }
+        Say(item, "Backup", ChangeLevel.Info, "Written and read back", undoBackup.Name, item.Target);
+
+        Exception? error = null;
+        try
+        {
+            item.Restore(item.Target, record.Before);
+        }
+        catch (Exception e)
+        {
+            error = e;
+            Say(item, "Write", ChangeLevel.Fail, $"The restore reported an error: {e.Message}", undoBackup.Name, item.Target);
+        }
+        return Finish(item, undo, undoBackup, error, ChangeStatus.Restored, "restored");
+    }
+
+    private Eligibility CheckUndo(IOptimisation item, BackupRef? backup, out Backup? record)
+    {
+        record = null;
+        if (backup is null) return Eligibility.No("Nothing to undo");
+        if (backup.ItemId != item.Id) return Eligibility.No("That backup belongs to another item");
+        try
+        {
+            record = backups.Read(backup);
+        }
+        catch (BackupException e)
+        {
+            return Eligibility.No($"The backup can't be trusted: {e.Message}");
+        }
+        if (record.Target != item.Target) return Eligibility.No("That backup is for another setting");
+        Fact<string> now;
+        try
+        {
+            now = item.Read();
+        }
+        catch (Exception e)
+        {
+            now = Fact<string>.Unavailable(e.Message);
+        }
+        if (!now.IsRead) return Eligibility.No($"The setting could not be read: {now.Reason}");
+        // The target must still hold what the change wrote: anything else is a newer value an Undo would destroy.
+        if (now.Value != record.Proposal.After) return Eligibility.No("The setting changed since this change, so undoing it would overwrite a newer value");
+        return NeedsAdministrator(item) ?? Eligibility.Yes;
+    }
+
+    private Eligibility? NeedsAdministrator(IOptimisation item) =>
+        item.NeedsElevation && !elevated ? Eligibility.No("Needs an administrator prompt") : null;
+
+    /// <summary>
+    /// After a write that may have happened: ask the item to verify, read the target again, and say what is true.
+    /// The target's own value decides, never the item's return or its silence.
+    /// </summary>
+    private ChangeResult Finish(IOptimisation item, Proposal done, BackupRef backup, Exception? error, ChangeStatus success, string verb)
+    {
+        Fact<string> verified;
+        try
+        {
+            verified = item.Verify(done);
+        }
+        catch (Exception e)
+        {
+            verified = Fact<string>.Unavailable($"verification failed: {e.Message}");
+        }
+        Fact<string> now;
+        try
+        {
+            now = item.Read();
+        }
+        catch (Exception e)
+        {
+            now = Fact<string>.Unavailable(e.Message);
+        }
+
+        var verifiedOk = verified.IsRead && verified.Value == done.After;
+        var holdsNew = now.IsRead && now.Value == done.After;
+        ChangeStatus status;
+        string words;
+        if (error is null && verifiedOk && holdsNew)
+        {
+            status = success;
+            words = $"{char.ToUpperInvariant(verb[0])}{verb[1..]}: '{done.Before}' to '{done.After}', verified by reading it back";
+        }
+        else if (holdsNew)
+        {
+            status = ChangeStatus.CouldNotVerify;
+            var why = error is not null ? "the operation reported an error" : verified.IsRead ? $"its verification read '{verified.Value}'" : $"verification failed ({verified.Reason})";
+            words = $"Could not be verified: it now reads '{done.After}' but {why}";
+        }
+        else if (now.IsRead && now.Value == done.Before)
+        {
+            status = ChangeStatus.NotChanged;
+            words = $"Not {verb}: it still reads '{done.Before}'" + (error is not null ? $" ({error.Message})" : "");
+        }
+        else
+        {
+            status = ChangeStatus.CouldNotVerify;
+            words = now.IsRead ? $"Could not be verified: it reads '{now.Value}', neither '{done.Before}' nor '{done.After}'" : $"Could not be verified: it could not be read afterwards ({now.Reason})";
+        }
+
+        var message = $"{words}. Undo is offered from backup {backup.Name}.";
+        Say(item, "Verify", status == success ? ChangeLevel.Info : ChangeLevel.Fail, verifiedOk ? "The item read the new value back" : "The item's own verification did not confirm it", backup.Name, done.Target);
+        Say(item, "Result", status == success ? ChangeLevel.Info : status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, backup.Name, done.Target);
+        return new ChangeResult(status, message, backup, Written: true, now.IsRead ? now.Value : null);
+    }
+
+    private ChangeResult Refuse(IOptimisation item, string target, string reason)
+    {
+        var message = reason.StartsWith("Not ", StringComparison.Ordinal) ? reason : $"Not changed: {reason}";
+        Say(item, "Refused", ChangeLevel.Warn, message, null, target);
+        return new ChangeResult(ChangeStatus.NotChanged, message, null, Written: false, null);
+    }
+
+    private static Fact<Proposal> Propose(IOptimisation item)
+    {
+        try
+        {
+            return item.Propose();
+        }
+        catch (Exception e)
+        {
+            return Fact<Proposal>.Unavailable(e.Message);
+        }
+    }
+
+    private void Say(IOptimisation item, string step, ChangeLevel level, string outcome, string? backup, string? target = null) =>
+        log.Step(new ChangeStep(item.Id, item.Title, step, target ?? item.Target, level, outcome, backup));
+}
