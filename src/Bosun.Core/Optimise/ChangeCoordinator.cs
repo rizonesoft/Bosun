@@ -43,6 +43,22 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             // The confirmed restore value is checked by the runner against the backup record it reads for the restore.
             return runner.Undo(item, backup!, confirmedRestoreValue);
         }
+        // The panel can see a stale confirmation itself (round 8): the backup it would undo restores another value than the
+        // one confirmed, so it is refused here, with no administrator prompt.
+        if (can.NeedsAdministrator && backup is not null)
+        {
+            string? restores;
+            try
+            {
+                restores = backups.Read(backup).Before;
+            }
+            catch (BackupException e)
+            {
+                return Refused(item, $"Not restored: {e.Message}");
+            }
+            if (restores != confirmedRestoreValue)
+                return Refused(item, $"Not restored: this backup restores '{restores}', not the '{confirmedRestoreValue}' that was confirmed");
+        }
         var request = new HelperRequest(HelperFiles.NewInvocation(), HelperFiles.Undo, item.Id, initiatorSid, dataFolder, item.Target, null, backup!.Name, confirmedRestoreValue);
         return await ElevatedAsync(item, request, cancellationToken);
     }

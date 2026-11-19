@@ -23,7 +23,11 @@ public static class PanelOptimisations
     public static OptimisationRegistry Registry(Func<string, string?> environment)
     {
         var registry = new OptimisationRegistry();
+#if DEBUG
+        // Only in a Debug build, which is what the tests run (round 8): a shipped Release helper has no test item at all,
+        // whatever its environment says.
         if (environment(TestItemVariable) is { Length: > 0 } file) registry.Register(new TestFileItem(file, environment(TestModeVariable)));
+#endif
         return registry;
     }
 }
@@ -43,7 +47,9 @@ internal sealed class TestFileItem(string path, string? mode = null) : IOptimisa
 
     public string Title => mode == "explode" ? throw new InvalidOperationException("the test item's title faults") : "Test setting";
 
-    public string Target => "test:disposable-file";
+    // The file itself, by its full path (round 8): two files of the same text are two targets, so a proposal confirmed
+    // for one can never be applied to the other.
+    public string Target => "test:disposable-file:" + Path.GetFullPath(path);
 
     public bool NeedsElevation => true;
 

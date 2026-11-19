@@ -322,6 +322,25 @@ public sealed class ElevatedHelperTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stale_confirmed_restore_value_is_refused_with_no_administrator_prompt()
+    {
+        // Round 8: the helper caught a stale confirmation only after the prompt; the panel can refuse it before.
+        var item = new Item();
+        var log = new RecordingLog();
+        var elevation = RealHelper(item);
+        var coordinator = Coordinator(item, elevation, log, out _);
+        var applied = await coordinator.ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+        Assert.Equal(1, elevation.Calls);
+
+        var stale = await coordinator.UndoAsync(item, applied.Backup, "7", TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, elevation.Calls);                                // no second prompt
+        Assert.False(stale.Written);
+        Assert.Contains("not the '7' that was confirmed", stale.Message);
+        Assert.Equal("2", item.Value);
+    }
+
+    [Fact]
     public async Task A_declined_prompt_reaches_the_activity_as_not_changed()
     {
         var item = new Item();

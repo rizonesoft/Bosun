@@ -24,7 +24,7 @@ namespace Bosun.Panel.Tests.Optimise;
 public sealed class ElevatedHelperTests : IDisposable
 {
     private static readonly ProcessRunner Runner = new();
-    private static readonly string Target = "test:disposable-file";
+    private string Target => "test:disposable-file:" + Path.GetFullPath(_value);
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "bosun-panel-helper-" + Guid.NewGuid().ToString("N"));
     private readonly string _data;
@@ -123,6 +123,27 @@ public sealed class ElevatedHelperTests : IDisposable
     private static TestFileItem PanelItem(string path) => new(path);
 
     // ---- the registry and the test seam ----
+
+    [Fact]
+    public void A_proposal_for_one_test_file_can_never_be_applied_to_another_of_the_same_text()
+    {
+        // Round 8: both files' target was "test:disposable-file", so a proposal confirmed for one applied to the other.
+        var other = Path.Combine(_root, "other.txt");
+        File.WriteAllText(_value, "same");
+        File.WriteAllText(other, "same");
+        var first = PanelOptimisations.Registry(name => name == PanelOptimisations.TestItemVariable ? _value : null).Resolve(TestFileItem.ItemId)!;
+        var second = PanelOptimisations.Registry(name => name == PanelOptimisations.TestItemVariable ? other : null).Resolve(TestFileItem.ItemId)!;
+        var confirmed = first.Propose().Value!;
+        Assert.NotEqual(first.Target, second.Target);
+        var can = new ChangeRunner(new BackupStore(_data), new NullChangeLog(), elevated: true).CanApply(second, confirmed);
+        Assert.False(can.Allowed);
+        Assert.Equal("same", File.ReadAllText(other));
+    }
+
+    private sealed class NullChangeLog : IChangeLog
+    {
+        public void Step(ChangeStep step) { }
+    }
 
     [Fact]
     public void The_test_registration_exists_only_under_its_variable_and_no_variable_says_elevated()
