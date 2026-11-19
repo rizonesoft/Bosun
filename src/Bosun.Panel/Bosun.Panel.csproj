@@ -9,7 +9,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- The program's icon (design/SPEC.md §18), generated from the masters by scripts/build-icons.py. -->
     <ApplicationIcon>..\..\resources\bosun.ico</ApplicationIcon>
+    <!-- Program.Main chooses helper mode (the optimise switch) before App exists (D05 T02 §6), so App.xaml is a page, not the definition. -->
+    <StartupObject>Bosun.Panel.Program</StartupObject>
   </PropertyGroup>
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Bosun.Core\Bosun.Core.csproj" />
   </ItemGroup>

@@ -31,12 +31,23 @@ public sealed record ChangeResult(ChangeStatus Status, string Message, BackupRef
     public bool UndoOffered => Written && Backup is not null && !UndoWithheld;
 }
 
-/// <summary>Whether a change or an Undo can run now, and when it can't, why: one answer for the row and the palette alike.</summary>
-public sealed record Eligibility(bool Allowed, string? Reason)
+/// <summary>
+/// Whether a change or an Undo can run now, and when it can't, why: one answer for the row and the palette alike.
+/// <see cref="NeedsAdministrator"/> tells "ready after an administrator prompt" from a refusal (D05 T02 §6): the
+/// change is otherwise eligible, <see cref="Allowed"/> is false only because this runner is not elevated, and
+/// <see cref="Ready"/> is true for either.
+/// </summary>
+public sealed record Eligibility(bool Allowed, string? Reason, bool NeedsAdministrator = false)
 {
     public static Eligibility Yes { get; } = new(true, null);
 
+    /// <summary>Eligible, once the person accepts the administrator prompt.</summary>
+    public static Eligibility AdministratorPrompt { get; } = new(false, "Needs an administrator prompt", NeedsAdministrator: true);
+
     public static Eligibility No(string reason) => new(false, reason);
+
+    /// <summary>True when the change can go ahead, now or after the administrator prompt; false for a refusal.</summary>
+    public bool Ready => Allowed || NeedsAdministrator;
 }
 
 /// <summary>
@@ -196,7 +207,7 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
     }
 
     private Eligibility? NeedsAdministrator(IOptimisation item) =>
-        item.NeedsElevation && !elevated ? Eligibility.No("Needs an administrator prompt") : null;
+        item.NeedsElevation && !elevated ? Eligibility.AdministratorPrompt : null;
 
     /// <summary>
     /// After a write that may have happened: ask the item to verify, read the target again, and say what is true.

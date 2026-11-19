@@ -616,7 +616,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
 
         var admin = new FakeItem { Elevated = true };
         var adminShown = Preview(admin);
-        Assert.Equal(Eligibility.No("Needs an administrator prompt"), runner.CanApply(admin, adminShown));
+        Assert.Equal(Eligibility.AdministratorPrompt, runner.CanApply(admin, adminShown));
         var refused = runner.Apply(admin, adminShown);
         Assert.False(refused.Written);
         Assert.Equal("1", admin.Value);
@@ -624,7 +624,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
 
         var applied = Runner().Runner.Apply(new FakeItem(), shown with { Before = "1" });
         Assert.Equal(Eligibility.Yes, runner.CanUndo(new FakeItem { Value = "2" }, applied.Backup));
-        Assert.Equal(Eligibility.No("Needs an administrator prompt"), runner.CanUndo(new FakeItem { Value = "2", Elevated = true }, applied.Backup));
+        Assert.Equal(Eligibility.AdministratorPrompt, runner.CanUndo(new FakeItem { Value = "2", Elevated = true }, applied.Backup));
     }
 
     // Review round 1 (D05 T02 §2)
