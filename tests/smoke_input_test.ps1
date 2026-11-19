@@ -47,9 +47,14 @@ if ($which -and $which -eq $class) {
   if ($word -eq 'lock') { Set-Content -LiteralPath (Join-Path $state 'probe-locked') -Value 'locked' }
   if ($word -eq 'watcher-dies') { Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force }
   if ($word -eq 'person-dies') {
-    # A person comes (the watcher's event, as its hook sets it), then the watcher ends.
-    ([Threading.EventWaitHandle]::OpenExisting((Get-Content -LiteralPath (Join-Path $state 'watcher.event') -Raw).Trim())).Set() | Out-Null
-    Stop-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw)) -Force
+    # A person came and the watcher ended. The watcher is stopped first, then the event set (the runner holds its own
+    # handle, so the event outlives the watcher): set first, a fast runner could ask the still-living watcher to let go
+    # before it ended (CI 2026-11-19, run 44482986464), which is not the case this check is about.
+    $personEvent = [Threading.EventWaitHandle]::OpenExisting((Get-Content -LiteralPath (Join-Path $state 'watcher.event') -Raw).Trim())
+    $dying = Get-Process -Id ([int](Get-Content -LiteralPath (Join-Path $state 'watcher.pid') -Raw))
+    Stop-Process -InputObject $dying -Force
+    $dying.WaitForExit(10000) | Out-Null
+    $personEvent.Set() | Out-Null
   }
   if ($word -eq 'hold' -or $word -eq 'hold-crash' -or $word -eq 'hold-dies') {
     # F24 pressed and never let go, as a drag ended between its button-down and button-up.
