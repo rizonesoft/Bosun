@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Bosun.Core;
 
 /// <summary>Which theme the panel draws in (design/SPEC.md §1).</summary>
@@ -37,6 +39,9 @@ public sealed record PanelSettings
     /// <summary>The pressure alert threshold's limits and default, in MB of Windows' available memory (D03 T01 §4).</summary>
     public const long MinPressureFloorMb = 512, MaxPressureFloorMb = 65536, DefaultPressureFloorMb = 2048;
 
+    /// <summary>The job limit to apply under pressure, in MB (D05 T02 §5): at least 1,024, and (in this file) at most a terabyte; the guest's own total is the tighter limit, known only where the guest is read.</summary>
+    public const long MinJobLimitMb = 1024, MaxJobLimitMb = 1_048_576, DefaultJobLimitMb = 4096;
+
     private readonly double _activityPaneHeight = DefaultActivityPaneHeight;
     private readonly long _pressureFloorMb = DefaultPressureFloorMb;
 
@@ -74,6 +79,31 @@ public sealed record PanelSettings
         get => _pressureFloorMb;
         init => _pressureFloorMb = Math.Clamp(value, MinPressureFloorMb, MaxPressureFloorMb);
     }
+
+    /// <summary>
+    /// Whether Bosun acts by itself under memory pressure (D05 T02 §5): when Windows' available memory falls under
+    /// <see cref="PressureFloorMb"/>, the WSL logger lowers the memory limit of the queued jobs to
+    /// <see cref="JobLimitMb"/>, and restores it after. Off by default: nothing acts until the owner turns it on. The
+    /// logger can't read this file, so the panel writes it for the logger as <c>pressure-policy.json</c>
+    /// (src/Bosun.Core/Memory/PressurePolicy.cs).
+    /// </summary>
+    public bool AutoThrottleJobs { get; init; }
+
+    /// <summary>
+    /// The memory limit queued jobs are held to under pressure, in MB. Not brought inside its limits like the other
+    /// numbers: a value outside them is refused, with why, by <see cref="Fault"/> and the store's save.
+    /// </summary>
+    public long JobLimitMb { get; init; } = DefaultJobLimitMb;
+
+    /// <summary>What is wrong with a job limit, or null. With <paramref name="guestTotalMb"/> known, one over the guest's total is wrong too.</summary>
+    public static string? JobLimitFault(long limitMb, long? guestTotalMb = null) =>
+        limitMb < MinJobLimitMb ? string.Create(CultureInfo.InvariantCulture, $"the job limit {limitMb:N0} MB is under the least allowed, {MinJobLimitMb:N0} MB")
+        : limitMb > MaxJobLimitMb ? string.Create(CultureInfo.InvariantCulture, $"the job limit {limitMb:N0} MB is over the most allowed, {MaxJobLimitMb:N0} MB")
+        : guestTotalMb is { } total && limitMb > total ? string.Create(CultureInfo.InvariantCulture, $"the job limit {limitMb:N0} MB is over the guest's total memory, {total:N0} MB")
+        : null;
+
+    /// <summary>What is wrong with these settings as something to save, or null.</summary>
+    public string? Fault() => JobLimitFault(JobLimitMb);
 
     /// <summary>
     /// The Activity pane's height, read by the shell. Always within its limits: a height outside them is brought

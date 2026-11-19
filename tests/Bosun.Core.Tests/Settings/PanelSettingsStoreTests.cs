@@ -444,4 +444,64 @@ public class PanelSettingsStoreTests
         Assert.Equal(ThemeChoice.Dark, store.Current.Theme);
         Assert.Empty(told);
     }
+
+    // ---- the throttle policy (D05 T02 §5) ----
+
+    [Fact]
+    public void A_fresh_store_has_the_throttle_switch_off_and_the_switch_and_the_job_limit_read_back()
+    {
+        using var scratch = new Scratch();
+        var store = new PanelSettingsStore(scratch.Settings);
+        Assert.Equal((false, 4096L), (store.Current.AutoThrottleJobs, store.Current.JobLimitMb));
+        Assert.Equal((false, 4096L), (PanelSettings.Defaults.AutoThrottleJobs, PanelSettings.Defaults.JobLimitMb));
+
+        Assert.True(store.Update(current => current with { AutoThrottleJobs = true, JobLimitMb = 6144 }).Succeeded);
+        var text = File.ReadAllText(scratch.Settings);
+        Assert.Contains("\"auto_throttle_jobs\": true", text);
+        Assert.Contains("\"job_limit_mb\": 6144", text);
+
+        var again = new PanelSettingsStore(scratch.Settings).Current;
+        Assert.Equal((true, 6144L), (again.AutoThrottleJobs, again.JobLimitMb));
+    }
+
+    [Fact]
+    public void A_file_from_before_the_throttle_reads_as_off_with_the_default_limit()
+    {
+        using var scratch = new Scratch();
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"theme\": \"Dark\"}");
+        var store = new PanelSettingsStore(scratch.Settings);
+        Assert.Equal((SettingsState.Loaded, false, 4096L), (store.State, store.Current.AutoThrottleJobs, store.Current.JobLimitMb));
+    }
+
+    [Theory]
+    [InlineData(1023L, "under the least allowed, 1,024 MB")]
+    [InlineData(0L, "under the least allowed, 1,024 MB")]
+    [InlineData(-5L, "under the least allowed, 1,024 MB")]
+    [InlineData(1_048_577L, "over the most allowed, 1,048,576 MB")]
+    public void An_out_of_bound_job_limit_is_refused_with_why_and_nothing_is_saved(long limit, string why)
+    {
+        using var scratch = new Scratch();
+        var store = new PanelSettingsStore(scratch.Settings);
+        var outcome = store.Update(current => current with { JobLimitMb = limit });
+        Assert.False(outcome.Succeeded);
+        Assert.Contains(why, outcome.Reason);
+        Assert.False(File.Exists(scratch.Settings));
+        Assert.Equal(4096, store.Current.JobLimitMb);
+
+        // The bounds themselves are allowed, and a limit over the guest's total is refused where the guest is known.
+        Assert.True(store.Update(current => current with { JobLimitMb = 1024 }).Succeeded);
+        Assert.Null(PanelSettings.JobLimitFault(2048, 12_000));
+        Assert.Contains("over the guest's total memory, 12,000 MB", PanelSettings.JobLimitFault(12_001, 12_000));
+    }
+
+    [Fact]
+    public void A_file_holding_an_out_of_bound_job_limit_is_kept_aside_and_the_defaults_are_used()
+    {
+        using var scratch = new Scratch();
+        File.WriteAllText(scratch.Settings, "{\"schema_version\": 1, \"job_limit_mb\": 100}");
+        var store = new PanelSettingsStore(scratch.Settings);
+        Assert.Equal(SettingsState.Restored, store.State);
+        Assert.Contains("under the least allowed", store.Notice);
+        Assert.True(File.Exists(store.BadPath));
+    }
 }

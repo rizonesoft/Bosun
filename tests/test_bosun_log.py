@@ -4,9 +4,12 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "wsl"))
 import bosun_log as dl
@@ -365,6 +368,489 @@ class Instances(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             dl.main(["bosun_log.py", "instances", "--json"])
         self.assertEqual(json.loads(out.getvalue())["side"], "wsl")  # the command's own output parses as the shape
+
+
+# --- Pressure throttle (D05 T02 §5) -----------------------------------------------------------------------------------
+
+GB = 1024 * 1024 * 1024
+NOW = datetime.datetime(2026, 11, 19, 12, 0, 0, tzinfo=datetime.timezone.utc)
+FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "pressure-policy.json")
+
+
+class FakeSlice:
+    """A stand-in for `systemctl --user`: one slice's MemoryHigh, with each way it can fail."""
+
+    def __init__(self, value=dl.INFINITY):
+        self.value = value
+        self.initial = str(value)
+        self.calls = []
+        self.fail_show = False
+        self.refuse_set = False
+        self.ignore_set = False   # accepts the write and changes nothing
+        self.set_to = None        # accepts a write that lowers and sets something else (putting the original back still works)
+
+    def __call__(self, args):
+        self.calls.append(list(args))
+        if args[0] == "show":
+            return (1, "Failed to connect to bus: No medium found") if self.fail_show else (0, str(self.value))
+        if self.refuse_set:
+            return 1, "Access denied"
+        wanted = args[3].split("=", 1)[1]
+        if self.set_to is not None and wanted != self.initial:
+            wanted = self.set_to
+        if not self.ignore_set:
+            self.value = wanted if wanted == dl.INFINITY else int(wanted)
+        return 0, ""
+
+    def sets(self):
+        return [c for c in self.calls if c[0] == "set-property"]
+
+
+class PolicyReading(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="bosun-policy-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def put(self, text):
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_the_file_the_panels_save_path_writes_reads_with_its_names_and_units(self):
+        shutil.copy(FIXTURE, os.path.join(self.dir, dl.POLICY_FILE))  # tests/fixtures/pressure-policy.json, checked by PressurePolicyTests
+        self.assertEqual(dl.read_policy(self.dir), ({"enabled": True, "floor_mb": 3072, "recovery_band_mb": 1024, "job_limit_mb": 6144}, None))
+
+    def test_no_file_is_no_policy_and_no_reason(self):
+        self.assertEqual(dl.read_policy(self.dir), (None, None))
+
+    def test_a_file_that_is_not_a_policy_is_no_policy_with_why(self):
+        good = {"schema_version": 1, "enabled": True, "floor_mb": 2048, "recovery_band_mb": 1024, "job_limit_mb": 4096}
+        for change, word in (({"schema_version": 2}, "version"), ({"enabled": "yes"}, "enabled"), ({"floor_mb": 1.5}, "floor_mb"),
+                             ({"floor_mb": 0}, "floor_mb"), ({"recovery_band_mb": -1}, "recovery_band_mb"),
+                             ({"job_limit_mb": 1023}, "least allowed"), ({"job_limit_mb": True}, "job_limit_mb")):
+            self.put(json.dumps({**good, **change}))
+            policy, why = dl.read_policy(self.dir)
+            self.assertIsNone(policy, change)
+            self.assertIn(word, why)
+        self.put("not json")
+        self.assertIn("not JSON", dl.read_policy(self.dir)[1])
+        self.put("[]")
+        self.assertIn("not a JSON object", dl.read_policy(self.dir)[1])
+
+
+class HostReading(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="bosun-host-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+
+    def put(self, available=3000, total=32000, age=0, **change):
+        at = (NOW - datetime.timedelta(seconds=age)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        doc = {"schema_version": 1, "side": "windows", "at": at, "memory": {"available_mb": available, "total_mb": total}}
+        doc.update(change)
+        with open(os.path.join(self.dir, "current-windows.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+
+    def test_a_fresh_windows_snapshot_gives_windows_available_memory(self):
+        self.put(available=1234)
+        self.assertEqual(dl.read_host(self.dir, NOW), (1234, None))
+        self.put(available=1234, age=90)   # exactly three intervals old is still fresh
+        self.assertEqual(dl.read_host(self.dir, NOW)[0], 1234)
+
+    def test_a_stale_missing_or_invalid_sample_gives_nothing_and_says_why(self):
+        self.put(age=91)
+        self.assertEqual(dl.read_host(self.dir, NOW), (None, "the Windows snapshot is stale"))
+        os.remove(os.path.join(self.dir, "current-windows.json"))
+        self.assertEqual(dl.read_host(self.dir, NOW)[0], None)
+        self.assertIn("no Windows snapshot", dl.read_host(self.dir, NOW)[1])
+        for change in ({"side": "wsl"}, {"schema_version": 2}, {"at": "yesterday"}, {"at": None}, {"memory": None},
+                       {"memory": {"available_mb": None, "total_mb": 1}}, {"memory": {"available_mb": -1, "total_mb": 5}},
+                       {"memory": {"available_mb": 9000, "total_mb": 8000}}, {"memory": {"available_mb": True, "total_mb": 8000}}):
+            self.put(**change)
+            self.assertIsNone(dl.read_host(self.dir, NOW)[0], change)
+        with open(os.path.join(self.dir, "current-windows.json"), "w") as f:
+            f.write("{broken")
+        self.assertIn("not JSON", dl.read_host(self.dir, NOW)[1])
+
+    def test_a_clock_behind_the_snapshot_is_not_stale(self):
+        self.put(age=-30)
+        self.assertEqual(dl.read_host(self.dir, NOW)[0], 3000)
+
+
+class ThrottleCase(unittest.TestCase):
+    """The throttle through its real entry (run_once) on files in a folder, with a stand-in for systemctl."""
+
+    LIMIT = 2 * GB   # the policy's job limit, 2048 MB
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="bosun-throttle-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        patch = unittest.mock.patch.object(dl, "meminfo", lambda: {"MemTotal": 16 * 1024 * 1024})  # a 16 GB guest
+        patch.start()
+        self.addCleanup(patch.stop)
+        quiet = unittest.mock.patch.object(sys, "stderr", io.StringIO())
+        quiet.start()
+        self.addCleanup(quiet.stop)
+        self.slice = FakeSlice(8 * GB)
+        self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice")
+        self.policy()
+
+    def policy(self, **change):
+        doc = {"schema_version": 1, "enabled": True, "floor_mb": 2048, "recovery_band_mb": 1024, "job_limit_mb": 2048}
+        doc.update(change)
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+
+    def host(self, available, age=0, guest=None):
+        doc = {"schema_version": 1, "side": "windows", "at": (NOW - datetime.timedelta(seconds=age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+               "memory": {"available_mb": available, "total_mb": 32000}}
+        with open(os.path.join(self.dir, "current-windows.json"), "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        if guest is not None:   # the guest's own snapshot is never what the trigger reads
+            with open(os.path.join(self.dir, "current-wsl.json"), "w", encoding="utf-8") as f:
+                json.dump({"schema_version": 1, "side": "wsl", "memory": {"available_mb": guest, "total_mb": 12000}}, f)
+
+    def tick(self, available=None, **kw):
+        if available is not None:
+            self.host(available, **kw)
+        return self.throttle.run_once(now=NOW)["state"]
+
+    def status(self):
+        with open(os.path.join(self.dir, dl.STATUS_FILE), encoding="utf-8") as f:
+            return json.load(f)
+
+    def state_file(self):
+        with open(os.path.join(self.dir, dl.STATE_FILE), encoding="utf-8") as f:
+            return json.load(f)["lowered"]
+
+
+class ThrottleTrigger(ThrottleCase):
+    def test_it_acts_on_windows_memory_and_never_on_the_guests(self):
+        self.assertEqual(self.tick(5000, guest=50), "idle")          # Windows has plenty, the guest has almost none
+        self.assertEqual(self.slice.sets(), [])
+        self.assertEqual(self.tick(1000, guest=11000), "lowered")    # Windows is short, the guest has plenty
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_it_starts_under_the_floor_and_not_at_it(self):
+        self.assertEqual(self.tick(2048), "idle")
+        self.assertEqual(self.slice.sets(), [])
+        self.assertEqual(self.tick(2047), "lowered")
+
+    def test_it_leaves_only_over_the_floor_plus_the_band(self):
+        self.tick(1500)
+        for available in (2049, 3000, 3072):                          # over the floor, not over the band: still lowered
+            self.assertEqual(self.tick(available), "lowered", available)
+            self.assertEqual(self.slice.value, self.LIMIT)
+        self.assertEqual(self.tick(3073), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_inside_the_band_after_leaving_it_does_not_start_again(self):
+        self.tick(1500)
+        self.tick(4000)
+        self.assertEqual(self.tick(2500), "idle")                      # over the floor: not an episode
+        self.assertEqual(len(self.slice.sets()), 2)                    # lowered once, restored once
+
+    def test_a_stale_missing_or_invalid_sample_starts_nothing(self):
+        self.assertEqual(self.tick(100, age=91), "idle")
+        os.remove(os.path.join(self.dir, "current-windows.json"))
+        self.assertEqual(self.tick(), "idle")
+        with open(os.path.join(self.dir, "current-windows.json"), "w") as f:
+            f.write("{broken")
+        self.assertEqual(self.tick(), "idle")
+        self.host(99999)                                               # more available than installed
+        self.assertEqual(self.tick(), "idle")
+        self.assertEqual(self.slice.sets(), [])
+
+    def test_a_stale_missing_or_invalid_sample_keeps_the_state_as_it_is(self):
+        self.tick(1000)
+        self.assertEqual(self.tick(10000, age=91), "lowered")         # a healthy reading too old to trust does not end it
+        os.remove(os.path.join(self.dir, "current-windows.json"))
+        self.assertEqual(self.tick(), "lowered")
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.assertEqual(len(self.slice.sets()), 1)
+        self.assertEqual(self.tick(5000), "restored")
+
+    def test_nothing_acts_with_the_switch_off_or_no_policy_and_no_file_is_written(self):
+        self.policy(enabled=False)
+        self.assertEqual(self.tick(100), "off")
+        os.remove(os.path.join(self.dir, dl.POLICY_FILE))
+        self.assertEqual(self.tick(100), "off")
+        self.assertEqual(self.slice.calls, [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATUS_FILE)))   # a machine that never opted in gets no file
+        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+
+
+class ThrottleLimits(ThrottleCase):
+    def test_a_limit_is_lowered_and_the_original_is_restored_by_its_own_value(self):
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.state_file(), {"unit": "bosun-jobs.slice", "original": 8 * GB, "applied": self.LIMIT, "unverified": False})
+        self.assertEqual(self.tick(5000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_an_unlimited_slice_is_lowered_and_restored_to_infinity(self):
+        self.slice.value = dl.INFINITY
+        self.tick(1000)
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.assertEqual(self.state_file()["original"], dl.INFINITY)
+        self.tick(5000)
+        self.assertEqual(self.slice.value, dl.INFINITY)
+        self.assertEqual(self.slice.sets()[-1], ["set-property", "--runtime", "bosun-jobs.slice", "MemoryHigh=infinity"])
+
+    def test_a_limit_only_ever_goes_down(self):
+        for existing in (GB, self.LIMIT):                              # tighter than the policy's, and equal to it
+            self.slice.value = existing
+            self.assertEqual(self.tick(1000), "idle")
+            self.assertEqual(self.slice.value, existing)
+            self.assertEqual(self.slice.sets(), [])
+            self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+
+    def test_the_original_survives_repeated_low_samples(self):
+        for _ in range(4):
+            self.tick(500)
+        self.assertEqual(self.state_file()["original"], 8 * GB)       # never the lowered value
+        self.assertEqual(len(self.slice.sets()), 1)
+        self.tick(9000)
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_limit_over_the_guests_total_or_under_the_least_is_refused_and_nothing_changes(self):
+        self.policy(job_limit_mb=20000)                                # the guest is 16,384 MB
+        self.assertEqual(self.tick(1000), "error")
+        self.assertIn("over the guest's total memory", self.status()["detail"])
+        self.policy(job_limit_mb=512)
+        self.assertEqual(self.tick(1000), "off")
+        self.assertIn("least allowed", self.status()["detail"])
+        self.assertEqual(self.slice.sets(), [])
+
+
+class ThrottleFailures(ThrottleCase):
+    def test_no_delegation_says_why_changes_nothing_and_the_next_sample_tries_again(self):
+        self.slice.fail_show = True
+        self.assertEqual(self.tick(1000), "error")
+        self.assertIn("MemoryHigh", self.status()["detail"])
+        self.assertIn("not delegated", self.status()["detail"])
+        self.assertEqual(self.slice.sets(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, dl.STATE_FILE)))
+        self.slice.fail_show = False
+        self.assertEqual(self.tick(1000), "lowered")
+
+    def test_a_refused_write_leaves_the_slice_as_it_was_and_drops_the_record(self):
+        self.slice.refuse_set = True
+        self.assertEqual(self.tick(1000), "error")
+        self.assertIn("Access denied", self.status()["detail"])
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+        self.slice.refuse_set = False
+        self.assertEqual(self.tick(1000), "lowered")
+
+    def test_a_write_that_reads_back_wrong_is_undone_and_said(self):
+        self.slice.ignore_set = True
+        self.assertEqual(self.tick(1000), "error")
+        self.assertIn("after the write", self.status()["detail"])
+        self.assertIsNone(self.state_file())
+        self.slice.ignore_set = False
+        self.slice.set_to = str(5 * GB)                                # a write that lands somewhere else
+        self.assertEqual(self.tick(1000), "error")
+        self.assertEqual(self.slice.value, 8 * GB)                     # put back by its original, verified by a read
+        self.assertIsNone(self.state_file())
+
+    def test_an_original_that_can_not_be_put_back_is_kept_and_retried_until_it_is(self):
+        self.slice.set_to = str(5 * GB)
+        original_set = self.slice.__call__
+
+        def stubborn(args):
+            if args[0] == "set-property" and self.slice.refuse_set is False and args[3] == "MemoryHigh=%d" % (8 * GB):
+                return 1, "busy"                                       # lowering works, putting the original back does not
+            return original_set(args)
+        self.throttle.systemctl = stubborn
+        self.assertEqual(self.tick(1000), "error")
+        self.assertEqual(self.state_file()["original"], 8 * GB)
+        self.assertTrue(self.state_file()["unverified"])
+        self.assertEqual(self.tick(1000), "error")                     # still kept, never taken for an operator's change
+        self.assertEqual(self.state_file()["original"], 8 * GB)
+        self.throttle.systemctl = self.slice
+        self.slice.set_to = None
+        self.assertEqual(self.tick(1000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_a_failed_restore_keeps_the_original_through_repeated_samples_and_clears_it_only_when_verified(self):
+        self.tick(1000)
+        self.slice.refuse_set = True
+        for _ in range(3):
+            self.assertEqual(self.tick(9000), "error")
+            self.assertIn("could not be put back", self.status()["detail"])
+            self.assertEqual(self.state_file()["original"], 8 * GB)
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.slice.refuse_set = False
+        self.assertEqual(self.tick(9000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_a_restore_that_reads_back_wrong_is_not_cleared(self):
+        self.tick(1000)
+        self.slice.ignore_set = True
+        self.assertEqual(self.tick(9000), "error")
+        self.assertEqual(self.state_file()["original"], 8 * GB)
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_a_failed_read_while_lowered_keeps_the_record_and_sampling_goes_on(self):
+        self.tick(1000)
+        self.slice.fail_show = True
+        self.assertEqual(self.tick(9000), "error")
+        self.assertEqual(self.state_file()["original"], 8 * GB)
+        self.slice.fail_show = False
+        self.assertEqual(self.tick(9000), "restored")
+
+    def test_when_the_record_can_not_be_written_no_limit_is_changed(self):
+        real = dl.write_snapshot
+
+        def refuse_state(log_dir, text, name="current-wsl.json", **kw):
+            return False if name == dl.STATE_FILE else real(log_dir, text, name=name, **kw)
+        with unittest.mock.patch.object(dl, "write_snapshot", refuse_state):
+            self.assertEqual(self.tick(1000), "error")
+        self.assertIn(dl.STATE_FILE, self.status()["detail"])
+        self.assertEqual(self.slice.sets(), [])
+
+    def test_a_record_that_can_not_be_read_stops_action_until_it_is_fixed(self):
+        with open(os.path.join(self.dir, dl.STATE_FILE), "w") as f:
+            f.write("{broken")
+        throttle = dl.Throttle(self.dir, self.slice)
+        self.assertEqual(throttle.run_once(now=NOW)["state"], "error")
+        self.host(100)
+        self.assertEqual(throttle.run_once(now=NOW)["state"], "error")
+        self.assertEqual(self.slice.sets(), [])
+
+    def test_the_status_says_why_in_a_file_with_a_time(self):
+        self.slice.fail_show = True
+        self.tick(1000)
+        doc = self.status()
+        self.assertEqual((doc["state"], doc["schema_version"], doc["unit"]), ("error", 1, "bosun-jobs.slice"))
+        datetime.datetime.strptime(doc["at"], "%Y-%m-%dT%H:%M:%SZ")
+
+
+class ThrottleDisableAndOperator(ThrottleCase):
+    def test_turning_the_switch_off_while_lowered_restores(self):
+        self.tick(1000)
+        self.policy(enabled=False)
+        self.assertEqual(self.tick(1000), "restored")                  # still short of memory: off means off
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_the_policy_file_going_while_lowered_restores(self):
+        self.tick(1000)
+        os.remove(os.path.join(self.dir, dl.POLICY_FILE))
+        self.assertEqual(self.tick(1000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_policy_that_became_unusable_while_lowered_restores_and_says_why(self):
+        self.tick(1000)
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w") as f:
+            f.write("{broken")
+        self.assertEqual(self.tick(1000), "restored")
+        self.assertIn("not JSON", self.status()["detail"])
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_logger_restart_after_throttling_still_restores_the_original(self):
+        self.tick(1000)
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice")  # a new process reads only the record
+        self.assertEqual(restarted.state["original"], 8 * GB)
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "lowered")      # still under pressure: kept
+        self.host(9000)
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_restart_of_wsl_that_dropped_the_runtime_limit_drops_the_record_without_a_write(self):
+        self.tick(1000)
+        self.slice.value = 8 * GB                                       # the VM restarted: the runtime limit is gone
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(1000), "restored")
+        self.assertEqual(len(self.slice.sets()), sets)
+        self.assertIsNone(self.state_file())
+
+    def test_an_operators_own_change_is_left_alone_and_said(self):
+        self.tick(1000)
+        self.slice.value = 3 * GB                                       # neither Bosun's value nor the original
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(9000), "left_alone")                 # even when Windows has recovered
+        self.assertEqual(self.slice.value, 3 * GB)
+        self.assertEqual(len(self.slice.sets()), sets)
+        self.assertIn("someone changed it", self.status()["detail"])
+        self.assertIsNone(self.state_file())
+        self.assertEqual(self.tick(9000), "idle")                      # and the next sample does not touch it either
+        self.assertEqual(self.slice.value, 3 * GB)
+
+    def test_an_operators_change_is_kept_when_the_switch_is_turned_off_too(self):
+        self.tick(1000)
+        self.slice.value = 3 * GB
+        self.policy(enabled=False)
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 3 * GB)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")
+class ThrottleOnARealSlice(unittest.TestCase):
+    """Lowers and restores a disposable bosun-test.slice for real: its memory.high in the kernel's own cgroup file. Not
+    skipped where a systemd user session exists, and it fails rather than skips when that session can't run a scope."""
+
+    UNIT = "bosun-test.slice"
+
+    @classmethod
+    def setUpClass(cls):
+        if subprocess.run(["systemctl", "--user", "show-environment"], capture_output=True).returncode != 0:
+            raise unittest.SkipTest("no systemd user session here (the WSL step runs this test where there is one)")
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="bosun-real-slice-")
+        self.scope = f"bosun-test-sleep-{os.getpid()}"
+        self.addCleanup(self.cleanup)
+        uid = os.getuid()
+        self.cgroup = f"/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service/bosun.slice/{self.UNIT}"
+
+    def cleanup(self):
+        # Always, even after a failure: the scope, the slice and the runtime limit this test wrote are removed.
+        for args in (["stop", self.scope + ".scope"], ["stop", self.UNIT], ["revert", self.UNIT]):
+            subprocess.run(["systemctl", "--user", *args], capture_output=True, timeout=30)
+        shutil.rmtree(os.path.join("/run/user", str(os.getuid()), "systemd", "user.control", self.UNIT + ".d"), ignore_errors=True)
+        shutil.rmtree(self.dir, True)
+
+    def kernel_limit(self):
+        with open(os.path.join(self.cgroup, "memory.high"), encoding="ascii") as f:
+            return f.read().strip()
+
+    def test_the_throttle_lowers_and_restores_the_kernels_limit_on_a_disposable_slice(self):
+        # A live scope in the slice makes the kernel's cgroup exist, so what is read back is the kernel's own limit.
+        child = subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={self.UNIT}", f"--unit={self.scope}", "--", "sleep", "300"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(child.wait)
+        self.addCleanup(lambda: subprocess.run(["systemctl", "--user", "kill", "--signal=KILL", self.scope + ".scope"], capture_output=True, timeout=30))
+        deadline = time.monotonic() + 20
+        while not os.path.exists(os.path.join(self.cgroup, "memory.high")) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertTrue(os.path.exists(os.path.join(self.cgroup, "memory.high")), f"the scope never started under {self.cgroup}: this machine's systemd user session can't run a scope")
+        self.assertEqual(self.kernel_limit(), "max")
+
+        shutil.copy(FIXTURE, os.path.join(self.dir, dl.POLICY_FILE))     # the real file the panel writes: floor 3072, band 1024, limit 6144
+        stderr = unittest.mock.patch.object(sys, "stderr", io.StringIO())
+        stderr.start()
+        self.addCleanup(stderr.stop)
+        throttle = dl.Throttle(self.dir, unit=self.UNIT)                 # the real systemctl
+        windows = lambda available: {"schema_version": 1, "side": "windows", "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                     "memory": {"available_mb": available, "total_mb": 32000}}
+
+        def tick(available):
+            with open(os.path.join(self.dir, "current-windows.json"), "w") as f:
+                json.dump(windows(available), f)
+            with unittest.mock.patch.object(dl, "meminfo", lambda: {"MemTotal": 16 * 1024 * 1024}):
+                return throttle.run_once(now=NOW)
+
+        self.assertEqual(tick(5000)["state"], "idle")
+        self.assertEqual(self.kernel_limit(), "max")
+        self.assertEqual(tick(2000)["state"], "lowered")                  # under the 3072 MB floor
+        self.assertEqual(self.kernel_limit(), str(6144 * 1024 * 1024))    # the kernel's own limit, lowered
+        self.assertEqual(tick(2000)["state"], "lowered")
+        self.assertEqual(tick(4096)["state"], "lowered")                  # floor plus the band is not enough
+        self.assertEqual(self.kernel_limit(), str(6144 * 1024 * 1024))
+        self.assertEqual(tick(4097)["state"], "restored")
+        self.assertEqual(self.kernel_limit(), "max")                      # and restored
 
 
 if __name__ == "__main__":

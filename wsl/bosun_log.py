@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
@@ -542,6 +543,275 @@ def write_instances(log_dir, **scan):
     return write_snapshot(log_dir, json.dumps(doc, separators=(",", ":"), ensure_ascii=False) + "\n", name=instances_file(doc["distro"]))
 
 
+# --- Pressure throttle (D05 T02 §5) -----------------------------------------------------------------------------------
+# When Windows' available memory (from current-windows.json, never the guest's) falls under the panel's floor, this lowers
+# bosun-jobs.slice's MemoryHigh, the slice `bosun run` puts every queued job in and nothing else, so only Bosun's own
+# builds are throttled; it restores the limit once Windows is more than the recovery band over the floor, as the panel's
+# PressureWatch ends an episode. The panel's settings reach it as pressure-policy.json (src/Bosun.Core/Memory/
+# PressurePolicy.cs); no file, or the switch off, is no action. A limit is only ever lowered, the original is kept in
+# pressure-state.json from before the first write until a read-back shows it restored, and what the throttle did or why it
+# could not is in pressure-status.json. Nothing here stops sampling.
+
+POLICY_FILE = "pressure-policy.json"
+STATE_FILE = "pressure-state.json"
+STATUS_FILE = "pressure-status.json"
+JOBS_SLICE = "bosun-jobs.slice"
+HOST_STALE_S = 90  # three samples, as MemoryClient.StaleAfter
+MIN_JOB_LIMIT_MB = 1024
+MB = 1024 * 1024
+INFINITY = "infinity"
+
+
+class Failure(Exception):
+    """A thing the throttle could not do, with why: said in pressure-status.json, and sampling carries on."""
+
+
+def read_small_json(path, limit=64 * 1024):
+    """(document, None) for a file that parses, (None, None) for one that is not there, (None, why) for one that is not usable."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read(limit + 1)
+    except FileNotFoundError:
+        return None, None
+    except OSError as e:
+        return None, f"{path} can't be read ({e.strerror})"
+    if len(text) > limit:
+        return None, f"{path} is larger than {limit // 1024} KB"
+    try:
+        return json.loads(text), None
+    except ValueError:
+        return None, f"{path} is not JSON"
+
+
+def whole_number(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def read_policy(log_dir):
+    """(policy, why): the panel's pressure-policy.json as a dict (enabled, floor_mb, recovery_band_mb, job_limit_mb), or None
+    with why when there is none to act on. A missing file is (None, None): no policy, no action. A file that is not a usable
+    policy is also no action, and says why."""
+    doc, why = read_small_json(os.path.join(log_dir, POLICY_FILE))
+    if doc is None:
+        return None, why
+    if not isinstance(doc, dict):
+        return None, f"{POLICY_FILE} is not a JSON object"
+    if not whole_number(doc.get("schema_version")) or doc["schema_version"] != 1:
+        return None, f"{POLICY_FILE} is of another version"
+    if not isinstance(doc.get("enabled"), bool):
+        return None, f"{POLICY_FILE}: enabled is not true or false"
+    for key in ("floor_mb", "recovery_band_mb", "job_limit_mb"):
+        if not whole_number(doc.get(key)) or doc[key] < 0:
+            return None, f"{POLICY_FILE}: {key} is not a whole number of MB"
+    if doc["floor_mb"] == 0:
+        return None, f"{POLICY_FILE}: floor_mb is zero"
+    if doc["job_limit_mb"] < MIN_JOB_LIMIT_MB:
+        return None, f"{POLICY_FILE}: job_limit_mb is under the least allowed, {MIN_JOB_LIMIT_MB} MB"
+    return {k: doc[k] for k in ("enabled", "floor_mb", "recovery_band_mb", "job_limit_mb")}, None
+
+
+def read_host(log_dir, now):
+    """(available_mb, why): Windows' available memory from current-windows.json. None, with why, when the sample is missing,
+    unreadable, not a Windows snapshot, stale or impossible: such a sample decides nothing."""
+    doc, why = read_small_json(os.path.join(log_dir, "current-windows.json"), 4 * 1024 * 1024)
+    if doc is None:
+        return None, why or "there is no Windows snapshot yet"
+    if not isinstance(doc, dict) or doc.get("schema_version") != 1 or doc.get("side") != "windows":
+        return None, "the Windows snapshot is not one this logger reads"
+    try:
+        at = datetime.datetime.strptime(doc.get("at"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return None, "the Windows snapshot has no valid time"
+    memory = doc.get("memory")
+    if not isinstance(memory, dict):
+        return None, "the Windows snapshot has no memory figures"
+    available, total = memory.get("available_mb"), memory.get("total_mb")
+    if not whole_number(available) or not whole_number(total) or available < 0 or total <= 0 or available > total:
+        return None, "the Windows snapshot's memory figures are not possible"
+    if (now - at).total_seconds() > HOST_STALE_S:
+        return None, "the Windows snapshot is stale"
+    return available, None
+
+
+def run_systemctl(args, timeout=15):
+    """(return code, text) of `systemctl --user <args>`; no return code when it could not be run or timed out."""
+    try:
+        done = subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, str(e)
+    return done.returncode, (done.stdout if done.returncode == 0 else (done.stderr or done.stdout)).strip()
+
+
+def limit_text(value):
+    if value == INFINITY:
+        return INFINITY
+    return f"{value // MB} MB" if value % MB == 0 else f"{value} bytes"
+
+
+class Throttle:
+    """Lowers `unit`'s MemoryHigh under Windows pressure and restores it. `systemctl` is the hands on the slice, apart so a
+    test can stand in for it; `unit` is bosun-jobs.slice, or a disposable slice in the integration test."""
+
+    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE):
+        self.log_dir, self.systemctl, self.unit = log_dir, systemctl, unit
+        self.state, self.state_fault = self.load_state()
+        self.last = None  # the last status, without its time
+
+    # -- the slice ---------------------------------------------------------------------------------------------------
+    def read_limit(self):
+        code, out = self.systemctl(["show", "-p", "MemoryHigh", "--value", self.unit])
+        if code != 0:
+            raise Failure(f"can't read {self.unit}'s MemoryHigh ({out or 'systemctl failed'}): no systemd user session, or its memory is not delegated")
+        if out == INFINITY:
+            return INFINITY
+        if not out.isdigit():
+            raise Failure(f"{self.unit}'s MemoryHigh reads {out!r}, which is not bytes or infinity")
+        return int(out)
+
+    def set_limit(self, value):
+        code, out = self.systemctl(["set-property", "--runtime", self.unit, f"MemoryHigh={value}"])
+        if code != 0:
+            raise Failure(f"systemctl refused MemoryHigh={value} on {self.unit} ({out or 'no reason given'})")
+
+    # -- the record of what was changed ------------------------------------------------------------------------------
+    def load_state(self):
+        doc, why = read_small_json(os.path.join(self.log_dir, STATE_FILE))
+        if why:
+            return None, why
+        if doc is None:
+            return None, None
+        lowered = doc.get("lowered") if isinstance(doc, dict) and doc.get("schema_version") == 1 else False
+        if lowered is None:
+            return None, None
+        ok = (isinstance(lowered, dict) and lowered.get("unit") == self.unit and whole_number(lowered.get("applied"))
+              and (lowered.get("original") == INFINITY or whole_number(lowered.get("original"))))
+        if not ok:
+            return None, f"{STATE_FILE} is not a record this logger wrote"
+        return lowered, None
+
+    def save_state(self, lowered):
+        text = json.dumps({"schema_version": 1, "lowered": lowered}, separators=(",", ":")) + "\n"
+        if not write_snapshot(self.log_dir, text, name=STATE_FILE):
+            raise Failure(f"can't write {STATE_FILE}, so no limit is changed")
+        self.state = lowered
+
+    # -- the decision ------------------------------------------------------------------------------------------------
+    def restore_now(self):
+        """Puts the original back and clears the record only once a read shows it there. True when it did."""
+        original = self.state["original"]
+        try:
+            self.set_limit(original)
+        except Failure:
+            pass  # the read below says whether anything changed
+        try:
+            if self.read_limit() != original:
+                return False
+        except Failure:
+            return False
+        try:
+            self.save_state(None)
+        except Failure:
+            pass  # the limit is back; the stale record is dropped when the next sample reads the original
+        return True
+
+    def restore(self, why):
+        original = self.state["original"]
+        if self.restore_now():
+            return self.report("restored", f"{self.unit} is back at {limit_text(original)}: {why}")
+        return self.report("error", f"{self.unit} could not be put back at {limit_text(original)} ({why}); the original is kept and each sample tries again")
+
+    def lower(self, policy, total_mb):
+        limit = policy["job_limit_mb"] * MB
+        if total_mb is not None and policy["job_limit_mb"] > total_mb:
+            return self.report("error", f"the job limit {policy['job_limit_mb']} MB is over the guest's total memory, {total_mb} MB, so nothing is lowered")
+        current = self.read_limit()
+        if current != INFINITY and current <= limit:
+            return self.report("idle", f"{self.unit} is already at or under the policy's limit, so it is left alone")
+        # The original is on disk before the first write, so a crash between the two can't lose it.
+        self.save_state({"unit": self.unit, "original": current, "applied": limit, "unverified": False})
+        try:
+            self.set_limit(limit)
+            got = self.read_limit()
+        except Failure as e:
+            return self.abort_lowering(str(e))
+        if got != limit:
+            return self.abort_lowering(f"{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}")
+        return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor")
+
+    def abort_lowering(self, why):
+        if self.restore_now():
+            return self.report("error", f"{why}; {self.unit} is as it was")
+        # Not verified back: kept as ours, so the next sample tries to put the original back rather than calling it an operator's.
+        try:
+            self.save_state(dict(self.state, unverified=True))
+        except Failure:
+            pass
+        return self.report("error", f"{why}; the original could not be put back yet and is kept, and each sample tries again")
+
+    def step(self, policy, policy_why, host_mb, host_why, total_mb):
+        """One sample's decision; always returns (and writes) the status, whatever fails."""
+        try:
+            return self.decide(policy, policy_why, host_mb, host_why, total_mb)
+        except Failure as e:
+            return self.report("error", str(e))
+
+    def decide(self, policy, policy_why, host_mb, host_why, total_mb):
+        if self.state_fault:
+            return self.report("error", f"{self.state_fault}, so nothing is changed until it is fixed or removed")
+        on = policy is not None and policy["enabled"]
+        if self.state is not None:
+            return self.decide_lowered(policy, policy_why, on, host_mb, host_why)
+        if not on:
+            return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"))
+        if host_mb is None:
+            return self.report("idle", host_why)
+        if host_mb < policy["floor_mb"]:
+            return self.lower(policy, total_mb)
+        return self.report("idle", "Windows has enough memory")
+
+    def decide_lowered(self, policy, policy_why, on, host_mb, host_why):
+        state = self.state
+        current = self.read_limit()
+        if current == state["original"]:
+            # Back already (a restart of WSL drops a runtime limit): nothing to restore, and the record is dropped.
+            self.save_state(None)
+            return self.report("restored", f"{self.unit} is already back at {limit_text(current)}")
+        if current != state["applied"] and not state.get("unverified"):
+            self.save_state(None)
+            return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, neither what Bosun set ({limit_text(state['applied'])}) nor the original ({limit_text(state['original'])}): someone changed it, so Bosun left it and dropped its record")
+        if state.get("unverified"):
+            return self.restore("an earlier lowering was not verified")
+        if not on:
+            return self.restore(policy_why or ("automatic action was turned off" if policy is not None else "the policy file is gone"))
+        if host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"]:
+            return self.restore("Windows has recovered")
+        return self.report("lowered", f"{self.unit} stays at {limit_text(state['applied'])}" + ("" if host_mb is not None else f": {host_why}"))
+
+    # -- what it says ------------------------------------------------------------------------------------------------
+    def report(self, state, detail):
+        doc = {"schema_version": 1, "state": state, "detail": detail, "unit": self.unit,
+               "original": limit_text(self.state["original"]) if self.state else None,
+               "applied": limit_text(self.state["applied"]) if self.state else None}
+        if doc != self.last and (self.last is None or doc["state"] != self.last["state"] or state == "error"):
+            print(f"[bosun] pressure throttle {state}: {detail}", file=sys.stderr)
+        quiet = state == "off" and not os.path.exists(os.path.join(self.log_dir, STATUS_FILE))  # a machine that never opted in gets no file
+        if not quiet and (doc != self.last or state in ("lowered", "error")):
+            stamped = dict(doc, at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+            write_snapshot(self.log_dir, json.dumps(stamped, separators=(",", ":")) + "\n", name=STATUS_FILE)
+        self.last = doc
+        return doc
+
+    def run_once(self, now=None):
+        now = now or datetime.datetime.now(datetime.timezone.utc)
+        policy, policy_why = read_policy(self.log_dir)
+        host_mb, host_why = read_host(self.log_dir, now)
+        try:
+            total_mb = meminfo()["MemTotal"] // 1024
+        except (OSError, KeyError, ValueError):
+            total_mb = None
+        return self.step(policy, policy_why, host_mb, host_why, total_mb)
+
+
 def main(argv):
     if len(argv) >= 2 and argv[1] == "instances":
         doc = instances()
@@ -556,8 +826,13 @@ def main(argv):
     os.makedirs(log_dir, exist_ok=True)
     cache = {}
     last_clear = time.monotonic()
+    throttle = Throttle(log_dir)
     while True:
         sample(log_dir, cache, interval)
+        try:
+            throttle.run_once()
+        except Exception as e:  # nothing the throttle does may stop the sampling
+            print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
         if once:
             return 0
         if time.monotonic() - last_clear > 3600:

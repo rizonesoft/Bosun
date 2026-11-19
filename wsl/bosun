@@ -143,8 +143,11 @@ contained() {
   # --expand-environment=no keeps the command byte-exact: systemd-run would otherwise expand $VAR and $$ in it.
   if command -v systemd-run >/dev/null && systemctl --user show-environment >/dev/null 2>&1 &&
     systemd-run --help 2>/dev/null | grep -q -- --expand-environment; then
-    scope="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$unit.scope"
-    launch=(systemd-run --user --scope --quiet --collect --expand-environment=no --unit="$unit" -p IOAccounting=yes --)
+    # bosun-jobs.slice holds Bosun's jobs and nothing else, so the pressure monitor (wsl/bosun_log.py) can lower one
+    # limit and throttle only them: app.slice holds every user service and application. Its cgroup is
+    # bosun.slice/bosun-jobs.slice, because systemd nests a slice by the dashes in its name.
+    scope="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/bosun.slice/bosun-jobs.slice/$unit.scope"
+    launch=(systemd-run --user --scope --quiet --collect --expand-environment=no --slice=bosun-jobs.slice --unit="$unit" -p IOAccounting=yes --)
   else
     warn_once noscope "jobs run without containment in WSL: no systemd user session with systemd 254 or later, so a child a job leaves behind keeps running and the write budget is off"
   fi

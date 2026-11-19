@@ -83,8 +83,8 @@ check "$r" "a child the job left behind is stopped when the job ends"
 
 # A child that writes without end is stopped at the write budget while the command itself sits idle.
 probe="bosun-probe-$$"
-io_ok=$(systemd-run --user --scope --quiet --collect --unit="$probe" -p IOAccounting=yes -- bash -c \
-  "test -e /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/app.slice/$probe.scope/io.stat && echo yes")
+io_ok=$(systemd-run --user --scope --quiet --collect --slice=bosun-jobs.slice --unit="$probe" -p IOAccounting=yes -- bash -c \
+  "test -e /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/bosun.slice/bosun-jobs.slice/$probe.scope/io.stat && echo yes")
 if [ "$io_ok" = yes ]; then
   SECONDS=0
   "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 1 -- bash -c \
@@ -113,6 +113,19 @@ got="$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- "$SHIM" run --ns "$N
 case "$got" in */bosun-job-*.scope) r=0 ;; *) r=1 ;; esac
 outer=$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- bash -c 'cat /proc/self/cgroup; "$1" run --ns "$2" -- cat /proc/self/cgroup' _ "$SHIM" "$NS" | sort -u | wc -l)
 [ "$r" = 0 ] && [ "$outer" = 1 ]; check $? "a nested run stays in the outer job's scope"
+
+# Queued jobs run in bosun-jobs.slice and nothing else does, so the pressure monitor throttles only them (D05 T02 §5).
+if systemctl --user show-environment >/dev/null 2>&1; then
+  job_cg="$("$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 -- cat /proc/self/cgroup)"
+  case "$job_cg" in */bosun-jobs.slice/bosun-job-*.scope) r=0 ;; *) r=1 ;; esac
+  check "$r" "a job's scope is under bosun-jobs.slice (got $job_cg)"
+  sibling_cg="$(systemd-run --user --scope --quiet --collect -- cat /proc/self/cgroup)"
+  case "$sibling_cg" in */app.slice/*.scope) r=0 ;; *) r=1 ;; esac
+  case "$sibling_cg" in *bosun-jobs.slice*) r=1 ;; esac
+  check "$r" "a sibling scope stays in app.slice, outside bosun-jobs.slice (got $sibling_cg)"
+else
+  echo "skip the bosun-jobs.slice check: no systemd user session"
+fi
 
 # A budget with a leading zero is read as decimal.
 "$SHIM" run --ns "$NS" --slots 1 --min-avail-mb 0 --max-write-gb 08 -- true

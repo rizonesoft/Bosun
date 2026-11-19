@@ -181,6 +181,7 @@ public sealed class PanelSettingsStore
     {
         if (State == SettingsState.Unavailable)
             return SaveOutcome.Failed($"Nothing is saved over settings that could not be read. {Notice}");
+        if (settings.Fault() is { } wrong) return SaveOutcome.Failed($"Not saved: {wrong}.");
         if (settings == Current && State == SettingsState.Loaded) return SaveOutcome.Done; // the file already holds them
 
         var bytes = Serialize(settings);
@@ -244,6 +245,8 @@ public sealed class PanelSettingsStore
             json.WriteNumber("pressure_floor_mb", settings.PressureFloorMb);
             json.WriteBoolean("notify_memory_pressure", settings.NotifyMemoryPressure);
             json.WriteBoolean("tray_notice_said", settings.TrayNoticeSaid);
+            json.WriteBoolean("auto_throttle_jobs", settings.AutoThrottleJobs);
+            json.WriteNumber("job_limit_mb", settings.JobLimitMb);
             if (settings.Window is { } place)
             {
                 json.WriteStartObject("window");
@@ -336,6 +339,22 @@ public sealed class PanelSettingsStore
             if (!TryBoolean(root, "notify_memory_pressure", PanelSettings.Defaults.NotifyMemoryPressure, out var notify, out fault)) return false;
             if (!TryBoolean(root, "tray_notice_said", PanelSettings.Defaults.TrayNoticeSaid, out var said, out fault)) return false;
 
+            if (!TryBoolean(root, "auto_throttle_jobs", PanelSettings.Defaults.AutoThrottleJobs, out var throttle, out fault)) return false;
+            var jobLimit = PanelSettings.DefaultJobLimitMb;
+            if (root.TryGetProperty("job_limit_mb", out var limit))
+            {
+                if (limit.ValueKind != JsonValueKind.Number || !limit.TryGetInt64(out jobLimit))
+                {
+                    fault = "its job_limit_mb is not a whole number";
+                    return false;
+                }
+                if (PanelSettings.JobLimitFault(jobLimit) is { } outside)
+                {
+                    fault = outside;
+                    return false;
+                }
+            }
+
             WindowPlace? window = null;
             if (root.TryGetProperty("window", out var placed) && placed.ValueKind != JsonValueKind.Null)
             {
@@ -358,7 +377,7 @@ public sealed class PanelSettingsStore
                 }
             }
 
-            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, PressureFloorMb = floor, NotifyMemoryPressure = notify, TrayNoticeSaid = said, Window = window };
+            settings = new PanelSettings { Theme = theme, ActivityPaneHeight = height, PressureFloorMb = floor, NotifyMemoryPressure = notify, TrayNoticeSaid = said, AutoThrottleJobs = throttle, JobLimitMb = jobLimit, Window = window };
             return true;
         }
     }

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "floor_mb": 3072,
+  "recovery_band_mb": 1024,
+  "job_limit_mb": 6144
+}

@@ -37,7 +37,13 @@ Repo attribution: a process belongs to the git repo containing its working direc
 
 These wait for logged peaks because their thresholds depend on them.
 
-- Pressure monitor: lower the live `user.slice` `MemoryHigh` when Windows runs short, which could replace the fixed WSL cap. Unproven until we measure how quickly WSL returns memory to Windows.
+- Pressure monitor: when Windows' available memory falls under the panel's floor, the WSL logger lowers the live `MemoryHigh` of `bosun-jobs.slice`, which holds only the jobs `bosun run` starts in WSL, and restores it once Windows is more than 1,024 MB over the floor. It only ever lowers a limit, and nothing acts until the panel's switch is on (off by default). It throttles the work that makes the peaks and does not replace the fixed WSL cap.
+
+  Measured 2026-11-19 from the history `bosun report` reads: 6,674 minutes joined from 2026-11-12 to 2026-11-19 (`windows-*.csv` row `vmmemWSL` private MB, against `wsl-*.csv` `mem_total_mb` minus `mem_available_mb`; no WSL file exists for 2026-11-16, so that day has no joined minutes). `.wslconfig` sets `autoMemoryReclaim=dropcache` (it is not absent; WSL's default is `gradual`).
+
+  WSL gives memory back slowly and unreliably. Across 38 times the guest's used memory fell by 1,500 MB or more within three minutes (1,500 to 5,464 MB, median about 1,600), the VM's private memory fell by half of that drop within two hours in only 14. Where it did, the median was 13.5 minutes after the drop (range 1 to 65). Across all 38 the median change in the VM's private memory was -59 MB at 5 minutes, -102 MB at 15, -176 MB at 30 and +5 MB at 60, and it fell by 1,000 MB or more in 1, 6, 4 and 5 of them at those times. The clearest returns were 2026-11-18 01:37, 02:10 and 04:13 (UTC), where about 4,000 MB freed in the guest brought the VM down 2,200 to 3,600 MB within 15 to 30 minutes. The VM's private memory stayed 0.6 to 11 GB above the guest's used memory (median 7.9 GB) because the guest's page cache is not counted as used.
+
+  So throttling jobs lowers what the guest uses within seconds, but the Windows side sees the memory only if and when WSL returns it, usually after more than an hour or not at all. The monitor is therefore about stopping new growth under pressure, not about freeing memory for Windows quickly.
 - Background apps: lower memory priority through `SetProcessInformation` so idle apps are trimmed first. Nothing gets killed.
 - Parking: one command that stops an idle repo's dev servers and databases.
 
