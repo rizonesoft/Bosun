@@ -59,10 +59,11 @@ public sealed class OptimisationFrameworkTests : IDisposable
             Assert.True(applied.UndoOffered);
             Assert.StartsWith(_data, store.PathOf(applied.Backup!));
             var lines = activity.Entries.Select(e => e.Tag + " " + e.Message).ToArray();
-            Assert.Equal(3, lines.Length);
+            Assert.Equal(4, lines.Length);
             Assert.Equal($"INFO Disposable setting, Backup (disposable:Setting): Written and read back [backup {applied.Backup!.Name}]", lines[0]);
-            Assert.Equal($"FAIL Disposable setting, Verify (disposable:Setting): The item's own verification did not confirm it [backup {applied.Backup.Name}]", lines[1]);
-            Assert.StartsWith("FAIL Disposable setting, Result (disposable:Setting): Could not be verified: it now reads '2' but its verification read 'unexpected'. Undo is offered from backup " + applied.Backup.Name, lines[2]);
+            Assert.Equal($"INFO Disposable setting, Write returned (disposable:Setting): Apply returned [backup {applied.Backup.Name}]", lines[1]);
+            Assert.Equal($"FAIL Disposable setting, Verify (disposable:Setting): The item's own verification did not confirm it [backup {applied.Backup.Name}]", lines[2]);
+            Assert.StartsWith("FAIL Disposable setting, Result (disposable:Setting): Could not be verified: it now reads '2' but its verification read 'unexpected'. Undo is offered from backup " + applied.Backup.Name, lines[3]);
 
             // And the Undo it offers works, saying so in the same pane.
             item.VerifyFails = false;

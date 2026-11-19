@@ -24,6 +24,25 @@ public sealed record Backup(string ItemId, string Target, string Operation, stri
     public BackupRef Ref => new(ItemId, Name);
 }
 
+/// <summary>What a fresh process can tell of a backup: whether its write ran, never "it is the latest".</summary>
+public enum BackupState
+{
+    /// <summary>No applied marker and the target still reads the backup's before value: taken, and nothing was written.</summary>
+    Prepared,
+
+    /// <summary>The applied marker is there: the item's write ran (it may still have failed or been partial). Undo is offered under the usual target checks.</summary>
+    Applied,
+
+    /// <summary>No marker and the target reads something else than the before value: the write may have run and its record was lost. Undo only under the usual target checks.</summary>
+    Interrupted,
+
+    /// <summary>The file is not a backup that can be trusted.</summary>
+    Unreadable,
+}
+
+/// <summary>One backup in an item's list, with its <see cref="BackupState"/> and the reason in words. <see cref="Record"/> is null for <see cref="BackupState.Unreadable"/>.</summary>
+public sealed record BackupEntry(BackupRef Ref, Backup? Record, BackupState State, string Note);
+
 /// <summary>
 /// The change framework's backups (D05 T02 §2): <c>&lt;panel data&gt;\backups\&lt;item id&gt;\&lt;UTC time&gt;-&lt;operation&gt;.json</c>.
 /// Each is written to a temporary file beside its place, read back, and only then moved in without replacing
@@ -117,25 +136,105 @@ public sealed partial class BackupStore
     /// immutable): temp, read back, moved in without replacing anything. Throws <see cref="BackupException"/> when it
     /// could not be kept. Written once; a second call for the same backup is refused.
     /// </summary>
-    public void WriteOutcome(Backup backup, string observed)
+    public void WriteOutcome(Backup backup, string observed) =>
+        WriteSidecar(OutcomePath(backup.Ref), backup, SerializeOutcome(backup, observed), "outcome", "." + backup.Name + ".outcome.tmp");
+
+    private string AppliedPath(BackupRef reference) => PathOf(reference) + ".applied";
+
+    /// <summary>
+    /// Marks, durably and beside the backup, that the item's Apply or Restore for this backup ran (it returned or threw,
+    /// so the target may have been written). Written after the write and before verification, so a fresh process can
+    /// tell this backup from one that was only prepared. Written once, never replaced. Throws <see cref="BackupException"/>
+    /// when it could not be kept.
+    /// </summary>
+    public void MarkApplied(Backup backup) =>
+        WriteSidecar(AppliedPath(backup.Ref), backup, SerializeMarker(backup), "applied marker", "." + backup.Name + ".applied.tmp");
+
+    /// <summary>True when this backup's own applied marker is there, whole and naming this backup.</summary>
+    public bool IsApplied(Backup backup)
     {
-        var path = OutcomePath(backup.Ref);
-        var temporary = Path.Combine(Folder(backup.ItemId), "." + backup.Name + ".outcome.tmp");
-        var bytes = SerializeOutcome(backup, observed);
+        try
+        {
+            using var document = JsonDocument.Parse(_files.Read(AppliedPath(backup.Ref), MaxFileBytes));
+            var root = document.RootElement;
+            string? Get(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            return root.ValueKind == JsonValueKind.Object && root.TryGetProperty("schema_version", out var version)
+                && version.ValueKind == JsonValueKind.Number && version.TryGetInt32(out var number) && number == SchemaVersion
+                && Get("item_id") == backup.ItemId && Get("backup") == backup.Name && Get("target") == backup.Target;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// An item's backups, newest first, each with what a fresh process can tell of it from the data folder alone.
+    /// <paramref name="current"/> is what the target reads now (null when it can't be read).
+    /// </summary>
+    public IReadOnlyList<BackupEntry> List(string itemId, string? current)
+    {
+        var folder = Folder(itemId);
+        if (!Directory.Exists(folder)) return [];
+        var entries = new List<BackupEntry>();
+        foreach (var path in Directory.EnumerateFiles(folder))
+        {
+            var name = Path.GetFileName(path);
+            if (!NamePattern().IsMatch(name)) continue;
+            var reference = new BackupRef(itemId, name);
+            Backup record;
+            try
+            {
+                record = Read(reference);
+            }
+            catch (BackupException e)
+            {
+                entries.Add(new BackupEntry(reference, null, BackupState.Unreadable, $"can't be trusted: {e.Message}"));
+                continue;
+            }
+            if (IsApplied(record)) entries.Add(new BackupEntry(reference, record, BackupState.Applied, "the write ran"));
+            else if (current is not null && current == record.Proposal.Before) entries.Add(new BackupEntry(reference, record, BackupState.Prepared, "prepared; nothing was written"));
+            else entries.Add(new BackupEntry(reference, record, BackupState.Interrupted, current is null
+                ? "interrupted: no record that the write ran, and the setting can't be read now"
+                : $"interrupted: no record that the write ran, and the setting reads '{current}', not '{record.Proposal.Before}'"));
+        }
+        return [.. entries.OrderByDescending(e => e.Record?.Created ?? DateTimeOffset.MinValue).ThenByDescending(e => e.Ref.Name, StringComparer.Ordinal)];
+    }
+
+    /// <summary>Temp file, read back, moved in without replacing anything, read once more: the way every record beside a backup is kept.</summary>
+    private void WriteSidecar(string path, Backup backup, byte[] bytes, string what, string temporaryName)
+    {
+        var temporary = Path.Combine(Folder(backup.ItemId), temporaryName);
         var moved = false;
         try
         {
             _files.Write(temporary, bytes);
-            if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException("the outcome did not read back as it was written");
+            if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException($"the {what} did not read back as it was written");
             _files.MoveNew(temporary, path);
             moved = true;
-            if (!_files.Read(path, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException("the outcome in its place is not the one that was written");
+            if (!_files.Read(path, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException($"the {what} in its place is not the one that was written");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or BackupException)
         {
             TryDelete(moved ? path : temporary);
-            throw new BackupException($"The outcome could not be kept: {e.Message}");
+            throw new BackupException($"The {what} could not be kept: {e.Message}");
         }
+    }
+
+    private static byte[] SerializeMarker(Backup backup)
+    {
+        using var buffer = new MemoryStream();
+        using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            json.WriteStartObject();
+            json.WriteNumber("schema_version", SchemaVersion);
+            json.WriteString("item_id", backup.ItemId);
+            json.WriteString("backup", backup.Name);
+            json.WriteString("target", backup.Target);
+            json.WriteEndObject();
+        }
+        buffer.WriteByte((byte)'\n');
+        return buffer.ToArray();
     }
 
     /// <summary>The value recorded for <paramref name="backup"/>'s change, or null when none was recorded or the record is not this backup's own.</summary>

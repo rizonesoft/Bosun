@@ -32,6 +32,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
         public int Writes;
         public bool IgnoresExpected; // an item that checks nothing at the write: only the runner then protects a newer value
         public string? Partial; // Apply writes this instead of the after value, then throws
+        public Action? OnVerify; // runs after Verify has read its value and before it returns: the target changing right after a verified write
         public Action? OnWrite; // runs just before the item compares and writes: another program changing the target
         public Queue<Func<Fact<string>>> ReadScript { get; } = new();
 
@@ -71,7 +72,9 @@ public sealed class OptimisationFrameworkTests : IDisposable
         public Fact<string> Verify(Proposal proposal)
         {
             if (VerifyThrows) throw new InvalidOperationException("verify broke");
-            return Fact<string>.Read(VerifyReadsOther ? "something else" : Value);
+            var read = Fact<string>.Read(VerifyReadsOther ? "something else" : Value);
+            OnVerify?.Invoke();
+            return read;
         }
 
         public void Restore(string expectedCurrent, string restored)
@@ -95,6 +98,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
     {
         public bool FailWrite;
         public bool TruncateReads;
+        public string? FailWhenPathContains; // a write to a path with this in it fails (the disk is full for that file only)
         public Action? AfterMoveNew; // once: runs when a file has just been moved into place
 
         public override void MoveNew(string from, string to)
@@ -107,7 +111,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
 
         public override void Write(string path, byte[] bytes)
         {
-            if (FailWrite) throw new IOException("the disk is full");
+            if (FailWrite || (FailWhenPathContains is not null && path.Contains(FailWhenPathContains, StringComparison.Ordinal))) throw new IOException("the disk is full");
             base.Write(path, bytes);
         }
 
@@ -162,7 +166,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
         Assert.Matches(@"^\d{8}T\d{9}Z-apply\.json$", result.Backup!.Name);
         var saved = store.Read(result.Backup);
         Assert.Equal(new Backup("fake-setting", "fake:HKLM\\64\\Setting", "apply", "1", new Proposal("fake:HKLM\\64\\Setting", "1", "2"), saved.Created, result.Backup.Name), saved);
-        Assert.Equal(["Backup", "Verify", "Result"], log.Steps.Select(s => s.Step).ToArray());
+        Assert.Equal(["Backup", "Write returned", "Verify", "Result"], log.Steps.Select(s => s.Step).ToArray());
         Assert.All(log.Steps, s => Assert.Equal(result.Backup.Name, s.Backup));
         Assert.Empty(Directory.GetFiles(BackupFolder("fake-setting"), ".*.tmp"));
     }
@@ -580,7 +584,7 @@ public sealed class OptimisationFrameworkTests : IDisposable
         var result = runner.Apply(item, Preview(item));
         runner.Undo(item, result.Backup!);
 
-        Assert.Equal(["Preview", "Backup", "Verify", "Result", "Backup", "Verify", "Result"], log.Steps.Select(s => s.Step).ToArray());
+        Assert.Equal(["Preview", "Backup", "Write returned", "Verify", "Result", "Backup", "Write returned", "Verify", "Result"], log.Steps.Select(s => s.Step).ToArray());
         Assert.All(log.Steps, s =>
         {
             Assert.Equal("fake-setting", s.ItemId);
@@ -589,7 +593,9 @@ public sealed class OptimisationFrameworkTests : IDisposable
         });
         Assert.Null(log.Steps[0].Backup);
         Assert.Equal(result.Backup!.Name, log.Steps[1].Backup);
-        Assert.EndsWith("-undo.json", log.Steps[4].Backup);
+        Assert.Equal("Apply returned", log.Steps[2].Outcome);
+        Assert.Equal("Restore returned", log.Steps[6].Outcome);
+        Assert.EndsWith("-undo.json", log.Steps[5].Backup);
     }
 
     // Eligibility
@@ -791,5 +797,169 @@ public sealed class OptimisationFrameworkTests : IDisposable
         Assert.False(result.Written);
         Assert.Contains("copied from another backup", result.Message);
         Assert.Equal("2", item.Value);
+    }
+
+    // Completion review (D05 T02 §2)
+
+    [Fact]
+    public void A_value_written_by_another_program_after_a_verified_write_is_reported_and_never_undone_over()
+    {
+        var item = new FakeItem();
+        var (runner, log, store) = Runner();
+        item.OnVerify = () => item.Value = "9"; // Verify read the after value "2"; then an outside edit lands before the final read
+
+        var result = runner.Apply(item, Preview(item));
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Equal("9", result.ValueNow);
+        Assert.Contains("changed again since: now '9'", result.Message);
+        Assert.StartsWith("Changed: '1' to '2'", result.Message);
+        Assert.False(result.UndoOffered);
+        Assert.Contains("original value '1' is kept in backup " + result.Backup!.Name, result.Message);
+        Assert.False(File.Exists(store.PathOf(result.Backup) + ".outcome.json")); // no outcome recorded for 9
+        Assert.DoesNotContain(log.Steps, s => s.Step == "Outcome");
+        Assert.False(runner.CanUndo(item, result.Backup).Allowed);
+
+        var undo = runner.Undo(item, result.Backup);
+        Assert.False(undo.Written);
+        Assert.Equal("9", item.Value);
+    }
+
+    [Fact]
+    public void A_third_value_the_verify_did_not_read_is_not_recorded_as_a_partial_write()
+    {
+        var item = new FakeItem { Partial = "3", VerifyThrows = true };
+        var (runner, _, store) = Runner();
+
+        var result = runner.Apply(item, Preview(item));
+
+        Assert.Equal("3", result.ValueNow);
+        Assert.False(result.UndoOffered);
+        Assert.Contains("cannot tell its own partial write from a later edit", result.Message);
+        Assert.False(File.Exists(store.PathOf(result.Backup!) + ".outcome.json"));
+        Assert.False(runner.Undo(item, result.Backup!).Written);
+        Assert.Equal("3", item.Value);
+    }
+
+    [Fact]
+    public void A_partial_write_whose_outcome_can_not_be_saved_names_the_backup_and_offers_no_undo_that_would_be_refused()
+    {
+        var item = new FakeItem { Partial = "3" };
+        var files = new FaultFiles();
+        var (runner, log, store) = Runner(files);
+        var shown = Preview(item);
+        files.AfterMoveNew = () => files.FailWhenPathContains = ".outcome."; // the backup is in; then the disk fills for the outcome
+
+        var result = runner.Apply(item, shown);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Equal("3", result.ValueNow);
+        Assert.False(result.UndoOffered);
+        Assert.DoesNotContain("Undo is offered", result.Message);
+        Assert.Contains("Bosun could not record what the write left; the original value '1' is kept in backup " + result.Backup!.Name + "; restore it by hand or apply again once the setting is read", result.Message);
+        Assert.Contains(log.Steps, s => s.Step == "Outcome" && s.Level == ChangeLevel.Fail);
+        Assert.False(runner.CanUndo(item, result.Backup).Allowed); // what the result says is what CanUndo does
+        Assert.Equal("1", store.Read(result.Backup).Before);        // the backup is whole and unchanged
+        Assert.Equal(new Proposal(item.Target, "1", "2"), store.Read(result.Backup).Proposal);
+        Assert.Empty(Directory.GetFiles(BackupFolder("fake-setting"), ".*.tmp"));
+
+        item.Value = "4"; // a later edit is never overwritten
+        Assert.False(runner.Undo(item, result.Backup).Written);
+        Assert.Equal("4", item.Value);
+    }
+
+    [Fact]
+    public void A_fresh_store_tells_a_prepared_backup_from_one_whose_write_ran()
+    {
+        // A pre-write refusal (the read just before the write failed): the backup exists, nothing was written.
+        var item = new FakeItem();
+        var (runner, _, _) = Runner();
+        var shown = Preview(item);
+        item.ReadScript.Enqueue(() => Fact<string>.Unavailable("busy"));
+        var refused = runner.Apply(item, shown);
+        Assert.False(refused.Written);
+
+        var prepared = Assert.Single(Store().List(item.Id, item.Value)); // a new store: only the data folder
+        Assert.Equal(BackupState.Prepared, prepared.State);
+        Assert.False(new ChangeRunner(Store(), new RecordingLog()).CanUndo(item, prepared.Ref).Allowed);
+
+        // A write that ran and whose result was then lost: a new store knows from the marker alone.
+        var applied = runner.Apply(item, Preview(item));
+        Assert.Equal("2", item.Value);
+        var entries = Store().List(item.Id, item.Value);
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(applied.Backup, entries[0].Ref); // newest first
+        Assert.Equal(BackupState.Applied, entries[0].State);
+        Assert.NotEqual(BackupState.Applied, entries[1].State); // the older one, never mistaken for a change that ran
+
+        var restarted = new ChangeRunner(Store(), new RecordingLog());
+        Assert.Equal(Eligibility.Yes, restarted.CanUndo(item, entries[0].Ref));
+        Assert.Equal(ChangeStatus.Restored, restarted.Undo(item, entries[0].Ref).Status);
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public void A_backup_whose_write_may_have_run_without_a_marker_is_interrupted_and_undone_only_under_the_target_checks()
+    {
+        var item = new FakeItem();
+        var store = Store();
+        var backup = store.Write(item.Id, BackupStore.Apply, Preview(item)); // the process ended after the write, before any marker
+        item.Value = "2";
+
+        var interrupted = Assert.Single(Store().List(item.Id, item.Value));
+        Assert.Equal(BackupState.Interrupted, interrupted.State);
+        Assert.Contains("no record that the write ran", interrupted.Note);
+        var runner = new ChangeRunner(Store(), new RecordingLog());
+        Assert.Equal(Eligibility.Yes, runner.CanUndo(item, backup)); // the target holds what the change wrote
+
+        item.Value = "8"; // an edit since: the same checks refuse
+        Assert.Equal(BackupState.Interrupted, Assert.Single(Store().List(item.Id, item.Value)).State);
+        Assert.False(runner.CanUndo(item, backup).Allowed);
+        Assert.False(runner.Undo(item, backup).Written);
+        Assert.Equal("8", item.Value);
+
+        item.Value = "2";
+        Assert.Equal(ChangeStatus.Restored, runner.Undo(item, backup).Status);
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public void The_applied_marker_is_written_once_and_never_overwritten_and_listing_ignores_other_files()
+    {
+        var item = new FakeItem();
+        var (runner, _, store) = Runner();
+        var applied = runner.Apply(item, Preview(item));
+        var record = store.Read(applied.Backup!);
+        var marker = store.PathOf(applied.Backup!) + ".applied";
+        var bytes = File.ReadAllBytes(marker);
+
+        Assert.Throws<BackupException>(() => store.MarkApplied(record));
+        Assert.Equal(bytes, File.ReadAllBytes(marker));
+        Assert.Empty(Directory.GetFiles(BackupFolder("fake-setting"), ".*.tmp"));
+        Assert.Single(store.List(item.Id, item.Value));
+        Assert.Empty(store.List("never-used", "1"));
+    }
+
+    [Fact]
+    public void The_write_is_logged_when_apply_or_restore_returns_before_verification_starts()
+    {
+        var log = new RecordingLog();
+        var runner = new ChangeRunner(Store(), log);
+        var seen = new List<string[]>();
+        var item = new FakeItem();
+        item.OnVerify = () => seen.Add(log.Steps.Select(s => s.Step).ToArray()); // what Activity holds while Verify is running
+
+        var applied = runner.Apply(item, Preview(item));
+        runner.Undo(item, applied.Backup!);
+
+        Assert.Equal(["Backup", "Write returned"], seen[0]);
+        Assert.Equal(["Backup", "Write returned", "Verify", "Result", "Backup", "Write returned"], seen[1]);
+
+        // A verifier that throws (or stalls and the process ends there) leaves the write on record.
+        var stalled = new FakeItem { VerifyThrows = true };
+        var log2 = new RecordingLog();
+        new ChangeRunner(Store(), log2).Apply(stalled, Preview(stalled));
+        Assert.Equal(["Backup", "Write returned", "Verify", "Result"], log2.Steps.Select(s => s.Step).ToArray());
+        Assert.Equal(ChangeLevel.Info, log2.Steps[1].Level);
     }
 }

@@ -10,7 +10,7 @@ public enum ChangeLevel
 /// <summary>One step of a change as the log is told it.</summary>
 /// <param name="ItemId">The item's id.</param>
 /// <param name="Title">The item's title, for the person.</param>
-/// <param name="Step">What was done: Refused, Backup, Write, Verify or Result.</param>
+/// <param name="Step">What was done: Refused, Backup, Write returned (the item's Apply or Restore returned, before verification starts), Verify or Result.</param>
 /// <param name="Target">The exact setting.</param>
 /// <param name="Level">Info for a step that went as intended, Warn for a refusal that changed nothing, Fail for a failure.</param>
 /// <param name="Outcome">What happened, in words.</param>

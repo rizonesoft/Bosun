@@ -24,10 +24,11 @@ public enum ChangeStatus
 /// <param name="Backup">The exact backup of this operation: what reverses it. Null when nothing was written.</param>
 /// <param name="Written">True when a write may have happened: false only for a refusal before any write.</param>
 /// <param name="ValueNow">What the target read after the operation, when it could be read.</param>
-public sealed record ChangeResult(ChangeStatus Status, string Message, BackupRef? Backup, bool Written, string? ValueNow)
+/// <param name="UndoWithheld">True when a write may have happened but an Undo would be refused (Bosun has no evidence that the value the target holds is its own): the message then says where the original value is kept and how to get it back.</param>
+public sealed record ChangeResult(ChangeStatus Status, string Message, BackupRef? Backup, bool Written, string? ValueNow, bool UndoWithheld = false)
 {
-    /// <summary>True whenever a write may have happened and its backup exists: the person can always get back.</summary>
-    public bool UndoOffered => Written && Backup is not null;
+    /// <summary>True whenever a write may have happened, its backup exists and <see cref="ChangeRunner.CanUndo"/> will accept it: the person can get back.</summary>
+    public bool UndoOffered => Written && Backup is not null && !UndoWithheld;
 }
 
 /// <summary>Whether a change or an Undo can run now, and when it can't, why: one answer for the row and the palette alike.</summary>
@@ -119,6 +120,7 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             error = e;
             Say(item, "Write", ChangeLevel.Fail, $"The write reported an error: {e.Message}", backup.Name, confirmed.Target);
         }
+        Wrote(item, backup, confirmed.Target, error is null ? "Apply returned" : null);
         return Finish(item, confirmed, backup, error, ChangeStatus.Changed, "changed");
     }
 
@@ -162,6 +164,7 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             error = e;
             Say(item, "Write", ChangeLevel.Fail, $"The restore reported an error: {e.Message}", undoBackup.Name, item.Target);
         }
+        Wrote(item, undoBackup, item.Target, error is null ? "Restore returned" : null);
         return Finish(item, undo, undoBackup, error, ChangeStatus.Restored, "restored");
     }
 
@@ -182,6 +185,8 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         if (record.Target != item.Target) return Eligibility.No("That backup is for another setting");
         var now = ReadGuarded(item);
         if (!now.IsRead) return Eligibility.No($"The setting could not be read: {now.Reason}");
+        // Already holding the value this backup would restore: a prepared backup, or a write that did not stay.
+        if (now.Value == record.Proposal.Before && now.Value != record.Proposal.After) return Eligibility.No("The setting already holds the value this backup would restore");
         // The target must still hold what the change wrote, or what a partly failed write was recorded as leaving
         // (never a value the person or another program set since): anything else is a newer value an Undo would destroy.
         if (now.Value != record.Proposal.After && now.Value != backups.ReadOutcome(record))
@@ -209,9 +214,19 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             verified = Fact<string>.Unavailable($"verification failed: {e.Message}");
         }
         var now = ReadGuarded(item);
-        if (now.IsRead && now.Value != done.After && now.Value != done.Before) KeepOutcome(item, backup, now.Value!);
-
         var verifiedOk = verified.IsRead && verified.Value == done.After;
+
+        // A value that is neither the before nor the after is Bosun's own partial write only when the item's Verify, run
+        // right after the write, read that same value. Anything else (Verify read the after value and the target then
+        // moved, or Verify read nothing useful) could be another program's edit: no outcome is recorded for it, so Undo
+        // refuses to overwrite it.
+        var third = now.IsRead && now.Value != done.After && now.Value != done.Before;
+        var changedAgain = third && verifiedOk;
+        var noEvidence = third && !changedAgain && !(verified.IsRead && verified.Value == now.Value);
+        var outcomeLost = third && !changedAgain && !noEvidence && !KeepOutcome(item, backup, now.Value!);
+        var withheld = changedAgain || noEvidence || outcomeLost;
+        var original = success == ChangeStatus.Changed ? "original value" : "value before this undo";
+
         var holdsNew = now.IsRead && now.Value == done.After;
         ChangeStatus status;
         string words;
@@ -231,32 +246,63 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             status = ChangeStatus.NotChanged;
             words = $"Not {verb}: it still reads '{done.Before}'" + (error is not null ? $" ({error.Message})" : "");
         }
+        else if (changedAgain)
+        {
+            status = ChangeStatus.CouldNotVerify;
+            words = $"{char.ToUpperInvariant(verb[0])}{verb[1..]}: '{done.Before}' to '{done.After}', then changed again since: now '{now.Value}'";
+        }
         else
         {
             status = ChangeStatus.CouldNotVerify;
             words = now.IsRead ? $"Could not be verified: it reads '{now.Value}', neither '{done.Before}' nor '{done.After}'" : $"Could not be verified: it could not be read afterwards ({now.Reason})";
         }
 
-        var message = $"{words}. Undo is offered from backup {backup.Name}.";
+        var recovery = changedAgain
+            ? $"Undo is not offered, because it would overwrite the newer value '{now.Value}'; the {original} '{done.Before}' is kept in backup {backup.Name}"
+            : noEvidence
+                ? $"Bosun cannot tell its own partial write from a later edit, so Undo is not offered; the {original} '{done.Before}' is kept in backup {backup.Name}; restore it by hand"
+                : outcomeLost
+                    ? $"Bosun could not record what the write left; the {original} '{done.Before}' is kept in backup {backup.Name}; restore it by hand or apply again once the setting is read"
+                    : $"Undo is offered from backup {backup.Name}";
+        var message = $"{words}. {recovery}.";
         Say(item, "Verify", status == success ? ChangeLevel.Info : ChangeLevel.Fail, verifiedOk ? "The item read the new value back" : "The item's own verification did not confirm it", backup.Name, done.Target);
         Say(item, "Result", status == success ? ChangeLevel.Info : status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, backup.Name, done.Target);
-        return new ChangeResult(status, message, backup, Written: true, now.IsRead ? now.Value : null);
+        return new ChangeResult(status, message, backup, Written: true, now.IsRead ? now.Value : null, UndoWithheld: withheld);
     }
 
     /// <summary>
-    /// A write left the target on a value that is neither the before nor the after (a partial write). It is kept beside
-    /// the backup so an Undo can tell it from a later edit.
+    /// The item's Apply or Restore has run (<paramref name="returned"/> says what, when it returned instead of throwing):
+    /// say so before verification starts, and keep the durable applied marker a restarted process reads.
     /// </summary>
-    private void KeepOutcome(IOptimisation item, BackupRef backup, string observed)
+    private void Wrote(IOptimisation item, BackupRef backup, string target, string? returned)
+    {
+        if (returned is not null) Say(item, "Write returned", ChangeLevel.Info, returned, backup.Name, target);
+        try
+        {
+            backups.MarkApplied(backups.Read(backup));
+        }
+        catch (BackupException e)
+        {
+            Say(item, "Applied marker", ChangeLevel.Fail, $"Could not record that the write ran: {e.Message}", backup.Name, target);
+        }
+    }
+
+    /// <summary>
+    /// A write left the target on a value that is neither the before nor the after (a partial write), and the item's own
+    /// Verify read that value. It is kept beside the backup so an Undo can tell it from a later edit. False when it could not be kept.
+    /// </summary>
+    private bool KeepOutcome(IOptimisation item, BackupRef backup, string observed)
     {
         try
         {
             backups.WriteOutcome(backups.Read(backup), observed);
             Say(item, "Outcome", ChangeLevel.Info, $"Recorded that the setting read '{observed}' afterwards", backup.Name);
+            return true;
         }
         catch (BackupException e)
         {
             Say(item, "Outcome", ChangeLevel.Fail, $"The value the setting was left on could not be recorded: {e.Message}", backup.Name);
+            return false;
         }
     }
 
