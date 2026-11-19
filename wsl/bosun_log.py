@@ -557,20 +557,20 @@ def write_instances(log_dir, **scan):
 # builds are throttled; it restores the limit once Windows is more than the recovery band over the floor, as the panel's
 # PressureWatch ends an episode. The panel's settings reach it as pressure-policy.json (src/Bosun.Core/Memory/
 # PressurePolicy.cs); no file, or the switch off, is no action. A limit is only ever lowered, the original is kept in
-# pressure-state-<distro>.json from before the first write until a read-back shows it restored, and what the throttle did or
-# why it could not is in pressure-status-<distro>.json: each distro has its own slice, so each has its own files in the
-# shared Windows logs folder. Nothing here stops sampling.
+# pressure-state-<distro>-u<uid>.json from before the first write until a read-back shows it restored, and what the throttle did or
+# why it could not is in pressure-status-<distro>-u<uid>.json: each user manager of each distro has its own slice (round 8), so each has
+# its own files in the shared Windows logs folder. Nothing here stops sampling.
 
 POLICY_FILE = "pressure-policy.json"
 HOST_FUTURE_S = 60  # the most a Windows sample may be dated ahead of this clock (skew), past which it is invalid
 
 
-def state_file(distro):
-    return f"pressure-state-{safe_distro(distro)}.json"
+def state_file(distro, uid):
+    return f"pressure-state-{safe_distro(distro)}-u{uid}.json"
 
 
-def status_file(distro):
-    return f"pressure-status-{safe_distro(distro)}.json"
+def status_file(distro, uid):
+    return f"pressure-status-{safe_distro(distro)}-u{uid}.json"
 JOBS_SLICE = "bosun-jobs.slice"
 HOST_STALE_S = 90  # three samples, as MemoryClient.StaleAfter
 MIN_JOB_LIMIT_MB = 1024
@@ -579,7 +579,7 @@ INFINITY = "infinity"
 
 
 class Failure(Exception):
-    """A thing the throttle could not do, with why: said in pressure-status-<distro>.json, and sampling carries on."""
+    """A thing the throttle could not do, with why: said in pressure-status-<distro>-u<uid>.json, and sampling carries on."""
 
 
 def read_small_json(path, limit=64 * 1024):
@@ -672,8 +672,10 @@ class Throttle:
     """Lowers `unit`'s MemoryHigh under Windows pressure and restores it. `systemctl` is the hands on the slice, apart so a
     test can stand in for it; `unit` is bosun-jobs.slice, or a disposable slice in the integration test."""
 
-    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None):
+    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None, uid=None):
         self.log_dir, self.systemctl, self.unit = log_dir, systemctl, unit
+        # `systemctl --user` controls the slice of the user manager of this uid, so the record is this uid's too (round 8).
+        self.uid = os.getuid() if uid is None else uid
         # The identity comes from the installer (BOSUN_DISTRO in the unit), then from WSL. With neither, or a name that is
         # not a safe file name, this logger has no identity and never throttles: a shared "default" record could be taken
         # for another distro's (D05 T02 §5, round 4).
@@ -682,7 +684,7 @@ class Throttle:
         self.identity_fault = None if self.distro else (
             f"this logger has no distro identity ({'BOSUN_DISTRO or WSL_DISTRO_NAME is not a usable name' if named else 'neither BOSUN_DISTRO nor WSL_DISTRO_NAME is set'}), "
             "so the pressure throttle changes nothing: reinstall with wsl/install.sh")
-        self.state_name, self.status_name = state_file(self.distro), status_file(self.distro)  # the status of a nameless logger is the "default" one
+        self.state_name, self.status_name = state_file(self.distro, self.uid), status_file(self.distro, self.uid)  # the status of a nameless logger is the "default" one
         if self.distro:
             self.state, self.operator, self.state_fault = self.safe_load_state()
         else:
@@ -715,14 +717,14 @@ class Throttle:
             return None, None, f"{self.state_name} can't be read ({e})"
 
     def load_state(self):
-        """(lowered, operator, fault): this distro's record. One that is not this logger's (another unit or distro) is a
+        """(lowered, operator, fault): this distro's record. One that is not this logger's (another unit, distro or user) is a
         fault, never acted on."""
         doc, why = read_small_json(os.path.join(self.log_dir, self.state_name))
         if why:
             return None, None, why
         if doc is None:
             return None, None, None
-        mine = isinstance(doc, dict) and doc.get("schema_version") == 1 and doc.get("distro") == self.distro
+        mine = isinstance(doc, dict) and doc.get("schema_version") == 1 and doc.get("distro") == self.distro and doc.get("uid") == self.uid
         lowered = doc.get("lowered") if mine else False
         operator = doc.get("operator") if mine else False
         if lowered is None and operator is None:
@@ -741,34 +743,52 @@ class Throttle:
         return lowered, operator, None
 
     def save_state(self, lowered, operator=None):
-        text = json.dumps({"schema_version": 1, "distro": self.distro, "lowered": lowered, "operator": operator}, separators=(",", ":")) + "\n"
+        text = json.dumps({"schema_version": 1, "distro": self.distro, "uid": self.uid, "lowered": lowered, "operator": operator}, separators=(",", ":")) + "\n"
         if not write_snapshot(self.log_dir, text, name=self.state_name):
             raise Failure(f"can't write {self.state_name}, so no limit is changed")
         self.state, self.operator = lowered, operator
 
     # -- the decision ------------------------------------------------------------------------------------------------
     def restore_now(self):
-        """Puts the original back and clears the record only once a read shows it there. True when it did."""
-        original = self.state["original"]
+        """Puts the original back and clears the record, but only after a read shows the slice at Bosun's own value (round 8:
+        a write before knowing who owns the current value could take an operator's cap away). "done" once a read shows the
+        original; "failed" when it can't be read or put back yet (the record stays); "held" when the slice reads something
+        that is neither, which is the operator's: the record becomes a hold and nothing is written."""
+        original, applied = self.state["original"], self.state["applied"]
         try:
-            self.set_limit(original)
+            current = self.read_limit()
         except Failure:
-            pass  # the read below says whether anything changed
-        try:
-            if self.read_limit() != original:
-                return False
-        except Failure:
-            return False
+            return "failed"
+        if current != original:
+            if current != applied:
+                self.save_state(None, {"unit": self.unit, "seen": current})
+                return "held"
+            try:
+                self.set_limit(original)
+            except Failure:
+                pass  # the read below says whether anything changed
+            try:
+                if self.read_limit() != original:
+                    return "failed"
+            except Failure:
+                return "failed"
         try:
             self.save_state(None)
         except Failure:
             self.restore_written = True  # the limit is back; the stale record is dropped when the next sample reads the original
-        return True
+        return "done"
+
+    def held_report(self):
+        seen = limit_text(self.operator["seen"])
+        return self.report("left_alone", f"{self.unit} reads {seen}, neither what Bosun set nor the original: someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
 
     def restore(self, why):
         original = self.state["original"]
-        if self.restore_now():
+        done = self.restore_now()
+        if done == "done":
             return self.report("restored", f"{self.unit} is back at {limit_text(original)}: {why}")
+        if done == "held":
+            return self.held_report()
         return self.report("error", f"{self.unit} could not be put back at {limit_text(original)} ({why}); the original is kept and each sample tries again")
 
     def lower(self, policy, total_mb):
@@ -793,9 +813,18 @@ class Throttle:
             return self.report("left_alone", f"{self.unit} changed to {limit_text(again)} while Bosun was about to lower it: someone else set it, so Bosun left it and will not lower it again until this pressure episode ends")
         try:
             self.set_limit(limit)
-            got = self.read_limit()
         except Failure as e:
             return self.abort_lowering(str(e))
+        try:
+            got = self.read_limit()
+        except Failure as e:
+            # Who owns the value now is not known (round 8): nothing is written. The record stays, unverified, and the next
+            # sample reads the slice first.
+            try:
+                self.save_state(dict(self.state, unverified=True))
+            except Failure:
+                pass
+            return self.report("error", f"{e}; the lowering to {limit_text(limit)} is unverified, so nothing is written until the next sample reads the slice")
         if got != limit and got != current:
             # Neither what Bosun just wrote nor the original: someone else set it between the write and the read, so it is the
             # operator's. Not rolled back; held off for the rest of this episode, as decide_lowered does for a third value.
@@ -806,9 +835,12 @@ class Throttle:
         return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor")
 
     def abort_lowering(self, why):
-        if self.restore_now():
+        done = self.restore_now()
+        if done == "done":
             return self.report("error", f"{why}; {self.unit} is as it was")
-        # Not verified back: kept as ours, so the next sample tries to put the original back; any other value is an operator's.
+        if done == "held":
+            return self.held_report()
+        # Not verified back: kept as ours, so the next sample reads the slice first; any other value is an operator's.
         try:
             self.save_state(dict(self.state, unverified=True))
         except Failure:
@@ -863,6 +895,10 @@ class Throttle:
     def decide_lowered(self, policy, policy_why, on, host_mb, host_why):
         state = self.state
         current = self.read_limit()
+        if current == state["original"] and state.get("unverified"):
+            # The unverified lowering did not take: nothing of Bosun's is on the slice, and the next sample decides afresh.
+            self.save_state(None)
+            return self.report("idle", f"{self.unit} reads {limit_text(current)}: the earlier lowering did not take, so its record is dropped")
         if current == state["original"]:
             episode = on and not (host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"])
             if episode and not self.restore_written:
@@ -879,7 +915,8 @@ class Throttle:
             self.save_state(None, {"unit": self.unit, "seen": current})
             return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, neither what Bosun set ({limit_text(state['applied'])}) nor the original ({limit_text(state['original'])}): someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if state.get("unverified"):
-            return self.restore("an earlier lowering was not verified")
+            # It reads Bosun's own value: the lowering took. Carry on as for any lowered slice.
+            self.save_state(dict(state, unverified=False))
         if not on:
             return self.restore(policy_why or ("automatic action was turned off" if policy is not None else "the policy file is gone"))
         if host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"]:
@@ -900,7 +937,7 @@ class Throttle:
 
     # -- what it says ------------------------------------------------------------------------------------------------
     def report(self, state, detail):
-        doc = {"schema_version": 1, "state": state, "detail": detail, "unit": self.unit, "distro": self.distro,
+        doc = {"schema_version": 1, "state": state, "detail": detail, "unit": self.unit, "distro": self.distro, "uid": self.uid,
                "original": limit_text(self.state["original"]) if self.state else None,
                "applied": limit_text(self.state["applied"]) if self.state else None}
         if doc != self.last and (self.last is None or doc["state"] != self.last["state"] or state == "error"):

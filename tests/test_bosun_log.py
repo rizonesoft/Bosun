@@ -675,7 +675,9 @@ class ThrottleFailures(ThrottleCase):
         self.assertEqual(self.state_file()["original"], 8 * GB)
         self.throttle.systemctl = self.slice
         self.slice.fail_show = False
-        self.assertEqual(self.tick(1000), "restored")
+        self.assertEqual(self.tick(1000), "lowered")                   # it reads Bosun's value: the lowering took (round 8)
+        self.assertFalse(self.state_file()["unverified"])
+        self.assertEqual(self.tick(9000), "restored")
         self.assertEqual(self.slice.value, 8 * GB)
         self.assertIsNone(self.state_file())
 
@@ -850,8 +852,8 @@ class ThrottleReviewRound1(ThrottleCase):
         self.assertEqual(self.throttle.run_once(now=NOW)["state"], "lowered")
         self.assertEqual(beta.run_once(now=NOW)["state"], "lowered")     # written last, as the finding has it
         self.assertNotEqual(self.throttle.state_name, beta.state_name)
-        self.assertTrue(os.path.exists(os.path.join(self.dir, "pressure-state-alpha.json")))
-        self.assertTrue(os.path.exists(os.path.join(self.dir, "pressure-status-beta.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.dir, f"pressure-state-alpha-u{os.getuid()}.json")))
+        self.assertTrue(os.path.exists(os.path.join(self.dir, f"pressure-status-beta-u{os.getuid()}.json")))
         restarted = dl.Throttle(self.dir, alpha_slice, unit="bosun-jobs.slice", distro="alpha")
         self.assertEqual(restarted.state["original"], 4 * GB)
         self.host(9000)
@@ -877,7 +879,7 @@ class ThrottleReviewRound1(ThrottleCase):
 
     def test_the_distro_comes_from_the_environment_wsl_gives_and_is_validated(self):
         with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}):
-            self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, "pressure-state-Ubuntu-24.04.json")
+            self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, f"pressure-state-Ubuntu-24.04-u{os.getuid()}.json")
         with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "../evil"}):
             self.assertIsNone(dl.Throttle(self.dir, self.slice).distro)   # a name that is no file name is no identity, never "default"
 
@@ -1012,8 +1014,8 @@ class ThrottleReviewRound4(ThrottleCase):
         self.assertEqual(nameless.run_once(now=NOW)["state"], "error")
         self.assertIn("no distro identity", nameless.last["detail"])
         self.assertEqual(self.slice.sets(), [])
-        self.assertFalse(os.path.exists(os.path.join(self.dir, "pressure-state-default.json")))
-        with open(os.path.join(self.dir, "pressure-status-default.json"), encoding="utf-8") as f:
+        self.assertFalse(os.path.exists(os.path.join(self.dir, f"pressure-state-default-u{os.getuid()}.json")))
+        with open(os.path.join(self.dir, f"pressure-status-default-u{os.getuid()}.json"), encoding="utf-8") as f:
             self.assertIn("no distro identity", json.load(f)["detail"])
 
     def test_the_installers_name_comes_before_wsls_and_each_distro_keeps_its_own_record(self):
@@ -1116,6 +1118,116 @@ class ThrottleReviewRound5(ThrottleCase):
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")
+class ThrottleReviewRound8(ThrottleCase):
+    """The two findings of D05 T02 section 5's round 8, each a test that fails without its fix."""
+
+    def test_each_user_manager_has_its_own_record_in_the_same_distro_and_folder(self):
+        slice_a, slice_b = FakeSlice(dl.INFINITY), FakeSlice(dl.INFINITY)
+        a = dl.Throttle(self.dir, slice_a, unit="bosun-jobs.slice", distro="alpha", uid=1000)
+        b = dl.Throttle(self.dir, slice_b, unit="bosun-jobs.slice", distro="alpha", uid=1001)
+        self.assertEqual(a.state_name, "pressure-state-alpha-u1000.json")
+        self.assertEqual(b.status_name, "pressure-status-alpha-u1001.json")
+        self.host(1000)
+        self.assertEqual(a.run_once(now=NOW)["state"], "lowered")
+        self.assertEqual(b.run_once(now=NOW)["state"], "lowered")        # B sees its own untouched slice, not an operator override
+        self.assertEqual((slice_a.value, slice_b.value), (self.LIMIT, self.LIMIT))
+        self.assertEqual(a.safe_load_state()[0]["original"], dl.INFINITY)   # A's record survived B's start
+        self.host(9000)
+        self.assertEqual(a.run_once(now=NOW)["state"], "restored")
+        self.assertEqual(slice_a.value, dl.INFINITY)
+        self.assertEqual(b.run_once(now=NOW)["state"], "restored")
+        self.assertEqual(slice_b.value, dl.INFINITY)
+
+    def test_a_record_of_another_uid_is_never_acted_on(self):
+        self.tick(1000)
+        path = os.path.join(self.dir, self.throttle.state_name)
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual(doc["uid"], self.throttle.uid)
+        doc["uid"] = self.throttle.uid + 1
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)
+        sets = len(self.slice.sets())
+        self.host(9000)
+        self.assertEqual(self.throttle.run_once(now=NOW)["state"], "error")
+        self.assertEqual(len(self.slice.sets()), sets)
+
+    def lower_with_a_failed_verification_read(self):
+        """Infinity; Bosun writes 2 GiB; the verification read fails while the operator sets 1 GiB."""
+        self.slice.value = dl.INFINITY
+        done = []
+
+        def flaky(args):
+            result = self.slice(args)
+            if args[0] == "set-property" and not done:
+                done.append(1)
+                self.slice.fail_show = True
+                self.slice.value = GB                                    # the operator's cap, set as the read fails
+            return result
+        self.throttle.systemctl = flaky
+        self.assertEqual(self.tick(1000), "error")
+        self.assertTrue(self.state_file()["unverified"])
+        self.slice.fail_show = False
+
+    def test_a_failed_verification_read_never_writes_the_original_over_an_operators_cap(self):
+        self.lower_with_a_failed_verification_read()
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, GB)
+        self.assertEqual(len(self.slice.sets()), sets)                   # nothing written, infinity above all
+        self.assertNotIn(["set-property", "--runtime", "bosun-jobs.slice", "MemoryHigh=infinity"], self.slice.sets())
+        self.assertIsNone(self.state_file())
+        with open(os.path.join(self.dir, self.throttle.state_name), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["operator"], {"unit": "bosun-jobs.slice", "seen": GB})   # a hold is recorded
+
+    def test_a_failed_verification_read_then_bosuns_value_is_kept_and_restored_on_recovery(self):
+        self.slice.value = dl.INFINITY
+        done = []
+
+        def flaky(args):
+            result = self.slice(args)
+            if args[0] == "set-property" and not done:
+                done.append(1)
+                self.slice.fail_show = True
+            return result
+        self.throttle.systemctl = flaky
+        self.assertEqual(self.tick(1000), "error")
+        self.slice.fail_show = False
+        self.assertEqual(self.tick(1000), "lowered")                     # reads 2 GiB: the lowering took
+        self.assertEqual(self.state_file()["original"], dl.INFINITY)
+        self.assertFalse(self.state_file()["unverified"])
+        self.assertEqual(self.tick(9000), "restored")
+        self.assertEqual(self.slice.value, dl.INFINITY)
+        self.assertIsNone(self.state_file())
+
+    def test_a_failed_verification_read_then_the_original_drops_the_record(self):
+        self.slice.value = 8 * GB
+        done = []
+
+        def flaky(args):
+            if args[0] == "set-property" and not done:
+                done.append(1)
+                self.slice.fail_show = True
+                return 0, ""                                             # accepted, but it did not take
+            return self.slice(args)
+        self.throttle.systemctl = flaky
+        self.assertEqual(self.tick(1000), "error")
+        self.slice.fail_show = False
+        self.assertEqual(self.tick(9000), "idle")
+        self.assertEqual(self.slice.value, 8 * GB)
+        with open(os.path.join(self.dir, self.throttle.state_name), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual((doc["lowered"], doc["operator"]), (None, None))
+
+    def test_a_restore_reads_before_it_writes_and_never_writes_over_a_value_that_is_not_bosuns(self):
+        self.tick(1000)
+        self.slice.value = GB                                            # between the decision and the restore
+        self.throttle.state, self.throttle.operator, _ = self.throttle.safe_load_state()
+        sets = len(self.slice.sets())
+        self.assertEqual(self.throttle.restore_now(), "held")
+        self.assertEqual((self.slice.value, len(self.slice.sets())), (GB, sets))
+
+
 class ThrottleOnARealSlice(unittest.TestCase):
     """Lowers and restores a disposable bosun-test.slice for real: its memory.high in the kernel's own cgroup file. Not
     skipped where a systemd user session exists, and it fails rather than skips when that session can't run a scope."""
