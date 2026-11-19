@@ -80,7 +80,10 @@ CPP_ROW = re.compile(r"""^\s*\{\s*"(\w+)"\s*,\s*(\w+)\s*,""")
 PS_TERM = re.compile(r"\s-and\b", re.IGNORECASE)
 PS_TRIVIAL = re.compile(r"\(\s*\$true\s*\)", re.IGNORECASE)
 ASSERTION = re.compile(r"\bself\.assert\w*\s*\(|^\s*assert\s|\bCHECK\s*\(")
-SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-error:\s*true", re.IGNORECASE)
+# A skip in Python (unittest), a CI step allowed to fail, and an xunit skip in C#: Assert.Skip, SkipWhen and SkipUnless
+# called in a test, or a Skip = "..." on its attribute (2026-11-19: nine Assert.Skip calls came in unseen).
+SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-error:\s*true"
+                  r"|\bAssert\.Skip(?:When|Unless)?\s*\(|\[\s*(?:Fact|Theory)\s*\([^)]*\bSkip\s*=", re.IGNORECASE)
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")

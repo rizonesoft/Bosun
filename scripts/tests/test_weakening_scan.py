@@ -204,6 +204,18 @@ class Kinds(Repo):
         self.assertEqual(self.signals(), (1, [f"skip-added {WORKFLOW}:L7", f"skip-added {WORKFLOW}:L8", f"ci-step-removed {WORKFLOW}:L7",
                                               f"skip-added {PY}:L6"]))
 
+    def test_an_xunit_skip_is_a_signal(self):
+        # 2026-11-19: nine Assert.Skip calls came into a C# test file and the scan saw none.
+        self.write("tests/Panel.Tests/ThingTests.cs",
+                   "public class ThingTests\n{\n    [Fact]\n    public void A() { Assert.Skip(\"not elevated\"); }\n"
+                   "    [Fact(Skip = \"later\")]\n    public void B() { }\n"
+                   "    [Fact]\n    public void C() { Assert.SkipUnless(false, \"no desk\"); }\n"
+                   "    [Fact]\n    public void D() { Assert.True(true); }\n}\n")
+        self.commit("skips in C#")
+        found = [s for s in self.signals()[1] if s.startswith("skip-added tests/Panel.Tests/ThingTests.cs")]
+        self.assertEqual(found, ["skip-added tests/Panel.Tests/ThingTests.cs:L4", "skip-added tests/Panel.Tests/ThingTests.cs:L5",
+                                 "skip-added tests/Panel.Tests/ThingTests.cs:L8"])
+
     def test_a_workflow_step_removed(self):
         self.edit(WORKFLOW, "      - name: Core tests\n        run: build/Release/test_core.exe\n", "")
         self.commit("drop a step")
