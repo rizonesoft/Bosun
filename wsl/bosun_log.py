@@ -699,13 +699,18 @@ _OWNED = {}
 # throttles a root of their own and never take the running service's lock.
 RUN_USER = "/run/user"
 
+# Where the kernel keeps its control groups. A module setting too, so a test can point a throttle at a folder of its own.
+CGROUP_ROOT = "/sys/fs/cgroup"
+
 
 class Throttle:
     """Lowers `unit`'s MemoryHigh under Windows pressure and restores it. `systemctl` is the hands on the slice, apart so a
     test can stand in for it; `unit` is bosun-jobs.slice, or a disposable slice in the integration test."""
 
-    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None, uid=None, lock_dir=None):
+    def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None, uid=None, lock_dir=None, cgroup_root=None):
         self.log_dir, self.systemctl, self.unit = log_dir, systemctl, unit
+        self.cgroup_root = cgroup_root  # None: CGROUP_ROOT, read when used
+        self.restore_why = None  # why the last restore_now returned "failed"
         # One owner per user manager and slice (round 10: two loggers of one user raced on one record and lost the
         # original). The owner holds an exclusive lock for its life, in the user's own runtime folder (local, never the
         # Windows log folder, where locks don't hold); a logger without it samples but never throttles or reports.
@@ -751,6 +756,40 @@ class Throttle:
         if code != 0:
             raise Failure(f"systemctl refused MemoryHigh={value} on {self.unit} ({out or 'no reason given'})")
 
+    def cgroup_dir(self):
+        """The kernel's control group of the slice under this user's manager: bosun-jobs.slice is bosun.slice/bosun-jobs.slice."""
+        stem = self.unit[:-len(".slice")] if self.unit.endswith(".slice") else self.unit
+        parts = stem.split("-")
+        chain = ["-".join(parts[:i + 1]) + ".slice" for i in range(len(parts))]
+        return os.path.join(self.cgroup_root or CGROUP_ROOT, "user.slice", f"user-{self.uid}.slice", f"user@{self.uid}.service", *chain)
+
+    def enforcement(self, applied):
+        """(kind, why): "enforced" when the slice's cgroup memory.high holds `applied`; "next" when no cgroup exists yet (no job
+        has run: prepared for the next job, not verified on a running one); "not" with why when the kernel does not enforce it."""
+        folder = self.cgroup_dir()
+        if not os.path.isdir(folder):
+            return "next", None
+        path = os.path.join(folder, "memory.high")
+        try:
+            with open(path, encoding="ascii") as f:
+                kernel = f.read().strip()
+        except FileNotFoundError:
+            return "not", f"{folder} has no memory.high, so the memory controller is not enabled for it (a parent slice does not delegate it)"
+        except (OSError, UnicodeDecodeError) as e:
+            return "not", f"{path} can't be read ({getattr(e, 'strerror', None) or e})"
+        if kernel != str(applied):
+            return "not", f"the kernel's memory.high reads {kernel}, not {applied}"
+        return "enforced", None
+
+    def enforced_report(self, applied, enforced_text, prepared_text):
+        """The status of a slice Bosun holds at `applied`: lowered only when the kernel is shown to enforce it."""
+        kind, why = self.enforcement(applied)
+        if kind == "enforced":
+            return self.report("lowered", enforced_text)
+        if kind == "next":
+            return self.report("lowered", prepared_text)
+        return self.report("not_enforced", f"{self.unit} at {limit_text(applied)}, set for future jobs but not enforced by the kernel now: {why}")
+
     # -- the record of what was changed ------------------------------------------------------------------------------
     def safe_load_state(self):
         try:
@@ -777,7 +816,10 @@ class Throttle:
                                          and lowered["applied"] >= MIN_JOB_LIMIT_MB * MB
                                          and (lowered.get("original") == INFINITY
                                               or (whole_number(lowered.get("original")) and lowered["original"] > lowered["applied"]))
-                                         and isinstance(lowered.get("unverified", False), bool))
+                                         and isinstance(lowered.get("unverified", False), bool)
+                                         and (lowered.get("previous") is None
+                                              or (whole_number(lowered["previous"]) and lowered["previous"] > lowered["applied"]
+                                                  and (lowered["original"] == INFINITY or lowered["original"] > lowered["previous"]))))
         operator_ok = operator is None or (isinstance(operator, dict) and operator.get("unit") == self.unit
                                            and (operator.get("seen") == INFINITY or whole_number(operator.get("seen"))))
         if not (mine and lowered_ok and operator_ok):
@@ -797,22 +839,29 @@ class Throttle:
         original; "failed" when it can't be read or put back yet (the record stays); "held" when the slice reads something
         that is neither, which is the operator's: the record becomes a hold and nothing is written."""
         original, applied = self.state["original"], self.state["applied"]
+        ours = (applied, self.state.get("previous"))  # a tightening not yet confirmed may have left either
+        self.restore_why = None
         try:
             current = self.read_limit()
-        except Failure:
+        except Failure as e:
+            self.restore_why = str(e)
             return "failed"
         if current != original:
-            if current != applied:
+            if current not in ours:
                 self.save_state(None, {"unit": self.unit, "seen": current})
                 return "held"
+            refused = None
             try:
                 self.set_limit(original)
-            except Failure:
-                pass  # the read below says whether anything changed
+            except Failure as e:
+                refused = str(e)  # the read below says whether anything changed
             try:
-                if self.read_limit() != original:
-                    return "failed"
-            except Failure:
+                back = self.read_limit()
+            except Failure as e:
+                self.restore_why = refused or str(e)
+                return "failed"
+            if back != original:
+                self.restore_why = refused or f"{self.unit} reads {limit_text(back)} after the write, not {limit_text(original)}"
                 return "failed"
         try:
             self.save_state(None)
@@ -831,11 +880,13 @@ class Throttle:
             return self.report("restored", f"{self.unit} is back at {limit_text(original)}: {why}")
         if done == "held":
             return self.held_report()
-        return self.report("error", f"{self.unit} could not be put back at {limit_text(original)} ({why}); the original is kept and each sample tries again")
+        return self.report("error", f"{self.unit} could not be put back at {limit_text(original)}: {self.restore_why or 'the slice could not be read'} ({why}); the original is kept and each sample tries again")
 
     def lower(self, policy, total_mb):
         limit = policy["job_limit_mb"] * MB
-        if total_mb is not None and policy["job_limit_mb"] > total_mb:
+        if total_mb is None:
+            return self.report("error", "the guest's total memory can't be read, so the job limit can't be checked against it and nothing is lowered; the next sample tries again")
+        if policy["job_limit_mb"] > total_mb:
             return self.report("error", f"the job limit {policy['job_limit_mb']} MB is over the guest's total memory, {total_mb} MB, so nothing is lowered")
         current = self.read_limit()
         if current != INFINITY and current <= limit:
@@ -882,7 +933,9 @@ class Throttle:
             # The slice is lowered and read back; only the mark could not be saved. The record still holds the original, and
             # the next sample reads the slice at Bosun's value and confirms it.
             return self.report("error", f"{self.unit} lowered to {limit_text(limit)} and read back, but its record could not be marked verified ({e}); the next sample confirms it")
-        return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor (your own cap belongs on {PARENT_SLICE}, which Bosun never writes)")
+        tail = f"Windows is under its floor (your own cap belongs on {PARENT_SLICE}, which Bosun never writes)"
+        return self.enforced_report(limit, f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: {tail}",
+                                    f"{self.unit} set to {limit_text(limit)} for the next job (none is running in it yet, so the kernel's limit is not yet verified): {tail}")
 
     def abort_lowering(self, why):
         done = self.restore_now()
@@ -916,9 +969,11 @@ class Throttle:
         if self.operator is not None:
             return self.decide_operator(policy, policy_why, on, host_mb)
         if self.state is not None:
-            return self.decide_lowered(policy, policy_why, on, host_mb, host_why)
+            return self.decide_lowered(policy, policy_why, on, host_mb, host_why, total_mb)
         if not on:
-            return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"))
+            # A policy file that is there and unusable is a fault, said even before any status file exists; an absent or
+            # disabled one stays quiet.
+            return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"), fault=policy_why is not None)
         if host_mb is None:
             return self.report("idle", host_why)
         if host_mb < policy["floor_mb"]:
@@ -938,13 +993,18 @@ class Throttle:
             current = self.read_limit()
         except Failure as e:
             return self.report("error", f"the logger is stopping and could not read {self.unit}: {e}; the original is kept for the next start")
-        if current != self.state["applied"]:
+        if current not in (self.state["applied"], self.state.get("previous")):
             return None  # not Bosun's value any more: the next start decides, as for any sample
         return self.restore("the logger is stopping")
 
-    def decide_lowered(self, policy, policy_why, on, host_mb, host_why):
+    def decide_lowered(self, policy, policy_why, on, host_mb, host_why, total_mb=None):
         state = self.state
         current = self.read_limit()
+        if state.get("previous") is not None and current == state["previous"]:
+            # A tightening that did not take (the write failed, or its read-back did): the slice is at the earlier value of
+            # Bosun's, so the record goes back to it and the tightening is tried again below.
+            self.save_state(self.settled(state, state["previous"]))
+            state = self.state
         if current == state["original"] and state.get("unverified"):
             # The unverified lowering did not take: nothing of Bosun's is on the slice, and the next sample decides afresh.
             self.save_state(None)
@@ -966,12 +1026,57 @@ class Throttle:
             return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, neither what Bosun set ({limit_text(state['applied'])}) nor the original ({limit_text(state['original'])}): someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if state.get("unverified"):
             # It reads Bosun's own value: the lowering took. Carry on as for any lowered slice.
-            self.save_state(dict(state, unverified=False))
+            self.save_state(self.settled(state, state["applied"]))
+            state = self.state
         if not on:
             return self.restore(policy_why or ("automatic action was turned off" if policy is not None else "the policy file is gone"))
         if host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"]:
             return self.restore("Windows has recovered")
-        return self.report("lowered", f"{self.unit} stays at {limit_text(state['applied'])}" + ("" if host_mb is not None else f": {host_why}") + f" (your own cap belongs on {PARENT_SLICE})")
+        if host_mb is not None and policy["job_limit_mb"] * MB < state["applied"]:
+            return self.tighten(policy, total_mb)
+        text = f"{self.unit} stays at {limit_text(state['applied'])}" + ("" if host_mb is not None else f": {host_why}") + f" (your own cap belongs on {PARENT_SLICE})"
+        return self.enforced_report(state["applied"], text, text + ": no job is running in it yet, so the kernel's limit is not yet verified")
+
+    @staticmethod
+    def settled(state, applied):
+        """The record as verified at `applied`, with no tightening pending."""
+        return {k: v for k, v in dict(state, applied=applied, unverified=False).items() if k != "previous"}
+
+    def tighten(self, policy, total_mb):
+        """The policy's job limit is now lower than the one Bosun holds, in the same episode: the tighter limit is applied (only
+        ever lowering) and read back, and the record keeps the ORIGINAL for the restore."""
+        state = self.state
+        limit, old = policy["job_limit_mb"] * MB, state["applied"]
+        if total_mb is None:
+            return self.report("error", f"the guest's total memory can't be read, so the tighter job limit can't be checked against it and {self.unit} stays at {limit_text(old)}; the next sample tries again")
+        if policy["job_limit_mb"] > total_mb:
+            return self.report("error", f"the job limit {policy['job_limit_mb']} MB is over the guest's total memory, {total_mb} MB, so {self.unit} stays at {limit_text(old)}")
+        # On disk first, with the earlier value beside it, so a crash after the write is still Bosun's own value to read back.
+        self.save_state(dict(state, applied=limit, unverified=True, previous=old))
+        why = None
+        try:
+            self.set_limit(limit)
+        except Failure as e:
+            # Refused: nothing was written, so the slice is still at the earlier value.
+            self.save_state(self.settled(self.state, old))
+            return self.report("error", f"{e}; {self.unit} stays at {limit_text(old)} and the next sample tries again")
+        try:
+            got = self.read_limit()
+        except Failure as e:
+            got, why = None, str(e)
+        if got == limit:
+            self.save_state(self.settled(self.state, limit))
+            tail = f"Windows is still under its floor and the policy's job limit is lower (your own cap belongs on {PARENT_SLICE})"
+            return self.enforced_report(limit, f"{self.unit} tightened from {limit_text(old)} to {limit_text(limit)}: {tail}",
+                                        f"{self.unit} tightened to {limit_text(limit)} for the next job (none is running in it yet, so the kernel's limit is not yet verified): {tail}")
+        if got is not None and got != old:
+            self.save_state(None, {"unit": self.unit, "seen": got})
+            return self.report("left_alone", f"{self.unit} reads {limit_text(got)} after Bosun wrote {limit_text(limit)}: someone else changed it, so Bosun left it and will not lower it again until this pressure episode ends")
+        # Failed, or read back at the earlier value: the earlier value stays Bosun's. (A failed read-back leaves the record
+        # unverified with `previous`, and the next sample reads the slice and settles it.)
+        if got == old:
+            self.save_state(self.settled(self.state, old))
+        return self.report("error", f"{why or f'{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}'}; {self.unit} stays at {limit_text(old)} and the next sample tries again")
 
     def decide_operator(self, policy, policy_why, on, host_mb):
         """An operator took the slice over: nothing is touched until the episode ends (Windows over the floor plus the band) or
@@ -983,20 +1088,20 @@ class Throttle:
             return self.report("left_alone", f"{self.unit} was set to {seen} by someone else and stays left alone; the policy could not be read ({policy_why})")
         if not on:
             self.save_state(None)
-            return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"))
+            return self.report("off", policy_why or ("automatic action is off" if policy is not None else "there is no policy file"), fault=policy_why is not None)
         if host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"]:
             self.save_state(None)
             return self.report("idle", f"Windows has recovered; the operator's {seen} on {self.unit} is no longer held off")
         return self.report("left_alone", f"{self.unit} was set to {seen} by someone else: left alone for the rest of this pressure episode")
 
     # -- what it says ------------------------------------------------------------------------------------------------
-    def report(self, state, detail):
+    def report(self, state, detail, fault=False):
         doc = {"schema_version": 1, "state": state, "detail": detail, "unit": self.unit, "distro": self.distro, "uid": self.uid,
                "original": limit_text(self.state["original"]) if self.state else None,
                "applied": limit_text(self.state["applied"]) if self.state else None}
         if doc != self.last and (self.last is None or doc["state"] != self.last["state"] or state == "error"):
             print(f"[bosun] pressure throttle {state}: {detail}", file=sys.stderr)
-        quiet = state == "off" and not os.path.exists(os.path.join(self.log_dir, self.status_name))  # a machine that never opted in gets no file
+        quiet = state == "off" and not fault and not os.path.exists(os.path.join(self.log_dir, self.status_name))  # a machine that never opted in gets no file
         if quiet:
             self.delivered = doc
         elif doc != self.delivered or state in ("lowered", "error"):

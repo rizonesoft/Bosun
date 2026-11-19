@@ -488,10 +488,15 @@ def setUpModule():
     for uid in (1000, 1001, os.getuid() if hasattr(os, "getuid") else 1000):
         os.makedirs(os.path.join(_RUN_USER_ROOT, str(uid)), exist_ok=True)
     dl.RUN_USER = _RUN_USER_ROOT
+    # No throttle under test reads the machine's real control groups, unless it is given them (the real-slice tests).
+    global _CGROUP_ROOT
+    _CGROUP_ROOT = tempfile.mkdtemp(prefix="bosun-cgroup-")
+    dl.CGROUP_ROOT = _CGROUP_ROOT
 
 
 def tearDownModule():
     shutil.rmtree(_RUN_USER_ROOT, ignore_errors=True)
+    shutil.rmtree(_CGROUP_ROOT, ignore_errors=True)
 
 
 class ThrottleCase(unittest.TestCase):
@@ -509,8 +514,18 @@ class ThrottleCase(unittest.TestCase):
         quiet.start()
         self.addCleanup(quiet.stop)
         self.slice = FakeSlice(8 * GB)
-        self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.cgroups = tempfile.mkdtemp(prefix="bosun-cgroups-")   # the kernel's cgroup tree, as this throttle sees it
+        self.addCleanup(shutil.rmtree, self.cgroups, True)
+        self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", cgroup_root=self.cgroups)
         self.policy()
+
+    def cgroup(self, memory_high=None):
+        """The slice's cgroup, as the kernel has it once a job has run: with a memory.high file, or without one (controller off)."""
+        folder = self.throttle.cgroup_dir()
+        os.makedirs(folder, exist_ok=True)
+        if memory_high is not None:
+            with open(os.path.join(folder, "memory.high"), "w", encoding="ascii") as f:
+                f.write(f"{memory_high}" + chr(10))
 
     def policy(self, **change):
         doc = {"schema_version": 1, "enabled": True, "floor_mb": 2048, "recovery_band_mb": 1024, "job_limit_mb": 2048}
@@ -638,6 +653,119 @@ class ThrottleLimits(ThrottleCase):
         self.assertEqual(self.tick(1000), "off")
         self.assertIn("least allowed", self.status()["detail"])
         self.assertEqual(self.slice.sets(), [])
+
+
+class ThrottleCompletion(ThrottleCase):
+    """The completion review's gaps (D05 T02 §5): guest total, a tighter policy, kernel enforcement, restore cause, first fault."""
+
+    def test_an_unreadable_guest_total_lowers_nothing_says_why_and_the_next_sample_tries_again(self):
+        with unittest.mock.patch.object(dl, "meminfo", side_effect=OSError("no /proc")):
+            self.assertEqual(self.tick(1000), "error")
+        self.assertIn("the guest's total memory can't be read, so the job limit can't be checked against it", self.status()["detail"])
+        self.assertEqual(self.slice.sets(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.state_name)))
+        self.assertEqual(self.tick(1000), "lowered")                   # readable again: the same sample lowers it
+
+    def test_a_tighter_policy_in_an_episode_is_applied_and_the_original_is_still_what_recovery_restores(self):
+        self.policy(job_limit_mb=6144)
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.slice.value, 6144 * MB_)
+        self.policy(job_limit_mb=2048)
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.slice.value, 2048 * MB_)
+        self.assertEqual(self.state_file(), {"unit": "bosun-jobs.slice", "original": 8 * GB, "applied": 2048 * MB_, "unverified": False})
+        self.assertEqual(self.tick(9000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.state_file())
+
+    def test_a_looser_policy_in_an_episode_is_not_applied(self):
+        self.policy(job_limit_mb=2048)
+        self.tick(1000)
+        self.policy(job_limit_mb=6144)
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.slice.value, 2048 * MB_)
+        self.assertEqual(len(self.slice.sets()), 1)
+
+    def test_a_tightening_that_fails_leaves_bosuns_own_value_and_is_tried_again(self):
+        self.policy(job_limit_mb=6144)
+        self.tick(1000)
+        self.policy(job_limit_mb=2048)
+        self.slice.refuse_set = True
+        self.assertEqual(self.tick(1000), "error")
+        self.assertIn("Access denied", self.status()["detail"])
+        self.assertEqual(self.slice.value, 6144 * MB_)
+        self.assertEqual(self.state_file()["applied"], 6144 * MB_)      # still Bosun's value, not taken for an operator's
+        self.slice.refuse_set = False
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.slice.value, 2048 * MB_)
+        self.assertEqual(self.state_file()["original"], 8 * GB)
+
+    def test_a_tightening_whose_read_back_fails_is_settled_by_the_next_sample_never_taken_for_an_operators(self):
+        self.policy(job_limit_mb=6144)
+        self.tick(1000)
+        self.policy(job_limit_mb=2048)
+
+        def blind(args):
+            code = self.slice(args)
+            if args[0] == "set-property":
+                self.slice.fail_show = True                            # the write lands, the read after it fails
+            return code
+        self.throttle.systemctl = blind
+        self.assertEqual(self.tick(1000), "error")
+        self.assertEqual(self.slice.value, 2048 * MB_)
+        self.throttle.systemctl = self.slice
+        self.slice.fail_show = False
+        self.assertEqual(self.tick(1000), "lowered")                   # it reads the tighter value: Bosun's own
+        self.assertEqual(self.state_file(), {"unit": "bosun-jobs.slice", "original": 8 * GB, "applied": 2048 * MB_, "unverified": False})
+        self.assertEqual(self.tick(9000), "restored")
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_job_that_has_run_is_lowered_only_when_the_kernel_holds_the_limit(self):
+        self.cgroup(self.LIMIT)
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertIn("lowered from", self.status()["detail"])
+
+    def test_no_cgroup_yet_is_set_for_the_next_job_not_verified(self):
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertIn("for the next job", self.status()["detail"])
+        self.assertIn("not yet verified", self.status()["detail"])
+
+    def test_a_cgroup_without_memory_high_is_not_reported_as_lowered(self):
+        self.cgroup()                                                  # the controller is not enabled for it
+        self.assertEqual(self.tick(1000), "not_enforced")
+        self.assertIn("set for future jobs but not enforced by the kernel now", self.status()["detail"])
+        self.assertIn("no memory.high", self.status()["detail"])
+        self.assertEqual(self.slice.value, self.LIMIT)                 # the limit is held, so it is still restored
+        self.assertEqual(self.tick(1000), "not_enforced")
+        self.assertEqual(self.tick(9000), "restored")
+
+    def test_a_kernel_limit_that_disagrees_is_not_reported_as_lowered(self):
+        self.cgroup("max")
+        self.assertEqual(self.tick(1000), "not_enforced")
+        self.assertIn("memory.high reads max", self.status()["detail"])
+
+    def test_a_failed_restore_keeps_the_systemctl_error_or_the_mismatch(self):
+        self.tick(1000)
+        self.slice.refuse_set = True
+        self.assertEqual(self.tick(9000), "error")
+        self.assertIn("could not be put back", self.status()["detail"])
+        self.assertIn("systemctl refused MemoryHigh=%d on bosun-jobs.slice" % (8 * GB), self.status()["detail"])
+        self.assertIn("Access denied", self.status()["detail"])
+        self.slice.refuse_set = False
+        self.slice.ignore_set = True
+        self.assertEqual(self.tick(9000), "error")
+        self.assertIn("after the write, not 8192 MB", self.status()["detail"])
+
+    def test_a_policy_file_that_is_there_and_unusable_is_published_on_a_first_start(self):
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w") as f:
+            f.write("{broken")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, self.throttle.status_name)))
+        self.assertEqual(self.tick(1000), "off")
+        self.assertIn("not JSON", self.status()["detail"])
+        self.assertEqual(self.slice.calls, [])
+
+
+MB_ = 1024 * 1024
 
 
 class ThrottleFailures(ThrottleCase):
@@ -1454,7 +1582,7 @@ class ThrottleOnARealSlice(unittest.TestCase):
         stderr = unittest.mock.patch.object(sys, "stderr", io.StringIO())
         stderr.start()
         self.addCleanup(stderr.stop)
-        throttle = dl.Throttle(self.dir, unit=self.UNIT, distro="realslice")                 # the real systemctl
+        throttle = dl.Throttle(self.dir, unit=self.UNIT, distro="realslice", cgroup_root="/sys/fs/cgroup")                 # the real systemctl
         windows = lambda available: {"schema_version": 1, "side": "windows", "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
                                      "memory": {"available_mb": available, "total_mb": 32000}}
 
@@ -1497,7 +1625,7 @@ class ThrottleOnARealSlice(unittest.TestCase):
         stderr = unittest.mock.patch.object(sys, "stderr", io.StringIO())
         stderr.start()
         self.addCleanup(stderr.stop)
-        throttle = dl.Throttle(self.dir, unit=child_unit, distro="realparent")
+        throttle = dl.Throttle(self.dir, unit=child_unit, distro="realparent", cgroup_root="/sys/fs/cgroup")
         def tick(available):
             with open(os.path.join(self.dir, "current-windows.json"), "w") as f:
                 json.dump({"schema_version": 1, "side": "windows", "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
