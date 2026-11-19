@@ -39,7 +39,7 @@ title: "TODO-02 -- Optimise"
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [x] |
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
-| 5 | §5 | Pressure monitor: queued jobs throttled under pressure | §2 | [ ] |
+| 5 | §5 | Pressure monitor: queued jobs throttled under pressure | §2 | [x] |
 | 6 | §6 | Elevated change helper | §2 | [ ] |
 | 7 | §7 | Changes made before Bosun, with honest baselines | §2, §6 | [ ] |
 | 8 | §8 | Low memory priority for listed apps during pressure | §5 | [ ] |
@@ -201,9 +201,12 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 - [x] Write the policy for the logger as `pressure-policy.json` in the logs folder (`src/Bosun.Core/Memory/PressurePolicy.cs`): schema version, switch, floor in MB, recovery band in MB (1,024, `PressureWatch.Hysteresis`), job limit in MB; temp-then-replace, read back; written by the same code the Settings save calls. Done when: a C# test writes it through the save path and `tests/test_bosun_log.py` reads that very file (committed as a fixture by the C# test run), so the two sides agree on names and units. Cheaper substitute: a hand-built fixture on each side.
 - [x] Throttle in `wsl/bosun_log.py`: the trigger is Windows' available memory from `current-windows.json` (never the guest's), entering under the floor and leaving only above the floor plus the band, as `PressureWatch` does; a stale, missing or invalid Windows sample starts nothing and keeps the state as it is. Done when: `tests/test_bosun_log.py` drives host and guest readings on opposite sides of the floor, the recovery boundary, and stale, missing and invalid host samples. Cheaper substitute: the guest's `MemAvailable`.
 - [x] Apply and restore safely: read `bosun-jobs.slice`'s `MemoryHigh` first (bytes or `infinity`), only ever lower it (a limit already at or under the policy's is left alone), persist the original in the logger's state file before the first write, read back after the write and after the restore, keep the original through repeated low samples and failed restores, and clear it only after a verified restore. Switch off or policy gone while it is lowered: restore. An operator's own change since Bosun's write (the slice reads neither Bosun's value nor the original): leave it, drop the state, and say so. Every failure (no delegation, a refused write, a read-back mismatch, a failed read) is written to `pressure-status.json` with why, and sampling carries on. Done when: `tests/test_bosun_log.py` with a stand-in `systemctl` covers a tighter existing limit, `infinity`, each failure, disable, policy loss and a logger restart after throttling, and an operator change preserved; and the disposable-slice integration test lowers and restores `bosun-test.slice`'s `memory.high` for real, never skipped where it runs. Cheaper substitute: killing work under pressure.
-- [ ] Commit: `machine: queued jobs throttled under pressure`
+- [x] Commit: `machine: queued jobs throttled under pressure`
 
 **Test checkpoint:** `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` (which runs `tests/test_bosun_log.py` in WSL, the disposable-slice lowering and restore among them) and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStoreTests" --filter-class "*PressurePolicyTests"` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-19 | §5 | 9e5953d60cffad2cb424092bca748417d875d5c4
+> **Review:** `docs/reviews/d05-t02-s5.json`
 
 ## 6. Elevated change helper
 

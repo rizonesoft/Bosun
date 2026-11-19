@@ -1,0 +1,146 @@
+{
+  "ref": "D05 T02 \u00a75",
+  "title": "Pressure monitor: queued jobs throttled under pressure",
+  "implementation_sha": "9e5953d60cffad2cb424092bca748417d875d5c4",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 10,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 11,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 12,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 13,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 14,
+      "report": "docs/reviews/05-machine/D05-T02-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests -> 113 of 113 (the real bosun-test slices lowered and restored, memory.high read in the kernel); Core PanelSettingsStoreTests and PressurePolicyTests pass; Core 378 of 378 at 9e5953d",
+    "CI full gate -> build.yml green at 9e5953d (https://github.com/rizonetech/Bosun/actions/runs/44480941846), plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44480941706)"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-machine/D05-T02-s5.md",
+    "verdict": "completed",
+    "candidate": "f7cb667c6b7dcefc5547db539ae684ac6b56d9fb",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 14,
+  "cap_outcome": "Round 14 returned HIGHEST P3, the stop rule; its one finding (the measurement item said autoMemoryReclaim was absent) was corrected in f7cb667, and the completion review followed; its five gaps were fixed in 9e5953d.",
+  "plan": {
+    "report": "docs/reviews/05-machine/D05-T02-s5.md",
+    "candidate": "ed0c78b381425c70cbd728476a28b63b79e2200a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "ed0c78b381425c70cbd728476a28b63b79e2200a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
