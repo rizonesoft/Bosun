@@ -136,7 +136,11 @@ public class TrayTests
         using var owner = PanelProcess.StartProgram(PanelProcess.TestChildExe, "sleep", "30000");
         var pointer = Native.Cursor();
         var refused = Assert.Throws<RealInputRefused>(() => Icon(owner));
-        Assert.Contains($"process {other.Id}", refused.Message);
+        // Every other panel is named, the operator's own among them when it runs (2026-11-19: the operator's panel made the
+        // list "process 49452, 89968", and a check for "process <other>" failed although the refusal was right).
+        var named = System.Text.RegularExpressions.Regex.Match(refused.Message, @"\(process ([0-9, ]+)\)");
+        Assert.True(named.Success, refused.Message);
+        Assert.Contains(other.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), named.Groups[1].Value.Split(", "));
         Assert.Equal((pointer.X, pointer.Y), (Native.Cursor().X, Native.Cursor().Y)); // nothing was pointed at
         Assert.Null(AutomationElement.RootElement.FindFirst(TreeScope.Children, new AndCondition(
             new PropertyCondition(AutomationElement.ProcessIdProperty, other.Id),
