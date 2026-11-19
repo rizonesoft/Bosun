@@ -138,17 +138,18 @@ Sections: 9 | Checklist items: 58
 
 ### Phase 7: Release
 
-Sections: 7 | Checklist items: 33
+Sections: 8 | Checklist items: 36
 
-| Status | Reference  | Deliverable                         | Needs | Items |
-| ------ | ---------- | ----------------------------------- | ----- | ----- |
-| [ ]    | D07 T01 §1 | Publish and install                 | none  | 8     |
-| [ ]    | D07 T01 §2 | Signing status                      | none  | 3     |
-| [ ]    | D07 T01 §3 | Uninstall                           | none  | 4     |
-| [ ]    | D07 T01 §4 | Keyboard and accessibility audit    | none  | 3     |
-| [ ]    | D07 T01 §5 | Performance budget                  | none  | 4     |
-| [ ]    | D07 T01 §6 | Documentation                       | none  | 5     |
-| [ ]    | D07 T01 §7 | Clean-system installer (Inno Setup) | none  | 6     |
+| Status | Reference  | Deliverable                                             | Needs | Items |
+| ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
+| [ ]    | D07 T01 §1 | Publish and install                                     | none  | 8     |
+| [ ]    | D07 T01 §2 | Signing status                                          | none  | 3     |
+| [ ]    | D07 T01 §3 | Uninstall                                               | none  | 4     |
+| [ ]    | D07 T01 §4 | Keyboard and accessibility audit                        | none  | 3     |
+| [ ]    | D07 T01 §5 | Performance budget                                      | none  | 4     |
+| [ ]    | D07 T01 §6 | Documentation                                           | none  | 5     |
+| [ ]    | D07 T01 §7 | Clean-system installer (Inno Setup)                     | none  | 6     |
+| [ ]    | D07 T01 §8 | Installed tools older than the panel, said with the fix | none  | 3     |
 
 ### Phase 99: Manual, operator only
 
@@ -163,6 +164,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 85/108 verified sections, 2 ready to run now.
+Progress: 85/109 verified sections, 2 ready to run now.
 
-Checklist: 846/955 items completed (includes Commit items).
+Checklist: 846/958 items completed (includes Commit items).

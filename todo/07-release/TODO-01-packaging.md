@@ -47,6 +47,7 @@ title: "TODO-01 -- Packaging and budgets"
 | 5 | §5 | Performance budget | §1 | [ ] |
 | 6 | §6 | Documentation | §4, §5 | [ ] |
 | 7 | §7 | Clean-system installer (Inno Setup) | §1, §3 | [ ] |
+| 8 | §8 | Installed tools older than the panel, said with the fix | §1 | [ ] |
 
 ## 1. Publish and install
 
@@ -196,6 +197,25 @@ The owner asked on 2026-11-08 that everything set up by hand during development 
 - [ ] Commit: `release: clean-system installer`
 
 **Test checkpoint:** `pwsh tests/clean_install_test.ps1` exits 0 in Windows Sandbox, and `python scripts/check-install-inventory.py` exits 0.
+
+## 8. Installed tools older than the panel, said with the fix
+
+On 2026-11-19 the installed `bosun-logger.exe` (2026-11-12) predated the live snapshot it is meant to write, so `current-windows.json` stood at 2026-11-13 (left by a development run) and `current-wsl.json` was never written, while `bosun status` said the logger was running and the panel said only that the snapshot was old. Reinstalling (`scripts/install.ps1`) fixed it at once. Nothing said the installed tools were older than the panel, or how to fix it. Filed 2026-11-19 from what the `D05 T02 §5` build found.
+
+**Phase:** 7
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. The tools say which build they are. Done when: `bosun` and the logger name their build commit, and the snapshot carries it.
+2. The panel says when they are older than it, with the fix. Done when: a stale or missing snapshot from a running old logger is said as an out-of-date install, with the command to run.
+
+- [ ] Stamp the build commit into `bosun.exe` and `bosun-logger.exe` (`scripts/build.ps1` passes the commit to CMake, which defines it; `bosun --version` prints it) and write it into each live snapshot as `build`, the WSL logger writing its own from the installed files. Done when: `tests/test_core.cpp` and `tests/test_bosun_log.py` read `build` from a snapshot, and `bosun --version` prints the commit a build was made from. Cheaper substitute: the file's modified time.
+- [ ] Tell an out-of-date install apart from a stopped logger in `MemoryClient` (`src/Bosun.Core/Memory/`): when the snapshot is missing or stale while the logger process runs, or its `build` is older than the panel's own (by the commit order the panel was built with, or a contract number both carry), the reading's reason says "The installed logger is older than this panel, so it does not write what the panel reads. Run scripts/install.ps1 to update it." Done when: `MemoryClientTests` cover a running logger with no snapshot, a snapshot from an older build, and a stopped logger, each with its own reason. Cheaper substitute: "the snapshot is old" for every cause.
+- [ ] Commit: `install: out-of-date tools said with the fix`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*MemoryClientTests"` and `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` exit 0, and fail if the change is reverted.
 
 ## Verification
 
