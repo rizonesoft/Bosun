@@ -39,9 +39,11 @@ title: "TODO-02 -- Optimise"
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [x] |
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
-| 5 | §5 | Pressure monitor and background memory priority | §2 | [ ] |
+| 5 | §5 | Pressure monitor: queued jobs throttled under pressure | §2 | [ ] |
 | 6 | §6 | Elevated change helper | §2 | [ ] |
 | 7 | §7 | Changes made before Bosun, with honest baselines | §2 | [ ] |
+| 8 | §8 | Low memory priority for listed apps during pressure | §5 | [ ] |
+| 9 | §9 | Pressure automation settings, previewed before enabling | §5, §8 | [ ] |
 
 ## 1. Diagnostics
 
@@ -166,7 +168,7 @@ These are later speedups rather than memory fixes, so they are reported, not pus
 
 **Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~BuildSpeedInfo` exits 0, and fails if the change is reverted.
 
-## 5. Pressure monitor and background memory priority
+## 5. Pressure monitor: queued jobs throttled under pressure
 
 Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 to build it now with automatic action off, so nothing acts until they set thresholds from `bosun report --days 7`, possible from 2026-11-14.
 
@@ -176,6 +178,8 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 - The thresholds and the off switch are the panel's settings (`PanelSettings`), on Windows; the WSL logger can't read them there, so the panel writes them as a small policy file into the shared logs folder, which the logger already writes to, temp-then-replace, and the logger reads it each sample. No file, or the switch off, is no action. (It said the settings alone.)
 - The checkpoint named `test_core.exe pressure`, but the rules live in the WSL logger (Python) and the panel (C#): it is their tests now.
 
+**Corrected 2026-11-19 (plan review):** ten gaps. The section held three subsystems, so it is split: the Windows memory priority is `§8` (gaps 5 and 7's app identity) and the Settings surface is `§9` (gaps 6, 7's preview, 8 and 9); this section is the WSL throttle and the policy it reads. Planned here: the trigger is Windows' available memory from `current-windows.json` against the panel's floor and its 1,024 MB recovery band (gap 1); queued jobs run in a slice of their own, so nothing else is throttled (gap 2); the original limit is kept until a verified restore, through disable, policy loss and restarts, and an operator's own change is never overwritten (gap 3); a limit is only ever lowered, with units, bounds and read-back (gap 4); and the checkpoint names the WSL step that runs the disposable-slice test (gap 10).
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
@@ -183,18 +187,18 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 **Build order:**
 
 1. Measure what the monitor would act on. Done when: how fast WSL gives memory back is recorded, from the logs.
-2. The policy: thresholds, listed apps and an off switch, saved by the panel and read by the logger. Done when: off by default, read back on both sides.
-3. The two actions, each only while the switch is on. Done when: `app.slice` is lowered and restored on a disposable slice, and a listed app's memory priority reads back.
+2. Queued jobs in their own slice, and a policy both sides read. Done when: a `bosun run` job is in `bosun-jobs.slice` and the policy reads back on both sides.
+3. The throttle: lowered under Windows pressure, restored after, never stranded or loosening. Done when: every path ends restored or says why not.
 
 - [ ] Measure how quickly WSL returns memory to Windows from the logs: the WSL VM's private memory against the guest's own use in the history `bosun report` reads, over the 2026-11-12 to 2026-11-19 samples, with `.wslconfig`'s reclaim setting (`autoMemoryReclaim`, absent here: WSL's default) read and stated. Done when: the figure (how long after the guest frees memory the VM's footprint falls, and by how much) is recorded in `docs/specs/2026-11-07-bosun-design.md` with the samples it came from, or the reason the logs can't show it. Cheaper substitute: picking thresholds from memory.
-- [ ] Add the policy to `PanelSettings` (`src/Bosun.Core/PanelSettings.cs`): an automatic-action switch, off by default; the `app.slice` limit to apply under pressure; and the listed apps for low memory priority, empty by default; saved and read back by `PanelSettingsStore`. Done when: `PanelSettingsStoreTests` read each back, a fresh store has the switch off and no apps, and a bad value is refused with why. Cheaper substitute: thresholds set in code.
-- [ ] Write the policy into the logs folder as `pressure-policy.json` (temp-then-replace, read back) whenever the settings change, in `src/Bosun.Core/Memory/PressurePolicy.cs`. Done when: a test reads the file back after a save, and finds the switch off in a fresh one. Cheaper substitute: the logger reading `panel.json` across the boundary.
-- [ ] Lower `app.slice`'s `MemoryHigh` in `wsl/bosun_log.py` while Windows' available memory is under the policy's floor, through `systemctl --user set-property --runtime app.slice MemoryHigh=`, and restore the value it read first once pressure ends, only while the switch is on; the previous value kept in the logger's state so a restart restores it. Done when: `tests/test_bosun_log.py` with a stand-in `systemctl` sees it lowered under pressure, restored after, nothing done with the switch off or no policy file, and the original restored after a logger restart; and a controlled test on a disposable user slice (`bosun-test.slice`) reads `memory.high` lowered and restored. Cheaper substitute: killing work under pressure.
-- [ ] Set low memory priority through `SetProcessInformation` (`ProcessMemoryPriority`, `MEMORY_PRIORITY_LOW`) for each running process of a listed app, from the panel's pressure check, only while the switch is on, and never on any other process. Done when: a Panel test on a child process it starts reads its priority back as low, and nothing is set with the switch off or the app not listed; nothing is killed or trimmed. Cheaper substitute: a working-set cleaner, rejected in the design.
-- [ ] Add the switch, the `app.slice` limit and the listed apps to the Settings page, warning when the floor is under the 6 GB queue floor. Done when: a Settings test saves each and reads it back, and the warning shows for 5 GB. Cheaper substitute: settings only in the file.
-- [ ] Commit: `machine: pressure monitor and memory priority`
+- [ ] Run each queued job in a slice of its own: `wsl/bosun` adds `--slice=bosun-jobs.slice` to its `systemd-run --user --scope`, so `bosun-jobs.slice` holds Bosun's jobs and nothing else, and when it runs a job without containment it says so (as it does now). Done when: `wsl/queue_test.sh` finds a job's scope under `bosun-jobs.slice`, and a sibling scope in `app.slice` outside it. Cheaper substitute: throttling `app.slice`, which holds every user service.
+- [ ] Add the policy to `PanelSettings` (`src/Bosun.Core/PanelSettings.cs`): the automatic-action switch, off by default, and the job limit to apply under pressure in MB, bounded (at least 1,024 MB, at most the guest's total); the floor is the panel's existing `PressureFloorMb`. Done when: `PanelSettingsStoreTests` read each back, a fresh store has the switch off, and an out-of-bound limit is refused with why. Cheaper substitute: thresholds set in code.
+- [ ] Write the policy for the logger as `pressure-policy.json` in the logs folder (`src/Bosun.Core/Memory/PressurePolicy.cs`): schema version, switch, floor in MB, recovery band in MB (1,024, `PressureWatch.Hysteresis`), job limit in MB; temp-then-replace, read back; written by the same code the Settings save calls. Done when: a C# test writes it through the save path and `tests/test_bosun_log.py` reads that very file (committed as a fixture by the C# test run), so the two sides agree on names and units. Cheaper substitute: a hand-built fixture on each side.
+- [ ] Throttle in `wsl/bosun_log.py`: the trigger is Windows' available memory from `current-windows.json` (never the guest's), entering under the floor and leaving only above the floor plus the band, as `PressureWatch` does; a stale, missing or invalid Windows sample starts nothing and keeps the state as it is. Done when: `tests/test_bosun_log.py` drives host and guest readings on opposite sides of the floor, the recovery boundary, and stale, missing and invalid host samples. Cheaper substitute: the guest's `MemAvailable`.
+- [ ] Apply and restore safely: read `bosun-jobs.slice`'s `MemoryHigh` first (bytes or `infinity`), only ever lower it (a limit already at or under the policy's is left alone), persist the original in the logger's state file before the first write, read back after the write and after the restore, keep the original through repeated low samples and failed restores, and clear it only after a verified restore. Switch off or policy gone while it is lowered: restore. An operator's own change since Bosun's write (the slice reads neither Bosun's value nor the original): leave it, drop the state, and say so. Every failure (no delegation, a refused write, a read-back mismatch, a failed read) is written to `pressure-status.json` with why, and sampling carries on. Done when: `tests/test_bosun_log.py` with a stand-in `systemctl` covers a tighter existing limit, `infinity`, each failure, disable, policy loss and a logger restart after throttling, and an operator change preserved; and the disposable-slice integration test lowers and restores `bosun-test.slice`'s `memory.high` for real, never skipped where it runs. Cheaper substitute: killing work under pressure.
+- [ ] Commit: `machine: queued jobs throttled under pressure`
 
-**Test checkpoint:** `python -m unittest tests.test_bosun_log` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStoreTests" --filter-class "*PressurePolicyTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPriorityTests"` exit 0, and fail if the change is reverted.
+**Test checkpoint:** `pwsh scripts/check-all.ps1 -Only wsl:logger-tests` (which runs `tests/test_bosun_log.py` in WSL, the disposable-slice lowering and restore among them) and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStoreTests" --filter-class "*PressurePolicyTests"` exit 0, and fail if the change is reverted.
 
 ## 6. Elevated change helper
 
@@ -236,6 +240,52 @@ On 2026-11-07 the pagefile moved to `C:` at 32 to 50 GB and the Discord and Crea
 - [ ] Commit: `optimise: changes made before Bosun`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*EarlierChangesTests"` exits 0, and fails if the change is reverted.
+
+## 8. Low memory priority for listed apps during pressure
+
+An app the operator lists runs at low memory priority while Windows is under pressure, so Windows trims it first, and gets its own priority back after. Filed 2026-11-19 from the plan review of `D05 T02 §5` (gaps 5 and 7), which split it out of `§5`.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. An app is identified exactly. Done when: two executables of one file name are told apart.
+2. Priority is lowered only during an episode and restored exactly after. Done when: every way an episode ends restores each process Bosun changed.
+
+- [ ] Identify a listed app by its executable's full path, compared as Windows compares paths (case-insensitive), in `src/Bosun.Core/Optimise/ListedApps.cs`; a process is the app when its image path matches. Done when: `ListedAppsTests` match `C:\Tools\a\app.exe` and not `C:\Tools\b\app.exe`. Cheaper substitute: the file name alone.
+- [ ] Lower each listed app's running processes to `MEMORY_PRIORITY_LOW` through `SetProcessInformation` (`ProcessMemoryPriority`) only while the panel's `PressureCheck` holds a pressure episode and the switch is on, recording each process's prior priority by its id and start time (so a reused id is never taken for it); a process started during the episode is lowered too. Done when: `MemoryPriorityTests` drive the real `PressureCheck` through healthy, pressure and recovery samples with a child process they start, and read its priority low only during the episode. Cheaper substitute: a working-set cleaner, rejected in the design.
+- [ ] Restore each changed process's exact prior priority when the episode ends, the switch goes off, the app leaves the list, or the panel exits; the record kept in the panel's data folder (temp-then-replace) so a panel restarted after a crash restores those still running by id and start time. A process that has exited, or refuses (access denied), is said, and the others are still acted on: the outcome is partial, never all or nothing. Done when: `MemoryPriorityTests` cover each end, a reused id left alone, an inaccessible process beside an actionable one, and a restart restoring from the record. Cheaper substitute: leaving priorities low.
+- [ ] Commit: `machine: low memory priority for listed apps`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ListedAppsTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPriorityTests"` exit 0, and fail if the change is reverted.
+
+## 9. Pressure automation settings, previewed before enabling
+
+The switch, the job limit and the listed apps on the Settings page, with what they would do shown before they are turned on. Filed 2026-11-19 from the plan review of `D05 T02 §5` (gaps 6, 7, 8 and 9), which split it out of `§5`.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** yes
+**Fidelity:** `design/SPEC.md` §15 (Settings), §1.
+**Job:** turn on pressure automation knowing exactly what it will do.
+**Treatment:** a group on the Settings page: the switch, the job limit, the listed apps, and a preview. Cheaper substitute that fails: a checkbox with no preview.
+**Chrome:** the Settings page's own form, its Save and Discard, and Ctrl+K's Save and Discard.
+
+**Build order:**
+
+1. The controls join the Settings form. Done when: they take part in unsaved edits, validation, Save, Discard and the keyboard.
+2. Enabling is previewed, and the saved policy is the effective one. Done when: the page says what is in force on both sides.
+
+- [ ] Add the switch, the job limit and the listed apps (add by choosing an executable, remove) to the Settings page in `src/Bosun.Panel/Settings/`, in its form: unsaved-edit marks, validation with why, Save, Discard, Ctrl+K's Save and Discard, keyboard and automation names. Done when: Settings tests drive each through the view, a failed Save keeps the edits, and Discard returns them. Cheaper substitute: settings only in the file.
+- [ ] Preview before enabling: turning the switch on shows the floor, the job limit, the slice it applies to, and each listed app with the processes it matches now, and is saved only when the person confirms; cancelling saves nothing. Done when: a Settings test reads the preview, cancels (nothing saved) and confirms (saved). Cheaper substitute: enabling at once.
+- [ ] Save both files as one setting: `panel.json`, then `pressure-policy.json`; a policy that fails to write is said on Save ("Saved, but the WSL logger still has the previous policy: <why>"), retried on the next start until it matches, and the page shows the policy in force as the logger reads it (`pressure-status.json`). A failed disable against a policy that was on is said loudest. Done when: Settings tests fail the policy write on a disable and read the warning, the retry on reopen, and the effective policy shown. Cheaper substitute: two saves that can disagree silently.
+- [ ] Warn when the floor is under the queue's own memory floor as configured (`bosun config`, `min_avail_mb`, 6 GB by default), saying when it can't be read. Done when: Settings tests with a configured floor of 8 GB warn at 7 GB and not at 9 GB, and with the config unreadable say so. Cheaper substitute: a 6 GB constant.
+- [ ] Render the group in each state and theme (`RenderCatalog`): off, previewing, on, a failed policy write. Done when: the renders are in `build/renders/` and looked at.
+- [ ] Commit: `settings: pressure automation`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SettingsPageTests" --filter-class "*PressureSettingsTests"` exits 0, and fails if the change is reverted.
 
 ## Verification
 
