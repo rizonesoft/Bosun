@@ -11,8 +11,10 @@ namespace Bosun.Panel.Optimise;
 /// and each account's own panel data folder.
 ///
 /// An account's folder is its profile's <c>AppData\Local\Bosun</c>, from the profile list, never from a request. When
-/// <c>BOSUN_PANEL_DATA</c> is set (a test, or a person who moved their data) only this process's own account is known,
-/// with that folder. Elevation is the process token's and nothing else: no variable, argument or file can say it.
+/// <c>BOSUN_PANEL_DATA</c> is set (the test seam of <see cref="Startup.PanelPaths"/>, which tests run the helper under
+/// directly) only this process's own account is known, with that folder; a panel started with it never opens the
+/// administrator prompt (<see cref="WindowsElevation"/>), so no cross-account helper ever looks for it. Elevation is
+/// the process token's and nothing else: no variable, argument or file can say it.
 /// </summary>
 public sealed class WindowsHelperStanding(Func<string, string?> environment) : IHelperStanding
 {

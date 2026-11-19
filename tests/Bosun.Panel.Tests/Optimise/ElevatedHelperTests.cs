@@ -125,6 +125,19 @@ public sealed class ElevatedHelperTests : IDisposable
     // ---- the registry and the test seam ----
 
     [Fact]
+    public async Task A_panel_whose_data_folder_is_moved_never_opens_the_administrator_prompt()
+    {
+        // Round 12: with BOSUN_PANEL_DATA set, a helper under another administrator found no request, after consent.
+        // The program does not exist, so a start that reached ShellExecuteEx would fail with another reason.
+        var elevation = new WindowsElevation(Path.Combine(_root, "absent.exe"), name => name == PanelPaths.Variable ? _data : null);
+
+        var start = await elevation.StartAsync(new HelperCommand("apply", TestFileItem.ItemId, HelperFiles.NewInvocation()), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ElevationStartKind.Failed, start.Kind);
+        Assert.Contains(PanelPaths.Variable, start.Reason);
+    }
+
+    [Fact]
     public void A_proposal_for_one_test_file_can_never_be_applied_to_another_of_the_same_text()
     {
         // Round 8: both files' target was "test:disposable-file", so a proposal confirmed for one applied to the other.

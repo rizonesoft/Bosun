@@ -12,14 +12,22 @@ namespace Bosun.Panel.Optimise;
 /// that ever asks is the administrator prompt. The prompt is answered off the caller's thread, and the helper is
 /// tracked by its process handle (a registered wait, so no thread sits blocked on it). The panel itself never runs
 /// elevated. A real prompt is proven in D99 T01 §5.
+///
+/// A panel whose data folder is the one <c>BOSUN_PANEL_DATA</c> names (the test seam of <see cref="Startup.PanelPaths"/>)
+/// never opens the prompt (round 12): the helper finds a request only in an account's own default folder, so after the
+/// person's consent, under another administrator's account, it would find nothing. The start fails at once, saying so.
 /// </summary>
-public sealed class WindowsElevation(string? program = null) : IElevation
+public sealed class WindowsElevation(string? program = null, Func<string, string?>? environment = null) : IElevation
 {
     /// <summary>ERROR_CANCELLED: the person declined the administrator prompt.</summary>
     internal const int Declined = 1223;
 
-    public Task<ElevationStart> StartAsync(HelperCommand command, CancellationToken cancellationToken) =>
-        Task.Run(() => Start(command, program ?? Environment.ProcessPath ?? throw new InvalidOperationException("the panel's own path is not known")), cancellationToken);
+    public Task<ElevationStart> StartAsync(HelperCommand command, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrEmpty((environment ?? Environment.GetEnvironmentVariable)(Startup.PanelPaths.Variable)))
+            return Task.FromResult(ElevationStart.Failed($"this panel keeps its data in the folder {Startup.PanelPaths.Variable} names, where an administrator helper can't find the request; start Bosun Panel without it to make this change"));
+        return Task.Run(() => Start(command, program ?? Environment.ProcessPath ?? throw new InvalidOperationException("the panel's own path is not known")), cancellationToken);
+    }
 
     /// <summary>What a failed <c>ShellExecuteEx</c> means: error 1223 is a declined prompt, anything else a helper that could not start.</summary>
     internal static ElevationStart Classify(int error) =>
