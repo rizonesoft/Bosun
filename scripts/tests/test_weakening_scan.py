@@ -6,6 +6,7 @@ import contextlib
 import importlib.util
 import io
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -110,10 +111,11 @@ class Repo(unittest.TestCase):
         return code, out.getvalue()
 
     def signals(self, head=None):
-        """The signals of the range from the first commit to `head` (default HEAD), as printed, without their state."""
+        """The signals of the range from the first commit to `head` (default HEAD), as printed, without their state
+        and without the `#<fp>` fingerprint of a line signal (the Fingerprints cases read those)."""
         code, text = self.run_scan("--base", self.base, "--head", head or "HEAD")
-        return code, [line.strip().split(" ", 1)[1].split(" -- ")[0] for line in text.splitlines()
-                      if line.startswith("  answered") or line.startswith("  unanswered")]
+        return code, [re.sub(r"(:L\d+)#[0-9a-f]{6}$", r"\1", line.strip().split(" ", 1)[1].split(" -- ")[0])
+                      for line in text.splitlines() if line.startswith("  answered") or line.startswith("  unanswered")]
 
 
 class Kinds(Repo):
@@ -421,6 +423,74 @@ class Answers(Repo):
                                           f"Weakening scan: test-removed {PS}:the second thing holds -- gone with the feature")
         self.assertEqual(self.run_scan("--base", self.base, "--head", answered)[0], 0)
         self.assertEqual(self.run_scan("--base", self.base, "--head", first)[0], 1)  # the answers come after this range
+
+
+HANDLER = "    try:\n        a()\n    except Failure:\n        pass  # {why}\n"
+
+
+class Fingerprints(Repo):
+    """A line signal's id carries a fingerprint of the code it flags, so an answer survives an edit that moves it."""
+
+    def handlers(self, *whys):
+        self.edit(SOURCE, "    return 1", "".join(HANDLER.format(why=why) for why in whys) + "    return 1")
+        return self.commit("add handlers")
+
+    def printed(self):
+        """(exit code, [(state, id)] of the signals of the range, ids as printed)."""
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        return code, [(line.split()[0], line.split()[2].split(":", 1)[1]) for line in text.splitlines()
+                      if line.startswith(("  answered", "  unanswered"))]
+
+    def answer(self, *ids):
+        self.git("commit", "-q", "--allow-empty", "-m", "explain",
+                 "-m", "\n".join(f"Weakening scan: error-swallowed {SOURCE}:{ident} -- the read below says so" for ident in ids))
+
+    def test_an_answered_signal_stays_answered_when_lines_are_inserted_above_it(self):
+        self.handlers("the read below says it is fine")
+        ident = self.printed()[1][0][1]
+        self.assertRegex(ident, r"^L4#[0-9a-f]{6}$")
+        self.answer(ident)
+        self.assertEqual(self.printed()[0], 0)
+        self.edit(SOURCE, "def run():", "# one\n# two\n# three\n# four\n# five\ndef run():")
+        self.commit("insert five lines above")
+        self.assertEqual(self.printed(), (0, [("answered", f"L9#{ident.split('#')[1]}")]))
+
+    def test_two_identical_handler_lines_with_different_following_comments_get_different_fingerprints(self):
+        self.handlers("the read below says it is fine", "the write is retried")
+        found = self.printed()[1]
+        self.assertEqual(len(found), 2)
+        self.assertNotEqual(found[0][1].split("#")[1], found[1][1].split("#")[1])
+
+    def test_two_truly_identical_handlers_need_two_answers(self):
+        self.handlers("the same reason", "the same reason")
+        first, second = (ident for _, ident in self.printed()[1])
+        self.assertEqual(first.split("#")[1], second.split("#")[1])
+        self.answer(first)
+        code, found = self.printed()
+        self.assertEqual((code, [state for state, _ in found]), (1, ["answered", "unanswered"]))
+        self.edit(SOURCE, "def run():", "# one\n# two\ndef run():")  # moved: still one answer for two signals
+        self.commit("insert two lines above")
+        self.assertEqual([state for state, _ in self.printed()[1]], ["answered", "unanswered"])
+        self.answer(second)
+        self.assertEqual(self.printed()[0], 0)
+
+    def test_an_old_answer_with_only_a_line_number_still_matches_the_same_line(self):
+        self.handlers("the read below says it is fine")
+        self.answer("L4")
+        code, found = self.printed()
+        self.assertEqual((code, [state for state, _ in found]), (0, ["answered"]))
+        self.assertRegex(found[0][1], r"^L4#[0-9a-f]{6}$")  # the report prints the new form
+        self.edit(SOURCE, "def run():", "# one\ndef run():")  # an old answer is not carried along by a move
+        self.commit("insert a line above")
+        self.assertEqual(self.printed()[0], 1)
+
+    def test_an_answer_whose_fingerprint_does_not_match_a_changed_line_leaves_it_unanswered(self):
+        self.handlers("the read below says it is fine")
+        self.answer(self.printed()[1][0][1])
+        self.edit(SOURCE, "pass  # the read below says it is fine", "pass  # nothing says it is fine")
+        self.commit("change the handler")
+        code, found = self.printed()
+        self.assertEqual((code, [state for state, _ in found]), (1, ["unanswered"]))
 
 
 class Ranges(Repo):

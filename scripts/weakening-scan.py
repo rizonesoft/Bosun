@@ -25,8 +25,12 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
                          only a comment, or a `contextlib.suppress` put in; whether the handler is new or an
                          existing one whose body was emptied, by a replacement or by deleting it
 
-The id is the case's name where the signal is about a case, and `L<line>` otherwise (the old line for something
-removed, the new line for something added), so two signals in one file are two things to answer.
+The id is the case's name where the signal is about a case, and `L<line>#<fp>` otherwise (the old line for something
+removed, the new line for something added). The fingerprint is the first 6 hex of the SHA-1 of the flagged line and
+the next non-blank line, whitespace normalised, so two signals in one file are two things to answer, and an answer
+still finds its signal when a later edit only moves the line. An answer matches by kind, path and fingerprint with
+the line number ignored; an old answer with only `L<line>` matches the signal at that line. Signals that share a
+fingerprint in one file need one answer each.
 
 A signal is not a verdict. Each is either undone, or answered in the body of a commit in the scanned range:
 
@@ -50,6 +54,7 @@ cannot be read: a diff git could not produce is never read as an empty one. Stdl
 import argparse
 import ast
 from collections import Counter, defaultdict
+import hashlib
 import re
 import subprocess
 import sys
@@ -89,11 +94,26 @@ SLASH_COMMENT = re.compile(r"//.*$")
 PASS = re.compile(r"^\s*(pass|\.\.\.)\s*(#.*)?$")
 EMPTY_CATCH = re.compile(r"\bcatch\b\s*(\([^)]*\)|\[[^\]]*\])?\s*\{\s*\}")
 ANSWER = re.compile(r"^Weakening scan: (.+?) -- (\S.*?)\s*$")
+LINE_ID = re.compile(r"^(\S+) (.+):L(\d+)(?:#([0-9a-f]{6}))?$")  # a line signal's name: kind, path, line, fingerprint
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
 class CannotRead(Exception):
     """The range, or a file in it, could not be read (exit 2)."""
+
+
+def line_id(lines, number):
+    """`L<n>#<fp>` for a line signal: its line number, and a fingerprint of the code it flags (the first 6 hex of the
+    SHA-1 of the whitespace-normalised flagged line plus the next non-blank line), so an answer still finds the signal
+    after an edit above it moves the line. Plain `L<n>` when the line is not in the text."""
+    if not lines or not 1 <= number <= len(lines):
+        return f"L{number}"
+    text = " ".join(lines[number - 1].split())
+    for below in lines[number:]:
+        if below.strip():
+            text += "\n" + " ".join(below.split())
+            break
+    return f"L{number}#{hashlib.sha1(text.encode('utf-8')).hexdigest()[:6]}"
 
 
 class Signal:
@@ -387,7 +407,7 @@ def scan(changes):
                 and enclosing_case(tests[member].old, number) not in flagged[member]]
         gained = sum(1 for member in group for _, text in tests[member].added if ASSERTION.search(text))
         for member, number in lost[gained:]:  # those that nothing came in to replace
-            signals.append(Signal("assertion-removed", member, f"L{number}"))
+            signals.append(Signal("assertion-removed", member, line_id(tests[member].old, number)))
 
     # A PowerShell check kept by name with less in its condition: fewer `-and` terms left the file than came into
     # it, or the condition became a bare $true. Named by the check it belongs to.
@@ -400,11 +420,11 @@ def scan(changes):
         for number, count in reversed(lost):
             if excess <= 0:
                 break
-            signals.append(Signal("assertion-removed", path, check_at(change.old, number) or f"L{number}"))
+            signals.append(Signal("assertion-removed", path, check_at(change.old, number) or line_id(change.old, number)))
             excess -= count
         for number, text in change.added:
             if PS_CASE.match(text) and PS_TRIVIAL.search(text):
-                signals.append(Signal("assertion-removed", path, powershell_case(text) or f"L{number}"))
+                signals.append(Signal("assertion-removed", path, powershell_case(text) or line_id(change.new, number)))
 
     for path, change in sorted(files.items()):
         if not CODE.search(path):
@@ -415,28 +435,28 @@ def scan(changes):
             # call or a decorator from the same words inside a fixture string. Everything structural above (a file deleted, a case removed, assertions lost)
             # applies to them as to any test.
             for number in own_skips(change.new, {number for number, _ in change.added}):
-                signals.append(Signal("skip-added", path, f"L{number}"))
+                signals.append(Signal("skip-added", path, line_id(change.new, number)))
             continue
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):
-                signals.append(Signal("skip-added", path, f"L{number}"))
+                signals.append(Signal("skip-added", path, line_id(change.new, number)))
             if RELAX.search(text):
-                signals.append(Signal("warning-relaxed", path, f"L{number}"))
+                signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
         for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):
-            signals.append(Signal("error-swallowed", path, f"L{number}"))
+            signals.append(Signal("error-swallowed", path, line_id(change.new, number)))
         for number, text in change.added:
             if SUPPRESS.search(text):
-                signals.append(Signal("error-swallowed", path, f"L{number}"))
+                signals.append(Signal("error-swallowed", path, line_id(change.new, number)))
         kept = [text.strip() for _, text in change.added]
         for number, text in change.removed:
             if WORKFLOW.search(path) and RUN_STEP.match(text) and text.strip() not in kept:
-                signals.append(Signal("ci-step-removed", path, f"L{number}"))
+                signals.append(Signal("ci-step-removed", path, line_id(change.old, number)))
             for token in STRICT:
                 # The setting counts as kept only where an added line still has it on: renaming the value to OFF
                 # keeps the name and drops the enforcement.
                 if enforces(text, token) and not any(enforces(line, token) for line in kept):
-                    signals.append(Signal("warning-relaxed", path, f"L{number}"))
+                    signals.append(Signal("warning-relaxed", path, line_id(change.old, number)))
                     break
 
     order = {signal.key: index for index, signal in enumerate(signals)}
@@ -486,14 +506,46 @@ def uncommitted(root):
 
 
 def answers(root, base, head):
-    """{"<kind> <path>:<id>": reason} from the commit bodies of the range. The signal is named by the very text the
-    report prints for it, so nothing about a path (a space in it, say) can keep an answer from matching."""
-    found = {}
+    """[[text, reason, parsed, used]] from the commit bodies of the range, one entry per answer line. `text` is the
+    signal's name (`<kind> <path>:<id>`) as the report prints it, so nothing about a path (a space in it, say) can
+    keep an answer from matching; `parsed` is (kind, path, line, fingerprint or None) for a line signal, else None."""
+    found = []
     for line in run_git(root, ["log", "--format=%B", f"{base}..{head}"]).splitlines():
         answer = ANSWER.match(line.strip())
         if answer:
-            found[answer[1].strip()] = answer[2]
+            text = answer[1].strip()
+            line_part = LINE_ID.match(text)
+            parsed = (line_part[1], line_part[2], int(line_part[3]), line_part[4]) if line_part else None
+            found.append([text, answer[2], parsed, False])
     return found
+
+
+def apply_answers(signals, given):
+    """Set each signal's reason from the answers. An answer covers one signal and is used once. In order: the same
+    name; an answer with no fingerprint at the same line (an old answer still holds where the line has not moved);
+    then, for a signal that carries a fingerprint, an answer with the same kind, path and fingerprint wherever the
+    line now is. Several signals with one fingerprint need one answer each."""
+    def take(signal, matches):
+        for entry in given:
+            if not entry[3] and matches(entry):
+                entry[3] = True
+                signal.reason = entry[1]
+                return
+
+    for signal in signals:
+        take(signal, lambda entry: entry[0] == str(signal))
+    for signal in signals:
+        here = LINE_ID.match(str(signal))
+        if signal.reason or not here:
+            continue
+        take(signal, lambda entry: entry[2] is not None and entry[2][3] is None
+             and entry[2][:3] == (signal.kind, signal.path, int(here[3])))
+    for signal in signals:
+        here = LINE_ID.match(str(signal))
+        if signal.reason or not here or not here[4]:
+            continue
+        take(signal, lambda entry: entry[2] is not None and entry[2][3] == here[4]
+             and entry[2][:2] == (signal.kind, signal.path))
 
 
 def resolve(root, rev):
@@ -536,8 +588,7 @@ def main(argv=None, root=ROOT):
     except CannotRead as exc:
         print(f"weakening-scan: {exc}")
         return 2
-    for signal in found:
-        signal.reason = given.get(str(signal))
+    apply_answers(found, given)
     open_ones = [signal for signal in found if not signal.reason]
     print(f"committed {base[:7]}..{head[:7]}: {len(found)} signal(s), {len(open_ones)} unanswered")
     for signal in found:
