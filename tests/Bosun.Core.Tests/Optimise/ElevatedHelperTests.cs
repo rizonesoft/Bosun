@@ -657,7 +657,28 @@ public sealed class ElevatedHelperTests : IDisposable
         }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
 
         Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
-        Assert.Contains("now reads '1', not '2'", result.Message);
+        Assert.Contains("the setting now reads '1'", result.Message);
+    }
+
+    [Fact]
+    public async Task A_helper_that_reports_a_restore_of_another_value_than_the_confirmed_one_is_not_believed()
+    {
+        // Round 4: a complete Restored result with exit 0 and value_now 'B' was taken as it said, though 'A' was confirmed.
+        var item = new Item();
+        var log = new RecordingLog();
+        var coordinator = CoordinatorWith(item, (c, files) =>
+        {
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started], new HelperFinal(ChangeStatus.Restored, "Restored", null, true, "9", false), null, null));
+            return 0;   // it says it restored '9' and wrote nothing
+        }, log, out var store);
+        var applied = new ChangeRunner(store, log, elevated: true).Apply(item, item.Propose().Value!);
+        Assert.Equal("2", item.Value);
+
+        var result = await coordinator.UndoAsync(item, applied.Backup, "1", TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Contains("'1' was confirmed", result.Message);
+        Assert.Equal("2", item.Value);
     }
 
     [Fact]

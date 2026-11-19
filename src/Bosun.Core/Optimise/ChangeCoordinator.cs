@@ -126,13 +126,19 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         if (result is { Final: { } final })
         {
             var mapped = new ChangeResult(final.Status, final.Message, final.Backup is null ? null : new BackupRef(item.Id, final.Backup), final.Written, final.ValueNow, final.UndoWithheld);
-            // The helper's word is checked against the target: a change that says it holds the new value must read it.
-            var expected = request.Operation == HelperFiles.Apply ? request.Proposal?.After : null;
-            if (final.Status is ChangeStatus.Changed && expected is not null && ReadNow(item) is { } now && now != expected)
+            // The helper's word is checked against what was confirmed and against the target: an Apply that says it holds
+            // the new value, or an Undo that says it restored the confirmed one (round 4: a Restored result naming another
+            // value was taken as it said), must report that value and the setting must read it.
+            var apply = request.Operation == HelperFiles.Apply;
+            var expected = apply ? request.Proposal?.After : request.RestoreValue;
+            var success = apply ? final.Status is ChangeStatus.Changed : final.Status is ChangeStatus.Restored;
+            if (success && expected is not null && (final.ValueNow != expected || ReadNow(item) is not { } now || now != expected))
             {
-                var message = $"Could not be verified: the helper reported the change, but the setting now reads '{now}', not '{expected}'. {Recovery(item, final.Backup, out var backup, out var withheld)}";
+                var reads = ReadNow(item);
+                var told = apply ? "the change" : "the restore";
+                var message = $"Could not be verified: the helper reported {told} to '{final.ValueNow}', but '{expected}' was confirmed and the setting now reads '{reads ?? "nothing readable"}'. {Recovery(item, final.Backup, out var backup, out var withheld)}";
                 Say(item, "Result", ChangeLevel.Fail, message, final.Backup);
-                return new ChangeResult(ChangeStatus.CouldNotVerify, message, backup, Written: true, now, withheld);
+                return new ChangeResult(ChangeStatus.CouldNotVerify, message, backup, Written: true, reads, withheld);
             }
             return mapped;
         }
