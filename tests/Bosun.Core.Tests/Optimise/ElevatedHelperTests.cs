@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Bosun.Core.Optimise;
 using Xunit;
 
@@ -47,13 +48,18 @@ public sealed class ElevatedHelperTests : IDisposable
         public string After = "2";
         public bool Explode;
         public int Writes;
+        public int Reads;
 
         public string Id => id;
         public string Title => Explode ? throw new InvalidOperationException("the title faults") : "Disposable setting";
         public string Target => target;
         public bool NeedsElevation => elevated;
 
-        public Fact<string> Read() => Fact<string>.Read(Value);
+        public Fact<string> Read()
+        {
+            Reads++;
+            return Fact<string>.Read(Value);
+        }
 
         public Fact<Proposal> Propose() => Fact<Proposal>.Read(new Proposal(target, Value, After));
 
@@ -687,5 +693,186 @@ public sealed class ElevatedHelperTests : IDisposable
         }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "8", "2"), TestContext.Current.CancellationToken);
         Assert.False(moved.UndoOffered);
         Assert.Contains("Undo is not offered: The setting changed since this change", moved.Message);
+    }
+
+    // ---- review round 1 (D05 T02 §6) ----
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLink(string newName, string existing, IntPtr security);
+
+    private static void Junction(string link, string target)
+    {
+        var info = new System.Diagnostics.ProcessStartInfo("cmd.exe") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        info.ArgumentList.Add("/c");
+        info.ArgumentList.Add("mklink");
+        info.ArgumentList.Add("/J");
+        info.ArgumentList.Add(link);
+        info.ArgumentList.Add(target);
+        using var process = System.Diagnostics.Process.Start(info)!;
+        process.StandardOutput.ReadToEnd();
+        process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    [Fact]
+    public void The_helper_writes_its_result_through_a_new_file_and_never_through_the_predictable_temp_name()
+    {
+        var item = new Item();
+        var request = ApplyRequest(item, Invocation());
+        var helperFiles = new HelperFiles(_user);
+        helperFiles.WriteRequest(request);
+
+        // Something else already sits at the old temporary name: a link to a file the elevated token could damage.
+        var sentinel = Path.Combine(Folder("sentinel"), "precious.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(sentinel)!);
+        File.WriteAllText(sentinel, "precious");
+        var oldTemporary = helperFiles.ResultPath(request.Invocation) + ".tmp";
+        if (!CreateHardLink(oldTemporary, sentinel, IntPtr.Zero)) File.WriteAllText(oldTemporary, "precious"); // not NTFS: a plain file at that name still shows it
+
+        var exit = ElevatedHelper.Run(Args(request.Operation, request.ItemId, request.Invocation), AdminStanding(), RegistryOf(item));
+
+        Assert.Equal(ElevatedHelper.ExitDone, exit);
+        Assert.Equal(ChangeStatus.Changed, ResultOf(request).Final!.Status);
+        Assert.Equal("precious", File.ReadAllText(sentinel));
+        Assert.Equal("precious", File.ReadAllText(oldTemporary));
+        Assert.Empty(Directory.GetFiles(helperFiles.Folder, "*.result.json.*.tmp")); // its own temporary file is gone
+    }
+
+    [Fact]
+    public void A_helper_folder_that_a_junction_sends_elsewhere_is_refused_and_nothing_is_written_there()
+    {
+        var item = new Item();
+        var elsewhere = Folder("elsewhere");
+        Directory.CreateDirectory(elsewhere);
+        Directory.CreateDirectory(_user);
+        Junction(Path.Combine(_user, "helper"), elsewhere);
+        var request = ApplyRequest(item, Invocation());
+        new HelperFiles(_user).WriteRequest(request); // the panel's own write lands in the junction's target
+        var before = Directory.GetFileSystemEntries(elsewhere).Order().ToArray();
+
+        var exit = ElevatedHelper.Run(Args(request.Operation, request.ItemId, request.Invocation), AdminStanding(), RegistryOf(item));
+
+        Assert.Equal(ElevatedHelper.ExitRefused, exit);
+        Assert.Equal(before, Directory.GetFileSystemEntries(elsewhere).Order().ToArray());
+        Assert.Equal("1", item.Value);
+        Assert.False(Directory.Exists(Path.Combine(_user, "backups")));
+    }
+
+    [Fact]
+    public void A_backups_folder_that_a_junction_sends_elsewhere_is_refused_and_a_write_through_one_made_later_is_refused_too()
+    {
+        var item = new Item();
+        var elsewhere = Folder("elsewhere-backups");
+        Directory.CreateDirectory(elsewhere);
+        Directory.CreateDirectory(_user);
+        Junction(Path.Combine(_user, "backups"), elsewhere);
+        var request = ApplyRequest(item, Invocation());
+        new HelperFiles(_user).WriteRequest(request);
+
+        Assert.Equal(ElevatedHelper.ExitRefused, ElevatedHelper.Run(Args(request.Operation, request.ItemId, request.Invocation), AdminStanding(), RegistryOf(item)));
+        Assert.Empty(Directory.GetFileSystemEntries(elsewhere));
+        Assert.Equal("1", item.Value);
+
+        // A junction swapped in after the folder was checked is caught at the write itself.
+        var swapped = Folder("swapped");
+        Directory.CreateDirectory(Path.Combine(swapped, "data"));
+        var outside = Folder("outside");
+        Directory.CreateDirectory(outside);
+        var files = new ConfinedFiles(new PanelSettingsFiles(), Path.Combine(swapped, "data"));
+        Junction(Path.Combine(swapped, "data", "later"), outside);
+        Assert.Throws<IOException>(() => files.WriteNew(Path.Combine(swapped, "data", "later", "x.txt"), [1]));
+        Assert.Empty(Directory.GetFileSystemEntries(outside));
+        files.WriteNew(Path.Combine(swapped, "data", "inside", "x.txt"), [1]); // an ordinary folder inside is fine
+    }
+
+    [Fact]
+    public async Task A_result_that_does_not_fit_the_operation_and_the_exit_code_is_read_as_unreadable_and_the_target_is_read_again()
+    {
+        var item = new Item();
+        var readsAtExit = 0;
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            readsAtExit = item.Reads;
+            // An Apply that says Restored, with the exit code of a fault.
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [], new HelperFinal(ChangeStatus.Restored, "restored", null, true, "1", false), null, null));
+            return ElevatedHelper.ExitFaulted;
+        }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(ChangeStatus.Restored, result.Status);
+        Assert.Contains("does not fit", result.Message);
+        Assert.True(item.Reads > readsAtExit, "the target was read again");
+    }
+
+    [Fact]
+    public void A_result_is_consistent_only_with_its_operation_and_its_exit_code()
+    {
+        HelperResult Ending(string operation, ChangeStatus status) => new("i", operation, "x", [], new HelperFinal(status, "m", null, true, null, false), null, null);
+        Assert.True(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.Changed), "apply", ElevatedHelper.ExitDone));
+        Assert.True(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.CouldNotVerify), "apply", ElevatedHelper.ExitNotChanged));
+        Assert.True(ElevatedHelper.IsConsistent(Ending("undo", ChangeStatus.Restored), "undo", ElevatedHelper.ExitDone));
+        Assert.True(ElevatedHelper.IsConsistent(Ending("undo", ChangeStatus.NotChanged), "undo", ElevatedHelper.ExitNotChanged));
+        Assert.False(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.Restored), "apply", ElevatedHelper.ExitDone));
+        Assert.False(ElevatedHelper.IsConsistent(Ending("undo", ChangeStatus.Changed), "undo", ElevatedHelper.ExitDone));
+        Assert.False(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.Changed), "apply", ElevatedHelper.ExitNotChanged));
+        Assert.False(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.NotChanged), "apply", ElevatedHelper.ExitDone));
+        Assert.False(ElevatedHelper.IsConsistent(Ending("apply", ChangeStatus.Changed), "undo", ElevatedHelper.ExitDone));
+        Assert.True(ElevatedHelper.IsConsistent(new("i", "apply", "x", [], null, "no", null), "apply", ElevatedHelper.ExitRefused));
+        Assert.False(ElevatedHelper.IsConsistent(new("i", "apply", "x", [], null, "no", null), "apply", ElevatedHelper.ExitDone));
+        Assert.True(ElevatedHelper.IsConsistent(new("i", "apply", "x", [], null, null, "boom"), "apply", ElevatedHelper.ExitFaulted));
+        Assert.False(ElevatedHelper.IsConsistent(new("i", "apply", "x", [], Ending("apply", ChangeStatus.Changed).Final, "no", null), "apply", ElevatedHelper.ExitDone));
+    }
+
+    private sealed class CancellingElevation : IElevation
+    {
+        public int Calls;
+
+        public Task<ElevationStart> StartAsync(HelperCommand command, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromCanceled<ElevationStart>(new CancellationToken(true));
+        }
+    }
+
+    private void AssertCancelledCleanly(ChangeResult result, RecordingLog log)
+    {
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.False(result.Written);
+        Assert.Contains("cancelled", result.Message);
+        Assert.Empty(Directory.GetFiles(new HelperFiles(_user).Folder, "*.request.json"));
+        Assert.Contains(log.Steps, s => s.Outcome == "Cancelled before the prompt opened");
+    }
+
+    [Fact]
+    public async Task An_already_cancelled_token_leaves_no_waiting_line_and_no_request_and_returns_an_outcome()
+    {
+        var item = new Item();
+        var elevation = new FakeElevation(_ => 0);
+        var log = new RecordingLog();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var result = await Coordinator(item, elevation, log, out _).ApplyAsync(item, item.Propose().Value, cancelled.Token);
+
+        AssertCancelledCleanly(result, log);
+        Assert.Equal(0, elevation.Calls);
+        Assert.DoesNotContain(log.Steps, s => s.Outcome.Contains("Waiting for the administrator prompt"));
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public async Task A_cancellation_during_the_elevation_start_is_an_outcome_and_removes_the_request()
+    {
+        var item = new Item();
+        var elevation = new CancellingElevation();
+        var log = new RecordingLog();
+        var store = new BackupStore(_user);
+
+        var result = await new ChangeCoordinator(new ChangeRunner(store, log), store, log, elevation, new HelperFiles(_user), UserSid, _user)
+            .ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, elevation.Calls);
+        AssertCancelledCleanly(result, log);
     }
 }

@@ -89,11 +89,11 @@ public sealed partial class BackupStore
 
         var record = new Backup(itemId, proposal.Target, operation, proposal.Before, proposal, created, name);
         var bytes = Serialize(record);
-        var temporary = Path.Combine(folder, "." + name + ".tmp");
+        var temporary = Path.Combine(folder, "." + name + "." + Guid.NewGuid().ToString("N") + ".tmp");
         var moved = false;
         try
         {
-            _files.Write(temporary, bytes);
+            _files.WriteNew(temporary, bytes);
             if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes))
                 throw new BackupException("the backup did not read back as it was written");
             _files.MoveNew(temporary, finalPath);
@@ -204,11 +204,11 @@ public sealed partial class BackupStore
     /// <summary>Temp file, read back, moved in without replacing anything, read once more: the way every record beside a backup is kept.</summary>
     private void WriteSidecar(string path, Backup backup, byte[] bytes, string what, string temporaryName)
     {
-        var temporary = Path.Combine(Folder(backup.ItemId), temporaryName);
+        var temporary = Path.Combine(Folder(backup.ItemId), temporaryName[..^4] + "." + Guid.NewGuid().ToString("N") + ".tmp");
         var moved = false;
         try
         {
-            _files.Write(temporary, bytes);
+            _files.WriteNew(temporary, bytes);
             if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException($"the {what} did not read back as it was written");
             _files.MoveNew(temporary, path);
             moved = true;

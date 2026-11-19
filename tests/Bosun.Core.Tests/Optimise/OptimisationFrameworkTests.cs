@@ -115,6 +115,12 @@ public sealed class OptimisationFrameworkTests : IDisposable
             base.Write(path, bytes);
         }
 
+        public override void WriteNew(string path, byte[] bytes)
+        {
+            if (FailWrite || (FailWhenPathContains is not null && path.Contains(FailWhenPathContains, StringComparison.Ordinal))) throw new IOException("the disk is full");
+            base.WriteNew(path, bytes);
+        }
+
         public override byte[] Read(string path, int limit)
         {
             var bytes = base.Read(path, limit);

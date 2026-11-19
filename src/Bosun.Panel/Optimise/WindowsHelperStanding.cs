@@ -12,19 +12,13 @@ namespace Bosun.Panel.Optimise;
 ///
 /// An account's folder is its profile's <c>AppData\Local\Bosun</c>, from the profile list, never from a request. When
 /// <c>BOSUN_PANEL_DATA</c> is set (a test, or a person who moved their data) only this process's own account is known,
-/// with that folder. <see cref="PanelOptimisations.TestElevatedVariable"/> =1 (elevated) or =0 (not) stands in for the token check, and only
-/// together with <see cref="PanelOptimisations.TestItemVariable"/>.
+/// with that folder. Elevation is the process token's and nothing else: no variable, argument or file can say it.
 /// </summary>
 public sealed class WindowsHelperStanding(Func<string, string?> environment) : IHelperStanding
 {
     private const string ProfileList = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
 
-    public bool IsElevated => TestSeam() ?? new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
-
-    /// <summary>The test seam: 1 says elevated and 0 says not, only while the test registration is on; otherwise null, and the real token decides.</summary>
-    private bool? TestSeam() =>
-        environment(PanelOptimisations.TestItemVariable) is not { Length: > 0 } ? null
-        : environment(PanelOptimisations.TestElevatedVariable) switch { "1" => true, "0" => false, _ => null };
+    public bool IsElevated => new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
 
     public string CurrentSid => WindowsIdentity.GetCurrent().User?.Value ?? throw new InvalidOperationException("this process has no user SID");
 

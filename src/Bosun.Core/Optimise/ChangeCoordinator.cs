@@ -55,8 +55,18 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             return Refused(item, $"Not {verb}: {e.Message}");
         }
 
+        if (cancellationToken.IsCancellationRequested) return CancelledBeforePrompt(item, request);
+
         Say(item, "Administrator", ChangeLevel.Info, "Waiting for the administrator prompt", null);
-        var start = await elevation.StartAsync(new HelperCommand(request.Operation, request.ItemId, request.Invocation), cancellationToken);
+        ElevationStart start;
+        try
+        {
+            start = await elevation.StartAsync(new HelperCommand(request.Operation, request.ItemId, request.Invocation), cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return CancelledBeforePrompt(item, request);
+        }
         switch (start.Kind)
         {
             case ElevationStartKind.Declined:
@@ -81,12 +91,28 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         return Conclude(item, request, exitCode);
     }
 
+    /// <summary>Cancelled before the helper started: the request is of no use to anyone, so it is removed, and nothing was written.</summary>
+    private ChangeResult CancelledBeforePrompt(IOptimisation item, HelperRequest request)
+    {
+        files.DeleteRequest(request.Invocation);
+        const string message = "Not changed: cancelled before the administrator prompt opened";
+        Say(item, "Cancelled", ChangeLevel.Warn, "Cancelled before the prompt opened", null);
+        return new ChangeResult(ChangeStatus.NotChanged, message, null, Written: false, null);
+    }
+
     /// <summary>The helper has exited: read its result and say what happened.</summary>
     private ChangeResult Conclude(IOptimisation item, HelperRequest request, int exitCode)
     {
         var verb = request.Operation == HelperFiles.Apply ? "changed" : "restored";
         var read = files.ReadResult(request.Invocation, request.Operation, request.ItemId);
         var result = read.Result;
+        // A result that disagrees with the operation or with how the helper ended is not the helper's word: it is read
+        // as an unreadable one, so the target is read again and recovery follows D05 T02 §2's rules.
+        if (result is { Complete: true } && !ElevatedHelper.IsConsistent(result, request.Operation, exitCode))
+        {
+            result = null;
+            read = new ResultRead(null, $"the result does not fit the {request.Operation} or the exit code {exitCode}");
+        }
         // Whatever the helper recorded is said in the order it happened, whole or not.
         if (result is not null)
             foreach (var step in result.Steps) Say(item, step.Step, step.Level, step.Outcome, step.Backup);

@@ -15,8 +15,9 @@ namespace Bosun.Panel.Tests.Optimise;
 /// child process through <see cref="ProcessRunner"/> (no window, a time limit, the whole process tree ended at the
 /// limit), against a disposable item the test registration puts in the executable (see <see cref="PanelOptimisations"/>:
 /// it exists only under <c>BOSUN_PANEL_TEST_ITEM</c>), in a data folder of the test's own (<c>BOSUN_PANEL_DATA</c>).
-/// A real UAC prompt is not run here (D99 T01 §5): elevation is the test variable <c>BOSUN_PANEL_TEST_ELEVATED</c>,
-/// honoured only with the test registration, and a run with it at 0 proves the refusal. A second Windows account
+/// A real UAC prompt is not run here (D99 T01 §5), and nothing in the executable stands in for the token: the tests that
+/// need the helper to act run only when this test process really is elevated (CI's Windows runners are) and are skipped
+/// with that reason otherwise; the refusal of an unelevated run is proven whenever the process is not elevated. A second Windows account
 /// cannot be made here, so the account rule is proven in Bosun.Core.Tests through two account folders, and here by the
 /// helper's refusal of a redirected folder, a folder no account owns and a request of another account.
 /// </summary>
@@ -44,12 +45,17 @@ public sealed class ElevatedHelperTests : IDisposable
 
     private static string Sid => WindowsIdentity.GetCurrent().User!.Value;
 
-    private Dictionary<string, string?> Env(string? mode = null, string? elevated = "1", string? instance = null) => new()
+    private static bool Elevated => new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+
+    /// <summary>The helper only acts under a really elevated token, so a test that needs it to act can only run in an elevated process.</summary>
+    private static void RequireElevated() =>
+        Assert.SkipUnless(Elevated, "This process is not elevated, and the helper only acts under a really elevated token (the executable has no override); it runs where the process is elevated, as on CI's Windows runners.");
+
+    private Dictionary<string, string?> Env(string? mode = null, string? instance = null) => new()
     {
         [PanelPaths.Variable] = _data,
         [PanelOptimisations.TestItemVariable] = _value,
         [PanelOptimisations.TestModeVariable] = mode,
-        [PanelOptimisations.TestElevatedVariable] = elevated,
         [InstanceName.Variable] = instance,
     };
 
@@ -119,19 +125,17 @@ public sealed class ElevatedHelperTests : IDisposable
     // ---- the registry and the test seam ----
 
     [Fact]
-    public void The_test_registration_and_the_elevation_seam_exist_only_under_their_test_variables()
+    public void The_test_registration_exists_only_under_its_variable_and_no_variable_says_elevated()
     {
         Assert.Empty(PanelOptimisations.Registry(_ => null).Items);
-        Assert.Empty(PanelOptimisations.Registry(name => name == PanelOptimisations.TestElevatedVariable ? "1" : null).Items);
+        Assert.Empty(PanelOptimisations.Registry(name => name == "BOSUN_PANEL_TEST_ELEVATED" ? "1" : null).Items);
         var registered = PanelOptimisations.Registry(name => name == PanelOptimisations.TestItemVariable ? _value : null);
         Assert.Equal([TestFileItem.ItemId], registered.Items.Select(i => i.Id));
 
-        // The seam says elevated, or not, only with the registration; without it the real token decides, whatever the variable says.
-        var real = new WindowsHelperStanding(_ => null).IsElevated;
-        Assert.Equal(real, new WindowsHelperStanding(name => name == PanelOptimisations.TestElevatedVariable ? "1" : null).IsElevated);
-        Assert.Equal(real, new WindowsHelperStanding(name => name == PanelOptimisations.TestElevatedVariable ? "0" : null).IsElevated);
-        Assert.True(new WindowsHelperStanding(name => name switch { PanelOptimisations.TestItemVariable => _value, PanelOptimisations.TestElevatedVariable => "1", _ => null }).IsElevated);
-        Assert.False(new WindowsHelperStanding(name => name switch { PanelOptimisations.TestItemVariable => _value, PanelOptimisations.TestElevatedVariable => "0", _ => null }).IsElevated);
+        // Elevation is the process token's, whatever any variable says, the test registration included.
+        Assert.Equal(Elevated, new WindowsHelperStanding(_ => null).IsElevated);
+        Assert.Equal(Elevated, new WindowsHelperStanding(name => name switch { PanelOptimisations.TestItemVariable => _value, "BOSUN_PANEL_TEST_ELEVATED" => "1", _ => null }).IsElevated);
+        Assert.Equal(Elevated, new WindowsHelperStanding(name => name switch { PanelOptimisations.TestItemVariable => _value, "BOSUN_PANEL_TEST_ELEVATED" => "0", _ => null }).IsElevated);
     }
 
     [Fact]
@@ -165,6 +169,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task The_real_executable_applies_undoes_and_undoes_that_undo_once_each_with_no_window()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
         var applyId = HelperFiles.NewInvocation();
         Files.WriteRequest(Apply(applyId));
@@ -199,6 +204,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task The_real_executable_refuses_every_mismatch_and_writes_nothing()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
 
         // An in-range substituted value: not the proposal the item makes.
@@ -232,11 +238,14 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task An_unelevated_run_is_refused_and_does_nothing()
     {
+        Assert.SkipWhen(Elevated, "This process is elevated, so a helper it starts is elevated too and the refusal of an unelevated one can't be shown here; it runs wherever the process is not elevated.");
         var invocation = HelperFiles.NewInvocation();
         Files.WriteRequest(Apply(invocation));
 
-        // The test seam says "not elevated"; the same request with it at 1 changes the setting (the first test).
-        var run = await Exe(Command("apply", invocation), Env(elevated: "0"), TestContext.Current.CancellationToken);
+        // The executable decides from its own token alone: no variable makes it act.
+        var env = Env();
+        env["BOSUN_PANEL_TEST_ELEVATED"] = "1";
+        var run = await Exe(Command("apply", invocation), env, TestContext.Current.CancellationToken);
 
         Assert.Equal(ProcessOutcome.Exited, run.Outcome);
         Assert.Equal(ElevatedHelper.ExitNotElevated, run.ExitCode);
@@ -248,6 +257,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task A_redirected_folder_an_unrelated_one_and_another_accounts_request_are_refused()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
 
         // Redirected: the request names a folder that is not this account's own. Nothing is written there.
@@ -278,6 +288,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task A_fault_or_a_failing_item_with_a_panel_already_running_shows_no_dialog_and_does_not_reach_it()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
         var name = StartupSupport.Name();
         var activations = new int[1];
@@ -326,6 +337,7 @@ public sealed class ElevatedHelperTests : IDisposable
 
     private async Task<ChangeResult> LostHelper(string mode)
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
         var elevation = new ExeElevation(() => Env(mode), cancel);
         var item = PanelItem(_value);
@@ -368,6 +380,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public async Task A_helper_killed_after_the_write_offers_undo_for_its_own_backup_and_the_undo_works()
     {
+        RequireElevated();
         var older = OlderBackup();
 
         var result = await LostHelper("die-after-write");
@@ -392,6 +405,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public void A_successful_apply_and_undo_reach_the_activity_pane_step_by_step()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
         var (applied, undone, lines, activations) = Sta.Run(() =>
         {
@@ -421,6 +435,7 @@ public sealed class ElevatedHelperTests : IDisposable
     [Fact]
     public void A_failed_verify_comes_back_with_its_undo_offered_and_a_fault_comes_back_as_a_fail_line()
     {
+        RequireElevated();
         var cancel = TestContext.Current.CancellationToken;
         var (verify, verifyLines, valueAfterVerify, faulted, faultLines) = Sta.Run(() =>
         {

@@ -49,7 +49,7 @@ public sealed record ResultRead(HelperResult? Result, string? Problem);
 
 /// <summary>
 /// The helper's two files in the initiating panel's data folder, <c>helper\&lt;invocation&gt;.request.json</c> and
-/// <c>helper\&lt;invocation&gt;.result.json</c>. Each is written to a temporary file, read back, put in place in one
+/// <c>helper\&lt;invocation&gt;.result.json</c>. Each is written to a new, uniquely named temporary file, read back, put in place in one
 /// step and read once more; a reader sees the old file or the new one, never half.
 /// </summary>
 public sealed partial class HelperFiles(string data, PanelSettingsFiles? files = null)
@@ -80,10 +80,12 @@ public sealed partial class HelperFiles(string data, PanelSettingsFiles? files =
 
     private void WriteWhole(string path, byte[] bytes, string what)
     {
-        var temporary = path + ".tmp";
+        // A name nothing else can have made: the file is created new (never opened, truncated or written through an
+        // existing file or a link to one), so an elevated write can't be steered onto another file.
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            _files.Write(temporary, bytes);
+            _files.WriteNew(temporary, bytes);
             if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new HelperProtocolException($"the {what} did not read back as it was written");
             _files.Replace(temporary, path);
             if (!_files.Read(path, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new HelperProtocolException($"the {what} in its place is not the one that was written");
@@ -99,6 +101,19 @@ public sealed partial class HelperFiles(string data, PanelSettingsFiles? files =
                 // It stays beside the file, under a name nothing reads.
             }
             throw e is HelperProtocolException own ? new HelperProtocolException($"The {what} could not be kept: {own.Message}") : new HelperProtocolException($"The {what} could not be written to {path}: {e.Message}");
+        }
+    }
+
+    /// <summary>Removes a request that will not be used (the prompt was never opened). A request that can't be removed stays, unread by anything.</summary>
+    public void DeleteRequest(string invocation)
+    {
+        try
+        {
+            _files.Delete(RequestPath(invocation));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // It stays under an invocation id nothing will ever start.
         }
     }
 

@@ -9,16 +9,16 @@ namespace Bosun.Panel.Optimise;
 ///
 /// A test registration: when <see cref="TestItemVariable"/> names a file, one disposable item whose value is that file
 /// is registered as <see cref="TestFileItem.ItemId"/>, so a test can run the real executable against a setting that
-/// touches nothing of the machine. <see cref="TestModeVariable"/> makes it misbehave on purpose, and
-/// <see cref="TestElevatedVariable"/> (=1) stands in for the helper's elevation check (see
-/// <see cref="WindowsHelperStanding"/>), honoured only together with the test registration. None of these is set in a
-/// normal start, and without <see cref="TestItemVariable"/> nothing of the test registration exists.
+/// touches nothing of the machine. <see cref="TestModeVariable"/> makes it misbehave on purpose. The test item only adds
+/// one harmless item whose value is a file the test names: it grants nothing, and nothing in the executable lets a
+/// variable stand in for the helper's elevation, which is only ever the process token's (see
+/// <see cref="WindowsHelperStanding"/>). Neither variable is set in a normal start, and without
+/// <see cref="TestItemVariable"/> nothing of the test registration exists.
 /// </summary>
 public static class PanelOptimisations
 {
     public const string TestItemVariable = "BOSUN_PANEL_TEST_ITEM";
     public const string TestModeVariable = "BOSUN_PANEL_TEST_ITEM_MODE";
-    public const string TestElevatedVariable = "BOSUN_PANEL_TEST_ELEVATED";
 
     public static OptimisationRegistry Registry(Func<string, string?> environment)
     {

@@ -71,6 +71,10 @@ public static class ElevatedHelper
         var holders = standing.Accounts().Where(a => new HelperFiles(a.DataFolder, files).HasRequest(command.Invocation)).ToList();
         if (holders.Count != 1) return ExitNoRequest;
         var account = holders[0];
+        // Before anything is written: a data folder (or its helper or backups folder) that a junction or link sends
+        // elsewhere is refused. Nothing is written, not even a result, because there is no safe place to put one.
+        if (FolderConfinement.Problem(account.DataFolder) is not null) return ExitRefused;
+        files = new ConfinedFiles(files ?? new PanelSettingsFiles(), account.DataFolder);
         var helperFiles = new HelperFiles(account.DataFolder, files);
         var recorder = new Recorder(helperFiles, command);
         try
@@ -145,7 +149,28 @@ public static class ElevatedHelper
             result = runner.Undo(item, reference);
         }
         recorder.Finish(result);
-        return result.Status is ChangeStatus.Changed or ChangeStatus.Restored ? ExitDone : ExitNotChanged;
+        return ExitFor(result.Status);
+    }
+
+    /// <summary>The exit code that goes with a final status: 0 for Changed and Restored, 1 for the rest.</summary>
+    public static int ExitFor(ChangeStatus status) => status is ChangeStatus.Changed or ChangeStatus.Restored ? ExitDone : ExitNotChanged;
+
+    /// <summary>
+    /// True when a complete result is consistent with the operation and with the exit code the helper ended with: Apply
+    /// ends Changed, NotChanged or CouldNotVerify and Undo Restored, NotChanged or CouldNotVerify (exit 0 for the first,
+    /// 1 for the others), a refusal is exit 2, a fault is exit 3, and a result is exactly one of those three.
+    /// </summary>
+    public static bool IsConsistent(HelperResult result, string operation, int exitCode)
+    {
+        if (result.Operation != operation) return false;
+        var ends = (result.Final is not null ? 1 : 0) + (result.Refusal is not null ? 1 : 0) + (result.Fault is not null ? 1 : 0);
+        if (ends != 1) return false;
+        if (result.Refusal is not null) return exitCode == ExitRefused;
+        if (result.Fault is not null) return exitCode == ExitFaulted;
+        var status = result.Final!.Status;
+        var allowed = operation == HelperFiles.Apply ? status is ChangeStatus.Changed or ChangeStatus.NotChanged or ChangeStatus.CouldNotVerify
+                                                    : status is ChangeStatus.Restored or ChangeStatus.NotChanged or ChangeStatus.CouldNotVerify;
+        return allowed && exitCode == ExitFor(status);
     }
 
     private static bool SameFolder(string a, string b) =>
