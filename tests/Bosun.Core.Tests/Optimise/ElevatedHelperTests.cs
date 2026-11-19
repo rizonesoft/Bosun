@@ -599,6 +599,7 @@ public sealed class ElevatedHelperTests : IDisposable
         new(command.Invocation, command.Operation, command.ItemId, steps, null, null, null);
 
     private static readonly HelperStep Started = new("Started", ChangeLevel.Info, "Helper running", null);
+    private static readonly HelperStep BackedUp = new("Backup", ChangeLevel.Info, "Backed up", "20261119T000000000Z-apply.json");
 
     [Fact]
     public async Task A_missing_truncated_or_unrelated_result_is_said_and_never_taken_for_a_success()
@@ -652,12 +653,42 @@ public sealed class ElevatedHelperTests : IDisposable
         var item = new Item();
         var result = await CoordinatorWith(item, (c, files) =>
         {
-            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started], new HelperFinal(ChangeStatus.Changed, "Changed: '1' to '2'", null, true, "2", false), null, null));
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started, BackedUp], new HelperFinal(ChangeStatus.Changed, "Changed: '1' to '2'", BackedUp.Backup, true, "2", false), null, null));
             return 0; // it says it wrote '2' and wrote nothing
         }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
 
         Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
         Assert.Contains("the setting now reads '1'", result.Message);
+    }
+
+    [Fact]
+    public async Task A_success_with_no_backup_recorded_before_its_write_is_not_believed()
+    {
+        // Round 5: exit 0, Changed, the confirmed value, written false, no backup and no steps was taken as a change.
+        var item = new Item();
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            item.Value = "2";   // the setting even reads the confirmed value
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [], new HelperFinal(ChangeStatus.Changed, "Changed", null, false, "2", false), null, null));
+            return 0;
+        }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Contains("no backup recorded before its write", result.Message);
+    }
+
+    [Fact]
+    public void A_result_whose_text_can_not_be_decoded_is_unreadable_never_an_exception()
+    {
+        // Round 5: an unpaired surrogate parsed, then GetString threw out of the reader.
+        var files = new HelperFiles(_user);
+        var invocation = HelperFiles.NewInvocation();
+        files.WriteResult(new HelperResult(invocation, "apply", "disposable.item", [Started], null, null, "boom"));
+        var path = Directory.GetFiles(files.Folder, invocation + "*").Single(f => !f.EndsWith(".request.json", StringComparison.Ordinal));
+        File.WriteAllText(path, File.ReadAllText(path).Replace("\"disposable.item\"", "\"\\ud800\""));   // the JSON escape, as text
+        var read = files.ReadResult(invocation, "apply", "disposable.item");
+        Assert.Null(read.Result);
+        Assert.NotNull(read.Problem);
     }
 
     [Fact]
@@ -668,7 +699,7 @@ public sealed class ElevatedHelperTests : IDisposable
         var log = new RecordingLog();
         var coordinator = CoordinatorWith(item, (c, files) =>
         {
-            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started], new HelperFinal(ChangeStatus.Restored, "Restored", null, true, "9", false), null, null));
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started, BackedUp], new HelperFinal(ChangeStatus.Restored, "Restored", BackedUp.Backup, true, "9", false), null, null));
             return 0;   // it says it restored '9' and wrote nothing
         }, log, out var store);
         var applied = new ChangeRunner(store, log, elevated: true).Apply(item, item.Propose().Value!);

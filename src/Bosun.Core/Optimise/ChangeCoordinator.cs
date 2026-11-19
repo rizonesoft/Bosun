@@ -132,6 +132,14 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             var apply = request.Operation == HelperFiles.Apply;
             var expected = apply ? request.Proposal?.After : request.RestoreValue;
             var success = apply ? final.Status is ChangeStatus.Changed : final.Status is ChangeStatus.Restored;
+            // A success is a write that was backed up first (round 5): it says it wrote, names its backup, and its own steps
+            // recorded that backup before the write. One without is a result the helper could not have made: unverifiable.
+            if (success && (!final.Written || final.Backup is null || !result.Steps.Any(s => s.Backup == final.Backup)))
+            {
+                var claimed = $"Could not be verified: the helper reported success with no backup recorded before its write. {Recovery(item, result.LastBackup, out var claimedBackup, out var claimedWithheld)}";
+                Say(item, "Result", ChangeLevel.Fail, claimed, result.LastBackup);
+                return new ChangeResult(ChangeStatus.CouldNotVerify, claimed, claimedBackup, Written: true, ReadNow(item), claimedWithheld);
+            }
             if (success && expected is not null && (final.ValueNow != expected || ReadNow(item) is not { } now || now != expected))
             {
                 var reads = ReadNow(item);

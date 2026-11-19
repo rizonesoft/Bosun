@@ -163,6 +163,12 @@ public sealed partial class HelperFiles(string data, PanelSettingsFiles? files =
         {
             return new(null, e.Message);
         }
+        // A string that parses but can't be decoded (an unpaired surrogate, round 5) is an unreadable result, said, never an
+        // exception out of the reader.
+        catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException or JsonException)
+        {
+            return new(null, $"the result can't be read: {e.Message}");
+        }
         if (result.Invocation != invocation) return new(null, "the result belongs to another invocation");
         if (result.Operation != operation || result.ItemId != itemId) return new(null, "the result is for another operation or item");
         return new(result, null);
