@@ -254,6 +254,44 @@ public sealed class ElevatedHelperTests : IDisposable
     }
 
     [Fact]
+    public async Task A_direct_undo_restores_only_the_backup_holding_the_confirmed_value()
+    {
+        // Round 2: the direct path ignored the confirmed value, so with two eligible backups (1 to 3 and 2 to 3) the
+        // second one restored 2 although 1 was confirmed.
+        var item = new Item(id: "plain.item", elevated: false);
+        var log = new RecordingLog();
+        var coordinator = Coordinator(item, new FakeElevation(_ => 0), log, out _);
+        item.After = "3";
+        item.Value = "1";
+        var first = await coordinator.ApplyAsync(item, item.Propose().Value!, TestContext.Current.CancellationToken);
+        item.Value = "2";
+        var second = await coordinator.ApplyAsync(item, item.Propose().Value!, TestContext.Current.CancellationToken);
+        Assert.Equal("3", item.Value);
+
+        var refused = await coordinator.UndoAsync(item, second.Backup, "1", TestContext.Current.CancellationToken);
+        Assert.False(refused.Written);
+        Assert.Contains("restores '2', not the '1' that was confirmed", refused.Message);
+        Assert.Equal("3", item.Value);
+
+        var undone = await coordinator.UndoAsync(item, first.Backup, "1", TestContext.Current.CancellationToken);
+        Assert.Equal(ChangeStatus.Restored, undone.Status);
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public async Task A_declined_or_failed_start_leaves_no_request_behind()
+    {
+        // Round 2: each declined prompt left another request, holding the proposal, in the user's data folder.
+        var item = new Item();
+        var log = new RecordingLog();
+        foreach (var start in new[] { ElevationStart.Declined, ElevationStart.Failed("the file is gone") })
+        {
+            await Coordinator(item, new FakeElevation(_ => 0) { Fixed = start }, log, out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+            Assert.Empty(Directory.Exists(new HelperFiles(_user).Folder) ? Directory.GetFiles(new HelperFiles(_user).Folder, "*.request.json") : []);
+        }
+    }
+
+    [Fact]
     public async Task A_declined_prompt_reaches_the_activity_as_not_changed()
     {
         var item = new Item();

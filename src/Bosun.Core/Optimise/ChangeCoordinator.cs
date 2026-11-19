@@ -38,7 +38,26 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
     public async Task<ChangeResult> UndoAsync(IOptimisation item, BackupRef? backup, string confirmedRestoreValue, CancellationToken cancellationToken = default)
     {
         var can = runner.CanUndo(item, backup);
-        if (!can.NeedsAdministrator) return runner.Undo(item, backup!);
+        if (!can.NeedsAdministrator)
+        {
+            // The same check the elevated helper makes (round 2): the backup restores the value the person was shown, or
+            // nothing is written. Two backups of one target can both be eligible; only the confirmed one is undone.
+            if (backup is not null && can.Allowed)
+            {
+                string? restores;
+                try
+                {
+                    restores = backups.Read(backup).Before;
+                }
+                catch (BackupException e)
+                {
+                    return Refused(item, $"Not restored: {e.Message}");
+                }
+                if (restores != confirmedRestoreValue)
+                    return Refused(item, $"Not restored: this backup restores '{restores}', not the '{confirmedRestoreValue}' that was confirmed");
+            }
+            return runner.Undo(item, backup!);
+        }
         var request = new HelperRequest(HelperFiles.NewInvocation(), HelperFiles.Undo, item.Id, initiatorSid, dataFolder, item.Target, null, backup!.Name, confirmedRestoreValue);
         return await ElevatedAsync(item, request, cancellationToken);
     }
@@ -70,8 +89,10 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         switch (start.Kind)
         {
             case ElevationStartKind.Declined:
+                files.DeleteRequest(request.Invocation);   // no helper started: the request is of no use (round 2)
                 return Refused(item, $"Not {verb}: you declined the administrator prompt");
             case ElevationStartKind.Failed:
+                files.DeleteRequest(request.Invocation);
                 return Refused(item, $"Not {verb}: the administrator helper could not be started: {start.Reason}");
         }
 
