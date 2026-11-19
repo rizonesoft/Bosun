@@ -1,9 +1,9 @@
-# Starts the unattended run (the campaign): an interactive session in this checkout, in this window, with every
+﻿# Starts the unattended run (the campaign): an interactive session in this checkout, in this window, with every
 # permission prompt off, the run guard switched on for it, its model chosen and its goal set.
 #
 #   pwsh scripts/start-run.ps1                    start the campaign in Claude Code, in this window, at medium effort
 #                                                 (the owner's choice, 2026-11-12), whatever the user's own default is
-#   pwsh scripts/start-run.ps1 -Agent antigravity the same campaign in Google Antigravity on Orchestrator (Carbon)
+#   pwsh scripts/start-run.ps1 -Agent antigravity the same campaign in Google Antigravity on Gemini 4 Neon at medium effort
 #                                                 (agy): every permission auto-approved, the goal as its opening prompt
 #                                                 (auto mode is not offered to this account); -AgyModel names another
 #                                                 model (non-orchestrator models also receive -Effort)
@@ -51,7 +51,7 @@ param(
   [string]$Agent = 'claude',
   [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
   [string]$Effort = 'medium',
-  [string]$AgyModel = 'gemini-pro-orchestrator',
+  [string]$AgyModel = 'gemini-4-neon-medium',
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and this session''s own heartbeat takes the run up again.'
 )
@@ -63,7 +63,7 @@ $launchers = @(
   @{ Agent = 'claude'; Name = 'Bosun Claude campaign'; Icon = 'bosun-campaign-claude.ico'; Fill = '#D97757'; Mark = 'claude.svg'
      Description = 'Start the unattended Bosun campaign in Claude Code' },
   @{ Agent = 'antigravity'; Name = 'Bosun Carbon campaign'; Icon = 'bosun-campaign-carbon.ico'; Fill = '#4C8DF6'; Mark = 'gemini.svg'
-     Description = 'Start the unattended Bosun campaign in Google Antigravity on Orchestrator (Carbon)' }
+     Description = 'Start the unattended Bosun campaign in Google Antigravity on Gemini 4 Neon (medium effort)' }
 )
 
 $antigravity = $Agent -eq 'antigravity'

@@ -1,4 +1,4 @@
-# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
+﻿# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
 # run changes nothing; and when the launcher's window process ends, nothing it started keeps running.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -31,7 +31,7 @@ try {
   Check ($read.Arguments -match '-NoExit' -and $read.Arguments.TrimEnd().EndsWith("`"$script`"")) 'the Claude shortcut runs this checkout''s own start script and keeps the window'
   Check ($carbon.Arguments -match '-NoExit' -and $carbon.Arguments.EndsWith("`"$script`" -Agent antigravity")) 'the Carbon shortcut starts the same script with -Agent antigravity'
   Check ((Split-Path $read.TargetPath -Leaf) -match '^pwsh') 'it runs PowerShell 7'
-  Check ($read.Description -eq 'Start the unattended Bosun campaign in Claude Code' -and $carbon.Description -match 'Google Antigravity on Orchestrator \(Carbon\)$') 'each says which runner it starts'
+  Check ($read.Description -eq 'Start the unattended Bosun campaign in Claude Code' -and $carbon.Description -match 'Google Antigravity on Gemini 4 Neon \(medium effort\)$') 'each says which runner it starts'
   # Each carries its own badged icon, rendered for this PC outside the repository (needs scripts/requirements-icons.txt).
   $claudeIcon = Join-Path $icons 'bosun-campaign-claude.ico'
   $carbonIcon = Join-Path $icons 'bosun-campaign-carbon.ico'
@@ -88,17 +88,18 @@ try {
   Check ($out -match '100% complete' -and $out -match 'query next') 'the goal names the finish line'
   Check ($out -notmatch 'guard resumes' -and $out -match 'own heartbeat takes the run up again') 'the goal promises no resume: the session''s own heartbeat carries a wait'
 
-  # The Antigravity run: every permission auto-approved, on Orchestrator (Carbon), and /goal as its opening prompt.
+  # The Antigravity run: every permission auto-approved, on Gemini 4 Neon at medium effort, and /goal as its opening prompt.
   $env:Path = Join-Path $env:SystemRoot 'System32'
   try {
     $out = (& $pwsh -NoProfile -File $script -Agent antigravity -DryRun) -join "`n"
+    $agyOut = $out
     $agyCode = $LASTEXITCODE
-    $agyNonOrch = (& $pwsh -NoProfile -File $script -Agent antigravity -AgyModel gemini-4-carbon -Effort high -DryRun) -join "`n"
-    $agyNonOrchCode = $LASTEXITCODE
+    $agyOrch = (& $pwsh -NoProfile -File $script -Agent antigravity -AgyModel gemini-pro-orchestrator -Effort high -DryRun) -join "`n"
+    $agyOrchCode = $LASTEXITCODE
   } finally { $env:Path = $path }
-  Check ($agyCode -eq 0 -and $out -match 'agy --dangerously-skip-permissions --model gemini-pro-orchestrator --prompt-interactive "/goal Finish the Bosun' -and $out -notmatch '--settings|maxStopHookContinuations' -and $out -match 'run-guard\.py start --session [0-9a-f-]{36} --runner antigravity --owner-pid') 'Antigravity starts with every prompt off, on Orchestrator (Carbon) with no --effort flag, under /goal, with no --settings, after claiming the guard'
+  Check ($agyCode -eq 0 -and $out -match 'agy --dangerously-skip-permissions --effort medium --model gemini-4-neon-medium --prompt-interactive "/goal Finish the Bosun' -and $out -notmatch '--settings|maxStopHookContinuations' -and $out -match 'run-guard\.py start --session [0-9a-f-]{36} --runner antigravity --owner-pid') 'Antigravity starts with every prompt off, on Gemini 4 Neon at medium effort, under /goal, with no --settings, after claiming the guard'
   Check ($out -match 'query next' -and $out -match 'wait for it in this session' -and $out -match 'run-guard\.py halt --ground operator' -and $out -match 'ends this goal' -and $out -notmatch 'heartbeat takes') 'its goal keeps the finish line, waits in-session (Antigravity has no heartbeat) and names the halt'
-  Check ($agyNonOrchCode -eq 0 -and $agyNonOrch -match 'agy --dangerously-skip-permissions --effort high --model gemini-4-carbon --prompt-interactive "/goal ' -and $agyNonOrch -notmatch '--settings|maxStopHookContinuations') 'a non-orchestrator model receives --effort and still passes no --settings'
+  Check ($agyOrchCode -eq 0 -and $agyOrch -match 'agy --dangerously-skip-permissions --model gemini-pro-orchestrator --prompt-interactive "/goal ' -and $agyOrch -notmatch '--effort|--settings|maxStopHookContinuations') 'an orchestrator model omits --effort and still passes no --settings'
 
   # A real start against a fake claude, a test registry key and a state file of its own: nothing real is started.
   $fake = Join-Path $work 'fake'
@@ -191,7 +192,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
   Set-Content (Join-Path $agyHome 'agy.cmd') "@`"$pythonExe`" `"%~dp0fake_agy.py`" %*" -Encoding ascii
   # Verify every CLI flag emitted for Antigravity is accepted by the installed agy binary (or the known flag set on CI).
   $emittedFlags = @(
-    foreach ($text in $out, $agyNonOrch) {
+    foreach ($text in $agyOut, $agyOrch) {
       $cmdLine = ($text -split "`n" | Where-Object { $_ -like 'agy *' } | Select-Object -Last 1)
       $head = ($cmdLine -split ' "/goal ', 2)[0]
       [regex]::Matches($head, '(?<= )--[a-z-]+') | ForEach-Object { $_.Value }
