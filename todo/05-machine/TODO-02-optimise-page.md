@@ -207,6 +207,8 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 
 ## 6. Elevated change helper
 
+> **Started:** 2026-11-19T06:17:05Z
+
 An item that changes a machine setting needs an administrator, and only that one action may ask: the panel never runs elevated. Filed 2026-11-19 from the plan review of `D05 T02 §2` (gaps 2, 6, 7 and 8), which split it out of `§2`.
 
 **Corrected 2026-11-19 (plan review):** seven gaps, all planned below. Eligibility tells "ready after an administrator prompt" apart from a refusal, and the shared path prompts exactly once (gap 1); the fixed command names the item, resolved through one registry that derives the target and proposal itself, and the helper checks it really is elevated (gap 2); a confirmed Undo carries the exact backup and the value the person saw (gap 3); the helper writes only into the initiating panel's own data folder, verified, never one a request names (gap 4); the invocation is linked to its backup before any write, and recovery after a lost helper goes by the target read again and `§2`'s Undo rules (gap 5); the panel tracks the helper off the UI thread and reads only a whole result bound to this invocation (gap 6); helper mode is chosen before the panel's crash handlers, so a helper fault never shows a dialog or restarts the panel (gap 7).
