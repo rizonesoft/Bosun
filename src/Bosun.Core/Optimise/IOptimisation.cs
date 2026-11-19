@@ -10,6 +10,9 @@ namespace Bosun.Core.Optimise;
 /// <param name="After">The value the change would write.</param>
 public sealed record Proposal(string Target, string Before, string After);
 
+/// <summary>The target no longer reads the value a write expected, so nothing was written: a newer value is never overwritten.</summary>
+public sealed class ChangeConflictException(string message) : Exception(message);
+
 /// <summary>
 /// One machine change the panel can make, undo and verify. An item is one setting at one exact target. It does the
 /// raw work only: <see cref="ChangeRunner"/> owns the order (confirm, back up, apply, verify, read again) and never
@@ -34,12 +37,20 @@ public interface IOptimisation
     /// <summary>What the item would change, its before value as read now; or why it can't propose one.</summary>
     Fact<Proposal> Propose();
 
-    /// <summary>Writes <see cref="Proposal.After"/>. Throws when it fails; it may have written before it threw.</summary>
-    void Apply(Proposal proposal);
+    /// <summary>
+    /// Writes <paramref name="after"/> only if the target still reads <paramref name="expectedBefore"/>, checked as
+    /// close to the write as the platform allows; else throws <see cref="ChangeConflictException"/> without writing.
+    /// Throws when it fails; it may have written before it threw (never before a <see cref="ChangeConflictException"/>).
+    /// </summary>
+    void Apply(string expectedBefore, string after);
 
     /// <summary>Reads the setting back: the value it holds now, for the runner to compare with <see cref="Proposal.After"/>.</summary>
     Fact<string> Verify(Proposal proposal);
 
-    /// <summary>Writes a backed-up value to the target. Throws when it fails; it may have written before it threw.</summary>
-    void Restore(string target, string value);
+    /// <summary>
+    /// Writes a backed-up <paramref name="value"/> only if the target still reads <paramref name="expectedCurrent"/>,
+    /// checked as close to the write as the platform allows; else throws <see cref="ChangeConflictException"/> without
+    /// writing. Throws when it fails; it may have written before it threw (never before a <see cref="ChangeConflictException"/>).
+    /// </summary>
+    void Restore(string expectedCurrent, string value);
 }

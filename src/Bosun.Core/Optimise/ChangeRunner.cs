@@ -80,7 +80,7 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
     /// Whether the change <paramref name="backup"/> belongs to can be undone now. Null is no change to undo. The
     /// backup is read (well formed, this item, this target) and the target must still hold what the change wrote.
     /// </summary>
-    public Eligibility CanUndo(IOptimisation item, BackupRef? backup) => CheckUndo(item, backup, out _);
+    public Eligibility CanUndo(IOptimisation item, BackupRef? backup) => CheckUndo(item, backup, out _, out _);
 
     /// <summary>Changes the setting to <paramref name="confirmed"/>, or refuses and changes nothing.</summary>
     public ChangeResult Apply(IOptimisation item, Proposal confirmed)
@@ -99,10 +99,20 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         }
         Say(item, "Backup", ChangeLevel.Info, "Written and read back", backup.Name, confirmed.Target);
 
+        // The target is read again as close to the write as the runner can: a value that moved since the person
+        // confirmed it (while the backup was being kept) is a newer value, and nothing is written over it.
+        var beforeWrite = ReadGuarded(item);
+        if (!beforeWrite.IsRead || beforeWrite.Value != confirmed.Before)
+            return Refuse(item, confirmed.Target, ChangedWhileApplying(beforeWrite));
+
         Exception? error = null;
         try
         {
-            item.Apply(confirmed);
+            item.Apply(confirmed.Before, confirmed.After);
+        }
+        catch (ChangeConflictException)
+        {
+            return Refuse(item, confirmed.Target, ChangedWhileApplying(null));
         }
         catch (Exception e)
         {
@@ -118,9 +128,9 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
     /// </summary>
     public ChangeResult Undo(IOptimisation item, BackupRef backup)
     {
-        var can = CheckUndo(item, backup, out var record);
+        var can = CheckUndo(item, backup, out var record, out var validated);
         if (!can.Allowed) return Refuse(item, item.Target, can.Reason!);
-        var current = item.Read().Value!; // CheckUndo has read it
+        var current = validated!; // the value CheckUndo read and accepted: never read again unguarded
 
         var undo = new Proposal(item.Target, current, record!.Before);
         BackupRef undoBackup;
@@ -134,10 +144,18 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         }
         Say(item, "Backup", ChangeLevel.Info, "Written and read back", undoBackup.Name, item.Target);
 
+        var beforeWrite = ReadGuarded(item);
+        if (!beforeWrite.IsRead || beforeWrite.Value != current)
+            return Refuse(item, item.Target, ChangedWhileApplying(beforeWrite, "restored"));
+
         Exception? error = null;
         try
         {
-            item.Restore(item.Target, record.Before);
+            item.Restore(current, record.Before);
+        }
+        catch (ChangeConflictException)
+        {
+            return Refuse(item, item.Target, ChangedWhileApplying(null, "restored"));
         }
         catch (Exception e)
         {
@@ -147,9 +165,10 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         return Finish(item, undo, undoBackup, error, ChangeStatus.Restored, "restored");
     }
 
-    private Eligibility CheckUndo(IOptimisation item, BackupRef? backup, out Backup? record)
+    private Eligibility CheckUndo(IOptimisation item, BackupRef? backup, out Backup? record, out string? validated)
     {
         record = null;
+        validated = null;
         if (backup is null) return Eligibility.No("Nothing to undo");
         if (backup.ItemId != item.Id) return Eligibility.No("That backup belongs to another item");
         try
@@ -161,18 +180,13 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
             return Eligibility.No($"The backup can't be trusted: {e.Message}");
         }
         if (record.Target != item.Target) return Eligibility.No("That backup is for another setting");
-        Fact<string> now;
-        try
-        {
-            now = item.Read();
-        }
-        catch (Exception e)
-        {
-            now = Fact<string>.Unavailable(e.Message);
-        }
+        var now = ReadGuarded(item);
         if (!now.IsRead) return Eligibility.No($"The setting could not be read: {now.Reason}");
-        // The target must still hold what the change wrote: anything else is a newer value an Undo would destroy.
-        if (now.Value != record.Proposal.After) return Eligibility.No("The setting changed since this change, so undoing it would overwrite a newer value");
+        // The target must still hold what the change wrote, or what a partly failed write was recorded as leaving
+        // (never a value the person or another program set since): anything else is a newer value an Undo would destroy.
+        if (now.Value != record.Proposal.After && now.Value != backups.ReadOutcome(record))
+            return Eligibility.No("The setting changed since this change, so undoing it would overwrite a newer value");
+        validated = now.Value;
         return NeedsAdministrator(item) ?? Eligibility.Yes;
     }
 
@@ -194,15 +208,8 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         {
             verified = Fact<string>.Unavailable($"verification failed: {e.Message}");
         }
-        Fact<string> now;
-        try
-        {
-            now = item.Read();
-        }
-        catch (Exception e)
-        {
-            now = Fact<string>.Unavailable(e.Message);
-        }
+        var now = ReadGuarded(item);
+        if (now.IsRead && now.Value != done.After && now.Value != done.Before) KeepOutcome(item, backup, now.Value!);
 
         var verifiedOk = verified.IsRead && verified.Value == done.After;
         var holdsNew = now.IsRead && now.Value == done.After;
@@ -234,6 +241,42 @@ public sealed class ChangeRunner(BackupStore backups, IChangeLog log, bool eleva
         Say(item, "Verify", status == success ? ChangeLevel.Info : ChangeLevel.Fail, verifiedOk ? "The item read the new value back" : "The item's own verification did not confirm it", backup.Name, done.Target);
         Say(item, "Result", status == success ? ChangeLevel.Info : status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, backup.Name, done.Target);
         return new ChangeResult(status, message, backup, Written: true, now.IsRead ? now.Value : null);
+    }
+
+    /// <summary>
+    /// A write left the target on a value that is neither the before nor the after (a partial write). It is kept beside
+    /// the backup so an Undo can tell it from a later edit.
+    /// </summary>
+    private void KeepOutcome(IOptimisation item, BackupRef backup, string observed)
+    {
+        try
+        {
+            backups.WriteOutcome(backups.Read(backup), observed);
+            Say(item, "Outcome", ChangeLevel.Info, $"Recorded that the setting read '{observed}' afterwards", backup.Name);
+        }
+        catch (BackupException e)
+        {
+            Say(item, "Outcome", ChangeLevel.Fail, $"The value the setting was left on could not be recorded: {e.Message}", backup.Name);
+        }
+    }
+
+    private static string ChangedWhileApplying(Fact<string>? read, string verb = "changed") =>
+        read is { IsRead: false }
+            ? $"Not {verb}: the setting could not be read just before the write ({read.Reason}): nothing was written"
+            : $"Not {verb}: The setting changed while it was being applied: nothing was written";
+
+    /// <summary>Every read goes through here: a read that fails is a reason and a log line, never an exception that escapes.</summary>
+    private Fact<string> ReadGuarded(IOptimisation item)
+    {
+        try
+        {
+            return item.Read();
+        }
+        catch (Exception e)
+        {
+            Say(item, "Read", ChangeLevel.Warn, $"The setting could not be read: {e.Message}", null);
+            return Fact<string>.Unavailable(e.Message);
+        }
     }
 
     private ChangeResult Refuse(IOptimisation item, string target, string reason)

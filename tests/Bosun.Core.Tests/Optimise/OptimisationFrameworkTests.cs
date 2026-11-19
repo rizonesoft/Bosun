@@ -30,21 +30,41 @@ public sealed class OptimisationFrameworkTests : IDisposable
         public bool ReadFails;
         public bool Elevated;
         public int Writes;
+        public bool IgnoresExpected; // an item that checks nothing at the write: only the runner then protects a newer value
+        public string? Partial; // Apply writes this instead of the after value, then throws
+        public Action? OnWrite; // runs just before the item compares and writes: another program changing the target
+        public Queue<Func<Fact<string>>> ReadScript { get; } = new();
 
         public string Id => id;
         public string Title => "Fake setting";
         public string Target => target;
         public bool NeedsElevation => Elevated;
 
-        public Fact<string> Read() => ReadFails ? Fact<string>.Unavailable("the fake can't be read") : Fact<string>.Read(Value);
+        public Fact<string> Read()
+        {
+            if (ReadScript.Count > 0) return ReadScript.Dequeue()();
+            return ReadFails ? Fact<string>.Unavailable("the fake can't be read") : Fact<string>.Read(Value);
+        }
 
         public Fact<Proposal> Propose() => ReadFails ? Fact<Proposal>.Unavailable("the fake can't be read") : Fact<Proposal>.Read(new Proposal(target, Value, After));
 
-        public void Apply(Proposal proposal)
+        private void CheckExpected(string expected)
+        {
+            OnWrite?.Invoke();
+            if (!IgnoresExpected && Value != expected) throw new ChangeConflictException($"it reads '{Value}', not '{expected}'");
+        }
+
+        public void Apply(string expectedBefore, string after)
         {
             if (ThrowBeforeWrite) throw new IOException("denied before writing");
+            CheckExpected(expectedBefore);
             Writes++;
-            Value = proposal.After;
+            if (Partial is not null)
+            {
+                Value = Partial;
+                throw new IOException("failed part way");
+            }
+            Value = after;
             if (ThrowAfterWrite) throw new IOException("failed after writing");
         }
 
@@ -54,10 +74,10 @@ public sealed class OptimisationFrameworkTests : IDisposable
             return Fact<string>.Read(VerifyReadsOther ? "something else" : Value);
         }
 
-        public void Restore(string restoreTarget, string restored)
+        public void Restore(string expectedCurrent, string restored)
         {
-            Assert.Equal(target, restoreTarget);
             if (RestoreLies) return;
+            CheckExpected(expectedCurrent);
             Writes++;
             Value = restored;
             if (RestoreThrowsAfterWrite) throw new IOException("restore failed after writing");
@@ -75,6 +95,15 @@ public sealed class OptimisationFrameworkTests : IDisposable
     {
         public bool FailWrite;
         public bool TruncateReads;
+        public Action? AfterMoveNew; // once: runs when a file has just been moved into place
+
+        public override void MoveNew(string from, string to)
+        {
+            base.MoveNew(from, to);
+            var run = AfterMoveNew;
+            AfterMoveNew = null;
+            run?.Invoke();
+        }
 
         public override void Write(string path, byte[] bytes)
         {
@@ -471,11 +500,11 @@ public sealed class OptimisationFrameworkTests : IDisposable
         public Fact<string> Read() => _written ? Fact<string>.Unavailable("gone dark") : inner.Read();
         public Fact<Proposal> Propose() => inner.Propose();
         public Fact<string> Verify(Proposal proposal) => inner.Verify(proposal);
-        public void Restore(string target, string value) => inner.Restore(target, value);
+        public void Restore(string expectedCurrent, string value) => inner.Restore(expectedCurrent, value);
 
-        public void Apply(Proposal proposal)
+        public void Apply(string expectedBefore, string after)
         {
-            inner.Apply(proposal);
+            inner.Apply(expectedBefore, after);
             _written = true;
         }
     }
@@ -502,9 +531,9 @@ public sealed class OptimisationFrameworkTests : IDisposable
         public bool NeedsElevation => false;
         public Fact<string> Read() => inner.Read();
         public Fact<Proposal> Propose() => inner.Propose();
-        public void Apply(Proposal proposal) { } // writes nothing
+        public void Apply(string expectedBefore, string after) { } // writes nothing
         public Fact<string> Verify(Proposal proposal) => Fact<string>.Read(proposal.After);
-        public void Restore(string target, string value) => inner.Restore(target, value);
+        public void Restore(string expectedCurrent, string value) => inner.Restore(expectedCurrent, value);
     }
 
     [Fact]
@@ -590,5 +619,161 @@ public sealed class OptimisationFrameworkTests : IDisposable
         var applied = Runner().Runner.Apply(new FakeItem(), shown with { Before = "1" });
         Assert.Equal(Eligibility.Yes, runner.CanUndo(new FakeItem { Value = "2" }, applied.Backup));
         Assert.Equal(Eligibility.No("Needs an administrator prompt"), runner.CanUndo(new FakeItem { Value = "2", Elevated = true }, applied.Backup));
+    }
+
+    // Review round 1 (D05 T02 §2)
+
+    [Fact]
+    public void Apply_never_overwrites_a_value_that_changed_while_the_backup_was_kept()
+    {
+        var item = new FakeItem { IgnoresExpected = true };
+        var files = new FaultFiles();
+        var (runner, log, _) = Runner(files);
+        var shown = Preview(item);
+        files.AfterMoveNew = () => item.Value = "5"; // the owning program updates it between the backup and the write
+
+        var result = runner.Apply(item, shown);
+
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.False(result.Written);
+        Assert.Contains("The setting changed while it was being applied: nothing was written", result.Message);
+        Assert.Equal("5", item.Value);
+        Assert.Equal(0, item.Writes);
+        Assert.Equal("Refused", log.Steps[^1].Step);
+    }
+
+    [Fact]
+    public void An_item_that_finds_the_value_moved_at_the_write_throws_a_conflict_and_is_reported_as_not_changed()
+    {
+        var item = new FakeItem();
+        var (runner, _, _) = Runner();
+        var shown = Preview(item);
+        item.OnWrite = () => item.Value = "5"; // changes after the runner's last read, inside the item's own write
+
+        var result = runner.Apply(item, shown);
+
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.False(result.Written);
+        Assert.Contains("changed while it was being applied: nothing was written", result.Message);
+        Assert.Equal("5", item.Value);
+        Assert.Equal(0, item.Writes);
+    }
+
+    [Fact]
+    public void Undo_never_overwrites_a_value_that_changed_while_its_backup_was_kept_or_at_the_restore()
+    {
+        foreach (var atTheRunner in new[] { true, false })
+        {
+            var item = new FakeItem();
+            var files = new FaultFiles();
+            var (runner, _, _) = Runner(files);
+            var applied = runner.Apply(item, Preview(item));
+            if (atTheRunner)
+            {
+                item.IgnoresExpected = true;
+                files.AfterMoveNew = () => item.Value = "9";
+            }
+            else
+            {
+                item.OnWrite = () => item.Value = "9";
+            }
+
+            var result = runner.Undo(item, applied.Backup!);
+
+            Assert.Equal(ChangeStatus.NotChanged, result.Status);
+            Assert.False(result.Written);
+            Assert.Contains("changed while it was being applied: nothing was written", result.Message);
+            Assert.Equal("9", item.Value);
+            Assert.Equal(1, item.Writes); // only the apply
+        }
+    }
+
+    [Fact]
+    public void Undo_refuses_without_an_exception_when_its_second_read_fails_or_differs()
+    {
+        var item = new FakeItem();
+        var (runner, log, _) = Runner();
+        var applied = runner.Apply(item, Preview(item));
+
+        item.ReadScript.Enqueue(() => Fact<string>.Read("2"));
+        item.ReadScript.Enqueue(() => throw new IOException("the backing file went away"));
+        var failed = runner.Undo(item, applied.Backup!);
+        Assert.False(failed.Written);
+        Assert.Equal(ChangeStatus.NotChanged, failed.Status);
+        Assert.Contains("could not be read", failed.Message);
+        Assert.Contains(log.Steps, s => s.Step == "Read" && s.Outcome.Contains("the backing file went away"));
+
+        item.ReadScript.Enqueue(() => Fact<string>.Read("2"));
+        item.ReadScript.Enqueue(() => Fact<string>.Read("9")); // a newer value on the second read
+        var differs = runner.Undo(item, applied.Backup!);
+        Assert.False(differs.Written);
+        Assert.Contains("changed while it was being applied", differs.Message);
+
+        Assert.Equal("2", item.Value);
+        Assert.Equal(1, item.Writes);
+    }
+
+    [Fact]
+    public void A_partial_write_is_undone_from_the_returned_backup_but_a_later_edit_is_still_refused()
+    {
+        var item = new FakeItem { Partial = "3" };
+        var (runner, _, store) = Runner();
+
+        var result = runner.Apply(item, Preview(item));
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Equal("3", result.ValueNow);
+        Assert.True(result.UndoOffered);
+        Assert.Equal(Eligibility.Yes, runner.CanUndo(item, result.Backup));
+        Assert.Equal("2", store.Read(result.Backup!).Proposal.After); // the backup itself is unchanged
+
+        item.Value = "4"; // a later edit, neither the after value nor what the partial write left
+        Assert.Contains("overwrite a newer value", runner.CanUndo(item, result.Backup).Reason);
+        Assert.False(runner.Undo(item, result.Backup!).Written);
+        Assert.Equal("4", item.Value);
+
+        item.Value = "3";
+        item.Partial = null;
+        var undone = runner.Undo(item, result.Backup!);
+        Assert.Equal(ChangeStatus.Restored, undone.Status);
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public void A_backup_with_an_undecodable_string_is_refused_with_a_reason_not_thrown()
+    {
+        var item = new FakeItem();
+        var (runner, _, store) = Runner();
+        var applied = runner.Apply(item, Preview(item));
+        var path = store.PathOf(applied.Backup!);
+        var text = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(path)).Replace("\"operation\": \"apply\"", "\"operation\": \"\\ud800\"");
+        File.WriteAllText(path, text);
+
+        var can = runner.CanUndo(item, applied.Backup);
+
+        Assert.False(can.Allowed);
+        Assert.Contains("can't be trusted", can.Reason);
+        Assert.False(runner.Undo(item, applied.Backup!).Written);
+    }
+
+    [Fact]
+    public void A_backup_copied_under_another_backups_name_is_refused()
+    {
+        var item = new FakeItem();
+        var time = new DateTimeOffset(2026, 11, 19, 1, 2, 3, TimeSpan.Zero);
+        var store = Store(clock: () => time);
+        var runner = new ChangeRunner(store, new RecordingLog());
+        var older = runner.Apply(item, Preview(item)); // 1 to 2
+        item.Value = "1";
+        time = time.AddSeconds(5);
+        var newer = runner.Apply(item, Preview(item)); // 1 to 2 again, a different backup
+        Assert.NotEqual(older.Backup, newer.Backup);
+        File.Copy(store.PathOf(older.Backup!), store.PathOf(newer.Backup!), overwrite: true);
+
+        var result = runner.Undo(item, newer.Backup!);
+
+        Assert.False(result.Written);
+        Assert.Contains("copied from another backup", result.Message);
+        Assert.Equal("2", item.Value);
     }
 }

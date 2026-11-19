@@ -110,6 +110,76 @@ public sealed partial class BackupStore
         return Parse(bytes, reference.ItemId, reference.Name);
     }
 
+    private string OutcomePath(BackupRef reference) => PathOf(reference) + ".outcome.json";
+
+    /// <summary>
+    /// Records what the target read after the change this backup belongs to, beside the backup (which stays
+    /// immutable): temp, read back, moved in without replacing anything. Throws <see cref="BackupException"/> when it
+    /// could not be kept. Written once; a second call for the same backup is refused.
+    /// </summary>
+    public void WriteOutcome(Backup backup, string observed)
+    {
+        var path = OutcomePath(backup.Ref);
+        var temporary = Path.Combine(Folder(backup.ItemId), "." + backup.Name + ".outcome.tmp");
+        var bytes = SerializeOutcome(backup, observed);
+        var moved = false;
+        try
+        {
+            _files.Write(temporary, bytes);
+            if (!_files.Read(temporary, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException("the outcome did not read back as it was written");
+            _files.MoveNew(temporary, path);
+            moved = true;
+            if (!_files.Read(path, MaxFileBytes).AsSpan().SequenceEqual(bytes)) throw new BackupException("the outcome in its place is not the one that was written");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or BackupException)
+        {
+            TryDelete(moved ? path : temporary);
+            throw new BackupException($"The outcome could not be kept: {e.Message}");
+        }
+    }
+
+    /// <summary>The value recorded for <paramref name="backup"/>'s change, or null when none was recorded or the record is not this backup's own.</summary>
+    public string? ReadOutcome(Backup backup)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = _files.Read(OutcomePath(backup.Ref), MaxFileBytes);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(bytes);
+            var root = document.RootElement;
+            string? Get(string key) => root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            return root.ValueKind == JsonValueKind.Object && Get("item_id") == backup.ItemId && Get("backup") == backup.Name && Get("target") == backup.Target ? Get("observed") : null;
+        }
+        catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static byte[] SerializeOutcome(Backup backup, string observed)
+    {
+        using var buffer = new MemoryStream();
+        using (var json = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            json.WriteStartObject();
+            json.WriteNumber("schema_version", SchemaVersion);
+            json.WriteString("item_id", backup.ItemId);
+            json.WriteString("backup", backup.Name);
+            json.WriteString("target", backup.Target);
+            json.WriteString("observed", observed);
+            json.WriteEndObject();
+        }
+        buffer.WriteByte((byte)'\n');
+        return buffer.ToArray();
+    }
+
     private static string SafeId(string id) =>
         id is not null && IdPattern().IsMatch(id) && !id.EndsWith('.') ? id : throw new BackupException($"'{id}' is not an item id a backup folder can be named after");
 
@@ -173,30 +243,43 @@ public sealed partial class BackupStore
         }
         using (document)
         {
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) throw new BackupException($"{name} is not a JSON object");
-            if (!root.TryGetProperty("schema_version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != SchemaVersion)
-                throw new BackupException($"{name} has no schema_version {SchemaVersion}");
-
-            string Text(JsonElement from, string key) =>
-                from.ValueKind == JsonValueKind.Object && from.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : throw new BackupException($"{name} has no {key}");
-
-            var item = Text(root, "item_id");
-            var target = Text(root, "target");
-            var operation = Text(root, "operation");
-            var before = Text(root, "before");
-            root.TryGetProperty("proposal", out var proposal);
-            var change = new Proposal(Text(proposal, "target"), Text(proposal, "before"), Text(proposal, "after"));
-            if (!DateTimeOffset.TryParseExact(Text(root, "created_utc"), "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var created))
-                throw new BackupException($"{name} has no valid created_utc");
-
-            if (item != itemId) throw new BackupException($"{name} is a backup for item '{item}', not '{itemId}'");
-            if (operation is not (Apply or Undo)) throw new BackupException($"{name} has the operation '{operation}'");
-            if (!name.EndsWith("-" + operation + ".json", StringComparison.Ordinal)) throw new BackupException($"{name} is named for another operation than its '{operation}'");
-            if (target != change.Target) throw new BackupException($"{name} names a target that is not its proposal's");
-            if (before != change.Before) throw new BackupException($"{name} holds a before value that is not its proposal's");
-            return new Backup(item, target, operation, before, change, created, name);
+            try
+            {
+                return Decode(document, itemId, name);
+            }
+            catch (Exception e) when (e is InvalidOperationException or FormatException or ArgumentException or JsonException)
+            {
+                throw new BackupException($"{name} could not be decoded: {e.Message}");
+            }
         }
+    }
+
+    private static Backup Decode(JsonDocument document, string itemId, string name)
+    {
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) throw new BackupException($"{name} is not a JSON object");
+        if (!root.TryGetProperty("schema_version", out var version) || version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != SchemaVersion)
+            throw new BackupException($"{name} has no schema_version {SchemaVersion}");
+
+        string Text(JsonElement from, string key) =>
+            from.ValueKind == JsonValueKind.Object && from.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : throw new BackupException($"{name} has no {key}");
+
+        var item = Text(root, "item_id");
+        var target = Text(root, "target");
+        var operation = Text(root, "operation");
+        var before = Text(root, "before");
+        root.TryGetProperty("proposal", out var proposal);
+        var change = new Proposal(Text(proposal, "target"), Text(proposal, "before"), Text(proposal, "after"));
+        if (!DateTimeOffset.TryParseExact(Text(root, "created_utc"), "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var created))
+            throw new BackupException($"{name} has no valid created_utc");
+
+        if (item != itemId) throw new BackupException($"{name} is a backup for item '{item}', not '{itemId}'");
+        if (operation is not (Apply or Undo)) throw new BackupException($"{name} has the operation '{operation}'");
+        if (!name.EndsWith("-" + operation + ".json", StringComparison.Ordinal)) throw new BackupException($"{name} is named for another operation than its '{operation}'");
+        if (target != change.Target) throw new BackupException($"{name} names a target that is not its proposal's");
+        if (before != change.Before) throw new BackupException($"{name} holds a before value that is not its proposal's");
+        if (name != Format(created) + "-" + operation + ".json") throw new BackupException($"{name} is not the name its own time and operation give it: it was copied from another backup");
+        return new Backup(item, target, operation, before, change, created, name);
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]

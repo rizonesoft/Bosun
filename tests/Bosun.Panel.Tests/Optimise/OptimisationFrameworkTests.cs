@@ -35,11 +35,11 @@ public sealed class OptimisationFrameworkTests : IDisposable
 
         public Fact<Proposal> Propose() => Fact<Proposal>.Read(new Proposal(Target, Value, "2"));
 
-        public void Apply(Proposal proposal) => Value = proposal.After;
+        public void Apply(string expectedBefore, string after) => Value = after;
 
         public Fact<string> Verify(Proposal proposal) => Fact<string>.Read(VerifyFails ? "unexpected" : Value);
 
-        public void Restore(string target, string value) => Value = value;
+        public void Restore(string expectedCurrent, string value) => Value = value;
     }
 
     [Fact]
