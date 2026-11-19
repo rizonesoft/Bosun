@@ -105,7 +105,10 @@ public static class ElevatedHelper
         HelperRequest request;
         try
         {
-            request = helperFiles.ReadRequest(command.Invocation);
+            // Claimed, not just read (round 9): a second run of this invocation finds nothing and writes nothing, so it can
+            // neither reapply a confirmation the person has since undone nor overwrite the first run's result.
+            if (helperFiles.ClaimRequest(command.Invocation) is not { } claimed) return ExitNoRequest;
+            request = claimed;
         }
         catch (HelperProtocolException e)
         {

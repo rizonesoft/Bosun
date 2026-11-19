@@ -120,17 +120,46 @@ public sealed partial class HelperFiles(string data, PanelSettingsFiles? files =
     /// <summary>True when this folder holds a request file for the invocation.</summary>
     public bool HasRequest(string invocation) => File.Exists(RequestPath(invocation));
 
-    /// <summary>Reads a request, refusing (<see cref="HelperProtocolException"/>) anything that is not a whole, well formed one.</summary>
-    public HelperRequest ReadRequest(string invocation)
+    /// <summary>Where a request is held once a helper has claimed it, for as long as it takes to read.</summary>
+    public string ClaimedPath(string invocation) => Path.Combine(Folder, Safe(invocation) + ".claimed.json");
+
+    /// <summary>
+    /// Claims the request for <paramref name="invocation"/> and reads it: the request is renamed to its claimed name in
+    /// one atomic move that fails when it is gone or already claimed, then read and removed. So an invocation runs at
+    /// most once (round 9): a retry of the same command, or a second helper racing the first, finds no request and gets
+    /// null, never the confirmation again. A request that is claimed but can't be read or parsed is refused
+    /// (<see cref="HelperProtocolException"/>) and is still used up.
+    /// </summary>
+    public HelperRequest? ClaimRequest(string invocation)
     {
+        var claimed = ClaimedPath(invocation);
+        try
+        {
+            _files.MoveNew(RequestPath(invocation), claimed);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
         byte[] bytes;
         try
         {
-            bytes = _files.Read(RequestPath(invocation), MaxFileBytes);
+            bytes = _files.Read(claimed, MaxFileBytes);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             throw new HelperProtocolException($"the request could not be read: {e.Message}");
+        }
+        finally
+        {
+            try
+            {
+                _files.Delete(claimed);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // It stays under its claimed name, which nothing ever reads as a request.
+            }
         }
         return ParseRequest(bytes);
     }

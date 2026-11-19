@@ -26,7 +26,12 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
     public async Task<ChangeResult> ApplyAsync(IOptimisation item, Proposal? confirmed, CancellationToken cancellationToken = default)
     {
         var can = runner.CanApply(item, confirmed);
-        if (!can.NeedsAdministrator) return runner.Apply(item, confirmed!); // runs, or refuses and says why: never prompts
+        if (!can.NeedsAdministrator)
+        {
+            // A cancelled action writes nothing, on the direct path as on the elevated one (round 9).
+            if (cancellationToken.IsCancellationRequested) return Refused(item, "Not changed: cancelled before anything was written");
+            return runner.Apply(item, confirmed!); // runs, or refuses and says why: never prompts
+        }
         var request = new HelperRequest(HelperFiles.NewInvocation(), HelperFiles.Apply, item.Id, initiatorSid, dataFolder, item.Target, confirmed, null, null);
         return await ElevatedAsync(item, request, cancellationToken);
     }
@@ -40,6 +45,7 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         var can = runner.CanUndo(item, backup);
         if (!can.NeedsAdministrator)
         {
+            if (cancellationToken.IsCancellationRequested) return Refused(item, "Not restored: cancelled before anything was written");
             // The confirmed restore value is checked by the runner against the backup record it reads for the restore.
             return runner.Undo(item, backup!, confirmedRestoreValue);
         }

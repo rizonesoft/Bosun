@@ -260,6 +260,49 @@ public sealed class ElevatedHelperTests : IDisposable
     }
 
     [Fact]
+    public async Task A_helper_invocation_runs_at_most_once_so_a_retry_can_not_reapply_an_undone_change()
+    {
+        // Round 9: the request was read, never used up, so rerunning the first command after an Undo reapplied the change.
+        var item = new Item();
+        var elevation = RealHelper(item);
+        var coordinator = Coordinator(item, elevation, new RecordingLog(), out _);
+        var applied = await coordinator.ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+        Assert.Equal(ChangeStatus.Changed, applied.Status);
+        var undone = await coordinator.UndoAsync(item, applied.Backup, "1", TestContext.Current.CancellationToken);
+        Assert.Equal(ChangeStatus.Restored, undone.Status);
+        Assert.Equal("1", item.Value);
+
+        var retry = ElevatedHelper.Run(elevation.Commands[0].Arguments, AdminStanding(), RegistryOf(item));
+
+        Assert.Equal(ElevatedHelper.ExitNoRequest, retry);
+        Assert.Equal("1", item.Value);
+        Assert.Empty(Directory.GetFiles(new HelperFiles(_user).Folder, "*.claimed.json"));
+    }
+
+    [Fact]
+    public async Task A_cancelled_direct_apply_or_undo_writes_nothing()
+    {
+        // Round 9: the direct path ran before the token was looked at, so a cancelled action still wrote.
+        var item = new Item(id: "plain.item", elevated: false);
+        var coordinator = Coordinator(item, new FakeElevation(_ => 0), new RecordingLog(), out var store);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var apply = await coordinator.ApplyAsync(item, item.Propose().Value, cancelled.Token);
+        Assert.Equal(ChangeStatus.NotChanged, apply.Status);
+        Assert.False(apply.Written);
+        Assert.Equal("1", item.Value);
+        Assert.Empty(store.List(item.Id, item.Value));
+
+        var applied = await coordinator.ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+        Assert.Equal("2", item.Value);
+        var undo = await coordinator.UndoAsync(item, applied.Backup, "1", cancelled.Token);
+        Assert.Equal(ChangeStatus.NotChanged, undo.Status);
+        Assert.False(undo.Written);
+        Assert.Equal("2", item.Value);
+    }
+
+    [Fact]
     public async Task A_direct_undo_restores_only_the_backup_holding_the_confirmed_value()
     {
         // Round 2: the direct path ignored the confirmed value, so with two eligible backups (1 to 3 and 2 to 3) the
