@@ -730,6 +730,24 @@ class ThrottleFailures(ThrottleCase):
         datetime.datetime.strptime(doc["at"], "%Y-%m-%dT%H:%M:%SZ")
 
 
+class ThrottleStop(ThrottleCase):
+    def test_a_stopping_service_puts_its_own_lowering_back(self):
+        # Round 6: a stopped service left a running job throttled until another logger started.
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.throttle.safe_load_state()[0])
+
+    def test_a_stopping_service_leaves_an_operators_value_and_an_untouched_slice_alone(self):
+        self.throttle.stop()                                          # nothing lowered: nothing written
+        self.assertEqual(self.slice.sets(), [])
+        self.tick(1000)
+        self.slice.value = 3 * GB                                     # the operator's
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, 3 * GB)
+
+
 class ThrottleDisableAndOperator(ThrottleCase):
     def test_turning_the_switch_off_while_lowered_restores(self):
         self.tick(1000)
@@ -1023,7 +1041,8 @@ class InstallScript(unittest.TestCase):
         self.assertIn("Environment=BOSUN_DISTRO=Ubuntu-24.04\n", unit)
 
     def test_install_fails_without_a_usable_distro_name(self):
-        for env in ({}, {"WSL_DISTRO_NAME": ""}, {"WSL_DISTRO_NAME": "../evil"}, {"WSL_DISTRO_NAME": "a b"}):
+        for env in ({}, {"WSL_DISTRO_NAME": ""}, {"WSL_DISTRO_NAME": "../evil"}, {"WSL_DISTRO_NAME": "a b"},
+                    {"WSL_DISTRO_NAME": "Ubuntu\nExecStartPre=/usr/bin/false"}):  # round 6: one good line passed
             done, unit = self.run_install(**env)
             self.assertNotEqual(done.returncode, 0, env)
             self.assertIsNone(unit, env)

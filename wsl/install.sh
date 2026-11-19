@@ -5,7 +5,8 @@ exe="$1"
 logs="$2"
 distro="${WSL_DISTRO_NAME:-}"
 # The logger's record names are keyed by this name, so it is given to the service explicitly, never guessed there.
-if ! printf '%s' "$distro" | grep -Eq '^[A-Za-z0-9._-]{1,64}$'; then
+# The whole value, never one line of it (round 6: a second line passed through grep and became a unit directive).
+if ! [[ "$distro" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
   echo "install.sh: WSL_DISTRO_NAME is missing or not a usable distro name (got: '$distro'); run it inside the WSL distro" >&2
   exit 1
 fi

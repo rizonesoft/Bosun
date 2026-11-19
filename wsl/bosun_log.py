@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -826,6 +827,23 @@ class Throttle:
             return self.lower(policy, total_mb)
         return self.report("idle", "Windows has enough memory")
 
+    def stop(self):
+        """The service is stopping: a limit Bosun lowered, and still holds as it set it, is put back now (round 6: a stopped
+        service left a running job throttled until another logger started). A limit an operator took over, or none, is
+        left as it is."""
+        if self.identity_fault:
+            return None
+        self.state, self.operator, self.state_fault = self.safe_load_state()
+        if self.state_fault or self.state is None:
+            return None
+        try:
+            current = self.read_limit()
+        except Failure as e:
+            return self.report("error", f"the logger is stopping and could not read {self.unit}: {e}; the original is kept for the next start")
+        if current != self.state["applied"]:
+            return None  # not Bosun's value any more: the next start decides, as for any sample
+        return self.restore("the logger is stopping")
+
     def decide_lowered(self, policy, policy_why, on, host_mb, host_why):
         state = self.state
         current = self.read_limit()
@@ -907,19 +925,29 @@ def main(argv):
     cache = {}
     last_clear = time.monotonic()
     throttle = Throttle(log_dir)
-    while True:
-        sample(log_dir, cache, interval)
-        if not once:  # a one-shot run never throttles: only the service owns the slice and its record
+    if not once:
+        # systemd stops the service with SIGTERM: it ends the loop through SystemExit, so the finally below restores.
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        while True:
+            sample(log_dir, cache, interval)
+            if not once:  # a one-shot run never throttles: only the service owns the slice and its record
+                try:
+                    throttle.run_once()
+                except Exception as e:  # nothing the throttle does may stop the sampling
+                    print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
+            if once:
+                return 0
+            if time.monotonic() - last_clear > 3600:
+                cache.clear()  # Repos get created and deleted during long runs.
+                last_clear = time.monotonic()
+            time.sleep(interval)
+    finally:
+        if not once:
             try:
-                throttle.run_once()
-            except Exception as e:  # nothing the throttle does may stop the sampling
-                print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
-        if once:
-            return 0
-        if time.monotonic() - last_clear > 3600:
-            cache.clear()  # Repos get created and deleted during long runs.
-            last_clear = time.monotonic()
-        time.sleep(interval)
+                throttle.stop()
+            except Exception as e:  # the stop's own failure is said; the original stays recorded for the next start
+                print(f"[bosun] pressure throttle could not restore on stop: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
