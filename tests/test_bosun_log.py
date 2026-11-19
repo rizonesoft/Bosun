@@ -1117,7 +1117,6 @@ class ThrottleReviewRound5(ThrottleCase):
         self.assertIn("someone else", self.status()["detail"])
 
 
-@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")
 class ThrottleReviewRound8(ThrottleCase):
     """The two findings of D05 T02 section 5's round 8, each a test that fails without its fix."""
 
