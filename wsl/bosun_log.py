@@ -671,10 +671,22 @@ class Throttle:
 
     def __init__(self, log_dir, systemctl=run_systemctl, unit=JOBS_SLICE, distro=None):
         self.log_dir, self.systemctl, self.unit = log_dir, systemctl, unit
-        self.distro = safe_distro(distro if distro is not None else os.environ.get("WSL_DISTRO_NAME"))
-        self.state_name, self.status_name = state_file(self.distro), status_file(self.distro)
-        self.state, self.operator, self.state_fault = self.safe_load_state()
+        # The identity comes from the installer (BOSUN_DISTRO in the unit), then from WSL. With neither, or a name that is
+        # not a safe file name, this logger has no identity and never throttles: a shared "default" record could be taken
+        # for another distro's (D05 T02 §5, round 4).
+        named = distro if distro is not None else (os.environ.get("BOSUN_DISTRO") or os.environ.get("WSL_DISTRO_NAME"))
+        self.distro = named if named and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', named) else None
+        self.identity_fault = None if self.distro else (
+            f"this logger has no distro identity ({'BOSUN_DISTRO or WSL_DISTRO_NAME is not a usable name' if named else 'neither BOSUN_DISTRO nor WSL_DISTRO_NAME is set'}), "
+            "so the pressure throttle changes nothing: reinstall with wsl/install.sh")
+        self.state_name, self.status_name = state_file(self.distro), status_file(self.distro)  # the status of a nameless logger is the "default" one
+        if self.distro:
+            self.state, self.operator, self.state_fault = self.safe_load_state()
+        else:
+            self.state, self.operator, self.state_fault = None, None, None
         self.last = None  # the last status, without its time
+        self.delivered = None  # the last status whose file write landed: a failed write is retried next sample
+        self.restore_written = False  # Bosun just put the original back and could not yet drop its record
 
     # -- the slice ---------------------------------------------------------------------------------------------------
     def read_limit(self):
@@ -742,7 +754,7 @@ class Throttle:
         try:
             self.save_state(None)
         except Failure:
-            pass  # the limit is back; the stale record is dropped when the next sample reads the original
+            self.restore_written = True  # the limit is back; the stale record is dropped when the next sample reads the original
         return True
 
     def restore(self, why):
@@ -788,6 +800,8 @@ class Throttle:
             return self.report("error", str(e))
 
     def decide(self, policy, policy_why, host_mb, host_why, total_mb):
+        if self.identity_fault:
+            return self.report("error", self.identity_fault)
         if self.state_fault:  # retried each sample: a record unreadable once is not unreadable for the logger's life
             self.state, self.operator, self.state_fault = self.safe_load_state()
         if self.state_fault:
@@ -809,7 +823,14 @@ class Throttle:
         state = self.state
         current = self.read_limit()
         if current == state["original"]:
-            # Back already (a restart of WSL drops a runtime limit): nothing to restore, and the record is dropped.
+            episode = on and not (host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"])
+            if episode and not self.restore_written:
+                # The original read back while Windows is still under pressure and Bosun did not just write it: the operator
+                # put it back (or WSL did), and it is theirs for the rest of this episode, as for a third value (round 4).
+                self.save_state(None, {"unit": self.unit, "seen": current})
+                return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, the original, though Bosun had lowered it: someone put it back, so Bosun left it and will not lower it again until this pressure episode ends")
+            # Bosun's own restore whose record was not dropped, or the episode is over: nothing to restore, record dropped.
+            self.restore_written = False
             self.save_state(None)
             return self.report("restored", f"{self.unit} is already back at {limit_text(current)}")
         ours = (state["applied"], state.get("seen")) if state.get("unverified") else (state["applied"],)
@@ -846,9 +867,12 @@ class Throttle:
         if doc != self.last and (self.last is None or doc["state"] != self.last["state"] or state == "error"):
             print(f"[bosun] pressure throttle {state}: {detail}", file=sys.stderr)
         quiet = state == "off" and not os.path.exists(os.path.join(self.log_dir, self.status_name))  # a machine that never opted in gets no file
-        if not quiet and (doc != self.last or state in ("lowered", "error")):
+        if quiet:
+            self.delivered = doc
+        elif doc != self.delivered or state in ("lowered", "error"):
             stamped = dict(doc, at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-            write_snapshot(self.log_dir, json.dumps(stamped, separators=(",", ":")) + "\n", name=self.status_name)
+            if write_snapshot(self.log_dir, json.dumps(stamped, separators=(",", ":")) + "\n", name=self.status_name):
+                self.delivered = doc  # only a write that landed counts as said
         self.last = doc
         return doc
 

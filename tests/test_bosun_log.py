@@ -763,7 +763,7 @@ class ThrottleDisableAndOperator(ThrottleCase):
         self.tick(1000)
         self.slice.value = 8 * GB                                       # the VM restarted: the runtime limit is gone
         sets = len(self.slice.sets())
-        self.assertEqual(self.tick(1000), "restored")
+        self.assertEqual(self.tick(9000), "restored")                   # the episode is over: dropped (under pressure it is a hold, round 4)
         self.assertEqual(len(self.slice.sets()), sets)
         self.assertIsNone(self.state_file())
 
@@ -831,7 +831,7 @@ class ThrottleReviewRound1(ThrottleCase):
         with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "Ubuntu-24.04"}):
             self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, "pressure-state-Ubuntu-24.04.json")
         with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "../evil"}):
-            self.assertEqual(dl.Throttle(self.dir, self.slice).state_name, "pressure-state-default.json")
+            self.assertIsNone(dl.Throttle(self.dir, self.slice).distro)   # a name that is no file name is no identity, never "default"
 
     def test_an_operators_take_over_is_kept_for_the_whole_episode_and_forgotten_after_it(self):
         self.assertEqual(self.tick(1000), "lowered")
@@ -926,6 +926,107 @@ class ThrottleReviewRound1(ThrottleCase):
         self.assertEqual(dl.read_host(self.dir, NOW)[0], 1000)
 
 
+class ThrottleReviewRound4(ThrottleCase):
+    """The three findings of D05 T02 section 5's round 4, each a test that fails without its fix."""
+
+    def test_an_operator_putting_the_original_back_mid_episode_is_held_off_for_the_episode(self):
+        self.slice.value = self.slice.initial = dl.INFINITY
+        self.assertEqual(self.tick(1000), "lowered")
+        self.slice.value = dl.INFINITY                                    # the operator sets the original back
+        sets = len(self.slice.sets())
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual((self.slice.value, len(self.slice.sets())), (dl.INFINITY, sets))   # never lowered again
+        self.assertEqual(self.throttle.operator["seen"], dl.INFINITY)
+        self.assertEqual(self.tick(9000), "idle")                         # recovery forgets the hold
+        self.assertEqual(self.tick(1000), "lowered")                      # a new episode: Bosun may lower again
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_bosuns_own_restore_whose_record_could_not_be_dropped_is_not_taken_for_an_operator(self):
+        self.tick(1000)
+        real = dl.write_snapshot
+        def refuse_state(log_dir, text, *a, **k):
+            return False if k.get("name") == self.throttle.state_name else real(log_dir, text, *a, **k)
+        with unittest.mock.patch.object(dl, "write_snapshot", refuse_state):
+            self.assertEqual(self.tick(9000), "restored")                 # the limit is back, the record could not be dropped
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertEqual(self.tick(1000), "restored")                     # next sample: Bosun's own restore, not a hold
+        self.assertIsNone(self.state_file())
+
+    def test_a_logger_with_no_identity_never_throttles_and_says_why(self):
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BOSUN_DISTRO", None)
+            os.environ.pop("WSL_DISTRO_NAME", None)
+            nameless = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice")
+        self.assertIsNone(nameless.distro)
+        self.host(1000)
+        self.assertEqual(nameless.run_once(now=NOW)["state"], "error")
+        self.assertIn("no distro identity", nameless.last["detail"])
+        self.assertEqual(self.slice.sets(), [])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "pressure-state-default.json")))
+        with open(os.path.join(self.dir, "pressure-status-default.json"), encoding="utf-8") as f:
+            self.assertIn("no distro identity", json.load(f)["detail"])
+
+    def test_the_installers_name_comes_before_wsls_and_each_distro_keeps_its_own_record(self):
+        with unittest.mock.patch.dict(os.environ, {"BOSUN_DISTRO": "Installed", "WSL_DISTRO_NAME": "FromWsl"}):
+            self.assertEqual(dl.Throttle(self.dir, self.slice).distro, "Installed")
+        with unittest.mock.patch.dict(os.environ, {"WSL_DISTRO_NAME": "FromWsl"}):
+            os.environ.pop("BOSUN_DISTRO", None)
+            self.assertEqual(dl.Throttle(self.dir, self.slice).distro, "FromWsl")
+
+    def test_a_status_write_that_failed_is_retried_on_an_idle_sample(self):
+        self.tick(1000)
+        real = dl.write_snapshot
+        def failing_status(*a, **k):   # only the status file's replace fails; the state record is written as usual
+            return real(*a, replace=self.refuse_replace, attempts=0, **k) if k.get("name") == self.throttle.status_name else real(*a, **k)
+        with unittest.mock.patch.object(dl, "write_snapshot", failing_status):
+            self.assertEqual(self.tick(9000), "restored")                 # its status write fails
+            self.assertEqual(self.tick(9000), "idle")                     # and so does the following idle sample's
+        self.assertEqual(self.status()["state"], "lowered")               # the old document is still on disk
+        self.assertEqual(self.tick(9000), "idle")                         # an idle sample with the write working again
+        self.assertEqual(self.status()["state"], "idle")                  # the disk shows the current status, not "lowered"
+        self.assertEqual(self.tick(9000), "idle")
+
+    @staticmethod
+    def refuse_replace(src, dst):
+        raise PermissionError("held open")
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("bash") and shutil.which("grep"), "needs Linux with bash")
+class InstallScript(unittest.TestCase):
+    """wsl/install.sh run against a temporary HOME and a stand-in systemctl: the unit it writes names the distro."""
+
+    def run_install(self, **env):
+        home = tempfile.mkdtemp(prefix="bosun-install-")
+        self.addCleanup(shutil.rmtree, home, True)
+        fake = os.path.join(home, "fakebin")
+        os.makedirs(fake)
+        with open(os.path.join(fake, "systemctl"), "w", newline="\n") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(os.path.join(fake, "systemctl"), 0o755)
+        environ = {k: v for k, v in os.environ.items() if k != "WSL_DISTRO_NAME"}
+        environ.update(HOME=home, PATH=fake + os.pathsep + os.environ["PATH"], **env)
+        done = subprocess.run(["bash", os.path.join(os.path.dirname(__file__), "..", "wsl", "install.sh"), "/mnt/c/bosun.exe", "/mnt/c/logs"],
+                              env=environ, capture_output=True, text=True, timeout=60)
+        unit = os.path.join(home, ".config", "systemd", "user", "bosun-log.service")
+        if not os.path.exists(unit):
+            return done, None
+        with open(unit, encoding="utf-8") as f:
+            return done, f.read()
+
+    def test_the_unit_carries_the_distro_name_from_install_time(self):
+        done, unit = self.run_install(WSL_DISTRO_NAME="Ubuntu-24.04")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("Environment=BOSUN_DISTRO=Ubuntu-24.04\n", unit)
+
+    def test_install_fails_without_a_usable_distro_name(self):
+        for env in ({}, {"WSL_DISTRO_NAME": ""}, {"WSL_DISTRO_NAME": "../evil"}, {"WSL_DISTRO_NAME": "a b"}):
+            done, unit = self.run_install(**env)
+            self.assertNotEqual(done.returncode, 0, env)
+            self.assertIsNone(unit, env)
+
+
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("systemctl") and shutil.which("systemd-run"), "needs Linux with systemd")
 class ThrottleOnARealSlice(unittest.TestCase):
     """Lowers and restores a disposable bosun-test.slice for real: its memory.high in the kernel's own cgroup file. Not
@@ -975,7 +1076,7 @@ class ThrottleOnARealSlice(unittest.TestCase):
         stderr = unittest.mock.patch.object(sys, "stderr", io.StringIO())
         stderr.start()
         self.addCleanup(stderr.stop)
-        throttle = dl.Throttle(self.dir, unit=self.UNIT)                 # the real systemctl
+        throttle = dl.Throttle(self.dir, unit=self.UNIT, distro="realslice")                 # the real systemctl
         windows = lambda available: {"schema_version": 1, "side": "windows", "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
                                      "memory": {"available_mb": available, "total_mb": 32000}}
 
