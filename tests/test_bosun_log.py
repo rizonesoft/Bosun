@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -1227,6 +1228,69 @@ class ThrottleReviewRound8(ThrottleCase):
         self.assertEqual((self.slice.value, len(self.slice.sets())), (GB, sets))
 
 
+class ThrottleReviewRound9(ThrottleCase):
+    def test_bosun_never_writes_the_parent_slice_in_any_path(self):
+        # The operator's cap lives on bosun.slice; every write Bosun makes is on its own level.
+        self.tick(1000)                       # lowers
+        self.tick(1100)                       # stays
+        self.tick(5000)                       # restores
+        self.tick(1000)                       # lowers again
+        self.policy(enabled=False)
+        self.tick(1000)                       # restores for the switch
+        self.tick(1000)
+        self.assertTrue(self.slice.sets())
+        for call in self.slice.calls:
+            self.assertNotIn("bosun.slice", call)
+            if call[0] == "set-property":
+                self.assertEqual(call[2], "bosun-jobs.slice")
+
+    def test_the_lowered_status_says_where_the_operators_own_cap_goes(self):
+        self.tick(1000)
+        self.assertIn("your own cap belongs on bosun.slice", self.status()["detail"])
+        self.tick(1100)
+        self.assertIn("your own cap belongs on bosun.slice", self.status()["detail"])
+
+    def test_a_fifo_at_each_input_path_is_refused_at_once(self):
+        for name in (dl.POLICY_FILE, "current-windows.json", self.throttle.state_name):
+            with self.subTest(name):
+                path = os.path.join(self.dir, name)
+                if os.path.exists(path):
+                    os.remove(path)
+                os.mkfifo(path)
+                result = {}
+                worker = threading.Thread(target=lambda: result.update(r=dl.read_small_json(path)), daemon=True)
+                worker.start()
+                worker.join(5)
+                try:
+                    self.assertFalse(worker.is_alive(), f"reading a FIFO at {name} blocked")
+                    doc, why = result["r"]
+                    self.assertIsNone(doc)
+                    self.assertIn("not a regular file", why)
+                finally:
+                    if worker.is_alive():   # release a blocked reader so the test process can end
+                        fd = os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+                        os.close(fd)
+                        worker.join(5)
+                    os.remove(path)
+
+    def test_the_throttle_with_a_fifo_policy_returns_at_once_and_says_why(self):
+        path = os.path.join(self.dir, dl.POLICY_FILE)
+        os.remove(path)
+        os.mkfifo(path)
+        result = {}
+        worker = threading.Thread(target=lambda: result.update(r=self.throttle.run_once(now=NOW)), daemon=True)
+        worker.start()
+        worker.join(5)
+        try:
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(result["r"]["state"], "off")
+            self.assertIn("not a regular file", result["r"]["detail"])
+        finally:
+            if worker.is_alive():
+                os.close(os.open(path, os.O_WRONLY | os.O_NONBLOCK))
+                worker.join(5)
+
+
 class ThrottleOnARealSlice(unittest.TestCase):
     """Lowers and restores a disposable bosun-test.slice for real: its memory.high in the kernel's own cgroup file. Not
     skipped where a systemd user session exists, and it fails rather than skips when that session can't run a scope."""
@@ -1250,9 +1314,11 @@ class ThrottleOnARealSlice(unittest.TestCase):
 
     def cleanup(self):
         # Always, even after a failure: the scope, the slice and the runtime limit this test wrote are removed.
-        for args in (["stop", self.scope + ".scope"], ["stop", self.UNIT], ["revert", self.UNIT]):
+        child = self.UNIT.replace(".slice", "-jobs.slice")
+        for args in (["stop", self.scope + ".scope"], ["stop", child], ["stop", self.UNIT], ["revert", child], ["revert", self.UNIT]):
             subprocess.run(["systemctl", "--user", *args], capture_output=True, timeout=30)
-        shutil.rmtree(os.path.join("/run/user", str(os.getuid()), "systemd", "user.control", self.UNIT + ".d"), ignore_errors=True)
+        for unit in (self.UNIT, child):
+            shutil.rmtree(os.path.join("/run/user", str(os.getuid()), "systemd", "user.control", unit + ".d"), ignore_errors=True)
         shutil.rmtree(self.dir, True)
 
     def kernel_limit(self):
@@ -1294,6 +1360,45 @@ class ThrottleOnARealSlice(unittest.TestCase):
         self.assertEqual(self.kernel_limit(), str(6144 * 1024 * 1024))
         self.assertEqual(tick(4097)["state"], "restored")
         self.assertEqual(self.kernel_limit(), "max")                      # and restored
+
+    def test_restoring_bosuns_level_leaves_the_operators_cap_on_the_parent_slice(self):
+        # Round 9: the operator's cap is on the parent (bosun-t<pid>r<rand>.slice here, bosun.slice for real) and Bosun works
+        # on the child (-jobs.slice, which systemd nests under it, as bosun-jobs.slice sits under bosun.slice).
+        child_unit = self.UNIT.replace(".slice", "-jobs.slice")
+        child_cgroup = os.path.join(self.cgroup, child_unit)
+        sysctl = lambda *a: subprocess.run(["systemctl", "--user", *a], capture_output=True, text=True, timeout=30)
+        proc = subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={child_unit}", f"--unit={self.scope}", "--", "sleep", "300"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(proc.wait)
+        self.addCleanup(lambda: subprocess.run(["systemctl", "--user", "kill", "--signal=KILL", self.scope + ".scope"], capture_output=True, timeout=30))
+        deadline = time.monotonic() + 20
+        while not os.path.exists(os.path.join(child_cgroup, "memory.high")) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        self.assertTrue(os.path.exists(os.path.join(child_cgroup, "memory.high")), f"the scope never started under {child_cgroup}")
+        done = sysctl("set-property", "--runtime", self.UNIT, "MemoryHigh=256M")   # the operator's own cap, on the parent
+        self.assertEqual(done.returncode, 0, done.stderr)
+        cap = str(256 * 1024 * 1024)
+        self.assertEqual(self.kernel_limit(), cap)
+
+        shutil.copy(FIXTURE, os.path.join(self.dir, dl.POLICY_FILE))
+        stderr = unittest.mock.patch.object(sys, "stderr", io.StringIO())
+        stderr.start()
+        self.addCleanup(stderr.stop)
+        throttle = dl.Throttle(self.dir, unit=child_unit, distro="realparent")
+        def tick(available):
+            with open(os.path.join(self.dir, "current-windows.json"), "w") as f:
+                json.dump({"schema_version": 1, "side": "windows", "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           "memory": {"available_mb": available, "total_mb": 32000}}, f)
+            with unittest.mock.patch.object(dl, "meminfo", lambda: {"MemTotal": 16 * 1024 * 1024}):
+                return throttle.run_once(now=NOW)
+
+        original = open(os.path.join(child_cgroup, "memory.high"), encoding="ascii").read().strip()
+        self.assertEqual(tick(2000)["state"], "lowered")
+        self.assertEqual(open(os.path.join(child_cgroup, "memory.high"), encoding="ascii").read().strip(), str(6144 * 1024 * 1024))
+        self.assertEqual(self.kernel_limit(), cap)                  # the parent is untouched while lowered
+        self.assertEqual(tick(4097)["state"], "restored")
+        self.assertEqual(open(os.path.join(child_cgroup, "memory.high"), encoding="ascii").read().strip(), original)
+        self.assertEqual(self.kernel_limit(), cap)                  # and after the restore the operator's cap is still there
 
 
 if __name__ == "__main__":

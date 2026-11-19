@@ -74,6 +74,10 @@ The limits live in `%LOCALAPPDATA%\Bosun\config.json`. A flag wins over a variab
 
 A value out of range is refused and the file is left as it was. If the file is damaged, every job says so once and runs on the defaults, and `config set` refuses to overwrite it: fix it by hand, or delete it to start again from the defaults.
 
+## Can I put my own memory cap on WSL jobs?
+
+Yes, on `bosun.slice`: run `systemctl --user set-property --runtime bosun.slice MemoryHigh=8G` in WSL (or a drop-in for it). Bosun's jobs run in `bosun.slice/bosun-jobs.slice`, which is Bosun's own level: under Windows memory pressure the logger lowers its `MemoryHigh` there and restores it afterwards, and never writes `bosun.slice`. A job is held by the tighter of the two limits (cgroup v2), so Bosun restoring its own level can never remove your cap. A limit someone sets on `bosun-jobs.slice` itself is still left alone, but your own cap belongs on `bosun.slice`.
+
 ## What stops a job from filling the disk?
 
 A job and everything it starts end together, and together they may write at most 100 GB. A job over that budget is stopped, children and all, and `bosun run` exits 74 and says why. A command that writes without end, such as a test whose fake child floods a log, would otherwise fill the drive, and a full system drive takes Windows and the WSL disk image on it down with it. Change the budget with `--max-write-gb` or `BOSUN_MAX_WRITE_GB`, and 0 turns it off.

@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -560,6 +561,13 @@ def write_instances(log_dir, **scan):
 # pressure-state-<distro>-u<uid>.json from before the first write until a read-back shows it restored, and what the throttle did or
 # why it could not is in pressure-status-<distro>-u<uid>.json: each user manager of each distro has its own slice (round 8), so each has
 # its own files in the shared Windows logs folder. Nothing here stops sampling.
+#
+# Ownership (round 9): bosun-jobs.slice is Bosun's own level, and an operator's own cap goes on its parent, bosun.slice,
+# which Bosun never writes. cgroup v2 applies the tighter of a cgroup's limit and its ancestors', so a job is held by the
+# operator's cap whatever Bosun does at its own level, and restoring bosun-jobs.slice can never remove it. A read followed
+# by a write on one slice can't be made safe against someone writing the same slice (two systemctl calls), so the design
+# keeps the operator off it; the checks below that hold a foreign value on bosun-jobs.slice are a safety net for an
+# operator who writes there anyway, and the restore race on that slice is out of an operator's way by design.
 
 POLICY_FILE = "pressure-policy.json"
 HOST_FUTURE_S = 60  # the most a Windows sample may be dated ahead of this clock (skew), past which it is invalid
@@ -572,6 +580,7 @@ def state_file(distro, uid):
 def status_file(distro, uid):
     return f"pressure-status-{safe_distro(distro)}-u{uid}.json"
 JOBS_SLICE = "bosun-jobs.slice"
+PARENT_SLICE = "bosun.slice"  # the operator's level: never written here
 HOST_STALE_S = 90  # three samples, as MemoryClient.StaleAfter
 MIN_JOB_LIMIT_MB = 1024
 MB = 1024 * 1024
@@ -584,13 +593,23 @@ class Failure(Exception):
 
 def read_small_json(path, limit=64 * 1024):
     """(document, None) for a file that parses, (None, None) for one that is not there, (None, why) for one that is not usable."""
+    # Opened without blocking and checked on the descriptor (round 9): a FIFO at the path, with no writer, would block open()
+    # for ever and stop the whole logger. Only a regular file is read, so a FIFO, a device or a directory is refused.
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read(limit + 1)
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
         return None, None
     except OSError as e:
         return None, f"{path} can't be read ({e.strerror})"
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None, f"{path} is not a regular file"
+        with os.fdopen(fd, encoding="utf-8", errors="replace", closefd=False) as f:
+            text = f.read(limit + 1)
+    except OSError as e:
+        return None, f"{path} can't be read ({e.strerror})"
+    finally:
+        os.close(fd)
     if len(text) > limit:
         return None, f"{path} is larger than {limit // 1024} KB"
     try:
@@ -832,7 +851,7 @@ class Throttle:
             return self.report("left_alone", f"{self.unit} reads {limit_text(got)} after Bosun wrote {limit_text(limit)}: someone else changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if got != limit:
             return self.abort_lowering(f"{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}")
-        return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor")
+        return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor (your own cap belongs on {PARENT_SLICE}, which Bosun never writes)")
 
     def abort_lowering(self, why):
         done = self.restore_now()
@@ -921,7 +940,7 @@ class Throttle:
             return self.restore(policy_why or ("automatic action was turned off" if policy is not None else "the policy file is gone"))
         if host_mb is not None and host_mb > policy["floor_mb"] + policy["recovery_band_mb"]:
             return self.restore("Windows has recovered")
-        return self.report("lowered", f"{self.unit} stays at {limit_text(state['applied'])}" + ("" if host_mb is not None else f": {host_why}"))
+        return self.report("lowered", f"{self.unit} stays at {limit_text(state['applied'])}" + ("" if host_mb is not None else f": {host_why}") + f" (your own cap belongs on {PARENT_SLICE})")
 
     def decide_operator(self, policy, policy_why, on, host_mb):
         """An operator took the slice over: nothing is touched until the episode ends (Windows over the floor plus the band) or
