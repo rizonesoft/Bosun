@@ -1,0 +1,147 @@
+{
+  "ref": "D05 T02 \u00a76",
+  "title": "Elevated change helper",
+  "implementation_sha": "7542734caeaa87d3252db4e68bb8e3e21df8bdac",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 10,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 11,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 12,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 13,
+      "report": "docs/reviews/05-machine/D05-T02-s6.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests -> total: 407, failed: 0 (ElevatedHelperTests included)",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests -> total: 1013, failed: 0, skipped: 9 (the elevated-only ElevatedHelperTests, run on CI's elevated runners)",
+    "python scripts/ci_status.py --gate --sha 7542734caeaa87d3252db4e68bb8e3e21df8bdac -> proceed: build.yml green https://github.com/rizonetech/Bosun/actions/runs/44512020414, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44512020473"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-machine/D05-T02-s6.md",
+    "verdict": "filed",
+    "candidate": "47251ef2df55c13038338430ab08a780da4da928",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D05 T02 \u00a710",
+      "D05 T02 \u00a711",
+      "D05 T02 \u00a73",
+      "D05 T02 \u00a77",
+      "D99 T01 \u00a75"
+    ]
+  },
+  "rounds_spent": 13,
+  "plan": {
+    "report": "docs/reviews/05-machine/D05-T02-s6.md",
+    "candidate": "cfe9055be29a25b4dc8a1cd48dc6fdf4a489857e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "cfe9055be29a25b4dc8a1cd48dc6fdf4a489857e",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

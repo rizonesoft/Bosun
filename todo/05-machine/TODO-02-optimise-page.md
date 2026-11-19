@@ -40,7 +40,7 @@ title: "TODO-02 -- Optimise"
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, §10, §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor: queued jobs throttled under pressure | §2 | [x] |
-| 6 | §6 | Elevated change helper | §2 | [ ] |
+| 6 | §6 | Elevated change helper | §2 | [x] |
 | 7 | §7 | Changes made before Bosun, with honest baselines | §2, §6 | [ ] |
 | 8 | §8 | Low memory priority for listed apps during pressure | §5 | [ ] |
 | 9 | §9 | Pressure automation settings, previewed before enabling | §5, §8 | [ ] |
@@ -235,9 +235,12 @@ An item that changes a machine setting needs an administrator, and only that one
 - [x] Bind the request to what the person confirmed: the invocation file (written by the panel temp-then-replace, read back) holds the operation, the item id (the same as on the command line), and for Apply the confirmed proposal, for Undo the exact `BackupRef` and the restore value the person saw; the helper derives the target from the registry and refuses any mismatch (an in-range substituted value, another target, another backup, a changed proposal) before writing. Done when: `ElevatedHelperTests` with two valid backups for one target refuse a substituted backup and a changed target, undo by the confirmed one, and undo that Undo by the backup it produced; and refuse an in-range substituted value, an unknown id, a mismatched operation and a changed proposal. Cheaper substitute: a range check alone.
 - [x] Link the invocation to its backup before any write: the helper records, in the invocation's own result file, each step as it happens (started, backup written with its name, write returned, verified, done), each record replacing the last whole (temp-then-replace). Done when: `ElevatedHelperTests` stop the helper before the backup, after it, and after the write, each with an older backup already present, and find the panel's recovery offers Undo only for the eligible backup (by `§2`'s rules and the target read again) and otherwise says why. Cheaper substitute: an exit code only.
 - [x] Track the helper in the panel off the UI thread (the process handle), and read the result only when the helper has exited, accepting only a whole result bound to this invocation id; a running helper is "Waiting for the administrator prompt" or "Applying", a helper that exited without a result, or with a truncated, stale or unrelated one, is said and recovered as above. Done when: `ElevatedHelperTests` drive the real result reader and Activity adapter through a successful Apply and Undo, a failed verify, a missing, truncated and mismatched result, and check the step order, the final value and the recovery offered. Cheaper substitute: a canned failure message.
-- [ ] Commit: `optimise: elevated change helper`
+- [x] Commit: `optimise: elevated change helper`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ElevatedHelperTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ElevatedHelperTests"` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-19 | §6 | 7542734caeaa87d3252db4e68bb8e3e21df8bdac
+> **Review:** `docs/reviews/d05-t02-s6.json`
 
 ## 7. Changes made before Bosun, with honest baselines
 

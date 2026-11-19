@@ -129,7 +129,7 @@ Sections: 11 | Checklist items: 68
 | [x]    | D05 T02 §1  | Diagnostics                                                   | none  | 6     |
 | [x]    | D05 T02 §2  | Preview, apply, verify, undo framework                        | none  | 8     |
 | [x]    | D05 T02 §5  | Pressure monitor: queued jobs throttled under pressure        | none  | 7     |
-| [ ]    | D05 T02 §6  | Elevated change helper                                        | none  | 8     |
+| [x]    | D05 T02 §6  | Elevated change helper                                        | none  | 8     |
 | [ ]    | D05 T02 §7  | Changes made before Bosun, with honest baselines              | none  | 7     |
 | [ ]    | D05 T02 §8  | Low memory priority for listed apps during pressure           | none  | 8     |
 | [ ]    | D05 T02 §9  | Pressure automation settings, previewed before enabling       | none  | 6     |
@@ -166,6 +166,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 86/111 verified sections, 2 ready to run now.
+Progress: 87/111 verified sections, 4 ready to run now.
 
-Checklist: 854/968 items completed (includes Commit items).
+Checklist: 855/968 items completed (includes Commit items).
