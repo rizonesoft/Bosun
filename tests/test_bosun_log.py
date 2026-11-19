@@ -850,6 +850,30 @@ class ThrottleReviewRound12(ThrottleCase):
         self.assertEqual(self.slice.sets(), [])
 
 
+class ThrottleReviewRound13(ThrottleCase):
+    def test_a_logger_that_dies_before_its_write_leaves_a_record_the_next_start_retries_not_an_operator_hold(self):
+        # Round 13: the record was saved as verified before the write; a crash in between left a slice at the original,
+        # which the next start took for an operator's override, and the jobs ran uncapped for the episode.
+        refused = self.slice.refuse_set
+        self.slice.refuse_set = True                                  # stands for the logger dying at the write
+        real_restore = self.throttle.restore_now
+        self.throttle.restore_now = lambda: "failed"                  # and never getting to roll back
+        self.tick(1000)
+        self.throttle.restore_now = real_restore
+        self.slice.refuse_set = refused
+        record = self.state_file()
+        self.assertTrue(record["unverified"])
+        self.assertEqual(self.slice.value, 8 * GB)                    # still the original
+        restarted = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha")
+        self.assertNotEqual(restarted.run_once(now=NOW)["state"], "left_alone")
+        self.assertEqual(restarted.run_once(now=NOW)["state"], "lowered")
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_a_lowering_read_back_is_marked_verified(self):
+        self.assertEqual(self.tick(1000), "lowered")
+        self.assertFalse(self.state_file()["unverified"])
+
+
 class ThrottleStop(ThrottleCase):
     def test_a_stopping_service_puts_its_own_lowering_back(self):
         # Round 6: a stopped service left a running job throttled until another logger started.

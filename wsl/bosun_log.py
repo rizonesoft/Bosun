@@ -840,8 +840,10 @@ class Throttle:
         current = self.read_limit()
         if current != INFINITY and current <= limit:
             return self.report("idle", f"{self.unit} is already at or under the policy's limit, so it is left alone")
-        # The original is on disk before the first write, so a crash between the two can't lose it.
-        self.save_state({"unit": self.unit, "original": current, "applied": limit, "unverified": False})
+        # The original is on disk before the first write, so a crash between the two can't lose it. Unverified until the
+        # read-back confirms the write (round 13): a logger that dies before writing leaves a record whose slice still reads
+        # the original, which the next start takes as a write that did not happen, never as an operator's change.
+        self.save_state({"unit": self.unit, "original": current, "applied": limit, "unverified": True})
         # Read again just before the write (round 7: an operator's limit set while the record was being saved was written
         # over, and lost on recovery). A change since the first read is the operator's: held, never written over. systemd
         # has no compare-and-set for a property, so this narrows the window to the write itself, the least it can be.
@@ -874,6 +876,12 @@ class Throttle:
             return self.report("left_alone", f"{self.unit} reads {limit_text(got)} after Bosun wrote {limit_text(limit)}: someone else changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if got != limit:
             return self.abort_lowering(f"{self.unit} reads {limit_text(got)} after the write, not {limit_text(limit)}")
+        try:
+            self.save_state(dict(self.state, unverified=False))
+        except Failure as e:
+            # The slice is lowered and read back; only the mark could not be saved. The record still holds the original, and
+            # the next sample reads the slice at Bosun's value and confirms it.
+            return self.report("error", f"{self.unit} lowered to {limit_text(limit)} and read back, but its record could not be marked verified ({e}); the next sample confirms it")
         return self.report("lowered", f"{self.unit} lowered from {limit_text(current)} to {limit_text(limit)}: Windows is under its floor (your own cap belongs on {PARENT_SLICE}, which Bosun never writes)")
 
     def abort_lowering(self, why):
