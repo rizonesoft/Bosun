@@ -134,7 +134,7 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             var success = apply ? final.Status is ChangeStatus.Changed : final.Status is ChangeStatus.Restored;
             // A success is a write that was backed up first (round 5): it says it wrote, names its backup, and its own steps
             // recorded that backup before the write. One without is a result the helper could not have made: unverifiable.
-            if (success && (!final.Written || final.Backup is null || !result.Steps.Any(s => s.Backup == final.Backup)))
+            if (success && (!final.Written || final.Backup is null || !BackedUpBeforeWrite(result.Steps, final.Backup)))
             {
                 var claimed = $"Could not be verified: the helper reported success with no backup recorded before its write. {Recovery(item, result.LastBackup, out var claimedBackup, out var claimedWithheld)}";
                 Say(item, "Result", ChangeLevel.Fail, claimed, result.LastBackup);
@@ -157,6 +157,23 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
 
         var why = read.Problem is not null ? $"{read.Problem}; {ElevatedHelper.ExitMeaning(exitCode)}" : $"it stopped part way; {ElevatedHelper.ExitMeaning(exitCode)}";
         return Lost(item, result, $"The administrator helper ended without a whole result ({why}; exit code {exitCode})", exitCode);
+    }
+
+    /// <summary>
+    /// Whether the helper's own steps show <paramref name="backup"/> written as a Backup step before any write step
+    /// (round 6: a later Verify or Result naming the backup was taken for the backup itself). A history without the
+    /// Backup step, or with it after the write, shows no backup taken first.
+    /// </summary>
+    private static bool BackedUpBeforeWrite(IReadOnlyList<HelperStep> steps, string backup)
+    {
+        var backedUp = -1;
+        for (var i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (step.Step == "Backup" && step.Backup == backup && backedUp < 0) backedUp = i;
+            if (step.Step is "Write" or "Write returned" && backedUp < 0) return false;   // written before any backup
+        }
+        return backedUp >= 0;
     }
 
     /// <summary>

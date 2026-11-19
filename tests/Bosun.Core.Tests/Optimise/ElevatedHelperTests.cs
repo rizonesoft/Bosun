@@ -678,6 +678,30 @@ public sealed class ElevatedHelperTests : IDisposable
     }
 
     [Fact]
+    public async Task A_success_whose_backup_appears_only_after_the_write_is_not_believed()
+    {
+        // Round 6: a history holding only a Verify step that names the backup was taken as backed up first.
+        var item = new Item();
+        var named = BackedUp.Backup;
+        foreach (var steps in new HelperStep[][]
+                 {
+                     [new("Verify", ChangeLevel.Info, "Reads '2'", named)],
+                     [new("Write returned", ChangeLevel.Info, "Apply returned", named), BackedUp],
+                 })
+        {
+            var result = await CoordinatorWith(item, (c, files) =>
+            {
+                item.Value = "2";
+                files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, steps, new HelperFinal(ChangeStatus.Changed, "Changed", named, true, "2", false), null, null));
+                return 0;
+            }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "1", "2"), TestContext.Current.CancellationToken);
+            item.Value = "1";
+            Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+            Assert.Contains("no backup recorded before its write", result.Message);
+        }
+    }
+
+    [Fact]
     public void A_result_whose_text_can_not_be_decoded_is_unreadable_never_an_exception()
     {
         // Round 5: an unpaired surrogate parsed, then GetString threw out of the reader.
