@@ -265,6 +265,8 @@ On 2026-11-07 the pagefile moved to `C:` at 32 to 50 GB and the Discord and Crea
 
 ## 8. Low memory priority for listed apps during pressure
 
+> **Started:** 2026-11-19T08:26:08Z
+
 An app the operator lists runs at low memory priority while Windows is under pressure, so Windows trims it first, and gets its own priority back after. Filed 2026-11-19 from the plan review of `D05 T02 §5` (gaps 5 and 7), which split it out of `§5`.
 
 **Corrected 2026-11-19 (plan review):** seven gaps, all planned below. The listed apps are a saved setting this section owns (gap 1); the pass is wired into the panel's own pressure check and runs every check of an episode, not only its edges (gap 2); a process already at or below LOW is never raised, and its first prior value is kept (gap 3); the recovery record is durable before any lowering (gap 4); one open process handle carries the identity check, the read, the write and the read-back, and a value changed by anyone else is never restored over (gap 5); the work runs off the UI thread, one pass at a time, finished before the final restore (gap 6); and every outcome reaches the Activity pane (gap 7).
