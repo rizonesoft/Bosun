@@ -37,9 +37,11 @@ title: "TODO-02 -- Optimise"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Diagnostics | D02 T02 §3 | [x] |
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [ ] |
-| 3 | §3 | Optimise page, WSL cap and startup entries | §2, D02 T03 §4, D02 T03 §7 | [ ] |
+| 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor and background memory priority | §2 | [ ] |
+| 6 | §6 | Elevated change helper | §2 | [ ] |
+| 7 | §7 | Changes made before Bosun, with honest baselines | §2 | [ ] |
 
 ## 1. Diagnostics
 
@@ -85,10 +87,11 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 
 **Corrected 2026-11-19** against the tree before building. Each correction says what the plan said before:
 
-- The Activity pane is the panel's (`src/Bosun.Panel/Shell/ActivityLog.cs`), so the framework in `Bosun.Core` reports each step through a small `IChangeLog` the panel adapts to it, as the other Core clients report through their callers. (It said "Activity logs each step" with no seam.)
-- A backup is the change's undo, so it is written as every persistent file here is, to a temporary file in the folder then replaced, and read back before anything changes; an Apply whose backup can't be written and read back is refused. (It named the folder only.)
-- "One fixed command" is the panel's own executable with one verb, `Bosun.Panel.exe --optimise-apply <item id> <request file>`, started with the `runas` verb only for an item that needs it. The elevated process trusts nothing it is handed: it reads the request, checks the item is one it knows and each value is inside that item's own allowed range, writes its own backup, applies, verifies and exits with a code the panel reads. A request it refuses changes nothing. (It said `runas` with one fixed command, unnamed.)
+- The Activity pane is the panel's (`src/Bosun.Panel/Shell/ActivityLog.cs`), so the framework in `Bosun.Core` reports each step through a small `IChangeLog` the panel adapts to it. (It said "Activity logs each step" with no seam.)
+- A backup is the change's undo, so it is written temp-then-replace and read back before anything changes; an Apply whose backup can't be written and read back is refused. (It named the folder only.)
 - The checkpoint used `--filter FullyQualifiedName~`, which Microsoft.Testing.Platform refuses: it is `--filter-class` now.
+
+**Corrected 2026-11-19 (plan review):** nine gaps. The section held three subsystems, so it is split: the elevated helper is `§6` (gaps 2, 6 and 7, and 8's crossing of the elevation boundary) and the changes made before Bosun are `§7` (gap 5); `§3` waits on both. The rest are planned here: Apply is bound to the exact proposal the person confirmed (gap 1); every outcome after a write keeps its backup and reads the target again (gap 3); a backup is bound to its exact target and operation and checked on read-back and before a restore (gap 4); backups live in the panel's own data folder (`PanelPaths`, `BOSUN_PANEL_DATA`), never a literal path (gap 8); and one eligibility result tells the row and the palette alike whether Apply or Undo can run and why not, `§3` registering the actions (gap 9).
 
 **Phase:** 5
 **Needs:** none
@@ -96,15 +99,17 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 
 **Build order:**
 
-1. The one path: Preview, a read-back backup, Apply, Verify, and Undo when Verify fails. Done when: an item can't apply without a saved backup, and a failing verify offers undo.
-2. Per-action elevation through one fixed command. Done when: only an action that needs it prompts UAC, and a refusal changes nothing.
-3. The changes already made are shown as applied, with honest baselines. Done when: an unknown original says so.
+1. The one path: a confirmed proposal, a read-back backup bound to its target, Apply, Verify. Done when: Apply runs only the proposal the person confirmed, on an unchanged target.
+2. Every outcome after a write is said and recoverable. Done when: no failed or interrupted change is ever reported as done.
+3. One eligibility result for every place that offers a change. Done when: the row and the palette say the same why.
 
-- [ ] Define `IOptimisation` in `src/Bosun.Core/Optimise/IOptimisation.cs` (an id, a title, whether it needs elevation, `Preview` giving the exact change as before and after, `Apply`, `Verify` reading the setting back, `Undo` from a backup) and `ChangeRunner`, the only way to run one: Preview, then the backup written to `%LOCALAPPDATA%\Bosun\backups\<id>-<UTC time>.json` through a temporary file replaced and read back, then Apply, then Verify; a failed Verify returns a result offering Undo, never a silent success; each step reported through `IChangeLog`. Done when: `OptimisationFrameworkTests` with a fake item see Apply refused when the backup write or its read-back fails (nothing changed), the steps in order in the log, a failing Verify offering Undo, and Undo restoring the backed-up value. Cheaper substitute: applying and hoping.
-- [ ] Keep backups whole: a backup is never overwritten (a new one per apply), an Undo reads the newest for its item and refuses a damaged one with why, and an Undo is itself backed up first, so it can be undone. Done when: `OptimisationFrameworkTests` undo twice, refuse a truncated backup, and find the files intact after a failed write. Cheaper substitute: one backup per item, overwritten.
-- [ ] Add `IElevation` (`Bosun.Core`) and its Windows form in the panel: `ShellExecute` with the `runas` verb on `Bosun.Panel.exe --optimise-apply <item id> <request file>`, for an item that needs elevation only; the request file written as backups are; UAC refused (error 1223) is "Not changed: you declined the administrator prompt", with nothing changed. Done when: `OptimisationFrameworkTests` with a fake refusal find no change and no backup claimed as applied, and an item that needs no elevation never calls `IElevation`. A real UAC prompt is proven in `D99 T01 §5`. Cheaper substitute: elevating the whole panel.
-- [ ] Handle `--optimise-apply` in `src/Bosun.Panel/App.xaml.cs` before any window: read the request, refuse an unknown item or a value outside that item's allowed range (a request edited between the panel writing it and the elevated process reading it can do no more than the item allows), then run the item through `ChangeRunner` and exit with a code the panel maps to words. Done when: `OptimisationFrameworkTests` run the entry point on a valid request, a tampered value, an unknown item and a missing file, each with its exit code and nothing changed for the refusals. Cheaper substitute: a general elevated helper that runs what it is told.
-- [ ] Show the changes made on 2026-11-07 (Discord and Creative Cloud startup entries turned off, the pagefile moved to `C:` at 32 to 50 GB) as Applied, each recording today's value as its baseline backup and saying its original is not known (the backups were kept only in that session's scratchpad). Done when: `OptimisationFrameworkTests` read each as Applied with "original not known" and an Undo that offers only the baseline, never an invented original. Cheaper substitute: claiming a backup exists from the old session.
+- [ ] Define `IOptimisation` in `src/Bosun.Core/Optimise/IOptimisation.cs`: an id, a title, whether it needs elevation, `Read` (the target's current value), `Propose` (a `Proposal`: the exact target, its before value as read and the after value), `Apply`, `Verify` reading the setting back, and `Restore` (writing a backed-up value). Done when: `OptimisationFrameworkTests` build a fake item and read its proposal's target, before and after. Cheaper substitute: free-text previews.
+- [ ] Add `ChangeRunner.Apply(confirmed proposal)`, the only way to change anything: it reads the target again and refuses, changing nothing, when the before value is not what the person confirmed (the setting changed since the preview) or the proposal is not the one the item proposes now (edited); then writes the backup, applies and verifies. A cancelled confirmation never reaches it. Done when: `OptimisationFrameworkTests` find the target untouched and a fresh preview asked for after a cancellation, an edited proposal and a setting changed between preview and apply. Cheaper substitute: previewing again just before writing.
+- [ ] Write each backup to `<panel data>\backups\<item id>\<UTC time>-<operation>.json` (the folder `PanelPaths` gives, `BOSUN_PANEL_DATA` in tests) temp-then-replace, read back, holding the item id, the exact target (for a startup entry its hive, view and name), the operation, the before value and the proposal it was taken for; a backup is never overwritten. Done when: `OptimisationFrameworkTests` find an Apply refused (nothing changed) when the write or read-back fails, and a test run writes nothing under the operator's own data folder. Cheaper substitute: one backup per item, overwritten.
+- [ ] Undo from the backup of the change being reversed, named by the applied result, never "the newest": it is checked on read (well formed, same item, same target, same operation) and again against the target before restoring, and an Undo is itself backed up first, so it can be undone. Done when: `OptimisationFrameworkTests` undo after reopening the store, after a later failed attempt, refuse a well-formed backup for a different target and a truncated one, and undo twice asserting the exact values each time. Cheaper substitute: restoring the newest file.
+- [ ] Say every outcome after a write, the backup kept for each: a write that then errors, a Verify that fails, an Undo that reports success but leaves another value, each read again and reported as changed, restored, or could not be verified, with Undo offered whenever a write may have happened. Done when: `OptimisationFrameworkTests` drive each and none is reported as a successful change or recovery. Cheaper substitute: trusting the item's own return value.
+- [ ] Report each step through `IChangeLog` (`Bosun.Core`) and adapt it to the panel's `ActivityLog` in `src/Bosun.Panel/Optimise/ActivityChangeLog.cs`: the step, the target, the outcome and the backup's name. Done when: a Panel `OptimisationFrameworkTests` case runs a disposable item through the real adapter and reads the Activity lines of a failed verify with its Undo offered. Cheaper substitute: a fake log only.
+- [ ] Give one eligibility result, `ChangeRunner.CanApply` and `CanUndo` (can it run, and why not: "Preview it first", "The setting changed since the preview", "Nothing to undo", "Needs an administrator prompt"), for every place that offers a change; `§3` registers the row and palette actions on it (-> XREF: D05 T02 §3). Done when: `OptimisationFrameworkTests` read each reason. Cheaper substitute: each button deciding for itself.
 - [ ] Commit: `optimise: change framework`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*OptimisationFrameworkTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OptimisationFrameworkTests"` exit 0, and fail if the change is reverted.
@@ -130,6 +135,7 @@ The first real items, chosen because they are the ones this machine has already 
 - [ ] Edit `.wslconfig` preserving all other keys and comments. Done when: a fixture keeps unrelated content byte for byte, and a running WSL gets a restart notice with no forced shutdown. Cheaper substitute: rewriting the file from a template, or running `wsl --shutdown` unasked.
 - [ ] Toggle Run key entries with a saved copy, tested against a disposable key under `HKCU\Software\Bosun\Test`. Done when: undo restores the exact value, and the real Run key is untouched by tests.
 - [ ] Add per-row Preview, Apply, Verify and Undo buttons in `Views/OptimiseView.xaml`. Done when: Apply is disabled until Preview has run, and a test walks all four against a disposable target. Cheaper substitute: one Apply button.
+- [ ] Register each row's Preview, Apply and Undo in the page's Ctrl+K commands (`PageBase.PaletteCommands`) on `§2`'s one eligibility result (**Added 2026-11-19** from the plan review of `D05 T02 §2`; -> XREF: D05 T02 §2): an Apply chosen before its Preview says why it can't run, and one chosen after uses the same confirmation and proposal as the row's button. Done when: a page test runs Apply from the palette before and after Preview and reads the same reason and target as the row.
 - [ ] Show what a waiting row waits for and until when, in `Views/OptimiseView.xaml`. Done when: a fixture row reads its date in words.
 - [ ] Draw each finding value the Optimise page can't read (a counter, a WSL cap whose `.wslconfig` can't be read or parsed) as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`). **Corrected 2026-11-19** (completion review of `D05 T02 §1`): the cap is the configured one, read from the file with WSL never started, so WSL stopped is no reason it is unavailable; it said "with WSL stopped". Done when: a test with WSL stopped and `memory=12GB` shows 12,288 MB, and one whose `.wslconfig` holds a bad value shows "Not available" with its reason, never 0. Cheaper substitute: a blank cell.
 - [ ] Commit: `optimise: page, WSL cap, startup entries`
@@ -176,6 +182,47 @@ Earlier design left these waiting for real peaks. The owner chose on 2026-11-07 
 - [ ] Commit: `machine: pressure monitor and memory priority`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1` then `build\Release\test_core.exe pressure` exits 0, and fails if the change is reverted.
+
+## 6. Elevated change helper
+
+An item that changes a machine setting needs an administrator, and only that one action may ask: the panel never runs elevated. Filed 2026-11-19 from the plan review of `D05 T02 §2` (gaps 2, 6, 7 and 8), which split it out of `§2`.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. One fixed elevated command that does exactly the confirmed change, or Undo, once, with no window. Done when: the entry point runs each operation once on a disposable item.
+2. The panel receives every step's result. Done when: a lost or failed helper is said, and its backup still offered.
+
+- [ ] Add `IElevation` (`Bosun.Core`) and its Windows form in the panel: `ShellExecute` with the `runas` verb on `Bosun.Panel.exe --optimise <apply|undo> <request file>`, for an item that needs elevation only; UAC refused (error 1223) is "Not changed: you declined the administrator prompt", with nothing changed. Done when: `ElevatedHelperTests` with a fake refusal find no change, and an item that needs no elevation never calls `IElevation`. A real UAC prompt is proven in `D99 T01 §5`. Cheaper substitute: elevating the whole panel.
+- [ ] Handle `--optimise` in `src/Bosun.Panel/App.xaml.cs` before `PanelStartup.Begin()` (so the launch is never forwarded to the running panel) and before any window: dispatch Apply or Undo through `§2`'s `ChangeRunner` exactly once, open no window, and exit. Done when: `ElevatedHelperTests` run the real entry point on a disposable registered item, each operation once, no window, and a declined elevated Undo leaves the target untouched. Cheaper substitute: a general elevated helper that runs what it is told.
+- [ ] Trust nothing in the request: the operation, the item id (the same on the command line and in the request), the target the registered item derives (never one the request names), and the values matching the confirmed proposal exactly, refusing any mismatch or malformed request before writing. Done when: `ElevatedHelperTests` refuse an in-range value substituted for the confirmed one, an out-of-range one, a mismatched id, another target, a malformed and a missing file, each with nothing changed. Cheaper substitute: a range check alone.
+- [ ] Write the helper's results where the panel finds them: each step, the outcome and the backup's name, to a result file beside the request in the initiating panel's data folder, named by the panel (the request names no write destination); the backup is written to that same folder, so a panel relaunched later finds it, even when another account's administrator credentials were given. Done when: `ElevatedHelperTests` read the result and the Activity lines of a failed verify, a launch failure, and a helper that exits without a result (said as "could not be verified", the target read again and its backup offered), and a relaunched store finds the backup. Cheaper substitute: an exit code only.
+- [ ] Commit: `optimise: elevated change helper`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ElevatedHelperTests"` exits 0, and fails if the change is reverted.
+
+## 7. Changes made before Bosun, with honest baselines
+
+On 2026-11-07 the pagefile moved to `C:` at 32 to 50 GB and the Discord and Creative Cloud startup entries were turned off, with backups kept only in that session's scratchpad. They are shown for what they are now, never with an invented original. Filed 2026-11-19 from the plan review of `D05 T02 §2` (gap 5), which split it out of `§2`.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Each earlier change's state is derived from `§1`'s diagnostics, never hard-coded. Done when: matching, drifted, missing and unreadable each read as such.
+2. A baseline is saved once and kept. Done when: a later visit never replaces it.
+
+- [ ] Derive each earlier change's state from `§1`'s facts in `src/Bosun.Core/Optimise/EarlierChanges.cs`: Applied when the setting still holds the change (the entry turned off; the pagefile configured and active as moved), Changed since when it does not (Discord turned on again; the configured pagefile not yet active until a restart, said as such), Gone when the entry is no longer there, and Not available with why when it can't be read. Done when: `EarlierChangesTests` read each of the four for each change. Cheaper substitute: three rows hard-coded as Applied.
+- [ ] Save each change's baseline once, the first time it is read, as a `§2` backup with "original not known: the 2026-11-07 backup was kept only in that session's scratchpad", reopened after a restart and never replaced by a later visit. Done when: `EarlierChangesTests` read it again after reopening the store, and find it unchanged after a later read with a different value. Cheaper substitute: today's value saved on every visit.
+- [ ] Tell an Undo to the baseline apart from reversing the 2026-11-07 change: restoring the baseline returns the setting to how Bosun first found it, said so, and the original before 2026-11-07 is never offered or invented. Done when: `EarlierChangesTests` offer the baseline only, and its words name it as the state Bosun first found. Cheaper substitute: claiming a backup exists from the old session.
+- [ ] Commit: `optimise: changes made before Bosun`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*EarlierChangesTests"` exits 0, and fails if the change is reverted.
 
 ## Verification
 
