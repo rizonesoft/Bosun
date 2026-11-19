@@ -727,8 +727,13 @@ class Throttle:
         operator = doc.get("operator") if mine else False
         if lowered is None and operator is None:
             return None, None, None
+        # The writer's own invariants (round 7): a limit Bosun can set (at least MIN_JOB_LIMIT_MB) lowered from an original
+        # above it (or infinity). A record that breaks them was never Bosun's and authorises no write.
         lowered_ok = lowered is None or (isinstance(lowered, dict) and lowered.get("unit") == self.unit and whole_number(lowered.get("applied"))
-                                         and (lowered.get("original") == INFINITY or whole_number(lowered.get("original"))))
+                                         and lowered["applied"] >= MIN_JOB_LIMIT_MB * MB
+                                         and (lowered.get("original") == INFINITY
+                                              or (whole_number(lowered.get("original")) and lowered["original"] > lowered["applied"]))
+                                         and isinstance(lowered.get("unverified", False), bool))
         operator_ok = operator is None or (isinstance(operator, dict) and operator.get("unit") == self.unit
                                            and (operator.get("seen") == INFINITY or whole_number(operator.get("seen"))))
         if not (mine and lowered_ok and operator_ok):
@@ -775,6 +780,17 @@ class Throttle:
             return self.report("idle", f"{self.unit} is already at or under the policy's limit, so it is left alone")
         # The original is on disk before the first write, so a crash between the two can't lose it.
         self.save_state({"unit": self.unit, "original": current, "applied": limit, "unverified": False})
+        # Read again just before the write (round 7: an operator's limit set while the record was being saved was written
+        # over, and lost on recovery). A change since the first read is the operator's: held, never written over. systemd
+        # has no compare-and-set for a property, so this narrows the window to the write itself, the least it can be.
+        try:
+            again = self.read_limit()
+        except Failure as e:
+            self.save_state(None)
+            return self.report("error", f"{self.unit} could not be read again before the write ({e}), so nothing is lowered")
+        if again != current:
+            self.save_state(None, {"unit": self.unit, "seen": again})
+            return self.report("left_alone", f"{self.unit} changed to {limit_text(again)} while Bosun was about to lower it: someone else set it, so Bosun left it and will not lower it again until this pressure episode ends")
         try:
             self.set_limit(limit)
             got = self.read_limit()

@@ -389,10 +389,14 @@ class FakeSlice:
         self.refuse_set = False
         self.ignore_set = False   # accepts the write and changes nothing
         self.set_to = None        # accepts a write that lowers and sets something else (putting the original back still works)
+        self.on_show = {}         # {n: value}: the nth show (from 1) finds the slice already set to value, as an operator would
 
     def __call__(self, args):
         self.calls.append(list(args))
         if args[0] == "show":
+            shows = sum(1 for c in self.calls if c[0] == "show")
+            if shows in self.on_show:
+                self.value = self.on_show[shows]
             return (1, "Failed to connect to bus: No medium found") if self.fail_show else (0, str(self.value))
         if self.refuse_set:
             return 1, "Access denied"
@@ -728,6 +732,30 @@ class ThrottleFailures(ThrottleCase):
         doc = self.status()
         self.assertEqual((doc["state"], doc["schema_version"], doc["unit"]), ("error", 1, "bosun-jobs.slice"))
         datetime.datetime.strptime(doc["at"], "%Y-%m-%dT%H:%M:%SZ")
+
+
+class ThrottleRecordAndRace(ThrottleCase):
+    def test_an_operators_limit_set_while_the_record_is_saved_is_never_written_over(self):
+        # Round 7: the operator set 1 GiB between Bosun's first read and its write; Bosun wrote 2 GiB over it and lost it.
+        self.slice.on_show = {2: 1 * GB}                               # the read just before the write finds the operator's
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 1 * GB)
+        self.assertEqual(self.slice.sets(), [])                         # nothing written
+        self.assertEqual(self.tick(1000), "left_alone")                 # held for the episode
+
+    def test_a_record_that_breaks_the_writers_rules_authorises_nothing(self):
+        # Round 7: applied 0 with original infinity passed, and stop() could lift an operator's MemoryHigh=0.
+        for lowered in ({"unit": "bosun-jobs.slice", "original": "infinity", "applied": 0, "unverified": False},
+                        {"unit": "bosun-jobs.slice", "original": 2 * GB, "applied": 4 * GB, "unverified": False},
+                        {"unit": "bosun-jobs.slice", "original": "infinity", "applied": 2 * GB, "unverified": "yes"}):
+            with open(os.path.join(self.dir, self.throttle.state_name), "w", encoding="utf-8") as f:
+                json.dump({"schema_version": 1, "distro": "alpha", "lowered": lowered, "operator": None}, f)
+            self.slice.value = lowered["applied"]
+            self.slice.calls.clear()
+            self.throttle.stop()
+            self.assertEqual(self.slice.sets(), [], lowered)
+            self.assertEqual(self.tick(5000), "error", lowered)
+            self.assertEqual(self.slice.sets(), [], lowered)
 
 
 class ThrottleStop(ThrottleCase):
