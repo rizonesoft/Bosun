@@ -61,6 +61,8 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
 
         if (cancellationToken.IsCancellationRequested) return CancelledBeforePrompt(item, request);
 
+        // What the target holds before the helper can touch it: the value an unchanged target still reads afterwards.
+        var origin = request.Proposal?.Before ?? ReadNow(item);
         Say(item, "Administrator", ChangeLevel.Info, "Waiting for the administrator prompt", null);
         ElevationStart start;
         try
@@ -94,7 +96,7 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             Say(item, "Result", ChangeLevel.Fail, stopped, null);
             return new ChangeResult(ChangeStatus.CouldNotVerify, stopped, null, Written: true, null);
         }
-        return Conclude(item, request, exitCode);
+        return Conclude(item, request, exitCode, origin);
     }
 
     /// <summary>Cancelled before the helper started: the request is of no use to anyone, so it is removed, and nothing was written.</summary>
@@ -106,14 +108,22 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         return new ChangeResult(ChangeStatus.NotChanged, message, null, Written: false, null);
     }
 
-    /// <summary>The helper has exited: read its result and say what happened.</summary>
-    private ChangeResult Conclude(IOptimisation item, HelperRequest request, int exitCode)
+    /// <summary>
+    /// The helper has exited: say what it recorded, then decide the outcome from what this panel can check itself. The
+    /// helper's result is advisory. The target is read now, and a backup the result or its steps name is read from this
+    /// panel's own <see cref="BackupStore"/> and must be bound to this change (an Apply's backup holds exactly the
+    /// confirmed proposal, an Undo's holds the restore of the confirmed value). Changed or Restored needs both the target
+    /// holding the confirmed value and such a backup; the target still holding the value it had when the helper was asked
+    /// is NotChanged; anything else is CouldNotVerify, with recovery only from a validated backup. What the helper reports
+    /// can make this more cautious, never less.
+    /// </summary>
+    private ChangeResult Conclude(IOptimisation item, HelperRequest request, int exitCode, string? origin)
     {
         var verb = request.Operation == HelperFiles.Apply ? "changed" : "restored";
         var read = files.ReadResult(request.Invocation, request.Operation, request.ItemId);
         var result = read.Result;
         // A result that disagrees with the operation or with how the helper ended is not the helper's word: it is read
-        // as an unreadable one, so the target is read again and recovery follows D05 T02 §2's rules.
+        // as an unreadable one.
         if (result is { Complete: true } && !ElevatedHelper.IsConsistent(result, request.Operation, exitCode))
         {
             result = null;
@@ -123,84 +133,112 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         if (result is not null)
             foreach (var step in result.Steps) Say(item, step.Step, step.Level, step.Outcome, step.Backup);
 
+        var apply = request.Operation == HelperFiles.Apply;
+        var expected = (apply ? request.Proposal?.After : request.RestoreValue) ?? "";
+        var now = ReadNow(item);
+        var bound = BoundBackup(item, request, result, origin);
+        var untouched = origin is not null && now == origin;
+
         if (result is { Final: { } final })
         {
-            var mapped = new ChangeResult(final.Status, final.Message, final.Backup is null ? null : new BackupRef(item.Id, final.Backup), final.Written, final.ValueNow, final.UndoWithheld);
-            // The helper's word is checked against what was confirmed and against the target: an Apply that says it holds
-            // the new value, or an Undo that says it restored the confirmed one (round 4: a Restored result naming another
-            // value was taken as it said), must report that value and the setting must read it.
-            var apply = request.Operation == HelperFiles.Apply;
-            var expected = apply ? request.Proposal?.After : request.RestoreValue;
-            var success = apply ? final.Status is ChangeStatus.Changed : final.Status is ChangeStatus.Restored;
-            // A success is a write that was backed up first (round 5): it says it wrote, names its backup, and its own steps
-            // recorded that backup before the write. One without is a result the helper could not have made: unverifiable.
-            if (success && (!final.Written || final.Backup is null || !BackedUpBeforeWrite(result.Steps, final.Backup)))
+            var success = apply ? ChangeStatus.Changed : ChangeStatus.Restored;
+            var told = apply ? "the change" : "the restore";
+            if (final.Status == success)
             {
-                var claimed = $"Could not be verified: the helper reported success with no backup recorded before its write. {Recovery(item, result.LastBackup, out var claimedBackup, out var claimedWithheld)}";
-                Say(item, "Result", ChangeLevel.Fail, claimed, result.LastBackup);
-                return new ChangeResult(ChangeStatus.CouldNotVerify, claimed, claimedBackup, Written: true, ReadNow(item), claimedWithheld);
+                if (now == expected && bound is not null)
+                    return new ChangeResult(success, final.Message, bound.Ref, Written: true, now, final.UndoWithheld || !runner.CanUndo(item, bound.Ref).Ready);
+                if (untouched)
+                {
+                    var unchanged = $"Not {verb}: the helper reported {told}, but the setting still reads '{now}', not the '{expected}' that was confirmed";
+                    Say(item, "Result", ChangeLevel.Warn, unchanged, null);
+                    return new ChangeResult(ChangeStatus.NotChanged, unchanged, null, Written: false, now);
+                }
+                var why = now == expected
+                    ? $"the setting reads '{expected}' but no backup of this change is in the panel's backups"
+                    : $"'{expected}' was confirmed and the setting now reads '{now ?? "nothing readable"}'";
+                return Unverified(item, $"the helper reported {told}, but {why}", bound, now);
             }
-            if (success && expected is not null && (final.ValueNow != expected || ReadNow(item) is not { } now || now != expected))
+            if (final.Status == ChangeStatus.NotChanged && untouched)
+                return new ChangeResult(ChangeStatus.NotChanged, final.Message, bound is not null && bound.Name == final.Backup ? bound.Ref : null, final.Written, now);
+            if (final.Status == ChangeStatus.CouldNotVerify)
             {
-                var reads = ReadNow(item);
-                var told = apply ? "the change" : "the restore";
-                var message = $"Could not be verified: the helper reported {told} to '{final.ValueNow}', but '{expected}' was confirmed and the setting now reads '{reads ?? "nothing readable"}'. {Recovery(item, final.Backup, out var backup, out var withheld)}";
-                Say(item, "Result", ChangeLevel.Fail, message, final.Backup);
-                return new ChangeResult(ChangeStatus.CouldNotVerify, message, backup, Written: true, reads, withheld);
+                var withheld = final.UndoWithheld || (bound is not null && !runner.CanUndo(item, bound.Ref).Ready);
+                return new ChangeResult(ChangeStatus.CouldNotVerify, final.Message, bound?.Ref, Written: final.Written || !untouched, now, withheld);
             }
-            return mapped;
+            // NotChanged, but the setting is not what it was: a failed verification reported as nothing happening.
+            return Unverified(item, $"the helper reported nothing {verb}, but the setting reads {Describe(now)}", bound, now);
         }
         if (result?.Refusal is { } refusal)
-            return new ChangeResult(ChangeStatus.NotChanged, $"Not {verb}: the administrator helper refused: {refusal}", null, Written: false, null);
-        if (result?.Fault is { } fault)
-            return Lost(item, result, $"The administrator helper failed: {fault}", exitCode);
-
-        var why = read.Problem is not null ? $"{read.Problem}; {ElevatedHelper.ExitMeaning(exitCode)}" : $"it stopped part way; {ElevatedHelper.ExitMeaning(exitCode)}";
-        return Lost(item, result, $"The administrator helper ended without a whole result ({why}; exit code {exitCode})", exitCode);
-    }
-
-    /// <summary>
-    /// Whether the helper's own steps show <paramref name="backup"/> written as a Backup step before any write step
-    /// (round 6: a later Verify or Result naming the backup was taken for the backup itself). A history without the
-    /// Backup step, or with it after the write, shows no backup taken first.
-    /// </summary>
-    private static bool BackedUpBeforeWrite(IReadOnlyList<HelperStep> steps, string backup)
-    {
-        var backedUp = -1;
-        for (var i = 0; i < steps.Count; i++)
         {
-            var step = steps[i];
-            if (step.Step == "Backup" && step.Backup == backup && backedUp < 0) backedUp = i;
-            if (step.Step is "Write" or "Write returned" && backedUp < 0) return false;   // written before any backup
+            var refused = $"Not {verb}: the administrator helper refused: {refusal}";
+            if (untouched) return new ChangeResult(ChangeStatus.NotChanged, refused, null, Written: false, null);
+            return Unverified(item, $"the administrator helper refused ({refusal}), but the setting reads {Describe(now)}", bound, now);
         }
-        return backedUp >= 0;
+        if (result?.Fault is { } fault)
+            return Lost(item, result, $"The administrator helper failed: {fault}", exitCode, bound, now, origin);
+
+        var problem = read.Problem is not null ? $"{read.Problem}; {ElevatedHelper.ExitMeaning(exitCode)}" : $"it stopped part way; {ElevatedHelper.ExitMeaning(exitCode)}";
+        return Lost(item, result, $"The administrator helper ended without a whole result ({problem}; exit code {exitCode})", exitCode, bound, now, origin);
+    }
+
+    /// <summary>The helper's word could not be confirmed: CouldNotVerify, with recovery only from a backup this panel validated.</summary>
+    private ChangeResult Unverified(IOptimisation item, string said, Backup? bound, string? now)
+    {
+        var message = $"Could not be verified: {said}. {Recovery(item, bound?.Name, out var backup, out var withheld)}";
+        Say(item, "Result", ChangeLevel.Fail, message, bound?.Name);
+        return new ChangeResult(ChangeStatus.CouldNotVerify, message, backup, Written: true, now, withheld);
     }
 
     /// <summary>
-    /// The helper did not finish its work: say so, and offer Undo only for the backup its own steps name, when D05 T02
-    /// §2's rules accept it with the target read again.
+    /// The backup the result or its steps name that this panel's own store holds and that belongs to this change, or
+    /// null. An Apply's holds exactly the confirmed proposal. An Undo's is the helper's own backup of the Undo: it
+    /// restores the confirmed value from the value the target held when the helper was asked, and is not the backup
+    /// being undone. A name the store can't read, or one of another change, is not a backup of this one.
     /// </summary>
-    private ChangeResult Lost(IOptimisation item, HelperResult? partial, string said, int exitCode)
+    private Backup? BoundBackup(IOptimisation item, HelperRequest request, HelperResult? result, string? origin)
     {
-        var name = partial?.LastBackup;
-        var recovery = Recovery(item, name, out var backup, out var withheld);
-        var now = ReadNow(item);
+        if (result is null) return null;
+        var names = new List<string>();
+        if (result.Final?.Backup is { } finalName) names.Add(finalName);
+        names.AddRange(result.Steps.Where(s => s.Backup is not null).Select(s => s.Backup!).Reverse());
+        foreach (var name in names.Distinct())
+        {
+            if (TryRead(new BackupRef(item.Id, name)) is not { } record || record.ItemId != item.Id || record.Target != item.Target) continue;
+            var bound = request.Operation == HelperFiles.Apply
+                ? record.Operation == BackupStore.Apply && record.Proposal == request.Proposal
+                : record.Operation == BackupStore.Undo && name != request.BackupName && record.Proposal.Target == request.Target
+                    && record.Proposal.After == request.RestoreValue && (origin is null || record.Proposal.Before == origin);
+            if (bound) return record;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The helper did not finish its work: say so, and offer Undo only for the validated backup its own steps name, when
+    /// D05 T02 §2's rules accept it with the target read again. A target that no longer reads what it did when the
+    /// helper was asked is not "nothing written".
+    /// </summary>
+    private ChangeResult Lost(IOptimisation item, HelperResult? partial, string said, int exitCode, Backup? bound, string? now, string? origin)
+    {
+        var recovery = Recovery(item, bound?.Name, out var backup, out var withheld);
+        var untouched = origin is not null && now == origin;
         ChangeStatus status;
         bool written;
-        if (name is null)
+        if (bound is null)
         {
-            // No backup was made, so no write was: unless nothing is known of the helper at all, and then it is not ruled out.
-            written = partial is null && exitCode is not (ElevatedHelper.ExitUsage or ElevatedHelper.ExitNoRequest or ElevatedHelper.ExitNotElevated);
+            // No validated backup: a name the helper gave that the store does not hold rules nothing out, and neither does
+            // a target that moved. With no name and an untouched target, no write was made, unless nothing is known of the
+            // helper at all.
+            written = !untouched || partial?.LastBackup is not null || (partial is null && exitCode is not (ElevatedHelper.ExitUsage or ElevatedHelper.ExitNoRequest or ElevatedHelper.ExitNotElevated));
             status = written ? ChangeStatus.CouldNotVerify : ChangeStatus.NotChanged;
         }
         else
         {
-            var record = TryRead(new BackupRef(item.Id, name));
-            written = record is not null && (backups.IsApplied(record) || now != record.Proposal.Before);
-            status = record is null || written ? ChangeStatus.CouldNotVerify : ChangeStatus.NotChanged;
+            written = backups.IsApplied(bound) || now != bound.Proposal.Before;
+            status = written ? ChangeStatus.CouldNotVerify : ChangeStatus.NotChanged;
         }
         var message = $"{(status == ChangeStatus.NotChanged ? "Not changed: " : "Could not be verified: ")}{said}. {recovery}";
-        Say(item, "Result", status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, name);
+        Say(item, "Result", status == ChangeStatus.NotChanged ? ChangeLevel.Warn : ChangeLevel.Fail, message, bound?.Name);
         return new ChangeResult(status, message, backup, written, now, written && withheld);
     }
 

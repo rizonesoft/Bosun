@@ -657,8 +657,11 @@ public sealed class ElevatedHelperTests : IDisposable
             return 0; // it says it wrote '2' and wrote nothing
         }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
 
-        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
-        Assert.Contains("the setting now reads '1'", result.Message);
+        // The target still holds the confirmed before value: nothing was written, whatever the helper said (round 8).
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.False(result.Written);
+        Assert.Null(result.Backup);
+        Assert.Contains("the setting still reads '1'", result.Message);
     }
 
     [Fact]
@@ -674,7 +677,7 @@ public sealed class ElevatedHelperTests : IDisposable
         }, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
 
         Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
-        Assert.Contains("no backup recorded before its write", result.Message);
+        Assert.Contains("no backup of this change is in the panel's backups", result.Message);
     }
 
     [Fact]
@@ -697,8 +700,86 @@ public sealed class ElevatedHelperTests : IDisposable
             }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "1", "2"), TestContext.Current.CancellationToken);
             item.Value = "1";
             Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
-            Assert.Contains("no backup recorded before its write", result.Message);
+            Assert.Contains("no backup of this change is in the panel's backups", result.Message);
         }
+    }
+
+    [Fact]
+    public async Task A_failed_verification_reported_as_not_changed_is_unverified_when_the_target_holds_the_new_value()
+    {
+        // Round 7 #1: backup, write returned, failed verify, final NotChanged written false, exit 1; the target holds '2'.
+        var item = new Item();
+        var log = new RecordingLog();
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            var backup = new BackupStore(_user).Write(item.Id, BackupStore.Apply, item.Propose().Value!);
+            item.Value = "2";
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId,
+                [Started, new("Backup", ChangeLevel.Info, "Written and read back", backup.Name), new("Write returned", ChangeLevel.Info, "Apply returned", backup.Name), new("Verify", ChangeLevel.Fail, "Reads '2'", backup.Name)],
+                new HelperFinal(ChangeStatus.NotChanged, "Not changed", null, false, null, false), null, null));
+            return ElevatedHelper.ExitNotChanged;
+        }, log, out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.True(result.Written);
+        Assert.NotNull(result.Backup);
+        Assert.True(result.UndoOffered);
+        Assert.Contains($"Undo is offered from backup {result.Backup!.Name}", result.Message);
+    }
+
+    [Fact]
+    public async Task A_successful_result_naming_a_backup_the_panel_does_not_hold_is_unverified_and_returns_no_backup()
+    {
+        // Round 7 #2: only a Backup step, naming a backup that is not in the store, and the target reads the new value.
+        var item = new Item();
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            item.Value = "2";
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [BackedUp], new HelperFinal(ChangeStatus.Changed, "Changed", BackedUp.Backup, true, "2", false), null, null));
+            return ElevatedHelper.ExitDone;
+        }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "1", "2"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Null(result.Backup);
+        Assert.False(result.UndoOffered);
+    }
+
+    [Fact]
+    public async Task A_successful_result_naming_a_backup_of_another_proposal_is_unverified()
+    {
+        var item = new Item();
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            var foreign = new BackupStore(_user).Write(item.Id, BackupStore.Apply, new Proposal(item.Target, "0", "2"));   // a real backup, of another change
+            item.Value = "2";
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId,
+                [Started, new("Backup", ChangeLevel.Info, "Written and read back", foreign.Name)],
+                new HelperFinal(ChangeStatus.Changed, "Changed", foreign.Name, true, "2", false), null, null));
+            return ElevatedHelper.ExitDone;
+        }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "1", "2"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.Null(result.Backup);
+        Assert.False(result.UndoOffered);
+    }
+
+    [Fact]
+    public async Task A_restored_result_with_no_backup_of_the_undo_in_the_store_is_unverified_even_when_the_target_reads_the_restored_value()
+    {
+        var item = new Item();
+        var log = new RecordingLog();
+        var coordinator = CoordinatorWith(item, (c, files) =>
+        {
+            item.Value = "1";
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started, BackedUp], new HelperFinal(ChangeStatus.Restored, "Restored", BackedUp.Backup, true, "1", false), null, null));
+            return ElevatedHelper.ExitDone;
+        }, log, out var store);
+        var applied = new ChangeRunner(store, log, elevated: true).Apply(item, item.Propose().Value!);
+
+        var result = await coordinator.UndoAsync(item, applied.Backup, "1", TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.NotEqual(ChangeStatus.Restored, result.Status);
     }
 
     [Fact]
@@ -731,8 +812,10 @@ public sealed class ElevatedHelperTests : IDisposable
 
         var result = await coordinator.UndoAsync(item, applied.Backup, "1", TestContext.Current.CancellationToken);
 
-        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
-        Assert.Contains("'1' was confirmed", result.Message);
+        // The target still holds the value the Undo started from: nothing was restored, whatever the helper said (round 8).
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.False(result.Written);
+        Assert.Contains("the setting still reads '2'", result.Message);
         Assert.Equal("2", item.Value);
     }
 
@@ -832,7 +915,11 @@ public sealed class ElevatedHelperTests : IDisposable
         item.Value = "8";
         var moved = await CoordinatorWith(item, (c, files) =>
         {
-            files.WriteResult(Partial(c, Started, new HelperStep("Backup", ChangeLevel.Info, "Written and read back", result.Backup.Name)));
+            // The helper's own backup of this change (8 to 2): the write ran, and another program moved the setting on.
+            var backup = store.Write(item.Id, BackupStore.Apply, new Proposal(item.Target, "8", "2"));
+            item.Apply("8", "2");
+            item.Value = "9";
+            files.WriteResult(Partial(c, Started, new HelperStep("Backup", ChangeLevel.Info, "Written and read back", backup.Name)));
             return 9;
         }, new RecordingLog(), out _).ApplyAsync(item, new Proposal(item.Target, "8", "2"), TestContext.Current.CancellationToken);
         Assert.False(moved.UndoOffered);
