@@ -301,6 +301,65 @@ public sealed class ElevatedHelperTests : IDisposable
     }
 
     [Fact]
+    public async Task A_request_that_is_there_but_locked_is_refused_with_its_cause_not_called_absent()
+    {
+        // Completion review, gap 2: every failed claim was "no request", losing a lock or permission cause.
+        var item = new Item();
+        var exit = -1;
+        var elevation = new FakeElevation(command =>
+        {
+            using (File.Open(new HelperFiles(_user).RequestPath(command.Invocation), FileMode.Open, FileAccess.Read, FileShare.None))
+                exit = ElevatedHelper.Run(command.Arguments, AdminStanding(), RegistryOf(item));
+            return exit;
+        });
+
+        var result = await Coordinator(item, elevation, new RecordingLog(), out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ElevatedHelper.ExitRefused, exit);
+        Assert.Equal(ChangeStatus.NotChanged, result.Status);
+        Assert.Contains("could not be claimed", result.Message);
+        Assert.Equal("1", item.Value);
+    }
+
+    [Fact]
+    public async Task A_helper_offering_an_undo_the_panel_can_not_give_gets_the_panels_own_message()
+    {
+        // Completion review, gap 5: a failed verification said "Undo is offered" from a backup the panel's store does not
+        // hold, while the result offered none.
+        var item = new Item();
+        var log = new RecordingLog();
+        var result = await CoordinatorWith(item, (c, files) =>
+        {
+            item.Value = "2";
+            files.WriteResult(new HelperResult(c.Invocation, c.Operation, c.ItemId, [Started, BackedUp],
+                new HelperFinal(ChangeStatus.CouldNotVerify, $"Could not be verified: it now reads '2'. Undo is offered from backup {BackedUp.Backup}", BackedUp.Backup, true, "2", false), null, null));
+            return ElevatedHelper.ExitNotChanged;
+        }, log, out _).ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+
+        Assert.Equal(ChangeStatus.CouldNotVerify, result.Status);
+        Assert.False(result.UndoOffered);
+        Assert.DoesNotContain($"Undo is offered from backup {BackedUp.Backup}", result.Message);
+        Assert.Equal(result.Message, log.Steps.Last(s => s.Step == "Result").Outcome);
+    }
+
+    [Fact]
+    public async Task An_elevated_undo_in_flight_says_restoring_not_applying()
+    {
+        // Completion review, Part 2: the coordinator said "Applying" during an Undo too.
+        var item = new Item();
+        var log = new RecordingLog();
+        var coordinator = Coordinator(item, RealHelper(item), log, out _);
+        var applied = await coordinator.ApplyAsync(item, item.Propose().Value, TestContext.Current.CancellationToken);
+        var before = log.Steps.Count;
+
+        await coordinator.UndoAsync(item, applied.Backup, "1", TestContext.Current.CancellationToken);
+
+        var undoSteps = log.Steps.Skip(before).Where(s => s.Step == "Administrator").Select(s => s.Outcome).ToList();
+        Assert.Contains("Restoring", undoSteps);
+        Assert.DoesNotContain("Applying", undoSteps);
+    }
+
+    [Fact]
     public async Task A_cancelled_direct_apply_or_undo_writes_nothing()
     {
         // Round 9: the direct path ran before the token was looked at, so a cancelled action still wrote.

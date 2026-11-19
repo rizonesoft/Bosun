@@ -109,7 +109,7 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
         }
 
         using var process = start.Process!;
-        Say(item, "Administrator", ChangeLevel.Info, "Applying", null);
+        Say(item, "Administrator", ChangeLevel.Info, request.Operation == HelperFiles.Apply ? "Applying" : "Restoring", null);   // what is in flight, named
         int exitCode;
         try
         {
@@ -189,6 +189,12 @@ public sealed class ChangeCoordinator(ChangeRunner runner, BackupStore backups, 
             if (final.Status == ChangeStatus.CouldNotVerify)
             {
                 var withheld = final.UndoWithheld || (bound is not null && !runner.CanUndo(item, bound.Ref).Ready);
+                // The helper's words are kept only while they say what the panel decided: an Undo it offered that the
+                // panel can't (its backup unreadable here, or Undo ineligible), or the reverse, gets the panel's own
+                // message, so Activity, the message and the action agree (completion review, gap 5).
+                var helperOffers = final.Backup is not null && !final.UndoWithheld;
+                if (helperOffers != (bound is not null && !withheld))
+                    return Unverified(item, $"the helper could not verify {told}", bound, now);
                 return new ChangeResult(ChangeStatus.CouldNotVerify, final.Message, bound?.Ref, Written: final.Written || !untouched, now, withheld);
             }
             // NotChanged, but the setting is not what it was: a failed verification reported as nothing happening.

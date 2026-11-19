@@ -122,19 +122,21 @@ Sections: 21 | Checklist items: 169
 
 ### Phase 5: Machine
 
-Sections: 9 | Checklist items: 62
+Sections: 11 | Checklist items: 68
 
-| Status | Reference  | Deliverable                                             | Needs | Items |
-| ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
-| [x]    | D05 T02 §1 | Diagnostics                                             | none  | 6     |
-| [x]    | D05 T02 §2 | Preview, apply, verify, undo framework                  | none  | 8     |
-| [x]    | D05 T02 §5 | Pressure monitor: queued jobs throttled under pressure  | none  | 7     |
-| [ ]    | D05 T02 §6 | Elevated change helper                                  | none  | 8     |
-| [ ]    | D05 T02 §7 | Changes made before Bosun, with honest baselines        | none  | 7     |
-| [ ]    | D05 T02 §3 | Optimise page, WSL cap and startup entries              | none  | 9     |
-| [ ]    | D05 T02 §4 | Service checks for Dev Drive and Defender               | none  | 3     |
-| [ ]    | D05 T02 §8 | Low memory priority for listed apps during pressure     | none  | 8     |
-| [ ]    | D05 T02 §9 | Pressure automation settings, previewed before enabling | none  | 6     |
+| Status | Reference   | Deliverable                                                   | Needs | Items |
+| ------ | ----------- | ------------------------------------------------------------- | ----- | ----- |
+| [x]    | D05 T02 §1  | Diagnostics                                                   | none  | 6     |
+| [x]    | D05 T02 §2  | Preview, apply, verify, undo framework                        | none  | 8     |
+| [x]    | D05 T02 §5  | Pressure monitor: queued jobs throttled under pressure        | none  | 7     |
+| [ ]    | D05 T02 §6  | Elevated change helper                                        | none  | 8     |
+| [ ]    | D05 T02 §7  | Changes made before Bosun, with honest baselines              | none  | 7     |
+| [ ]    | D05 T02 §8  | Low memory priority for listed apps during pressure           | none  | 8     |
+| [ ]    | D05 T02 §9  | Pressure automation settings, previewed before enabling       | none  | 6     |
+| [ ]    | D05 T02 §10 | Elevation boundary: elevated start, tracking and Undo binding | none  | 4     |
+| [ ]    | D05 T02 §11 | Helper outcome recovered after the panel restarts             | none  | 2     |
+| [ ]    | D05 T02 §3  | Optimise page, WSL cap and startup entries                    | none  | 9     |
+| [ ]    | D05 T02 §4  | Service checks for Dev Drive and Defender                     | none  | 3     |
 
 ### Phase 7: Release
 
@@ -164,6 +166,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 86/109 verified sections, 2 ready to run now.
+Progress: 86/111 verified sections, 2 ready to run now.
 
-Checklist: 854/962 items completed (includes Commit items).
+Checklist: 854/968 items completed (includes Commit items).

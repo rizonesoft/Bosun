@@ -139,7 +139,10 @@ public sealed partial class HelperFiles(string data, PanelSettingsFiles? files =
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return null;
+            // Gone, or claimed by another run: there is no request for this run. Still there and unclaimed: Windows
+            // refused the claim (a lock, a permission), which is said with its cause (completion review, gap 2).
+            if (File.Exists(claimed) || !File.Exists(RequestPath(invocation))) return null;
+            throw new HelperProtocolException($"the request was found but could not be claimed: {e.Message}");
         }
         byte[] bytes;
         try

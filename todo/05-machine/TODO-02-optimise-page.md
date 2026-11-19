@@ -37,13 +37,15 @@ title: "TODO-02 -- Optimise"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Diagnostics | D02 T02 §3 | [x] |
 | 2 | §2 | Preview, apply, verify, undo framework | §1 | [x] |
-| 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, D02 T03 §4, D02 T03 §7 | [ ] |
+| 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, §10, §11, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor: queued jobs throttled under pressure | §2 | [x] |
 | 6 | §6 | Elevated change helper | §2 | [ ] |
 | 7 | §7 | Changes made before Bosun, with honest baselines | §2, §6 | [ ] |
 | 8 | §8 | Low memory priority for listed apps during pressure | §5 | [ ] |
 | 9 | §9 | Pressure automation settings, previewed before enabling | §5, §8 | [ ] |
+| 10 | §10 | Elevation boundary: elevated start, tracking and Undo binding | §6 | [ ] |
+| 11 | §11 | Helper outcome recovered after the panel restarts | §6 | [ ] |
 
 ## 1. Diagnostics
 
@@ -317,6 +319,44 @@ The switch, the job limit and the listed apps on the Settings page, with what th
 - [ ] Commit: `settings: pressure automation`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SettingsPageTests" --filter-class "*PressureSettingsTests"` exits 0, and fails if the change is reverted.
+
+## 10. Elevation boundary: elevated start, tracking and Undo binding
+
+Three cases at the edge of `§6`'s elevation boundary that its completion review found missing. Filed 2026-11-19 from that review (`docs/reviews/05-machine/D05-T02-s6.md`, gaps 1, 3 and 4): an ordinary panel started from an elevated terminal runs elevated; a caller that cancels after the prompt was accepted stops tracking a helper that can still change the machine; and an Undo is bound to its backup only through the name in the request, so a second valid backup with the same values can stand in for the confirmed one.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. The panel never runs elevated. Done when: an ordinary start with an elevated token opens no elevated panel window.
+2. A started helper is followed to its end. Done when: a cancellation after launch still reaches the helper's verified outcome.
+3. An Undo is bound to the exact backup confirmed. Done when: an equivalent older backup can't stand in for it.
+
+- [ ] Refuse to run the ordinary panel with an elevated token in `src/Bosun.Panel/Program.cs`: before `new App()`, an elevated token (helper mode excepted) relaunches the panel unelevated as the signed-in shell user, or, when that can't be done, shows one plain message saying to start Bosun Panel normally, and exits; nothing is read or written first. Done when: a Panel `ProgramTests` case with an elevated standing stand-in takes the relaunch-or-refuse path and constructs no `App`, and an unelevated one starts as now. Cheaper substitute that fails: a warning shown inside an elevated panel.
+- [ ] Follow a started helper to its end in `src/Bosun.Core/Optimise/ChangeCoordinator.cs`: once the prompt was accepted, cancelling the caller's wait no longer abandons the helper; the coordinator keeps its handle, reads the result when it exits, and reports the verified outcome (with its Undo) through `IChangeLog`, so the person sees what happened; the caller gets "Still applying: the outcome will be in Activity" at once. Done when: an `ElevatedHelperTests` case cancels after launch, lets the helper finish a change, and finds its Changed outcome and backup in the log with Undo offered. Cheaper substitute that fails: CouldNotVerify returned at the cancellation.
+- [ ] Bind an Undo to the backup confirmed in `src/Bosun.Core/Optimise/ElevatedHelper.cs` and `HelperProtocol.cs`: the request carries the confirmed backup's identity (its name and its record's digest), the helper refuses a backup whose record differs, and the panel checks the helper's undo backup names the backup it reversed. Done when: an `ElevatedHelperTests` case with two valid backups of the same values refuses the older one substituted in the request, writing nothing. Cheaper substitute that fails: comparing restore values only.
+- [ ] Commit: `optimise: the elevation boundary's last cases`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ElevatedHelperTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ProgramTests"` exit 0, and fail if the change is reverted.
+
+## 11. Helper outcome recovered after the panel restarts
+
+A helper's result outlives a panel that closed or crashed after the prompt was accepted, but only the live coordinator reads it. Filed 2026-11-19 from `§6`'s completion review (`docs/reviews/05-machine/D05-T02-s6.md`, gap 6).
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. A reopened panel reconciles each left-over invocation once. Done when: its outcome reaches Activity without the change being made again.
+
+- [ ] Reconcile left-over invocations at start in `src/Bosun.Core/Optimise/ChangeCoordinator.cs` (a `Reconcile` called by the panel's start, off the UI thread): each result in `<panel data>\helper` with no live coordinator is read under `§6`'s rules (bound, whole, consistent, checked against the target and the panel's own backups), its outcome is said in Activity as "While Bosun was closed: ...", with Undo offered where `CanUndo` accepts it, and the files are removed; a request with no result is removed, saying the change was not made. Done when: an `ElevatedHelperTests` case closes the coordinator after launch, lets the helper finish, then reconciles from a new coordinator and finds the outcome once, with the change not applied again and the folder empty. Cheaper substitute that fails: deleting left-over files unread.
+- [ ] Commit: `optimise: a helper's outcome survives a panel restart`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ElevatedHelperTests"` exits 0, and fails if the change is reverted.
 
 ## Verification
 
