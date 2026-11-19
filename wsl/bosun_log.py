@@ -614,7 +614,10 @@ def read_small_json(path, limit=64 * 1024):
     if len(text) > limit:
         return None, f"{path} is larger than {limit // 1024} KB"
     try:
-        return json.loads(text), None
+        doc = json.loads(text)
+        # A file that is there and says null is a file that is not usable, never a file that is not there (round 12: a null
+        # policy read as no policy and ended an operator's hold).
+        return (doc, None) if doc is not None else (None, f"{path} holds null")
     except (ValueError, RecursionError):  # deeply nested brackets raise RecursionError, which is no JSON either
         return None, f"{path} is not JSON"
 
@@ -711,6 +714,8 @@ class Throttle:
         # is no manager to own, and own() declines.
         self.lock_dir = lock_dir  # None: the manager's own folder under RUN_USER, from the uid, decided in own()
         self.lock_fd = None
+        self.lock_fault = None       # why the lock could not be had at all, as opposed to another logger holding it
+        self.last_lock_fault = None  # the last fault said, so the journal says each once
         # `systemctl --user` controls the slice of the user manager of this uid, so the record is this uid's too (round 8).
         self.uid = os.getuid() if uid is None else uid
         # The identity comes from the installer (BOSUN_DISTRO in the unit), then from WSL. With neither, or a name that is
@@ -1003,20 +1008,34 @@ class Throttle:
         if path in _OWNED:
             self.lock_fd = _OWNED[path]
             return True
+        self.lock_fault = None
         try:
             fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        except OSError:
+        except OSError as e:
+            # Not contention: the lock could not be had at all (no space, no folder, no access). Said, never taken for another
+            # logger owning it (round 12).
+            self.lock_fault = f"the throttle's lock {path} can't be opened ({e.strerror}), so the pressure throttle is off"
             return False
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
+        except BlockingIOError:
             os.close(fd)
+            return False  # another logger of this user holds it: it owns the throttle
+        except OSError as e:
+            os.close(fd)
+            self.lock_fault = f"the throttle's lock {path} can't be taken ({e.strerror}), so the pressure throttle is off"
             return False
         self.lock_fd = _OWNED[path] = fd
         return True
 
     def run_once(self, now=None):
         if not self.own():
+            if self.lock_fault:
+                # No logger could hold a lock that can't be opened, so no owner's status is overwritten by saying so.
+                if self.lock_fault != self.last_lock_fault:
+                    print(f"[bosun] {self.lock_fault}", file=sys.stderr)
+                    self.last_lock_fault = self.lock_fault
+                return self.report("error", self.lock_fault)
             # Another logger of this user owns the throttle: this one changes nothing and writes no status, so the owner's
             # record and status are never touched by a second writer.
             return {"state": "not_owner", "detail": "another Bosun logger of this user owns the pressure throttle"}

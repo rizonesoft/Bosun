@@ -808,7 +808,7 @@ class ThrottleReviewRound11(ThrottleCase):
         throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", uid=4242)
         self.assertFalse(throttle.own())                      # no such manager here: ownership is declined, never /tmp
         self.assertEqual(throttle.lock_dir, os.path.join(dl.RUN_USER, "4242"))
-        self.assertEqual(throttle.run_once(now=NOW)["state"], "not_owner")
+        self.assertEqual(throttle.run_once(now=NOW)["state"], "error")   # said as a fault (round 12), not as another owner
 
     def test_a_policy_that_can_not_be_read_keeps_an_operators_hold(self):
         # Round 11: one unreadable sample of the policy cleared the hold, and Bosun lowered the operator's cap again.
@@ -821,6 +821,33 @@ class ThrottleReviewRound11(ThrottleCase):
         self.policy()                                         # readable again, still under pressure
         self.assertEqual(self.tick(1000), "left_alone")
         self.assertEqual(self.slice.value, 1 * GB)
+
+
+class ThrottleReviewRound12(ThrottleCase):
+    def test_a_null_policy_is_unusable_and_keeps_an_operators_hold(self):
+        # Round 12: a policy file saying null read as no policy, ended the hold, and Bosun lowered the operator's cap.
+        self.tick(1000)
+        self.slice.value = 3 * GB
+        self.assertEqual(self.tick(1000), "left_alone")
+        with open(os.path.join(self.dir, dl.POLICY_FILE), "w", encoding="utf-8") as f:
+            f.write("null")
+        self.assertEqual(dl.read_policy(self.dir)[0], None)
+        self.assertIn("holds null", dl.read_policy(self.dir)[1])
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.policy()
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, 3 * GB)
+
+    def test_a_lock_that_can_not_be_opened_is_a_fault_said_never_another_owner(self):
+        # Round 12: a lock that couldn't be created (no space, no folder) read as another logger owning it, silently.
+        throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", uid=1000,
+                               lock_dir=os.path.join(self.dir, "no-such-folder"))
+        self.policy()
+        self.host(1000)
+        result = throttle.run_once(now=NOW)
+        self.assertEqual(result["state"], "error")
+        self.assertIn("can't be opened", result["detail"])
+        self.assertEqual(self.slice.sets(), [])
 
 
 class ThrottleStop(ThrottleCase):
