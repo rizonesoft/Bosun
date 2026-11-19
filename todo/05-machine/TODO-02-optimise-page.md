@@ -36,7 +36,7 @@ title: "TODO-02 -- Optimise"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Diagnostics | D02 T02 §3 | [x] |
-| 2 | §2 | Preview, apply, verify, undo framework | §1 | [ ] |
+| 2 | §2 | Preview, apply, verify, undo framework | §1 | [x] |
 | 3 | §3 | Optimise page, WSL cap and startup entries | §2, §6, §7, D02 T03 §4, D02 T03 §7 | [ ] |
 | 4 | §4 | Service checks for Dev Drive and Defender | §3 | [ ] |
 | 5 | §5 | Pressure monitor and background memory priority | §2 | [ ] |
@@ -112,9 +112,12 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 - [x] Say every outcome after a write, the backup kept for each: a write that then errors, a Verify that fails, an Undo that reports success but leaves another value, each read again and reported as changed, restored, or could not be verified, with Undo offered whenever a write may have happened. Done when: `OptimisationFrameworkTests` drive each and none is reported as a successful change or recovery. Cheaper substitute: trusting the item's own return value.
 - [x] Report each step through `IChangeLog` (`Bosun.Core`) and adapt it to the panel's `ActivityLog` in `src/Bosun.Panel/Optimise/ActivityChangeLog.cs`: the step, the target, the outcome and the backup's name. Done when: a Panel `OptimisationFrameworkTests` case runs a disposable item through the real adapter and reads the Activity lines of a failed verify with its Undo offered. Cheaper substitute: a fake log only.
 - [x] Give one eligibility result, `ChangeRunner.CanApply` and `CanUndo` (can it run, and why not: "Preview it first", "The setting changed since the preview", "Nothing to undo", "Needs an administrator prompt"), for every place that offers a change; `§3` registers the row and palette actions on it (-> XREF: D05 T02 §3). Done when: `OptimisationFrameworkTests` read each reason. Cheaper substitute: each button deciding for itself.
-- [ ] Commit: `optimise: change framework`
+- [x] Commit: `optimise: change framework`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*OptimisationFrameworkTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OptimisationFrameworkTests"` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-19 | §2 | 3a06397791d88697c5b3cdda63f4c27c36d79c30
+> **Review:** `docs/reviews/d05-t02-s2.json`
 
 ## 3. Optimise page, WSL cap and startup entries
 

@@ -1,0 +1,86 @@
+{
+  "ref": "D05 T02 \u00a72",
+  "title": "Preview, apply, verify, undo framework",
+  "implementation_sha": "3a06397791d88697c5b3cdda63f4c27c36d79c30",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-machine/D05-T02-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-machine/D05-T02-s2.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "dotnet test --project tests/Bosun.Core.Tests --filter-class \"*OptimisationFrameworkTests\" -> 40 of 40; Panel OptimisationFrameworkTests -> 2 of 2; Core 333 of 333, Panel 998 of 998 at 3a06397",
+    "CI full gate -> build.yml green at 3a06397 (https://github.com/rizonetech/Bosun/actions/runs/44453010831), plan.yml green (https://github.com/rizonetech/Bosun/actions/runs/44453010821)"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-machine/D05-T02-s2.md",
+    "verdict": "completed",
+    "candidate": "eb1015d57df1c057ad7bfd33407f95201b6f5b3b",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 returned HIGHEST P3, the stop rule; its one finding (an outcome record read without its schema version) was fixed in eb1015d with a test, and the completion review followed; its four gaps were fixed in 3a06397.",
+  "plan": {
+    "report": "docs/reviews/05-machine/D05-T02-s2.md",
+    "candidate": "47ab4a3f3f7769c1ed2fd83a34775232cad33ac3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "47ab4a3f3f7769c1ed2fd83a34775232cad33ac3",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
