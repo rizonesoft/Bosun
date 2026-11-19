@@ -83,6 +83,8 @@ Read-only first. Every recommendation starts from a measured fact.
 
 ## 2. Preview, apply, verify, undo framework
 
+> **Started:** 2026-11-19T00:44:34Z
+
 Machine changes are the panel's riskiest actions, so all of them go through one path that can't skip a step.
 
 **Corrected 2026-11-19** against the tree before building. Each correction says what the plan said before:
