@@ -246,6 +246,11 @@ try {
   git -C $owner tag -a release-notes -m 'private tag message'
   $r = Invoke-Sync $owner -Check
   Check '-Check keeps a local-only tag even with fetch.pruneTags' ("$(git -C $owner tag --list local-recovery)" -eq 'local-recovery') "($($r.Text))"
+  git -C $owner config remote.origin.prune true
+  git -C $owner config remote.origin.pruneTags true
+  $r = Invoke-Sync $owner -Check
+  Check 'and with remote.origin.prune and remote.origin.pruneTags' ("$(git -C $owner tag --list local-recovery)" -eq 'local-recovery') "($($r.Text))"
+  git -C $owner config --unset remote.origin.prune; git -C $owner config --unset remote.origin.pruneTags
   $r = Invoke-Sync $owner
   Check 'a push sends the branch commit and no tag, even with push.followTags' ($r.Exit -eq 0 -and (Get-Head $public 'refs/heads/main') -eq $tagged -and -not (git --git-dir=$public tag --list)) "(exit $($r.Exit): $($r.Text) tags: $(git --git-dir=$public tag --list))"
   git -C $owner config --unset fetch.pruneTags; git -C $owner config --unset push.followTags

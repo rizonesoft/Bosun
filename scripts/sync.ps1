@@ -37,7 +37,7 @@ function Invoke-Git([string]$repo, [string[]]$arguments) {
 
 # One repository's state: the line to print, and what a plain run would do (merge, push, first) or why it won't act.
 function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
-  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null }
+  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null; RemoteTip = $null }
   function Done([string]$text, [bool]$ok = $false, [string]$action = 'none') { $state.Text = $text; $state.Ok = $ok; $state.Action = $action; [pscustomobject]$state }
 
   if ($Overlay) {
@@ -71,9 +71,9 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   $status = Invoke-Git $repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')
   if ($status.Code) { return Done 'could not be read (status)' }
   $dirty = [bool]($status.Out -join '')
-  # Branches are pruned so a deleted upstream shows as gone; tags never are (a fetch.pruneTags setting would delete a
-  # local-only tag), and none are fetched.
-  if ((Invoke-Git $repo @('-c', 'fetch.pruneTags=false', 'fetch', '--quiet', '--prune', '--no-tags', $remote)).Code) { return Done 'remote unreachable' }
+  # Nothing is pruned (--no-prune overrides fetch.prune, remote.<name>.prune and the pruneTags settings, which would
+  # delete local-only tags) and no tag is fetched. Whether the upstream branch still exists is asked of the remote.
+  if ((Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', $remote)).Code) { return Done 'remote unreachable' }
 
   if (-not $born) {
     # An overlay cloned while empty: its first commit lands on the remote's default branch, whatever its name.
@@ -91,7 +91,12 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   }
   if (-not $merge) { return Done 'no upstream branch' }
   $state.Upstream = $merge -replace '^refs/heads/', ''
-  if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$($state.Upstream)")).Code) { return Done 'upstream branch gone (its remote branch was deleted)' }
+  $exists = Invoke-Git $repo @('ls-remote', '--exit-code', '--heads', $remote, "refs/heads/$($state.Upstream)")
+  if ($exists.Code -eq 2) { return Done 'upstream branch gone (its remote branch was deleted)' }
+  if ($exists.Code) { return Done 'remote unreachable' }
+  # The tip the remote has now, which a push is conditioned on below (fetched just above, so the tracking ref agrees).
+  $state.RemoteTip = (($exists.Out | Select-Object -First 1) -split '\s+')[0]
+  if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$($state.Upstream)")).Out -join '' -ne $state.RemoteTip) { return Done 'could not be read (its remote moved while it was read)' }
   $counts = Invoke-Git $repo @('rev-list', '--left-right', '--count', "HEAD...refs/remotes/$remote/$($state.Upstream)")
   if ($counts.Code -or ($counts.Out -join '') -notmatch '^(\d+)\s+(\d+)$') { return Done 'could not be read (compare)' }
   $ahead, $behind = [int]$Matches[1], [int]$Matches[2]
@@ -136,7 +141,7 @@ $failed = $null
 foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   $step = switch ($s.Action) {
     'merge' { @{ Did = "fast-forwarded $($s.Label)"; Args = @('merge', '--ff-only', '--no-overwrite-ignore', '--quiet', $s.Target); Why = 'the fast-forward was refused (an incoming file would replace an ignored or local one, or the branch moved meanwhile)' } }
-    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', $s.Remote, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on meanwhile, or it does not accept this push)' } }
+    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", $s.Remote, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
     'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '--track', "$($s.Remote)/$($s.Default)"); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
   }
   # The checkout must still be where it was looked at: a branch switched or a commit made meanwhile stops the run.
