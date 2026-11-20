@@ -53,7 +53,9 @@ fi
 fetch_branch() {
     git -C "$overlay" fetch --quiet --no-prune --no-tags --refmap= "$1" "+refs/heads/$2:refs/remotes/$1/$2" >/dev/null 2>&1
 }
-branch=$(git -C "$overlay" symbolic-ref --quiet --short HEAD 2>/dev/null)
+# The full name, with refs/heads/ taken off: --short abbreviates to heads/main when a tag is also called main.
+branch=$(git -C "$overlay" symbolic-ref --quiet HEAD 2>/dev/null)
+branch=${branch#refs/heads/}
 remote=$(git -C "$overlay" config --local --get "branch.$branch.remote" 2>/dev/null)
 upstream=$(git -C "$overlay" config --local --get "branch.$branch.merge" 2>/dev/null)
 upstream=${upstream#refs/heads/}

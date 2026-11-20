@@ -263,6 +263,14 @@ try {
   Check 'a pull fast-forwards a behind, clean overlay' ((Get-Head $private) -eq $incoming -and $out -match 'overlay: updated to') "($out)"
   Check 'and the public checkout is at the incoming commit' ((Get-Head $owner) -eq $publicHead)
 
+  # A tag with the overlay branch's own name does not hide its upstream from the hook.
+  git -C $private tag main
+  $tagged = Add-Commit $overlayRemote 'tag-named-like-branch.txt'
+  $null = Add-Commit $public 'public-1b.txt'
+  $out = Invoke-Pull $owner
+  Check 'a tag named like the overlay branch does not stop the pull' ((Get-Head $private) -eq $tagged -and $out -match 'overlay: updated to') "($out)"
+  git -C $private tag -d main | Out-Null
+
   $publicHead = Add-Commit $public 'public-2.txt'
   $out = Invoke-Pull $owner
   Check 'a pull with nothing new for the overlay says it is current' ($out -match 'overlay: already current' -and (Get-Head $owner) -eq $publicHead) "($out)"
