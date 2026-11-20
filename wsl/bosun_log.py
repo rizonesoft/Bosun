@@ -378,18 +378,24 @@ def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
     return named, (f"{left} mount{'s' if left != 1 else ''} with a name that is not text {'are' if left != 1 else 'is'} left out of the report" if left else None)
 
 
-def windows_of(linux_path, drives):
-    """A guest path's Windows folder, by the panel's own rule (DriveMounts.WindowsPath): the longest mount it is at or
-    under; None when that mount is a guest one, or none holds it."""
+def holder_of(linux_path, drives):
+    """The mount a guest path is in: the longest it is at or under, or None."""
     best = None
     for d in drives or []:
         mount = d["mount"].rstrip("/") if len(d["mount"]) > 1 else d["mount"]
         if (linux_path == mount or linux_path.startswith("/" if mount == "/" else mount + "/")) and (best is None or len(mount) > len(best[0])):
-            best = (mount, d["windows"])
-    if best is None or best[1] is None:
+            best = (mount, d)
+    return best
+
+
+def windows_of(linux_path, drives):
+    """A guest path's Windows folder, by the panel's own rule (DriveMounts.WindowsPath): the longest mount it is at or
+    under; None when that mount is a guest one, or none holds it."""
+    best = holder_of(linux_path, drives)
+    if best is None or best[1]["windows"] is None:
         return None
     tail = linux_path[len(best[0]):].strip("/").replace("/", "\\")
-    return best[1] if not tail else best[1].rstrip("\\") + "\\" + tail
+    return best[1]["windows"] if not tail else best[1]["windows"].rstrip("\\") + "\\" + tail
 
 
 def guest_path(windows_path, drives):
@@ -423,7 +429,10 @@ def guest_path(windows_path, drives):
                 break
     for _, _, fold, guest in sorted(candidates, key=lambda c: (not c[0], -c[1])):
         back = windows_of(guest, drives)
-        if back is not None and exact(parts(back, fold)) == exact(parts(wanted, fold)):
+        # The mount the path lands in must be writable too, not only the one it was made from (round 12: a read-only bind
+        # inside a writable drive).
+        lands = holder_of(guest, drives)
+        if back is not None and exact(parts(back, fold)) == exact(parts(wanted, fold)) and not (lands and lands[1].get("read_only")):
             return guest
     return None
 

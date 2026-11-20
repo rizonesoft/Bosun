@@ -319,6 +319,10 @@ class Instances(unittest.TestCase):
         self.assertEqual(dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), bind))[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
         found, why = dl.log_folder(logs, self.table(bind))  # only the read-only route: none to write to
         self.assertIsNone(found)
+        # Round 12: a read-only self-bind over /mnt/c/Bosun inside a writable C:; the path lands in it, so /win is used.
+        win = self.drive("/win", "C")
+        ro_child = self.drive("/mnt/c/Bosun", "C", parent=500).replace(" / /mnt/c/Bosun rw,", " /Bosun /mnt/c/Bosun ro,")
+        self.assertEqual(dl.log_folder("C:/Bosun/logs", self.table(self.drive("/mnt/c", "C", id=500), win, ro_child))[0], "/win/Bosun/logs")
         # The report says what is mounted, read-only or not: both map guest folders to Windows.
         self.assertEqual(dl.drive_mounts(self.table(bind))[0], [{"mount": "/srv/bosun-logs", "windows": "C:\\Users\\me\\AppData\\Local\\Bosun\\logs"}])
 
