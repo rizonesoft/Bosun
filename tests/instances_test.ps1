@@ -292,6 +292,26 @@ try {
       Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like 'its repo is not looked up: Fake was not seen running*') "nor is it probed when its distro is not seen running ($($agentRow.repo_why))"
       $linkRow = Row (Scan) $linkAgent.Id
       Check ($linkRow -and $null -eq $linkRow.repo -and $linkRow.repo_why -like '*/linked could not be checked for a repo: it leads into a distro''s share, and Fake was not seen running*') "nor followed while its distro is not seen running ($($linkRow.repo_why))"
+      # Round 6: a drive letter standing for the share (subst here; a mapped drive the same) is that share, link or none.
+      $letter = @('Q', 'P', 'O', 'N', 'M', 'L', 'K') | Where-Object { -not (Test-Path "$($_):\") } | Select-Object -First 1
+      if ($letter) {
+        & subst.exe "$($letter):" (Join-Path $share 'Fake') | Out-Null
+        try {
+          $driveAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'da.txt')) 60000" "$($letter):\home\me\app"
+          $null = Wait-Until { Row (Scan) $driveAgent.Id }
+          $driveRow = Row (Scan) $driveAgent.Id
+          Check ($driveRow -and $null -eq $driveRow.repo -and $driveRow.repo_why -like "$($letter):/home/me/app could not be checked for a repo: it leads into a distro's share, and Fake was not seen running*") "a drive standing for a stopped distro's share is not looked through ($($driveRow.repo), $($driveRow.repo_why))"
+          $null = Answer "Fake`nOther`n" 0
+          $driveRow = Row (Scan) $driveAgent.Id
+          # Found, it is named as stored on disk (the canonical name the scanner gives every repo).
+          Check ($driveRow -and $driveRow.repo -like '*/share/Fake/home/me/app' -and $null -eq $driveRow.repo_why) "and is while the distro runs ($($driveRow.repo), $($driveRow.repo_why))"
+          $null = Answer 'There are no running distributions.' 1
+        } finally {
+          & subst.exe "$($letter):" /D | Out-Null
+        }
+      } else {
+        Check $false 'a free drive letter for the subst fixture'
+      }
       $null = Answer "Fake`nOther`n" 0
       # Through the share, a guest folder whose own .git can't be read: the row's reason, never the folder outside Git.
       & icacls.exe (Join-Path $guestShut '.git') /deny "${me}:(RA,REA,RD,X)" | Out-Null

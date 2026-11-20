@@ -507,6 +507,20 @@ class Instances(unittest.TestCase):
         self.assertLess(took, 5)
         self.assertEqual((late[40]["repo"], late[40]["repo_why"]), (None, f"{stuck} did not answer within the scan's time"))
         self.assertEqual((late[30]["repo"], late[30]["repo_why"]), (None, None))
+        # Round 6: once the scan's time is spent no thread is started; a thread that can't be made is that folder's reason.
+        started = []
+        real_start = threading.Thread.start
+        def counting(thread):
+            started.append(thread)
+            return real_start(thread)
+        with unittest.mock.patch.object(threading.Thread, "start", counting):
+            spent = dl.repo_answer(stuck, {}, time.monotonic() - 1)
+        self.assertEqual((spent, started), (("", f"{stuck} did not answer within the scan's time"), []))
+        def refused(thread):
+            raise RuntimeError("can't start new thread")
+        with unittest.mock.patch.object(threading.Thread, "start", refused):
+            repo, why = dl.repo_answer(stuck, {}, time.monotonic() + 5)
+        self.assertEqual((repo, why), ("", f"{stuck} could not be looked up: no thread for it (can't start new thread)"))
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))

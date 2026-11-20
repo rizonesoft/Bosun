@@ -96,13 +96,20 @@ def repo_answer(path, cache, until=None):
 
     if until is None:
         answer = walk()
+    elif time.monotonic() >= until:
+        # The scan's time is spent: no more threads, which a mount that stopped answering would each hold (round 6).
+        answer = "", f"{path} did not answer within the scan's time"
     else:
         box = []
         worker = threading.Thread(target=lambda: box.append(walk()), daemon=True)
-        worker.start()
-        worker.join(max(0.0, until - time.monotonic()))
-        # A walk still waiting is left to end with the process; its row says so.
-        answer = box[0] if box else ("", f"{path} did not answer within the scan's time")
+        try:
+            worker.start()
+        except RuntimeError as e:  # the process at its thread limit: this folder's reason, never the scan's end
+            answer = "", f"{path} could not be looked up: no thread for it ({e})"
+        else:
+            worker.join(max(0.0, until - time.monotonic()))
+            # A walk still waiting is left to end with the process; its row says so.
+            answer = box[0] if box else ("", f"{path} did not answer within the scan's time")
     cache[path] = answer
     return answer
 

@@ -12,7 +12,7 @@ add_compile_options(/guard:cf)
 add_link_options(/guard:cf /CETCOMPAT)
 add_compile_definitions(UNICODE _UNICODE)
 
-set(BOSUN_LIBS pdh advapi32)
+set(BOSUN_LIBS pdh advapi32 mpr)
 
 # app.cpp is nearly all of both tools, so it is compiled once and linked into each.
 add_library(bosun_app OBJECT src/app.cpp)

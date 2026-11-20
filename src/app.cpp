@@ -1037,12 +1037,42 @@ std::optional<std::string> share_not_running(const std::wstring& path) {
     return *distro + " was not seen running" + (said.empty() ? std::string() : " (wsl.exe: " + said + ")");
 }
 
+// What a drive letter stands for, read from this session's own tables without a look at the target (round 6 of D03 T02
+// §7): a mapped network drive's share (WNetGetConnectionW), or a subst drive's folder (QueryDosDeviceW), followed up to
+// four drives deep. Nothing for a drive that is a disk of its own, or a path with no drive letter.
+std::optional<std::wstring> drive_stands_for(const fs::path& path) {
+    std::wstring name = path.root_name().wstring();
+    std::optional<std::wstring> found;
+    for (int depth = 0; depth < 4 && name.size() == 2 && name[1] == L':'; ++depth) {
+        wchar_t remote[1024];
+        DWORD size = 1024;
+        std::wstring target;
+        if (WNetGetConnectionW(name.c_str(), remote, &size) == NO_ERROR) {
+            target = remote;
+        } else {
+            wchar_t device[1024];
+            if (!QueryDosDeviceW(name.c_str(), device, 1024)) break;
+            std::wstring d = device;
+            if (d.rfind(L"\\??\\UNC\\", 0) == 0) target = L"\\\\" + d.substr(8);
+            else if (d.rfind(L"\\??\\", 0) == 0) target = d.substr(4);
+            else break;  // a device of its own: a disk
+        }
+        found = target;
+        name = fs::path(target).root_name().wstring();
+    }
+    return found;
+}
+
 // Follows a path's links one part at a time, asking share_not_running before each look, so nothing a probe touches can
 // start a distro that was shut down (round 5 of D03 T02 §7: a .git link into a stopped distro's share started it, after
 // rounds 3 and 4 had each closed one road there). The walk is the gate only: it stops, saying nothing, where a part is
 // missing or can't be read, and the probe then reports that itself; it says why only when a share is not to be touched.
 std::optional<std::string> links_stay_off_stopped_shares(const fs::path& start) {
-    std::deque<fs::path> todo(start.begin(), start.end());
+    fs::path begin = start;
+    // A drive letter mapped or substituted onto a share is that share (round 6): it holds no link to follow, and a look
+    // through it reaches the distro all the same.
+    if (auto stands = drive_stands_for(start)) begin = fs::path(*stands) / start.relative_path();
+    std::deque<fs::path> todo(begin.begin(), begin.end());
     fs::path done;
     for (int hops = 0; !todo.empty();) {
         fs::path part = todo.front();
@@ -1061,6 +1091,7 @@ std::optional<std::string> links_stay_off_stopped_shares(const fs::path& start) 
         fs::path to = fs::read_symlink(next, ec);
         if (ec) return std::nullopt;
         if (to.is_relative()) to = done / to;
+        if (auto stands = drive_stands_for(to)) to = fs::path(*stands) / to.relative_path();
         std::deque<fs::path> rest(to.begin(), to.end());
         rest.insert(rest.end(), todo.begin(), todo.end());
         todo.swap(rest);
@@ -1159,6 +1190,8 @@ dm::RepoAnswer lookup_bounded(const std::wstring& key, RepoLookup& look, std::fu
     if (std::chrono::steady_clock::now() >= look.deadline) return late();
     auto answer = std::make_shared<std::promise<dm::RepoAnswer>>();
     auto future = answer->get_future();
+    // A thread that can't be made (the process at its limit) is that folder's reason, never the scan's end (round 6).
+    try {
     std::thread([find = std::move(find), answer] {
         try {
             answer->set_value(find());
@@ -1168,6 +1201,9 @@ dm::RepoAnswer lookup_bounded(const std::wstring& key, RepoLookup& look, std::fu
             answer->set_value(dm::RepoAnswer{std::nullopt, "the repo lookup failed"});
         }
     }).detach();
+    } catch (const std::system_error& e) {
+        return look.cache[key] = dm::RepoAnswer{std::nullopt, narrow(key) + " could not be looked up: no thread for it (" + e.what() + ")"};
+    }
     if (future.wait_until(look.deadline) != std::future_status::ready) return late();
     return look.cache[key] = future.get();
 }
