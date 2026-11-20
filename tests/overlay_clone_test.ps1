@@ -271,6 +271,15 @@ try {
   Check 'a tag named like the overlay branch does not stop the pull' ((Get-Head $private) -eq $tagged -and $out -match 'overlay: updated to') "($out)"
   git -C $private tag -d main | Out-Null
 
+  # A clean overlay ahead of its upstream is reported as ahead, its commit kept.
+  Set-Content -LiteralPath (Join-Path $private 'ahead.txt') -Value 'ahead'
+  git -C $private add -A; git -C $private commit -q -m 'ahead'
+  $aheadHead = Get-Head $private
+  $null = Add-Commit $public 'public-ahead.txt'
+  $out = Invoke-Pull $owner
+  Check 'a clean overlay ahead of its upstream is reported ahead, not blamed on a setting' ((Get-Head $private) -eq $aheadHead -and $out -match 'ahead of its upstream by 1' -and $out -notmatch 'a git setting') "($out)"
+  git -C $private push -q origin HEAD 2>$null
+
   $publicHead = Add-Commit $public 'public-2.txt'
   $out = Invoke-Pull $owner
   Check 'a pull with nothing new for the overlay says it is current' ($out -match 'overlay: already current' -and (Get-Head $owner) -eq $publicHead) "($out)"

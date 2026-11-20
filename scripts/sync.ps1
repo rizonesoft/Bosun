@@ -85,7 +85,8 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
     if ($remoteRefs.Code) { return 'unreachable' }
     $tip = (($remoteRefs.Out | Select-Object -First 1) -split '\s+')[0]
     $fetched = Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', '--refmap=', $remote, "+refs/heads/${name}:refs/remotes/$remote/$name")
-    if ($fetched.Code) { return 'unreachable' }
+    # The remote answered just above, so a fetch that fails now could not store what it got (a lock, permissions, disk).
+    if ($fetched.Code) { return 'unstored' }
     if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$name")).Out -join '' -ne $tip) { return 'moved' }
     $tip
   }
@@ -101,6 +102,7 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
       $tip = Get-Branch $state.Default
       if ($tip -eq 'unreachable') { return Done 'remote unreachable' }
       if ($tip -eq 'moved') { return Done 'could not be read (its remote moved while it was read)' }
+      if ($tip -eq 'unstored') { return Done 'could not be read (what it fetched could not be stored: a lock, permissions or a full disk)' }
       if ($tip -ne 'gone') {
         $state.Target = $tip
         if ($dirty) { return Done "empty, first commit waiting on $($state.Default), uncommitted changes" }
@@ -111,7 +113,8 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
     $any = Invoke-Git $repo @('ls-remote', '--heads', $remote)
     if ($any.Code) { return Done 'remote unreachable' }
     if ($any.Out -join '') { return Done 'empty, its remote has branches but no default branch to take (set the remote''s HEAD)' }
-    return Done 'empty, no commit yet' (-not $dirty)
+    if ($dirty) { return Done 'empty, no commit yet, uncommitted changes' }
+    return Done 'empty, no commit yet' $true
   }
   if (-not $merge) { return Done 'no upstream branch' }
   $state.Upstream = $merge -replace '^refs/heads/', ''
@@ -119,6 +122,7 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   if ($tip -eq 'gone') { return Done 'upstream branch gone (its remote branch was deleted)' }
   if ($tip -eq 'unreachable') { return Done 'remote unreachable' }
   if ($tip -eq 'moved') { return Done 'could not be read (its remote moved while it was read)' }
+  if ($tip -eq 'unstored') { return Done 'could not be read (what it fetched could not be stored: a lock, permissions or a full disk)' }
   # The tip the remote has now, which a push is conditioned on below.
   $state.RemoteTip = $tip
   # Every input a plain run acts on is fixed here, once, and the counts are of these exact commits: the local commit,
@@ -166,6 +170,7 @@ if ($blocked) {
 
 $done = @()
 $failed = $null
+$undo = $null
 # The public fast-forward runs scripts/hooks/post-merge, which finds the overlay already dealt with: this run never
 # fast-forwards the public checkout while it refuses the overlay. Its output, like git's, is not shown.
 foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
@@ -194,11 +199,12 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
     $failed = "sync: $($s.Label): its commit no longer contains its upstream; nothing more was done"; break
   }
   # No git or remote text is shown: a remote's message can carry a URL with a credential in it.
-  if ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
-  # The first commit's branch tracks its remote branch, set directly: --track would need a fetch refspec matching it.
+  # The first commit's branch records its upstream before the checkout, set directly (--track would need a fetch
+  # refspec matching it): a run stopped between the two can always be run again, and an unborn overlay retries cleanly.
   if ($s.Action -eq 'first' -and ((Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).remote", $s.Remote)).Code -or (Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).merge", "refs/heads/$($s.Default)")).Code)) {
-    $failed = "sync: $($s.Label): its first commit is checked out, but its upstream could not be recorded"; break
-  }
+    $failed = "sync: $($s.Label): the upstream of its first commit's branch could not be recorded (its git config is locked or read-only)"; break
+  }  if ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
+
   # The step is judged by what it left, not by git's exit code alone: a setting that changes what git does (a squash
   # in branch.<name>.mergeOptions, a rewrite of the push address) cannot pass for success.
   $result = if ($s.Action -eq 'push') {
@@ -210,6 +216,7 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   }
   if (-not $result) { $failed = "sync: $($s.Label): the $($s.Action) did not leave what it should (a git setting changed what it did); see: git -C $(if ($s.Label -eq 'overlay') { '.private' } else { '.' }) status"; break }
   $done += $step.Did
+  if ($s.Action -eq 'first') { $undo = "to undo its upstream setting: git -C .private config --unset branch.$($s.Default).remote; git -C .private config --unset branch.$($s.Default).merge" }
 }
 
 if ($failed) {
@@ -217,6 +224,7 @@ if ($failed) {
   "sync: done before it: $(if ($done) { $done -join '; ' } else { 'nothing' })"
 }
 elseif ($done) { "sync: $($done -join '; ')" }
+if ($undo) { "sync: $undo" }
 $states = Get-States
 Write-States $states
 exit $(if ($failed -or @($states | Where-Object { -not $_.Ok }).Count) { 1 } else { 0 })

@@ -139,11 +139,28 @@ Run `pwsh scripts/setup-clone.ps1` once on a new clone. It turns on the reposito
 Then one command shows and syncs both repositories:
 
 ```
-pwsh scripts/sync.ps1 -Check   # one line each, changes nothing
+pwsh scripts/sync.ps1 -Check   # one line each; changes no branch, file, tag or remote
 pwsh scripts/sync.ps1          # fast-forward what is behind, push what is ahead
 ```
 
-Each line reads `public: <branch>, <state>` or `overlay: <branch>, <state>`. `-Check` exits 0 when both are `level and clean` (a clone without an overlay counts as clean) and 1 otherwise. A plain run is all or nothing: if either repository is diverged, has uncommitted changes, is on a detached HEAD, has no upstream or a deleted one, cannot reach its remote, or its `.private` is not the overlay (or its remote points somewhere else), it changes neither repository and says why. Otherwise it updates the overlay first, then this checkout. It never commits, stashes or stages for you, and a fast-forward never replaces an ignored file. If a push or fast-forward is refused partway, it says what was already done; fix the cause it names and run it again. A pull that merges also updates the overlay through the `post-merge` hook.
+Each line reads `public: <branch>, <state>` or `overlay: <branch>, <state>`. `-Check` exits 0 when both are `level and clean` (a clone without an overlay counts as clean) and 1 otherwise; like any fetch, it refreshes the remote-tracking refs it compares against. A plain run is all or nothing: if either repository is in a state below that it does not act on, it changes neither repository and says why. Otherwise it updates the overlay first, then this checkout. It never commits, stashes or stages for you, and a fast-forward never replaces an ignored file. If a push or fast-forward is refused partway, it says what was already done; fix the cause it names and run it again. A pull that merges also updates the overlay through the `post-merge` hook.
+
+What each state needs (use `git -C .private` for the overlay):
+
+| State | What to do |
+| ----- | ---------- |
+| `ahead N` or `behind N` | Nothing: a plain run pushes or fast-forwards it. |
+| `uncommitted changes` | Commit or stash them, then run it again. |
+| `diverged (ahead N, behind N)` | Look with `git log @{u}..HEAD` and `git log HEAD..@{u}`, then merge or rebase yourself. |
+| `no upstream branch` | Set one: `git branch --set-upstream-to=origin/<branch>`. |
+| `upstream branch gone` | Its remote branch was deleted: push it again on purpose, or switch to another branch. |
+| `detached HEAD` | Switch to a branch: `git switch <branch>`. |
+| `remote unreachable` | Check the network and sign-in (`git fetch`), then run it again. |
+| `could not be read (...)` | The named part failed locally (a damaged index, a lock, a full disk): fix that, then run it again. |
+| `not the overlay (...)` | `.private` is not the overlay's own clone: move it aside and run `pwsh scripts/setup-clone.ps1`. |
+| `push goes elsewhere` or `pushes to more than one address` | Point the overlay remote back at its source: `git -C .private remote set-url --push origin <source>`. |
+| `empty, first commit waiting on <branch>` | Nothing: a plain run checks it out and prints how to undo its upstream setting. |
+| `empty, no commit yet` | Nothing to sync until the overlay's first commit is pushed. |
 
 ## How is the project run?
 

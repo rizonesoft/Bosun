@@ -236,6 +236,30 @@ try {
   $r = Invoke-Sync $owner -Check
   Check '-Check leaves FETCH_HEAD as the operator''s own fetch left it' ((Get-Content -LiteralPath (Join-Path $owner '.git\FETCH_HEAD') -Raw) -eq $fetchHead -and $r.Text -match 'public: main, behind 1') "($($r.Text))"
   $null = Invoke-Sync $owner
+  # --- a fetch that cannot store what it got is named as local, not as the remote ---
+  $null = Add-Remote $public 'locked-tracking.txt'
+  $lockFile = Join-Path $owner '.git\refs\remotes\origin\main.lock'
+  New-Item -ItemType Directory -Force -Path (Split-Path $lockFile) | Out-Null
+  Set-Content -LiteralPath $lockFile -Value 'held'
+  $r = Invoke-Sync $owner -Check
+  Remove-Item -LiteralPath $lockFile
+  Check 'a tracking ref that cannot be written is named as local, not unreachable' ($r.Exit -eq 1 -and $r.Text -match 'public: main, could not be read \(what it fetched could not be stored') "($($r.Text))"
+  $null = Invoke-Sync $owner
+
+  # --- a linked .private or a linked worktree is refused by sync itself, and nothing is pushed ---
+  $target = Join-Path $work 'linked-target'
+  git clone -q $overlay $target 2>$null
+  git -C $target config --local bosun.overlay true
+  $linkOwner = New-Owner 'sync-junction' -NoOverlay
+  New-Item -ItemType Junction -Path (Join-Path $linkOwner '.private') -Target $target | Out-Null
+  $null = Add-Local $linkOwner 'would-push.txt'
+  $publicMain = Get-Head $public 'refs/heads/main'
+  $r = Invoke-Sync $linkOwner
+  Check 'sync refuses a .private junction and pushes nothing' ($r.Exit -eq 1 -and $r.Text -match 'overlay: not the overlay \(\.private is a link' -and (Get-Head $public 'refs/heads/main') -eq $publicMain) "(exit $($r.Exit): $($r.Text))"
+  (Get-Item -LiteralPath (Join-Path $linkOwner '.private')).Delete()
+  git -C $target worktree add -q --detach (Join-Path $linkOwner '.private') 2>$null
+  $r = Invoke-Sync $linkOwner
+  Check 'sync refuses a linked worktree at .private and pushes nothing' ($r.Exit -eq 1 -and $r.Text -match 'overlay: not the overlay \(\.private is a linked worktree' -and (Get-Head $public 'refs/heads/main') -eq $publicMain) "(exit $($r.Exit): $($r.Text))"
   # --- an upstream branch deleted on its remote ---
   git -C $private checkout -q -b topic 2>$null
   git -C $private push -q -u origin topic 2>$null
@@ -352,6 +376,10 @@ try {
   $freshPrivate = Join-Path $fresh '.private'
   Add-Content -LiteralPath (Join-Path $freshPrivate '.git\info\exclude') -Value 'keep.local'
   Set-Content -LiteralPath (Join-Path $freshPrivate 'keep.local') -Value 'kept'
+  Set-Content -LiteralPath (Join-Path $freshPrivate 'config.toml') -Value 'vault_item = "early"'
+  $r = Invoke-Sync $fresh -Check
+  Check 'an empty overlay with an untracked file says so' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, empty, no commit yet, uncommitted changes') "($($r.Text))"
+  Remove-Item -LiteralPath (Join-Path $freshPrivate 'config.toml')
   $r = Invoke-Sync $fresh -Check
   Check 'an empty overlay with nothing pushed is level' ($r.Exit -eq 0 -and $r.Text -match 'overlay: main, empty, no commit yet') "(exit $($r.Exit): $($r.Text))"
   $firstPusher = Join-Path $work 'first-pusher'
@@ -364,7 +392,13 @@ try {
   git -C $freshPrivate config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
   $r = Invoke-Sync $fresh -Check
   Check '-Check names the waiting first commit and does not take it' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, empty, first commit waiting on trunk' -and -not (git -C $freshPrivate rev-parse --verify --quiet HEAD)) "(exit $($r.Exit): $($r.Text))"
+  $configLock = Join-Path $freshPrivate '.git\config.lock'
+  Set-Content -LiteralPath $configLock -Value 'held'
   $r = Invoke-Sync $fresh
+  Remove-Item -LiteralPath $configLock
+  Check 'a locked config refuses the first commit before anything is checked out' ($r.Exit -eq 1 -and $r.Text -match 'could not be recorded' -and -not (git -C $freshPrivate rev-parse --verify --quiet HEAD)) "(exit $($r.Exit): $($r.Text))"
+  $r = Invoke-Sync $fresh
+  Check 'the retry prints the undo of the upstream setting' ($r.Text -match 'to undo its upstream setting: git -C \.private config --unset branch\.trunk\.remote') "($($r.Text))"
   Check 'a plain run takes it, tracks it, and keeps an ignored local file' ($r.Exit -eq 0 -and (Get-Head $freshPrivate) -eq (Get-Head $firstPusher) -and "$(git -C $freshPrivate config --local --get branch.trunk.remote)" -eq 'origin' -and "$(git -C $freshPrivate config --local --get branch.trunk.merge)" -eq 'refs/heads/trunk' -and (Get-Content -LiteralPath (Join-Path $freshPrivate 'keep.local') -Raw).Trim() -eq 'kept') "(exit $($r.Exit): $($r.Text))"
   $env:BOSUN_OVERLAY_REPO = $overlay
 
