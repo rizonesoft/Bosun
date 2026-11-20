@@ -1813,9 +1813,15 @@ inline std::optional<std::string> editor_switch(const std::string& line, const s
 // started with its own --user-data-dir or --extensions-dir gets them named, so the reporter goes into that editor, never
 // the normal one.
 inline std::string editor_install_command(const std::string& main_command_line) {
+    // Single-quoted, a quote doubled, so PowerShell takes a path with `$` in it as written (round 2).
+    auto quoted = [](const std::string& v) {
+        std::string out = "'";
+        for (char c : v) out += c == '\'' ? std::string("''") : std::string(1, c);
+        return out + "'";
+    };
     std::string command = "pwsh scripts/install-editor-extension.ps1";
-    if (auto data = editor_switch(main_command_line, "--user-data-dir")) command += " -UserDataDir \"" + *data + "\"";
-    if (auto ext = editor_switch(main_command_line, "--extensions-dir")) command += " -ExtensionsDir \"" + *ext + "\"";
+    if (auto data = editor_switch(main_command_line, "--user-data-dir")) command += " -UserDataDir " + quoted(*data);
+    if (auto ext = editor_switch(main_command_line, "--extensions-dir")) command += " -ExtensionsDir " + quoted(*ext);
     return command;
 }
 

@@ -145,6 +145,8 @@ try {
     $odd = New-Editor 'odd' 'StandinOdd' @(@{ name = 'QA-%USERNAME%'; location = 'q1' }, @{ name = 'Plain'; location = 'p1' })
     $said = Run-Installer @('-Cli', $odd.Cli)
     Check "a profile named with % is refused and said, the others done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $odd) -eq 'default,Plain' -and ($said -join "`n") -match 'profile QA-%USERNAME%\): not done, because its name holds a character') ($said | Out-String)
+    $said = Run-Installer @('-Uninstall', '-Cli', $odd.Cli)
+    Check "and an uninstall's refusal says how to remove it, not how to install it ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and ($said -join "`n") -match 'remove the reporter from that profile in VS Code' -and ($said -join "`n") -notmatch 'Apply Extension to all Profiles') ($said | Out-String)
     # A wrapper with no product.json beside it, given -UserDataDir, reads that editor's registry.
     $isolated = Join-Path $work 'isolated'
     New-Item -ItemType Directory -Force -Path (Join-Path $isolated 'User\globalStorage') | Out-Null

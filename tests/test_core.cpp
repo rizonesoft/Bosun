@@ -866,7 +866,9 @@ static void editor_windows() {
     // The command that places an editor's windows names the editor's own folders (round 1 of D03 T02 §5).
     CHECK(dm::editor_install_command("\"C:\\VS Code\\Code.exe\"") == "pwsh scripts/install-editor-extension.ps1");
     CHECK(dm::editor_install_command("\"Code.exe\" --user-data-dir \"D:\\a b\\data\" --extensions-dir=D:\\ext --new-window") ==
-          "pwsh scripts/install-editor-extension.ps1 -UserDataDir \"D:\\a b\\data\" -ExtensionsDir \"D:\\ext\"");
+          "pwsh scripts/install-editor-extension.ps1 -UserDataDir 'D:\\a b\\data' -ExtensionsDir 'D:\\ext'");
+    // Single-quoted, a quote doubled: PowerShell takes a $ as written (round 2).
+    CHECK(dm::editor_install_command("Code.exe --user-data-dir D:\\s\\$work's") == "pwsh scripts/install-editor-extension.ps1 -UserDataDir 'D:\\s\\$work''s'");
     CHECK(!dm::editor_switch("\"Code.exe\" --user-data-dirx=1", "--user-data-dir"));
     // VS Code Insiders is an editor too, placed by the same records.
     CHECK(dm::instance_kind("Code - Insiders.exe") == "code");

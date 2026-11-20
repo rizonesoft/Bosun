@@ -173,7 +173,7 @@ foreach ($c in $clis) {
             $where = if ($target) { "${c} (profile $target)" } else { "${c}" }
             if ($target -and $target -match $ShellChanged) {
                 $failed++
-                "${where}: not done, because its name holds a character the editor's command shell would change; apply the reporter to it from VS Code (Extensions: Apply Extension to all Profiles)"
+                "${where}: not done, because its name holds a character the editor's command shell would change; $(if ($Uninstall) { 'remove the reporter from that profile in VS Code (Extensions view, Uninstall)' } else { 'apply the reporter to it from VS Code (Extensions: Apply Extension to all Profiles)' })"
                 continue
             }
             $scope = @(if ($UserDataDir) { '--user-data-dir', $UserDataDir }) + @(if ($ExtensionsDir) { '--extensions-dir', $ExtensionsDir }) +
