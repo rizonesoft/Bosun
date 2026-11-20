@@ -293,6 +293,25 @@ try {
   $r = Invoke-Sync $owner
   Check 'a public fast-forward keeps a local-only overlay tag through the hook' ($r.Exit -eq 0 -and (Get-Head $owner) -eq $incoming -and "$(git -C $private tag --list overlay-only)" -eq 'overlay-only') "(exit $($r.Exit): $($r.Text))"
   git -C $private config --unset fetch.prune; git -C $private config --unset fetch.pruneTags
+  # --- a configured tag refspec does not move a local tag ---
+  git -C $owner tag release
+  $tagPusher = Join-Path $work 'tag-pusher'
+  git clone -q $public $tagPusher 2>$null
+  Set-Content -LiteralPath (Join-Path $tagPusher 'tagged-remote.txt') -Value 'remote tag'
+  git -C $tagPusher add -A; git -C $tagPusher commit -q -m 'remote tag'
+  git -C $tagPusher tag release; git -C $tagPusher push -q origin HEAD refs/tags/release 2>$null
+  git -C $owner config --add remote.origin.fetch '+refs/tags/*:refs/tags/*'
+  $localTag = Get-Head $owner 'refs/tags/release'
+  $r = Invoke-Sync $owner -Check
+  Check 'a configured tag refspec does not move a local tag in -Check' ((Get-Head $owner 'refs/tags/release') -eq $localTag) "($($r.Text))"
+  git -C $owner config --unset remote.origin.fetch '\+refs/tags/\*:refs/tags/\*'
+  git -C $owner tag -d release | Out-Null
+
+  # --- a squash in mergeOptions cannot pass for a fast-forward ---
+  git -C $owner config branch.main.mergeOptions --squash
+  $r = Invoke-Sync $owner
+  Check 'with mergeOptions --squash the fast-forward still moves the branch, index clean' ($r.Exit -eq 0 -and (Get-Head $owner) -eq (Get-Head $public 'refs/heads/main') -and -not (git -C $owner diff --cached --name-only)) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner config --unset branch.main.mergeOptions
   # --- -Check never rewrites the index ---
   $touched = Join-Path $private 'config.toml'
   (Get-Item -LiteralPath $touched).LastWriteTime = (Get-Date).AddMinutes(-5)
@@ -336,10 +355,12 @@ try {
   git -C $firstPusher add -A; git -C $firstPusher commit -q -m first
   git -C $firstPusher push -q $empty trunk 2>$null
   git --git-dir=$empty symbolic-ref HEAD refs/heads/trunk
+  # A fetch refspec naming only main cannot hide a first commit on trunk.
+  git -C $freshPrivate config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
   $r = Invoke-Sync $fresh -Check
   Check '-Check names the waiting first commit and does not take it' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, empty, first commit waiting on trunk' -and -not (git -C $freshPrivate rev-parse --verify --quiet HEAD)) "(exit $($r.Exit): $($r.Text))"
   $r = Invoke-Sync $fresh
-  Check 'a plain run takes it, tracks it, and keeps an ignored local file' ($r.Exit -eq 0 -and (Get-Head $freshPrivate) -eq (Get-Head $firstPusher) -and "$(git -C $freshPrivate rev-parse --abbrev-ref '@{u}')" -eq 'origin/trunk' -and (Get-Content -LiteralPath (Join-Path $freshPrivate 'keep.local') -Raw).Trim() -eq 'kept') "(exit $($r.Exit): $($r.Text))"
+  Check 'a plain run takes it, tracks it, and keeps an ignored local file' ($r.Exit -eq 0 -and (Get-Head $freshPrivate) -eq (Get-Head $firstPusher) -and "$(git -C $freshPrivate config --local --get branch.trunk.remote)" -eq 'origin' -and "$(git -C $freshPrivate config --local --get branch.trunk.merge)" -eq 'refs/heads/trunk' -and (Get-Content -LiteralPath (Join-Path $freshPrivate 'keep.local') -Raw).Trim() -eq 'kept') "(exit $($r.Exit): $($r.Text))"
   $env:BOSUN_OVERLAY_REPO = $overlay
 
   # --- a stranger's clone: no overlay at all ---

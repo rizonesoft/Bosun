@@ -75,18 +75,33 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   $status = Invoke-Git $repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')
   if ($status.Code) { return Done 'could not be read (status)' }
   $dirty = [bool]($status.Out -join '')
-  # Nothing is pruned (--no-prune overrides fetch.prune, remote.<name>.prune and the pruneTags settings, which would
-  # delete local-only tags) and no tag is fetched. Whether the upstream branch still exists is asked of the remote.
-  if ((Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', $remote)).Code) { return Done 'remote unreachable' }
+  # The one branch needed is asked of the remote, then fetched by an explicit refspec into its tracking ref: no
+  # configured refspec (a tag refspec would overwrite local tags), prune or pruneTags setting applies, no tag is
+  # fetched and FETCH_HEAD is left alone.
+  function Get-Branch([string]$name) {
+    $remoteRefs = Invoke-Git $repo @('ls-remote', '--exit-code', '--heads', $remote, "refs/heads/$name")
+    if ($remoteRefs.Code -eq 2) { return 'gone' }
+    if ($remoteRefs.Code) { return 'unreachable' }
+    $tip = (($remoteRefs.Out | Select-Object -First 1) -split '\s+')[0]
+    $fetched = Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', $remote, "+refs/heads/${name}:refs/remotes/$remote/$name")
+    if ($fetched.Code) { return 'unreachable' }
+    if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$name")).Out -join '' -ne $tip) { return 'moved' }
+    $tip
+  }
 
   if (-not $born) {
-    # An overlay cloned while empty: its first commit lands on the remote's default branch, whatever its name.
+    # An overlay cloned while empty: its first commit lands on the remote's default branch, whatever its name, as the
+    # remote reports it (a fetch refspec naming another branch cannot hide it).
     $lookup = Invoke-Git $repo @('ls-remote', '--symref', $remote, 'HEAD')
     if ($lookup.Code) { return Done 'remote unreachable' }
     $head = $lookup.Out | Where-Object { $_ -match '^ref: refs/heads/(\S+)\s+HEAD$' } | Select-Object -First 1
     if ($head -and $head -match '^ref: refs/heads/(\S+)') {
       $state.Default = $Matches[1]
-      if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$($state.Default)")).Code -eq 0) {
+      $tip = Get-Branch $state.Default
+      if ($tip -eq 'unreachable') { return Done 'remote unreachable' }
+      if ($tip -eq 'moved') { return Done 'could not be read (its remote moved while it was read)' }
+      if ($tip -ne 'gone') {
+        $state.Target = $tip
         if ($dirty) { return Done "empty, first commit waiting on $($state.Default), uncommitted changes" }
         return Done "empty, first commit waiting on $($state.Default)" $false 'first'
       }
@@ -95,12 +110,12 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   }
   if (-not $merge) { return Done 'no upstream branch' }
   $state.Upstream = $merge -replace '^refs/heads/', ''
-  $exists = Invoke-Git $repo @('ls-remote', '--exit-code', '--heads', $remote, "refs/heads/$($state.Upstream)")
-  if ($exists.Code -eq 2) { return Done 'upstream branch gone (its remote branch was deleted)' }
-  if ($exists.Code) { return Done 'remote unreachable' }
-  # The tip the remote has now, which a push is conditioned on below (fetched just above, so the tracking ref agrees).
-  $state.RemoteTip = (($exists.Out | Select-Object -First 1) -split '\s+')[0]
-  if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$($state.Upstream)")).Out -join '' -ne $state.RemoteTip) { return Done 'could not be read (its remote moved while it was read)' }
+  $tip = Get-Branch $state.Upstream
+  if ($tip -eq 'gone') { return Done 'upstream branch gone (its remote branch was deleted)' }
+  if ($tip -eq 'unreachable') { return Done 'remote unreachable' }
+  if ($tip -eq 'moved') { return Done 'could not be read (its remote moved while it was read)' }
+  # The tip the remote has now, which a push is conditioned on below.
+  $state.RemoteTip = $tip
   # Every input a plain run acts on is fixed here, once, and the counts are of these exact commits: the local commit,
   # the remote tip, and the one address a push would go to. Nothing later reads HEAD, the remote or its URL again.
   $state.Commit = (Invoke-Git $repo @('rev-parse', '--verify', '--quiet', 'HEAD')).Out -join ''
@@ -150,9 +165,9 @@ $failed = $null
 # fast-forwards the public checkout while it refuses the overlay. Its output, like git's, is not shown.
 foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   $step = switch ($s.Action) {
-    'merge' { @{ Did = "fast-forwarded $($s.Label)"; Args = @('merge', '--ff-only', '--no-overwrite-ignore', '--quiet', $s.Target); Why = 'the fast-forward was refused (an incoming file would replace an ignored or local one, or the branch moved meanwhile)' } }
+    'merge' { @{ Did = "fast-forwarded $($s.Label)"; Args = @('-c', "branch.$($s.Branch).mergeOptions=", '-c', 'merge.autoStash=false', 'merge', '--ff-only', '--no-overwrite-ignore', '--no-squash', '--quiet', $s.Target); Why = 'the fast-forward was refused (an incoming file would replace an ignored or local one, or the branch moved meanwhile)' } }
     'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", $s.Remote, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
-    'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '--track', "$($s.Remote)/$($s.Default)"); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
+    'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '-b', $s.Default, $s.Target); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
   }
   # The checkout must still be where it was looked at: a branch switched or a commit made meanwhile stops the run.
   if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (Invoke-Git $s.Repo @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out -join '' -ne $s.Branch)) {
@@ -175,6 +190,20 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   }
   # No git or remote text is shown: a remote's message can carry a URL with a credential in it.
   if ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
+  # The first commit's branch tracks its remote branch, set directly: --track would need a fetch refspec matching it.
+  if ($s.Action -eq 'first' -and ((Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).remote", $s.Remote)).Code -or (Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).merge", "refs/heads/$($s.Default)")).Code)) {
+    $failed = "sync: $($s.Label): its first commit is checked out, but its upstream could not be recorded"; break
+  }
+  # The step is judged by what it left, not by git's exit code alone: a setting that changes what git does (a squash
+  # in branch.<name>.mergeOptions, a rewrite of the push address) cannot pass for success.
+  $result = if ($s.Action -eq 'push') {
+    $now = Invoke-Git $s.Repo @('ls-remote', '--heads', $s.Remote, "refs/heads/$($s.Upstream)")
+    ((($now.Out | Select-Object -First 1) -split '\s+')[0]) -eq $s.Commit
+  } else {
+    ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '') -eq $s.Target -and
+      -not ((Invoke-Git $s.Repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')).Out -join '')
+  }
+  if (-not $result) { $failed = "sync: $($s.Label): the $($s.Action) did not leave what it should (a git setting changed what it did); see: git -C $(if ($s.Label -eq 'overlay') { '.private' } else { '.' }) status"; break }
   $done += $step.Did
 }
 
