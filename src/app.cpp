@@ -270,16 +270,17 @@ fs::path records_dir(const Options& o) {
     return fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"run" / std::to_wstring(own_session()) / widen(dm::ns_dir(narrow(o.ns)));
 }
 
-// The job's repo: the one the WSL shim named, or the nearest folder above the working directory holding .git.
+dm::GitProbe windows_git_probe(const std::string& d);
+
+// The job's repo: the one the WSL shim named, or the nearest folder above the working directory holding .git, by the
+// scanner's own walk, so a .git that can't be read gives the job no repo, never the checkout above it (round 4 of
+// D03 T02 §7). The scanner reads a Windows job's repo from its folder itself, with why when it can't be told.
 std::optional<std::string> job_repo(const Options& o) {
     if (!o.repo.empty()) return narrow(o.repo);
     wchar_t cwd[MAX_PATH * 4];
     DWORD n = GetCurrentDirectoryW(MAX_PATH * 4, cwd);
     if (!n || n >= MAX_PATH * 4) return std::nullopt;
-    return dm::repo_from_path(narrow(std::wstring(cwd, n)), [](const std::string& dir) {
-        std::error_code ec;
-        return fs::exists(fs::path(widen(dir)) / L".git", ec);
-    });
+    return dm::repo_walk(narrow(std::wstring(cwd, n)), windows_git_probe).repo;
 }
 
 std::string job_command(const Options& o) {
@@ -1558,25 +1559,44 @@ int cmd_instances(const Options& o) {
         return found == distro_names->end() ? written : found->second;
     };
     std::string distros_said;  // what wsl.exe said when it named no distro (D03 T02 §7)
-    auto repo_of_root = [&](const dm::EditorRoot& root) -> dm::RepoAnswer {
-        if (root.location == "windows") return repo_bounded(widen(root.path), lookup);
+    // BOSUN_WSL_SHARE names another share root, for tests.
+    std::wstring root_share = env(L"BOSUN_WSL_SHARE");
+    if (root_share.empty()) root_share = L"\\\\wsl.localhost";
+    // Only a list that names the distro lets its share be read (D03 T02 §7): anything else, nothing running or wsl.exe
+    // failing or answering what is not a list, is the row's reason, with wsl.exe's own words, and never wakes a distro.
+    auto not_running = [&](const std::string& distro) -> std::optional<std::string> {
         if (!asked_distros) {
             asked_distros = true;
             std::string unread;
             running_distros = wsl_running_distros(unread, distros_said);
             if (!running_distros) distros_said = unread;
         }
-        // Only a list that names the root's distro lets its share be read (D03 T02 §7): anything else, nothing running or
-        // wsl.exe failing or answering what is not a list, is the row's reason, with wsl.exe's own words, and never wakes
-        // a distro (the name is WSL's own spelling).
-        if (!running_distros || !running_distros->count(*root.distro))
-            return {std::nullopt, "its repo is not looked up: " + *root.distro + " was not seen running" +
-                                      (distros_said.empty() ? std::string() : " (wsl.exe: " + distros_said + ")")};
+        if (running_distros && running_distros->count(distro)) return std::nullopt;
+        return "its repo is not looked up: " + distro + " was not seen running" +
+               (distros_said.empty() ? std::string() : " (wsl.exe: " + distros_said + ")");
+    };
+    // A Windows process's folder in a distro's share is asked through that gate first (round 4 of D03 T02 §7): a probe
+    // there would start a distro that was shut down. The share is \\wsl.localhost, \\wsl$, or the test's root.
+    auto share_distro = [&](const std::wstring& dir) -> std::optional<std::string> {
+        for (const std::wstring& prefix : {root_share, std::wstring(L"\\\\wsl.localhost"), std::wstring(L"\\\\wsl$")}) {
+            if (dir.size() <= prefix.size() + 1 || _wcsnicmp(dir.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
+            if (dir[prefix.size()] != L'\\') continue;
+            size_t end = dir.find(L'\\', prefix.size() + 1);
+            std::wstring name = dir.substr(prefix.size() + 1, end == std::wstring::npos ? std::wstring::npos : end - prefix.size() - 1);
+            if (!name.empty()) return distro_name(narrow(name));  // WSL's own spelling
+        }
+        return std::nullopt;
+    };
+    auto repo_of_dir = [&](const std::wstring& dir) -> dm::RepoAnswer {
+        if (auto distro = share_distro(dir))
+            if (auto why = not_running(*distro)) return {std::nullopt, *why};
+        return repo_bounded(dir, lookup);
+    };
+    auto repo_of_root = [&](const dm::EditorRoot& root) -> dm::RepoAnswer {
+        if (root.location == "windows") return repo_of_dir(widen(root.path));
+        if (auto why = not_running(*root.distro)) return {std::nullopt, *why};
         // Through the distro's share, on a thread of its own under the scan's deadline, as a network folder is: a guest
         // folder on a mount that stopped answering costs that window its repo, never the scan (completion review).
-        // BOSUN_WSL_SHARE names another share root, for tests.
-        std::wstring root_share = env(L"BOSUN_WSL_SHARE");
-        if (root_share.empty()) root_share = L"\\\\wsl.localhost";
         std::wstring share = root_share + L"\\" + widen(*root.distro);
         std::string guest_path = root.path;
         // A Linux name may hold a backslash, which a Windows path through the share reads as a separator: such a folder
@@ -1643,7 +1663,7 @@ int cmd_instances(const Options& o) {
         } else {
             if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
             i.cwd = narrow(dir);
-            auto answer = repo_bounded(dir, lookup);
+            auto answer = repo_of_dir(dir);
             i.repo = answer.repo;
             i.repo_why = answer.why;
         }
@@ -1721,6 +1741,10 @@ int cmd_instances(const Options& o) {
             } else {
                 if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
                 i.cwd = narrow(dir);
+                // Its repo too, read as an agent's is, with why when it can't be told (round 4 of D03 T02 §7).
+                auto answer = repo_of_dir(dir);
+                i.repo = answer.repo;
+                i.repo_why = answer.why;
             }
         }
         dm::instance_state(i, &h, nullptr, nullptr, std::nullopt);

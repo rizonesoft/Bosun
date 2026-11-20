@@ -222,6 +222,12 @@ try {
     $null = Wait-Until { Row (Scan) $danglingAgent.Id }
     $danglingRow = Row (Scan) $danglingAgent.Id
     Check ($danglingRow -and $null -eq $danglingRow.repo -and $danglingRow.repo_why -like '*dangling could not be checked for a repo: its .git is a link to*') "a .git junction pointing nowhere is a failure, not the checkout above ($($danglingRow.repo), $($danglingRow.repo_why))"
+    # Round 4: a job run there is not given the checkout above either: its holder records no repo, and its row says why.
+    $danglingJob = Start-Held $bosun @('run', '--ns', $ns, '--slots', '2', '--min-avail-mb', '0', '--', (Q $sleeper), (Q (Join-Path $work 'gj.txt')), '60000') (Join-Path $dangling 'work')
+    $null = Wait-Until { (Row (Scan) $danglingJob.Id).state -eq 'working' }
+    $jobRow = Row (Scan) $danglingJob.Id
+    Check ($jobRow -and $null -eq $jobRow.repo -and $jobRow.repo_why -like '*dangling could not be checked for a repo: its .git is a link to*') "a job under a .git junction pointing nowhere is no checkout's ($($jobRow.repo), $($jobRow.repo_why))"
+    & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $danglingJob.Id 2>&1 | Out-Null
     # Round 2: a window whose folder has gone (renamed while it was open) is not the checkout above it.
     $goneEditor = Start-Editor 'Code.exe' 'eg7'
     Window 'sg7' $goneEditor @((Uri (Join-Path $outer 'renamed\work')))
@@ -267,6 +273,16 @@ try {
     try {
       $row = Answer "Fake`nOther`n" 0
       Check ($row.repo -eq '/home/me/app' -and $null -eq $row.repo_why) "a distro wsl.exe names running is looked up through its share ($($row.repo), $($row.repo_why))"
+      # Round 4: a Windows agent whose folder is in a distro's share goes through the same gate, never waking the distro.
+      $shareAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'sa.txt')) 60000" (Join-Path $share 'Fake\home\me\app')
+      $null = Wait-Until { Row (Scan) $shareAgent.Id }
+      $env:BOSUN_WSL_SHARE = $share
+      $agentRow = Row (Scan) $shareAgent.Id
+      Check ($agentRow -and $agentRow.repo -like '*/Fake/home/me/app' -and $null -eq $agentRow.repo_why) "a Windows agent in a running distro's share has its repo ($($agentRow.repo), $($agentRow.repo_why))"
+      $null = Answer 'There are no running distributions.' 1
+      $agentRow = Row (Scan) $shareAgent.Id
+      Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like 'its repo is not looked up: Fake was not seen running*') "nor is it probed when its distro is not seen running ($($agentRow.repo_why))"
+      $null = Answer "Fake`nOther`n" 0
       # Through the share, a guest folder whose own .git can't be read: the row's reason, never the folder outside Git.
       & icacls.exe (Join-Path $guestShut '.git') /deny "${me}:(RA,REA,RD,X)" | Out-Null
       & icacls.exe $guestShut /deny "${me}:(RD)" | Out-Null

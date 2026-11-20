@@ -72,15 +72,15 @@ static void batch() {
 static void repos() {
     // Repo attribution walks up to the nearest .git and keeps same-named repos apart.
     std::set<std::string> gits{"D:/GitHub/Bosun", "/home/u/a/app", "/home/u/b/app"};
-    auto has = [&](const std::string& d) { return gits.count(d) > 0; };
-    CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\src\\x", has) == "D:/GitHub/Bosun");
-    CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\", has) == "D:/GitHub/Bosun");
-    CHECK(dm::repo_from_path("/home/u/a/app/src", has) != dm::repo_from_path("/home/u/b/app/src", has));
-    CHECK(!dm::repo_from_path("C:\\Windows\\System32", has).has_value());
+    auto has = [&](const std::string& d) { return dm::GitProbe{gits.count(d) > 0, std::nullopt}; };
+    CHECK(dm::repo_walk("D:\\GitHub\\Bosun\\src\\x", has).repo == "D:/GitHub/Bosun");
+    CHECK(dm::repo_walk("D:\\GitHub\\Bosun\\", has).repo == "D:/GitHub/Bosun");
+    CHECK(dm::repo_walk("/home/u/a/app/src", has, false).repo != dm::repo_walk("/home/u/b/app/src", has, false).repo);
+    CHECK(!dm::repo_walk("C:\\Windows\\System32", has).repo.has_value());
     // A drive's root is asked as "D:/", never "D:", which Windows reads relative to the drive's current folder.
     std::vector<std::string> asked;
-    auto record = [&](const std::string& d) { asked.push_back(d); return d == "D:/"; };
-    CHECK(dm::repo_from_path("D:\\scratch\\x", record) == std::optional<std::string>("D:/"));
+    auto record = [&](const std::string& d) { asked.push_back(d); return dm::GitProbe{d == "D:/", std::nullopt}; };
+    CHECK(dm::repo_walk("D:\\scratch\\x", record).repo == std::optional<std::string>("D:/"));
     CHECK((asked == std::vector<std::string>{"D:/scratch/x", "D:/scratch", "D:/"}));
     // D03 T02 §7: a probe that fails stops the walk with why; a checkout above it is never taken for its repo.
     auto failing = [](const std::string& d) -> dm::GitProbe {

@@ -122,23 +122,6 @@ inline std::optional<std::wstring> build_command_line(const std::wstring& progra
     return line + L"\"";
 }
 
-// Walks up from dir to the nearest folder holding .git and returns that folder's path,
-// so two repos that share a folder name stay separate.
-inline std::optional<std::string> repo_from_path(std::string dir, const std::function<bool(const std::string&)>& has_git) {
-    std::replace(dir.begin(), dir.end(), '\\', '/');
-    while (!dir.empty() && dir.back() == '/') dir.pop_back();
-    while (!dir.empty()) {
-        // A drive's root is asked as "D:/": "D:" joined to ".git" is "D:.git", relative to the current folder on that
-        // drive (2026-11-20: every folder on the scanner's own drive was put in the repo the scanner ran from).
-        std::string probe = dir.size() == 2 && dir[1] == ':' ? dir + "/" : dir;
-        if (has_git(probe)) return probe;
-        size_t p = dir.rfind('/');
-        if (p == std::string::npos) break;
-        dir.resize(p);
-    }
-    return std::nullopt;
-}
-
 // A folder's repo, as a lookup can tell it (D03 T02 §7): found (`repo`), absent (neither), or not told because a probe
 // failed or did not answer (`why`, naming the folder and the error), never a failure taken for "not in a repo".
 struct RepoAnswer {
@@ -152,8 +135,11 @@ struct GitProbe {
     std::optional<std::string> error;
 };
 
-// repo_from_path with every probe's error kept: the walk stops at the first probe that fails, so a checkout above a
-// folder whose own `.git` could not be read is never taken for its repo.
+// Walks up from dir to the nearest folder holding .git and returns that folder's path, so two repos that share a folder
+// name stay separate. Every probe's error is kept: the walk stops at the first probe that fails, so a checkout above a
+// folder whose own `.git` could not be read is never taken for its repo. It is the only walk (round 4 of D03 T02 §7: an
+// error-blind one, kept for the job holder, gave a job the checkout above a broken .git). A drive's root is asked as
+// "D:/": "D:" joined to ".git" is "D:.git", relative to the current folder on that drive (2026-11-20).
 // `windows` is true for a Windows path, whose backslashes are separators; a Linux path keeps them, as a name's own
 // characters (round 2 of D03 T02 §7: /home/me/client\\api is not /home/me/client/api).
 inline RepoAnswer repo_walk(std::string dir, const std::function<GitProbe(const std::string&)>& probe, bool windows = true) {
