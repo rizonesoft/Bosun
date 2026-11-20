@@ -76,14 +76,14 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   if ($status.Code) { return Done 'could not be read (status)' }
   $dirty = [bool]($status.Out -join '')
   # The one branch needed is asked of the remote, then fetched by an explicit refspec into its tracking ref: no
-  # configured refspec (a tag refspec would overwrite local tags), prune or pruneTags setting applies, no tag is
-  # fetched and FETCH_HEAD is left alone.
+  # configured refspec or mapping (--refmap= empties the mappings git would otherwise add for the same branch, such as
+  # one into a tag), prune or pruneTags setting applies, no tag is fetched and FETCH_HEAD is left alone.
   function Get-Branch([string]$name) {
     $remoteRefs = Invoke-Git $repo @('ls-remote', '--exit-code', '--heads', $remote, "refs/heads/$name")
     if ($remoteRefs.Code -eq 2) { return 'gone' }
     if ($remoteRefs.Code) { return 'unreachable' }
     $tip = (($remoteRefs.Out | Select-Object -First 1) -split '\s+')[0]
-    $fetched = Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', $remote, "+refs/heads/${name}:refs/remotes/$remote/$name")
+    $fetched = Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', '--refmap=', $remote, "+refs/heads/${name}:refs/remotes/$remote/$name")
     if ($fetched.Code) { return 'unreachable' }
     if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$name")).Out -join '' -ne $tip) { return 'moved' }
     $tip

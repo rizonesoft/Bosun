@@ -47,18 +47,25 @@ if [ -n "$status" ]; then
     say "not pulled: .private has uncommitted changes; commit or stash them, then: git -C .private fetch && git -C .private merge --ff-only --no-overwrite-ignore @{u}"
     exit 0
 fi
-# The pull's own output is not shown: a remote's message can name a URL with a credential in it.
-if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-    # A clone of the overlay while it was still empty has no commit and no upstream. Once its first commit is
-    # pushed, the branch is taken from origin and tracked from then on.
-    # The branch is the remote's default (its HEAD), whatever name the empty clone's unborn branch was given.
-    if ! git -C "$overlay" rev-parse --verify --quiet HEAD >/dev/null 2>&1 &&
-        git -C "$overlay" fetch --quiet --no-prune --no-tags origin >/dev/null 2>&1 &&
-        git -C "$overlay" remote set-head origin --auto >/dev/null 2>&1 &&
-        branch=$(git -C "$overlay" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) &&
-        [ -n "$branch" ]; then
-        branch=${branch#origin/}
-        if git -C "$overlay" checkout --quiet --no-overwrite-ignore --track "origin/$branch" >/dev/null 2>&1; then
+# No fetch's or merge's own output is shown: a remote's message can name a URL with a credential in it.
+# Only the one branch needed is fetched, by an explicit refspec with an empty --refmap, so no configured refspec or
+# mapping (one into a tag would overwrite local tags), prune or pruneTags setting applies, and no tag is fetched.
+fetch_branch() {
+    git -C "$overlay" fetch --quiet --no-prune --no-tags --refmap= "$1" "+refs/heads/$2:refs/remotes/$1/$2" >/dev/null 2>&1
+}
+branch=$(git -C "$overlay" symbolic-ref --quiet --short HEAD 2>/dev/null)
+remote=$(git -C "$overlay" config --local --get "branch.$branch.remote" 2>/dev/null)
+upstream=$(git -C "$overlay" config --local --get "branch.$branch.merge" 2>/dev/null)
+upstream=${upstream#refs/heads/}
+if ! git -C "$overlay" rev-parse --verify --quiet HEAD >/dev/null 2>&1; then
+    # A clone of the overlay while it was still empty has no commit and no upstream. Once its first commit is pushed,
+    # its branch is the remote's default as the remote reports it, whatever the unborn branch was called.
+    default=$(git -C "$overlay" ls-remote --symref origin HEAD 2>/dev/null | sed -n 's|^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$|\1|p')
+    if [ -n "$default" ] && fetch_branch origin "$default" &&
+        target=$(git -C "$overlay" rev-parse --verify --quiet "refs/remotes/origin/$default" 2>/dev/null); then
+        if git -C "$overlay" checkout --quiet --no-overwrite-ignore -b "$default" "$target" >/dev/null 2>&1 &&
+            git -C "$overlay" config --local "branch.$default.remote" origin &&
+            git -C "$overlay" config --local "branch.$default.merge" "refs/heads/$default"; then
             say "updated to $(git -C "$overlay" rev-parse --short HEAD 2>/dev/null), its first commit"
         else
             say "not pulled: .private could not take its first commit; see: git -C .private status"
@@ -68,18 +75,24 @@ if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/
     say "not pulled: .private has no upstream branch yet"
     exit 0
 fi
+if [ -z "$branch" ] || [ -z "$remote" ] || [ "$remote" = "." ] || [ -z "$upstream" ]; then
+    say "not pulled: .private has no upstream branch"
+    exit 0
+fi
 before=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
-# Fetch without pruning (a prune or pruneTags setting would delete local-only tags) or tags, then a fast-forward that
-# refuses to replace an ignored local file (a plain pull would overwrite one). Each
-# failure has its own line, so the owner knows which one to look at.
-if ! git -C "$overlay" fetch --quiet --no-prune --no-tags >/dev/null 2>&1; then
-    say "not pulled: .private's remote could not be reached; try again later, or see: git -C .private fetch"
-elif ! git -C "$overlay" merge --ff-only --no-overwrite-ignore --quiet '@{u}' >/dev/null 2>&1; then
-    if [ -z "$(git -C "$overlay" rev-list --max-count=1 '@{u}..HEAD' 2>/dev/null)" ]; then
-        say "not pulled: an incoming file would replace an ignored file in .private; move it aside, then: git -C .private merge --ff-only --no-overwrite-ignore @{u}"
+tracking="refs/remotes/$remote/$upstream"
+# A fast-forward that refuses to replace an ignored local file (a plain pull would overwrite one), with any
+# branch.<name>.mergeOptions (a squash) and autostash set aside. Each failure has its own line.
+if ! fetch_branch "$remote" "$upstream"; then
+    say "not pulled: .private's remote could not be reached, or its branch is gone; see: git -C .private fetch"
+elif ! git -C "$overlay" -c "branch.$branch.mergeOptions=" -c merge.autoStash=false merge --ff-only --no-overwrite-ignore --no-squash --quiet "$tracking" >/dev/null 2>&1; then
+    if [ -z "$(git -C "$overlay" rev-list --max-count=1 "$tracking..HEAD" 2>/dev/null)" ]; then
+        say "not pulled: an incoming file would replace an ignored file in .private; move it aside, then: git -C .private merge --ff-only --no-overwrite-ignore $tracking"
     else
-        say "not pulled: .private has commits of its own that its remote lacks (it has diverged); see: git -C .private log @{u}..HEAD"
+        say "not pulled: .private has commits of its own that its remote lacks (it has diverged); see: git -C .private log $tracking..HEAD"
     fi
+elif [ "$(git -C "$overlay" rev-parse HEAD 2>/dev/null)" != "$(git -C "$overlay" rev-parse "$tracking" 2>/dev/null)" ]; then
+    say "not pulled: the fast-forward did not reach its upstream (a git setting changed it); see: git -C .private status"
 else
     after=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
     if [ "$before" = "$after" ]; then
