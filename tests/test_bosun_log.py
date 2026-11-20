@@ -264,7 +264,7 @@ class Instances(unittest.TestCase):
         self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), parent, self.drive("/mnt/c", "C", parent=202)))[0], [{"mount": "/mnt/c", "windows": "C:\\"}])
         deeper = "203 85 8:32 /home/me/x / rw,relatime - ext4 /dev/sdc rw"  # a new root over "/": everything under it is hidden
         self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), deeper))[0], [])
-        # A mount of a drive's subfolder is no root for the log folder: only the drive's own root is.
+        # A mount of a drive's subfolder supplies only folders inside that subfolder: C:\Users\me is not in C:\src.
         self.assertIsNone(dl.guest_path("C:\\Users\\me", [{"mount": "/work", "windows": "C:\\src"}]))
 
     def test_the_log_folder_is_found_by_the_panel_s_own_rule(self):

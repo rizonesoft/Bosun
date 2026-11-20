@@ -24,6 +24,9 @@ Check ($default -match '\\bin"$') "install.ps1 defaults to bin (got: $default)"
 # translated once at install (wslpath) would be stranded when the mounts move.
 $logs = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$logsWsl' }, $true) | Select-Object -First 1
 Check ($logs -and $logs.Right.Extent.Text -notmatch 'wslpath' -and $logs.Right.Extent.Text -match "LOCALAPPDATA") "install.ps1 hands the logger the Windows log folder (got: $($logs.Right.Extent.Text))"
+# And that very value is the last argument install.sh is given (round 17: the assignment alone proved nothing about it).
+$handoff = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.Extent.Text -match 'install\.sh' }, $true) | Select-Object -First 1
+Check ($handoff -and $handoff.CommandElements[-1].Extent.Text -eq '$logsWsl') "install.sh is given `$logsWsl as its log folder (got: $($handoff.CommandElements[-1].Extent.Text))"
 
 git -C $Repo check-ignore -q bin/bosun.exe
 Check ($LASTEXITCODE -eq 0) 'bin is ignored by Git'
