@@ -143,3 +143,36 @@ test('a write that fails is tried again until it lands, and stopping ends the re
   assert.equal(timers.length, 0, 'a stopped recorder never writes again');
   assert.equal(fs.existsSync(r.path), false);
 });
+
+test('activate writes the record and rewrites it on a folder change; deactivate removes it (through extension.js)', () => {
+  const Module = require('module');
+  const folder = scratch();
+  let changed = null;
+  const api = standIn(['file:///d%3A/a/app']);
+  api.workspace.onDidChangeWorkspaceFolders = (fn) => { changed = fn; return { dispose() {} }; };
+  const resolve = Module._resolveFilename;
+  const load = Module._load;
+  Module._resolveFilename = function (request, ...rest) { return request === 'vscode' ? 'vscode' : resolve.call(this, request, ...rest); };
+  Module._load = function (request, ...rest) { return request === 'vscode' ? api : load.call(this, request, ...rest); };
+  const before = process.env.LOCALAPPDATA;
+  const base = path.join(folder, 'local');
+  process.env.LOCALAPPDATA = base;
+  try {
+    delete require.cache[require.resolve('../extension')];
+    const extension = require('../extension');
+    const context = { subscriptions: [] };
+    extension.activate(context);
+    const file = path.join(base, 'Bosun', 'editor-windows', 'a1b2c3d4-0001.json');
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).roots, ['file:///d%3A/a/app']);
+    assert.equal(typeof changed, 'function', 'it listens for folder changes');
+    api.workspace.workspaceFolders.push({ uri: uri('file:///d%3A/b/lib') });
+    changed();
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).roots, ['file:///d%3A/a/app', 'file:///d%3A/b/lib']);
+    extension.deactivate();
+    assert.equal(fs.existsSync(file), false);
+  } finally {
+    Module._resolveFilename = resolve;
+    Module._load = load;
+    if (before === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = before;
+  }
+});

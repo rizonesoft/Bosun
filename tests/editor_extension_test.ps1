@@ -43,7 +43,9 @@ try {
         Check 'the manifest says it is a UI extension for the package''s engine' ($properties['Microsoft.VisualStudio.Code.ExtensionKind'] -eq 'ui' -and $properties['Microsoft.VisualStudio.Code.Engine'] -eq $package.engines.vscode)
         Check 'the manifest points at its package.json' ($manifest.PackageManifest.Assets.Asset.Path -eq 'extension/package.json')
         Check 'the packed record.js is the checkout''s' ((Text 'extension/record.js') -eq (Get-Content -LiteralPath (Join-Path $repo 'editors\bosun-windows\record.js') -Raw))
-        Check 'the content types cover every file' (([xml](Text '[Content_Types].xml')).Types.Default.Extension -contains '.js')
+        $declared = @(([xml](Text '[Content_Types].xml')).Types.Default.Extension)
+        $undeclared = @($names | Where-Object { $_ -ne '[Content_Types].xml' } | ForEach-Object { [IO.Path]::GetExtension($_) } | Sort-Object -Unique | Where-Object { $_ -notin $declared })
+        Check 'the content types cover every packed file' ($undeclared.Count -eq 0) "undeclared: $($undeclared -join ', ')"
     } finally { $zip.Dispose() }
 
     # A CLI that fails to install is said, with exit 1, and nothing claims success.
