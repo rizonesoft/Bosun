@@ -11,9 +11,11 @@ if ! [[ "$distro" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
   exit 1
 fi
 here="$(cd "$(dirname "$0")" && pwd)"
-# systemd reads % as a specifier anywhere in a unit, quoted or not (D03 T02 §6, round 15): a path holding one, such as a
-# profile folder named with %, is written with each % doubled, so the service is given the path as it is.
+# systemd reads % as a specifier and $ as a variable anywhere in ExecStart, quoted or not (D03 T02 §6, rounds 15 and 16):
+# a path holding either, such as a profile folder named with one, is written with each doubled, so the service is given
+# the path as it is.
 logs_unit="${logs//%/%%}"
+logs_unit="${logs_unit//\$/\$\$}"
 
 mkdir -p "$HOME/bin" "$HOME/.config/bosun" "$HOME/.local/share/bosun" "$HOME/.config/systemd/user"
 install -m 755 "$here/bosun" "$HOME/bin/bosun"

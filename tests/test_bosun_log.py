@@ -1540,6 +1540,10 @@ class InstallScript(unittest.TestCase):
         done, unit = self.run_install(logs="C:/Profiles/%u/AppData/Local/Bosun/logs", WSL_DISTRO_NAME="Ubuntu")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn('bosun_log.py "C:/Profiles/%%u/AppData/Local/Bosun/logs"\n', unit)
+        # Round 16: and a $, which systemd reads as a variable.
+        done, unit = self.run_install(logs="D:/Profiles/${USER}/Local/Bosun/logs", WSL_DISTRO_NAME="Ubuntu")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('bosun_log.py "D:/Profiles/$${USER}/Local/Bosun/logs"\n', unit)
 
     def test_install_fails_without_a_usable_distro_name(self):
         for env in ({}, {"WSL_DISTRO_NAME": ""}, {"WSL_DISTRO_NAME": "../evil"}, {"WSL_DISTRO_NAME": "a b"},

@@ -54,8 +54,9 @@ public sealed record InstancesDoc : ICheckedDoc
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
         if (Drives is { } drives)
         {
-            // Bounded by what the logger reads of its mount table (4 MiB), never by a guess at how many mounts there are (round 7).
-            if (drives.Count > 200_000) return $"it lists {drives.Count} drive mounts, more than a mount table the logger reads holds";
+            // Bounded by what the logger reads of its mount table (64 MiB, MAX_MOUNTINFO in wsl/bosun_log.py), never by a guess
+            // at how many mounts there are (rounds 7 and 16): no record is shorter than 16 bytes.
+            if (drives.Count > 64 * 1024 * 1024 / 16) return $"it lists {drives.Count} drive mounts, more than the mount table the logger reads can hold";
             foreach (var mount in drives)
                 if (mount is null || !DriveMounts.IsValid(mount)) return $"it lists a drive mount that is not a Linux folder and a Windows folder ('{Cut(mount?.Mount)}' for '{Cut(mount?.Windows)}')";
         }
