@@ -158,8 +158,11 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (Invoke-Git $s.Repo @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out -join '' -ne $s.Branch)) {
     $failed = "sync: $($s.Label): it changed while sync ran (another branch or commit); nothing more was done"; break
   }
-  # Still clean, as it was when looked at: an edit saved meanwhile stops the run before the branch moves.
-  if ((Invoke-Git $s.Repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')).Out -join '') {
+  # Still clean, as it was when looked at: an edit saved meanwhile, or a status that cannot be read now (a locked
+  # index), stops the run before the branch moves.
+  $again = Invoke-Git $s.Repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')
+  if ($again.Code) { $failed = "sync: $($s.Label): its status could not be read again before acting; nothing more was done"; break }
+  if ($again.Out -join '') {
     $failed = "sync: $($s.Label): it has uncommitted changes made while sync ran; nothing more was done"; break
   }
   # The address a push goes to is still the one read when it was looked at.
