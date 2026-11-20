@@ -1206,9 +1206,10 @@ class Throttle:
         current = self.read_limit()
         if self.restore_written and current != state["original"]:
             # Bosun put the original back and could not drop its record: a value set since is someone else's, even one equal
-            # to Bosun's old limit (round 13), and it is theirs for the rest of this pressure episode.
-            self.restore_written = False
+            # to Bosun's old limit (round 13), and it is theirs for the rest of this pressure episode. The flag stays set
+            # until the hold is saved (round 14): a save that fails leaves this run still without a say over the slice.
             self.save_state(None, {"unit": self.unit, "seen": current})
+            self.restore_written = False
             return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, set after Bosun had put back {limit_text(state['original'])}: someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if state.get("previous") is not None and current == state["previous"]:
             # A tightening that did not take (the write failed, or its read-back did): the slice is at the earlier value of
@@ -1376,6 +1377,21 @@ class Throttle:
         return self.step(policy, policy_why, host_mb, host_why, total_mb)
 
 
+def shut_down(throttle, given, mountinfo="/proc/self/mountinfo"):
+    """The service is stopping: the throttle puts back what it lowered, with its record where it is now, not where the last
+    sample found it (round 14: a guest folder bound over it between samples). A folder that can't be found cuts the stop
+    off from it, and this run's own record restores."""
+    try:
+        found, _ = log_folder(given, mountinfo)
+    except Exception:
+        found = None
+    throttle.log_dir = found
+    try:
+        throttle.stop()
+    except Exception as e:  # the stop's own failure is said; the original stays recorded for the next start
+        print(f"[bosun] pressure throttle could not restore on stop: {e}", file=sys.stderr)
+
+
 def main(argv):
     if len(argv) >= 2 and argv[1] == "instances":
         doc = instances()
@@ -1439,10 +1455,7 @@ def main(argv):
             time.sleep(interval)
     finally:
         if not once:
-            try:
-                throttle.stop()
-            except Exception as e:  # the stop's own failure is said; the original stays recorded for the next start
-                print(f"[bosun] pressure throttle could not restore on stop: {e}", file=sys.stderr)
+            shut_down(throttle, given, mountinfo)
 
 
 if __name__ == "__main__":

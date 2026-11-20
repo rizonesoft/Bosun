@@ -1199,6 +1199,32 @@ class ThrottleStop(ThrottleCase):
         self.assertEqual(self.tick(1000), "left_alone")
         self.assertEqual(self.slice.value, self.LIMIT)
 
+    def test_the_operator_s_hold_is_kept_when_it_can_t_be_saved(self):
+        # Round 14: the folder back but its writes denied; the hold can't be saved, so the run still has no say, and the
+        # stop leaves the operator's value.
+        self.assertEqual(self.tick(1000), "lowered")
+        self.throttle.log_dir = None
+        self.assertEqual(self.throttle.release("the log folder can't be reached"), "done")
+        self.slice.value = self.LIMIT
+        self.throttle.log_dir = self.dir
+        with unittest.mock.patch.object(dl, "write_snapshot", lambda *a, **k: False):
+            self.tick(1000)
+        self.assertTrue(self.throttle.restore_written)
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, self.LIMIT)
+
+    def test_the_stop_finds_its_record_where_it_is_now(self):
+        # Round 14: between samples the Windows log folder stopped being reachable; shut_down resolves it again, so the
+        # stop writes nothing to the old path and restores from this run's own record.
+        self.assertEqual(self.tick(1000), "lowered")
+        record = os.path.join(self.dir, self.throttle.state_name)
+        before = open(record, encoding="utf-8").read()
+        with unittest.mock.patch.object(dl, "log_folder", lambda given, mountinfo: (None, "no mount holds it")):
+            dl.shut_down(self.throttle, "C:/Users/me/logs")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.throttle.log_dir)
+        self.assertEqual(open(record, encoding="utf-8").read(), before)
+
     def test_a_stopping_service_puts_its_lowering_back_when_its_folder_is_on_a_replacement_drive(self):
         # Round 4: the same folder on another drive, with no record in it: this run's own record still restores.
         self.assertEqual(self.tick(1000), "lowered")
