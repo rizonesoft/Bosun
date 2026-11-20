@@ -40,6 +40,10 @@ title: "TODO-02 -- Instances and queue"
 | 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [x] |
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [x] |
 | 4 | §4 | Editor windows by repo | §1 | [ ] |
+| 5 | §5 | Editor windows in every VS Code profile | §4 | [ ] |
+| 6 | §6 | WSL folders under a relocated automount | §4 | [ ] |
+| 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
+| 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
 
 ## 1. Instance scanner
 
@@ -225,6 +229,78 @@ An editor is one process tree however many windows it has open, and the scanner 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests" --filter-class "*OverviewPageTests"` exit 0, as do `build/Release/test_core.exe instances`, `build/Release/test_core.exe editor-windows`, `pwsh tests/instances_test.ps1`, `node --test "editors/bosun-windows/test/*.test.js"` and `pwsh tests/editor_extension_test.ps1` (**Corrected 2026-11-20:** the extension's own tests added); they fail if an editor with windows on two same-named repos is listed in only one, or counted twice.
 
 > **Woken:** 2026-11-20: its `third-party` check in todo/wakes.json passed
+
+## 5. Editor windows in every VS Code profile
+
+The window reporter (`§4`) is installed into the default profile, and VS Code keeps extensions per profile, so a window opened in a profile with its own extensions writes no record and, once another window of the same editor has reported, is missing from the page without a word. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 2).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. The reporter in every profile. Done when: install and uninstall cover each profile the editor has, read back by each profile's own listing.
+2. A window with no record is said. Done when: an editor with more open windows than records says how many are not placed.
+
+- [ ] Install into each profile in `scripts/install-editor-extension.ps1`: read the editor's profiles (`%APPDATA%\Code\User\globalStorage\storage.json` `userDataProfiles`, the default profile included), install with `--profile <name>` into each, and verify each with `--list-extensions --profile <name>`; `-Uninstall` removes it from each the same way. Done when: `tests/editor_extension_test.ps1` with a stand-in CLI and a stand-in `storage.json` of two profiles installs into both, reports a profile whose listing fails as not done (exit 1), and uninstalls from both. Cheaper substitute: the default profile only.
+- [ ] Count an editor's open windows in `cmd_instances` (`src/app.cpp`) from its own window processes (read on this machine first: whether each window is one `--type=renderer` child of the main process, written into this section), and when they outnumber its live records, add an `editor-windows` problem naming the editor and how many windows are not placed, beside the rows its records give. Done when: `tests/instances_test.ps1` with a stand-in editor of two window processes and one record lists the one row and the problem; and the count is read on this machine with a window in a second profile. Cheaper substitute: saying nothing when some records exist.
+- [ ] Commit: `instances: editor windows in every profile`
+
+**Test checkpoint:** `pwsh tests/editor_extension_test.ps1` and `pwsh tests/instances_test.ps1` exit 0, and fail if the change is reverted.
+
+## 6. WSL folders under a relocated automount
+
+Grouping and opening read a guest path under `/mnt/<drive>/` as that Windows drive's folder. WSL lets `[automount] root` move the mounts or turn them off, and then `/mnt/c/app` is a real guest folder: it joins an unrelated Windows group and opens the wrong place. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 6).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Each distro's mount root, read without starting it. Done when: the merge and the open commands know whether `/mnt/c` is a drive in that distro.
+
+- [ ] Report each distro's automount root in its own logger document (`wsl/bosun_log.py`, read from `/etc/wsl.conf` `[automount] root` and `enabled`, default `/mnt/`), and carry it in `InstancesDoc` (`src/Bosun.Core/Instances/InstanceDocs.cs`, optional, absent read as `/mnt/`). Done when: `tests/test_bosun_log.py` reads a relocated root, a disabled automount and the default, and an `InstanceClientTests` case reads each document. Cheaper substitute: `/mnt/` assumed.
+- [ ] Map a guest path to a Windows drive only under that distro's own mount root in `InstanceClient.Place` and `OpenCommands.MountedDrive`, and never when automount is off; a Windows editor's WSL window uses its distro's document, and with none read it is kept a guest folder. Done when: `InstanceClientTests` keep `/mnt/c/app` a guest group with the root moved to `/windir/` and join `/windir/c/app` to `C:/app`, and `OpenCommandsTests` open each as its distro says. Cheaper substitute: the `/mnt/` pattern alone.
+- [ ] Commit: `instances: WSL folders under a relocated automount`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"`, `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` and `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` exit 0, and fail if the change is reverted.
+
+## 7. A failed repo lookup said apart from no repo
+
+A folder whose `.git` probe failed (an ancestor denied, a share refusing) and one outside Git both read as no repo, so a window under "Not in a repo" may only be one whose repo could not be told. The running-distro probe also drops `wsl.exe`'s exit code. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 7).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Every lookup is found, absent, or failed with why. Done when: a failed probe is a problem naming the folder, never a silent no repo.
+
+- [ ] Return found, absent or failed from `repo_for_dir` and the WSL lookup in `src/app.cpp`, keeping the `std::error_code` of each `fs::exists`: a failed probe stops the walk and adds a `processes` or `editor-windows` problem naming the folder and the error, beside the row. Done when: `tests/instances_test.ps1` with a folder whose parent denies listing reads the row, no repo and the problem, and a folder outside any checkout reads no repo and no problem. Cheaper substitute: treating every error as absent.
+- [ ] Tell `wsl.exe -l --running` failing (a non-zero exit with no names, or output that is not a list) from no distro running in `wsl_running_distros`, and say the first as a problem. Done when: `tests/instances_test.ps1` with a stand-in `BOSUN_WSL_EXE` that exits 1 saying an error, and one that prints nothing and exits 0, reads the problem only for the first. Cheaper substitute: an empty set for both.
+- [ ] Commit: `instances: a failed repo lookup is said`
+
+**Test checkpoint:** `pwsh tests/instances_test.ps1` exits 0, and fails if the change is reverted.
+
+## 8. A terminal at a share when Windows Terminal is missing
+
+Without Windows Terminal the page's Open terminal starts `cmd.exe` with the folder as its working directory, and Command Prompt refuses a UNC current directory, starting elsewhere while Bosun says it opened. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 8).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. A console at a share opens in that share. Done when: the shell's own current directory is the selected folder.
+
+- [ ] Open a UNC folder without Windows Terminal through PowerShell in `OpenCommands.Terminal` (`src/Bosun.Panel/Instances/Opener.cs`): `pwsh.exe` (or `powershell.exe` when there is no PowerShell 7) with `-NoExit` and the folder as its working directory, which PowerShell accepts for a share; a drive folder keeps `cmd.exe`. Done when: `OpenCommandsTests` read the command for `\\server\share\my app` and for `D:\app`, and a Panel test starts the real console at a share of this machine's own (a folder shared for the test, or `\\localhost\<drive>$` where the account may) and reads its current directory back. Cheaper substitute: `cmd.exe` with `pushd`, which maps a drive letter the person never asked for.
+- [ ] Commit: `instances: a terminal at a share without Windows Terminal`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` exits 0, and fails if the change is reverted.
 
 ## Verification
 

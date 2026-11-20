@@ -1383,7 +1383,8 @@ inline std::string instance_kind(std::string name) {
     std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (name.size() > 4 && name.compare(name.size() - 4, 4, ".exe") == 0) name.resize(name.size() - 4);
     if (name == "claude" || name == "codex" || name == "agy") return name;
-    if (name == "code") return "code";
+    // VS Code Stable and Insiders (`Code - Insiders.exe`): one kind, placed by the same window records (completion review).
+    if (name == "code" || name == "code - insiders") return "code";
     if (name == "antigravity") return "antigravity";
     return "";
 }
@@ -1657,7 +1658,7 @@ inline std::optional<std::vector<std::string>> parse_string_list(const std::stri
         auto one = parse_flat_object("{\"v\":" + s.substr(from, i - from) + "}");
         if (!one || one->at("v").kind != FlatValue::String) return std::nullopt;
         out.push_back(one->at("v").text);
-        if (out.size() > 256) return std::nullopt;  // no window holds more roots than this
+        if (out.size() > 4096) return std::nullopt;  // a generated workspace of hundreds of roots reads whole (completion review)
         ws();
         if (i < s.size() && s[i] == ',') { ++i; continue; }
         if (i < s.size() && s[i] == ']') { ++i; ws(); return i == s.size() ? std::optional(out) : std::nullopt; }
@@ -1727,6 +1728,22 @@ inline std::optional<EditorRoot> editor_root(const std::string& uri, std::string
         if (!path) { why = uri + " is not a well formed URI"; return std::nullopt; }
         std::replace(path->begin(), path->end(), '/', '\\');
         EditorRoot r{"windows", std::nullopt, {}};
+        // A distro's own folder opened through its Windows share is a WSL root, so it is looked up only in a running
+        // distro and never wakes a stopped one (completion review).
+        std::string host = authority;
+        std::transform(host.begin(), host.end(), host.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (host == "wsl.localhost" || host == "wsl$" || host == "wsl%24") {
+            std::string guest = *path;
+            std::replace(guest.begin(), guest.end(), '\\', '/');
+            size_t cut = guest.find('/', 1);
+            std::string distro = guest.substr(1, cut == std::string::npos ? std::string::npos : cut - 1);
+            bool name_ok = !distro.empty() && distro.size() <= 64 &&
+                           std::all_of(distro.begin(), distro.end(), [](unsigned char c) { return std::isalnum(c) || c == '.' || c == '_' || c == '-'; });
+            if (!name_ok) { why = uri + " names a distro Bosun can't name"; return std::nullopt; }
+            std::string inside = cut == std::string::npos ? "/" : guest.substr(cut);
+            if (inside.size() > 1 && inside.back() == '/') inside.pop_back();
+            return EditorRoot{"wsl", distro, inside};
+        }
         if (!authority.empty()) {
             r.path = "\\\\" + authority + *path;  // a share
         } else if (path->size() >= 3 && path->at(0) == '\\' && std::isalpha(static_cast<unsigned char>(path->at(1))) && path->at(2) == ':') {

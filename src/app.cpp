@@ -966,6 +966,31 @@ struct RepoLookup {
     std::vector<std::wstring> late;
 };
 
+// `find` on a thread of its own, waited for until the scan's deadline; `key` names the folder (its cache entry, and
+// what `late` says when it did not answer in time).
+std::string lookup_bounded(const std::wstring& key, RepoLookup& look, std::function<std::string()> find) {
+    auto it = look.cache.find(key);
+    if (it != look.cache.end()) return it->second;
+    if (std::chrono::steady_clock::now() >= look.deadline) {
+        look.late.push_back(key);
+        return "";
+    }
+    auto answer = std::make_shared<std::promise<std::string>>();
+    auto future = answer->get_future();
+    std::thread([find = std::move(find), answer] {
+        try {
+            answer->set_value(find());
+        } catch (...) {
+            answer->set_value("");
+        }
+    }).detach();
+    if (future.wait_until(look.deadline) != std::future_status::ready) {
+        look.late.push_back(key);
+        return "";
+    }
+    return look.cache[key] = future.get();
+}
+
 std::string repo_bounded(const std::wstring& dir, RepoLookup& look) {
     auto it = look.cache.find(dir);
     if (it != look.cache.end()) return it->second;
@@ -976,25 +1001,10 @@ std::string repo_bounded(const std::wstring& dir, RepoLookup& look) {
         local = type == DRIVE_FIXED || type == DRIVE_RAMDISK;
     }
     if (local) return repo_for_dir(dir, look.cache);
-    if (std::chrono::steady_clock::now() >= look.deadline) {
-        look.late.push_back(dir);
-        return "";
-    }
-    auto answer = std::make_shared<std::promise<std::string>>();
-    auto future = answer->get_future();
-    std::thread([dir, answer] {
+    return lookup_bounded(dir, look, [dir] {
         std::unordered_map<std::wstring, std::string> own;
-        try {
-            answer->set_value(repo_for_dir(dir, own));
-        } catch (...) {
-            answer->set_value("");
-        }
-    }).detach();
-    if (future.wait_until(look.deadline) != std::future_status::ready) {
-        look.late.push_back(dir);
-        return "";
-    }
-    return look.cache[dir] = future.get();
+        return repo_for_dir(dir, own);
+    });
 }
 
 // Replaces current-<side>.json (D01 T01 §4): a temporary file in the folder moved over the old one, so a reader sees
@@ -1187,7 +1197,7 @@ std::optional<std::string> utc_of_filetime(uint64_t value) {
 }
 
 // A small file's text, or nothing with why. A file that went while it was read is `gone`, not a fault.
-std::optional<std::string> read_small(const fs::path& path, std::string& why, bool& gone) {
+std::optional<std::string> read_small(const fs::path& path, std::string& why, bool& gone, size_t most = 64 * 1024) {
     gone = false;
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -1196,10 +1206,10 @@ std::optional<std::string> read_small(const fs::path& path, std::string& why, bo
         why = narrow(path.wstring()) + " can't be read";
         return std::nullopt;
     }
-    std::string text(64 * 1024 + 1, '\0');
+    std::string text(most + 1, '\0');
     in.read(text.data(), static_cast<std::streamsize>(text.size()));
     text.resize(static_cast<size_t>(in.gcount()));
-    if (text.size() > 64 * 1024) {
+    if (text.size() > most) {
         why = narrow(path.wstring()) + " is larger than any such record";
         return std::nullopt;
     }
@@ -1415,7 +1425,9 @@ int cmd_instances(const Options& o) {
     if (auto files = json_files(windows_dir, why)) {
         for (const auto& file : *files) {
             bool gone = false;
-            auto text = read_small(file, why, gone);
+            // A record of a generated workspace of hundreds of roots runs past 64 KiB (completion review): 4 MiB is
+            // thousands of long URIs, and still a bound.
+            auto text = read_small(file, why, gone, 4 * 1024 * 1024);
             if (!text) {
                 if (!gone) doc.problems.push_back({"editor-windows", why});
                 continue;
@@ -1453,13 +1465,19 @@ int cmd_instances(const Options& o) {
             if (!running_distros) doc.problems.push_back({"editor-windows", unread + ", so no WSL window's repo is looked up"});
         }
         if (!running_distros || !running_distros->count(*root.distro)) return std::nullopt;  // never wakes a distro (the name is WSL's own spelling)
+        // Through the distro's share, on a thread of its own under the scan's deadline, as a network folder is: a guest
+        // folder on a mount that stopped answering costs that window its repo, never the scan (completion review).
         std::wstring share = L"\\\\wsl.localhost\\" + widen(*root.distro);
-        return dm::repo_from_path(root.path, [&](const std::string& d) {
-            std::error_code ec;
-            std::wstring guest = widen(d);
-            std::replace(guest.begin(), guest.end(), L'/', L'\\');
-            return fs::exists(fs::path(share + guest) / L".git", ec);
+        std::string guest_path = root.path;
+        std::string repo = lookup_bounded(share + widen(guest_path), lookup, [share, guest_path] {
+            return dm::repo_from_path(guest_path, [&](const std::string& d) {
+                std::error_code ec;
+                std::wstring guest = widen(d);
+                std::replace(guest.begin(), guest.end(), L'/', L'\\');
+                return fs::exists(fs::path(share + guest) / L".git", ec);
+            }).value_or("");
         });
+        return repo.empty() ? std::nullopt : std::optional(repo);
     };
     std::map<std::string, std::vector<dm::ReviewMark>> marks_by_repo;  // read once per repo
     const double now_s = static_cast<double>(epoch_ms()) / 1000;

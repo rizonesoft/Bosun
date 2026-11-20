@@ -853,6 +853,18 @@ static void editor_windows() {
     CHECK(!dm::editor_root("vscode-remote://ssh-remote%2Bhost/x", why) && why.find("not WSL") != std::string::npos);
     CHECK(!dm::editor_root("vscode-remote://wsl%2Ba%2Fb/x", why));  // no distro is named so
     CHECK(!dm::editor_root("vscode-vfs://github/x", why) && !dm::editor_root("file:///d%3A/x%2", why));
+    // A distro's folder opened through its Windows share is a WSL root, so it never wakes a stopped distro (completion review).
+    auto viaShare = dm::editor_root("file://wsl.localhost/Ubuntu/home/me/app/", why);
+    CHECK(viaShare && viaShare->location == "wsl" && viaShare->distro == std::optional<std::string>("Ubuntu") && viaShare->path == "/home/me/app");
+    auto viaDollar = dm::editor_root("file://wsl%24/Debian/srv", why);
+    CHECK(viaDollar && viaDollar->location == "wsl" && viaDollar->distro == std::optional<std::string>("Debian") && viaDollar->path == "/srv");
+    CHECK(!dm::editor_root("file://wsl.localhost/a%20b/x", why));  // no distro is named so
+    // VS Code Insiders is an editor too, placed by the same records.
+    CHECK(dm::instance_kind("Code - Insiders.exe") == "code");
+    // A generated workspace of hundreds of roots reads whole.
+    std::string many = "[";
+    for (int k = 0; k < 600; ++k) many += (k ? ",\"file:///d%3A/r/" : "\"file:///d%3A/r/") + std::to_string(k) + "\"";
+    CHECK(dm::parse_string_list(many + "]") && dm::parse_string_list(many + "]")->size() == 600);
 
     // Live only while its host is a child of the editor named, started no later than the record was written.
     std::vector<dm::ProcInfo> procs = {proc(10, 1, "Code.exe", 900), proc(11, 10, "Code.exe", 50), proc(12, 99, "Code.exe", 50), proc(13, 10, "Code.exe", 50)};
