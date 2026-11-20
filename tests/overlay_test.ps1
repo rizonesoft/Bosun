@@ -55,7 +55,12 @@ try {
     Check 'a relative -Root is read from the PowerShell location' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
   } finally { Pop-Location }
 
+  $r = Get-BosunOverlayValue -Key vault_item -VariableOnly
+  Check '-VariableOnly never reads the file' ($r.Source -eq 'setup-required' -and $null -eq $r.Value -and $r.Message -cmatch 'BOSUN_VAULT_ITEM' -and $r.Message -notmatch 'config\.toml') "($($r.Source) $($r.Value))"
+
   $env:BOSUN_VAULT_ITEM = 'from the variable'
+  $r = Get-BosunOverlayValue -Key vault_item -VariableOnly
+  Check '-VariableOnly still reads the variable' ($r.Source -eq 'variable' -and $r.Value -eq 'from the variable') "($($r.Source) $($r.Value))"
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'the variable wins over the file' ($r.Source -eq 'variable' -and $r.Value -eq 'from the variable') "($($r.Source) $($r.Value))"
 

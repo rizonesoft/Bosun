@@ -31,6 +31,8 @@ if ($args[0] -eq 'auth') { exit ([int]($mode -eq 'signed-out')) }
 if ($args[0] -eq 'repo' -and $args[1] -eq 'view') { exit ([int]($mode -eq 'refused')) }
 if ($args[0] -eq 'repo' -and $args[1] -eq 'clone') {
   if ($mode -eq 'clone-fails') { 'fatal: the transfer was cut off'; exit 1 }
+  # Another run finishing first: .private appears in the checkout while this clone is still being made.
+  if ($mode -eq 'race') { $won = Join-Path (Split-Path (Split-Path $args[3])) '.private'; New-Item -ItemType Directory -Path $won | Out-Null; Set-Content -LiteralPath (Join-Path $won 'first.txt') -Value 'the first run' }
   git clone --quiet -- $env:FAKE_GH_REMOTE $args[3] 2>&1 | Out-Null
   if ($LASTEXITCODE) { exit 1 }
   git -C $args[3] remote set-url origin "https://github.com/$($args[2]).git"
@@ -178,12 +180,39 @@ try {
   $r = Invoke-Setup $matching
   Check 'an unmarked checkout of the overlay itself is marked, and said' ($r.Exit -eq 0 -and $r.Text -match 'marked it as one' -and "$(git -C (Join-Path $matching '.private') config --get bosun.overlay)" -eq 'true') "(exit $($r.Exit): $($r.Text))"
 
+  # --- setup: .private never vouches for itself ---
+  $env:BOSUN_OVERLAY_REPO = $null
+  $self = New-Clone 'self-vouching'
+  $selfPrivate = Join-Path $self '.private'
+  git clone -q $other $selfPrivate 2>$null
+  Set-Content -LiteralPath (Join-Path $selfPrivate 'config.toml') -Value "overlay-repo = '$other'"
+  $r = Invoke-Setup $self
+  Check 'a checkout whose own config.toml names its own origin is not marked' ($r.Exit -eq 0 -and $r.Text -match 'checkout of another repository' -and -not "$(git -C $selfPrivate config --get bosun.overlay)") "(exit $($r.Exit): $($r.Text))"
+
+  # --- setup: a link is never followed ---
+  $env:BOSUN_OVERLAY_REPO = $overlayRemote
+  $linked = New-Clone 'linked'
+  New-Item -ItemType Junction -Path (Join-Path $linked '.private') -Target (Join-Path $matching '.private') | Out-Null
+  git -C (Join-Path $matching '.private') config --unset bosun.overlay
+  $config = Get-Content -LiteralPath (Join-Path $matching '.private\.git\config') -Raw
+  $r = Invoke-Setup $linked
+  Check 'a .private that is a junction is left alone, and its target not marked' ($r.Exit -eq 0 -and $r.Text -match 'is a link' -and (Get-Content -LiteralPath (Join-Path $matching '.private\.git\config') -Raw) -eq $config) "(exit $($r.Exit): $($r.Text))"
+  git -C (Join-Path $matching '.private') config bosun.overlay true
+
+  # --- setup: a run that finishes first is never nested in ---
+  $raced = New-Clone 'raced'
+  $env:BOSUN_OVERLAY_REPO = $null
+  $env:FAKE_GH_MODE = 'race'; $env:FAKE_GH_REMOTE = $overlayRemote
+  $r = Invoke-Setup $raced -WithGh
+  Check 'a .private made by another run meanwhile is not moved into' ($r.Exit -eq 1 -and $r.Text -match 'could not be moved into \.private' -and (@(Get-ChildItem -LiteralPath (Join-Path $raced '.private') -Force).Name -join ',') -eq 'first.txt' -and (Get-Partials $raced).Count -eq 0) "(exit $($r.Exit): $($r.Text))"
+  $env:FAKE_GH_MODE = 'ok'
+
   # --- setup: sources ---
-  foreach ($bad in 'https://someone:s3cretTOKEN@example.com/overlay.git', '-uupload-pack=evil', 'not a source') {
+  foreach ($bad in 'https://someone:s3cretTOKEN@example.com/overlay.git', 'https://example.com/overlay.git?access_token=s3cretTOKEN', 'https://example.com/overlay.git#s3cretTOKEN', 'ssh://git:s3cretTOKEN@example.com/overlay.git', 'git:s3cretTOKEN@example.com:overlay.git', '-uupload-pack=evil', 'not a source') {
     $clone = New-Clone ('bad-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
     $env:BOSUN_OVERLAY_REPO = $bad
     $r = Invoke-Setup $clone
-    Check "an unsupported source is refused without repeating it ($($bad.Substring(0, 8)))" ($r.Exit -eq 1 -and $r.Text -match 'not a supported overlay source' -and $r.Text -notmatch 's3cretTOKEN' -and $r.Text -notmatch 'upload-pack' -and -not (Test-Path (Join-Path $clone '.private'))) "(exit $($r.Exit): $($r.Text))"
+    Check "an unsupported source is refused without repeating it ($($bad.Substring(0, 12)))" ($r.Exit -eq 1 -and $r.Text -match 'not a supported overlay source' -and $r.Text -notmatch 's3cretTOKEN' -and $r.Text -notmatch 'upload-pack' -and -not (Test-Path (Join-Path $clone '.private'))) "(exit $($r.Exit): $($r.Text))"
   }
 
   # --- setup: -Repo names the checkout, wherever it is run from ---
@@ -246,6 +275,24 @@ try {
   $null = Add-Commit $public 'public-6.txt'
   $out = Invoke-Pull $empty
   Check 'an overlay with no upstream branch yet says so' ($r.Exit -eq 0 -and $out -match 'no upstream branch yet') "(setup $($r.Exit): $($r.Text) pull: $out)"
+  $first = Add-Commit $emptyRemote 'first.txt'
+  $null = Add-Commit $public 'public-6b.txt'
+  $out = Invoke-Pull $empty
+  Check 'once the empty overlay gets its first commit, a pull takes it' ((Get-Head (Join-Path $empty '.private')) -eq $first -and $out -match 'its first commit') "($out)"
+  $second = Add-Commit $emptyRemote 'second.txt'
+  $null = Add-Commit $public 'public-6c.txt'
+  $out = Invoke-Pull $empty
+  Check 'and tracks it from then on' ((Get-Head (Join-Path $empty '.private')) -eq $second -and $out -match 'overlay: updated to') "($out)"
+
+  # A setting that hides untracked files does not hide them from the clean check.
+  $hidden = Join-Path $empty '.private'
+  git -C $hidden config status.showUntrackedFiles no
+  Set-Content -LiteralPath (Join-Path $hidden 'owner-notes.txt') -Value 'untracked'
+  $before = Get-Head $hidden
+  $null = Add-Commit $emptyRemote 'third.txt'
+  $null = Add-Commit $public 'public-6d.txt'
+  $out = Invoke-Pull $empty
+  Check 'an untracked file stops the pull even with status.showUntrackedFiles=no' ((Get-Head $hidden) -eq $before -and $out -match 'uncommitted changes') "($out)"
 
   # --- the hook run with the public repository's GIT_DIR, as git may run it ---
   $direct = New-Clone 'direct'
@@ -263,11 +310,23 @@ try {
   Check 'with GIT_DIR set to the public repository, the hook pulls the overlay' ((Get-Head $directPrivate) -eq $wanted -and $out -match 'overlay: updated') "($out)"
   Check 'and leaves the public repository where it was' ((Get-Head $direct) -eq $publicBefore)
 
+  # --- the hook never follows a junction to another checkout's overlay ---
+  $hopper = New-Clone 'hook-junction'
+  $targetPrivate = Join-Path $direct '.private'
+  git -C $hopper config core.hooksPath scripts/hooks
+  New-Item -ItemType Junction -Path (Join-Path $hopper '.private') -Target $targetPrivate | Out-Null
+  git -C $targetPrivate reset -q --hard HEAD~1
+  $targetHead = Get-Head $targetPrivate
+  $null = Add-Commit $public 'public-junction.txt'
+  $out = Invoke-Pull $hopper
+  Check 'a .private junction is not pulled through' ((Get-Head $targetPrivate) -eq $targetHead -and $out -match 'is a link') "($out)"
+  (Get-Item -LiteralPath (Join-Path $hopper '.private')).Delete()
+
   # --- undo ---
   Remove-Item -LiteralPath $private -Recurse -Force
   $publicHead = Add-Commit $public 'public-7.txt'
   $out = Invoke-Pull $owner
-  Check 'with .private deleted a pull still works and makes no overlay' ((Get-Head $owner) -eq $publicHead -and -not (Test-Path $private) -and $out -notmatch 'overlay:') "($out)"
+  Check 'with .private deleted a pull still works and makes no overlay' ((Get-Head $owner) -eq $publicHead -and -not (Test-Path $private) -and $out -notmatch 'overlay:') "(head $(Get-Head $owner) want $publicHead, private $(Test-Path $private): $out)"
   $env:BOSUN_OVERLAY_REPO = $overlayRemote
   $r = Invoke-Setup $owner
   Check 'running setup again brings it back' ($r.Exit -eq 0 -and "$(git -C $private config --get bosun.overlay)" -eq 'true') "(exit $($r.Exit): $($r.Text))"

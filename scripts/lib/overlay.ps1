@@ -122,7 +122,10 @@ function Get-BosunOverlayValue {
     # The same key grammar as the file's, so every key the file accepts can be asked for.
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Key,
     [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')][string]$Variable,
-    [string]$Root
+    [string]$Root,
+    # Read the variable alone, never .private/config.toml: for a value that names or checks the overlay itself, which
+    # the overlay's own file must not vouch for.
+    [switch]$VariableOnly
   )
   # A hyphen cannot be in a variable name, so overlay-repo reads BOSUN_OVERLAY_REPO.
   if (-not $Variable) { $Variable = 'BOSUN_' + $Key.ToUpperInvariant().Replace('-', '_') }
@@ -131,6 +134,9 @@ function Get-BosunOverlayValue {
   $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
   if ($fromVariable) {
     return [pscustomobject]@{ Value = $fromVariable; Source = 'variable'; Message = "$Key from `$env:$Variable" }
+  }
+  if ($VariableOnly) {
+    return [pscustomobject]@{ Value = $null; Source = 'setup-required'; Message = "$Key is not set: set the $Variable environment variable" }
   }
   # The checkout that holds this file (scripts/lib/..), never the caller's working directory.
   if (-not $Root) { $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }

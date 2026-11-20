@@ -81,7 +81,9 @@ function Test-OverlayOrigin([string]$origin, [hashtable]$source) {
     }
     'path' {
       if (-not [IO.Path]::IsPathRooted($origin)) { return $false }
-      return [IO.Path]::GetFullPath($origin).TrimEnd('\', '/') -eq [IO.Path]::GetFullPath($source.Value).TrimEnd('\', '/')
+      # Windows folders compare without case, as Windows opens them; elsewhere a path's case is part of its name.
+      $compare = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+      return [string]::Equals([IO.Path]::GetFullPath($origin).TrimEnd('\', '/'), [IO.Path]::GetFullPath($source.Value).TrimEnd('\', '/'), $compare)
     }
     default { return $origin.TrimEnd('/') -ceq $source.Value.TrimEnd('/') }
   }
@@ -91,10 +93,12 @@ function Get-OverlaySource([string]$value) {
   if ($value -match '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$') { return @{ Kind = 'github'; Value = $value } }
   if ($value -match '^https://') {
     $uri = $null
-    if ([Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -and -not $uri.UserInfo -and $value -notmatch '\s') { return @{ Kind = 'url'; Value = $value } }
+    # No user information, query or fragment: each can carry a token, which git would keep in .private/.git/config.
+    if ([Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -and -not $uri.UserInfo -and -not $uri.Query -and -not $uri.Fragment -and $value -notmatch '[\s?#@]') { return @{ Kind = 'url'; Value = $value } }
     return $null
   }
-  if ($value -match '^ssh://\S+$' -or $value -match '^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:\S+$') { return @{ Kind = 'url'; Value = $value } }
+  # An SSH user name is allowed, a password (user:secret@) is not.
+  if ($value -match '^ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:\d+)?/[^\s?#]+$' -or $value -match '^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s?#:@][^\s?#@]*$') { return @{ Kind = 'url'; Value = $value } }
   if (-not $value.StartsWith('-') -and [IO.Path]::IsPathRooted($value) -and (Test-Path -LiteralPath $value -PathType Container)) {
     return @{ Kind = 'path'; Value = (Resolve-Path -LiteralPath $value).ProviderPath }
   }
@@ -102,7 +106,8 @@ function Get-OverlaySource([string]$value) {
 }
 
 $private = Join-Path $Repo '.private'
-try { $lookup = Get-BosunOverlayValue -Key overlay-repo -Root $Repo }
+# From the variable alone: .private/config.toml lives in the folder being checked, so it must not name what it is checked against.
+try { $lookup = Get-BosunOverlayValue -Key overlay-repo -Root $Repo -VariableOnly }
 catch { Stop-Setup "the overlay source could not be read: $($_.Exception.Message)" }
 $raw = if ($lookup.Source -eq 'setup-required') { 'rizonetech/Bosun-private' } else { $lookup.Value }
 $source = Get-OverlaySource $raw
@@ -110,7 +115,10 @@ if (-not $source) {
   Stop-Setup 'BOSUN_OVERLAY_REPO is not a supported overlay source: use owner/name, an absolute path to a repository, an https:// URL without user information, an ssh:// URL or git@host:path'
 }
 
-if (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
+$item = Get-Item -LiteralPath $private -Force -ErrorAction Ignore
+# A link (a junction or symbolic link) leads out of the checkout, to a folder another checkout may own: never followed.
+if ($item -and $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { Skip-Overlay '.private is a link to another folder, not the overlay; it was left as it is' }
+elseif (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
 elseif (Test-Path -LiteralPath $private -PathType Container) {
   if (-not (Test-Path -LiteralPath (Join-Path $private '.git'))) { Skip-Overlay '.private is a folder that is not a git checkout; it was left as it is' }
   elseif ("$(git -C $private config --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
@@ -149,7 +157,8 @@ elseif (Test-Path -LiteralPath $private -PathType Container) {
       if (-not (Test-OverlayOrigin (Get-OverlayOrigin $partial) $source)) { Stop-Setup 'the overlay clone''s origin is not the source asked for; it was removed' }
       git -C $partial config bosun.overlay true 2>&1 | Out-Null
       if ("$(git -C $partial config --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup 'the overlay clone could not be marked as the overlay; it was removed' }
-      try { Move-Item -LiteralPath $partial -Destination $private -ErrorAction Stop }
+      # Directory.Move refuses a destination that exists, so a clone finished meanwhile by another run is never nested.
+      try { [IO.Directory]::Move($partial, $private) }
       catch { Stop-Setup "the overlay could not be moved into .private ($($_.Exception.Message)); it was removed" }
     } finally {
       if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
