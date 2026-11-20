@@ -245,7 +245,7 @@ try {
     $fileRow = @((Scan).instances | Where-Object { $_.pid -eq $fileEditor.Id })[0]
     Check ($fileRow -and $null -eq $fileRow.repo -and $fileRow.repo_why -like '*/outer/a-file could not be checked for a repo: it is no longer a folder') "a window on what is now a file is no checkout's ($($fileRow.repo_why))"
     $again = Row (Scan) $deniedAgent.Id
-    Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer'
+    Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer (a scan of its own; the cache within one scan is proven by the WSL logger tests)'
     $looseRow = Row $doc $codexLoose.Id
     Check ($looseRow -and $null -eq $looseRow.repo -and $null -eq $looseRow.repo_why) 'a folder outside any checkout has no repo and no reason'
     $text = & $bosun instances --ns $ns

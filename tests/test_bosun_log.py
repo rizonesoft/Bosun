@@ -463,6 +463,17 @@ class Instances(unittest.TestCase):
         self.assertEqual((rows[30]["repo"], rows[30]["repo_why"]), (None, None))
         text = dl.instances_text({"instances": list(rows.values()), "problems": [], "unreadable": 0})
         self.assertIn("claude 10 (repo unknown: ", text)
+        # Round 14: within one scan a failure is cached: the probe runs once, and a second lookup gives the same reason.
+        calls = []
+        def failing(folder):
+            calls.append(folder)
+            raise dl.ProbeFailed(f"{folder} could not be checked for a repo: Permission denied")
+        cache = {}
+        with unittest.mock.patch.object(dl, "git_probe", failing):
+            first = dl.repo_answer(os.path.join(outer, "x"), cache)
+            second = dl.repo_answer(os.path.join(outer, "x"), cache)
+        self.assertEqual((first, second, len(calls)), (second, first, 1))
+        self.assertIn("could not be checked for a repo: Permission denied", first[1])
         # Round 2: a folder that has gone (renamed while a process was in it) is no folder outside Git.
         repo, why = dl.repo_answer(os.path.join(outer, "renamed", "work"), {})
         self.assertEqual(repo, "")
