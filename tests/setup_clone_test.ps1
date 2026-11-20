@@ -30,7 +30,9 @@ function New-Clone([string]$name, [switch]$NoHook, [switch]$NotExecutable) {
   New-Item -ItemType Directory -Force (Join-Path $clone 'scripts\hooks') | Out-Null
   if (-not $NoHook) {
     Set-Content -LiteralPath (Join-Path $clone 'scripts/hooks/pre-commit') -Value "#!/bin/sh`nexit 0"
-    git -C $clone add scripts/hooks/pre-commit 2>$null
+    Set-Content -LiteralPath (Join-Path $clone 'scripts/hooks/post-merge') -Value "#!/bin/sh`nexit 0"
+    git -C $clone add scripts/hooks/pre-commit scripts/hooks/post-merge 2>$null
+    git -C $clone update-index --chmod=+x scripts/hooks/post-merge
     if (-not $NotExecutable) { git -C $clone update-index --chmod=+x scripts/hooks/pre-commit }
   }
   Set-Content -LiteralPath (Join-Path $clone 'scripts\run-guard.py') -Value $guard -Encoding utf8
