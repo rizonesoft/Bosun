@@ -295,6 +295,16 @@ try {
       $null = Answer 'There are no running distributions.' 1
       $agentRow = Row (Scan) $shareAgent.Id
       Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like 'its repo is not looked up: Fake was not seen running*') "nor is it probed when its distro is not seen running ($($agentRow.repo_why))"
+      # Round 10: a checkout whose build folder links into the stopped distro's share has its marks left unread.
+      $built = Join-Path $work 'built'
+      New-Item -ItemType Directory -Path (Join-Path $built '.git'), (Join-Path $share 'Fake\home\me\build\review-in-flight') -Force | Out-Null
+      & cmd.exe /d /c "mklink /J `"$(Join-Path $built 'build')`" `"$(Join-Path $share 'Fake\home\me\build')`"" | Out-Null
+      $builtAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'ba.txt')) 60000" $built
+      $null = Wait-Until { Row (Scan) $builtAgent.Id }
+      $doc = Scan
+      $builtRow = Row $doc $builtAgent.Id
+      $refused = @($doc.problems | Where-Object { $_.source -eq 'review-marks' -and $_.why -like "*built*review-in-flight is not read: it leads into a distro's share, and Fake was not seen running*" })
+      Check ($builtRow -and $builtRow.repo -like '*/built' -and $refused.Count -eq 1) "a build folder linked into a stopped distro's share is not read ($(@($doc.problems | ForEach-Object why) -join '; '))"
       $linkRow = Row (Scan) $linkAgent.Id
       Check ($linkRow -and $null -eq $linkRow.repo -and $linkRow.repo_why -like '*/linked could not be checked for a repo: it leads into a distro''s share, and Fake was not seen running*') "nor followed while its distro is not seen running ($($linkRow.repo_why))"
       # Round 6: a drive letter standing for the share (subst here; a mapped drive the same) is that share, link or none.

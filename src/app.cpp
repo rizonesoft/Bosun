@@ -1783,6 +1783,12 @@ int cmd_instances(const Options& o) {
         };
         auto box = std::make_shared<std::promise<Read>>();
         auto ready = box->get_future();
+        // Its links are followed by hand first, as a .git probe's are (round 10): a build folder linked into a stopped
+        // distro's share is never read, so the scan can't start that distro.
+        if (auto why = links_stay_off_stopped_shares(dir)) {
+            doc.problems.push_back({"review-marks", narrow(dir.wstring()) + " is not read: " + *why});
+            return marks;
+        }
         bool started = std::chrono::steady_clock::now() < lookup.deadline;
         if (started) {
             try {
