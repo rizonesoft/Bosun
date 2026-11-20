@@ -1,0 +1,166 @@
+{
+  "ref": "D03 T02 \u00a76",
+  "title": "WSL folders under a relocated automount",
+  "implementation_sha": "f1bdd7a334f7b167b204a9157f9891785b13e6c0",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 10,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 11,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 12,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 13,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 14,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 15,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 16,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 17,
+      "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "test_bosun_log.py in WSL -> 133 passed",
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class *InstanceClientTests -> total: 29, failed: 0",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class *OpenCommandsTests -> total: 7, failed: 0",
+    "pwsh tests/bin_output_test.ps1 -> ok",
+    "python scripts/ci_status.py --gate --sha f1bdd7a334f7b167b204a9157f9891785b13e6c0 -> proceed: build.yml https://github.com/rizonetech/Bosun/actions/runs/44752777719, plan.yml https://github.com/rizonetech/Bosun/actions/runs/44752777753"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+    "verdict": "filed",
+    "candidate": "b5323ec8a544836b4655b0d7dc310772489e1199",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D03 T02 \u00a710"
+    ]
+  },
+  "rounds_spent": 17,
+  "cap_outcome": "round 17 returned two P3 findings (the install handoff checked only by its assignment; a test comment that misstated the containment rule), both fixed in b5323ec; nothing left over",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s6.md",
+    "candidate": "48a72b9a589b47654633b3c4fe67d4bcb5296786",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "48a72b9a589b47654633b3c4fe67d4bcb5296786",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

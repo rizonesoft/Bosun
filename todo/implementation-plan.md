@@ -120,7 +120,7 @@ Sections: 27 | Checklist items: 192
 | [x]    | D03 T01 §5  | Overview page                                                    | none        | 11    |
 | [x]    | D03 T02 §4  | Editor windows by repo                                           | none        | 9     |
 | [x]    | D03 T02 §5  | Editor windows in every VS Code profile                          | none        | 6     |
-| [ ]    | D03 T02 §6  | WSL folders under a relocated automount                          | none        | 5     |
+| [x]    | D03 T02 §6  | WSL folders under a relocated automount                          | none        | 5     |
 | [ ]    | D03 T02 §7  | A failed repo lookup said apart from no repo                     | none        | 3     |
 | [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing           | none        | 2     |
 | [ ]    | D03 T02 §9  | VS Code forks placed by their windows                            | none        | 3     |
@@ -172,6 +172,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 89/117 verified sections, 8 ready to run now.
+Progress: 90/117 verified sections, 8 ready to run now.
 
 Checklist: 875/991 items completed (includes Commit items).

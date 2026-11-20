@@ -41,7 +41,7 @@ title: "TODO-02 -- Instances and queue"
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [x] |
 | 4 | §4 | Editor windows by repo | §1 | [x] |
 | 5 | §5 | Editor windows in every VS Code profile | §4 | [x] |
-| 6 | §6 | WSL folders under a relocated automount | §4 | [ ] |
+| 6 | §6 | WSL folders under a relocated automount | §4 | [x] |
 | 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
 | 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
@@ -294,6 +294,9 @@ Grouping and opening read a guest path under `/mnt/<drive>/` as that Windows dri
 - [x] Commit: `instances: WSL folders under a relocated automount`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"`, `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` and `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-20 | §6 | f1bdd7a334f7b167b204a9157f9891785b13e6c0
+> **Review:** `docs/reviews/d03-t02-s6.json`
 
 ## 7. A failed repo lookup said apart from no repo
 
