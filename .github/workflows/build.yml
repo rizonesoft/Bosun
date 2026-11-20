@@ -117,7 +117,22 @@ jobs:
         run: pwsh tests\overlay_clone_test.ps1
       - name: Sync test
         run: pwsh tests\sync_test.ps1
-      - name: Campaign admin setup test
+      # The leak guard's test needs gitleaks, pinned and checked against the release's own checksums.
+      - name: Install gitleaks 8.30.1
+        shell: pwsh
+        run: |
+          $base = 'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1'
+          $dir = Join-Path $env:RUNNER_TEMP 'gitleaks'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest "$base/gitleaks_8.30.1_windows_x64.zip" -OutFile "$dir/gitleaks.zip"
+          Invoke-WebRequest "$base/gitleaks_8.30.1_checksums.txt" -OutFile "$dir/checksums.txt"
+          $want = ((Get-Content "$dir/checksums.txt" | Where-Object { $_ -match 'gitleaks_8\.30\.1_windows_x64\.zip$' }) -split '\s+')[0]
+          $have = (Get-FileHash "$dir/gitleaks.zip" -Algorithm SHA256).Hash
+          if (-not $want -or $have -ne $want.ToUpperInvariant()) { throw "gitleaks archive checksum mismatch ($have, expected $want)" }
+          Expand-Archive "$dir/gitleaks.zip" -DestinationPath $dir -Force
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $dir
+      - name: Leak guard test
+        run: pwsh tests\leak_scan_test.ps1      - name: Campaign admin setup test
         run: pwsh tests\campaign_admin_test.ps1
       - name: Campaign hold test
         run: pwsh tests\campaign_hold_test.ps1

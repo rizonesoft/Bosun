@@ -38,7 +38,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType
   Stop-Setup "$Repo has no $hooks/pre-commit, so it is not a checkout of this repository"
 }
 # The hooks this checkout relies on: each must be there and tracked, or setup would report what no hook does.
-foreach ($name in 'pre-commit', 'post-merge') {
+foreach ($name in 'pre-commit', 'post-merge', 'pre-push') {
   if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/$name") -PathType Leaf) -or -not "$(git -C $Repo ls-files -- "$hooks/$name" 2>$null)") {
     Stop-Setup "$hooks/$name is missing from $Repo or not tracked by git; restore it (git checkout -- $hooks/$name), then run this again"
   }

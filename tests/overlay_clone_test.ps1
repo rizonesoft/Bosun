@@ -96,11 +96,12 @@ $hookFill = {
   New-Item -ItemType Directory -Path (Join-Path $seed 'scripts\hooks') | Out-Null
   Set-Content -LiteralPath (Join-Path $seed 'scripts\hooks\pre-commit') -Value "#!/bin/sh`nexit 0"
   Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\hooks\post-merge') -Destination (Join-Path $seed 'scripts\hooks\post-merge')
+  Set-Content -LiteralPath (Join-Path $seed 'scripts\hooks\pre-push') -Value "#!/bin/sh`nexit 0"
   Set-Content -LiteralPath (Join-Path $seed '.gitignore') -Value ".private/
 .private-clone-*/"
   Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'public'
   git -C $seed add -A
-  git -C $seed update-index --add --chmod=+x scripts/hooks/pre-commit scripts/hooks/post-merge
+  git -C $seed update-index --add --chmod=+x scripts/hooks/pre-commit scripts/hooks/post-merge scripts/hooks/pre-push
 }
 $public = New-Remote 'public' $hookFill
 $overlayRemote = New-Remote 'overlay' { param($seed) Set-Content -LiteralPath (Join-Path $seed 'config.toml') -Value 'vault_item = "x"' }
@@ -249,6 +250,11 @@ try {
   git -C $plain update-index --chmod=-x scripts/hooks/post-merge
   $r = Invoke-Setup $plain
   Check 'a post-merge not recorded as executable is refused with the fix' ($r.Exit -eq 1 -and $r.Text -match 'scripts/hooks/post-merge is not recorded in git as an executable' -and $r.Text -match 'update-index --chmod=\+x scripts/hooks/post-merge') "(exit $($r.Exit): $($r.Text))"
+
+  $noGuard = New-Clone 'pre-push-missing'
+  git -C $noGuard rm -q scripts/hooks/pre-push
+  $r = Invoke-Setup $noGuard
+  Check 'a checkout without its pre-push hook is refused, with the fix' ($r.Exit -eq 1 -and $r.Text -match 'pre-push is missing' -and -not (Test-Path (Join-Path $noGuard '.private'))) "(exit $($r.Exit): $($r.Text))"
 
   $missing = New-Clone 'post-merge-missing'
   git -C $missing rm -q scripts/hooks/post-merge

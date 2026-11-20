@@ -1,0 +1,13 @@
+#!/bin/sh
+# Refuse a push that would publish a secret or a private string (D00 T05 §4). Git gives this hook the remote's name
+# and address as arguments and the refs being pushed on standard input; scripts/leak-scan.ps1 checks every commit the
+# destination lacks with gitleaks and against the overlay's deny list (.private/deny-list.txt), and refuses on a
+# finding or on any failure to check. A push from .private never runs this hook: the overlay's hooks are its own.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+if ! command -v pwsh >/dev/null 2>&1; then
+    echo "leak-scan: push refused: pwsh (PowerShell 7) is needed to check the push for secrets; install it, then push again" >&2
+    exit 1
+fi
+# The remote by name when it has one, so its address (which can hold a credential) stays off a command line.
+remote=${1:-$2}
+exec pwsh -NoProfile -NonInteractive -File "$root/scripts/leak-scan.ps1" -Remote "$remote"

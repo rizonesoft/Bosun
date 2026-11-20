@@ -203,7 +203,14 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   # refspec matching it): a run stopped between the two can always be run again, and an unborn overlay retries cleanly.
   if ($s.Action -eq 'first' -and ((Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).remote", $s.Remote)).Code -or (Invoke-Git $s.Repo @('config', '--local', "branch.$($s.Default).merge", "refs/heads/$($s.Default)")).Code)) {
     $failed = "sync: $($s.Label): the upstream of its first commit's branch could not be recorded (its git config is locked or read-only)"; break
-  }  if ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
+  }  if ($s.Action -eq 'push') {
+    # scripts/hooks/pre-push refuses a push holding a secret or a private string; its own lines (leak-scan:, holding no
+    # remote text) are passed on so the finding or the missing-tool remedy is seen. Nothing else git says is shown.
+    $said = & git -C $s.Repo @($step.Args) 2>&1
+    $pushed = -not $LASTEXITCODE
+    @($said | ForEach-Object { "$_" } | Where-Object { $_ -match '^leak-scan: ' })
+    if (-not $pushed) { $failed = "sync: $($s.Label): $($step.Why)"; break }
+  } elseif ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
 
   # The step is judged by what it left, not by git's exit code alone: a setting that changes what git does (a squash
   # in branch.<name>.mergeOptions, a rewrite of the push address) cannot pass for success.

@@ -99,6 +99,8 @@ pwsh scripts/build.ps1
 pwsh scripts/install.ps1
 ```
 
+Pushing needs `gitleaks` 8.30.1: the `pre-push` hook checks every outgoing commit for secrets, and against the private overlay's deny list when the overlay is present, and refuses the push on a finding or when the tool is missing. On Windows, `winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user`. On Linux or WSL, download `gitleaks_8.30.1_linux_x64.tar.gz` from the [v8.30.1 release](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1), check it against `gitleaks_8.30.1_checksums.txt`, and put `gitleaks` on `PATH`.
+
 A Release build copies only `bosun.exe` and `bosun-logger.exe` to `bin/`, and everything else, including test binaries and PDBs, stays in `build/`. Both folders are ignored by Git.
 
 The installer takes the tools from `bin/` and copies them to `%LOCALAPPDATA%\Bosun\bin`, adds that folder to your user PATH, starts the logger at login and sets up the `bosun-log` user service in WSL.
