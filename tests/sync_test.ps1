@@ -216,6 +216,26 @@ try {
   Check 'a remote that pushes to two addresses is named and nothing is pushed' ($r.Exit -eq 1 -and $r.Text -match 'public: main, ahead 1, pushes to more than one address' -and (Get-Head $public 'refs/heads/main') -eq $publicMain -and (Get-Head $second 'refs/heads/main') -eq $secondMain) "(exit $($r.Exit): $($r.Text))"
   git -C $owner config --unset-all remote.origin.pushurl
   $null = Invoke-Sync $owner
+  # --- pushInsteadOf: the commit goes where get-url --push says, and that address is the one checked ---
+  $decoy = Join-Path $work 'decoy-overlay.git'
+  git clone -q --bare $overlay $decoy 2>$null
+  git -C $private config "url.$decoy.pushInsteadOf" $overlay
+  $decoyMain = Get-Head $decoy 'refs/heads/main'
+  $null = Add-Local $private 'rewritten.txt'
+  $r = Invoke-Sync $owner
+  Check 'a pushInsteadOf that rewrites the overlay address is named and nothing leaves' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, push goes elsewhere' -and (Get-Head $decoy 'refs/heads/main') -eq $decoyMain) "(exit $($r.Exit): $($r.Text))"
+  git -C $private remote set-url --push origin $overlay
+  $r = Invoke-Sync $owner
+  Check 'with an explicit push address, which pushInsteadOf leaves alone, the commit goes to the overlay itself' ($r.Exit -eq 0 -and (Get-Head $overlay 'refs/heads/main') -eq (Get-Head $private) -and (Get-Head $decoy 'refs/heads/main') -eq $decoyMain) "(exit $($r.Exit): $($r.Text))"
+  git -C $private config --unset "url.$decoy.pushInsteadOf"; git -C $private config --unset remote.origin.pushurl
+
+  # --- -Check leaves FETCH_HEAD alone ---
+  git -C $owner fetch -q origin main 2>$null
+  $fetchHead = Get-Content -LiteralPath (Join-Path $owner '.git\FETCH_HEAD') -Raw
+  $null = Add-Remote $public 'fetch-head.txt'
+  $r = Invoke-Sync $owner -Check
+  Check '-Check leaves FETCH_HEAD as the operator''s own fetch left it' ((Get-Content -LiteralPath (Join-Path $owner '.git\FETCH_HEAD') -Raw) -eq $fetchHead -and $r.Text -match 'public: main, behind 1') "($($r.Text))"
+  $null = Invoke-Sync $owner
   # --- an upstream branch deleted on its remote ---
   git -C $private checkout -q -b topic 2>$null
   git -C $private push -q -u origin topic 2>$null

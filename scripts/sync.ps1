@@ -77,7 +77,7 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   $dirty = [bool]($status.Out -join '')
   # Nothing is pruned (--no-prune overrides fetch.prune, remote.<name>.prune and the pruneTags settings, which would
   # delete local-only tags) and no tag is fetched. Whether the upstream branch still exists is asked of the remote.
-  if ((Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', $remote)).Code) { return Done 'remote unreachable' }
+  if ((Invoke-Git $repo @('fetch', '--quiet', '--no-prune', '--no-tags', '--no-write-fetch-head', $remote)).Code) { return Done 'remote unreachable' }
 
   if (-not $born) {
     # An overlay cloned while empty: its first commit lands on the remote's default branch, whatever its name.
@@ -105,10 +105,10 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   # the remote tip, and the one address a push would go to. Nothing later reads HEAD, the remote or its URL again.
   $state.Commit = (Invoke-Git $repo @('rev-parse', '--verify', '--quiet', 'HEAD')).Out -join ''
   $state.Target = $state.RemoteTip
-  # The push address is the one read (and, for the overlay, validated) above, never read again. The overlay pushes to
-  # it as a URL, which validation guarantees holds no credential; this checkout pushes through its remote name, so a
-  # URL with a credential in it never reaches a command line.
-  $state.PushUrl = if (@($state.PushUrls).Count -ne 1) { $null } elseif ($Overlay) { $state.PushUrls[0] } else { $remote }
+  # A push goes through the remote's name, so git sends it to the very address `remote get-url --push` reported (with
+  # any insteadOf or pushInsteadOf rewrite applied, and for the overlay validated above), and no URL, with or without a
+  # credential in it, reaches a command line. A URL given straight to git push would be rewritten again.
+  $state.PushUrl = if (@($state.PushUrls).Count -eq 1) { $state.PushUrls[0] } else { $null }
   $counts = Invoke-Git $repo @('rev-list', '--left-right', '--count', "$($state.Commit)...$($state.Target)")
   if (-not $state.Commit -or $counts.Code -or ($counts.Out -join '') -notmatch '^(\d+)\s+(\d+)$') { return Done 'could not be read (compare)' }
   $ahead, $behind = [int]$Matches[1], [int]$Matches[2]
@@ -151,12 +151,20 @@ $failed = $null
 foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   $step = switch ($s.Action) {
     'merge' { @{ Did = "fast-forwarded $($s.Label)"; Args = @('merge', '--ff-only', '--no-overwrite-ignore', '--quiet', $s.Target); Why = 'the fast-forward was refused (an incoming file would replace an ignored or local one, or the branch moved meanwhile)' } }
-    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", '--', $s.PushUrl, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
+    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", $s.Remote, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
     'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '--track', "$($s.Remote)/$($s.Default)"); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
   }
   # The checkout must still be where it was looked at: a branch switched or a commit made meanwhile stops the run.
   if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (Invoke-Git $s.Repo @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out -join '' -ne $s.Branch)) {
     $failed = "sync: $($s.Label): it changed while sync ran (another branch or commit); nothing more was done"; break
+  }
+  # Still clean, as it was when looked at: an edit saved meanwhile stops the run before the branch moves.
+  if ((Invoke-Git $s.Repo @('--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal')).Out -join '') {
+    $failed = "sync: $($s.Label): it has uncommitted changes made while sync ran; nothing more was done"; break
+  }
+  # The address a push goes to is still the one read when it was looked at.
+  if ($s.Action -eq 'push' -and "$((Invoke-Git $s.Repo @('remote', 'get-url', '--push', '--all', $s.Remote)).Out -join "`n")" -ne $s.PushUrl) {
+    $failed = "sync: $($s.Label): its push address changed while sync ran; nothing more was done"; break
   }
   # A push only ever moves its upstream forward: the tip it was leased on must be in the commit it sends.
   if ($s.Action -eq 'push' -and (Invoke-Git $s.Repo @('merge-base', '--is-ancestor', $s.RemoteTip, $s.Commit)).Code) {
