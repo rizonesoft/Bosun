@@ -209,6 +209,10 @@ class Instances(unittest.TestCase):
         os.makedirs(os.path.join(self.repo, "src"))
         self.outside = os.path.join(self.root, "loose")
         os.makedirs(self.outside)
+        # The fixture mount tables name folders this machine doesn't have: a route is writable unless a test says it isn't.
+        probe = unittest.mock.patch.object(dl, "reachable_for_writing", lambda path: True)
+        probe.start()
+        self.addCleanup(probe.stop)
 
     def tearDown(self):
         shutil.rmtree(self.root)
@@ -325,6 +329,24 @@ class Instances(unittest.TestCase):
         self.assertEqual(dl.log_folder("C:/Bosun/logs", self.table(self.drive("/mnt/c", "C", id=500), win, ro_child))[0], "/win/Bosun/logs")
         # The report says what is mounted, read-only or not: both map guest folders to Windows.
         self.assertEqual(dl.drive_mounts(self.table(bind))[0], [{"mount": "/srv/bosun-logs", "windows": "C:\\Users\\me\\AppData\\Local\\Bosun\\logs"}])
+
+    def test_a_file_system_read_only_at_its_superblock_is_never_the_log_folder(self):
+        # Completion review: the mount rw but its file system ro; Linux needs both to write, so the writable route wins.
+        logs = "C:/Users/me/AppData/Local/Bosun/logs"
+        bind = self.drive("/srv/bosun-logs", "C").replace(" / /srv/bosun-logs ", " /Users/me/AppData/Local/Bosun/logs /srv/bosun-logs ").replace(" rw,aname=drvfs", " ro,aname=drvfs")
+        self.assertEqual(dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), bind))[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
+
+    def test_a_route_this_user_cannot_write_through_gives_way_to_the_next(self):
+        # Completion review: the more specific bind is inside a folder the logger can't enter; /mnt/c can be written.
+        logs = "C:/Bosun/logs"
+        private = self.drive("/home/other/bosun", "C").replace(" / /home/other/bosun ", " /Bosun /home/other/bosun ")
+        table = self.table(self.drive("/mnt/c", "C"), private)
+        with unittest.mock.patch.object(dl, "reachable_for_writing", lambda path: not path.startswith("/home/other")):
+            self.assertEqual(dl.log_folder(logs, table)[0], "/mnt/c/Bosun/logs")
+        with unittest.mock.patch.object(dl, "reachable_for_writing", lambda path: False):
+            found, why = dl.log_folder(logs, table)
+        self.assertIsNone(found)
+        self.assertIn("can't write through any of them", why)
 
     def test_thousands_of_sibling_mounts_are_read_in_linear_time(self):
         # Round 9: each step of the walk is one lookup, so 8,000 binds under /work read in well under a second.
@@ -1506,6 +1528,21 @@ class ThrottleReviewRound4(ThrottleCase):
     @staticmethod
     def refuse_replace(src, dst):
         raise PermissionError("held open")
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") and os.geteuid() != 0, "needs Linux, as a user that folder modes bind")
+class ReachableForWriting(unittest.TestCase):
+    """The probe the logger's route choice uses (D03 T02 §6 completion review), on real folders."""
+
+    def test_a_folder_this_user_may_write_into_and_one_it_may_not_enter(self):
+        root = tempfile.mkdtemp(prefix="bosun-reach-")
+        self.addCleanup(shutil.rmtree, root, True)
+        self.assertTrue(dl.reachable_for_writing(os.path.join(root, "not", "made", "yet")))
+        shut = os.path.join(root, "shut")
+        os.makedirs(os.path.join(shut, "inside"))
+        os.chmod(shut, 0o000)
+        self.addCleanup(os.chmod, shut, 0o755)
+        self.assertFalse(dl.reachable_for_writing(os.path.join(shut, "inside", "logs")))
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("bash") and shutil.which("grep"), "needs Linux with bash")

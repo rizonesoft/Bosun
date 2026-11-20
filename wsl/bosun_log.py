@@ -330,7 +330,9 @@ def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
         drive = rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs")
         windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive and path else None
-        read_only = "ro" in fields[5].split(",")  # the mount's own options: a bind can be read-only on a writable drive
+        # Read-only at either layer (completion review): the mount's own options (a bind can be read-only on a writable
+        # drive) or its file system's (the superblock), since Linux needs both to allow a write.
+        read_only = "ro" in fields[5].split(",") or "ro" in rest[2].split(",")
         entries.append((int(fields[0]), int(fields[1]), mount, windows, read_only))
     ids = {e[0] for e in entries}
     # Each mount's children by (parent, mount point): a step of the walk is one lookup, never a scan of every sibling
@@ -399,13 +401,20 @@ def windows_of(linux_path, drives):
 
 
 def guest_path(windows_path, drives):
+    """The first of guest_paths, or None."""
+    found = guest_paths(windows_path, drives)
+    return found[0] if found else None
+
+
+def guest_paths(windows_path, drives):
     """A Windows folder's path in this distro, through the drive mounts (D03 T02 §6: the logger finds its log folder this
     way on each write, so moved mounts are followed): a mount of the folder or of any folder holding it (on whole
     components, as Windows compares them), joined with the rest, taken only when the panel's own rule maps it back to
     this same folder, so a guest file system mounted over it is never written into (round 2). None when none does."""
     m = re.fullmatch(r"([A-Za-z]):[\\/]?(.*)", windows_path or "")
+    routes = []
     if not m or drives is None:
-        return None
+        return routes
     wanted = m.group(1).upper() + ":\\" + m.group(2).replace("/", "\\").strip("\\")
     def parts(path, fold):
         found = [p for p in path.rstrip("\\").split("\\") if p]
@@ -433,8 +442,8 @@ def guest_path(windows_path, drives):
         # inside a writable drive).
         lands = holder_of(guest, drives)
         if back is not None and exact(parts(back, fold)) == exact(parts(wanted, fold)) and not (lands and lands[1].get("read_only")):
-            return guest
-    return None
+            routes.append(guest)
+    return routes
 
 
 def log_folder(given, mountinfo="/proc/self/mountinfo"):
@@ -445,8 +454,26 @@ def log_folder(given, mountinfo="/proc/self/mountinfo"):
     drives, why = drive_mounts(mountinfo, every=True)
     if drives is None:
         return None, why
-    found = guest_path(given, drives)
-    return (found, None) if found else (None, f"no mount holds {given} as Windows has it (none of its drive, or a guest file system over it), so the reports can't reach Windows")
+    routes = guest_paths(given, drives)
+    if not routes:
+        return None, f"no mount holds {given} as Windows has it (none of its drive, or a guest file system over it), so the reports can't reach Windows"
+    # The first route this user can write through (completion review: a bind inside another user's private home is no
+    # route for the logger, while /mnt/c may be): its nearest existing folder must let it in and write.
+    for route in routes:
+        if reachable_for_writing(route):
+            return route, None
+    return None, f"{given} is mounted at {', '.join(routes)}, but this user can't write through any of them, so the reports can't reach Windows"
+
+
+def reachable_for_writing(path):
+    """True when this user could make and write `path`: its nearest existing folder lets it in and write."""
+    probe = path
+    while probe and not os.path.exists(probe):
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return bool(probe) and os.path.isdir(probe) and os.access(probe, os.W_OK | os.X_OK)
 
 
 def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mountinfo="/proc/self/mountinfo"):

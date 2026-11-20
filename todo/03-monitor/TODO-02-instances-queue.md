@@ -45,6 +45,7 @@ title: "TODO-02 -- Instances and queue"
 | 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
 | 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
+| 10 | §10 | A WSL terminal opened at the row's own guest folder | §6 | [ ] |
 
 ## 1. Instance scanner
 
@@ -347,6 +348,23 @@ The window reporter runs in any VS Code-family editor, and the installer takes a
 - [ ] Commit: `instances: VS Code forks placed by their windows`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `build/Release/test_core.exe editor-windows`, `pwsh tests/instances_test.ps1` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` exit 0, and fail if the change is reverted.
+
+## 10. A WSL terminal opened at the row's own guest folder
+
+Open terminal for a WSL row reaches the folder through Windows: the working directory is the folder as Windows has it (`C:\src` for a row in `/work`, a bind of it), and WSL starts in the Linux folder behind that, so a guest folder reached through a bind, or one with a guest file system mounted inside it, can open as another tree than the row's. Filed 2026-11-20 from the completion review of `D03 T02 §6` (`docs/reviews/03-monitor/D03-T02-s6.md`, gap 3).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. The shell starts in the row's own Linux folder. Done when: a terminal for `/work/app` opens in `/work/app`, with and without Windows Terminal.
+
+- [ ] Start WSL in the row's Linux folder in `OpenCommands.Terminal` (`src/Bosun.Panel/Instances/Opener.cs`): `wsl.exe -d <distro> --cd <path>`, the folder an argument of `wsl.exe` itself; with Windows Terminal its `;` (which starts another command) escaped as `\;` in the path, and without it the console started with each argument passed whole (`ArgumentList`, no shell string). Done when: `OpenCommandsTests` read the arguments for `/work/app`, a folder with a space and one with `;`, with and without Windows Terminal, and a Panel test starts a real `wsl.exe --cd` at a guest folder of the running distro and reads `pwd` back. Cheaper substitute: the Windows working directory alone.
+- [ ] Commit: `instances: a WSL terminal opened at the row's own folder`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` exits 0, and fails if the change is reverted.
 
 ## Verification
 
