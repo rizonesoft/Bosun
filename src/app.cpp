@@ -1785,21 +1785,29 @@ int cmd_instances(const Options& o) {
         auto ready = box->get_future();
         // Its links are followed by hand first, as a .git probe's are (round 10): a build folder linked into a stopped
         // distro's share is never read, so the scan can't start that distro.
-        if (auto why = links_stay_off_stopped_shares(dir)) {
-            doc.problems.push_back({"review-marks", narrow(dir.wstring()) + " is not read: " + *why});
-            return marks;
-        }
+        // The gate itself runs on the worker too (round 11): following a link onto a share that stopped answering is a
+        // look like any other, and the scan thread never waits on one past its deadline.
         bool started = std::chrono::steady_clock::now() < lookup.deadline;
         if (started) {
             try {
                 std::thread([dir, box] {
                     Read r;
+                    if (auto why = links_stay_off_stopped_shares(dir)) {
+                        r.listing_why = narrow(dir.wstring()) + " is not read: " + *why;
+                        box->set_value(std::move(r));
+                        return;
+                    }
                     std::string listing;
                     auto files = json_files(dir, listing);
                     if (!files) {
                         r.listing_why = listing;
                     } else {
                         for (const auto& file : *files) {
+                            // Each mark file through the gate too (round 11): a file link into a stopped distro's share.
+                            if (auto why = links_stay_off_stopped_shares(file)) {
+                                r.files.emplace_back(file, std::nullopt, narrow(file.wstring()) + " is not read: " + *why, false);
+                                continue;
+                            }
                             bool gone = false;
                             std::string unread;
                             auto text = read_small(file, unread, gone);
@@ -1933,6 +1941,8 @@ int cmd_instances(const Options& o) {
             std::wstring dir = process_cwd(static_cast<ULONG_PTR>(h.pid));
             if (dir.empty()) {
                 ++doc.unreadable;
+                // The holder's own repo stands (its walk stops at any failure); with none, the row says why (round 11).
+                if (!i.repo) i.repo_why = "its folder can't be read, so its repo can't be told";
             } else {
                 if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
                 i.cwd = narrow(dir);

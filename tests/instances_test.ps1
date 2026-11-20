@@ -305,6 +305,17 @@ try {
       $builtRow = Row $doc $builtAgent.Id
       $refused = @($doc.problems | Where-Object { $_.source -eq 'review-marks' -and $_.why -like "*built*review-in-flight is not read: it leads into a distro's share, and Fake was not seen running*" })
       Check ($builtRow -and $builtRow.repo -like '*/built' -and $refused.Count -eq 1) "a build folder linked into a stopped distro's share is not read ($(@($doc.problems | ForEach-Object why) -join '; '))"
+      # Round 11: nor is a mark file in a local folder that links into that share.
+      $marked = Join-Path $work 'marked'
+      New-Item -ItemType Directory -Path (Join-Path $marked '.git'), (Join-Path $marked 'build\review-in-flight') -Force | Out-Null
+      Set-Content -LiteralPath (Join-Path $share 'Fake\home\me\active.json') -Value '{"pid": 1, "deadline": 1}'
+      & cmd.exe /d /c "mklink `"$(Join-Path $marked 'build\review-in-flight\active.json')`" `"$(Join-Path $share 'Fake\home\me\active.json')`"" | Out-Null
+      Check ($LASTEXITCODE -eq 0) 'a file link can be made for the mark-file fixture'
+      $markedAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'ma.txt')) 60000" $marked
+      $null = Wait-Until { Row (Scan) $markedAgent.Id }
+      $doc = Scan
+      $refused = @($doc.problems | Where-Object { $_.source -eq 'review-marks' -and $_.why -like "*active.json is not read: it leads into a distro's share, and Fake was not seen running*" })
+      Check ((Row $doc $markedAgent.Id) -and $refused.Count -eq 1) "a mark file linked into a stopped distro's share is not read ($(@($doc.problems | Where-Object source -eq 'review-marks' | ForEach-Object why) -join '; '))"
       $linkRow = Row (Scan) $linkAgent.Id
       Check ($linkRow -and $null -eq $linkRow.repo -and $linkRow.repo_why -like '*/linked could not be checked for a repo: it leads into a distro''s share, and Fake was not seen running*') "nor followed while its distro is not seen running ($($linkRow.repo_why))"
       # Round 6: a drive letter standing for the share (subst here; a mapped drive the same) is that share, link or none.
