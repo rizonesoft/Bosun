@@ -5,6 +5,7 @@ Finish the agent kit in this repo and lay the .NET foundation.
 | File | Scope | Status |
 | ---- | ----- | ------ |
 | TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for | active |
+| TODO-05-private-overlay.md | Public core and the private overlay that holds owner specifics | active |
 
 ## Completed
 

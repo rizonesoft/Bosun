@@ -19,6 +19,7 @@ title: "TODO-01 -- Operator steps"
 - -> XREF: D07 T01 §6 -- consumed by this file
 - -> XREF: D05 T02 §3 -- consumed by this file
 - -> XREF: D00 T03 §19 -- consumed by this file
+- -> XREF: D00 T05 §8 -- does the scrub and leak scan the open checks in §4 name
 
 ## Outcome
 

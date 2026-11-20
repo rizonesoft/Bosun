@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 34 | Checklist items: 352
+Sections: 42 | Checklist items: 410
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -46,6 +46,14 @@ Sections: 34 | Checklist items: 352
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
+| [ ]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 7     |
+| [ ]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 8     |
+| [ ]    | D00 T05 §3  | One sync command for both repositories                          | none        | 7     |
+| [ ]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 9     |
+| [ ]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 7     |
+| [ ]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 5     |
+| [ ]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 8     |
+| [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 7     |
 
 ### Phase 1: Core data contract
 
@@ -173,6 +181,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 91/118 verified sections, 8 ready to run now.
+Progress: 91/126 verified sections, 9 ready to run now.
 
-Checklist: 884/1000 items completed (includes Commit items).
+Checklist: 884/1058 items completed (includes Commit items).
