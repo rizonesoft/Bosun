@@ -958,7 +958,9 @@ class Throttle:
 
     def load_state(self):
         """(lowered, operator, fault): this distro's record. One that is not this logger's (another unit, distro or user) is a
-        fault, never acted on."""
+        fault, never acted on. No log folder (it can't be reached now, D03 T02 §6) is a fault: nothing there is read."""
+        if not self.log_dir:
+            return None, None, "the log folder can't be reached, so the record is not read"
         doc, why = read_small_json(os.path.join(self.log_dir, self.state_name))
         if why:
             return None, None, why
@@ -986,6 +988,8 @@ class Throttle:
         return lowered, operator, None
 
     def save_state(self, lowered, operator=None):
+        if not self.log_dir:
+            raise Failure("the log folder can't be reached, so the record is not written")
         text = json.dumps({"schema_version": 1, "distro": self.distro, "uid": self.uid, "lowered": lowered, "operator": operator}, separators=(",", ":")) + "\n"
         if not write_snapshot(self.log_dir, text, name=self.state_name):
             raise Failure(f"can't write {self.state_name}, so no limit is changed")
@@ -1139,6 +1143,24 @@ class Throttle:
             return self.lower(policy, total_mb)
         return self.report("idle", "Windows has enough memory")
 
+    def release(self, why):
+        """The log folder can't be reached (D03 T02 §6): the policy and Windows' memory can't be read, so a lowering this run
+        made is put back now, as when the policy is gone (D05 T02 §5), never left on a running job until the folder returns
+        (round 10). Only a slice still at Bosun's own value is touched, and nothing is written to any folder; the record left
+        behind is dropped by the first sample that reads the original again."""
+        if self.identity_fault or self.lock_fd is None or not self.state:
+            return None
+        try:
+            current = self.read_limit()
+        except Failure:
+            return None
+        if current not in (self.state["applied"], self.state.get("previous")):
+            return None
+        done = self.restore_now()
+        if done == "done":
+            print(f"[bosun] {self.unit} is back at {limit_text(self.state['original'])}: {why}", file=sys.stderr)
+        return done
+
     def stop(self):
         """The service is stopping: a limit Bosun lowered, and still holds as it set it, is put back now (round 6: a stopped
         service left a running job throttled until another logger started). A limit an operator took over, or none, is
@@ -1267,6 +1289,10 @@ class Throttle:
                "applied": limit_text(self.state["applied"]) if self.state else None}
         if doc != self.last and (self.last is None or doc["state"] != self.last["state"] or state == "error"):
             print(f"[bosun] pressure throttle {state}: {detail}", file=sys.stderr)
+        if not self.log_dir:
+            # No folder to say it in (D03 T02 §6): the line above is what is said; nothing is written anywhere else.
+            self.last = doc
+            return doc
         quiet = state == "off" and not fault and not os.path.exists(os.path.join(self.log_dir, self.status_name))  # a machine that never opted in gets no file
         if quiet:
             self.delivered = doc
@@ -1362,13 +1388,19 @@ def main(argv):
             found, why = log_folder(given, mountinfo)
             if found is None:
                 # The folder can't be found now: nothing is written, and the throttle reads nothing, until it can be,
-                # never to the last folder found, which may now be another drive's (round 1).
+                # never to the last folder found, which may now be another drive's (round 1). The throttle is cut off from
+                # it, the stop included (round 10), and a lowering of this run's is put back, the policy being unknown.
                 print(f"[bosun] {why}; this sample is skipped", file=sys.stderr)
                 if once:
                     return 1
+                throttle.log_dir = None
+                try:
+                    throttle.release("the log folder can't be reached, so the policy is not known")
+                except Exception as e:  # nothing the throttle does may stop the sampling
+                    print(f"[bosun] pressure throttle failed: {e}", file=sys.stderr)
                 time.sleep(interval)
                 continue
-            if found != log_dir:
+            if found != log_dir or throttle.log_dir != found:  # moved, or back after it could not be reached
                 log_dir = throttle.log_dir = found
                 os.makedirs(log_dir, exist_ok=True)
             sample(log_dir, cache, interval)

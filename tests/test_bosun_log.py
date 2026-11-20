@@ -1150,6 +1150,24 @@ class ThrottleStop(ThrottleCase):
         self.throttle.stop()
         self.assertEqual(self.slice.value, 8 * GB)
 
+    def test_a_log_folder_that_can_t_be_reached_puts_the_lowering_back_and_writes_nowhere(self):
+        # Round 10 of D03 T02 §6: the throttle is cut off from a folder the sampling loop rejected (a guest folder bound
+        # over it), so the stop writes nothing there; and a lowering is put back at once, the policy being unknown.
+        self.assertEqual(self.tick(1000), "lowered")
+        record = os.path.join(self.dir, self.throttle.state_name)
+        before = open(record, encoding="utf-8").read()
+        self.throttle.log_dir = None
+        self.assertEqual(self.throttle.release("the log folder can't be reached"), "done")
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.throttle.stop()
+        self.assertEqual(open(record, encoding="utf-8").read(), before)  # nothing written while cut off
+        self.assertFalse([n for n in os.listdir(self.dir) if n.endswith(".tmp")])
+        # The folder back: the record left behind is dropped, the slice at its original, never taken for an operator's.
+        self.throttle.log_dir = self.dir
+        self.tick(20000)
+        self.assertEqual(self.slice.value, 8 * GB)
+        self.assertIsNone(self.throttle.safe_load_state()[0])
+
     def test_a_stopping_service_puts_its_lowering_back_when_its_folder_is_on_a_replacement_drive(self):
         # Round 4: the same folder on another drive, with no record in it: this run's own record still restores.
         self.assertEqual(self.tick(1000), "lowered")
