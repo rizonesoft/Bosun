@@ -21,6 +21,10 @@ $env:GIT_CONFIG_NOSYSTEM = '1'
 Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value "[user]`n`tname = Setup Test`n`temail = setup-test@example.invalid`n[init]`n`tdefaultBranch = main"
 $env:PATH = (@((Split-Path (Get-Command git -CommandType Application | Select-Object -First 1).Source), $PSHOME, (Join-Path $env:SystemRoot 'System32')) | Select-Object -Unique) -join ';'
 foreach ($name in 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO') { [Environment]::SetEnvironmentVariable($name, $null) }
+
+# The caller's git repository variables are cleared before the first fixture command, so no git call here reads or
+# writes the caller's repository or index.
+foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX') { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
 }

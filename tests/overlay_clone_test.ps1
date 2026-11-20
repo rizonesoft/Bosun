@@ -53,6 +53,10 @@ $env:USERPROFILE = $env:HOME
 New-Item -ItemType Directory -Path $env:HOME | Out-Null
 $env:FAKE_GH_LOG = Join-Path $work 'gh-calls.txt'
 
+# The caller's git repository variables are cleared before the first fixture command, so no git call here reads or
+# writes the caller's repository or index.
+foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX') { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
+
 function Invoke-Setup([string]$repo, [string]$from = $work, [switch]$WithGh) {
   Push-Location -LiteralPath $from
   try {

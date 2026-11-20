@@ -13,7 +13,8 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
 
 # --- isolation ---
 $saved = @{}
-foreach ($name in 'PATH', 'HOME', 'USERPROFILE', 'BOSUN_OVERLAY_REPO', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_DIR', 'BOSUN_SYNC') {
+$gitVariables = 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX'
+foreach ($name in @('PATH', 'HOME', 'USERPROFILE', 'BOSUN_OVERLAY_REPO', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') + $gitVariables) {
   $saved[$name] = [Environment]::GetEnvironmentVariable($name)
 }
 $gitExe = (Get-Command git -CommandType Application | Select-Object -First 1).Source
@@ -25,7 +26,9 @@ $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'; $env:GIT_CONFIG_NOSYSTEM =
 Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value "[user]`n`tname = Sync Test`n`temail = sync-test@example.invalid`n[init]`n`tdefaultBranch = main`n[pull]`n`trebase = false"
 # Cleared through Env:, which removes a variable; [Environment]::SetEnvironmentVariable with $null from PowerShell sets it
 # to an empty string, and git takes an empty GIT_DIR as a path.
-foreach ($name in 'BOSUN_OVERLAY_REPO', 'GH_TOKEN', 'GITHUB_TOKEN', 'GIT_DIR', 'BOSUN_SYNC') { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
+# The caller's repository variables go too, before the first fixture command, or a git add could write into the
+# caller's own index.
+foreach ($name in @('BOSUN_OVERLAY_REPO', 'GH_TOKEN', 'GITHUB_TOKEN') + $gitVariables) { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
 $env:GH_CONFIG_DIR = Join-Path $work 'gh-config'
 
 $count = 0
@@ -230,10 +233,10 @@ try {
   $r = Invoke-Sync $owner
   [IO.File]::WriteAllBytes($index, $savedIndex)
   Check 'an unreadable index is never taken for clean' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, could not be read \(status\)') "($($r.Text))"
-  git -C $private remote set-url origin (Join-Path $work 'no-such-remote.git')
+  git -C $owner remote set-url origin (Join-Path $work 'no-such-remote.git')
   $r = Invoke-Sync $owner -Check
-  Check 'an unreachable remote is named' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, (remote unreachable|push goes elsewhere)') "($($r.Text))"
-  git -C $private remote set-url origin $overlay
+  Check 'an unreachable remote is named' ($r.Exit -eq 1 -and $r.Text -match 'public: main, remote unreachable') "($($r.Text))"
+  git -C $owner remote set-url origin $public
 
   # --- tags: never pruned, never pushed along ---
   git -C $owner config fetch.pruneTags true
