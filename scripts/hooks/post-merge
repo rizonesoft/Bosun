@@ -36,8 +36,10 @@ if [ "$(git -C "$overlay" config --local --get bosun.overlay 2>/dev/null)" != "t
     say "not pulled: .private is not marked as the overlay (pwsh scripts/setup-clone.ps1 marks a checkout of it)"
     exit 0
 fi
-# Untracked files asked for outright, so a status.showUntrackedFiles setting can't hide one.
-if ! status=$(git -C "$overlay" status --porcelain --untracked-files=all 2>/dev/null); then
+# Untracked files asked for outright, so a status.showUntrackedFiles setting can't hide one; 
+ormal names a new folder
+# once rather than every file in it, which is all the clean check needs.
+if ! status=$(git -C "$overlay" status --porcelain --untracked-files=normal 2>/dev/null); then
     say "not pulled: git cannot read .private"
     exit 0
 fi
