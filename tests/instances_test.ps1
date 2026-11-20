@@ -137,19 +137,23 @@ try {
   Window 'sb1' $editorB @('vscode-remote://wsl%2BUbuntu/home/me/app')
   Window 'sb2' $editorB @()
   Window 'sag' $agentApp @((Uri $one))
+  $sshOnly = Start-Editor 'Code.exe' 'ed'
+  Window 'sd1' $sshOnly @('vscode-remote://ssh-remote%2Bbox/srv/app')
   Window 'stale' $editorA @((Uri $one)) 999999
   Set-Content -LiteralPath (Join-Path $windows 'damaged.json') -Value '{"schema_version":1,' -NoNewline
   $doc = Scan
   $rowsA = @($doc.instances | Where-Object { $_.pid -eq $editorA.Id })
   Check ($rowsA.Count -eq 2 -and (Same-Path $rowsA[0].repo $one) -and (Same-Path $rowsA[1].repo $two) -and (Same-Path $rowsA[0].cwd (Join-Path $one 'src'))) "one editor is in both same-named repos it has open, from outside both ($(($rowsA | ForEach-Object repo) -join ', '))"
-  Check (@($rowsA | Where-Object { $_.placed_by -eq 'window' -and $_.location -eq 'windows' }).Count -eq 2 -and $rowsA[0].window -eq 'sa1#0' -and $rowsA[1].window -eq 'sa1#1') 'each root is a row of its own, with its window identity'
+  Check (@($rowsA | Where-Object { $_.placed_by -eq 'window' -and $_.location -eq 'windows' }).Count -eq 2 -and $rowsA[0].window -like 'sa1#*' -and $rowsA[1].window -like 'sa1#*' -and $rowsA[0].window -ne $rowsA[1].window) 'each root is a row of its own, with its window identity'
   Check (($rowsA | ForEach-Object { [int64]($_.private_mb ?? 0) } | Measure-Object -Sum).Sum -eq [int64]$rowsA[0].shared_mb -and $null -eq $rowsA[1].private_mb -and $null -ne $rowsA[0].shared_mb) 'its memory is on its first row once, and shared by both'
   $rowsB = @($doc.instances | Where-Object { $_.pid -eq $editorB.Id })
-  $wslRow = @($rowsB | Where-Object { $_.window -eq 'sb1#0' })[0]
+  $wslRow = @($rowsB | Where-Object { $_.window -like 'sb1#*' })[0]
   Check ($rowsB.Count -eq 2 -and $wslRow.location -eq 'wsl' -and $wslRow.distro -eq 'Ubuntu' -and $wslRow.cwd -eq '/home/me/app' -and $wslRow.side -eq 'windows' -and $null -eq $wslRow.repo) 'a WSL window is in its distro, the process still on Windows, and no distro is woken to find its repo'
-  $empty = @($rowsB | Where-Object { $_.window -eq 'sb2#0' })[0]
+  $empty = @($rowsB | Where-Object { $_.window -eq 'sb2#empty' })[0]
   Check ($empty -and $null -eq $empty.cwd -and $null -eq $empty.repo) 'an empty window is a row with no folder and no repo'
   Check (-not @($doc.instances | Where-Object { $_.pid -in $editorA.Id, $editorB.Id -and $_.window -like 'sb*' -and $_.pid -eq $editorA.Id }).Count) 'each editor has only its own windows'
+  $sshRow = Row $doc $sshOnly.Id
+  Check ($sshRow -and $sshRow.placed_by -eq 'window' -and $null -eq $sshRow.cwd -and $null -ne $sshRow.private_mb -and @($doc.problems | Where-Object { $_.why -like "*$($sshOnly.Id)*is a remote window that is not WSL" }).Count -eq 1) 'an editor whose only root Bosun can''t place is still listed, with its memory, and the root is said'
   $bareRow = Row $doc $bare.Id
   Check ($bareRow -and $bareRow.placed_by -eq 'launch' -and (Same-Path $bareRow.cwd $loose) -and @($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like "*$($bare.Id) has no window record*install-editor-extension.ps1" }).Count -eq 1) 'an editor with no window record keeps its launch folder, marked, and the problem says how to place it'
   $agRow = Row $doc $agentApp.Id

@@ -117,3 +117,29 @@ test('starting clears the records of windows whose host is gone, and keeps live,
   assert.equal(r.clearStale((pid) => pid === 222 || pid === 333), 1);
   assert.deepEqual(fs.readdirSync(folder).sort(), ['a1b2c3d4-0001.json', 'damaged.json', 'live.json', 'note.txt']);
 });
+
+test('a write that fails is tried again until it lands, and stopping ends the retry and removes the record', () => {
+  const folder = scratch();
+  const api = standIn(['file:///d%3A/a/app']);
+  let held = true;
+  const flaky = { ...fs, renameSync: (a, b) => { if (held) throw Object.assign(new Error('EBUSY: held'), { code: 'EBUSY' }); return fs.renameSync(a, b); } };
+  const timers = [];
+  const setTimer = (fn) => { timers.push(fn); return timers.length; };
+  const clearTimer = () => {};
+  const r = new Recorder(api, { proc, now: clock, folder, fs: flaky });
+  assert.equal(r.save(setTimer, clearTimer), false);
+  assert.equal(timers.length, 1, 'one retry is pending');
+  timers.shift()();
+  assert.equal(timers.length, 1, 'still held: tried again later');
+  held = false;
+  timers.shift()();
+  assert.equal(timers.length, 0, 'landed: no retry left');
+  assert.deepEqual(read(r).roots, ['file:///d%3A/a/app']);
+  held = true;
+  r.save(setTimer, clearTimer);
+  assert.equal(timers.length, 1);
+  r.stop(clearTimer);
+  timers.shift()();
+  assert.equal(timers.length, 0, 'a stopped recorder never writes again');
+  assert.equal(fs.existsSync(r.path), false);
+});

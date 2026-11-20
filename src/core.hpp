@@ -1766,10 +1766,21 @@ inline bool editor_window_live(const EditorWindow& w, const std::map<int64_t, co
     return started && started->size() >= 19 && started->compare(0, 19, w.written_utc, 0, 19) <= 0;
 }
 
+// A root's part of a row's window identity: a hash of its URI, so removing a root from a multi-root window never
+// passes another root's identity (and a selection on the page) to the root after it (round 1). FNV-1a, 64 bits.
+inline std::string root_key(const std::string& uri) {
+    uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : uri) h = (h ^ c) * 1099511628211ull;
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+    return buf;
+}
+
 // An editor's rows from its live window records: one per root of each window, in session order, each in the repo
 // `repo_of` finds for it; an empty window is one row with no folder. A root Bosun can't place (another remote, a
-// virtual folder) is a problem beside the rows it could place. `launch` is the row the editor would have from the
-// folder it was started in; its process fields carry over to every row.
+// virtual folder) is a row with no folder and a problem saying why, so an editor whose every root is such is still
+// listed and counted (round 1). `launch` is the row the editor would have from the folder it was started in; its
+// process fields carry over to every row. A row's window identity is the window's session and its root's key.
 // `distro_name` gives a distro's name as WSL spells it (VS Code writes the authority lowercased: `wsl+ubuntu` for the
 // distro `Ubuntu`), so the row joins its distro's own group.
 inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<EditorWindow> windows,
@@ -1792,18 +1803,19 @@ inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<Edi
     };
     for (const auto& w : windows) {
         if (w.roots.empty()) {
-            rows.push_back(row(w.session_id + "#0"));
+            rows.push_back(row(w.session_id + "#empty"));
             continue;
         }
-        for (size_t k = 0; k < w.roots.size(); ++k) {
+        for (const auto& uri : w.roots) {
             std::string why;
-            auto root = editor_root(w.roots[k], why);
+            auto root = editor_root(uri, why);
             if (!root) {
                 problems.push_back({"editor-windows", launch.name + " " + std::to_string(launch.pid) + ": " + why});
+                rows.push_back(row(w.session_id + "#" + root_key(uri)));
                 continue;
             }
             if (root->distro && distro_name) root->distro = distro_name(*root->distro);
-            Instance i = row(w.session_id + "#" + std::to_string(k));
+            Instance i = row(w.session_id + "#" + root_key(uri));
             i.cwd = root->path;
             i.location = root->location;
             i.distro = root->distro;

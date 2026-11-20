@@ -51,6 +51,16 @@ try {
     Set-Content -LiteralPath $fake -Value "@echo off`r`nif ""%1""==""--list-extensions"" exit /b 0`r`necho the editor refused`r`nexit /b 3" -Encoding ascii
     $said = & pwsh -NoProfile -File (Join-Path $repo 'scripts\install-editor-extension.ps1') -OutFile $vsix -Cli $fake 2>&1
     Check "an editor that refuses is said, with exit 1 ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and ($said -join "`n") -match 'could not install bosun\.bosun-windows \(exit 3\): the editor refused') ($said | Out-String)
+
+    # Round 1: an uninstall whose editor can't list its extensions is not proven, so it is never said to be done.
+    $broken = Join-Path $work 'broken-code.cmd'
+    Set-Content -LiteralPath $broken -Value "@echo off`r`necho the editor is broken`r`nexit /b 5" -Encoding ascii
+    $said = & pwsh -NoProfile -File (Join-Path $repo 'scripts\install-editor-extension.ps1') -Uninstall -Cli $broken 2>&1
+    Check "an uninstall that can't be verified is said, with exit 1 ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and ($said -join "`n") -match 'could not remove bosun\.bosun-windows' -and ($said -join "`n") -notmatch ' removed') ($said | Out-String)
+    $gone = Join-Path $work 'gone-code.cmd'
+    Set-Content -LiteralPath $gone -Value "@echo off`r`nif ""%1""==""--list-extensions"" exit /b 0`r`necho not installed`r`nexit /b 1" -Encoding ascii
+    $said = & pwsh -NoProfile -File (Join-Path $repo 'scripts\install-editor-extension.ps1') -Uninstall -Cli $gone 2>&1
+    Check "an uninstall from an editor that lists none is done ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and ($said -join "`n") -match 'bosun\.bosun-windows removed') ($said | Out-String)
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }

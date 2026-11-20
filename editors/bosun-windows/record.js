@@ -87,6 +87,30 @@ class Recorder {
     }
   }
 
+  // Writes the record, and when the write fails, tries again every `retryMs` until one succeeds or a newer save or
+  // `stop` replaces it (round 1: a record held open by another process kept a removed folder live until the next
+  // change). One retry is pending at a time.
+  save(setTimer = setTimeout, clearTimer = clearTimeout, retryMs = 2000) {
+    if (this.retry) {
+      clearTimer(this.retry);
+      this.retry = null;
+    }
+    if (this.stopped || this.write()) return true;
+    this.retry = setTimer(() => {
+      this.retry = null;
+      this.save(setTimer, clearTimer, retryMs);
+    }, retryMs);
+    return false;
+  }
+
+  // Ends any pending retry and removes the record: the window is closing.
+  stop(clearTimer = clearTimeout) {
+    this.stopped = true;
+    if (this.retry) clearTimer(this.retry);
+    this.retry = null;
+    this.remove();
+  }
+
   // Removes the records of windows whose extension host is gone (an editor that crashed or was ended never removed
   // its own), so the scanner's stale notices don't outlive the next start. A record it can't read is left: the
   // scanner says it is damaged. `alive` answers whether a process id runs; by default, signal 0.

@@ -13,6 +13,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <condition_variable>
 #include <map>
@@ -933,8 +934,12 @@ std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstrin
     auto it = cache.find(dir);
     if (it != cache.end()) return it->second;
     std::string repo;
-    if (dir.size() >= 2 && dir[1] == L':') {
+    bool share = dir.size() > 2 && dir[0] == L'\\' && dir[1] == L'\\' && dir[2] != L'?' && dir[2] != L'.';
+    if ((dir.size() >= 2 && dir[1] == L':') || share) {
         auto found = dm::repo_from_path(narrow(dir), [](const std::string& d) {
+            // A share's folders start at //server/share: nothing above it can hold a repo (D03 T02 §4, round 1).
+            if (d.rfind("//", 0) == 0 && std::count(d.begin() + 2, d.end(), '/') < 1) return false;
+            if (!d.empty() && d[0] == '/' && d.rfind("//", 0) != 0) return false;  // what is left above a share: no folder
             std::error_code ec;
             std::u8string utf8(reinterpret_cast<const char8_t*>(d.data()), d.size());
             return fs::exists(fs::path(utf8) / u8".git", ec);
@@ -949,6 +954,47 @@ std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstrin
     }
     cache[dir] = repo;
     return repo;
+}
+
+// Repo lookups within one scan's time (D03 T02 §4, round 1): a folder on a fixed local drive is looked up at once; one
+// on a network, removable or shared drive is looked up on a thread of its own, waited for only until the scan's
+// deadline, so a share that stopped answering (a VPN gone) costs that folder its repo, never the whole scan. A lookup
+// still waiting is left to end with the process, and the folder is named in `late`.
+struct RepoLookup {
+    std::unordered_map<std::wstring, std::string> cache;
+    std::chrono::steady_clock::time_point deadline;
+    std::vector<std::wstring> late;
+};
+
+std::string repo_bounded(const std::wstring& dir, RepoLookup& look) {
+    auto it = look.cache.find(dir);
+    if (it != look.cache.end()) return it->second;
+    bool local = false;
+    if (dir.size() >= 2 && dir[1] == L':') {
+        wchar_t root[] = {dir[0], L':', L'\\', 0};
+        UINT type = GetDriveTypeW(root);
+        local = type == DRIVE_FIXED || type == DRIVE_RAMDISK;
+    }
+    if (local) return repo_for_dir(dir, look.cache);
+    if (std::chrono::steady_clock::now() >= look.deadline) {
+        look.late.push_back(dir);
+        return "";
+    }
+    auto answer = std::make_shared<std::promise<std::string>>();
+    auto future = answer->get_future();
+    std::thread([dir, answer] {
+        std::unordered_map<std::wstring, std::string> own;
+        try {
+            answer->set_value(repo_for_dir(dir, own));
+        } catch (...) {
+            answer->set_value("");
+        }
+    }).detach();
+    if (future.wait_until(look.deadline) != std::future_status::ready) {
+        look.late.push_back(dir);
+        return "";
+    }
+    return look.cache[dir] = future.get();
 }
 
 // Replaces current-<side>.json (D01 T01 §4): a temporary file in the folder moved over the old one, so a reader sees
@@ -1357,7 +1403,9 @@ int cmd_instances(const Options& o) {
 
     std::map<int64_t, const dm::ProcInfo*> by_pid;
     for (const auto& info : infos) by_pid[info.pid] = &info;
-    std::unordered_map<std::wstring, std::string> repo_cache;
+    // Every repo lookup of this scan ends within 4 s, so the panel's 20 s wait is never spent on one folder.
+    RepoLookup lookup;
+    lookup.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
 
     // The window reporter's records (D03 T02 §4), live ones by the editor process they name. A stale record (its host
     // gone, or a reused id) is said and left for the reporter, which clears its own.
@@ -1395,7 +1443,7 @@ int cmd_instances(const Options& o) {
     };
     auto repo_of_root = [&](const dm::EditorRoot& root) -> std::optional<std::string> {
         if (root.location == "windows") {
-            std::string repo = repo_for_dir(widen(root.path), repo_cache);
+            std::string repo = repo_bounded(widen(root.path), lookup);
             return repo.empty() ? std::nullopt : std::optional(repo);
         }
         if (!asked_distros) {
@@ -1465,7 +1513,7 @@ int cmd_instances(const Options& o) {
         } else {
             if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
             i.cwd = narrow(dir);
-            std::string repo = repo_for_dir(dir, repo_cache);
+            std::string repo = repo_bounded(dir, lookup);
             if (!repo.empty()) i.repo = repo;
         }
         i.private_mb = memory[pid];
@@ -1522,8 +1570,10 @@ int cmd_instances(const Options& o) {
         dm::instance_state(i, &h, nullptr, nullptr, std::nullopt);
         doc.instances.push_back(std::move(i));
     }
+    for (const auto& dir : lookup.late)
+        doc.problems.push_back({"processes", narrow(dir) + " did not answer within the scan's time, so its repo is not named"});
     std::sort(doc.instances.begin(), doc.instances.end(), [](const dm::Instance& a, const dm::Instance& b) {
-        return std::tie(a.repo, a.kind, a.pid) < std::tie(b.repo, b.kind, b.pid);
+        return std::tie(a.repo, a.kind, a.pid, a.window) < std::tie(b.repo, b.kind, b.pid, b.window);
     });
     std::cout << (o.json ? dm::instances_json(doc) + "\n" : dm::instances_text(doc));
     return 0;

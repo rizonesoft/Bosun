@@ -889,12 +889,17 @@ static void editor_windows() {
         if (root.location == "wsl") return std::string("/home/me/app");
         return std::nullopt;
     }, problems);
-    CHECK(rows.size() == 4);
-    CHECK(rows[0].window == std::optional<std::string>("s1#0") && rows[0].repo == std::optional<std::string>("D:/one/app") && rows[0].cwd == std::optional<std::string>("D:\\one\\app\\src"));
-    CHECK(rows[1].window == std::optional<std::string>("s1#1") && rows[1].location == std::optional<std::string>("wsl") && rows[1].distro == std::optional<std::string>("ubuntu") &&
+    auto key = [](const char* session, const char* uri) { return std::optional<std::string>(std::string(session) + "#" + dm::root_key(uri)); };
+    CHECK(rows.size() == 5);
+    CHECK(rows[0].window == key("s1", "file:///d%3A/one/app/src") && rows[0].repo == std::optional<std::string>("D:/one/app") && rows[0].cwd == std::optional<std::string>("D:\\one\\app\\src"));
+    CHECK(rows[1].window == key("s1", "vscode-remote://wsl%2Bubuntu/home/me/app") && rows[1].location == std::optional<std::string>("wsl") && rows[1].distro == std::optional<std::string>("ubuntu") &&
           rows[1].side == "windows" && rows[1].repo == std::optional<std::string>("/home/me/app"));
-    CHECK(rows[2].window == std::optional<std::string>("s2#0") && rows[2].repo == std::optional<std::string>("E:/two/app"));
-    CHECK(rows[3].window == std::optional<std::string>("s3#0") && !rows[3].cwd && !rows[3].repo);
+    CHECK(rows[2].window == key("s2", "file:///e%3A/two/app") && rows[2].repo == std::optional<std::string>("E:/two/app"));
+    // A root Bosun can't place is still the editor's row, with no folder, so an editor of such roots alone is listed (round 1).
+    CHECK(rows[3].window == key("s2", "vscode-remote://ssh-remote%2Bh/x") && !rows[3].cwd && !rows[3].repo);
+    CHECK(rows[4].window == std::optional<std::string>("s3#empty") && !rows[4].cwd && !rows[4].repo);
+    // A root's identity is its own, not its place in the list: removing the first root leaves the second's unchanged.
+    CHECK(dm::root_key("file:///a") != dm::root_key("file:///b") && dm::root_key("file:///a") == dm::root_key("file:///a") && dm::root_key("x").size() == 16);
     int64_t counted = 0;
     for (const auto& row : rows) {
         CHECK(row.shared_mb == std::optional<int64_t>(900) && row.placed_by == std::optional<std::string>("window") && row.pid == 10);

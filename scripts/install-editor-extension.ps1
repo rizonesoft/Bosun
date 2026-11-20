@@ -99,8 +99,13 @@ $failed = 0
 foreach ($c in $clis) {
     $output = if ($Uninstall) { & $c --uninstall-extension $id 2>&1 } else { & $c --install-extension $vsix --force 2>&1 }
     $code = $LASTEXITCODE
-    $listed = @(& $c --list-extensions 2>$null) -contains $id
-    $ok = if ($Uninstall) { -not $listed } else { $code -eq 0 -and $listed }
+    # The editor's own listing is the proof either way, so a listing that fails proves nothing: an uninstall is done only
+    # when the listing ran and no longer names it (an editor that never had it may refuse the uninstall itself).
+    $listing = @(& $c --list-extensions 2>$null)
+    $listExit = $LASTEXITCODE
+    $listed = $listing -contains $id
+    $ok = $listExit -eq 0 -and $(if ($Uninstall) { -not $listed } else { $code -eq 0 -and $listed })
+    if ($listExit -ne 0) { $output = @($output) + "its extension list could not be read (exit $listExit)" }
     if ($ok) {
         if ($Uninstall) { "${c}: $id removed" } else { "${c}: $id installed; VS Code starts it in the windows already open, and each writes its record under %LOCALAPPDATA%\Bosun\editor-windows" }
     } else {

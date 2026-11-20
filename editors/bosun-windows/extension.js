@@ -7,13 +7,13 @@ let recorder = null;
 
 function activate(context) {
   recorder = new Recorder(vscode);
-  recorder.write();
+  recorder.save();
   recorder.clearStale();
-  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => recorder && recorder.write()));
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => recorder && recorder.save()));
 }
 
 function deactivate() {
-  if (recorder) recorder.remove();
+  if (recorder) recorder.stop();
   recorder = null;
 }
 
