@@ -421,7 +421,7 @@ public sealed class InstancesPage : PageBase
             // A distro's report with no drive mounts and no word why is from a logger older than them (D03 T02 §6): its
             // folders under the drives' mounts stay its own until the logger is updated.
             if (side.Side == "wsl" && doc.Drives is null && !doc.Problems.Any(p => p.Source == "automount"))
-                notices.Add($"{side.Name}: its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1");
+                notices.Add($"{side.Name}: its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1 -Distro {side.Distro ?? doc.Distro}");
             if (doc.Unreadable > 0)
                 notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));
         }

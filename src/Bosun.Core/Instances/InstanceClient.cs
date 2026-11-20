@@ -294,8 +294,8 @@ public sealed partial class InstanceClient : IInstanceSource
         if (!row.Instance.InWsl) return (repo, null);
         // A drive's folder only under its distro's own mount root (D03 T02 §6): with the mounts moved or off, /mnt/c/app
         // is a guest folder like any other.
-        if (row.Mounts?.Drive(repo) is { } drive)
-            return ($"{drive.Letter}:/{drive.Tail}".TrimEnd('/'), null);
+        if (row.Mounts?.WindowsPath(repo) is { } windows)
+            return (windows.Replace('\\', '/').TrimEnd('/'), null);
         // A Windows editor's WSL window is in the distro it names; an unjoined WSL holder Windows saw, the one it names.
         return (repo, row.Instance.Side == "windows" ? row.Instance.Distro : row.Distro ?? row.Instance.GuestDistro);
     }

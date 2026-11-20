@@ -502,7 +502,7 @@ public class InstancesPageTests
         // D03 T02 §6: a report with no drives and no word why is from an older logger; one that could not read its mount
         // table says so itself, as an automount problem, and is not told to update.
         var older = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl", cwd: "/mnt/d/Bosun")], olderLogger: true), Now));
-        Assert.Contains("WSL (Ubuntu): its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1",
+        Assert.Contains("WSL (Ubuntu): its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1 -Distro Ubuntu",
             InstancesPage.NoticesOf(View(null, Win(), older)));
         var unread = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl")],
             [new SourceProblemDoc { Source = "automount", Why = "/proc/self/mountinfo can't be read (Permission denied)" }]), Now));

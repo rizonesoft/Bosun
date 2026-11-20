@@ -239,6 +239,21 @@ class Instances(unittest.TestCase):
         self.assertIsNone(drives)
         self.assertIn("can't be read", why)
 
+    def test_a_bind_of_a_drive_s_subfolder_and_a_guest_mount_inside_a_drive_are_read_as_they_are(self):
+        # Round 1 of D03 T02 §6: /mnt/c/src bound at /work is C:\src there; a guest file system over /mnt/c/work/app
+        # hides C:\work\app, so it is listed with no Windows folder.
+        bind = self.drive("/work", "C").replace(" / /work ", " /src /work ")
+        guest = "200 140 8:32 /home/me/app /mnt/c/work/app rw,relatime - ext4 /dev/sdc rw"
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), bind, guest))[0],
+                         [{"mount": "/mnt/c", "windows": "C:\\"}, {"mount": "/mnt/c/work/app", "windows": None}, {"mount": "/work", "windows": "C:\\src"}])
+        # A mount of a drive's subfolder is no root for the log folder: only the drive's own root is.
+        self.assertIsNone(dl.guest_path("C:\\Users\\me", [{"mount": "/work", "windows": "C:\\src"}]))
+
+    def test_a_log_folder_that_can_t_be_found_skips_the_sample_and_writes_nowhere(self):
+        # Round 1: never the last folder found, which may now be another drive's.
+        mountinfo = self.table(self.drive("/mnt/d", "D"))
+        self.assertEqual(dl.main(["bosun_log.py", "C:\\Users\\me\\logs", "--once", "--mountinfo", mountinfo]), 1)
+
     def test_the_document_carries_the_drives_and_says_a_table_it_could_not_read(self):
         doc = dl.instances(proc=self.proc, home=self.home, now=1700000100, distro="Ubuntu", ticks=100,
                            mountinfo=self.table(self.drive("/windir/c", "C")))

@@ -227,7 +227,7 @@ public sealed class InstanceClientTests : IDisposable
         { "window-kind", "which no window places" },
         { "window-location", "location is 'mac'" },
         // D03 T02 §6: a drive mount is a Linux folder and a drive's root.
-        { "drives", @"it lists a drive mount that is not a Linux folder and a drive's root ('windir' for 'D:\')" },
+        { "drives", @"it lists a drive mount that is not a Linux folder and a Windows folder ('windir' for 'D:\')" },
     };
 
     /// <summary>Makes a row an editor's window row, as the Windows scanner writes one (D03 T02 §4).</summary>

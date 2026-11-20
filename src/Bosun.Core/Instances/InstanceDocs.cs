@@ -54,9 +54,9 @@ public sealed record InstancesDoc : ICheckedDoc
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
         if (Drives is { } drives)
         {
-            if (drives.Count > 64) return $"it lists {drives.Count} drive mounts, more than Windows has drives";
+            if (drives.Count > 1024) return $"it lists {drives.Count} drive mounts, more than a mount table this size holds";
             foreach (var mount in drives)
-                if (mount is null || !DriveMounts.IsValid(mount)) return $"it lists a drive mount that is not a Linux folder and a drive's root ('{Cut(mount?.Mount)}' for '{Cut(mount?.Windows)}')";
+                if (mount is null || !DriveMounts.IsValid(mount)) return $"it lists a drive mount that is not a Linux folder and a Windows folder ('{Cut(mount?.Mount)}' for '{Cut(mount?.Windows)}')";
         }
         return null;
     }
@@ -134,44 +134,44 @@ public sealed record SourceProblemDoc
 [JsonSerializable(typeof(InstancesDoc))]
 public sealed partial class InstanceJson : JsonSerializerContext;
 
-/// <summary>One Windows drive a distro has mounted now (D03 T02 §6), from its own mount table: where, and which drive.</summary>
+/// <summary>
+/// One folder of a distro's mount table that decides what a guest path is (D03 T02 §6): a drive's folder mounted there
+/// (<see cref="Windows"/> its Windows folder, the drive's root or, for a bind of a subfolder, that subfolder), or a guest
+/// file system mounted inside a drive's folder (<see cref="Windows"/> null), which hides the drive there.
+/// </summary>
 public sealed record DriveMount
 {
     [JsonPropertyName("mount")] public required string Mount { get; init; }
 
-    [JsonPropertyName("windows")] public required string Windows { get; init; }
+    [JsonPropertyName("windows")] public required string? Windows { get; init; }
 }
 
 /// <summary>
 /// A distro's drive mounts as its logger read them (D03 T02 §6): the one mapping from a guest path to Windows, used for
-/// grouping and opening alike. A path names a Windows folder only under a mount of a drive, the longest it is at or
-/// under, compared exactly as Linux compares paths; every other path is the distro's own.
+/// grouping and opening alike. A path is a Windows folder only when the longest mount it is at or under (compared exactly,
+/// as Linux compares paths) is a drive's; every other path is the distro's own.
 /// </summary>
 public sealed record DriveMounts(IReadOnlyList<DriveMount> Drives)
 {
-    /// <summary>A mount a logger writes: a Linux folder, at most 256 characters, no control character, and a drive's root (<c>C:\</c>).</summary>
+    /// <summary>A mount a logger writes: a Linux folder of at most PATH_MAX (4,096) characters with no control character, and a Windows folder (<c>C:\</c>, <c>C:\src</c>) or none.</summary>
     public static bool IsValid(DriveMount d) =>
-        d.Mount is { Length: >= 1 and <= 256 } m && m[0] == '/' && !m.Any(char.IsControl)
-        && d.Windows is { Length: 3 } w && char.IsAsciiLetterUpper(w[0]) && w[1] == ':' && w[2] == '\\';
+        d.Mount is { Length: >= 1 and <= 4096 } m && m[0] == '/' && !m.Any(char.IsControl)
+        && (d.Windows is null || (d.Windows.Length is >= 3 and <= 4096 && char.IsAsciiLetterUpper(d.Windows[0]) && d.Windows[1] == ':' && d.Windows[2] == '\\' && !d.Windows.Any(char.IsControl)));
 
-    /// <summary>The drive letter and the rest of the path (forward slashes, no leading one), or null when no mount holds it.</summary>
-    public (char Letter, string Tail)? Drive(string linuxPath)
+    /// <summary>The Windows folder of a guest path (<c>C:\app</c>), or null when no drive's mount holds it.</summary>
+    public string? WindowsPath(string linuxPath)
     {
         ArgumentNullException.ThrowIfNull(linuxPath);
         DriveMount? best = null;
+        var bestLength = -1;
         foreach (var d in Drives)
         {
             var mount = d.Mount.Length > 1 ? d.Mount.TrimEnd('/') : d.Mount;
             var under = linuxPath == mount || linuxPath.StartsWith(mount == "/" ? "/" : mount + "/", StringComparison.Ordinal);
-            if (under && (best is null || mount.Length > best.Mount.TrimEnd('/').Length)) best = d;
+            if (under && mount.Length > bestLength) (best, bestLength) = (d, mount.Length);
         }
-        if (best is null) return null;
-        var root = best.Mount.Length > 1 ? best.Mount.TrimEnd('/') : best.Mount;
-        var tail = linuxPath.Length > root.Length ? linuxPath[root.Length..].TrimStart('/') : "";
-        return (best.Windows[0], tail.TrimEnd('/'));
+        if (best?.Windows is not { } windows) return null;   // none, or a guest file system over the drive there
+        var tail = linuxPath.Length > bestLength ? linuxPath[bestLength..].Trim('/').Replace('/', '\\') : "";
+        return tail.Length == 0 ? windows : windows.TrimEnd('\\') + "\\" + tail;
     }
-
-    /// <summary>The Windows folder of a guest path (<c>C:\app</c>), or null when no mount holds it.</summary>
-    public string? WindowsPath(string linuxPath) =>
-        Drive(linuxPath) is { } d ? $"{d.Letter}:\\{d.Tail.Replace('/', '\\')}" : null;
 }

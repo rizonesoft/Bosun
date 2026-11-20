@@ -288,45 +288,51 @@ def unescape_mount(text):
 
 
 def drive_mounts(mountinfo="/proc/self/mountinfo"):
-    """The Windows drives this distro has mounted now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
-    which says what the next start will mount: each 9p or drvfs mount whose options name aname=drvfs and path=<X>:\\,
-    as [{"mount": "/mnt/c", "windows": "C:\\\\"}], or None with why when the table can't be read. A drive mounted by hand
-    is here as WSL's own are, and one the configuration names but nothing mounted is not."""
+    """The Windows folders this distro has mounted now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
+    which says what the next start will mount: each 9p or drvfs mount whose options name aname=drvfs and path=<X>:\\, as
+    {"mount": "/mnt/c", "windows": "C:\\\\"}, its root field kept, so a bind of a drive's subfolder (/mnt/c/src at /work)
+    is {"mount": "/work", "windows": "C:\\\\src"} (round 1); and each other mount inside one of them, as
+    {"mount": ..., "windows": None}, since a guest file system mounted over part of a drive hides it there (round 1).
+    None with why when the table can't be read. A drive mounted by hand is here as WSL's own are, and one the
+    configuration names but nothing mounted is not."""
     try:
         with open(mountinfo, encoding="utf-8", errors="replace") as f:
             lines = f.read(4 * 1024 * 1024).splitlines()
     except OSError as e:
         return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
-    drives = []
+    drives, others = [], []
     for line in lines:
-        fields = line.split(" ")
-        if " - " not in line or len(fields) < 5:
+        if " - " not in line:
             continue
         before, after = line.split(" - ", 1)
-        rest = after.split(" ")
-        if len(rest) < 3 or rest[0] not in ("9p", "drvfs"):
+        fields, rest = before.split(" "), after.split(" ")
+        if len(fields) < 5 or len(rest) < 3:
             continue
+        root, mount = unescape_mount(fields[3]), unescape_mount(fields[4])
         options = rest[2]
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
-        if "aname=drvfs" not in options and rest[0] != "drvfs":
-            continue
-        if not path:
-            continue
-        mount = unescape_mount(before.split(" ")[4])
-        drives.append({"mount": mount, "windows": path.group(1).upper() + ":\\"})
-    drives.sort(key=lambda d: d["mount"])
-    return drives, None
+        if rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs"):
+            inside = root.strip("/").replace("/", "\\")
+            drives.append({"mount": mount, "windows": path.group(1).upper() + ":\\" + inside})
+        else:
+            others.append(mount)
+    def under(path, top):
+        return top != "/" and path.startswith(top.rstrip("/") + "/")
+    hidden = [{"mount": m, "windows": None} for m in others if any(under(m, d["mount"]) for d in drives)]
+    found = drives + hidden
+    found.sort(key=lambda d: d["mount"])
+    return found, None
 
 
 def guest_path(windows_path, drives):
-    """A Windows path's folder in this distro, through the drive mounts: the mount of its drive joined with the rest, or
-    None when no mount holds its drive (D03 T02 §6: the logger finds its log folder this way on each write, so moved
-    mounts are followed)."""
+    """A Windows path's folder in this distro, through the drive mounts: the mount of its drive's root joined with the
+    rest, or None when no mount holds its drive's root (D03 T02 §6: the logger finds its log folder this way on each
+    write, so moved mounts are followed)."""
     m = re.fullmatch(r"([A-Za-z]):[\\/]?(.*)", windows_path or "")
     if not m or drives is None:
         return None
     for d in drives:
-        if d["windows"][0] == m.group(1).upper():
+        if d["windows"] == m.group(1).upper() + ":\\":
             rest = m.group(2).replace("\\", "/").strip("/")
             return d["mount"].rstrip("/") + ("/" + rest if rest else "") if d["mount"] != "/" else "/" + rest
     return None
@@ -1241,13 +1247,15 @@ def main(argv):
     once = "--once" in argv
     # The Windows log folder is found through the drive mounts on each sample, so moving them can't strand the reports
     # (D03 T02 §6); a guest path, as an older install gives, is used as it is.
-    log_dir, why = log_folder(given)
+    # --mountinfo names another mount table, for tests.
+    mountinfo = argv[argv.index("--mountinfo") + 1] if "--mountinfo" in argv else "/proc/self/mountinfo"
+    log_dir, why = log_folder(given, mountinfo)
     while log_dir is None:
         print(f"[bosun] {why}", file=sys.stderr)
         if once:
             return 1
         time.sleep(interval)
-        log_dir, why = log_folder(given)
+        log_dir, why = log_folder(given, mountinfo)
     os.makedirs(log_dir, exist_ok=True)
     cache = {}
     last_clear = time.monotonic()
@@ -1257,10 +1265,16 @@ def main(argv):
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         while True:
-            found, why = log_folder(given)
+            found, why = log_folder(given, mountinfo)
             if found is None:
-                print(f"[bosun] {why}; the last folder found is kept", file=sys.stderr)
-            elif found != log_dir:
+                # The folder can't be found now: nothing is written, and the throttle reads nothing, until it can be,
+                # never to the last folder found, which may now be another drive's (round 1).
+                print(f"[bosun] {why}; this sample is skipped", file=sys.stderr)
+                if once:
+                    return 1
+                time.sleep(interval)
+                continue
+            if found != log_dir:
                 log_dir = throttle.log_dir = found
                 os.makedirs(log_dir, exist_ok=True)
             sample(log_dir, cache, interval)

@@ -79,6 +79,13 @@ public class OpenCommandsTests
         Opens(Default, "/mnt/C/app", @"\\wsl.localhost\Ubuntu\mnt\C\app");             // no such mount: Linux paths are exact
         Opens(Mounts(("/mnt/c", 'C'), ("/mnt/c/share", 'E')), "/mnt/c/share/x", @"E:\x"); // the longest mount holds it
         Opens(null, "/mnt/c/app", @"\\wsl.localhost\Ubuntu\mnt\c\app");               // not known: kept a guest folder
+        // Round 1: a bind of a drive's subfolder is that subfolder; a guest file system mounted inside a drive hides it.
+        var bound = new DriveMounts([new() { Mount = "/mnt/c", Windows = @"C:\" }, new() { Mount = "/work", Windows = @"C:\src" }, new() { Mount = "/mnt/c/work/app", Windows = null }]);
+        Opens(bound, "/work/app", @"C:\src\app");
+        Opens(bound, "/mnt/c/work/app/x", @"\\wsl.localhost\Ubuntu\mnt\c\work\app\x");
+        Opens(bound, "/mnt/c/work/other", @"C:\work\other");
+        // A mount deep in the guest (over 256 characters, within PATH_MAX) is a mount like any other.
+        Assert.True(DriveMounts.IsValid(new DriveMount { Mount = "/" + new string('a', 300), Windows = @"C:\" }));
         Assert.Null(OpenCommands.MountedDrive("/mnt/c/app", null));
     }
 
