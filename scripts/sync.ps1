@@ -46,9 +46,10 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
     if ($fault) { return Done "not the overlay ($fault)" }
     if ((Invoke-Git $repo @('config', '--local', '--get', 'bosun.overlay')).Out -join '' -ne 'true') { return Done 'not the overlay (not marked; pwsh scripts/setup-clone.ps1 marks a checkout of it)' }
   }
-  $branch = Invoke-Git $repo @('symbolic-ref', '--quiet', '--short', 'HEAD')
+  $branch = Invoke-Git $repo @('symbolic-ref', '--quiet', 'HEAD')
   if ($branch.Code) { return Done 'detached HEAD' }
-  $state.Branch = $branch.Out -join ''
+  # The full name, with refs/heads/ taken off: --short abbreviates to heads/main when a tag is also called main.
+  $state.Branch = ($branch.Out -join '') -replace '^refs/heads/', ''
   $born = (Invoke-Git $repo @('rev-parse', '--verify', '--quiet', 'HEAD')).Code -eq 0
   $remote = (Invoke-Git $repo @('config', '--local', '--get', "branch.$($state.Branch).remote")).Out -join ''
   $merge = (Invoke-Git $repo @('config', '--local', '--get', "branch.$($state.Branch).merge")).Out -join ''
@@ -106,6 +107,10 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
         return Done "empty, first commit waiting on $($state.Default)" $false 'first'
       }
     }
+    # No default branch reported: the overlay is empty only if the remote has no branch at all.
+    $any = Invoke-Git $repo @('ls-remote', '--heads', $remote)
+    if ($any.Code) { return Done 'remote unreachable' }
+    if ($any.Out -join '') { return Done 'empty, its remote has branches but no default branch to take (set the remote''s HEAD)' }
     return Done 'empty, no commit yet' (-not $dirty)
   }
   if (-not $merge) { return Done 'no upstream branch' }
@@ -170,7 +175,7 @@ foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
     'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '-b', $s.Default, $s.Target); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
   }
   # The checkout must still be where it was looked at: a branch switched or a commit made meanwhile stops the run.
-  if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (Invoke-Git $s.Repo @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out -join '' -ne $s.Branch)) {
+  if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (((Invoke-Git $s.Repo @('symbolic-ref', '--quiet', 'HEAD')).Out -join '') -replace '^refs/heads/', '') -ne $s.Branch)) {
     $failed = "sync: $($s.Label): it changed while sync ran (another branch or commit); nothing more was done"; break
   }
   # Still clean, as it was when looked at: an edit saved meanwhile, or a status that cannot be read now (a locked

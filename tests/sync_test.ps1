@@ -312,6 +312,11 @@ try {
   $r = Invoke-Sync $owner
   Check 'with mergeOptions --squash the fast-forward still moves the branch, index clean' ($r.Exit -eq 0 -and (Get-Head $owner) -eq (Get-Head $public 'refs/heads/main') -and -not (git -C $owner diff --cached --name-only)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner config --unset branch.main.mergeOptions
+  # --- a tag with the branch's own name does not hide its upstream ---
+  git -C $owner tag main
+  $r = Invoke-Sync $owner -Check
+  Check 'a tag named like the branch leaves its upstream found' ($r.Text -match 'public: main, level and clean') "($($r.Text))"
+  git -C $owner tag -d main | Out-Null
   # --- -Check never rewrites the index ---
   $touched = Join-Path $private 'config.toml'
   (Get-Item -LiteralPath $touched).LastWriteTime = (Get-Date).AddMinutes(-5)
@@ -363,6 +368,16 @@ try {
   Check 'a plain run takes it, tracks it, and keeps an ignored local file' ($r.Exit -eq 0 -and (Get-Head $freshPrivate) -eq (Get-Head $firstPusher) -and "$(git -C $freshPrivate config --local --get branch.trunk.remote)" -eq 'origin' -and "$(git -C $freshPrivate config --local --get branch.trunk.merge)" -eq 'refs/heads/trunk' -and (Get-Content -LiteralPath (Join-Path $freshPrivate 'keep.local') -Raw).Trim() -eq 'kept') "(exit $($r.Exit): $($r.Text))"
   $env:BOSUN_OVERLAY_REPO = $overlay
 
+  # --- an empty overlay whose remote has a branch but no HEAD naming it ---
+  $headless = Join-Path $work 'headless.git'
+  git init -q --bare $headless
+  git --git-dir=$headless symbolic-ref HEAD refs/heads/master
+  $env:BOSUN_OVERLAY_REPO = $headless
+  $lost = New-Owner 'headless-owner' $headless
+  git -C $firstPusher push -q $headless trunk 2>$null
+  $r = Invoke-Sync $lost -Check
+  Check 'an empty overlay whose remote has branches but no default is not reported clean' ($r.Exit -eq 1 -and $r.Text -match 'branches but no default branch') "(exit $($r.Exit): $($r.Text))"
+  $env:BOSUN_OVERLAY_REPO = $overlay
   # --- a stranger's clone: no overlay at all ---
   $stranger = New-Owner 'stranger' -NoOverlay
   $r = Invoke-Sync $stranger -Check
