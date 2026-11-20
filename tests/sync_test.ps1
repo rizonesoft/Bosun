@@ -205,6 +205,17 @@ try {
   git -C $private config --unset remote.origin.pushurl
   $null = Invoke-Sync $owner
 
+  # --- a remote with two push addresses: sync pushes to one validated address or not at all ---
+  $second = Join-Path $work 'second-push.git'
+  git clone -q --bare $public $second 2>$null
+  git -C $owner remote set-url --push origin $public
+  git -C $owner remote set-url --add --push origin $second
+  $null = Add-Local $owner 'two-addresses.txt'
+  $publicMain = Get-Head $public 'refs/heads/main'; $secondMain = Get-Head $second 'refs/heads/main'
+  $r = Invoke-Sync $owner
+  Check 'a remote that pushes to two addresses is named and nothing is pushed' ($r.Exit -eq 1 -and $r.Text -match 'public: main, ahead 1, pushes to more than one address' -and (Get-Head $public 'refs/heads/main') -eq $publicMain -and (Get-Head $second 'refs/heads/main') -eq $secondMain) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner config --unset-all remote.origin.pushurl
+  $null = Invoke-Sync $owner
   # --- an upstream branch deleted on its remote ---
   git -C $private checkout -q -b topic 2>$null
   git -C $private push -q -u origin topic 2>$null

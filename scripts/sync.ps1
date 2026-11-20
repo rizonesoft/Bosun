@@ -37,7 +37,7 @@ function Invoke-Git([string]$repo, [string[]]$arguments) {
 
 # One repository's state: the line to print, and what a plain run would do (merge, push, first) or why it won't act.
 function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
-  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null; RemoteTip = $null }
+  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null; RemoteTip = $null; PushUrl = $null }
   function Done([string]$text, [bool]$ok = $false, [string]$action = 'none') { $state.Text = $text; $state.Ok = $ok; $state.Action = $action; [pscustomobject]$state }
 
   if ($Overlay) {
@@ -97,12 +97,15 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   # The tip the remote has now, which a push is conditioned on below (fetched just above, so the tracking ref agrees).
   $state.RemoteTip = (($exists.Out | Select-Object -First 1) -split '\s+')[0]
   if ((Invoke-Git $repo @('rev-parse', '--verify', '--quiet', "refs/remotes/$remote/$($state.Upstream)")).Out -join '' -ne $state.RemoteTip) { return Done 'could not be read (its remote moved while it was read)' }
-  $counts = Invoke-Git $repo @('rev-list', '--left-right', '--count', "HEAD...refs/remotes/$remote/$($state.Upstream)")
-  if ($counts.Code -or ($counts.Out -join '') -notmatch '^(\d+)\s+(\d+)$') { return Done 'could not be read (compare)' }
+  # Every input a plain run acts on is fixed here, once, and the counts are of these exact commits: the local commit,
+  # the remote tip, and the one address a push would go to. Nothing later reads HEAD, the remote or its URL again.
+  $state.Commit = (Invoke-Git $repo @('rev-parse', '--verify', '--quiet', 'HEAD')).Out -join ''
+  $state.Target = $state.RemoteTip
+  $pushUrls = @((Invoke-Git $repo @('remote', 'get-url', '--push', '--all', $remote)).Out | Where-Object { $_ })
+  $state.PushUrl = if ($pushUrls.Count -eq 1) { $pushUrls[0] } else { $null }
+  $counts = Invoke-Git $repo @('rev-list', '--left-right', '--count', "$($state.Commit)...$($state.Target)")
+  if (-not $state.Commit -or $counts.Code -or ($counts.Out -join '') -notmatch '^(\d+)\s+(\d+)$') { return Done 'could not be read (compare)' }
   $ahead, $behind = [int]$Matches[1], [int]$Matches[2]
-  # The exact commits looked at: a plain run acts on these, never on whatever HEAD or the upstream is by then.
-  $state.Commit = (Invoke-Git $repo @('rev-parse', 'HEAD')).Out -join ''
-  $state.Target = (Invoke-Git $repo @('rev-parse', "refs/remotes/$remote/$($state.Upstream)")).Out -join ''
   $parts = @()
   if ($ahead -and $behind) { $parts += "diverged (ahead $ahead, behind $behind)" }
   elseif ($ahead) { $parts += "ahead $ahead" }
@@ -110,6 +113,7 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   if ($dirty) { $parts += 'uncommitted changes' }
   if (-not $parts) { return Done 'level and clean' $true }
   $action = if ($dirty -or ($ahead -and $behind)) { 'none' } elseif ($ahead) { 'push' } else { 'merge' }
+  if ($action -eq 'push' -and -not $state.PushUrl) { return Done "$($parts -join ', '), pushes to more than one address" }
   Done ($parts -join ', ') $false $action
 }
 
@@ -141,12 +145,16 @@ $failed = $null
 foreach ($s in $states | Where-Object { $_.Action -ne 'none' }) {
   $step = switch ($s.Action) {
     'merge' { @{ Did = "fast-forwarded $($s.Label)"; Args = @('merge', '--ff-only', '--no-overwrite-ignore', '--quiet', $s.Target); Why = 'the fast-forward was refused (an incoming file would replace an ignored or local one, or the branch moved meanwhile)' } }
-    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", $s.Remote, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
+    'push' { @{ Did = "pushed $($s.Label) to its upstream branch"; Args = @('-c', 'push.followTags=false', 'push', '--quiet', '--no-follow-tags', "--force-with-lease=refs/heads/$($s.Upstream):$($s.RemoteTip)", '--', $s.PushUrl, "$($s.Commit):refs/heads/$($s.Upstream)"); Why = 'the push was refused (its upstream moved on or was deleted meanwhile, or it does not accept this push)' } }
     'first' { @{ Did = "gave $($s.Label) its first commit"; Args = @('checkout', '--quiet', '--no-overwrite-ignore', '--track', "$($s.Remote)/$($s.Default)"); Why = 'its first commit could not be checked out (an incoming file would replace an ignored one)' } }
   }
   # The checkout must still be where it was looked at: a branch switched or a commit made meanwhile stops the run.
   if ($s.Action -ne 'first' -and ((Invoke-Git $s.Repo @('rev-parse', 'HEAD')).Out -join '' -ne $s.Commit -or (Invoke-Git $s.Repo @('symbolic-ref', '--quiet', '--short', 'HEAD')).Out -join '' -ne $s.Branch)) {
     $failed = "sync: $($s.Label): it changed while sync ran (another branch or commit); nothing more was done"; break
+  }
+  # A push only ever moves its upstream forward: the tip it was leased on must be in the commit it sends.
+  if ($s.Action -eq 'push' -and (Invoke-Git $s.Repo @('merge-base', '--is-ancestor', $s.RemoteTip, $s.Commit)).Code) {
+    $failed = "sync: $($s.Label): its commit no longer contains its upstream; nothing more was done"; break
   }
   # No git or remote text is shown: a remote's message can carry a URL with a credential in it.
   if ((Invoke-Git $s.Repo $step.Args).Code) { $failed = "sync: $($s.Label): $($step.Why)"; break }
