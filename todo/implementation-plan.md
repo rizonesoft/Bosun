@@ -94,7 +94,7 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 25 | Checklist items: 185
+Sections: 26 | Checklist items: 188
 
 | Status | Reference   | Deliverable                                                      | Needs       | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----------- | ----- |
@@ -123,6 +123,7 @@ Sections: 25 | Checklist items: 185
 | [ ]    | D03 T02 §6  | WSL folders under a relocated automount                          | none        | 3     |
 | [ ]    | D03 T02 §7  | A failed repo lookup said apart from no repo                     | none        | 3     |
 | [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing           | none        | 2     |
+| [ ]    | D03 T02 §9  | VS Code forks placed by their windows                            | none        | 3     |
 
 ### Phase 5: Machine
 
@@ -170,6 +171,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 88/115 verified sections, 8 ready to run now.
+Progress: 88/116 verified sections, 8 ready to run now.
 
-Checklist: 870/984 items completed (includes Commit items).
+Checklist: 870/987 items completed (includes Commit items).

@@ -930,6 +930,26 @@ std::optional<std::wstring> process_command_line(ULONG_PTR pid) {
     return std::wstring(line->Buffer, line->Length / sizeof(wchar_t));
 }
 
+// The CLI beside an editor's own executable (`<install>\bin\<name>.cmd`, as VS Code and its forks ship it), or empty
+// when there is none: the installer is then told which editor to act on (completion review of D03 T02 §5).
+std::string editor_cli(ULONG_PTR pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!h) return "";
+    wchar_t image[MAX_PATH * 4];
+    DWORD size = static_cast<DWORD>(std::size(image));
+    BOOL ok = QueryFullProcessImageNameW(h, 0, image, &size);
+    CloseHandle(h);
+    if (!ok) return "";
+    std::error_code ec;
+    fs::path bin = fs::path(std::wstring(image, size)).parent_path() / L"bin";
+    if (!fs::is_directory(bin, ec)) return "";
+    std::vector<fs::path> found;
+    for (fs::directory_iterator it(bin, ec), end; !ec && it != end; it.increment(ec))
+        if (it->path().extension() == L".cmd") found.push_back(it->path());
+    std::sort(found.begin(), found.end());
+    return found.empty() ? "" : narrow(found.front().wstring());
+}
+
 // WORKAROUND: Windows has no public API for another process's working directory.
 // This reads it from the process parameters, read-only, at offsets stable on x64 Windows.
 std::wstring process_cwd(ULONG_PTR pid) {
@@ -1582,8 +1602,6 @@ int cmd_instances(const Options& o) {
                 if (!line) untold = true;
                 else if (dm::is_editor_window(narrow(*line))) ++windows;
             }
-            auto own = process_command_line(static_cast<ULONG_PTR>(pid));
-            std::string place = dm::editor_install_command(own ? narrow(*own) : std::string());
             std::string who = p.name + " " + std::to_string(pid);
             auto found = windows_of.find(pid);
             size_t placed = found == windows_of.end() ? 0 : found->second.size();
@@ -1592,14 +1610,22 @@ int cmd_instances(const Options& o) {
             } else {
                 i.placed_by = "launch";
             }
-            if (untold)
-                doc.problems.push_back({"editor-coverage", who + ": a window process's command line could not be read, so how many of its windows are placed can't be told; run " + place});
-            else if (placed == 0 && windows_readable)
+            // The way to place them, for this editor alone; when its own command line can't be read, the editor it
+            // names can't be told, so no command is offered rather than one for another editor (completion review).
+            auto own = process_command_line(static_cast<ULONG_PTR>(pid));
+            std::string way = own ? dm::editor_install_command(narrow(*own), editor_cli(static_cast<ULONG_PTR>(pid)))
+                                  : "its command line could not be read, so the way to place them can't be named";
+            if (!windows_readable) {
+                // The records could not be read (said under editor-windows): nothing here is known to lack a reporter.
+            } else if (untold) {
+                doc.problems.push_back({"editor-coverage", who + ": a window process's command line could not be read, so how many of its windows are placed can't be told"});
+            } else if (placed == 0) {
                 doc.problems.push_back({"editor-coverage", who + " has no window record" + (windows ? " for any of its " + std::to_string(windows) + " windows" : std::string()) +
-                                                              ", so it is placed by the folder it was started in: run " + place});
-            else if (windows > placed)
+                                                              ", so it is placed by the folder it was started in: " + way});
+            } else if (windows > placed) {
                 doc.problems.push_back({"editor-coverage", who + " has " + std::to_string(windows - placed) + " of its " + std::to_string(windows) +
-                                                              " windows not placed: a profile without the reporter, or one made since; run " + place});
+                                                              " windows not placed (a profile without the reporter, or one made since): " + way});
+            }
             if (found != windows_of.end()) continue;
         }
         doc.instances.push_back(std::move(i));

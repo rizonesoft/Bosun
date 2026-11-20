@@ -194,3 +194,7 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `src/Bosun.Panel/Instances/InstancesPage.cs` (actions): one discoverable keyboard gesture from a selected row to a terminal at that exact root (D03 T02 §4 completion review, 2026-11-20).
 - `src/app.cpp` (editor windows): one action from the "no window record" notice that installs the reporter, verifies it and shows the first placed root on the same page (D03 T02 §4 completion review, 2026-11-20).
 - `editors/bosun-windows/record.js` (write failures): a persistent write failure is shown in the editor, accessibly, and cleared after the next successful write, without interrupting editing (D03 T02 §4 completion review, 2026-11-20).
+- `scripts/install-editor-extension.ps1` (setup): one action from the page's notice that installs the reporter into that editor and shows its first placed window, with no terminal (D03 T02 §5 completion review, 2026-11-20).
+- `editors/bosun-windows/` (new profiles): a profile made after installation gets the reporter with no terminal call, and its window is placed on the next refresh (D03 T02 §5 completion review, 2026-11-20).
+- `src/Bosun.Panel/Instances/InstancesView.xaml` (notices): one keyboard action copies a notice's command, with its text announced (D03 T02 §5 completion review, 2026-11-20).
+- `scripts/install-editor-extension.ps1` (retries): a profile already covered at the packed version is checked, not reinstalled, and each profile's progress is shown as it runs (D03 T02 §5 completion review, 2026-11-20).

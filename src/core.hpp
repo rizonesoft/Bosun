@@ -1789,13 +1789,18 @@ inline bool is_editor_window(const std::string& command_line) {
     return command_line.find("--type=renderer") != std::string::npos && command_line.find("--vscode-window-config=") != std::string::npos;
 }
 
-// The value an editor's main process was started with for `--name` (`--name=value`, `--name value` or
-// `--name "a value"`), or nothing.
+// The value an editor's main process was started with for `--name` (`--name=value`, `--name value`,
+// `--name "a value"`, or the whole argument quoted, `"--name=a value"`, as Windows passes it), or nothing.
 inline std::optional<std::string> editor_switch(const std::string& line, const std::string& name) {
     for (size_t at = line.find(name); at != std::string::npos; at = line.find(name, at + 1)) {
         if (at > 0 && line[at - 1] != ' ' && line[at - 1] != '"') continue;
+        bool whole = at > 0 && line[at - 1] == '"';  // "--name=value with spaces"
         size_t v = at + name.size();
         if (v >= line.size() || (line[v] != '=' && line[v] != ' ')) continue;
+        if (whole && line[v] == '=') {
+            size_t end = line.find('"', v + 1);
+            return line.substr(v + 1, end == std::string::npos ? std::string::npos : end - v - 1);
+        }
         ++v;
         while (v < line.size() && line[v] == ' ') ++v;
         if (v >= line.size()) return std::nullopt;
@@ -1809,19 +1814,24 @@ inline std::optional<std::string> editor_switch(const std::string& line, const s
     return std::nullopt;
 }
 
-// The command that places an editor's windows, for the editor its main process is (round 1 of D03 T02 §5): an editor
-// started with its own --user-data-dir or --extensions-dir gets them named, so the reporter goes into that editor, never
-// the normal one.
-inline std::string editor_install_command(const std::string& main_command_line) {
-    // Single-quoted, a quote doubled, so PowerShell takes a path with `$` in it as written (round 2).
-    auto quoted = [](const std::string& v) {
-        std::string out = "'";
-        for (char c : v) out += c == '\'' ? std::string("''") : std::string(1, c);
-        return out + "'";
-    };
-    std::string command = "pwsh scripts/install-editor-extension.ps1";
-    if (auto data = editor_switch(main_command_line, "--user-data-dir")) command += " -UserDataDir " + quoted(*data);
-    if (auto ext = editor_switch(main_command_line, "--extensions-dir")) command += " -ExtensionsDir " + quoted(*ext);
+// A word PowerShell takes as written: single-quoted, a quote doubled (round 2 of D03 T02 §5).
+inline std::string ps_quoted(const std::string& v) {
+    std::string out = "'";
+    for (char c : v) out += c == '\'' ? std::string("''") : std::string(1, c);
+    return out + "'";
+}
+
+// What places an editor's windows, for the editor its main process is (D03 T02 §5): the installer, run in the Bosun
+// checkout, named the editor's own CLI (`cli`, empty when it was not found beside the editor) and, for an editor
+// started with its own --user-data-dir or --extensions-dir, those folders, so the reporter goes into that editor and
+// no other. An editor started with --disable-extensions runs no extension at all, so the way is to reopen it without.
+inline std::string editor_install_command(const std::string& main_command_line, const std::string& cli = "") {
+    if (main_command_line.find("--disable-extensions") != std::string::npos)
+        return "reopen it without --disable-extensions, which stops the reporter running";
+    std::string command = "in the Bosun checkout, run pwsh scripts/install-editor-extension.ps1";
+    if (!cli.empty()) command += " -Cli " + ps_quoted(cli);
+    if (auto data = editor_switch(main_command_line, "--user-data-dir")) command += " -UserDataDir " + ps_quoted(*data);
+    if (auto ext = editor_switch(main_command_line, "--extensions-dir")) command += " -ExtensionsDir " + ps_quoted(*ext);
     return command;
 }
 

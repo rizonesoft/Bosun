@@ -110,6 +110,13 @@ if (-not $clis) { 'no VS Code-family editor CLI was found (code, code-insiders, 
 # is true uses the default profile's. The registry is %APPDATA%\<nameShort>\User\globalStorage\storage.json, nameShort
 # from the product.json of the CLI's own install ("Code", "Code - Insiders"). No registry is a fresh editor (the
 # default profile alone); one that can't be read leaves the other profiles unknown, which is said.
+# The install folder a CLI belongs to: the folder above its bin folder (VS Code and its forks ship <install>\bin\code.cmd).
+function Find-Install([string]$cli) {
+    $command = Get-Command $cli -ErrorAction Ignore
+    $path = if ($command -and $command.Source) { $command.Source } else { $cli }
+    Split-Path (Split-Path $path)
+}
+
 function Find-Product([string]$cli) {
     $command = Get-Command $cli -ErrorAction Ignore
     $path = if ($command -and $command.Source) { $command.Source } else { $cli }
@@ -134,14 +141,19 @@ function Get-Profiles([string]$cli) {
         if (-not $product) { return [pscustomobject]@{ Independent = @(); Inheriting = @(); Problem = $null; Note = 'no product.json beside it, so its default profile alone is covered' } }
         try { $name = (Get-Content -LiteralPath $product -Raw | ConvertFrom-Json).nameShort } catch { $name = $null }
         if (-not $name) { return [pscustomobject]@{ Independent = @(); Inheriting = @(); Problem = "$product names no nameShort, so only its default profile is covered"; Note = $null } }
-        $data = Join-Path $env:APPDATA $name
+        # Portable Mode: an install with a data folder beside it keeps its user data in data\user-data, whatever
+        # %APPDATA% holds (completion review; code.visualstudio.com/docs/setup/portable).
+        $portable = Join-Path (Find-Install $cli) 'data'
+        $data = if (Test-Path -LiteralPath $portable -PathType Container) { Join-Path $portable 'user-data' } else { Join-Path $env:APPDATA $name }
     }
     $storage = Join-Path $data 'User\globalStorage\storage.json'
     if (-not (Test-Path -LiteralPath $storage)) { return [pscustomobject]@{ Independent = @(); Inheriting = @(); Problem = $null; Note = $null } }
     try {
         $registry = Get-Content -LiteralPath $storage -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
         $listed = if ($registry.PSObject.Properties['userDataProfiles']) { $registry.userDataProfiles } else { @() }
-        $profiles = @($listed | Where-Object { $_ -and $_.PSObject.Properties['name'] -and $_.name })
+        $profiles = @($listed | Where-Object { $_ -and $_.PSObject.Properties['name'] -and $_.name -is [string] -and $_.name })
+        # An entry with no usable name is a profile Bosun can't name to the editor: said, never dropped (completion review).
+        $unusable = @($listed).Count - $profiles.Count
     } catch {
         return [pscustomobject]@{ Independent = @(); Inheriting = @(); Problem = "$storage could not be read ($($_.Exception.Message)), so its other profiles are not covered"; Note = $null }
     }
@@ -151,7 +163,7 @@ function Get-Profiles([string]$cli) {
     [pscustomobject]@{
         Independent = @($profiles | Where-Object { -not (& $inherits $_) } | ForEach-Object name)
         Inheriting = @($profiles | Where-Object { & $inherits $_ } | ForEach-Object name)
-        Problem = $null
+        Problem = if ($unusable) { "$storage lists $unusable profile$(if ($unusable -ne 1) { 's' }) with no usable name, which $(if ($unusable -ne 1) { 'are' } else { 'is' }) not covered" } else { $null }
         Note = $null
     }
 }

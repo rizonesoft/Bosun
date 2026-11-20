@@ -864,12 +864,18 @@ static void editor_windows() {
     CHECK(!dm::is_editor_window("\"Code.exe\" --type=renderer --lang=en"));
     CHECK(!dm::is_editor_window("\"Code.exe\" --type=utility --vscode-window-config=vscode:x"));
     // The command that places an editor's windows names the editor's own folders (round 1 of D03 T02 §5).
-    CHECK(dm::editor_install_command("\"C:\\VS Code\\Code.exe\"") == "pwsh scripts/install-editor-extension.ps1");
+    const std::string run = "in the Bosun checkout, run pwsh scripts/install-editor-extension.ps1";
+    CHECK(dm::editor_install_command("\"C:\\VS Code\\Code.exe\"") == run);
     CHECK(dm::editor_install_command("\"Code.exe\" --user-data-dir \"D:\\a b\\data\" --extensions-dir=D:\\ext --new-window") ==
-          "pwsh scripts/install-editor-extension.ps1 -UserDataDir 'D:\\a b\\data' -ExtensionsDir 'D:\\ext'");
+          run + " -UserDataDir 'D:\\a b\\data' -ExtensionsDir 'D:\\ext'");
     // Single-quoted, a quote doubled: PowerShell takes a $ as written (round 2).
-    CHECK(dm::editor_install_command("Code.exe --user-data-dir D:\\s\\$work's") == "pwsh scripts/install-editor-extension.ps1 -UserDataDir 'D:\\s\\$work''s'");
+    CHECK(dm::editor_install_command("Code.exe --user-data-dir D:\\s\\$work's") == run + " -UserDataDir 'D:\\s\\$work''s'");
     CHECK(!dm::editor_switch("\"Code.exe\" --user-data-dirx=1", "--user-data-dir"));
+    // The completion review: the editor's own CLI named; a whole-quoted argument with a space kept whole; an editor run
+    // with --disable-extensions told how, never to reinstall.
+    CHECK(dm::editor_install_command("\"Code.exe\" \"--user-data-dir=D:\\Lab Data\"", "C:\\VS Code\\bin\\code.cmd") ==
+          run + " -Cli 'C:\\VS Code\\bin\\code.cmd' -UserDataDir 'D:\\Lab Data'");
+    CHECK(dm::editor_install_command("\"Code.exe\" --disable-extensions") == "reopen it without --disable-extensions, which stops the reporter running");
     // VS Code Insiders is an editor too, placed by the same records.
     CHECK(dm::instance_kind("Code - Insiders.exe") == "code");
     // A generated workspace of hundreds of roots reads whole.

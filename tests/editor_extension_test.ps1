@@ -169,6 +169,18 @@ try {
     $calls = @(Get-Content -LiteralPath (Join-Path $wrapped.State 'calls.log'))
     $folders = { param($line) $line.Contains("--user-data-dir $isolated") -and $line.Contains("--extensions-dir $isolatedExt") }
     Check 'the editor is given its own folders on each install and listing' (@($calls | Where-Object { $_ -like '--install-extension*' -or $_ -like '--list-extensions*' }).Count -eq 4 -and -not @($calls | Where-Object { -not (& $folders $_) }).Count) ($calls -join "`n")
+    # Completion review: a Portable Mode install keeps its profiles in data\user-data beside it, not in %APPDATA%.
+    $portable = New-Editor 'portable' 'StandinPortable' $null
+    $portableData = Join-Path $work 'portable\data\user-data\User\globalStorage'
+    New-Item -ItemType Directory -Force -Path $portableData | Out-Null
+    @{ userDataProfiles = @(@{ name = 'Away'; location = 'a1' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $portableData 'storage.json')
+    $said = Run-Installer @('-Cli', $portable.Cli)
+    Check "a Portable Mode install's own profiles are covered ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $portable) -eq 'Away,default') "$(Installed $portable)`n$($said | Out-String)"
+    # And a profile entry with no usable name is said, with exit 1, while the rest is still done.
+    $nameless = New-Editor 'nameless' 'StandinNameless' @(@{ location = 'x1' }, @{ name = 'Work'; location = 'w1' })
+    $said = Run-Installer @('-Cli', $nameless.Cli)
+    Check "a nameless profile entry is said and the rest still done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $nameless) -eq 'default,Work' -and ($said -join "`n") -match 'lists 1 profile with no usable name') ($said | Out-String)
+
     # An editor that can't be run is said, and the next one is still done.
     $later = New-Editor 'later' 'StandinLater' $null
     $said = Run-Installer @('-Cli', "$(Join-Path $work 'no-such-editor.cmd');$($later.Cli)")

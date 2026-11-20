@@ -44,6 +44,7 @@ title: "TODO-02 -- Instances and queue"
 | 6 | §6 | WSL folders under a relocated automount | §4 | [ ] |
 | 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
+| 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
 
 ## 1. Instance scanner
 
@@ -316,6 +317,25 @@ Without Windows Terminal the page's Open terminal starts `cmd.exe` with the fold
 - [ ] Commit: `instances: a terminal at a share without Windows Terminal`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` exits 0, and fails if the change is reverted.
+
+## 9. VS Code forks placed by their windows
+
+The window reporter runs in any VS Code-family editor, and the installer takes any such editor's CLI, but the scanner places only `Code.exe` and `Code - Insiders.exe` by their records, so a fork (VSCodium, Cursor, Windsurf, the Antigravity IDE) that runs the reporter is neither placed nor said to have windows unplaced. Filed 2026-11-20 from the completion review of `D03 T02 §5` (`docs/reviews/03-monitor/D03-T02-s5.md`, gap 1).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. The forks' executables, read from their installs. Done when: each fork's main and window processes are named here as read.
+2. A fork's windows placed as VS Code's are. Done when: a fork-named editor is placed by its records and its missing windows are said.
+
+- [ ] Read, from each fork's published install (its `product.json` `nameShort` and `win32ExeBasename`, and its window renderers' command lines where one runs here), the executable names VSCodium, Cursor, Windsurf and the Antigravity IDE use, and that their windows carry `--vscode-window-config`; write each into this section, with the Antigravity agent app (`Antigravity.exe`, already its own kind) kept apart. Done when: each name is written here with where it was read. Cheaper substitute: a guessed list of names.
+- [ ] Recognise those executables as editors placed by window records in `dm::instance_kind` (`src/core.hpp`), a kind of their own per fork so the page names them (`codium`, `cursor`, `windsurf`, `antigravity-ide`), and run the `code` branch of `cmd_instances` (`src/app.cpp`) for each such kind; `InstancesDoc.Kinds` and `InstanceLine.KindWord` take the new kinds. Done when: `tests/test_core.cpp` reads each name as its kind and `Antigravity.exe` as `antigravity`, and `tests/instances_test.ps1` with a fork-named stand-in main and window renderer reads first its missing-window notice with no record, then its placed row with one. Cheaper substitute: every fork read as `code`.
+- [ ] Commit: `instances: VS Code forks placed by their windows`
+
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `build/Release/test_core.exe editor-windows`, `pwsh tests/instances_test.ps1` and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` exit 0, and fail if the change is reverted.
 
 ## Verification
 
