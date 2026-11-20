@@ -577,6 +577,15 @@ class Gate(Base):
         after = json.loads(self.state().read_text())["waiting"]
         self.assertEqual((after["pid"], after["since"]), (os.getpid(), record["waiting"]["since"]))
 
+    def test_an_older_gate_ending_leaves_a_newer_gates_wait_alone(self):
+        # 2026-11-20: a gate on 4fbb259 ended (main had moved on) while a gate on d28016f polled, and wrote its own wait
+        # over the newer one's, without a pid, so the run guard stopped holding the run for the gate still polling.
+        newer = {"sha": OLD, "since": 2_000.0, "pid": 4242}
+        with ci_status.gate_lock(self.state()):
+            ci_status.write_gate(self.state(), {"waiting": newer})
+        self.assertEqual(ci_status.gate_action(ci_status.EXIT_PENDING, SHA, self.state(), 2_100.0), ("wait", None))
+        self.assertEqual(json.loads(self.record())["waiting"], newer)
+
     def test_a_verdict_leaves_no_wait_behind(self):
         self.gate(FakeGh())
         self.assertIn("waiting", json.loads(self.state().read_text()))

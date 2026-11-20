@@ -631,6 +631,10 @@ def _gate_action(code, sha, path, now):
         return "unverified", f"this commit passed, but neither {path.name} nor {CLEARED.name} could be saved"
     if code != EXIT_RED:
         waiting = state.get("waiting")
+        if isinstance(waiting, dict) and isinstance(waiting.get("sha"), str) and waiting["sha"] != sha:
+            # begin_wait recorded this gate's commit before it polled, so a wait on another commit is a newer gate's,
+            # started meanwhile (main moved on): it stands, pid and all, or the run guard loses sight of that gate.
+            return "wait", None
         if not isinstance(waiting, dict) or waiting.get("sha") != sha or not isinstance(waiting.get("since"), (int, float)):
             waiting = {"sha": sha, "since": now}
         state["waiting"] = waiting
