@@ -37,6 +37,12 @@ if ($LASTEXITCODE -or -not $top -or [IO.Path]::GetFullPath($top).TrimEnd('\', '/
 if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType Leaf)) {
   Stop-Setup "$Repo has no $hooks/pre-commit, so it is not a checkout of this repository"
 }
+# The hooks this checkout relies on: each must be there and tracked, or setup would report what no hook does.
+foreach ($name in 'pre-commit', 'post-merge') {
+  if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/$name") -PathType Leaf) -or -not "$(git -C $Repo ls-files -- "$hooks/$name" 2>$null)") {
+    Stop-Setup "$hooks/$name is missing from $Repo or not tracked by git; restore it (git checkout -- $hooks/$name), then run this again"
+  }
+}
 # Git on Linux and WSL ignores a hook that is not executable, and what a clone there gets is the mode git recorded.
 foreach ($entry in @(git -C $Repo ls-files -s -- $hooks 2>$null)) {
   $mode, $null, $null, $path = "$entry" -split '\s+', 4
@@ -121,10 +127,10 @@ if ($item -and $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { Sk
 elseif (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
 elseif (Test-Path -LiteralPath $private -PathType Container) {
   if (-not (Test-Path -LiteralPath (Join-Path $private '.git'))) { Skip-Overlay '.private is a folder that is not a git checkout; it was left as it is' }
-  elseif ("$(git -C $private config --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
+  elseif ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
   elseif (Test-OverlayOrigin (Get-OverlayOrigin $private) $source) {
-    git -C $private config bosun.overlay true 2>&1 | Out-Null
-    if ("$(git -C $private config --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config bosun.overlay true)' }
+    git -C $private config --local bosun.overlay true 2>&1 | Out-Null
+    if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config --local bosun.overlay true)' }
     'overlay: .private is the overlay; marked it as one, so every pull keeps it current'
   } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
 } else {
@@ -155,8 +161,8 @@ elseif (Test-Path -LiteralPath $private -PathType Container) {
         Stop-Setup "the overlay could not be cloned$why; nothing was left in .private, so running this again starts clean"
       }
       if (-not (Test-OverlayOrigin (Get-OverlayOrigin $partial) $source)) { Stop-Setup 'the overlay clone''s origin is not the source asked for; it was removed' }
-      git -C $partial config bosun.overlay true 2>&1 | Out-Null
-      if ("$(git -C $partial config --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup 'the overlay clone could not be marked as the overlay; it was removed' }
+      git -C $partial config --local bosun.overlay true 2>&1 | Out-Null
+      if ("$(git -C $partial config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup 'the overlay clone could not be marked as the overlay; it was removed' }
       # Directory.Move refuses a destination that exists, so a clone finished meanwhile by another run is never nested.
       try { [IO.Directory]::Move($partial, $private) }
       catch { Stop-Setup "the overlay could not be moved into .private ($($_.Exception.Message)); it was removed" }

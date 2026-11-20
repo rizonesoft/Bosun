@@ -21,7 +21,8 @@ fi
 # commands below would read and pull the public repository instead of the overlay.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
 
-if [ "$(git -C "$overlay" config --get bosun.overlay 2>/dev/null)" != "true" ]; then
+# The mark is read from .private's own config only, never a user or system one that would mark every checkout.
+if [ "$(git -C "$overlay" config --local --get bosun.overlay 2>/dev/null)" != "true" ]; then
     say "not pulled: .private is not marked as the overlay (pwsh scripts/setup-clone.ps1 marks a checkout of it)"
     exit 0
 fi

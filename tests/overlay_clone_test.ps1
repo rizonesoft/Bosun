@@ -228,6 +228,10 @@ try {
   $r = Invoke-Setup $plain
   Check 'a post-merge not recorded as executable is refused with the fix' ($r.Exit -eq 1 -and $r.Text -match 'scripts/hooks/post-merge is not recorded in git as an executable' -and $r.Text -match 'update-index --chmod=\+x scripts/hooks/post-merge') "(exit $($r.Exit): $($r.Text))"
 
+  $missing = New-Clone 'post-merge-missing'
+  git -C $missing rm -q scripts/hooks/post-merge
+  $r = Invoke-Setup $missing
+  Check 'a checkout without its post-merge hook is refused, with the fix' ($r.Exit -eq 1 -and $r.Text -match 'post-merge is missing' -and -not (Test-Path (Join-Path $missing '.private'))) "(exit $($r.Exit): $($r.Text))"
   # --- the post-merge hook, through a real pull ---
   function Invoke-Pull([string]$clone) { (git -C $clone pull --no-rebase 2>&1 | Out-String) }
   $incoming = Add-Commit $overlayRemote 'from-elsewhere.txt'
@@ -310,6 +314,23 @@ try {
   Check 'with GIT_DIR set to the public repository, the hook pulls the overlay' ((Get-Head $directPrivate) -eq $wanted -and $out -match 'overlay: updated') "($out)"
   Check 'and leaves the public repository where it was' ((Get-Head $direct) -eq $publicBefore)
 
+  # --- the mark is .private's own: a user-wide setting marks nothing ---
+  git config --global bosun.overlay true
+  try {
+    $global = New-Clone 'global-mark'
+    $globalPrivate = Join-Path $global '.private'
+    git clone -q $other $globalPrivate 2>$null
+    $env:BOSUN_OVERLAY_REPO = $overlayRemote
+    $r = Invoke-Setup $global
+    Check 'a user-wide bosun.overlay does not make another checkout the overlay' ($r.Exit -eq 0 -and $r.Text -match 'checkout of another repository' -and -not "$(git -C $globalPrivate config --local --get bosun.overlay)") "(exit $($r.Exit): $($r.Text))"
+    git -C $global config core.hooksPath scripts/hooks
+    git -C $globalPrivate reset -q --hard HEAD 2>$null
+    $otherIncoming = Add-Commit $other 'other-incoming.txt'
+    $globalHead = Get-Head $globalPrivate
+    $null = Add-Commit $public 'public-global.txt'
+    $out = Invoke-Pull $global
+    Check 'and the hook does not pull it' ((Get-Head $globalPrivate) -eq $globalHead -and $globalHead -ne $otherIncoming -and $out -match 'not marked as the overlay') "($out)"
+  } finally { git config --global --unset bosun.overlay }
   # --- the hook never follows a junction to another checkout's overlay ---
   $hopper = New-Clone 'hook-junction'
   $targetPrivate = Join-Path $direct '.private'
