@@ -300,6 +300,8 @@ Grouping and opening read a guest path under `/mnt/<drive>/` as that Windows dri
 
 ## 7. A failed repo lookup said apart from no repo
 
+> **Started:** 2026-11-20T14:49:41Z
+
 A folder whose `.git` probe failed (an ancestor denied, a share refusing) and one outside Git both read as no repo, so a window under "Not in a repo" may only be one whose repo could not be told. The running-distro probe also drops `wsl.exe`'s exit code. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 7).
 
 **Phase:** 3
