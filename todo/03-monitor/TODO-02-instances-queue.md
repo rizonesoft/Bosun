@@ -197,7 +197,7 @@ An editor is one process tree however many windows it has open, and the scanner 
 **Corrected 2026-11-18 (plan review):** `code --status` prints a local folder's basename only, skips remote windows and adds folder counts later, so two checkouts named `app` can't be told apart from it: it is not the source. The plan now reads each open window's own workspace storage. VS Code keeps one folder a workspace, `%APPDATA%\<data dir>\User\workspaceStorage\<id>\`, holding `workspace.json` (the full `folder` URI, or the `workspace` URI of a `.code-workspace` file whose `folders` list each root) and `state.vscdb`, the SQLite store the window holds open while it is open. Windows' Restart Manager (`RmStartSession`, `RmRegisterResources`, `RmGetList`) names the processes holding a file open, so a storage folder whose `state.vscdb` an editor process holds is an open window of that process, with its full URI, local or `vscode-remote://wsl+<distro>/...`, with nothing asked of the editor and no window it could open. That `state.vscdb` is held for a window's life is read on a running editor first (item 1); until an editor runs here it can't be, so the section waits on one (`todo/wakes.json`). The other six gaps are planned into the items: a WSL workspace of a Windows editor is a location of its own, every root of a multi-root window is a row, each window-folder row has a stable identity, each editor process gets only its own windows, every failure keeps what was identified, and a process's memory is shared by its rows, never counted per row.
 
 **Phase:** 3
-**Needs:** third-party
+**Needs:** none
 
 **Corrected 2026-11-18 (waiting on a running editor):** item 1 is read on a VS Code-family editor running on this machine, and none runs now; `todo/wakes.json` wakes the section when one does.
 **Surface:** no
@@ -217,6 +217,8 @@ An editor is one process tree however many windows it has open, and the scanner 
 - [ ] Commit: `instances: an editor in every repo it has open`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests" --filter-class "*OverviewPageTests"` exit 0, as do `build/Release/test_core.exe instances` and `pwsh tests/instances_test.ps1`; they fail if an editor with windows on two same-named repos is listed in only one, or counted twice.
+
+> **Woken:** 2026-11-20: its `third-party` check in todo/wakes.json passed
 
 ## Verification
 
