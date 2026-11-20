@@ -36,7 +36,9 @@ try {
 
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'no .private at all is setup-required' ($r.Source -eq 'setup-required' -and $null -eq $r.Value) "($($r.Source) $($r.Value))"
-  Check 'setup-required names the variable and the key' ($r.Message -match 'BOSUN_VAULT_ITEM' -and $r.Message -match 'vault_item') $r.Message
+  Check 'setup-required names the variable and the key' ($r.Message -cmatch 'BOSUN_VAULT_ITEM' -and $r.Message -cmatch 'vault_item') $r.Message
+  $r = Get-BosunOverlayValue -Key vault_item -Variable BOSUN_OTHER_NAME
+  Check 'setup-required names a custom variable and the key apart' ($r.Message -cmatch 'BOSUN_OTHER_NAME' -and $r.Message -cmatch '\bvault_item\b' -and $r.Message -cnotmatch 'BOSUN_VAULT_ITEM') $r.Message
 
   New-Item -ItemType Directory -Path $private | Out-Null
   $r = Get-BosunOverlayValue -Key vault_item
@@ -65,7 +67,12 @@ try {
   $probe = Join-Path $dir 'empty-probe.ps1'
   $answer = Join-Path $dir 'empty-probe.txt'
   Set-Content -LiteralPath $probe -Value "param(`$lib, `$out) . `$lib; (Get-BosunOverlayValue -Key vault_item).Source | Set-Content -LiteralPath `$out"
-  $child = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $probe, (Join-Path $checkout 'scripts\lib\overlay.ps1'), $answer -NoNewWindow -PassThru
+  # Each argument passed on its own, so a scratch folder with a space in its path reaches the child whole.
+  $start = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+  foreach ($argument in '-NoProfile', '-File', $probe, (Join-Path $checkout 'scripts\lib\overlay.ps1'), $answer) { $start.ArgumentList.Add($argument) }
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $child = [Diagnostics.Process]::Start($start)
   $done = $child.WaitForExit(10000)
   if (-not $done) { taskkill /T /F /PID $child.Id | Out-Null; $child.WaitForExit() }
   $source = if (Test-Path -LiteralPath $answer) { (Get-Content -LiteralPath $answer -Raw).Trim() } else { '' }
@@ -171,8 +178,9 @@ try {
     Check "$escape is refused with the file and line" ($message -and $message.Contains("${config}:1") -and $message -match 'Unicode scalar') "($message)"
   }
 
+  Set-Config "vault_item = `"good`"`n"
   $message = Get-Refusal { Get-BosunOverlayValue -Key 'bad key' }
-  Check 'a key that is not a plain name is refused' ([bool]$message) ''
+  Check 'a key that is not a plain name is refused at the parameter' ($message -and $message -match "parameter 'Key'") "($message)"
 } finally {
   Pop-Location
   foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
