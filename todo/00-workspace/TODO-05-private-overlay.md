@@ -136,6 +136,8 @@ The owner needs one place to see whether anything is waiting: one command that p
 
 ## 4. Pre-push leak guard with gitleaks and the private deny list
 
+> **Started:** 2026-11-20T23:41:22Z
+
 Making the repository public was the irreversible step; from here every push is a publish. The guard refuses a push before it leaves the machine when the outgoing commits contain a secret or a string the owner listed as private, and the list itself stays in the overlay.
 
 **Phase:** 0
