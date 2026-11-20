@@ -150,6 +150,7 @@ try {
   $short2 = Start-Editor 'Code.exe' 'ee' -Windows 3 -Helpers 1
   $short1 = Start-Editor 'Code.exe' 'ef' -Windows 2
   $whole = Start-Editor 'Code.exe' 'eg' -Windows 1 -Helpers 2
+  $noRecord = Start-Editor 'Code.exe' 'eh' -Windows 2
   Window 'se1' $short2 @((Uri $one))
   Window 'sf1' $short1 @((Uri $two))
   Window 'sg1' $whole @((Uri $one), (Uri $two))
@@ -172,6 +173,8 @@ try {
   Check (@($missing | Where-Object { $_.why -like "Code.exe $($short1.Id) has 1 of its 2 windows not placed*" }).Count -eq 1) 'and one with two windows and one record says one'
   Check (-not @($missing | Where-Object { $_.why -like "*$($whole.Id)*" }).Count -and @($doc.instances | Where-Object { $_.pid -eq $whole.Id }).Count -eq 2) 'a window whose record has two roots is fully placed, with no word'
   Check ($missing.Count -eq 2) "and no other editor is said to be short ($($missing.Count))"
+  $none = @($doc.problems | Where-Object { $_.source -eq 'editor-coverage' -and $_.why -like "Code.exe $($noRecord.Id) has no window record for any of its 2 windows*run pwsh scripts/install-editor-extension.ps1" })
+  Check ($none.Count -eq 1 -and (Row $doc $noRecord.Id).placed_by -eq 'launch') 'an editor with two windows and no record keeps its launch row and says how many windows'
   $sshRow = Row $doc $sshOnly.Id
   Check ($sshRow -and $sshRow.placed_by -eq 'window' -and $null -eq $sshRow.cwd -and $null -ne $sshRow.private_mb -and @($doc.problems | Where-Object { $_.why -like "*$($sshOnly.Id)*is a remote window that is not WSL" }).Count -eq 1) 'an editor whose only root Bosun can''t place is still listed, with its memory, and the root is said'
   $bareRow = Row $doc $bare.Id

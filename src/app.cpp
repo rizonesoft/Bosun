@@ -1572,33 +1572,35 @@ int cmd_instances(const Options& o) {
         dm::instance_state(i, nullptr, under, session == sessions.end() ? nullptr : &session->second, p.start);
         if (i.kind == "code") {
             // An editor goes in every repo it has open, by its windows' records; with none it keeps the folder it was
-            // started in, marked so (D03 T02 §4).
+            // started in, marked so (D03 T02 §4). Its open windows are counted against its records either way: a window
+            // in a profile without the reporter writes none, and would be missing without a word (D03 T02 §5).
+            size_t windows = 0;
+            bool untold = false;
+            for (const auto& other : infos) {
+                if (other.ppid != pid || parent[other.pid] != pid || dm::instance_kind(other.name) != "code") continue;
+                auto line = process_command_line(static_cast<ULONG_PTR>(other.pid));
+                if (!line) untold = true;
+                else if (dm::is_editor_window(narrow(*line))) ++windows;
+            }
+            auto own = process_command_line(static_cast<ULONG_PTR>(pid));
+            std::string place = dm::editor_install_command(own ? narrow(*own) : std::string());
+            std::string who = p.name + " " + std::to_string(pid);
             auto found = windows_of.find(pid);
+            size_t placed = found == windows_of.end() ? 0 : found->second.size();
             if (found != windows_of.end()) {
                 for (auto& row : dm::editor_rows(i, found->second, repo_of_root, doc.problems, distro_name)) doc.instances.push_back(std::move(row));
-                // Its open windows, against its records: a window in a profile without the reporter writes none, and
-                // would be missing without a word (D03 T02 §5).
-                size_t windows = 0;
-                bool untold = false;
-                for (const auto& other : infos) {
-                    if (other.ppid != pid || parent[other.pid] != pid || dm::instance_kind(other.name) != "code") continue;
-                    auto line = process_command_line(static_cast<ULONG_PTR>(other.pid));
-                    if (!line) untold = true;
-                    else if (dm::is_editor_window(narrow(*line))) ++windows;
-                }
-                size_t placed = found->second.size();
-                std::string who = p.name + " " + std::to_string(pid);
-                if (untold)
-                    doc.problems.push_back({"editor-coverage", who + ": a window process's command line could not be read, so how many of its windows are placed can't be told"});
-                else if (windows > placed)
-                    doc.problems.push_back({"editor-coverage", who + " has " + std::to_string(windows - placed) + " of its " + std::to_string(windows) +
-                                                                  " windows not placed: a profile without the reporter, or one made since; run pwsh scripts/install-editor-extension.ps1"});
-                continue;
+            } else {
+                i.placed_by = "launch";
             }
-            i.placed_by = "launch";
-            if (windows_readable)
-                doc.problems.push_back({"editor-coverage", p.name + " " + std::to_string(pid) +
-                                                              " has no window record, so it is placed by the folder it was started in: run scripts/install-editor-extension.ps1"});
+            if (untold)
+                doc.problems.push_back({"editor-coverage", who + ": a window process's command line could not be read, so how many of its windows are placed can't be told; run " + place});
+            else if (placed == 0 && windows_readable)
+                doc.problems.push_back({"editor-coverage", who + " has no window record" + (windows ? " for any of its " + std::to_string(windows) + " windows" : std::string()) +
+                                                              ", so it is placed by the folder it was started in: run " + place});
+            else if (windows > placed)
+                doc.problems.push_back({"editor-coverage", who + " has " + std::to_string(windows - placed) + " of its " + std::to_string(windows) +
+                                                              " windows not placed: a profile without the reporter, or one made since; run " + place});
+            if (found != windows_of.end()) continue;
         }
         doc.instances.push_back(std::move(i));
     }

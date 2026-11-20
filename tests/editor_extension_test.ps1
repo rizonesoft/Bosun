@@ -72,23 +72,27 @@ try {
         New-Item -ItemType Directory -Force -Path (Join-Path $install 'bin'), (Join-Path $install 'state') | Out-Null
         @{ nameShort = $nameShort } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install 'bin\product.json')
         $state = Join-Path $install 'state'
-        # %1 the verb; the profile is %5 for an install (after --force), %4 for an uninstall, %3 for a listing. "lie" in state\mode makes an
-        # install exit 0 without installing.
+        # %1 the verb; the profile follows --profile wherever it is. "mode-lie" in the state folder makes an install exit 0
+        # without installing.
         $cli = Join-Path $install 'bin\code.cmd'
         Set-Content -LiteralPath $cli -Encoding ascii -Value (@(
             '@echo off'
             "set S=$state"
             'echo %*>>"%S%\calls.log"'
+            'set V=%~1'
             'set P=default'
-            'if "%1"=="--list-extensions" if not "%3"=="" set P=%3'
-            'if "%1"=="--uninstall-extension" if not "%4"=="" set P=%4'
-            'if "%1"=="--install-extension" if not "%5"=="" set P=%5'
-            'if "%1"=="--list-extensions" ( if exist "%S%\%P%" echo bosun.bosun-windows'
+            ':args'
+            'if "%~1"=="" goto run'
+            'if "%~1"=="--profile" set P=%~2'
+            'shift'
+            'goto args'
+            ':run'
+            'if "%V%"=="--list-extensions" ( if exist "%S%\%P%" echo bosun.bosun-windows'
             '  exit /b 0 )'
-            'if "%1"=="--install-extension" ( if exist "%S%\mode-lie" exit /b 0'
+            'if "%V%"=="--install-extension" ( if exist "%S%\mode-lie" exit /b 0'
             '  type nul > "%S%\%P%"'
             '  exit /b 0 )'
-            'if "%1"=="--uninstall-extension" ( if not exist "%S%\%P%" exit /b 1'
+            'if "%V%"=="--uninstall-extension" ( if not exist "%S%\%P%" exit /b 1'
             '  del "%S%\%P%"'
             '  exit /b 0 )'
             'exit /b 9'
@@ -136,6 +140,28 @@ try {
     Remove-Item -LiteralPath (Join-Path $liar.State 'mode-lie')
     $said = Run-Installer @('-Cli', $liar.Cli)
     Check "a second run completes it ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $liar) -eq 'default,Work') ($said | Out-String)
+
+    # Round 1 of D03 T02 §5. A profile name the CLI's command shell would change is refused, never passed through it.
+    $odd = New-Editor 'odd' 'StandinOdd' @(@{ name = 'QA-%USERNAME%'; location = 'q1' }, @{ name = 'Plain'; location = 'p1' })
+    $said = Run-Installer @('-Cli', $odd.Cli)
+    Check "a profile named with % is refused and said, the others done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $odd) -eq 'default,Plain' -and ($said -join "`n") -match 'profile QA-%USERNAME%\): not done, because its name holds a character') ($said | Out-String)
+    # A wrapper with no product.json beside it, given -UserDataDir, reads that editor's registry.
+    $isolated = Join-Path $work 'isolated'
+    New-Item -ItemType Directory -Force -Path (Join-Path $isolated 'User\globalStorage') | Out-Null
+    @{ userDataProfiles = @(@{ name = 'Work'; location = 'w1' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $isolated 'User\globalStorage\storage.json')
+    $wrapped = New-Editor 'wrapped' 'StandinWrapped' $null
+    Remove-Item -LiteralPath (Join-Path (Split-Path $wrapped.Cli) 'product.json')
+    $said = Run-Installer @('-Cli', $wrapped.Cli, '-UserDataDir', $isolated)
+    Check "-UserDataDir names the registry even for a wrapper with no product.json ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $wrapped) -eq 'default,Work') "$(Installed $wrapped)`n$($said | Out-String)"
+    # An editor that can't be run is said, and the next one is still done.
+    $later = New-Editor 'later' 'StandinLater' $null
+    $said = Run-Installer @('-Cli', "$(Join-Path $work 'no-such-editor.cmd');$($later.Cli)")
+    Check "an editor that can't be run is said and the next is still done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $later) -eq 'default' -and ($said -join "`n") -match 'no-such-editor\.cmd: could not be run') ($said | Out-String)
+    # An inheriting profile is covered only when the default was.
+    $lyingInherit = New-Editor 'lying-inherit' 'StandinLyingInherit' @(@{ name = 'Shared'; location = 's1'; useDefaultFlags = @{ extensions = $true } })
+    Set-Content -LiteralPath (Join-Path $lyingInherit.State 'mode-lie') -Value 'x'
+    $said = Run-Installer @('-Cli', $lyingInherit.Cli)
+    Check "an inheriting profile is not called covered when the default was not done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and ($said -join "`n") -match 'profile Shared\): uses the default profile''s extensions, which were not done' -and ($said -join "`n") -notmatch 'so it is covered by the default') ($said | Out-String)
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }

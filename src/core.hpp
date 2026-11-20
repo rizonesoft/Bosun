@@ -1789,6 +1789,36 @@ inline bool is_editor_window(const std::string& command_line) {
     return command_line.find("--type=renderer") != std::string::npos && command_line.find("--vscode-window-config=") != std::string::npos;
 }
 
+// The value an editor's main process was started with for `--name` (`--name=value`, `--name value` or
+// `--name "a value"`), or nothing.
+inline std::optional<std::string> editor_switch(const std::string& line, const std::string& name) {
+    for (size_t at = line.find(name); at != std::string::npos; at = line.find(name, at + 1)) {
+        if (at > 0 && line[at - 1] != ' ' && line[at - 1] != '"') continue;
+        size_t v = at + name.size();
+        if (v >= line.size() || (line[v] != '=' && line[v] != ' ')) continue;
+        ++v;
+        while (v < line.size() && line[v] == ' ') ++v;
+        if (v >= line.size()) return std::nullopt;
+        if (line[v] == '"') {
+            size_t end = line.find('"', v + 1);
+            return line.substr(v + 1, end == std::string::npos ? std::string::npos : end - v - 1);
+        }
+        size_t end = line.find(' ', v);
+        return line.substr(v, end == std::string::npos ? std::string::npos : end - v);
+    }
+    return std::nullopt;
+}
+
+// The command that places an editor's windows, for the editor its main process is (round 1 of D03 T02 §5): an editor
+// started with its own --user-data-dir or --extensions-dir gets them named, so the reporter goes into that editor, never
+// the normal one.
+inline std::string editor_install_command(const std::string& main_command_line) {
+    std::string command = "pwsh scripts/install-editor-extension.ps1";
+    if (auto data = editor_switch(main_command_line, "--user-data-dir")) command += " -UserDataDir \"" + *data + "\"";
+    if (auto ext = editor_switch(main_command_line, "--extensions-dir")) command += " -ExtensionsDir \"" + *ext + "\"";
+    return command;
+}
+
 // A root's part of a row's window identity: a hash of its URI, so removing a root from a multi-root window never
 // passes another root's identity (and a selection on the page) to the root after it (round 1). FNV-1a, 64 bits.
 inline std::string root_key(const std::string& uri) {

@@ -863,6 +863,11 @@ static void editor_windows() {
     CHECK(dm::is_editor_window("\"Code.exe\" --type=renderer --vscode-window-config=vscode:7ba3 --lang=en"));
     CHECK(!dm::is_editor_window("\"Code.exe\" --type=renderer --lang=en"));
     CHECK(!dm::is_editor_window("\"Code.exe\" --type=utility --vscode-window-config=vscode:x"));
+    // The command that places an editor's windows names the editor's own folders (round 1 of D03 T02 §5).
+    CHECK(dm::editor_install_command("\"C:\\VS Code\\Code.exe\"") == "pwsh scripts/install-editor-extension.ps1");
+    CHECK(dm::editor_install_command("\"Code.exe\" --user-data-dir \"D:\\a b\\data\" --extensions-dir=D:\\ext --new-window") ==
+          "pwsh scripts/install-editor-extension.ps1 -UserDataDir \"D:\\a b\\data\" -ExtensionsDir \"D:\\ext\"");
+    CHECK(!dm::editor_switch("\"Code.exe\" --user-data-dirx=1", "--user-data-dir"));
     // VS Code Insiders is an editor too, placed by the same records.
     CHECK(dm::instance_kind("Code - Insiders.exe") == "code");
     // A generated workspace of hundreds of roots reads whole.
