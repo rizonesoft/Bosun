@@ -907,6 +907,29 @@ std::vector<Proc> snapshot_processes(bool* ok = nullptr) {
     return out;
 }
 
+// A process's command line (ProcessCommandLineInformation, Windows 8.1 and later, with only the limited query right),
+// or nothing when it can't be opened or asked (D03 T02 §5: an editor's windows are its renderers that carry
+// --vscode-window-config).
+std::optional<std::wstring> process_command_line(ULONG_PTR pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(pid));
+    if (!h) return std::nullopt;
+    using QueryFn = NTSTATUS(NTAPI*)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+    static auto query = reinterpret_cast<QueryFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationProcess"));
+    const auto kCommandLine = static_cast<PROCESSINFOCLASS>(60);  // ProcessCommandLineInformation
+    std::vector<BYTE> buf(8192);
+    ULONG needed = 0;
+    NTSTATUS st = query(h, kCommandLine, buf.data(), static_cast<ULONG>(buf.size()), &needed);
+    if (st < 0 && needed > buf.size() && needed < (1u << 20)) {
+        buf.resize(needed);
+        st = query(h, kCommandLine, buf.data(), static_cast<ULONG>(buf.size()), &needed);
+    }
+    CloseHandle(h);
+    if (st < 0) return std::nullopt;
+    auto* line = reinterpret_cast<UNICODE_STRING*>(buf.data());
+    if (!line->Buffer) return std::wstring();
+    return std::wstring(line->Buffer, line->Length / sizeof(wchar_t));
+}
+
 // WORKAROUND: Windows has no public API for another process's working directory.
 // This reads it from the process parameters, read-only, at offsets stable on x64 Windows.
 std::wstring process_cwd(ULONG_PTR pid) {
@@ -1553,11 +1576,28 @@ int cmd_instances(const Options& o) {
             auto found = windows_of.find(pid);
             if (found != windows_of.end()) {
                 for (auto& row : dm::editor_rows(i, found->second, repo_of_root, doc.problems, distro_name)) doc.instances.push_back(std::move(row));
+                // Its open windows, against its records: a window in a profile without the reporter writes none, and
+                // would be missing without a word (D03 T02 §5).
+                size_t windows = 0;
+                bool untold = false;
+                for (const auto& other : infos) {
+                    if (other.ppid != pid || parent[other.pid] != pid || dm::instance_kind(other.name) != "code") continue;
+                    auto line = process_command_line(static_cast<ULONG_PTR>(other.pid));
+                    if (!line) untold = true;
+                    else if (dm::is_editor_window(narrow(*line))) ++windows;
+                }
+                size_t placed = found->second.size();
+                std::string who = p.name + " " + std::to_string(pid);
+                if (untold)
+                    doc.problems.push_back({"editor-coverage", who + ": a window process's command line could not be read, so how many of its windows are placed can't be told"});
+                else if (windows > placed)
+                    doc.problems.push_back({"editor-coverage", who + " has " + std::to_string(windows - placed) + " of its " + std::to_string(windows) +
+                                                                  " windows not placed: a profile without the reporter, or one made since; run pwsh scripts/install-editor-extension.ps1"});
                 continue;
             }
             i.placed_by = "launch";
             if (windows_readable)
-                doc.problems.push_back({"editor-windows", p.name + " " + std::to_string(pid) +
+                doc.problems.push_back({"editor-coverage", p.name + " " + std::to_string(pid) +
                                                               " has no window record, so it is placed by the folder it was started in: run scripts/install-editor-extension.ps1"});
         }
         doc.instances.push_back(std::move(i));

@@ -69,7 +69,7 @@ try {
   Check ($row -and $row.state -eq 'unknown' -and $null -eq $row.evidence) 'with no evidence at all its state is unknown'
   $loose1 = Row $doc $codexLoose.Id
   Check ($loose1 -and $null -eq $loose1.repo -and (Same-Path $loose1.cwd $loose)) 'one outside a checkout has its folder and no repo'
-  Check ($doc.schema_version -eq 1 -and $doc.side -eq 'windows' -and $null -eq $doc.distro -and @($doc.problems | Where-Object { $_.source -ne 'editor-windows' }).Count -eq 0) 'the document is the shared shape, with no problems (an editor running on this machine has no window record in the test''s own LOCALAPPDATA, which is said)'
+  Check ($doc.schema_version -eq 1 -and $doc.side -eq 'windows' -and $null -eq $doc.distro -and @($doc.problems | Where-Object { $_.source -notin 'editor-windows', 'editor-coverage' }).Count -eq 0) 'the document is the shared shape, with no problems (an editor running on this machine has no window record in the test''s own LOCALAPPDATA, which is said)'
 
   # Its session record: busy is working; a record naming another start (a reused pid) is unknown, and says why.
   $filetime = $claude.StartTime.ToFileTimeUtc()
@@ -113,13 +113,20 @@ try {
   $windows = Join-Path $env:LOCALAPPDATA 'Bosun\editor-windows'
   New-Item -ItemType Directory -Path $windows -Force | Out-Null
   $env:BOSUN_WSL_EXE = Join-Path $work 'no-wsl.exe'   # no real distro is asked about, or woken
-  function Start-Editor([string]$name, [string]$tag) {
+  # -Windows and -Helpers start that many renderer children beside the host: a window's carries
+  # --vscode-window-config, a helper's does not (D03 T02 §5), as VS Code's do.
+  function Start-Editor([string]$name, [string]$tag, [int]$Windows = 0, [int]$Helpers = 0) {
     $main = Join-Path $bin "$tag\$name"; $host_ = Join-Path $bin "$tag\host\Code.exe"
     New-Item -ItemType Directory -Path (Split-Path $host_) -Force | Out-Null
     Copy-Item "$env:SystemRoot\System32\cmd.exe" $main; Copy-Item $sleeper $host_
-    $editor = Start-Detached $main "/d /c `"$(Q $host_) $(Q (Join-Path $work "$tag.txt")) 60000`"" $loose
-    $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'").Count -gt 0 }
-    $hostId = (Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'").ProcessId
+    $side = @()
+    foreach ($k in 1..$Windows) { if ($Windows) { $side += "start `"`" /b $(Q $host_) $(Q (Join-Path $work "$tag-w$k.txt")) 60000 --type=renderer --vscode-window-config=vscode:$tag$k" } }
+    foreach ($k in 1..$Helpers) { if ($Helpers) { $side += "start `"`" /b $(Q $host_) $(Q (Join-Path $work "$tag-h$k.txt")) 60000 --type=renderer" } }
+    $line = (@($side) + "$(Q $host_) $(Q (Join-Path $work "$tag.txt")) 60000") -join ' & '
+    $editor = Start-Detached $main "/d /s /c `"$line`"" $loose
+    $want = 1 + $Windows + $Helpers
+    $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'").Count -ge $want }
+    $hostId = (Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' }).ProcessId
     if (-not $hostId) { throw "the stand-in editor's host never started" }
     [pscustomobject]@{ Id = $editor.Id; Host = [int]$hostId }
   }
@@ -138,6 +145,14 @@ try {
   Window 'sb2' $editorB @()
   Window 'sag' $agentApp @((Uri $one))
   $sshOnly = Start-Editor 'Code.exe' 'ed'
+  # Its windows against its records (D03 T02 §5): three windows and a helper with one record is two not placed; two
+  # windows with one is one; one window whose record has two roots is fully placed.
+  $short2 = Start-Editor 'Code.exe' 'ee' -Windows 3 -Helpers 1
+  $short1 = Start-Editor 'Code.exe' 'ef' -Windows 2
+  $whole = Start-Editor 'Code.exe' 'eg' -Windows 1 -Helpers 2
+  Window 'se1' $short2 @((Uri $one))
+  Window 'sf1' $short1 @((Uri $two))
+  Window 'sg1' $whole @((Uri $one), (Uri $two))
   Window 'sd1' $sshOnly @('vscode-remote://ssh-remote%2Bbox/srv/app')
   Window 'stale' $editorA @((Uri $one)) 999999
   Set-Content -LiteralPath (Join-Path $windows 'damaged.json') -Value '{"schema_version":1,' -NoNewline
@@ -152,10 +167,15 @@ try {
   $empty = @($rowsB | Where-Object { $_.window -eq 'sb2#empty' })[0]
   Check ($empty -and $null -eq $empty.cwd -and $null -eq $empty.repo) 'an empty window is a row with no folder and no repo'
   Check (-not @($doc.instances | Where-Object { $_.pid -in $editorA.Id, $editorB.Id -and $_.window -like 'sb*' -and $_.pid -eq $editorA.Id }).Count) 'each editor has only its own windows'
+  $missing = @($doc.problems | Where-Object { $_.source -eq 'editor-coverage' -and $_.why -like '*windows not placed*' })
+  Check (@($missing | Where-Object { $_.why -like "Code.exe $($short2.Id) has 2 of its 3 windows not placed*install-editor-extension.ps1" }).Count -eq 1) 'an editor with three windows and one record says two are not placed, helpers not counted'
+  Check (@($missing | Where-Object { $_.why -like "Code.exe $($short1.Id) has 1 of its 2 windows not placed*" }).Count -eq 1) 'and one with two windows and one record says one'
+  Check (-not @($missing | Where-Object { $_.why -like "*$($whole.Id)*" }).Count -and @($doc.instances | Where-Object { $_.pid -eq $whole.Id }).Count -eq 2) 'a window whose record has two roots is fully placed, with no word'
+  Check ($missing.Count -eq 2) "and no other editor is said to be short ($($missing.Count))"
   $sshRow = Row $doc $sshOnly.Id
   Check ($sshRow -and $sshRow.placed_by -eq 'window' -and $null -eq $sshRow.cwd -and $null -ne $sshRow.private_mb -and @($doc.problems | Where-Object { $_.why -like "*$($sshOnly.Id)*is a remote window that is not WSL" }).Count -eq 1) 'an editor whose only root Bosun can''t place is still listed, with its memory, and the root is said'
   $bareRow = Row $doc $bare.Id
-  Check ($bareRow -and $bareRow.placed_by -eq 'launch' -and (Same-Path $bareRow.cwd $loose) -and @($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like "*$($bare.Id) has no window record*install-editor-extension.ps1" }).Count -eq 1) 'an editor with no window record keeps its launch folder, marked, and the problem says how to place it'
+  Check ($bareRow -and $bareRow.placed_by -eq 'launch' -and (Same-Path $bareRow.cwd $loose) -and @($doc.problems | Where-Object { $_.source -eq 'editor-coverage' -and $_.why -like "*$($bare.Id) has no window record*install-editor-extension.ps1" }).Count -eq 1) 'an editor with no window record keeps its launch folder, marked, and the problem says how to place it'
   $agRow = Row $doc $agentApp.Id
   Check ($agRow -and $null -eq $agRow.placed_by -and $null -eq $agRow.window -and (Same-Path $agRow.cwd $loose)) 'the agent app is never placed by a window record'
   Check (@($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like '*stale.json is stale*' }).Count -eq 1 -and @($doc.problems | Where-Object { $_.why -like '*damaged.json is not a window record*' }).Count -eq 1) 'a stale and a damaged record are each said, beside the rows'

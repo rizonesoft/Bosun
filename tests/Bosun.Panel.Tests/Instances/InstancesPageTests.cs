@@ -467,6 +467,36 @@ public class InstancesPageTests
     }
 
     [Fact]
+    public void Each_editor_with_windows_not_placed_is_a_notice_of_its_own_and_goes_once_they_are()
+    {
+        // D03 T02 §5: a stale record, then two editors' missing windows: three notices, each editor's count kept.
+        SourceProblemDoc P(string source, string why) => new() { Source = source, Why = why };
+        Bosun.Core.Instances.InstancesView Scan(params SourceProblemDoc[] problems) => View(null,
+            new SideReading("windows", null, Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("windows", null, [EditorWindow(500, "s1#a", @"D:\one\app", "D:/one/app", 4096)], problems), Now)));
+        var source = new FakeInstances
+        {
+            Answer = Scan(
+                P("editor-windows", @"C:\x\stale.json is stale: its window's extension host 9 is gone"),
+                P("editor-coverage", "Code.exe 500 has 2 of its 3 windows not placed: run pwsh scripts/install-editor-extension.ps1"),
+                P("editor-coverage", "Code.exe 600 has 1 of its 2 windows not placed: run pwsh scripts/install-editor-extension.ps1")),
+        };
+        OnPage(source, h =>
+        {
+            var notices = InstancesPage.NoticesOf(source.Answer);
+            Assert.Equal(3, notices.Count);
+            Assert.Contains("Windows: Code.exe 500 has 2 of its 3 windows not placed: run pwsh scripts/install-editor-extension.ps1", notices);
+            Assert.Contains("Windows: Code.exe 600 has 1 of its 2 windows not placed: run pwsh scripts/install-editor-extension.ps1", notices);
+            Assert.Contains(notices, n => n.Contains("stale.json is stale", StringComparison.Ordinal));
+            Assert.Contains(h.Page.Notices, n => n.Contains("Code.exe 600 has 1 of its 2", StringComparison.Ordinal));
+
+            source.Answer = Scan();
+            h.Page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.DoesNotContain(h.Page.Notices, n => n.Contains("windows not placed", StringComparison.Ordinal));
+        });
+    }
+
+    [Fact]
     public void An_empty_window_and_a_window_whose_folder_can_t_be_placed_are_told_apart()
     {
         // Round 2: an SSH window's row (no folder Bosun can place) read "an empty window".

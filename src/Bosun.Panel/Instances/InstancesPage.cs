@@ -404,7 +404,11 @@ public sealed class InstancesPage : PageBase
             if (side.Reading.IsStale) notices.Add(side.Reading.Why ?? $"{side.Name} has not reported lately.");
             // One notice a source, however many problems its scanner listed (a session folder of a thousand damaged
             // records is one thing to fix): the first problem's words, and how many more there are (round 1).
-            foreach (var source in doc.Problems.GroupBy(p => p.Source, StringComparer.Ordinal))
+            // Each editor whose windows are not all placed is its own notice, with its count and how to place them, never
+            // folded into "and N more" behind another problem (D03 T02 §5).
+            foreach (var editor in doc.Problems.Where(p => p.Source == "editor-coverage"))
+                notices.Add($"{side.Name}: {editor.Why}");
+            foreach (var source in doc.Problems.Where(p => p.Source != "editor-coverage").GroupBy(p => p.Source, StringComparer.Ordinal))
             {
                 var more = source.Count() - 1;
                 var also = more == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $" (and {more:N0} more)");

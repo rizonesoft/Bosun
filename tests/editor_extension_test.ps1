@@ -63,6 +63,79 @@ try {
     Set-Content -LiteralPath $gone -Value "@echo off`r`nif ""%1""==""--list-extensions"" exit /b 0`r`necho not installed`r`nexit /b 1" -Encoding ascii
     $said = & pwsh -NoProfile -File (Join-Path $repo 'scripts\install-editor-extension.ps1') -Uninstall -Cli $gone 2>&1
     Check "an uninstall from an editor that lists none is done ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and ($said -join "`n") -match 'bosun\.bosun-windows removed') ($said | Out-String)
+
+    # D03 T02 §5: each editor's own profile registry. A stand-in editor is an install folder holding product.json (its
+    # nameShort names its data folder) and a CLI that keeps what is installed, per profile, as files, and logs each call.
+    $appData = Join-Path $work 'appdata'
+    function New-Editor([string]$name, [string]$nameShort, $profiles) {
+        $install = Join-Path $work $name
+        New-Item -ItemType Directory -Force -Path (Join-Path $install 'bin'), (Join-Path $install 'state') | Out-Null
+        @{ nameShort = $nameShort } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $install 'bin\product.json')
+        $state = Join-Path $install 'state'
+        # %1 the verb; the profile is %5 for an install (after --force), %4 for an uninstall, %3 for a listing. "lie" in state\mode makes an
+        # install exit 0 without installing.
+        $cli = Join-Path $install 'bin\code.cmd'
+        Set-Content -LiteralPath $cli -Encoding ascii -Value (@(
+            '@echo off'
+            "set S=$state"
+            'echo %*>>"%S%\calls.log"'
+            'set P=default'
+            'if "%1"=="--list-extensions" if not "%3"=="" set P=%3'
+            'if "%1"=="--uninstall-extension" if not "%4"=="" set P=%4'
+            'if "%1"=="--install-extension" if not "%5"=="" set P=%5'
+            'if "%1"=="--list-extensions" ( if exist "%S%\%P%" echo bosun.bosun-windows'
+            '  exit /b 0 )'
+            'if "%1"=="--install-extension" ( if exist "%S%\mode-lie" exit /b 0'
+            '  type nul > "%S%\%P%"'
+            '  exit /b 0 )'
+            'if "%1"=="--uninstall-extension" ( if not exist "%S%\%P%" exit /b 1'
+            '  del "%S%\%P%"'
+            '  exit /b 0 )'
+            'exit /b 9'
+        ) -join "`r`n")
+        if ($null -ne $profiles) {
+            $folder = Join-Path $appData "$nameShort\User\globalStorage"
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            if ($profiles -is [string]) { Set-Content -LiteralPath (Join-Path $folder 'storage.json') -Value $profiles }
+            else { @{ userDataProfiles = @($profiles) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $folder 'storage.json') }
+        }
+        [pscustomobject]@{ Cli = $cli; State = $state }
+    }
+    function Installed($editor) { @(Get-ChildItem -LiteralPath $editor.State -File | Where-Object Name -notin 'calls.log', 'mode-lie' | ForEach-Object Name | Sort-Object) -join ',' }
+    function Run-Installer([string[]]$extra) {
+        $before = $env:APPDATA
+        $env:APPDATA = $appData
+        try { & pwsh -NoProfile -File (Join-Path $repo 'scripts\install-editor-extension.ps1') -OutFile $vsix @extra 2>&1 } finally { $env:APPDATA = $before }
+    }
+    $stable = New-Editor 'stable' 'StandinCode' @(
+        @{ name = 'Work'; location = 'w1' },
+        @{ name = 'Agents'; location = 'builtin/agents'; useDefaultFlags = @{ extensions = $true } })
+    $insiders = New-Editor 'insiders' 'StandinCode - Insiders' @(
+        @{ name = 'Night'; location = 'n1'; useDefaultFlags = @{ settings = $true } },
+        @{ name = 'Shared'; location = 's1'; useDefaultFlags = @{ extensions = $true } })
+    $said = Run-Installer @('-Cli', "$($stable.Cli);$($insiders.Cli)")
+    Check "two editors' defaults and independent profiles are installed, never an inheriting one ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $stable) -eq 'default,Work' -and (Installed $insiders) -eq 'default,Night') "$(Installed $stable) / $(Installed $insiders)`n$($said | Out-String)"
+    Check 'an inheriting profile is said to be covered by the default' (($said -join "`n") -match 'profile Agents\): uses the default profile''s extensions' -and ($said -join "`n") -match 'profile Shared\): uses the default')
+    $said = Run-Installer @('-Uninstall', '-Cli', "$($stable.Cli);$($insiders.Cli)")
+    Check "and uninstalled from each the same way ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $stable) -eq '' -and (Installed $insiders) -eq '') ($said | Out-String)
+
+    # No registry: a fresh editor is its default profile alone. A malformed one installs the default, says the rest
+    # can't be read, and exits 1.
+    $fresh = New-Editor 'fresh' 'StandinFresh' $null
+    $said = Run-Installer @('-Cli', $fresh.Cli)
+    Check "an editor with no profile registry is its default profile alone ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $fresh) -eq 'default') ($said | Out-String)
+    $damaged = New-Editor 'damaged' 'StandinDamaged' '{"userDataProfiles": ['
+    $said = Run-Installer @('-Cli', $damaged.Cli)
+    Check "a registry that can't be read installs the default, says so, and exits 1 ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $damaged) -eq 'default' -and ($said -join "`n") -match 'could not be read.*other profiles are not covered') ($said | Out-String)
+
+    # A CLI that says it installed while its listing disagrees is not done; a second run completes what the first left.
+    $liar = New-Editor 'liar' 'StandinLiar' @(@{ name = 'Work'; location = 'w1' })
+    Set-Content -LiteralPath (Join-Path $liar.State 'mode-lie') -Value 'x'
+    $said = Run-Installer @('-Cli', "$($liar.Cli);$($fresh.Cli)")
+    Check "an install its listing doesn't show is not done, and the other editor still is ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $liar) -eq '' -and ($said -join "`n") -match 'could not install bosun\.bosun-windows \(exit 0\)' -and ($said -join "`n") -match 'run this again') ($said | Out-String)
+    Remove-Item -LiteralPath (Join-Path $liar.State 'mode-lie')
+    $said = Run-Installer @('-Cli', $liar.Cli)
+    Check "a second run completes it ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $liar) -eq 'default,Work') ($said | Out-String)
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }

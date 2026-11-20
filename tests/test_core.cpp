@@ -859,6 +859,10 @@ static void editor_windows() {
     auto viaDollar = dm::editor_root("file://wsl%24/Debian/srv", why);
     CHECK(viaDollar && viaDollar->location == "wsl" && viaDollar->distro == std::optional<std::string>("Debian") && viaDollar->path == "/srv");
     CHECK(!dm::editor_root("file://wsl.localhost/a%20b/x", why));  // no distro is named so
+    // An editor's windows are its renderers started with a window's configuration; helper renderers are not (D03 T02 §5).
+    CHECK(dm::is_editor_window("\"Code.exe\" --type=renderer --vscode-window-config=vscode:7ba3 --lang=en"));
+    CHECK(!dm::is_editor_window("\"Code.exe\" --type=renderer --lang=en"));
+    CHECK(!dm::is_editor_window("\"Code.exe\" --type=utility --vscode-window-config=vscode:x"));
     // VS Code Insiders is an editor too, placed by the same records.
     CHECK(dm::instance_kind("Code - Insiders.exe") == "code");
     // A generated workspace of hundreds of roots reads whole.

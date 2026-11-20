@@ -1783,6 +1783,12 @@ inline bool editor_window_live(const EditorWindow& w, const std::map<int64_t, co
     return started && started->size() >= 19 && started->compare(0, 19, w.written_utc, 0, 19) <= 0;
 }
 
+// Whether a process of an editor is one of its windows (D03 T02 §5, read on VS Code 1.147): a renderer started with
+// the window's configuration. Other renderers (helpers) are not windows.
+inline bool is_editor_window(const std::string& command_line) {
+    return command_line.find("--type=renderer") != std::string::npos && command_line.find("--vscode-window-config=") != std::string::npos;
+}
+
 // A root's part of a row's window identity: a hash of its URI, so removing a root from a multi-root window never
 // passes another root's identity (and a selection on the page) to the root after it (round 1). FNV-1a, 64 bits.
 inline std::string root_key(const std::string& uri) {

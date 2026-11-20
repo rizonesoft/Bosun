@@ -11,7 +11,7 @@ public sealed record InstancesDoc : ICheckedDoc
 {
     public static readonly IReadOnlySet<string> Kinds = new HashSet<string> { "claude", "codex", "agy", "code", "antigravity", "job" };
     public static readonly IReadOnlySet<string> States = new HashSet<string> { "working", "reviewing", "idle", "unknown" };
-    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records", "editor-windows" };
+    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records", "editor-windows", "editor-coverage" };
 
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("side")] public required string Side { get; init; }
