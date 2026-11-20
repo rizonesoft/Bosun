@@ -74,6 +74,8 @@ Bosun's rule is that it depends on no other repository. The overlay is Bosun's o
 
 ## 2. Overlay clone in setup and pull after merge
 
+> **Started:** 2026-11-20T18:27:26Z
+
 The owner should never have to remember the overlay exists: a fresh clone gets it when the account can see it, and every pull of the public repository that merges or fast-forwards pulls it too (an already up to date pull, or a pull that rebases, runs no `post-merge` hook: `scripts/sync.ps1` in `D00 T05 §3` updates both in those cases). A stranger's clone sees neither step fail. **Corrected 2026-11-20:** plan review gap 1, "every pull" promised more than `post-merge` delivers.
 
 **Phase:** 0
