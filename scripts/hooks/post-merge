@@ -11,22 +11,25 @@ overlay="$root/.private"
 
 say() { echo "overlay: $*"; }
 
-# The overlay is a clone with its own .git folder. A linked worktree or a submodule has a .git file instead, and shares
-# its config (the mark included) with another checkout: never pulled.
+# The one rule for what counts as the overlay's own clone, as in scripts/setup-clone.ps1: .private and its .git are
+# real folders at their own paths (no link, junction, or .git file of a linked worktree or submodule). Anything else may
+# belong to another checkout: not pulled. (Setup also asks git for the clone's git folder; here the paths decide.)
+here=$(cd "$root" 2>/dev/null && pwd -P)
 if [ ! -d "$overlay/.git" ]; then
-    say "not pulled: .private is a linked worktree or submodule, not the overlay's own clone"
+    say "not pulled: .private is a linked worktree or submodule, not a clone of its own"
     exit 0
 fi
-
-# A link (a junction or symbolic link) leads to a folder another checkout may own: never followed.
-if [ -h "$overlay" ] || [ "$(cd "$overlay" 2>/dev/null && pwd -P)" != "$(cd "$root" 2>/dev/null && pwd -P)/.private" ]; then
-    say "not pulled: .private is a link to another folder, not the overlay"
+if [ -h "$overlay" ] || [ -h "$overlay/.git" ] ||
+    [ "$(cd "$overlay" 2>/dev/null && pwd -P)" != "$here/.private" ] ||
+    [ "$(cd "$overlay/.git" 2>/dev/null && pwd -P)" != "$here/.private/.git" ]; then
+    say "not pulled: .private, or its .git, is a link to another folder"
     exit 0
 fi
 
 # Git gives a hook the public repository's own variables, and `git -C` does not override them: without this, the
 # commands below would read and pull the public repository instead of the overlay.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+
 
 # The mark is read from .private's own config only, never a user or system one that would mark every checkout.
 if [ "$(git -C "$overlay" config --local --get bosun.overlay 2>/dev/null)" != "true" ]; then
@@ -46,12 +49,14 @@ fi
 if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
     # A clone of the overlay while it was still empty has no commit and no upstream. Once its first commit is
     # pushed, the branch is taken from origin and tracked from then on.
-    branch=$(git -C "$overlay" symbolic-ref --quiet --short HEAD 2>/dev/null)
-    if [ -n "$branch" ] && ! git -C "$overlay" rev-parse --verify --quiet HEAD >/dev/null 2>&1 &&
+    # The branch is the remote's default (its HEAD), whatever name the empty clone's unborn branch was given.
+    if ! git -C "$overlay" rev-parse --verify --quiet HEAD >/dev/null 2>&1 &&
         git -C "$overlay" fetch --quiet origin >/dev/null 2>&1 &&
-        git -C "$overlay" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null 2>&1; then
-        if git -C "$overlay" merge --ff-only --no-overwrite-ignore --quiet "refs/remotes/origin/$branch" >/dev/null 2>&1 &&
-            git -C "$overlay" branch --quiet --set-upstream-to="origin/$branch" >/dev/null 2>&1; then
+        git -C "$overlay" remote set-head origin --auto >/dev/null 2>&1 &&
+        branch=$(git -C "$overlay" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) &&
+        [ -n "$branch" ]; then
+        branch=${branch#origin/}
+        if git -C "$overlay" checkout --quiet --no-overwrite-ignore --track "origin/$branch" >/dev/null 2>&1; then
             say "updated to $(git -C "$overlay" rev-parse --short HEAD 2>/dev/null), its first commit"
         else
             say "not pulled: .private could not take its first commit; see: git -C .private status"

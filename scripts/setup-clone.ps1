@@ -121,15 +121,28 @@ if (-not $source) {
   Stop-Setup 'BOSUN_OVERLAY_REPO is not a supported overlay source: use owner/name, an absolute path to a repository, an https:// URL without user information, an ssh:// URL or git@host:path'
 }
 
+# The one rule for what counts as the overlay's own clone, here and in scripts/hooks/post-merge: .private and its .git
+# are real folders at their own paths (no link, junction, or .git file of a linked worktree or submodule), and git
+# reports that .git as both the clone's git folder and its common one. Anything else may belong to another checkout,
+# whose config would take the mark: it is never marked or pulled.
+function Get-OverlayCloneFault([string]$folder) {
+  foreach ($path in $folder, (Join-Path $folder '.git')) {
+    $entry = Get-Item -LiteralPath $path -Force -ErrorAction Ignore
+    if (-not $entry) { return '.private is a folder that is not a git checkout' }
+    if ($entry.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return "$(if ($path -eq $folder) { '.private' } else { '.private/.git' }) is a link to another folder" }
+    if (-not $entry.PSIsContainer) { return "$(if ($path -eq $folder) { '.private is a file' } else { '.private is a linked worktree or submodule' }), not a clone of its own" }
+  }
+  $own = [IO.Path]::GetFullPath((Join-Path $folder '.git')).TrimEnd('\', '/')
+  foreach ($ask in '--absolute-git-dir', '--git-common-dir') {
+    $said = "$(git -C $folder rev-parse --path-format=absolute $ask 2>$null)"
+    if ($LASTEXITCODE -or -not $said -or [IO.Path]::GetFullPath($said).TrimEnd('\', '/') -ne $own) { return '.private is not a git clone of its own' }
+  }
+  $null
+}
 $item = Get-Item -LiteralPath $private -Force -ErrorAction Ignore
-# A link (a junction or symbolic link) leads out of the checkout, to a folder another checkout may own: never followed.
-if ($item -and $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { Skip-Overlay '.private is a link to another folder, not the overlay; it was left as it is' }
-elseif (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
-elseif (Test-Path -LiteralPath $private -PathType Container) {
-  if (-not (Test-Path -LiteralPath (Join-Path $private '.git'))) { Skip-Overlay '.private is a folder that is not a git checkout; it was left as it is' }
-  # A linked worktree or a submodule has a .git file and shares its config with another checkout, so marking it would
-  # mark that checkout too.
-  elseif (-not (Test-Path -LiteralPath (Join-Path $private '.git') -PathType Container)) { Skip-Overlay '.private is a linked worktree or submodule, not a clone of its own; it was left as it is' }
+if ($item) {
+  $fault = Get-OverlayCloneFault $private
+  if ($fault) { Skip-Overlay "$fault; it was left as it is" }
   elseif ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
   elseif (Test-OverlayOrigin (Get-OverlayOrigin $private) $source) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null
@@ -152,13 +165,16 @@ elseif (Test-Path -LiteralPath $private -PathType Container) {
   if ($ready) {
     # Cloned beside the checkout's own git data first, and moved to .private only once it is checked and marked, so
     # a failed or interrupted clone is never taken for the overlay and a retry starts clean.
-    $gitDir = "$(git -C $Repo rev-parse --absolute-git-dir 2>$null)"
-    if ($LASTEXITCODE -or -not $gitDir) { Stop-Setup 'the checkout''s git folder could not be found for the overlay clone' }
-    $partial = Join-Path $gitDir ('bosun-overlay-clone-' + [guid]::NewGuid().ToString('N'))
+    # Staged in the checkout itself (ignored, as .private-clone-*), so the move to .private is a rename on one volume
+    # whatever folder holds the checkout's git data.
+    foreach ($left in @(Get-ChildItem -LiteralPath $Repo -Directory -Force -Filter '.private-clone-*' -ErrorAction Ignore)) {
+      "overlay: $($left.Name) is left from a clone that was cut off; delete it when no setup is running"
+    }
+    $partial = Join-Path $Repo ('.private-clone-' + [guid]::NewGuid().ToString('N'))
     try {
       "overlay: cloning $(if ($source.Kind -eq 'github') { $source.Value } else { 'the source in BOSUN_OVERLAY_REPO' }) into .private"
       $said = if ($source.Kind -eq 'github') { gh repo clone $source.Value $partial -- --quiet 2>&1 } else { git clone --quiet -- $source.Value $partial 2>&1 }
-      if ($LASTEXITCODE -or -not (Test-Path -LiteralPath (Join-Path $partial '.git'))) {
+      if ($LASTEXITCODE -or -not (Test-Path -LiteralPath (Join-Path $partial '.git') -PathType Container)) {
         # A clone's own message can name a URL with a credential in it, so it is shown only for owner/name sources.
         $why = if ($source.Kind -eq 'github') { " ($((@($said) | Select-Object -Last 1 | Out-String).Trim()))" } else { '' }
         Stop-Setup "the overlay could not be cloned$why; nothing was left in .private, so running this again starts clean"
@@ -172,7 +188,8 @@ elseif (Test-Path -LiteralPath $private -PathType Container) {
     } finally {
       if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
     }
-    if (-not (Test-OverlayOrigin (Get-OverlayOrigin $private) $source)) { Stop-Setup '.private does not read back as the overlay after the clone' }
+    $fault = Get-OverlayCloneFault $private
+    if ($fault -or -not (Test-OverlayOrigin (Get-OverlayOrigin $private) $source)) { Stop-Setup '.private does not read back as the overlay after the clone' }
     'overlay: cloned into .private and marked; every pull of this checkout that merges now pulls it too'
     "overlay: to remove it, check 'git -C .private status' and 'git -C .private log --branches --not --remotes' for edits and commits not pushed yet, then delete .private; the checkout works without it, and running this script again brings it back"
   }

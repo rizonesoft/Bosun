@@ -32,7 +32,7 @@ if ($args[0] -eq 'repo' -and $args[1] -eq 'view') { exit ([int]($mode -eq 'refus
 if ($args[0] -eq 'repo' -and $args[1] -eq 'clone') {
   if ($mode -eq 'clone-fails') { 'fatal: the transfer was cut off'; exit 1 }
   # Another run finishing first: .private appears in the checkout while this clone is still being made.
-  if ($mode -eq 'race') { $won = Join-Path (Split-Path (Split-Path $args[3])) '.private'; New-Item -ItemType Directory -Path $won | Out-Null; Set-Content -LiteralPath (Join-Path $won 'first.txt') -Value 'the first run' }
+  if ($mode -eq 'race') { $won = Join-Path (Split-Path $args[3]) '.private'; New-Item -ItemType Directory -Path $won | Out-Null; Set-Content -LiteralPath (Join-Path $won 'first.txt') -Value 'the first run' }
   git clone --quiet -- $env:FAKE_GH_REMOTE $args[3] 2>&1 | Out-Null
   if ($LASTEXITCODE) { exit 1 }
   git -C $args[3] remote set-url origin "https://github.com/$($args[2]).git"
@@ -58,7 +58,7 @@ function Invoke-Setup([string]$repo, [string]$from = $work, [switch]$WithGh) {
   } finally { $env:PATH = $bare; Pop-Location }
 }
 function Get-Head([string]$folder) { "$(git -C $folder rev-parse HEAD 2>$null)" }
-function Get-Partials([string]$clone) { @(Get-ChildItem -LiteralPath (Join-Path $clone '.git') -Filter 'bosun-overlay-clone-*' -Force) }
+function Get-Partials([string]$clone) { @(Get-ChildItem -LiteralPath $clone -Filter '.private-clone-*' -Force) }
 $seedCount = 0
 # A bare remote holding one commit, made from a seed checkout.
 function New-Remote([string]$name, [scriptblock]$Fill) {
@@ -88,7 +88,8 @@ $hookFill = {
   New-Item -ItemType Directory -Path (Join-Path $seed 'scripts\hooks') | Out-Null
   Set-Content -LiteralPath (Join-Path $seed 'scripts\hooks\pre-commit') -Value "#!/bin/sh`nexit 0"
   Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\hooks\post-merge') -Destination (Join-Path $seed 'scripts\hooks\post-merge')
-  Set-Content -LiteralPath (Join-Path $seed '.gitignore') -Value '.private/'
+  Set-Content -LiteralPath (Join-Path $seed '.gitignore') -Value ".private/
+.private-clone-*/"
   Set-Content -LiteralPath (Join-Path $seed 'README.md') -Value 'public'
   git -C $seed add -A
   git -C $seed update-index --add --chmod=+x scripts/hooks/pre-commit scripts/hooks/post-merge
@@ -356,6 +357,47 @@ try {
   $null = Add-Commit $public 'public-worktree.txt'
   $out = Invoke-Pull $treed
   Check 'and the hook does not pull it, even marked through its main checkout' ($out -match 'linked worktree') "($out)"
+  # --- an empty overlay whose first commit lands on a branch of another name ---
+  $renamedRemote = Join-Path $work 'renamed.git'
+  git init -q --bare $renamedRemote
+  $renamed = New-Clone 'renamed-branch'
+  $env:BOSUN_OVERLAY_REPO = $renamedRemote
+  $null = Invoke-Setup $renamed
+  $renamedPusher = Join-Path $work 'renamed-pusher'
+  git init -q -b trunk $renamedPusher
+  Set-Content -LiteralPath (Join-Path $renamedPusher 'first.txt') -Value 'first'
+  git -C $renamedPusher add -A; git -C $renamedPusher commit -q -m first
+  git -C $renamedPusher push -q $renamedRemote trunk 2>$null
+  git --git-dir=$renamedRemote symbolic-ref HEAD refs/heads/trunk
+  $null = Add-Commit $public 'public-renamed.txt'
+  $out = Invoke-Pull $renamed
+  $renamedPrivate = Join-Path $renamed '.private'
+  Check 'an empty overlay takes its first commit from the remote default branch, whatever its name' ((Get-Head $renamedPrivate) -eq (Get-Head $renamedPusher) -and "$(git -C $renamedPrivate symbolic-ref --short HEAD)" -eq 'trunk' -and $out -match 'its first commit') "($out)"
+
+  # --- a checkout whose git data lives in another folder ---
+  $sepGit = Join-Path ([IO.Path]::GetTempPath()) ('bosun-overlay-sep-' + [guid]::NewGuid().ToString('N'))
+  $separate = Join-Path $work 'separate-git-dir'
+  try {
+    git clone -q --separate-git-dir=$sepGit $public $separate 2>$null
+    $env:BOSUN_OVERLAY_REPO = $overlayRemote
+    $r = Invoke-Setup $separate
+    Check 'a checkout with a separate git folder gets the overlay, staged beside it' ($r.Exit -eq 0 -and "$(git -C (Join-Path $separate '.private') config --local --get bosun.overlay)" -eq 'true' -and -not @(Get-ChildItem -LiteralPath $separate -Force -Filter '.private-clone-*').Count) "(exit $($r.Exit): $($r.Text))"
+  } finally { Remove-Item -LiteralPath $sepGit -Recurse -Force -ErrorAction Ignore }
+
+  # --- a .git that is a junction to another clone's git data ---
+  $donor = Join-Path $work 'git-junction-donor'
+  git clone -q $overlayRemote $donor 2>$null
+  $gitLinked = New-Clone 'git-junction'
+  New-Item -ItemType Directory -Path (Join-Path $gitLinked '.private') | Out-Null
+  New-Item -ItemType Junction -Path (Join-Path $gitLinked '.private\.git') -Target (Join-Path $donor '.git') | Out-Null
+  $r = Invoke-Setup $gitLinked
+  Check 'a .private/.git junction is left alone, and its target not marked' ($r.Exit -eq 0 -and $r.Text -match '\.private/\.git is a link' -and -not "$(git -C $donor config --local --get bosun.overlay)") "(exit $($r.Exit): $($r.Text))"
+  git -C $donor config --local bosun.overlay true
+  git -C $gitLinked config core.hooksPath scripts/hooks
+  $null = Add-Commit $public 'public-git-junction.txt'
+  $out = Invoke-Pull $gitLinked
+  Check 'and the hook does not pull through it' ($out -match 'is a link to another folder') "($out)"
+  (Get-Item -LiteralPath (Join-Path $gitLinked '.private\.git')).Delete()
   # --- the hook never follows a junction to another checkout's overlay ---
   $hopper = New-Clone 'hook-junction'
   $targetPrivate = Join-Path $direct '.private'
