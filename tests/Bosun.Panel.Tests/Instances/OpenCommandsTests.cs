@@ -90,6 +90,9 @@ public class OpenCommandsTests
         Assert.True(DriveMounts.IsValid(new DriveMount { Mount = "/tmp/bosun\tmount", Windows = @"C:\" }));
         Opens(new DriveMounts([new() { Mount = "/tmp/bosun\tmount", Windows = @"C:\" }]), "/tmp/bosun\tmount/app", @"C:\app");
         Assert.False(DriveMounts.IsValid(new DriveMount { Mount = "/tmp/a\0b", Windows = @"C:\" }));
+        // Round 15: U+0085 is legal in a Windows folder's name; the characters 1 to 31 are not.
+        Assert.True(DriveMounts.IsValid(new DriveMount { Mount = "/work", Windows = "C:\\A\u0085B" }));
+        Assert.False(DriveMounts.IsValid(new DriveMount { Mount = "/work", Windows = "C:\\A\u0001B" }));
         Assert.Null(OpenCommands.MountedDrive("/mnt/c/app", null));
     }
 

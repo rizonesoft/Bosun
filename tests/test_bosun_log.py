@@ -1512,7 +1512,7 @@ class ThrottleReviewRound4(ThrottleCase):
 class InstallScript(unittest.TestCase):
     """wsl/install.sh run against a temporary HOME and a stand-in systemctl: the unit it writes names the distro."""
 
-    def run_install(self, **env):
+    def run_install(self, logs="/mnt/c/logs", **env):
         home = tempfile.mkdtemp(prefix="bosun-install-")
         self.addCleanup(shutil.rmtree, home, True)
         fake = os.path.join(home, "fakebin")
@@ -1522,7 +1522,7 @@ class InstallScript(unittest.TestCase):
         os.chmod(os.path.join(fake, "systemctl"), 0o755)
         environ = {k: v for k, v in os.environ.items() if k != "WSL_DISTRO_NAME"}
         environ.update(HOME=home, PATH=fake + os.pathsep + os.environ["PATH"], **env)
-        done = subprocess.run(["bash", os.path.join(os.path.dirname(__file__), "..", "wsl", "install.sh"), "/mnt/c/bosun.exe", "/mnt/c/logs"],
+        done = subprocess.run(["bash", os.path.join(os.path.dirname(__file__), "..", "wsl", "install.sh"), "/mnt/c/bosun.exe", logs],
                               env=environ, capture_output=True, text=True, timeout=60)
         unit = os.path.join(home, ".config", "systemd", "user", "bosun-log.service")
         if not os.path.exists(unit):
@@ -1534,6 +1534,12 @@ class InstallScript(unittest.TestCase):
         done, unit = self.run_install(WSL_DISTRO_NAME="Ubuntu-24.04")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("Environment=BOSUN_DISTRO=Ubuntu-24.04\n", unit)
+
+    def test_a_log_path_holding_a_percent_reaches_the_service_as_it_is(self):
+        # Round 15 of D03 T02 §6: systemd expands % specifiers even inside quotes, so each % is written doubled.
+        done, unit = self.run_install(logs="C:/Profiles/%u/AppData/Local/Bosun/logs", WSL_DISTRO_NAME="Ubuntu")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('bosun_log.py "C:/Profiles/%%u/AppData/Local/Bosun/logs"\n', unit)
 
     def test_install_fails_without_a_usable_distro_name(self):
         for env in ({}, {"WSL_DISTRO_NAME": ""}, {"WSL_DISTRO_NAME": "../evil"}, {"WSL_DISTRO_NAME": "a b"},

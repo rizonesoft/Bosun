@@ -11,6 +11,9 @@ if ! [[ "$distro" =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
   exit 1
 fi
 here="$(cd "$(dirname "$0")" && pwd)"
+# systemd reads % as a specifier anywhere in a unit, quoted or not (D03 T02 §6, round 15): a path holding one, such as a
+# profile folder named with %, is written with each % doubled, so the service is given the path as it is.
+logs_unit="${logs//%/%%}"
 
 mkdir -p "$HOME/bin" "$HOME/.config/bosun" "$HOME/.local/share/bosun" "$HOME/.config/systemd/user"
 install -m 755 "$here/bosun" "$HOME/bin/bosun"
@@ -24,7 +27,7 @@ Description=Bosun WSL memory logger
 
 [Service]
 Environment=BOSUN_DISTRO=$distro
-ExecStart=/usr/bin/python3 -I %h/.local/share/bosun/bosun_log.py "$logs"
+ExecStart=/usr/bin/python3 -I %h/.local/share/bosun/bosun_log.py "$logs_unit"
 Restart=on-failure
 RestartSec=30
 Nice=10

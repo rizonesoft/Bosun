@@ -154,10 +154,10 @@ public sealed record DriveMount
 /// </summary>
 public sealed record DriveMounts(IReadOnlyList<DriveMount> Drives)
 {
-    /// <summary>A mount a logger writes: a Linux folder of at most PATH_MAX (4,096) characters (any character but NUL, as Linux allows: a tab is a real folder name's, round 5), and a Windows folder (<c>C:\</c>, <c>C:\src</c>) or none.</summary>
+    /// <summary>A mount a logger writes: a Linux folder of at most PATH_MAX (4,096) characters (any character but NUL, as Linux allows: a tab is a real folder name's, round 5), and a Windows folder (<c>C:\</c>, <c>C:\src</c>), with none of the characters 1 to 31 Windows forbids in a name (U+0085 is a name's, round 15), or none.</summary>
     public static bool IsValid(DriveMount d) =>
         d.Mount is { Length: >= 1 and <= 4096 } m && m[0] == '/' && !m.Contains((char)0)
-        && (d.Windows is null || (d.Windows.Length is >= 3 and <= 4096 && char.IsAsciiLetterUpper(d.Windows[0]) && d.Windows[1] == ':' && d.Windows[2] == '\\' && !d.Windows.Any(char.IsControl)));
+        && (d.Windows is null || (d.Windows.Length is >= 3 and <= 4096 && char.IsAsciiLetterUpper(d.Windows[0]) && d.Windows[1] == ':' && d.Windows[2] == '\\' && !d.Windows.Any(c => c < ' ')));
 
     /// <summary>The Windows folder of a guest path (<c>C:\app</c>), or null when no drive's mount holds it.</summary>
     public string? WindowsPath(string linuxPath)
