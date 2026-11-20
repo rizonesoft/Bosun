@@ -372,6 +372,17 @@ public sealed class InstanceClientTests : IDisposable
         var none = Assert.Single(groups, g => g is { Repo: null, Unknown: false });
         Assert.Contains(none.Rows, r => r.Instance.Pid == 803);
         Assert.DoesNotContain(none.Rows, r => r.Instance.RepoWhy is not null);
+        // Round 1: a WSL job whose own lookup failed is never given its holder's repo.
+        var ubuntu = JsonNode.Parse(File.ReadAllText(Fixture("wsl-ubuntu.json")))!.AsObject();
+        var half = ubuntu["instances"]!.AsArray().First(r => r!["pid"]!.GetValue<long>() == 4321)!.AsObject();
+        half["repo"] = null;
+        half["repo_why"] = "/mnt/d/bosun/inner could not be checked for a repo: Permission denied";
+        var wsl = JsonSerializer.Deserialize(ubuntu.ToJsonString(), InstanceJson.Default.InstancesDoc)!;
+        var plain = JsonSerializer.Deserialize(File.ReadAllText(Fixture("windows.json")), InstanceJson.Default.InstancesDoc)!;
+        var joined = InstanceClient.Merge([new SideReading("windows", null, Reading<InstancesDoc>.Of(plain, Now)), new SideReading("wsl", "Ubuntu", Reading<InstancesDoc>.Of(wsl, Now))])
+            .SelectMany(g => g.Rows.Select(r => (g, r))).Single(x => x.r.Instance.Pid == 4321);
+        Assert.True(joined.g.Unknown);
+        Assert.Null(joined.r.Instance.Repo);
         // A reason beside a repo is not a row any scanner writes.
         var both = doc.DeepClone().AsObject();
         var bad = Agent(804, @"D:\x", "x");

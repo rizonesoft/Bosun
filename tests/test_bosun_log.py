@@ -463,6 +463,13 @@ class Instances(unittest.TestCase):
         self.assertEqual((rows[30]["repo"], rows[30]["repo_why"]), (None, None))
         text = dl.instances_text({"instances": list(rows.values()), "problems": [], "unreadable": 0})
         self.assertIn("claude 10 (repo unknown: ", text)
+        # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
+        inner = os.path.join(outer, "inner")
+        os.makedirs(os.path.join(inner, "work"))
+        os.symlink(os.path.join(self.root, "unmounted", "meta"), os.path.join(inner, ".git"))
+        repo, why = dl.repo_answer(os.path.join(inner, "work"), {})
+        self.assertEqual(repo, "")
+        self.assertIn("inner could not be checked for a repo: its .git is a link to", why)
         self.assertIn("codex 30 (no repo)", text)
 
     def test_state_from_session_records_and_review_marks(self):

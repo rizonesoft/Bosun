@@ -213,6 +213,15 @@ try {
     Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like '*shut could not be checked for a repo: *' -and (Same-Path $agentRow.cwd $shutWork)) "an agent whose repo can't be told says why on its row, its folder kept ($($agentRow.repo_why))"
     $editorRow = @($doc.instances | Where-Object { $_.pid -eq $deniedEditor.Id })[0]
     Check ($editorRow -and $null -eq $editorRow.repo -and $editorRow.repo_why -like '*shut could not be checked for a repo: *') 'an editor window there says the same, never the checkout above it'
+    # Round 1: a .git that is a junction pointing nowhere is a failure too, never "no repo", so the checkout above is not taken.
+    $dangling = Join-Path $outer 'dangling'
+    New-Item -ItemType Directory -Path (Join-Path $dangling 'work'), (Join-Path $work 'gone-target') | Out-Null
+    & cmd.exe /d /c "mklink /J `"$(Join-Path $dangling '.git')`" `"$(Join-Path $work 'gone-target')`"" | Out-Null
+    Remove-Item -LiteralPath (Join-Path $work 'gone-target')
+    $danglingAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'g.txt')) 60000" (Join-Path $dangling 'work')
+    $null = Wait-Until { Row (Scan) $danglingAgent.Id }
+    $danglingRow = Row (Scan) $danglingAgent.Id
+    Check ($danglingRow -and $null -eq $danglingRow.repo -and $danglingRow.repo_why -like '*dangling could not be checked for a repo: its .git is a link to*') "a .git junction pointing nowhere is a failure, not the checkout above ($($danglingRow.repo), $($danglingRow.repo_why))"
     $again = Row (Scan) $deniedAgent.Id
     Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer'
     $looseRow = Row $doc $codexLoose.Id
@@ -263,6 +272,14 @@ try {
       Check ($row.repo_why -like "*Fake was not seen running (wsl.exe: 'the service failed', exit 5)") 'a failing wsl.exe is the row''s reason too'
       $row = Answer 'not a list at all' 0
       Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'output that names no distro allows no lookup'
+      # Round 1: a distro's name beside anything else, or with a failing exit, allows no lookup either.
+      $row = Answer "Fake`nthe service failed`n" 5
+      Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'a name beside a failure allows no lookup'
+      $row = Answer "Fake`nthe service failed`n" 0
+      Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'nor a name beside a line that is not one, even with exit 0'
+      # And its words are cut on a character, never inside one, so the document stays UTF-8.
+      $row = Answer (('a' * 199) + 'é failed') 1
+      Check ($row -and $row.repo_why -like '*aaa...*' -and $row.repo_why -notmatch [char]0xFFFD) "a long answer is cut whole ($($row.repo_why.Length) characters)"
     } finally {
       Remove-Item Env:BOSUN_WSL_EXE, Env:BOSUN_WSL_SHARE, Env:BOSUN_FAKE_SCRIPT -ErrorAction Ignore
     }

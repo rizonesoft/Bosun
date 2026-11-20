@@ -973,16 +973,27 @@ std::wstring process_cwd(ULONG_PTR pid) {
     return result;
 }
 
+// One `.git` entry: there, not there, or why it can't be told. An entry that is itself a link counts as there only when
+// its target is (round 1 of D03 T02 §7): a link pointing nowhere is a failure, never "no repo here".
+dm::GitProbe git_probe_at(const fs::path& git) {
+    std::error_code ec;
+    auto own = fs::symlink_status(git, ec);
+    if (ec && ec != std::errc::no_such_file_or_directory) return {false, ec.message()};
+    if (ec || own.type() == fs::file_type::not_found) return {};
+    // A junction is a link too (any user can make one), and the standard library names it apart from a symlink.
+    if (own.type() != fs::file_type::symlink && own.type() != fs::file_type::junction) return {true, std::nullopt};
+    auto target = fs::status(git, ec);
+    if (ec || target.type() == fs::file_type::not_found) return {false, "its .git is a link to " + (ec ? ec.message() : std::string("nothing there"))};
+    return {true, std::nullopt};
+}
+
 // A `.git` probe on Windows: there, not there, or the error (D03 T02 §7). A share's folders start at //server/share, and
 // nothing above it can hold a repo (D03 T02 §4, round 1).
 dm::GitProbe windows_git_probe(const std::string& d) {
     if (d.rfind("//", 0) == 0 && std::count(d.begin() + 2, d.end(), '/') < 1) return {};
     if (!d.empty() && d[0] == '/' && d.rfind("//", 0) != 0) return {};  // what is left above a share: no folder
-    std::error_code ec;
     std::u8string utf8(reinterpret_cast<const char8_t*>(d.data()), d.size());
-    bool there = fs::exists(fs::path(utf8) / u8".git", ec);
-    if (ec) return {false, ec.message()};  // not there is no error; anything else (denied, a share refusing) is
-    return {there, std::nullopt};
+    return git_probe_at(fs::path(utf8) / u8".git");
 }
 
 // A folder's repo, found, absent or not told with why (D03 T02 §7), cached by folder for the scan.
@@ -1013,10 +1024,10 @@ std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstrin
     return cache[dir] = repo_answer_for_dir(dir, answers).repo.value_or("");
 }
 
-// Repo lookups within one scan's time (D03 T02 §4, round 1): a folder on a fixed local drive is looked up at once; one
-// on a network, removable or shared drive is looked up on a thread of its own, waited for only until the scan's
-// deadline, so a share that stopped answering (a VPN gone) costs that folder its repo, never the whole scan. A lookup
-// still waiting is left to end with the process, and the folder is named in `late`.
+// Repo lookups within one scan's time (D03 T02 §4, round 1): every folder is looked up on a thread of its own, waited
+// for only until the scan's deadline (D03 T02 §7, round 1: a fixed drive's too, since a link can lead onto a share), so a
+// share that stopped answering (a VPN gone) costs that folder its repo, never the whole scan. A lookup still waiting is
+// left to end with the process, and the folder is named in `late`.
 struct RepoLookup {
     std::unordered_map<std::wstring, dm::RepoAnswer> cache;
     std::chrono::steady_clock::time_point deadline;
@@ -1051,13 +1062,8 @@ dm::RepoAnswer lookup_bounded(const std::wstring& key, RepoLookup& look, std::fu
 dm::RepoAnswer repo_bounded(const std::wstring& dir, RepoLookup& look) {
     auto it = look.cache.find(dir);
     if (it != look.cache.end()) return it->second;
-    bool local = false;
-    if (dir.size() >= 2 && dir[1] == L':') {
-        wchar_t root[] = {dir[0], L':', L'\\', 0};
-        UINT type = GetDriveTypeW(root);
-        local = type == DRIVE_FIXED || type == DRIVE_RAMDISK;
-    }
-    if (local) return repo_answer_for_dir(dir, look.cache);
+    // Every folder on a thread of its own, a fixed drive's too (round 1 of D03 T02 §7): a link on it can lead onto a share
+    // that has stopped answering, and the scan's deadline must hold for that as for a network drive.
     return lookup_bounded(dir, look, [dir] {
         std::unordered_map<std::wstring, dm::RepoAnswer> own;
         return repo_answer_for_dir(dir, own);
@@ -1385,13 +1391,31 @@ std::optional<std::set<std::string>> wsl_running_distros(std::string& why, std::
             name.push_back(c);
         }
     }
+    // Only a clean list allows a share to be read (round 1): wsl.exe ended well, and every line it wrote is a distro's name.
+    bool clean = code == 0;
+    {
+        std::wstring row;
+        for (wchar_t c : text + L"\n") {
+            if (c == L'\r' || c == L'\n') {
+                if (!row.empty() && !dm::distro_name_ok(narrow(row))) clean = false;
+                row.clear();
+            } else if (c != 0xFEFF) {
+                row.push_back(c);
+            }
+        }
+    }
+    if (!clean) out.clear();
     if (out.empty()) {
         // Nothing named: what it said, and how it ended, for the rows that are not looked up (D03 T02 §7).
         std::string words = narrow(text);
         words.erase(std::remove(words.begin(), words.end(), '\r'), words.end());
         std::replace(words.begin(), words.end(), '\n', ' ');
         while (!words.empty() && words.back() == ' ') words.pop_back();
-        if (words.size() > 200) words = words.substr(0, 200) + "...";
+        if (words.size() > 200) {
+            size_t cut = 200;
+            while (cut > 0 && (static_cast<unsigned char>(words[cut]) & 0xC0) == 0x80) --cut;  // never inside a character
+            words = words.substr(0, cut) + "...";
+        }
         said = (words.empty() ? std::string("nothing") : "'" + words + "'") + ", exit " + std::to_string(code);
     }
     return out;
@@ -1542,12 +1566,9 @@ int cmd_instances(const Options& o) {
         std::string guest_path = root.path;
         return lookup_bounded(share + widen(guest_path), lookup, [share, guest_path] {
             return dm::repo_walk(guest_path, [&](const std::string& d) -> dm::GitProbe {
-                std::error_code ec;
                 std::wstring guest = widen(d);
                 std::replace(guest.begin(), guest.end(), L'/', L'\\');
-                bool there = fs::exists(fs::path(share + guest) / L".git", ec);
-                if (ec) return {false, ec.message()};
-                return {there, std::nullopt};
+                return git_probe_at(fs::path(share + guest) / L".git");
             });
         });
     };

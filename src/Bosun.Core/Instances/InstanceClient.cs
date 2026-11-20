@@ -268,7 +268,9 @@ public sealed partial class InstanceClient : IInstanceSource
                     Command = holder.Instance.Command ?? row.Instance.Command,
                     GuestPid = holder.Instance.GuestPid,
                     StartedAt = holder.Instance.StartedAt, // its command's start, null until it has started (round 5)
-                    Repo = row.Instance.Repo ?? holder.Instance.Repo,
+                    // A job whose own lookup failed keeps that answer: the holder's repo came from a check that may have
+                    // passed over the very failure (round 1 of D03 T02 §7).
+                    Repo = row.Instance.RepoWhy is null ? row.Instance.Repo ?? holder.Instance.Repo : null,
                 },
             });
         }

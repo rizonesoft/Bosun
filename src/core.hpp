@@ -1896,6 +1896,7 @@ inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<Edi
         Instance i = launch;
         i.cwd = std::nullopt;
         i.repo = std::nullopt;
+        i.repo_why = std::nullopt;  // the launch folder's lookup is not a window's (round 1 of D03 T02 §7)
         i.window = window;
         i.location = launch.side;
         i.distro = std::nullopt;

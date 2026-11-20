@@ -966,6 +966,11 @@ static void editor_windows() {
     auto spelled = dm::editor_rows(launch, windows, [](const dm::EditorRoot&) { return dm::RepoAnswer{}; }, problems,
                                    [](const std::string& d) { return d == "ubuntu" ? std::string("Ubuntu") : d; });
     CHECK(spelled[1].distro == std::optional<std::string>("Ubuntu"));
+    // Round 1 of D03 T02 §7: the launch folder's lookup is not a window's; an empty window carries no reason of its.
+    dm::Instance failedLaunch = launch;
+    failedLaunch.repo_why = std::string("C:/x could not be checked for a repo: denied");
+    for (const auto& row : dm::editor_rows(failedLaunch, windows, [](const dm::EditorRoot&) { return dm::RepoAnswer{}; }, problems))
+        CHECK(!row.repo_why);
 }
 
 static void instances() {

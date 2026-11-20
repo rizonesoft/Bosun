@@ -48,12 +48,18 @@ def git_probe(folder):
     """True when `folder` holds `.git`, False when it does not; ProbeFailed with why when that can't be told (a folder this
     user may not enter, an I/O error): os.path.exists would call any of those "not there"."""
     try:
-        os.stat(folder + "/.git")
-        return True
+        os.lstat(folder + "/.git")
     except (FileNotFoundError, NotADirectoryError):
         return False
     except OSError as e:
         raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e
+    # The entry is there; one that is a link counts only when its target is (round 1): a link pointing nowhere is a
+    # failure, never "no repo here", so the walk does not go on to a checkout above it.
+    try:
+        os.stat(folder + "/.git")
+        return True
+    except OSError as e:
+        raise ProbeFailed(f"{folder} could not be checked for a repo: its .git is a link to {e.strerror or 'nothing there'}") from e
 
 
 def repo_answer(path, cache):
