@@ -279,9 +279,19 @@ try {
       $env:BOSUN_WSL_SHARE = $share
       $agentRow = Row (Scan) $shareAgent.Id
       Check ($agentRow -and $agentRow.repo -like '*/Fake/home/me/app' -and $null -eq $agentRow.repo_why) "a Windows agent in a running distro's share has its repo ($($agentRow.repo), $($agentRow.repo_why))"
+      # Round 5: a Windows folder whose .git is a link into the share goes through that gate too, on every link it follows.
+      $linked = Join-Path $work 'linked'
+      New-Item -ItemType Directory -Path $linked | Out-Null
+      & cmd.exe /d /c "mklink /J `"$(Join-Path $linked '.git')`" `"$(Join-Path $share 'Fake\home\me\app\.git')`"" | Out-Null
+      $linkAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'la.txt')) 60000" $linked
+      $null = Wait-Until { Row (Scan) $linkAgent.Id }
+      $linkRow = Row (Scan) $linkAgent.Id
+      Check ($linkRow -and $linkRow.repo -like '*/linked' -and $null -eq $linkRow.repo_why) "a .git linked into a running distro's share is followed ($($linkRow.repo), $($linkRow.repo_why))"
       $null = Answer 'There are no running distributions.' 1
       $agentRow = Row (Scan) $shareAgent.Id
       Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like 'its repo is not looked up: Fake was not seen running*') "nor is it probed when its distro is not seen running ($($agentRow.repo_why))"
+      $linkRow = Row (Scan) $linkAgent.Id
+      Check ($linkRow -and $null -eq $linkRow.repo -and $linkRow.repo_why -like '*/linked could not be checked for a repo: it leads into a distro''s share, and Fake was not seen running*') "nor followed while its distro is not seen running ($($linkRow.repo_why))"
       $null = Answer "Fake`nOther`n" 0
       # Through the share, a guest folder whose own .git can't be read: the row's reason, never the folder outside Git.
       & icacls.exe (Join-Path $guestShut '.git') /deny "${me}:(RA,REA,RD,X)" | Out-Null

@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 PAGE_KB = os.sysconf("SC_PAGESIZE") // 1024
@@ -75,15 +76,33 @@ def git_probe(folder):
         raise ProbeFailed(f"{folder} could not be checked for a repo: its .git is a link to {e.strerror or 'nothing there'}") from e
 
 
-def repo_answer(path, cache):
+# How long one scan waits on its repo lookups in all (round 5 of D03 T02 §7), as the Windows scanner does: a folder on a
+# mount that stopped answering (a hard NFS mount, its VPN gone) costs that row its repo, never the scan.
+REPO_LOOKUP_SECONDS = 4.0
+
+
+def repo_answer(path, cache, until=None):
     """(repo, why): the nearest folder holding .git, or "" when none does; why when a probe failed on the way, which
-    stops the walk, so a checkout above a folder that could not be read is never taken for its repo (D03 T02 §7)."""
+    stops the walk, so a checkout above a folder that could not be read is never taken for its repo (D03 T02 §7).
+    With `until` (a time.monotonic() instant) the walk runs on a thread of its own, waited for only until then."""
     if path in cache:
         return cache[path]
-    try:
-        answer = repo_for_dir(path, git_probe, {}), None
-    except ProbeFailed as e:
-        answer = "", str(e)
+
+    def walk():
+        try:
+            return repo_for_dir(path, git_probe, {}), None
+        except ProbeFailed as e:
+            return "", str(e)
+
+    if until is None:
+        answer = walk()
+    else:
+        box = []
+        worker = threading.Thread(target=lambda: box.append(walk()), daemon=True)
+        worker.start()
+        worker.join(max(0.0, until - time.monotonic()))
+        # A walk still waiting is left to end with the process; its row says so.
+        answer = box[0] if box else ("", f"{path} did not answer within the scan's time")
     cache[path] = answer
     return answer
 
@@ -569,13 +588,14 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
         problems.append({"source": "processes", "why": f"{denied} of the processes in {proc} can't be read ({why}), so instances and memory may be missing"})
     sessions = {s[0]: s for s in read_json_files(os.path.join(home, ".claude", "sessions"), "sessions", problems, parse_session)}
     cache, marks_by_repo, unreadable, rows = {}, {}, denied, []
+    until = time.monotonic() + REPO_LOOKUP_SECONDS
 
     def where(pid):
         try:
             cwd = os.readlink(f"{proc}/{pid}/cwd")
         except OSError:
             return None, None, None
-        repo, why = repo_answer(cwd, cache) if cwd != "/" else ("", None)
+        repo, why = repo_answer(cwd, cache, until) if cwd != "/" else ("", None)
         return utf8_text(cwd), (utf8_text(repo) if repo else None), (utf8_text(why) if why else None)
 
     for pid in sorted(agents):

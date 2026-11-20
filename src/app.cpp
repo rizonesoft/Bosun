@@ -16,6 +16,7 @@
 #include <future>
 #include <iostream>
 #include <condition_variable>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <thread>
@@ -974,10 +975,106 @@ std::wstring process_cwd(ULONG_PTR pid) {
     return result;
 }
 
+std::optional<std::set<std::string>> wsl_running_distros(std::string& why, std::string& said);
+
+// The distros running now, asked once for every caller within three seconds, from any thread (round 5 of D03 T02 §7):
+// one answer for a scan's editor roots, its processes' folders and every link a `.git` probe follows. `said` is
+// wsl.exe's own words when it named none. The cache is never freed, so a lookup thread left running at exit can't use
+// it after it is gone.
+std::optional<std::set<std::string>> running_distros_now(std::string& said) {
+    struct Cache {
+        std::mutex lock;
+        std::chrono::steady_clock::time_point at{};
+        bool asked = false;
+        std::optional<std::set<std::string>> running;
+        std::string said;
+    };
+    static Cache* cache = new Cache();
+    std::lock_guard<std::mutex> hold(cache->lock);
+    auto now = std::chrono::steady_clock::now();
+    if (!cache->asked || now - cache->at > std::chrono::seconds(3)) {
+        std::string unread, words;
+        cache->running = wsl_running_distros(unread, words);
+        cache->said = cache->running ? words : unread;
+        cache->at = now;
+        cache->asked = true;
+    }
+    said = cache->said;
+    return cache->running;
+}
+
+// The distro whose share a Windows path is in: \\wsl.localhost\<distro>, \\wsl$\<distro>, their \\?\UNC forms, or
+// under BOSUN_WSL_SHARE (a test's own share root). The name as the path spells it.
+std::optional<std::string> wsl_share_distro(std::wstring path) {
+    std::replace(path.begin(), path.end(), L'/', L'\\');
+    std::vector<std::wstring> roots{L"\\\\wsl.localhost", L"\\\\wsl$", L"\\\\?\\UNC\\wsl.localhost", L"\\\\?\\UNC\\wsl$"};
+    std::wstring test = env(L"BOSUN_WSL_SHARE");
+    if (!test.empty()) {
+        std::replace(test.begin(), test.end(), L'/', L'\\');
+        while (!test.empty() && test.back() == L'\\') test.pop_back();
+        roots.insert(roots.begin(), test);
+    }
+    for (const auto& root : roots) {
+        if (root.empty() || path.size() <= root.size() + 1 || _wcsnicmp(path.c_str(), root.c_str(), root.size()) != 0) continue;
+        if (path[root.size()] != L'\\') continue;
+        size_t end = path.find(L'\\', root.size() + 1);
+        std::wstring name = path.substr(root.size() + 1, end == std::wstring::npos ? std::wstring::npos : end - root.size() - 1);
+        if (!name.empty()) return narrow(name);
+    }
+    return std::nullopt;
+}
+
+// Why a path in a distro's share may not be touched now: its distro is not seen running, so a look there would start it
+// (D03 T02 §7). Nothing for a path outside any share, or in a running distro's.
+std::optional<std::string> share_not_running(const std::wstring& path) {
+    auto distro = wsl_share_distro(path);
+    if (!distro) return std::nullopt;
+    std::string said;
+    auto running = running_distros_now(said);
+    if (running)
+        for (const auto& name : *running)
+            if (_stricmp(name.c_str(), distro->c_str()) == 0) return std::nullopt;
+    return *distro + " was not seen running" + (said.empty() ? std::string() : " (wsl.exe: " + said + ")");
+}
+
+// Follows a path's links one part at a time, asking share_not_running before each look, so nothing a probe touches can
+// start a distro that was shut down (round 5 of D03 T02 §7: a .git link into a stopped distro's share started it, after
+// rounds 3 and 4 had each closed one road there). The walk is the gate only: it stops, saying nothing, where a part is
+// missing or can't be read, and the probe then reports that itself; it says why only when a share is not to be touched.
+std::optional<std::string> links_stay_off_stopped_shares(const fs::path& start) {
+    std::deque<fs::path> todo(start.begin(), start.end());
+    fs::path done;
+    for (int hops = 0; !todo.empty();) {
+        fs::path part = todo.front();
+        todo.pop_front();
+        fs::path next = done.empty() ? part : done / part;
+        if (next.relative_path().empty()) { done = next; continue; }  // a root: nothing to look at yet
+        if (auto why = share_not_running(next.wstring())) return "it leads into a distro's share, and " + *why;
+        // Inside a running distro's share the guest resolves its own links, which stay in that distro (and name Linux
+        // paths a Windows walk would misread): the gate is passed.
+        if (wsl_share_distro(next.wstring())) return std::nullopt;
+        std::error_code ec;
+        auto st = fs::symlink_status(next, ec);
+        if (ec || st.type() == fs::file_type::not_found) return std::nullopt;
+        if (st.type() != fs::file_type::symlink && st.type() != fs::file_type::junction) { done = next; continue; }
+        if (++hops > 40) return std::nullopt;  // a loop: the probe's own look reports it
+        fs::path to = fs::read_symlink(next, ec);
+        if (ec) return std::nullopt;
+        if (to.is_relative()) to = done / to;
+        std::deque<fs::path> rest(to.begin(), to.end());
+        rest.insert(rest.end(), todo.begin(), todo.end());
+        todo.swap(rest);
+        done.clear();
+    }
+    return std::nullopt;
+}
+
 // One `.git` entry: there, not there, or why it can't be told. An entry that is itself a link counts as there only when
 // its target is (round 1 of D03 T02 §7): a link pointing nowhere is a failure, never "no repo here".
 dm::GitProbe git_probe_at(const fs::path& git) {
     std::error_code ec;
+    // Every link on the way is followed by hand first, so no look below can reach a stopped distro (round 5).
+    if (auto why = links_stay_off_stopped_shares(git)) return {false, *why};
     // The folder itself first (round 2): a folder that has gone (renamed while a window or a process is in it) is no
     // folder outside Git, so the walk must not go on to a checkout above it.
     auto still_a_folder = [&]() -> std::optional<std::string> {
@@ -1567,9 +1664,7 @@ int cmd_instances(const Options& o) {
     auto not_running = [&](const std::string& distro) -> std::optional<std::string> {
         if (!asked_distros) {
             asked_distros = true;
-            std::string unread;
-            running_distros = wsl_running_distros(unread, distros_said);
-            if (!running_distros) distros_said = unread;
+            running_distros = running_distros_now(distros_said);
         }
         if (running_distros && running_distros->count(distro)) return std::nullopt;
         return "its repo is not looked up: " + distro + " was not seen running" +
@@ -1578,13 +1673,7 @@ int cmd_instances(const Options& o) {
     // A Windows process's folder in a distro's share is asked through that gate first (round 4 of D03 T02 §7): a probe
     // there would start a distro that was shut down. The share is \\wsl.localhost, \\wsl$, or the test's root.
     auto share_distro = [&](const std::wstring& dir) -> std::optional<std::string> {
-        for (const std::wstring& prefix : {root_share, std::wstring(L"\\\\wsl.localhost"), std::wstring(L"\\\\wsl$")}) {
-            if (dir.size() <= prefix.size() + 1 || _wcsnicmp(dir.c_str(), prefix.c_str(), prefix.size()) != 0) continue;
-            if (dir[prefix.size()] != L'\\') continue;
-            size_t end = dir.find(L'\\', prefix.size() + 1);
-            std::wstring name = dir.substr(prefix.size() + 1, end == std::wstring::npos ? std::wstring::npos : end - prefix.size() - 1);
-            if (!name.empty()) return distro_name(narrow(name));  // WSL's own spelling
-        }
+        if (auto name = wsl_share_distro(dir)) return distro_name(*name);  // WSL's own spelling
         return std::nullopt;
     };
     auto repo_of_dir = [&](const std::wstring& dir) -> dm::RepoAnswer {

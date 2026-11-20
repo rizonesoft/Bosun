@@ -485,6 +485,28 @@ class Instances(unittest.TestCase):
             repo, why = dl.repo_answer(moving, {})
         self.assertEqual(repo, "")
         self.assertIn("moving could not be checked for a repo: the folder is no longer there", why)
+        # Round 5: a probe that never answers (a hard NFS mount, its VPN gone) costs that row its repo within the scan's
+        # time; the other rows are still read.
+        stuck = os.path.join(self.root, "nfs")
+        os.makedirs(stuck)
+        self.process(40, "claude", 1, 1024, 9000, cwd=stuck)
+        release = threading.Event()
+        real_probe = dl.git_probe
+        def hanging(folder):
+            if folder == stuck:
+                release.wait(30)
+            return real_probe(folder)
+        try:
+            with unittest.mock.patch.object(dl, "git_probe", hanging), unittest.mock.patch.object(dl, "REPO_LOOKUP_SECONDS", 0.3):
+                began = time.monotonic()
+                doc = dl.instances(proc=self.proc, home=self.home, now=1700001000.0, distro="Ubuntu", ticks=100)
+                took = time.monotonic() - began
+        finally:
+            release.set()
+        late = {r["pid"]: r for r in doc["instances"]}
+        self.assertLess(took, 5)
+        self.assertEqual((late[40]["repo"], late[40]["repo_why"]), (None, f"{stuck} did not answer within the scan's time"))
+        self.assertEqual((late[30]["repo"], late[30]["repo_why"]), (None, None))
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))
