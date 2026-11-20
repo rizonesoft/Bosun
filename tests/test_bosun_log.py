@@ -545,6 +545,27 @@ class Instances(unittest.TestCase):
         with unittest.mock.patch.object(threading.Thread, "start", refused):
             repo, why = dl.repo_answer(stuck, {}, time.monotonic() + 5)
         self.assertEqual((repo, why), ("", f"{stuck} could not be looked up: no thread for it (can't start new thread)"))
+        # Round 12: a FIFO among the marks is not a file and never holds the reader; and a later scan in the same process
+        # starts no second worker on what an earlier one still waits for.
+        fifo = os.path.join(self.repo, "build", "review-in-flight", "stuck.json")
+        os.mkfifo(fifo)
+        try:
+            began = time.monotonic()
+            doc = dl.instances(proc=self.proc, home=self.home, now=1700001000.0, distro="Ubuntu", ticks=100)
+            self.assertLess(time.monotonic() - began, 3)
+            self.assertTrue(any(p["source"] == "review-marks" and p["why"] == f"{fifo} is not a file" for p in doc["problems"]), doc["problems"])
+        finally:
+            os.unlink(fifo)
+        release.clear()
+        try:
+            first = dl.within(time.monotonic() + 0.2, lambda: release.wait(30), ("marks", "x"))
+            started.clear()
+            with unittest.mock.patch.object(threading.Thread, "start", counting):
+                second = dl.within(time.monotonic() + 5, lambda: True, ("marks", "x"))
+        finally:
+            release.set()
+        self.assertEqual(first, (False, "did not answer within the scan's time"))
+        self.assertEqual((second, started), ((False, "is still not answering from an earlier scan"), []))
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))

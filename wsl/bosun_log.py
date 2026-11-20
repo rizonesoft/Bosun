@@ -97,19 +97,30 @@ def repo_answer(path, cache, until=None):
     if until is None:
         answer = walk()
     else:
-        done, got = within(until, walk)
+        done, got = within(until, walk, ("repo", path))
         answer = got if done else ("", f"{path} {got}")
     cache[path] = answer
     return answer
 
 
-def within(until, work):
+_WAITING = {}  # what a late worker still waits on, for the scans after it (round 12)
+_WAITING_LOCK = threading.Lock()
+
+
+def within(until, work, key=None):
     """(True, work()) when it ends before `until` (a time.monotonic() instant), else (False, why) (D03 T02 §7, rounds 5,
     6 and 9): work runs on a thread of its own, left to end with the process when late; once the time is spent no thread
     starts, which a mount that stopped answering would each hold, and a thread that can't be made is said, never the
     scan's end."""
     if time.monotonic() >= until:
         return False, "did not answer within the scan's time"
+    # One worker per thing at a time (round 12): while an earlier scan's is still waiting on it, a later scan in the same
+    # process (the logger samples in one) starts none and says it is still waiting.
+    if key is not None:
+        with _WAITING_LOCK:
+            earlier = _WAITING.get(key)
+            if earlier is not None and earlier.is_alive():
+                return False, "is still not answering from an earlier scan"
     box = []
     worker = threading.Thread(target=lambda: box.append(work()), daemon=True)
     try:
@@ -117,7 +128,12 @@ def within(until, work):
     except RuntimeError as e:
         return False, f"could not be looked up: no thread for it ({e})"
     worker.join(max(0.0, until - time.monotonic()))
-    return (True, box[0]) if box else (False, "did not answer within the scan's time")
+    if box:
+        return True, box[0]
+    if key is not None:
+        with _WAITING_LOCK:
+            _WAITING[key] = worker
+    return False, "did not answer within the scan's time"
 
 
 def utf8_text(name):
@@ -314,13 +330,27 @@ def read_json_files(folder, source, problems, parse):
     for name in names:
         path = os.path.join(folder, name)
         try:
-            with open(path, encoding="utf-8", errors="replace") as f:
-                text = f.read(64 * 1024 + 1)
+            # Opened without waiting, and read only when it is a file (round 12 of D03 T02 §7): a FIFO or a device by
+            # that name would hold the reader, scan after scan, in a logger that samples in one process.
+            fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
         except FileNotFoundError:
             continue
         except OSError as e:
             problems.append({"source": source, "why": f"{path} can't be read ({e.strerror})"})
             continue
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                problems.append({"source": source, "why": f"{path} is not a file"})
+                continue
+            with os.fdopen(fd, encoding="utf-8", errors="replace") as f:
+                fd = None
+                text = f.read(64 * 1024 + 1)
+        except OSError as e:
+            problems.append({"source": source, "why": f"{path} can't be read ({e.strerror})"})
+            continue
+        finally:
+            if fd is not None:
+                os.close(fd)
         value = parse(text) if len(text) <= 64 * 1024 else None
         if value is None:
             problems.append({"source": source, "why": f"{path} is not a {'session record' if source == 'sessions' else 'review mark'}"})
@@ -623,7 +653,7 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
                 # answering costs that repo its marks, never the scan.
                 marks_dir = os.path.join(repo, "build", "review-in-flight")
                 found_problems = []
-                done, marks = within(until, lambda: read_json_files(marks_dir, "review-marks", found_problems, parse_mark))
+                done, marks = within(until, lambda: read_json_files(marks_dir, "review-marks", found_problems, parse_mark), ("marks", marks_dir))
                 problems.extend(found_problems if done else [])
                 if not done:
                     problems.append({"source": "review-marks", "why": f"{utf8_text(marks_dir)} {marks}, so its review marks are not read"})

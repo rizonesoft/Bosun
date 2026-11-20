@@ -1779,7 +1779,8 @@ int cmd_instances(const Options& o) {
         // D03 T02 §7): a build folder on a mount that stopped answering costs that repo its marks, never the scan.
         struct Read {
             std::optional<std::string> listing_why;
-            std::vector<std::tuple<fs::path, std::optional<std::string>, std::string, bool>> files;  // text, why, gone
+            // Each file parsed as it is read (round 12): a mark's fields, or why it is none, never a folder of bodies held.
+            std::vector<std::tuple<fs::path, std::optional<dm::ReviewMark>, std::optional<double>, std::string>> files;  // mark, deadline, why
         };
         auto box = std::make_shared<std::promise<Read>>();
         auto ready = box->get_future();
@@ -1792,6 +1793,7 @@ int cmd_instances(const Options& o) {
             try {
                 std::thread([dir, box] {
                     Read r;
+                    try {
                     if (auto why = links_stay_off_stopped_shares(dir)) {
                         r.listing_why = narrow(dir.wstring()) + " is not read: " + *why;
                         box->set_value(std::move(r));
@@ -1805,14 +1807,35 @@ int cmd_instances(const Options& o) {
                         for (const auto& file : *files) {
                             // Each mark file through the gate too (round 11): a file link into a stopped distro's share.
                             if (auto why = links_stay_off_stopped_shares(file)) {
-                                r.files.emplace_back(file, std::nullopt, narrow(file.wstring()) + " is not read: " + *why, false);
+                                r.files.emplace_back(file, std::nullopt, std::nullopt, narrow(file.wstring()) + " is not read: " + *why);
                                 continue;
                             }
                             bool gone = false;
                             std::string unread;
                             auto text = read_small(file, unread, gone);
-                            r.files.emplace_back(file, std::move(text), std::move(unread), gone);
+                            if (!text) {
+                                if (!gone) r.files.emplace_back(file, std::nullopt, std::nullopt, std::move(unread));
+                                continue;
+                            }
+                            auto obj = dm::parse_flat_object(*text);
+                            auto pid = obj ? obj->find("pid") : decltype(obj->find("pid")){};
+                            auto deadline = obj ? obj->find("deadline") : decltype(obj->find("deadline")){};
+                            if (!obj || pid == obj->end() || pid->second.kind != dm::FlatValue::Integer || pid->second.negative || deadline == obj->end() ||
+                                (deadline->second.kind != dm::FlatValue::Integer && deadline->second.kind != dm::FlatValue::Decimal)) {
+                                r.files.emplace_back(file, std::nullopt, std::nullopt, narrow(file.wstring()) + " is not a review mark");
+                                continue;
+                            }
+                            dm::ReviewMark mark;
+                            mark.pid = pid->second.number;
+                            auto reviewer = obj->find("reviewer");
+                            mark.reviewer = reviewer != obj->end() && reviewer->second.kind == dm::FlatValue::String ? reviewer->second.text : "a reviewer";
+                            r.files.emplace_back(file, std::move(mark), deadline->second.decimal, std::string());
                         }
+                    }
+                    } catch (const std::exception& e) {
+                        // Out of memory or the like: that folder's reason, never the scanner's end (round 12).
+                        r = Read{};
+                        r.listing_why = narrow(dir.wstring()) + " could not be read: " + e.what();
                     }
                     box->set_value(std::move(r));
                 }).detach();
@@ -1829,25 +1852,13 @@ int cmd_instances(const Options& o) {
             doc.problems.push_back({"review-marks", *read.listing_why});
             return marks;
         }
-        for (auto& [file, text, unread, gone] : read.files) {
-            if (!text) {
-                if (!gone) doc.problems.push_back({"review-marks", unread});
+        for (auto& [file, mark, deadline, why] : read.files) {
+            if (!mark) {
+                doc.problems.push_back({"review-marks", why});
                 continue;
             }
-            auto obj = dm::parse_flat_object(*text);
-            auto pid = obj ? obj->find("pid") : decltype(obj->find("pid")){};
-            auto deadline = obj ? obj->find("deadline") : decltype(obj->find("deadline")){};
-            if (!obj || pid == obj->end() || pid->second.kind != dm::FlatValue::Integer || pid->second.negative || deadline == obj->end() ||
-                (deadline->second.kind != dm::FlatValue::Integer && deadline->second.kind != dm::FlatValue::Decimal)) {
-                doc.problems.push_back({"review-marks", narrow(file.wstring()) + " is not a review mark"});
-                continue;
-            }
-            dm::ReviewMark mark;
-            mark.pid = pid->second.number;
-            auto reviewer = obj->find("reviewer");
-            mark.reviewer = reviewer != obj->end() && reviewer->second.kind == dm::FlatValue::String ? reviewer->second.text : "a reviewer";
-            mark.live = deadline->second.decimal >= now_s && probe_process(mark.pid).what == dm::ProbeAnswer::Running;
-            marks.push_back(mark);
+            mark->live = *deadline >= now_s && probe_process(mark->pid).what == dm::ProbeAnswer::Running;
+            marks.push_back(*mark);
         }
         return marks;
     };
