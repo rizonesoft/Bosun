@@ -46,6 +46,7 @@ title: "TODO-02 -- Instances and queue"
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
 | 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
 | 10 | §10 | A WSL terminal opened at the row's own guest folder | §6 | [ ] |
+| 11 | §11 | Repo lookup gaps left by §7 | §7 | [ ] |
 
 ## 1. Instance scanner
 
@@ -377,6 +378,30 @@ Open terminal for a WSL row reaches the folder through Windows: the working dire
 - [ ] Commit: `instances: a WSL terminal opened at the row's own folder`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` exits 0, and fails if the change is reverted.
+
+## 11. Repo lookup gaps left by §7
+
+The completion review of `D03 T02 §7` (`docs/reviews/03-monitor/D03-T02-s7.md`, gaps 1 to 6) found six places where a lookup that could not tell a repo is still shown as a repo, as no repo, or breaks the row or the report: the WSL launcher's own `.git` test, the running-distro query outside the scan's budget, the WSL root `/` never probed, an unplaceable editor root's reason kept off its row, one long reason refusing the whole report, and a reason holding a line break splitting a text row. Filed 2026-11-20.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. A WSL job's holder never names a checkout above a `.git` it could not read. Done when: a job under a dangling `.git` link in WSL has no repo in `bosun instances`, text and JSON.
+2. No lookup waits past the scan's budget, the running-distro query included, and the root of a distro is a folder like any other. Done when: the fixtures below pass.
+3. Every reason reaches its row whole and safe: unplaceable editor roots carry theirs, a long one is cut at the scanner, a control character is shown escaped. Done when: the panel and both text forms read the fixtures below.
+
+- [ ] Walk with the scanner's rules in the WSL launcher (`wsl/bosun` shim, its `[ -e "$dir/.git" ]` loop): a `.git` that is a link pointing nowhere, or one that can't be read, stops the walk and passes no `--repo`. Done when: a shim test under a dangling `.git` link inside an outer checkout records no repo on the holder, and `bosun instances` prints none for it.
+- [ ] Bound the running-distro query by the scan's remaining time (`running_distros_now` in `src/app.cpp`, its first call from `repo_of_root` and `share_not_running`): asked on the bounded worker, or with `wsl.exe`'s wait cut to what is left of `lookup.deadline`. Done when: `tests/instances_test.ps1` with a stand-in `wsl.exe` that sleeps past the budget gets the WSL row's reason within the scan's time.
+- [ ] Probe `/.git` before calling a WSL path outside Git (`repo_for_dir` and `where` in `wsl/bosun_log.py`, the guest walk in `src/app.cpp`): `/` is a folder like any other, so an agent at `/` or below a checkout at `/` gets that repo, and a dangling `/.git` its reason. Done when: `tests/test_bosun_log.py` reads both with a stand-in probe, and `test_core.exe repos` walks a guest path to `/`.
+- [ ] Carry an unplaceable editor root's reason onto its row (`dm::editor_rows` in `src/core.hpp`): an SSH or virtual workspace window gets `repo_why` with the parser's reason, so it groups under "Repo could not be told", while an empty window keeps none. Done when: `test_core.exe editor-windows` reads both rows, and `InstancesPageTests` shows the remote window in that group.
+- [ ] Cut a reason at the scanner, never at the reader (`dm::RepoAnswer` makers in `src/core.hpp` and `src/app.cpp`, `repo_answer` and `within` in `wsl/bosun_log.py`): at most 1,024 characters, on a character boundary, ending in `...`, so `InstanceDocs.Fault`'s 8,192 bound is never met by a scanner's own text. Done when: a fixture with a 9,000 character workspace path keeps every other Windows row on the page, and its own row reads a cut reason.
+- [ ] Show a reason's control characters escaped in both text forms (`dm::instances_text` in `src/core.hpp`, `instances_text` in `wsl/bosun_log.py`): a line break, a tab or another control character is written as `\n`, `\t` or `\xNN`, so each instance stays one line. Done when: `test_core.exe instances` and `tests/test_bosun_log.py` read a reason with a newline as one line.
+- [ ] Commit: `instances: repo lookup gaps left by §7 closed`
+
+**Test checkpoint:** `pwsh -NoProfile -File tests/instances_test.ps1` prints `all passed`, `build/Release/test_core.exe repos`, `instances` and `editor-windows` print `ok`, and the WSL logger tests pass (`pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`); each fails if its change is reverted.
 
 ## Verification
 
