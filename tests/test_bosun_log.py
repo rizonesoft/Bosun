@@ -566,6 +566,12 @@ class Instances(unittest.TestCase):
             release.set()
         self.assertEqual(first, (False, "did not answer within the scan's time"))
         self.assertEqual((second, started), ((False, "is still not answering from an earlier scan"), []))
+        # Round 13: once that worker ends, its entry goes at the next call, and a lookup runs again.
+        for t in list(dl._WAITING.values()):
+            t.join(5)
+        self.assertEqual(dl.within(time.monotonic() + 5, lambda: "again", ("marks", "x")), (True, "again"))
+        self.assertNotIn(("marks", "x"), dl._WAITING)
+        self.assertTrue(all(t.is_alive() for t in dl._WAITING.values()))
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))

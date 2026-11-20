@@ -118,8 +118,10 @@ def within(until, work, key=None):
     # process (the logger samples in one) starts none and says it is still waiting.
     if key is not None:
         with _WAITING_LOCK:
-            earlier = _WAITING.get(key)
-            if earlier is not None and earlier.is_alive():
+            # Workers that have ended since are dropped (round 13), so a long-running logger keeps only what still waits.
+            for done in [k for k, t in _WAITING.items() if not t.is_alive()]:
+                del _WAITING[done]
+            if key in _WAITING:
                 return False, "is still not answering from an earlier scan"
     box = []
     worker = threading.Thread(target=lambda: box.append(work()), daemon=True)
