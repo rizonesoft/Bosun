@@ -185,6 +185,8 @@ Slots, waiters with a reason, history and limits, all from `D01 T01`.
 
 ## 4. Editor windows by repo
 
+> **Started:** 2026-11-20T10:58:10Z
+
 An editor is one process tree however many windows it has open, and the scanner (§1) puts it in the repo of the folder it was launched from, so a VS Code with windows on three repos shows in none of them, or in the wrong one. Each window's folder is in the editor's own state, never in its processes. Filed 2026-11-16 by the completion review of `D03 T02 §1` (`docs/reviews/03-monitor/D03-T02-s1.md`, Part 1 item 2).
 
 **Corrected 2026-11-18** against this machine before building (the plan said to read `storage.json`'s `windowsState`):
