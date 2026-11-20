@@ -213,17 +213,21 @@ class Instances(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
-    # A drive's line of /proc/self/mountinfo, as read on this machine 2026-11-20 (D03 T02 §6).
-    @staticmethod
-    def drive(mount, letter, fs="9p"):
-        return (f"140 85 0:75 / {mount} rw,noatime - {fs} {letter}:\\134 rw,aname=drvfs;path={letter}:\\;uid=1000;gid=1000;"
+    # A drive's line of /proc/self/mountinfo, as read on this machine 2026-11-20 (D03 T02 §6): its own mount id, and the
+    # id of the mount it is made on (85, the guest's "/", by default).
+    _ids = iter(range(140, 10_000))
+
+    @classmethod
+    def drive(cls, mount, letter, fs="9p", parent=85, id=None):
+        id = next(cls._ids) if id is None else id
+        return (f"{id} {parent} 0:75 / {mount} rw,noatime - {fs} {letter}:\\134 rw,aname=drvfs;path={letter}:\\;uid=1000;gid=1000;"
                 f"symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6")
 
     def table(self, *lines):
         path = os.path.join(self.root, "mountinfo")
         with open(path, "w", encoding="utf-8") as f:
-            f.write("\n".join(["82 85 0:36 / /usr/lib/wsl/drivers ro,nosuid - 9p drivers ro,aname=drivers;fmask=222",
-                               "25 1 8:32 / / rw,relatime - ext4 /dev/sdc rw"] + list(lines)) + "\n")
+            f.write("\n".join(["85 1 8:32 / / rw,relatime - ext4 /dev/sdc rw",
+                               "82 85 0:36 / /usr/lib/wsl/drivers ro,nosuid - 9p drivers ro,aname=drivers;fmask=222"] + list(lines)) + "\n")
         return path
 
     def test_drive_mounts_are_read_from_the_mount_table_as_they_are_now(self):
@@ -244,14 +248,22 @@ class Instances(unittest.TestCase):
         # hides C:\work\app, so it is listed with no Windows folder.
         bind = self.drive("/work", "C").replace(" / /work ", " /src /work ")
         guest = "200 140 8:32 /home/me/app /mnt/c/work/app rw,relatime - ext4 /dev/sdc rw"
-        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), bind, guest))[0],
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C", id=140), bind, guest))[0],
                          [{"mount": "/mnt/c", "windows": "C:\\"}, {"mount": "/mnt/c/work/app", "windows": None}, {"mount": "/work", "windows": "C:\\src"}])
         # Round 3: a guest folder bound over /mnt/c itself, after C: was mounted there, hides all of C:; a drive mounted
         # again on top of it shows it again.
         cover = "201 140 8:32 /home/me/empty /mnt/c rw,relatime - ext4 /dev/sdc rw"
-        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), cover))[0], [])
-        self.assertIsNone(dl.log_folder("C:/Users/me/logs", self.table(self.drive("/mnt/c", "C"), cover))[0])
-        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), cover, self.drive("/mnt/c", "C")))[0], [{"mount": "/mnt/c", "windows": "C:\\"}])
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C", id=140), cover))[0], [])
+        self.assertIsNone(dl.log_folder("C:/Users/me/logs", self.table(self.drive("/mnt/c", "C", id=140), cover))[0])
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C", id=140), cover, self.drive("/mnt/c", "C", parent=201)))[0], [{"mount": "/mnt/c", "windows": "C:\\"}])
+        # Round 4: a guest folder bound over /mnt, C:'s parent folder, hides it too, and every drive under /mnt; a drive
+        # mounted again inside the cover shows again. Any mount on the way to a mount point hides it, by one rule.
+        parent = "202 85 8:32 /home/me/fakemnt /mnt rw,relatime - ext4 /dev/sdc rw"
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), self.drive("/mnt/d", "D"), parent))[0], [])
+        self.assertIsNone(dl.log_folder("C:/Users/me/logs", self.table(self.drive("/mnt/c", "C"), parent))[0])
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), parent, self.drive("/mnt/c", "C", parent=202)))[0], [{"mount": "/mnt/c", "windows": "C:\\"}])
+        deeper = "203 85 8:32 /home/me/x / rw,relatime - ext4 /dev/sdc rw"  # a new root over "/": everything under it is hidden
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), deeper))[0], [])
         # A mount of a drive's subfolder is no root for the log folder: only the drive's own root is.
         self.assertIsNone(dl.guest_path("C:\\Users\\me", [{"mount": "/work", "windows": "C:\\src"}]))
 
@@ -260,7 +272,7 @@ class Instances(unittest.TestCase):
         # subfolder that holds the folder supplies it with no mount of the whole drive.
         logs = "C:/Users/me/AppData/Local/Bosun/logs"
         over = "200 140 8:32 /home/me/fake /mnt/c/Users/me/AppData/Local/Bosun/logs rw,relatime - ext4 /dev/sdc rw"
-        found, why = dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), over))
+        found, why = dl.log_folder(logs, self.table(self.drive("/mnt/c", "C", id=140), over))
         self.assertIsNone(found)
         self.assertIn("no mount holds", why)
         bosun = self.drive("/bosun", "C").replace(" / /bosun ", " /Users/me/AppData/Local/Bosun /bosun ")
@@ -1096,6 +1108,15 @@ class ThrottleStop(ThrottleCase):
         # Round 3 of D03 T02 §6: the drive holding the log folder unmounted while lowered; the stop still restores.
         self.assertEqual(self.tick(1000), "lowered")
         self.throttle.log_dir = os.path.join(self.dir, "gone", "logs")
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, 8 * GB)
+
+    def test_a_stopping_service_puts_its_lowering_back_when_its_folder_is_on_a_replacement_drive(self):
+        # Round 4: the same folder on another drive, with no record in it: this run's own record still restores.
+        self.assertEqual(self.tick(1000), "lowered")
+        elsewhere = os.path.join(self.dir, "other-drive", "logs")
+        os.makedirs(elsewhere)
+        self.throttle.log_dir = elsewhere
         self.throttle.stop()
         self.assertEqual(self.slice.value, 8 * GB)
 

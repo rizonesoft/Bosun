@@ -288,44 +288,67 @@ def unescape_mount(text):
 
 
 def drive_mounts(mountinfo="/proc/self/mountinfo"):
-    """The Windows folders this distro has mounted now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
-    which says what the next start will mount: each 9p or drvfs mount whose options name aname=drvfs and path=<X>:\\, as
-    {"mount": "/mnt/c", "windows": "C:\\\\"}, its root field kept, so a bind of a drive's subfolder (/mnt/c/src at /work)
-    is {"mount": "/work", "windows": "C:\\\\src"} (round 1); and each other mount inside one of them, as
-    {"mount": ..., "windows": None}, since a guest file system mounted over part of a drive hides it there (round 1).
-    None with why when the table can't be read. A drive mounted by hand is here as WSL's own are, and one the
-    configuration names but nothing mounted is not."""
+    """The Windows folders this distro can reach now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
+    which says what the next start will mount. A drive is a 9p or drvfs mount whose options name aname=drvfs and
+    path=<X>:\\, as {"mount": "/mnt/c", "windows": "C:\\\\"}, its root field kept, so a bind of a drive's subfolder
+    (/mnt/c/src at /work) is {"mount": "/work", "windows": "C:\\\\src"}. Each mount counts only when a path to its mount
+    point reaches it: the table's parent links are walked from "/" a component at a time, entering at each step what is
+    mounted on top there, as the kernel resolves a path, so a mount over the same point, over a parent folder or over any
+    folder on the way hides what is under it (rounds 3 and 4: a case at a time was the wrong mechanism). A reachable guest
+    file system mounted inside a reachable drive is {"mount": ..., "windows": None}: it hides the drive there. None with
+    why when the table can't be read."""
     try:
         with open(mountinfo, encoding="utf-8", errors="replace") as f:
             lines = f.read(4 * 1024 * 1024).splitlines()
     except OSError as e:
         return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
-    # The table lists mounts in the order they were made, so of two at one mount point the later is on top (round 3:
-    # a guest folder bound over /mnt/c itself hides C: there): each mount point is the last entry for it.
-    top = {}
+    entries = []  # (id, parent, mount point, Windows folder or None), in the table's order
     for line in lines:
         if " - " not in line:
             continue
         before, after = line.split(" - ", 1)
         fields, rest = before.split(" "), after.split(" ")
-        if len(fields) < 5 or len(rest) < 3:
+        if len(fields) < 5 or len(rest) < 3 or not fields[0].isdigit() or not fields[1].isdigit():
             continue
         root, mount = unescape_mount(fields[3]), unescape_mount(fields[4])
         options = rest[2]
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
-        if rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs"):
-            inside = root.strip("/").replace("/", "\\")
-            top.pop(mount, None)
-            top[mount] = path.group(1).upper() + ":\\" + inside
-        else:
-            top.pop(mount, None)
-            top[mount] = None
-    drives = [{"mount": m, "windows": w} for m, w in top.items() if w is not None]
-    others = [m for m, w in top.items() if w is None]
+        drive = rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs")
+        windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive else None
+        entries.append((int(fields[0]), int(fields[1]), mount, windows))
+    ids = {e[0] for e in entries}
+    children = {}
+    for order, e in enumerate(entries):
+        children.setdefault(e[1], []).append((order, e))
+
+    def on_top(current, point):
+        # What is mounted at `point` over `current`, followed up the stack: the latest of several, as the table lists them.
+        while True:
+            above = [c for c in children.get(current[0], []) if c[1][2] == point and c[1][0] != current[0]]
+            if not above:
+                return current
+            current = max(above)[1]
+
+    roots = [e for e in entries if e[2] == "/" and (e[1] not in ids or e[1] == e[0])]
+    if not roots:
+        return [], None
+    start = on_top(roots[-1], "/")
+
+    def reaches(point):
+        current = start
+        prefix = ""
+        for part in [p for p in point.split("/") if p]:
+            prefix += "/" + part
+            current = on_top(current, prefix)
+        return current
+
+    reachable = [e for e in entries if reaches(e[2]) is e]
+    drives = [e for e in reachable if e[3] is not None]
+
     def under(path, top):
         return top != "/" and path.startswith(top.rstrip("/") + "/")
-    hidden = [{"mount": m, "windows": None} for m in others if any(under(m, d["mount"]) for d in drives)]
-    found = drives + hidden
+    found = [{"mount": e[2], "windows": e[3]} for e in drives]
+    found += [{"mount": e[2], "windows": None} for e in reachable if e[3] is None and any(under(e[2], d[2]) for d in drives)]
     found.sort(key=lambda d: d["mount"])
     return found, None
 
@@ -1093,7 +1116,9 @@ class Throttle:
             return None  # a logger that never owned the throttle restores nothing
         known = self.state  # what this run last recorded lowering
         self.state, self.operator, self.state_fault = self.safe_load_state()
-        if known is not None and (self.state_fault or (self.state is None and not os.path.isdir(self.log_dir))):
+        # The record can't be read, or is not there, while this run recorded a lowering: its folder is on a drive that is
+        # gone or was replaced (D03 T02 §6, rounds 3 and 4). This run's own record is enough to put the original back.
+        if known is not None and (self.state_fault or self.state is None):
             # The record can't be read now (its folder on a drive that is gone, D03 T02 §6): this run's own record of
             # what it lowered is enough to put the original back, so a stop never leaves a job throttled (round 3).
             self.state, self.state_fault = known, None
