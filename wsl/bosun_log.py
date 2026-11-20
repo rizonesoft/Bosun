@@ -299,7 +299,9 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
     why when the table can't be read."""
     try:
         with open(mountinfo, encoding="utf-8", errors="replace") as f:
-            lines = f.read(4 * 1024 * 1024).splitlines()
+            # Records end at the kernel's newline only: a mount point may hold any other character, U+2028 included
+            # (round 6), and a newline in one is written as \012.
+            lines = f.read(4 * 1024 * 1024).split("\n")
     except OSError as e:
         return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
     entries = []  # (id, parent, mount point, Windows folder or None), in the table's order
@@ -314,7 +316,7 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
         options = rest[2]
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
         drive = rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs")
-        windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive else None
+        windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive and path else None
         entries.append((int(fields[0]), int(fields[1]), mount, windows))
     ids = {e[0] for e in entries}
     children = {}
@@ -376,20 +378,27 @@ def guest_path(windows_path, drives):
     if not m or drives is None:
         return None
     wanted = m.group(1).upper() + ":\\" + m.group(2).replace("/", "\\").strip("\\")
-    def parts(path):
-        return [p for p in path.rstrip("\\").lower().split("\\") if p]
+    def parts(path, fold):
+        found = [p for p in path.rstrip("\\").split("\\") if p]
+        return [p.lower() for p in found] if fold else found
+    # A mount whose Windows folder matches with its case exactly comes first, then one that matches only without case:
+    # a folder can be case-sensitive on Windows, and then Bosun and bosun are two folders (round 6). The drive letter is
+    # never case-sensitive.
+    exact = lambda p: [p[0][:1].upper() + p[0][1:]] + p[1:] if p else p
     candidates = []
     for d in drives:
         if d["windows"] is None:
             continue
-        held = parts(d["windows"])
-        if parts(wanted)[:len(held)] == held:
-            rest = "/".join(wanted.rstrip("\\").split("\\")[len(held):])
-            base = d["mount"].rstrip("/") if len(d["mount"]) > 1 else ""
-            candidates.append((len(held), (base + "/" + rest) if rest else (d["mount"] if d["mount"] else "/")))
-    for _, guest in sorted(candidates, key=lambda c: -c[0]):
+        for fold in (False, True):
+            held = parts(d["windows"], fold)
+            if exact(parts(wanted, fold)[:len(held)]) == exact(held):
+                rest = "/".join(wanted.rstrip("\\").split("\\")[len(held):])
+                base = d["mount"].rstrip("/") if len(d["mount"]) > 1 else ""
+                candidates.append((not fold, len(held), fold, (base + "/" + rest) if rest else (d["mount"] if d["mount"] else "/")))
+                break
+    for _, _, fold, guest in sorted(candidates, key=lambda c: (not c[0], -c[1])):
         back = windows_of(guest, drives)
-        if back is not None and parts(back) == parts(wanted):
+        if back is not None and exact(parts(back, fold)) == exact(parts(wanted, fold)):
             return guest
     return None
 
