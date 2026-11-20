@@ -17,6 +17,10 @@ internal static class InstanceFixtures
         Evidence = evidence, Slot = slot, Command = command, GuestPid = guestPid, GuestDistro = guestDistro,
     };
 
+    /// <summary>One open window's root of an editor (D03 T02 §4): its window identity, where it is, and the editor's shared memory.</summary>
+    internal static InstanceDoc EditorWindow(long pid, string window, string? cwd, string? repo, long? mb, long shared = 4096, string location = "windows", string? distro = null) =>
+        I("code", pid, cwd: cwd, repo: repo, mb: mb, state: "unknown") with { Window = window, PlacedBy = "window", Location = location, Distro = distro, SharedMb = shared };
+
     internal static InstancesDoc Doc(string side, string? distro, IReadOnlyList<InstanceDoc> instances, IReadOnlyList<SourceProblemDoc>? problems = null,
         long unreadable = 0) => new()
     {

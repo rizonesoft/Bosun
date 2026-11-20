@@ -69,7 +69,7 @@ try {
   Check ($row -and $row.state -eq 'unknown' -and $null -eq $row.evidence) 'with no evidence at all its state is unknown'
   $loose1 = Row $doc $codexLoose.Id
   Check ($loose1 -and $null -eq $loose1.repo -and (Same-Path $loose1.cwd $loose)) 'one outside a checkout has its folder and no repo'
-  Check ($doc.schema_version -eq 1 -and $doc.side -eq 'windows' -and $null -eq $doc.distro -and @($doc.problems).Count -eq 0) 'the document is the shared shape, with no problems'
+  Check ($doc.schema_version -eq 1 -and $doc.side -eq 'windows' -and $null -eq $doc.distro -and @($doc.problems | Where-Object { $_.source -ne 'editor-windows' }).Count -eq 0) 'the document is the shared shape, with no problems (an editor running on this machine has no window record in the test''s own LOCALAPPDATA, which is said)'
 
   # Its session record: busy is working; a record naming another start (a reused pid) is unknown, and says why.
   $filetime = $claude.StartTime.ToFileTimeUtc()
@@ -103,6 +103,65 @@ try {
   Check ($row -and $row.kind -eq 'job' -and $row.slot -eq 0 -and $row.side -eq 'windows' -and $row.name -eq 'test_sleeper.exe') "a job holding a slot is listed with its slot and side ($($row.name))"
   Check ($row -and $row.command -like '*test_sleeper.exe*' -and $null -ne $row.private_mb -and $row.state -eq 'working' -and (Same-Path $row.repo $repo)) 'with its command, memory and repo, working'
   Check ($row -and (Same-Path $row.cwd $repo)) "and the folder it runs in ($($row.cwd))"
+
+  # Editors placed by their windows (D03 T02 §4). A stand-in editor is a copy of cmd.exe named Code.exe (its main
+  # process) running a copy of the sleeper also named Code.exe (its extension host), as VS Code's are; the window
+  # reporter's records are written as editors/bosun-windows writes them. Two checkouts named app, both outside the
+  # folder the editors start in.
+  $one = Join-Path $work 'one\app'; $two = Join-Path $work 'two\app'
+  New-Item -ItemType Directory -Path (Join-Path $one '.git'), (Join-Path $one 'src'), (Join-Path $two '.git') | Out-Null
+  $windows = Join-Path $env:LOCALAPPDATA 'Bosun\editor-windows'
+  New-Item -ItemType Directory -Path $windows -Force | Out-Null
+  $env:BOSUN_WSL_EXE = Join-Path $work 'no-wsl.exe'   # no real distro is asked about, or woken
+  function Start-Editor([string]$name, [string]$tag) {
+    $main = Join-Path $bin "$tag\$name"; $host_ = Join-Path $bin "$tag\host\Code.exe"
+    New-Item -ItemType Directory -Path (Split-Path $host_) -Force | Out-Null
+    Copy-Item "$env:SystemRoot\System32\cmd.exe" $main; Copy-Item $sleeper $host_
+    $editor = Start-Detached $main "/d /c `"$(Q $host_) $(Q (Join-Path $work "$tag.txt")) 60000`"" $loose
+    $null = Wait-Until { @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'").Count -gt 0 }
+    $hostId = (Get-CimInstance Win32_Process -Filter "ParentProcessId=$($editor.Id) AND Name='Code.exe'").ProcessId
+    if (-not $hostId) { throw "the stand-in editor's host never started" }
+    [pscustomobject]@{ Id = $editor.Id; Host = [int]$hostId }
+  }
+  function Uri([string]$path) { 'file:///' + ($path.Substring(0, 1).ToLower() + '%3A' + ($path.Substring(2) -replace '\\', '/')) }
+  function Window([string]$session, $editor, [string[]]$roots, [int]$hostId = $editor.Host) {
+    $record = [ordered]@{ schema_version = 1; app_name = 'Visual Studio Code'; main_pid = $editor.Id; host_pid = $hostId; session_id = $session
+      workspace_file = $null; roots = @($roots); written_utc = [DateTime]::UtcNow.AddSeconds(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
+    Set-Content -LiteralPath (Join-Path $windows "$session.json") -Value ($record | ConvertTo-Json -Compress) -NoNewline
+  }
+  $editorA = Start-Editor 'Code.exe' 'ea'
+  $editorB = Start-Editor 'Code.exe' 'eb'
+  $bare = Start-Editor 'Code.exe' 'ec'
+  $agentApp = Start-Editor 'Antigravity.exe' 'ag'
+  Window 'sa1' $editorA @((Uri (Join-Path $one 'src')), (Uri $two))
+  Window 'sb1' $editorB @('vscode-remote://wsl%2BUbuntu/home/me/app')
+  Window 'sb2' $editorB @()
+  Window 'sag' $agentApp @((Uri $one))
+  Window 'stale' $editorA @((Uri $one)) 999999
+  Set-Content -LiteralPath (Join-Path $windows 'damaged.json') -Value '{"schema_version":1,' -NoNewline
+  $doc = Scan
+  $rowsA = @($doc.instances | Where-Object { $_.pid -eq $editorA.Id })
+  Check ($rowsA.Count -eq 2 -and (Same-Path $rowsA[0].repo $one) -and (Same-Path $rowsA[1].repo $two) -and (Same-Path $rowsA[0].cwd (Join-Path $one 'src'))) "one editor is in both same-named repos it has open, from outside both ($(($rowsA | ForEach-Object repo) -join ', '))"
+  Check (@($rowsA | Where-Object { $_.placed_by -eq 'window' -and $_.location -eq 'windows' }).Count -eq 2 -and $rowsA[0].window -eq 'sa1#0' -and $rowsA[1].window -eq 'sa1#1') 'each root is a row of its own, with its window identity'
+  Check (($rowsA | ForEach-Object { [int64]($_.private_mb ?? 0) } | Measure-Object -Sum).Sum -eq [int64]$rowsA[0].shared_mb -and $null -eq $rowsA[1].private_mb -and $null -ne $rowsA[0].shared_mb) 'its memory is on its first row once, and shared by both'
+  $rowsB = @($doc.instances | Where-Object { $_.pid -eq $editorB.Id })
+  $wslRow = @($rowsB | Where-Object { $_.window -eq 'sb1#0' })[0]
+  Check ($rowsB.Count -eq 2 -and $wslRow.location -eq 'wsl' -and $wslRow.distro -eq 'Ubuntu' -and $wslRow.cwd -eq '/home/me/app' -and $wslRow.side -eq 'windows' -and $null -eq $wslRow.repo) 'a WSL window is in its distro, the process still on Windows, and no distro is woken to find its repo'
+  $empty = @($rowsB | Where-Object { $_.window -eq 'sb2#0' })[0]
+  Check ($empty -and $null -eq $empty.cwd -and $null -eq $empty.repo) 'an empty window is a row with no folder and no repo'
+  Check (-not @($doc.instances | Where-Object { $_.pid -in $editorA.Id, $editorB.Id -and $_.window -like 'sb*' -and $_.pid -eq $editorA.Id }).Count) 'each editor has only its own windows'
+  $bareRow = Row $doc $bare.Id
+  Check ($bareRow -and $bareRow.placed_by -eq 'launch' -and (Same-Path $bareRow.cwd $loose) -and @($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like "*$($bare.Id) has no window record*install-editor-extension.ps1" }).Count -eq 1) 'an editor with no window record keeps its launch folder, marked, and the problem says how to place it'
+  $agRow = Row $doc $agentApp.Id
+  Check ($agRow -and $null -eq $agRow.placed_by -and $null -eq $agRow.window -and (Same-Path $agRow.cwd $loose)) 'the agent app is never placed by a window record'
+  Check (@($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like '*stale.json is stale*' }).Count -eq 1 -and @($doc.problems | Where-Object { $_.why -like '*damaged.json is not a window record*' }).Count -eq 1) 'a stale and a damaged record are each said, beside the rows'
+  Check (Test-Path -LiteralPath (Join-Path $windows 'stale.json')) 'and the scanner deletes no record'
+  Check ($wslRow -and @($doc.problems | Where-Object { $_.why -like '*so no WSL window''s repo is looked up' }).Count -eq 1) 'a WSL that can''t be asked is said once'
+  & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $editorA.Id 2>&1 | Out-Null
+  $null = Wait-Until { -not (Get-Process -Id $editorA.Id, $editorA.Host -ErrorAction Ignore) } 5000
+  $doc = Scan
+  Check (-not @($doc.instances | Where-Object { $_.pid -eq $editorA.Id }).Count -and @($doc.problems | Where-Object { $_.why -like '*sa1.json is stale*' }).Count -eq 1) 'an editor that has exited is not listed, and its record is stale'
+  Remove-Item Env:BOSUN_WSL_EXE
 
   # Problems are said by source, and every instance is still listed beside them.
   Set-Content -LiteralPath (Join-Path $sessions 'broken.json') -Value '{not json'

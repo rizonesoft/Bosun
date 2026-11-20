@@ -11,7 +11,7 @@ public sealed record InstancesDoc : ICheckedDoc
 {
     public static readonly IReadOnlySet<string> Kinds = new HashSet<string> { "claude", "codex", "agy", "code", "antigravity", "job" };
     public static readonly IReadOnlySet<string> States = new HashSet<string> { "working", "reviewing", "idle", "unknown" };
-    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records" };
+    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records", "editor-windows" };
 
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("side")] public required string Side { get; init; }
@@ -40,9 +40,31 @@ public sealed record InstancesDoc : ICheckedDoc
             if (i.Pid <= 0) return $"an instance has the pid {i.Pid}";
             if (i.PrivateMb < 0) return $"instance {i.Pid}'s memory is negative";
             if (i.GuestDistro is { } g && !DistroName.IsMatch(g)) return $"instance {i.Pid} names the distro '{(g.Length > 64 ? g[..64] + "..." : g)}'";
+            if (WindowFault(i) is { } window) return window;
         }
         foreach (var p in Problems)
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
+        return null;
+    }
+
+    /// <summary>
+    /// An editor's window row (D03 T02 §4): its location is the side it runs on, or WSL for a WSL window of a Windows
+    /// editor, which then names its distro and a Linux folder; only an editor row is placed by a window.
+    /// </summary>
+    private static string? WindowFault(InstanceDoc i)
+    {
+        if (i.PlacedBy is not (null or "window" or "launch")) return $"instance {i.Pid} is placed by '{i.PlacedBy}'";
+        if (i.PlacedBy is not null && i.Kind != "code") return $"instance {i.Pid} is a {i.Kind}, which no window places";
+        if ((i.PlacedBy == "window") != (i.Window is not null)) return $"instance {i.Pid} has a window without being placed by one, or the reverse";
+        if (i.Window is { Length: 0 or > 200 }) return $"instance {i.Pid} has a window identity no scanner writes";
+        if (i.SharedMb < 0) return $"instance {i.Pid}'s shared memory is negative";
+        if (i.Location is not (null or "windows" or "wsl")) return $"instance {i.Pid}'s location is '{i.Location}'";
+        if (i.Location == "windows" && i.Distro is not null) return $"instance {i.Pid} is in a Windows folder and names a distro";
+        if (i.Location == "wsl")
+        {
+            if (i.Distro is not { } d || !DistroName.IsMatch(d)) return $"instance {i.Pid} is in WSL and names no distro it could be in";
+            if (i.Cwd is { } cwd && !cwd.StartsWith('/')) return $"instance {i.Pid} is in WSL with the folder '{cwd}'";
+        }
         return null;
     }
 }
@@ -64,6 +86,27 @@ public sealed record InstanceDoc
     [JsonPropertyName("command")] public required string? Command { get; init; }
     [JsonPropertyName("guest_pid")] public required long? GuestPid { get; init; }
     [JsonPropertyName("guest_distro")] public required string? GuestDistro { get; init; }
+
+    // An editor placed by its windows (D03 T02 §4). The Windows scanner writes these; WSL's writes none, so each is
+    // optional, and absent reads as null.
+
+    /// <summary>The window and root this row is, stable across scans: the window's session and the root's index.</summary>
+    [JsonPropertyName("window")] public string? Window { get; init; }
+
+    /// <summary>Where the row's folder is: "windows", or "wsl" for a WSL window of a Windows editor; null when not said.</summary>
+    [JsonPropertyName("location")] public string? Location { get; init; }
+
+    /// <summary>The distro a WSL-located row's folder is in.</summary>
+    [JsonPropertyName("distro")] public string? Distro { get; init; }
+
+    /// <summary>"window" (by its open window) or "launch" (no window record: the folder it was started in).</summary>
+    [JsonPropertyName("placed_by")] public string? PlacedBy { get; init; }
+
+    /// <summary>The editor's memory, which every row of its process shares; its first row alone carries <see cref="PrivateMb"/>.</summary>
+    [JsonPropertyName("shared_mb")] public long? SharedMb { get; init; }
+
+    /// <summary>True when the row's folder is in WSL: a WSL instance, or a WSL window of a Windows editor.</summary>
+    [JsonIgnore] public bool InWsl => Location is { } location ? location == "wsl" : Side == "wsl";
 }
 
 /// <summary>A source a scanner could not read (session records, review marks, the queue's records), and why.</summary>

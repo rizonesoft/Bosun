@@ -128,7 +128,10 @@ inline std::optional<std::string> repo_from_path(std::string dir, const std::fun
     std::replace(dir.begin(), dir.end(), '\\', '/');
     while (!dir.empty() && dir.back() == '/') dir.pop_back();
     while (!dir.empty()) {
-        if (has_git(dir)) return dir;
+        // A drive's root is asked as "D:/": "D:" joined to ".git" is "D:.git", relative to the current folder on that
+        // drive (2026-11-20: every folder on the scanner's own drive was put in the repo the scanner ran from).
+        std::string probe = dir.size() == 2 && dir[1] == ':' ? dir + "/" : dir;
+        if (has_git(probe)) return probe;
         size_t p = dir.rfind('/');
         if (p == std::string::npos) break;
         dir.resize(p);
@@ -1498,6 +1501,13 @@ struct Instance {
     std::optional<std::string> command;
     std::optional<int64_t> guest_pid;
     std::optional<std::string> guest_distro;
+    // An editor placed by its open windows (D03 T02 §4): one row per root, `window` its identity across scans (the
+    // window's session and the root's index), `location` and `distro` where the root is (a WSL root of a Windows editor
+    // is in WSL, while the process stays on Windows), `placed_by` "window" or "launch" (no window record: the folder it
+    // was started in), and `shared_mb` the editor's memory, which every row of the process shares; `private_mb` is on
+    // its first row only, so a sum counts it once.
+    std::optional<std::string> window, location, distro, placed_by;
+    std::optional<int64_t> shared_mb;
 };
 
 // An instance's state, from the evidence in this order: the slot its job holds, a live review its process runs under,
@@ -1578,6 +1588,16 @@ inline std::string instances_json(const InstancesDoc& d) {
         count(i.guest_pid);
         o << ",\"guest_distro\":";
         text(i.guest_distro);
+        o << ",\"window\":";
+        text(i.window);
+        o << ",\"location\":";
+        text(i.location);
+        o << ",\"distro\":";
+        text(i.distro);
+        o << ",\"placed_by\":";
+        text(i.placed_by);
+        o << ",\"shared_mb\":";
+        count(i.shared_mb);
         o << "}";
     }
     o << "],\"unreadable\":" << d.unreadable << ",\"problems\":[";
@@ -1600,6 +1620,198 @@ inline std::string instances_text(const InstancesDoc& d) {
     for (const auto& [source, why] : d.problems) o << "can't read " << source << ": " << why << "\n";
     if (d.unreadable) o << d.unreadable << " processes couldn't be read\n";
     return o.str();
+}
+
+// --- Editor windows (D03 T02 §4) -------------------------------------------------------------------------------------
+// VS Code keeps no record outside itself of which windows are open (read on 1.147.0, 2026-11-20: the workspace storage
+// its main process holds is every window of the session, and storage.json's openedWindows is empty with a window open),
+// so Bosun's window reporter (editors/bosun-windows) writes one record per open window to
+// %LOCALAPPDATA%\Bosun\editor-windows. A record counts only while its extension host is alive under the editor process
+// it names and started no later than the record was written; any other is stale, said, and left for the reporter.
+
+struct EditorWindow {
+    std::string session_id, app_name, written_utc;
+    int64_t main_pid = 0, host_pid = 0;
+    std::optional<std::string> workspace_file;
+    std::vector<std::string> roots;
+};
+
+// The strings of a JSON list, or nothing when it is not a list of strings. Each element is decoded by the one string
+// reader the records use (parse_flat_object), so escapes mean the same everywhere.
+inline std::optional<std::vector<std::string>> parse_string_list(const std::string& s) {
+    std::vector<std::string> out;
+    size_t i = 0;
+    auto ws = [&] { while (i < s.size() && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) ++i; };
+    ws();
+    if (i >= s.size() || s[i] != '[') return std::nullopt;
+    ++i;
+    ws();
+    if (i < s.size() && s[i] == ']') { ++i; ws(); return i == s.size() ? std::optional(out) : std::nullopt; }
+    for (;;) {
+        ws();
+        if (i >= s.size() || s[i] != '"') return std::nullopt;
+        size_t from = i++;
+        while (i < s.size() && s[i] != '"') i += s[i] == '\\' ? 2 : 1;
+        if (i >= s.size()) return std::nullopt;
+        ++i;
+        auto one = parse_flat_object("{\"v\":" + s.substr(from, i - from) + "}");
+        if (!one || one->at("v").kind != FlatValue::String) return std::nullopt;
+        out.push_back(one->at("v").text);
+        if (out.size() > 256) return std::nullopt;  // no window holds more roots than this
+        ws();
+        if (i < s.size() && s[i] == ',') { ++i; continue; }
+        if (i < s.size() && s[i] == ']') { ++i; ws(); return i == s.size() ? std::optional(out) : std::nullopt; }
+        return std::nullopt;
+    }
+}
+
+// A window record, or nothing with why.
+inline std::optional<EditorWindow> parse_editor_window(const std::string& text, std::string& why) {
+    auto obj = parse_flat_object(text, false, true);
+    if (!obj) { why = "it is not a JSON object the reporter writes"; return std::nullopt; }
+    auto field = [&](const char* key) -> const FlatValue* { auto f = obj->find(key); return f == obj->end() ? nullptr : &f->second; };
+    auto version = field("schema_version");
+    if (!version || version->kind != FlatValue::Integer || version->number != 1) { why = "it has no schema_version 1"; return std::nullopt; }
+    EditorWindow w;
+    for (auto [key, out] : {std::pair<const char*, std::string*>{"session_id", &w.session_id}, {"app_name", &w.app_name}, {"written_utc", &w.written_utc}}) {
+        auto v = field(key);
+        if (!v || v->kind != FlatValue::String) { why = std::string("it has no ") + key; return std::nullopt; }
+        *out = v->text;
+    }
+    if (w.session_id.empty()) { why = "its session_id is empty"; return std::nullopt; }
+    if (w.written_utc.size() < 19) { why = "its written_utc is not a time"; return std::nullopt; }
+    for (auto [key, out] : {std::pair<const char*, int64_t*>{"main_pid", &w.main_pid}, {"host_pid", &w.host_pid}}) {
+        auto v = field(key);
+        if (!v || v->kind != FlatValue::Integer || v->negative || v->number == 0) { why = std::string("it has no ") + key; return std::nullopt; }
+        *out = v->number;
+    }
+    auto file = field("workspace_file");
+    if (file && file->kind == FlatValue::String) w.workspace_file = file->text;
+    else if (file && file->kind != FlatValue::Null) { why = "its workspace_file is not text"; return std::nullopt; }
+    auto roots = field("roots");
+    auto list = roots && roots->kind == FlatValue::Nested ? parse_string_list(roots->text) : std::nullopt;
+    if (!list) { why = "its roots are not a list of URIs"; return std::nullopt; }
+    w.roots = std::move(*list);
+    return w;
+}
+
+// Where a root is: a folder on Windows, or a guest path in a WSL distro.
+struct EditorRoot {
+    std::string location;  // "windows" or "wsl"
+    std::optional<std::string> distro;
+    std::string path;
+};
+
+// %XX decoded; nothing when an escape is not two hex digits.
+inline std::optional<std::string> percent_decode(const std::string& s) {
+    auto hex = [](char c) { return c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10; };
+    std::string out;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] != '%') { out.push_back(s[i]); continue; }
+        if (i + 2 >= s.size() || !std::isxdigit(static_cast<unsigned char>(s[i + 1])) || !std::isxdigit(static_cast<unsigned char>(s[i + 2]))) return std::nullopt;
+        out.push_back(static_cast<char>(hex(s[i + 1]) * 16 + hex(s[i + 2])));
+        i += 2;
+    }
+    return out;
+}
+
+// A root's URI as VS Code writes it: `file:///d%3A/GitHub/Bosun` is `D:\GitHub\Bosun`, `file://server/share/x` is
+// `\\server\share\x`, and `vscode-remote://wsl%2Bubuntu/home/me/app` is the guest path `/home/me/app` in `ubuntu`. Any
+// other kind (another remote, a virtual folder) is not a place Bosun can put in a repo: nothing, with why.
+inline std::optional<EditorRoot> editor_root(const std::string& uri, std::string& why) {
+    auto rest_of = [&](const std::string& scheme) { return uri.compare(0, scheme.size(), scheme) == 0 ? std::optional(uri.substr(scheme.size())) : std::nullopt; };
+    if (auto rest = rest_of("file://")) {
+        size_t slash = rest->find('/');
+        std::string authority = rest->substr(0, slash);
+        auto path = percent_decode(slash == std::string::npos ? "/" : rest->substr(slash));
+        if (!path) { why = uri + " is not a well formed URI"; return std::nullopt; }
+        std::replace(path->begin(), path->end(), '/', '\\');
+        EditorRoot r{"windows", std::nullopt, {}};
+        if (!authority.empty()) {
+            r.path = "\\\\" + authority + *path;  // a share
+        } else if (path->size() >= 3 && path->at(0) == '\\' && std::isalpha(static_cast<unsigned char>(path->at(1))) && path->at(2) == ':') {
+            r.path = path->substr(1);
+            r.path[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(r.path[0])));
+            if (r.path.size() == 2) r.path += '\\';
+        } else {
+            why = uri + " names no drive or share";
+            return std::nullopt;
+        }
+        if (r.path.size() > 3 && r.path.back() == '\\') r.path.pop_back();
+        return r;
+    }
+    if (auto rest = rest_of("vscode-remote://")) {
+        size_t slash = rest->find('/');
+        auto authority = percent_decode(rest->substr(0, slash));
+        auto path = percent_decode(slash == std::string::npos ? "/" : rest->substr(slash));
+        if (!authority || !path) { why = uri + " is not a well formed URI"; return std::nullopt; }
+        if (authority->compare(0, 4, "wsl+") != 0 || authority->size() == 4) { why = uri + " is a remote window that is not WSL"; return std::nullopt; }
+        std::string distro = authority->substr(4);
+        bool name_ok = distro.size() <= 64 && std::all_of(distro.begin(), distro.end(), [](unsigned char c) { return std::isalnum(c) || c == '.' || c == '_' || c == '-'; });
+        if (!name_ok) { why = uri + " names a distro Bosun can't name"; return std::nullopt; }
+        if (path->size() > 1 && path->back() == '/') path->pop_back();
+        return EditorRoot{"wsl", distro, *path};
+    }
+    why = uri + " is not a folder on this machine or in WSL";
+    return std::nullopt;
+}
+
+// Whether a record counts now: its host is alive, a child of the editor process it names, and started no later than
+// the record was written (to the second), so a host id reused since is not taken for the window's.
+inline bool editor_window_live(const EditorWindow& w, const std::map<int64_t, const ProcInfo*>& by_pid, const std::map<int64_t, int64_t>& parent) {
+    auto host = by_pid.find(w.host_pid);
+    auto up = parent.find(w.host_pid);
+    if (host == by_pid.end() || up == parent.end() || up->second != w.main_pid) return false;
+    const auto& started = host->second->started_at;
+    return started && started->size() >= 19 && started->compare(0, 19, w.written_utc, 0, 19) <= 0;
+}
+
+// An editor's rows from its live window records: one per root of each window, in session order, each in the repo
+// `repo_of` finds for it; an empty window is one row with no folder. A root Bosun can't place (another remote, a
+// virtual folder) is a problem beside the rows it could place. `launch` is the row the editor would have from the
+// folder it was started in; its process fields carry over to every row.
+// `distro_name` gives a distro's name as WSL spells it (VS Code writes the authority lowercased: `wsl+ubuntu` for the
+// distro `Ubuntu`), so the row joins its distro's own group.
+inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<EditorWindow> windows,
+                                         const std::function<std::optional<std::string>(const EditorRoot&)>& repo_of,
+                                         std::vector<std::pair<std::string, std::string>>& problems,
+                                         const std::function<std::string(const std::string&)>& distro_name = nullptr) {
+    std::sort(windows.begin(), windows.end(), [](const EditorWindow& a, const EditorWindow& b) { return a.session_id < b.session_id; });
+    std::vector<Instance> rows;
+    auto row = [&](const std::string& window) {
+        Instance i = launch;
+        i.cwd = std::nullopt;
+        i.repo = std::nullopt;
+        i.window = window;
+        i.location = launch.side;
+        i.distro = std::nullopt;
+        i.placed_by = "window";
+        i.shared_mb = launch.private_mb;
+        i.private_mb = rows.empty() ? launch.private_mb : std::nullopt;
+        return i;
+    };
+    for (const auto& w : windows) {
+        if (w.roots.empty()) {
+            rows.push_back(row(w.session_id + "#0"));
+            continue;
+        }
+        for (size_t k = 0; k < w.roots.size(); ++k) {
+            std::string why;
+            auto root = editor_root(w.roots[k], why);
+            if (!root) {
+                problems.push_back({"editor-windows", launch.name + " " + std::to_string(launch.pid) + ": " + why});
+                continue;
+            }
+            if (root->distro && distro_name) root->distro = distro_name(*root->distro);
+            Instance i = row(w.session_id + "#" + std::to_string(k));
+            i.cwd = root->path;
+            i.location = root->location;
+            i.distro = root->distro;
+            i.repo = repo_of(*root);
+            rows.push_back(std::move(i));
+        }
+    }
+    return rows;
 }
 
 // --- One config file for queue limits (D01 T01 §5) -------------------------------------------------------------------

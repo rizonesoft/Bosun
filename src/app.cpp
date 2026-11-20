@@ -1199,6 +1199,105 @@ std::string job_name(const std::string& command) {
     return slash == std::string::npos ? first : first.substr(slash + 1);
 }
 
+// The WSL distros running now (`wsl.exe -l --running -q`), or nothing with why. Asking starts no distro, so a WSL
+// window's repo is looked up only inside a distro that is already up (D03 T02 §4); the call is bounded to three seconds
+// and ended with its tree on timeout. `BOSUN_WSL_EXE` names a stand-in for tests.
+std::optional<std::set<std::string>> wsl_running_distros(std::string& why) {
+    std::wstring exe = env(L"BOSUN_WSL_EXE");
+    if (exe.empty()) exe = env(L"SystemRoot") + L"\\System32\\wsl.exe";
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE read = nullptr, write = nullptr;
+    if (!CreatePipe(&read, &write, &sa, 0)) { why = "a pipe for wsl.exe can't be made"; return std::nullopt; }
+    SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = write;
+    si.hStdError = write;
+    si.hStdInput = nullptr;
+    PROCESS_INFORMATION pi{};
+    std::wstring line = L"\"" + exe + L"\" -l --running -q";
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (job) SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    BOOL started = CreateProcessW(exe.c_str(), line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &si, &pi);
+    CloseHandle(write);
+    if (!started) {
+        CloseHandle(read);
+        if (job) CloseHandle(job);
+        why = "wsl.exe can't be started (error " + std::to_string(GetLastError()) + ")";
+        return std::nullopt;
+    }
+    if (job) AssignProcessToJobObject(job, pi.hProcess);
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+    std::string bytes;
+    std::atomic<bool> reading{true};
+    std::thread reader([&] {
+        char buf[4096];
+        DWORD n = 0;
+        while (ReadFile(read, buf, sizeof(buf), &n, nullptr) && n) {
+            if (bytes.size() < 64 * 1024) bytes.append(buf, n);
+        }
+        reading = false;
+    });
+    DWORD waited = WaitForSingleObject(pi.hProcess, 3000);
+    DWORD code = 1;
+    if (waited != WAIT_OBJECT_0) {
+        if (job) TerminateJobObject(job, 1);
+        else TerminateProcess(pi.hProcess, 1);
+        WaitForSingleObject(pi.hProcess, 1000);
+    } else {
+        GetExitCodeProcess(pi.hProcess, &code);
+    }
+    CloseHandle(pi.hProcess);
+    if (job) CloseHandle(job);  // ends anything it left behind
+    CancelIoEx(read, nullptr);
+    reader.join();
+    CloseHandle(read);
+    if (waited != WAIT_OBJECT_0) { why = "wsl.exe -l --running took longer than 3 s"; return std::nullopt; }
+    // It writes UTF-16 when its output is a pipe. With none running it says so in a sentence and exits non-zero: a line
+    // with a space is never a distro's name (WSL refuses one), so that is an empty set.
+    std::set<std::string> out;
+    std::wstring text;
+    if (bytes.size() >= 2 && bytes.size() % 2 == 0 && bytes[1] == '\0') text.assign(reinterpret_cast<const wchar_t*>(bytes.data()), bytes.size() / 2);
+    else text = widen(bytes);
+    (void)code;
+    std::wstring name;
+    for (wchar_t c : text + L"\n") {
+        if (c == L'\r' || c == L'\n') {
+            if (!name.empty() && name.find(L' ') == std::wstring::npos) out.insert(narrow(name));
+            name.clear();
+        } else if (c != 0xFEFF) {
+            name.push_back(c);
+        }
+    }
+    return out;
+}
+
+// The WSL distros this user has, as WSL spells their names, from HKCU\...\Lxss (read, nothing started), keyed by the
+// name in lower case: a distro's name is compared without case, and VS Code writes it lowercased.
+std::map<std::string, std::string> wsl_distro_names() {
+    std::map<std::string, std::string> names;
+    HKEY lxss = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Lxss", 0, KEY_READ, &lxss) != ERROR_SUCCESS) return names;
+    for (DWORD k = 0; k < 256; ++k) {
+        wchar_t sub[128];
+        DWORD len = 128;
+        if (RegEnumKeyExW(lxss, k, sub, &len, nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) break;
+        wchar_t name[256];
+        DWORD bytes = sizeof(name);
+        if (RegGetValueW(lxss, sub, L"DistributionName", RRF_RT_REG_SZ, nullptr, name, &bytes) != ERROR_SUCCESS) continue;
+        std::string spelled = narrow(name);
+        std::string lower = spelled;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        names[lower] = spelled;
+    }
+    RegCloseKey(lxss);
+    return names;
+}
+
 int cmd_instances(const Options& o) {
     bool listed = false;
     auto procs = snapshot_processes(&listed);
@@ -1219,6 +1318,7 @@ int cmd_instances(const Options& o) {
         info.name = p.name;
         info.private_kb = static_cast<int64_t>(p.private_bytes / 1024);
         info.start = process_start_of(p.pid);
+        if (info.start) info.started_at = utc_of_filetime(*info.start);
         infos.push_back(std::move(info));
     }
     auto parent = dm::parents_of(infos);
@@ -1258,6 +1358,61 @@ int cmd_instances(const Options& o) {
     std::map<int64_t, const dm::ProcInfo*> by_pid;
     for (const auto& info : infos) by_pid[info.pid] = &info;
     std::unordered_map<std::wstring, std::string> repo_cache;
+
+    // The window reporter's records (D03 T02 §4), live ones by the editor process they name. A stale record (its host
+    // gone, or a reused id) is said and left for the reporter, which clears its own.
+    std::map<int64_t, std::vector<dm::EditorWindow>> windows_of;
+    bool windows_readable = true;
+    fs::path windows_dir = fs::path(env(L"LOCALAPPDATA")) / L"Bosun" / L"editor-windows";
+    if (auto files = json_files(windows_dir, why)) {
+        for (const auto& file : *files) {
+            bool gone = false;
+            auto text = read_small(file, why, gone);
+            if (!text) {
+                if (!gone) doc.problems.push_back({"editor-windows", why});
+                continue;
+            }
+            std::string bad;
+            auto record = dm::parse_editor_window(*text, bad);
+            if (!record) doc.problems.push_back({"editor-windows", narrow(file.wstring()) + " is not a window record: " + bad});
+            else if (!dm::editor_window_live(*record, by_pid, parent))
+                doc.problems.push_back({"editor-windows", narrow(file.wstring()) + " is stale: its window's extension host " + std::to_string(record->host_pid) + " is gone"});
+            else windows_of[record->main_pid].push_back(std::move(*record));
+        }
+    } else {
+        windows_readable = false;
+        doc.problems.push_back({"editor-windows", why});
+    }
+    std::optional<std::set<std::string>> running_distros;
+    bool asked_distros = false;
+    std::optional<std::map<std::string, std::string>> distro_names;  // read when a WSL window is first met
+    auto distro_name = [&](const std::string& written) {
+        if (!distro_names) distro_names = wsl_distro_names();
+        std::string lower = written;
+        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        auto found = distro_names->find(lower);
+        return found == distro_names->end() ? written : found->second;
+    };
+    auto repo_of_root = [&](const dm::EditorRoot& root) -> std::optional<std::string> {
+        if (root.location == "windows") {
+            std::string repo = repo_for_dir(widen(root.path), repo_cache);
+            return repo.empty() ? std::nullopt : std::optional(repo);
+        }
+        if (!asked_distros) {
+            asked_distros = true;
+            std::string unread;
+            running_distros = wsl_running_distros(unread);
+            if (!running_distros) doc.problems.push_back({"editor-windows", unread + ", so no WSL window's repo is looked up"});
+        }
+        if (!running_distros || !running_distros->count(*root.distro)) return std::nullopt;  // never wakes a distro (the name is WSL's own spelling)
+        std::wstring share = L"\\\\wsl.localhost\\" + widen(*root.distro);
+        return dm::repo_from_path(root.path, [&](const std::string& d) {
+            std::error_code ec;
+            std::wstring guest = widen(d);
+            std::replace(guest.begin(), guest.end(), L'/', L'\\');
+            return fs::exists(fs::path(share + guest) / L".git", ec);
+        });
+    };
     std::map<std::string, std::vector<dm::ReviewMark>> marks_by_repo;  // read once per repo
     const double now_s = static_cast<double>(epoch_ms()) / 1000;
     auto marks_of = [&](const std::string& repo) -> const std::vector<dm::ReviewMark>& {
@@ -1326,6 +1481,19 @@ int cmd_instances(const Options& o) {
         }
         auto session = sessions.find(pid);
         dm::instance_state(i, nullptr, under, session == sessions.end() ? nullptr : &session->second, p.start);
+        if (i.kind == "code") {
+            // An editor goes in every repo it has open, by its windows' records; with none it keeps the folder it was
+            // started in, marked so (D03 T02 §4).
+            auto found = windows_of.find(pid);
+            if (found != windows_of.end()) {
+                for (auto& row : dm::editor_rows(i, found->second, repo_of_root, doc.problems, distro_name)) doc.instances.push_back(std::move(row));
+                continue;
+            }
+            i.placed_by = "launch";
+            if (windows_readable)
+                doc.problems.push_back({"editor-windows", p.name + " " + std::to_string(pid) +
+                                                              " has no window record, so it is placed by the folder it was started in: run scripts/install-editor-extension.ps1"});
+        }
         doc.instances.push_back(std::move(i));
     }
     for (const auto& h : holders) {

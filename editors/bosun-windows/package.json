@@ -1,0 +1,25 @@
+{
+  "name": "bosun-windows",
+  "displayName": "Bosun window reporter",
+  "description": "Tells Bosun which folders each open window holds, so its Instances page puts the editor in every repo it has open. Writes one small file per window under %LOCALAPPDATA%\\Bosun\\editor-windows and removes it when the window closes. Sends nothing anywhere.",
+  "version": "0.1.1",
+  "publisher": "bosun",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  }
+}

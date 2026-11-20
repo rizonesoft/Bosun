@@ -415,6 +415,58 @@ public class InstancesPageTests
     }
 
     [Fact]
+    public void An_editor_s_window_rows_each_keep_their_selection_through_a_reordered_refresh_and_open_their_own_folder()
+    {
+        // D03 T02 §4: one editor with windows on two same-named repos and a WSL window, a row each; its memory on its first.
+        Bosun.Core.Instances.InstancesView Scan(bool reversed)
+        {
+            InstanceDoc[] rows =
+            [
+                EditorWindow(500, "s1#0", @"D:\one\app", "D:/one/app", 4096),
+                EditorWindow(500, "s1#1", @"E:\two\app", "E:/two/app", null),
+                EditorWindow(500, "s2#0", "/home/me/app", "/home/me/app", null, location: "wsl", distro: "Ubuntu"),
+            ];
+            return View(null, Win(reversed ? [.. rows.Reverse()] : rows));
+        }
+        var source = new FakeInstances { Answer = Scan(reversed: false) };
+        OnPage(source, h =>
+        {
+            var page = h.Page;
+            var editor = page.Lines.Where(l => l.Row.Instance.Pid == 500).ToList();
+            Assert.Equal(3, editor.Count);
+            var second = editor.Single(l => l.Row.Instance.Window == "s1#1");
+            Assert.Equal("E:/two/app", second.Group);
+            Assert.Equal("/home/me/app in WSL (Ubuntu)", editor.Single(l => l.Row.Instance.Window == "s2#0").Group);
+            Assert.Equal(InstanceLine.Shared, second.Memory);
+            Assert.Equal("Shared with the editor's other windows: 4096 MB in all, shown on its first window", second.MemoryWhy);
+            var first = editor.Single(l => l.Row.Instance.Window == "s1#0");
+            Assert.NotEqual(InstanceLine.NotAvailable, first.Memory);
+            Assert.Equal("4096 MB private, shared by all of the editor's open windows", first.MemoryWhy);
+
+            page.Selected = second;
+            source.Answer = Scan(reversed: true);
+            page.RefreshNow!.Execute(null);
+            Settle();
+            Assert.Equal("s1#1", page.Selected!.Row.Instance.Window);
+            page.Selected.OpenFolder!.Execute(null);
+            Until(() => h.Launcher.Started.Count == 1);
+            Assert.Equal(@"E:\two\app", h.Launcher.Started[^1].ArgumentList.Single());
+            h.Shell.Palette.Open();
+            h.Shell.Palette.Query = "Open terminal";
+            _ = h.Shell.Palette.Rows.Single(r => r.Name.StartsWith("Open terminal", StringComparison.Ordinal)).Run();
+            Until(() => h.Launcher.Started.Count == 2);
+            Assert.Equal(@"E:\two\app", h.Launcher.Started[^1].WorkingDirectory);
+
+            // The WSL window opens in its distro, through the distro's own path.
+            page.Selected = page.Lines.Single(l => l.Row.Instance.Window == "s2#0");
+            page.Selected.OpenTerminal!.Execute(null);
+            Until(() => h.Launcher.Started.Count == 3);
+            Assert.Equal(["-d", ".", "wsl.exe", "-d", "Ubuntu"], h.Launcher.Started[^1].ArgumentList);
+            Assert.Equal(@"\\wsl.localhost\Ubuntu\home\me\app", h.Launcher.Started[^1].WorkingDirectory);
+        });
+    }
+
+    [Fact]
     public void Ctrl_K_acts_on_the_selected_row_and_offers_nothing_without_one_and_a_refresh_keeps_or_clears_the_selection()
     {
         var source = new FakeInstances();

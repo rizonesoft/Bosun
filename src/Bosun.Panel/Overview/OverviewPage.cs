@@ -581,9 +581,9 @@ public sealed class OverviewPage : PageBase
             Instances.ShowNotAvailable(string.Join(" ", InstanceReasons(scan)), gauge: false);
             return;
         }
-        // The merged live instances, each once: a WSL job seen by both sides is one, and a stale distro's rows are not
-        // counted (Groups never lists them).
-        var live = scan.Groups.SelectMany(g => g.Rows).ToList();
+        // The merged live instances, each once: a WSL job seen by both sides is one, an editor with several open windows
+        // (a row each, D03 T02 §4) is one, and a stale distro's rows are not counted (Groups never lists them).
+        var live = scan.Groups.SelectMany(g => g.Rows).DistinctBy(InstanceLine.ProcessKey).ToList();
         var bySide = new List<string>();
         void Side(string name)
         {

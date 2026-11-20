@@ -77,6 +77,11 @@ static void repos() {
     CHECK(dm::repo_from_path("D:\\GitHub\\Bosun\\", has) == "D:/GitHub/Bosun");
     CHECK(dm::repo_from_path("/home/u/a/app/src", has) != dm::repo_from_path("/home/u/b/app/src", has));
     CHECK(!dm::repo_from_path("C:\\Windows\\System32", has).has_value());
+    // A drive's root is asked as "D:/", never "D:", which Windows reads relative to the drive's current folder.
+    std::vector<std::string> asked;
+    auto record = [&](const std::string& d) { asked.push_back(d); return d == "D:/"; };
+    CHECK(dm::repo_from_path("D:\\scratch\\x", record) == std::optional<std::string>("D:/"));
+    CHECK((asked == std::vector<std::string>{"D:/scratch/x", "D:/scratch", "D:/"}));
 }
 
 static void rows() {
@@ -817,6 +822,92 @@ static dm::ProcInfo proc(int64_t pid, int64_t ppid, const char* name, int64_t mb
     return p;
 }
 
+// --- Editor windows (D03 T02 §4) ---
+static std::string window_record(const std::string& session, int64_t main, int64_t host, const std::string& roots, const std::string& written = "2026-11-20T11:00:05.123Z") {
+    return "{\"schema_version\":1,\"app_name\":\"Visual Studio Code\",\"main_pid\":" + std::to_string(main) + ",\"host_pid\":" + std::to_string(host) +
+           ",\"session_id\":\"" + session + "\",\"workspace_file\":null,\"roots\":" + roots + ",\"written_utc\":\"" + written + "\"}";
+}
+
+static void editor_windows() {
+    // A record: its fields read, and anything else refused with why.
+    std::string why;
+    auto w = dm::parse_editor_window(window_record("s1", 10, 11, R"(["file:///d%3A/a/app","vscode-remote://wsl%2Bubuntu/home/me/app"])"), why);
+    CHECK(w && w->main_pid == 10 && w->host_pid == 11 && w->session_id == "s1" && w->roots.size() == 2 && w->roots[1] == "vscode-remote://wsl%2Bubuntu/home/me/app");
+    CHECK(dm::parse_editor_window(window_record("s1", 10, 11, "[]"), why)->roots.empty());
+    CHECK(!dm::parse_editor_window(window_record("s1", 10, 11, R"(["a",1])"), why) && why == "its roots are not a list of URIs");
+    CHECK(!dm::parse_editor_window(window_record("s1", 10, 11, R"(["a")"), why));
+    CHECK(!dm::parse_editor_window(window_record("", 10, 11, "[]"), why) && why == "its session_id is empty");
+    CHECK(!dm::parse_editor_window(window_record("s1", 0, 11, "[]"), why) && why == "it has no main_pid");
+    CHECK(!dm::parse_editor_window("{\"schema_version\":2}", why) && why == "it has no schema_version 1");
+    CHECK(!dm::parse_editor_window("{\"schema_version\":1,", why));  // cut short
+    CHECK(dm::parse_string_list(R"(["a\"b","c\\d"])") == std::optional<std::vector<std::string>>(std::vector<std::string>{"a\"b", "c\\d"}));
+
+    // Each root as a place: two same-named checkouts are two paths, a WSL root is its distro's, anything else is said.
+    auto a = dm::editor_root("file:///d%3A/one/app", why);
+    auto b = dm::editor_root("file:///e%3A/two/app/", why);
+    CHECK(a && a->location == "windows" && a->path == "D:\\one\\app" && b && b->path == "E:\\two\\app" && a->path != b->path);
+    CHECK(dm::editor_root("file:///c%3A/", why)->path == "C:\\");
+    CHECK(dm::editor_root("file://server/share/x%20y", why)->path == "\\\\server\\share\\x y");
+    auto r = dm::editor_root("vscode-remote://wsl%2BUbuntu-24.04/home/me/app", why);
+    CHECK(r && r->location == "wsl" && r->distro == std::optional<std::string>("Ubuntu-24.04") && r->path == "/home/me/app");
+    CHECK(!dm::editor_root("vscode-remote://ssh-remote%2Bhost/x", why) && why.find("not WSL") != std::string::npos);
+    CHECK(!dm::editor_root("vscode-remote://wsl%2Ba%2Fb/x", why));  // no distro is named so
+    CHECK(!dm::editor_root("vscode-vfs://github/x", why) && !dm::editor_root("file:///d%3A/x%2", why));
+
+    // Live only while its host is a child of the editor named, started no later than the record was written.
+    std::vector<dm::ProcInfo> procs = {proc(10, 1, "Code.exe", 900), proc(11, 10, "Code.exe", 50), proc(12, 99, "Code.exe", 50), proc(13, 10, "Code.exe", 50)};
+    procs[1].started_at = "2026-11-20T11:00:01Z";
+    procs[2].started_at = "2026-11-20T11:00:01Z";
+    procs[3].started_at = "2026-11-20T11:00:09Z";
+    auto parent = dm::parents_of(procs);
+    std::map<int64_t, const dm::ProcInfo*> by_pid;
+    for (const auto& p : procs) by_pid[p.pid] = &p;
+    auto live = [&](int64_t main, int64_t host) { return dm::editor_window_live(*dm::parse_editor_window(window_record("s", main, host, "[]"), why), by_pid, parent); };
+    CHECK(live(10, 11));
+    CHECK(!live(10, 12));  // another editor's host
+    CHECK(!live(10, 13));  // started after the record: a reused id
+    CHECK(!live(10, 77));  // gone
+
+    // An editor's rows: one per root, its memory once, an empty window one row, an unplaceable root said beside the rest.
+    dm::Instance launch;
+    launch.side = "windows";
+    launch.kind = "code";
+    launch.name = "Code.exe";
+    launch.pid = 10;
+    launch.cwd = std::string("C:\\Users\\me");
+    launch.private_mb = 900;
+    launch.state = "unknown";
+    std::vector<dm::EditorWindow> windows = {
+        *dm::parse_editor_window(window_record("s2", 10, 11, R"(["file:///e%3A/two/app","vscode-remote://ssh-remote%2Bh/x"])"), why),
+        *dm::parse_editor_window(window_record("s1", 10, 11, R"(["file:///d%3A/one/app/src","vscode-remote://wsl%2Bubuntu/home/me/app"])"), why),
+        *dm::parse_editor_window(window_record("s3", 10, 11, "[]"), why),
+    };
+    std::vector<std::pair<std::string, std::string>> problems;
+    auto rows = dm::editor_rows(launch, windows, [](const dm::EditorRoot& root) -> std::optional<std::string> {
+        if (root.path == "D:\\one\\app\\src") return std::string("D:/one/app");
+        if (root.path == "E:\\two\\app") return std::string("E:/two/app");
+        if (root.location == "wsl") return std::string("/home/me/app");
+        return std::nullopt;
+    }, problems);
+    CHECK(rows.size() == 4);
+    CHECK(rows[0].window == std::optional<std::string>("s1#0") && rows[0].repo == std::optional<std::string>("D:/one/app") && rows[0].cwd == std::optional<std::string>("D:\\one\\app\\src"));
+    CHECK(rows[1].window == std::optional<std::string>("s1#1") && rows[1].location == std::optional<std::string>("wsl") && rows[1].distro == std::optional<std::string>("ubuntu") &&
+          rows[1].side == "windows" && rows[1].repo == std::optional<std::string>("/home/me/app"));
+    CHECK(rows[2].window == std::optional<std::string>("s2#0") && rows[2].repo == std::optional<std::string>("E:/two/app"));
+    CHECK(rows[3].window == std::optional<std::string>("s3#0") && !rows[3].cwd && !rows[3].repo);
+    int64_t counted = 0;
+    for (const auto& row : rows) {
+        CHECK(row.shared_mb == std::optional<int64_t>(900) && row.placed_by == std::optional<std::string>("window") && row.pid == 10);
+        counted += row.private_mb.value_or(0);
+    }
+    CHECK(counted == 900);  // the editor's memory counts once
+    CHECK(problems.size() == 1 && problems[0].first == "editor-windows" && problems[0].second.find("ssh-remote") != std::string::npos);
+    // VS Code writes the distro lowercased; the row takes WSL's own spelling, so it joins that distro's group.
+    auto spelled = dm::editor_rows(launch, windows, [](const dm::EditorRoot&) { return std::optional<std::string>(); }, problems,
+                                   [](const std::string& d) { return d == "ubuntu" ? std::string("Ubuntu") : d; });
+    CHECK(spelled[1].distro == std::optional<std::string>("Ubuntu"));
+}
+
 static void instances() {
     // What an image is: case and .exe don't count; nothing else is an agent or editor.
     CHECK(dm::instance_kind("Claude.EXE") == "claude");
@@ -949,9 +1040,11 @@ static void instances() {
     CHECK(dm::instances_json(doc) ==
           R"j({"schema_version":1,"side":"windows","distro":null,"at":"2026-11-16T09:00:00Z","instances":[)j"
           R"j({"side":"windows","kind":"claude","name":"claude.exe","pid":30,"cwd":"D:\\a\"b","repo":"D:/a\"b","private_mb":400,)j"
-          R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null,"guest_distro":null},)j"
+          R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null,"guest_distro":null,)j"
+          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null},)j"
           R"j({"side":"wsl","kind":"job","name":"make","pid":40,"cwd":null,"repo":null,"private_mb":null,"started_at":null,"state":"unknown","evidence":null,)j"
-          R"j("slot":0,"command":"make -j8","guest_pid":4321,"guest_distro":"Ubuntu"}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
+          R"j("slot":0,"command":"make -j8","guest_pid":4321,"guest_distro":"Ubuntu",)j"
+          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
 
     // A holder's record carries its WSL job's own process when the shim names it, and one without it still reads.
     dm::SlotRecord holder;
@@ -1077,6 +1170,7 @@ static const Group groups[] = {
     {"report_json", report_json, nullptr},
     {"config", config, nullptr},
     {"instances", instances, nullptr},
+    {"editor-windows", editor_windows, nullptr},
     {"pressure", nullptr, "D05 T02"},
 };
 

@@ -33,7 +33,8 @@ Several repos and agent sessions can share a machine until their builds overlap.
 | ---- | ----- |
 | `bosun run`, `status`, `report` and the login logger | Working on Windows 11 and WSL 2 |
 | WSL shim and `bosun-log` user service | Working |
-| Bosun Panel, the desktop control panel | Designed and planned, not built yet |
+| Bosun Panel, the desktop control panel | Built from source and in use; `todo/implementation-plan.md` lists what is left |
+| `bosun instances`, every agent, editor and job by repo | Working; run `pwsh scripts/install-editor-extension.ps1` once so each VS Code window is placed in its own repo (`editors/bosun-windows/README.md`) |
 
 There are no releases yet, so you build from source.
 

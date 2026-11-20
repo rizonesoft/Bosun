@@ -221,7 +221,54 @@ public sealed class InstanceClientTests : IDisposable
         // Round 1: a report's own distro name is bounded too, never 128 KiB copied into every notice.
         { "long-distro", "it names the distro '" + new string('u', 64) + "...'" },
         { "text", "is not its document" },
+        // D03 T02 §4: a WSL window names its distro and a Linux folder, and only an editor is placed by a window.
+        { "window-distro", "is in WSL and names no distro it could be in" },
+        { "window-folder", @"is in WSL with the folder 'D:\x'" },
+        { "window-kind", "which no window places" },
+        { "window-location", "location is 'mac'" },
     };
+
+    /// <summary>Makes a row an editor's window row, as the Windows scanner writes one (D03 T02 §4).</summary>
+    private static void Window(JsonObject row, string location, string? distro, string? cwd, string window = "s1#0")
+    {
+        row["kind"] = "code";
+        row["placed_by"] = "window";
+        row["window"] = window;
+        row["location"] = location;
+        row["distro"] = distro;
+        row["cwd"] = cwd;
+        row["shared_mb"] = 4096;
+    }
+
+    [Fact]
+    public async Task An_editor_s_windows_go_in_each_repo_they_hold_a_WSL_window_in_its_own_distro_s()
+    {
+        // D03 T02 §4: one Windows editor with a window on D:/Bosun and WSL windows on the same guest path in two distros.
+        Report("Ubuntu", "wsl-ubuntu.json");
+        Report("Debian", "wsl-debian.json");
+        var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
+        var rows = doc["instances"]!.AsArray();
+        JsonObject Editor(string window, string location, string? distro, string cwd, string repo)
+        {
+            var row = rows[1]!.DeepClone().AsObject();
+            Window(row, location, distro, cwd, window);
+            row["pid"] = 777;
+            row["repo"] = repo;
+            return row;
+        }
+        rows.Add(Editor("s1#0", "windows", null, @"D:\Bosun\src", "D:/Bosun"));
+        rows.Add(Editor("s2#0", "wsl", "Ubuntu", "/home/dev/projects/app", "/home/dev/projects/app"));
+        rows.Add(Editor("s3#0", "wsl", "Debian", "/home/dev/projects/app", "/home/dev/projects/app"));
+        var view = await Fake(Answer(Write("editor.json", doc.ToJsonString()))).ReadAsync(Token);
+        Assert.True(view.Sides[0].Reading.HasValue, view.Sides[0].Reading.Why);
+        var editor = view.Groups.SelectMany(g => g.Rows.Select(r => (g.Repo, g.Distro, Window: r.Instance.Window, r.Instance.Pid))).Where(x => x.Pid == 777)
+            .OrderBy(x => x.Window, StringComparer.Ordinal).Select(x => (x.Repo, x.Distro, x.Window)).ToList();
+        Assert.Equal([("D:/Bosun", null, "s1#0"), ("/home/dev/projects/app", "Ubuntu", "s2#0"), ("/home/dev/projects/app", "Debian", "s3#0")], editor);
+        // Each WSL window shares its distro's group with that distro's own instances, never the other's.
+        var ubuntuApp = view.Groups.Single(g => g is { Repo: "/home/dev/projects/app", Distro: "Ubuntu" });
+        Assert.Contains(ubuntuApp.Rows, r => r.Instance.Window == "s2#0");
+        Assert.DoesNotContain(ubuntuApp.Rows, r => r.Instance.Window == "s3#0");
+    }
 
     [Theory]
     [MemberData(nameof(NotTheShape))]
@@ -239,6 +286,10 @@ public sealed class InstanceClientTests : IDisposable
             case "foreign": first["side"] = "wsl"; break;
             case "distro": doc["instances"]![3]!["guest_distro"] = "a/b"; break;
             case "long-distro": doc["distro"] = new string('u', 128 * 1024); break;
+            case "window-distro": Window(first, "wsl", null, "/home/me/app"); break;
+            case "window-folder": Window(first, "wsl", "Ubuntu", @"D:\x"); break;
+            case "window-kind": Window(first, "windows", null, @"D:\x"); first["kind"] = "claude"; break;
+            case "window-location": Window(first, "mac", null, @"D:\x"); break;
         }
         var text = wrong == "text" ? "{not json" : doc.ToJsonString();
         var view = await Fake(Answer(Write("doc.json", text))).ReadAsync(Token);

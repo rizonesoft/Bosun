@@ -37,10 +37,11 @@ public static partial class OpenCommands
         var instance = row.Instance;
         var folder = instance.Cwd ?? instance.Repo;
         if (string.IsNullOrWhiteSpace(folder)) return (null, NoFolder);
-        if (instance.Side == "windows") return (new OpenTarget(null, folder), null);
+        if (!instance.InWsl) return (new OpenTarget(null, folder), null);
         // A WSL instance: in the distro whose report listed it, or for a holder Windows saw whose distro's report was not
-        // read, the distro it names, and only with a Linux path.
-        var distro = row.Distro ?? instance.GuestDistro;
+        // read, the distro it names, and only with a Linux path. A WSL window of a Windows editor is in the distro it
+        // names (D03 T02 §4). Nothing here touches the distro: it is reached only when the person opens the folder.
+        var distro = instance.Side == "windows" ? instance.Location == "wsl" ? instance.Distro : instance.GuestDistro : row.Distro ?? instance.GuestDistro;
         // A distro is named as WSL names one, never with characters a command line would read.
         if (distro is null || !DistroName().IsMatch(distro) || !folder.StartsWith('/')) return (null, NoDistro);
         return (new OpenTarget(distro, folder), null);

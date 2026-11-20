@@ -270,10 +270,11 @@ public sealed partial class InstanceClient : IInstanceSource
     {
         var repo = row.Instance.Repo;
         if (repo is null) return (null, null);
-        if (row.Instance.Side == "windows") return (repo, null);
+        // A WSL window of a Windows editor is in its distro's repo, though its process is on Windows (D03 T02 §4).
+        if (!row.Instance.InWsl) return (repo, null);
         if (MountedDrive().Match(repo) is { Success: true } mounted)
             return ($"{char.ToUpperInvariant(mounted.Groups[1].Value[0])}:/{mounted.Groups[2].Value}".TrimEnd('/'), null);
-        return (repo, row.Distro);
+        return (repo, row.Instance.Side == "windows" ? row.Instance.Distro : row.Distro);
     }
 
     /// <summary>The grouping key: a Windows folder compared as Windows compares them, a guest folder per distro, exactly.</summary>

@@ -25,12 +25,12 @@ public sealed class InstanceLine : Observable
     {
         Row = row;
         var i = row.Instance;
-        Key = $"{i.Side}|{row.Distro ?? i.GuestDistro}|{i.Pid}";
+        Key = $"{ProcessKey(row)}|{i.Window}";
         Group = group;
         GroupOrder = groupOrder;
         Order = order;
         Instance = i.Kind == "job" ? $"Build job: {i.Command ?? i.Name}" : KindWord(i.Kind);
-        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" : "");
+        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" + (i.Location == "wsl" && i.Side == "windows" ? $" in WSL ({i.Distro})" : "") : i.Window is not null ? ", an empty window" : "");
         Side = SideOf(row);
         IsStale = staleAs is not null;
         StaleWhy = staleWhy;
@@ -38,9 +38,12 @@ public sealed class InstanceLine : Observable
         StateDetail = IsStale ? row.Instance.Evidence is { } e ? $"{e}. {StaleWhy}" : StaleWhy : i.Evidence ?? StateWord(i.State);
         MemoryMb = i.PrivateMb;
         // "Not available" in the cell, its reason on hover and to a screen reader (design/SPEC.md §1): the reason
-        // in the cell itself is cut off in a column sized for a number.
-        Memory = i.PrivateMb is { } mb ? Bosun.Panel.Memory.MemoryPage.GbText(mb / 1024.0) + " GB" : NotAvailable;
-        MemoryWhy = i.PrivateMb is null ? "Not available: its memory could not be read" : $"{i.PrivateMb} MB private";
+        // in the cell itself is cut off in a column sized for a number. An editor's other window rows share the memory
+        // its first row shows (D03 T02 §4): said so, never as a failed read.
+        Memory = i.PrivateMb is { } mb ? Bosun.Panel.Memory.MemoryPage.GbText(mb / 1024.0) + " GB" : i.SharedMb is not null ? Shared : NotAvailable;
+        MemoryWhy = i.PrivateMb is { } own ? (i.SharedMb is not null ? $"{own} MB private, shared by all of the editor's open windows" : $"{own} MB private")
+            : i.SharedMb is { } shared ? $"Shared with the editor's other windows: {shared} MB in all, shown on its first window"
+            : "Not available: its memory could not be read";
         UptimeSeconds = Started(i.StartedAt) is { } started ? Math.Max(0, (long)(now - started).TotalSeconds) : null;
         Uptime = UptimeSeconds is { } seconds ? Duration(seconds) : NotAvailable;
         UptimeWhy = UptimeSeconds is not null ? $"Started {i.StartedAt}"
@@ -78,6 +81,9 @@ public sealed class InstanceLine : Observable
     public string StaleWhy { get; }
 
     public const string NotAvailable = "Not available";
+
+    /// <summary>An editor window row whose memory its first window row shows (D03 T02 §4).</summary>
+    public const string Shared = "Shared";
 
     public string Memory { get; }
 
@@ -130,6 +136,16 @@ public sealed class InstanceLine : Observable
     public string OpenTerminalTip => FolderProblem ?? (Target is { } t ? $"Open a terminal in {t.Path}" + (t.Distro is { } d ? $" in WSL ({d})" : "") : "");
 
     /// <summary>The side an instance runs on, by name: "Windows", "WSL (Ubuntu)", or "WSL" when no distro is known.</summary>
+    /// <summary>
+    /// The process a row is of: its side, its distro and its pid. An editor with three open windows is three rows and one
+    /// process (D03 T02 §4), so a count of instances counts this.
+    /// </summary>
+    public static string ProcessKey(InstanceRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return $"{row.Instance.Side}|{row.Distro ?? row.Instance.GuestDistro}|{row.Instance.Pid}";
+    }
+
     public static string SideOf(InstanceRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
@@ -391,7 +407,11 @@ public sealed class InstancesPage : PageBase
             {
                 var more = source.Count() - 1;
                 var also = more == 0 ? "" : string.Create(CultureInfo.InvariantCulture, $" (and {more:N0} more)");
-                notices.Add($"{side.Name}: its {SourceWord(source.Key)} could not be read: {source.First().Why}{also}");
+                // An editor not placed by its windows is not a read that failed: it says what is missing and how to
+                // place it (D03 T02 §4).
+                notices.Add(source.Key == "editor-windows"
+                    ? $"{side.Name}: an editor's windows are not all placed: {source.First().Why}{also}"
+                    : $"{side.Name}: its {SourceWord(source.Key)} could not be read: {source.First().Why}{also}");
             }
             if (doc.Unreadable > 0)
                 notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));

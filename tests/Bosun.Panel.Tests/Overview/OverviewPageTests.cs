@@ -341,6 +341,25 @@ public class OverviewPageTests
     }
 
     [Fact]
+    public void An_editor_with_three_open_windows_counts_as_one_instance()
+    {
+        // D03 T02 §4: a row each window root, one process.
+        On(() =>
+        {
+            var rig = new OverviewRig(instances: new FakeInstances
+            {
+                Answer = View(null, Win(
+                    EditorWindow(500, "s1#0", @"D:\one\app", "D:/one/app", 4096),
+                    EditorWindow(500, "s2#0", @"E:\two\app", "E:/two/app", null),
+                    EditorWindow(500, "s3#0", null, null, null),
+                    I("claude", 100, cwd: @"D:\one\app", repo: "D:/one/app"))),
+            });
+            Assert.Equal("2", rig.Page.Instances.Said);
+            Assert.Equal("Windows 2", rig.Page.Instances.Note);
+        });
+    }
+
+    [Fact]
     public void An_instances_scan_with_only_stale_reports_and_failures_is_Not_available_never_a_measured_0()
     {
         // Round 1: a stale WSL report and bosun.exe unavailable showed "0" beside the failures.
