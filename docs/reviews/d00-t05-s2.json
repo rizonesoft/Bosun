@@ -1,0 +1,106 @@
+{
+  "ref": "D00 T05 \u00a72",
+  "title": "Overlay clone in setup and pull after merge",
+  "implementation_sha": "66e6953e9a9f1ce417d0d65ae1bd5e41e5d4d31b",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/overlay_clone_test.ps1 -> 65 checks, all passed, exit 0; fails with the existing-folder guard removed and with GIT_DIR not cleared",
+    "CI build.yml green at 66e6953 (https://github.com/rizonesoft/Bosun/actions/runs/44809033548), Overlay clone and pull test step success",
+    "CI plan.yml green at 66e6953 (https://github.com/rizonesoft/Bosun/actions/runs/44809033519)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+    "verdict": "completed",
+    "candidate": "e1a5b8d879d7cff708aa3beabd628dc524117ab8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T05-s2.md",
+    "candidate": "ca99232d17f6ad359206f99faa907da35d1bbc7c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "ca99232d17f6ad359206f99faa907da35d1bbc7c",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
