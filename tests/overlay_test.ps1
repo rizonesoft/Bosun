@@ -157,6 +157,27 @@ try {
   [IO.File]::WriteAllBytes($config, [byte[]](([Text.Encoding]::ASCII.GetBytes("vault_item = 'caf")) + 0xE9 + [byte][char]"'"))
   $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
   Check 'a file that is not UTF-8 is refused, not decoded into a changed value' ($message -and $message -match 'not valid UTF-8') "($message)"
+  [IO.File]::WriteAllBytes($config, [byte[]](([Text.Encoding]::ASCII.GetBytes("# owner values`r`nvault_item = 'caf")) + 0xE9 + [byte][char]"'"))
+  $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+  Check 'the UTF-8 refusal names the line that holds the bad bytes' ($message -and $message.Contains("${config}:2:") -and $message -match 'not valid UTF-8') "($message)"
+
+  $nbsp = [char]0xA0
+  $spaces = [ordered]@{ 'a no-break space before =' = "vault_item$nbsp= `"secret`""; 'a no-break space starting the line' = "${nbsp}vault_item = `"secret`""; 'a no-break space before a trailing comment' = "vault_item = `"secret`"$nbsp# note" }
+  foreach ($case in $spaces.GetEnumerator()) {
+    Set-Config $case.Value
+    $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+    Check "$($case.Key) is refused (TOML whitespace is space and tab)" ($message -and $message.Contains("${config}:1") -and $message -notmatch 'secret') "($message)"
+  }
+  Set-Config "`tvault_item`t=`t`"tabs`"`t# note"
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'tabs around the key, = and comment are allowed' ($r.Value -eq 'tabs') $r.Value
+
+  # The override needs no checkout: a root on a drive that does not exist is never resolved while the variable is set.
+  $missing = [char[]](90..68) | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1
+  $env:BOSUN_VAULT_ITEM = 'override'
+  $r = try { Get-BosunOverlayValue -Key vault_item -Root "${missing}:\Bosun" } catch { [pscustomobject]@{ Source = 'error'; Value = $_.Exception.Message } }
+  Check 'the variable answers when the root cannot be resolved' ($missing -and $r.Source -eq 'variable' -and $r.Value -eq 'override') "($missing $($r.Source) $($r.Value))"
+  Clear-Vars
 
   [IO.File]::WriteAllBytes($config, [byte[]](@(0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes("vault_item = 'caf$([char]0xE9)'")))
   $r = Get-BosunOverlayValue -Key vault_item

@@ -69,22 +69,34 @@ function Read-BosunOverlayConfig([string]$Path) {
       Start-Sleep -Milliseconds 100
     }
   }
-  # Strict UTF-8: a file saved in another encoding is refused, never decoded into a changed value.
+  # Strict UTF-8, line by line: a file saved in another encoding is refused at the line that holds the bad bytes,
+  # never decoded into a changed value.
   $start = if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) { 3 } else { 0 }
-  try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes, $start, $bytes.Length - $start) }
-  catch [Text.DecoderFallbackException] { throw "${Path}: is not valid UTF-8; save it as UTF-8" }
+  $utf8 = [Text.UTF8Encoding]::new($false, $true)
+  $lines = [Collections.Generic.List[string]]::new()
+  while ($start -le $bytes.Length) {
+    $end = [Array]::IndexOf($bytes, [byte]0x0A, $start)
+    if ($end -lt 0) { $end = $bytes.Length }
+    $length = $end - $start
+    if ($length -gt 0 -and $bytes[$end - 1] -eq 0x0D) { $length-- }
+    try { $lines.Add($utf8.GetString($bytes, $start, $length)) }
+    catch [Text.DecoderFallbackException] { throw "${Path}:$($lines.Count + 1): is not valid UTF-8; save the file as UTF-8" }
+    $start = $end + 1
+  }
   # Keys compare as TOML compares them: exactly, so vault_item and VAULT_ITEM are two keys.
   $values = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+  # TOML whitespace is space and tab only; a no-break space or any other Unicode space is not trimmed away.
+  $blank = [char[]](' ', "`t")
   $number = 0
-  foreach ($line in ($text -split "`r?`n")) {
+  foreach ($line in $lines) {
     $number++
     $where = "${Path}:$number"
     # TOML allows no control character but tab anywhere in a line, a lone carriage return included.
     if ($line -match '[\x00-\x08\x0A-\x1F\x7F]') { throw "${where}: a control character is not allowed (only tab is)" }
-    $trimmed = $line.Trim()
+    $trimmed = $line.Trim($blank)
     if ($trimmed -eq '' -or $trimmed.StartsWith('#')) { continue }
     if ($trimmed.StartsWith('[')) { throw "${where}: a table header is not allowed; the overlay config is flat key = 'value' lines" }
-    if ($trimmed -notmatch '^([A-Za-z0-9_-]+)\s*=\s*(.*)$') { throw "${where}: expected key = `"value`"" }
+    if ($trimmed -cnotmatch '^([A-Za-z0-9_-]+)[ \t]*=[ \t]*(.*)$') { throw "${where}: expected key = `"value`"" }
     $key = $Matches[1]
     $rest = $Matches[2]
     if ($rest -eq '' -or ($rest[0] -ne '"' -and $rest[0] -ne "'")) {
@@ -92,7 +104,7 @@ function Read-BosunOverlayConfig([string]$Path) {
     }
     if ($rest.StartsWith('"""') -or $rest.StartsWith("'''")) { throw "${where}: multi-line strings are not allowed" }
     $parsed = ConvertFrom-BosunOverlayString -Text $rest -Where $where
-    if ($parsed[1].Trim() -ne '' -and -not $parsed[1].TrimStart().StartsWith('#')) {
+    if ($parsed[1].Trim($blank) -ne '' -and -not $parsed[1].TrimStart($blank).StartsWith('#')) {
       throw "${where}: only a # comment may follow the value of $key"
     }
     if ($values.ContainsKey($key)) { throw "${where}: $key is set twice" }
@@ -109,16 +121,17 @@ function Get-BosunOverlayValue {
     [string]$Root
   )
   if (-not $Variable) { $Variable = 'BOSUN_' + $Key.ToUpperInvariant() }
+  # The variable alone is enough: it is read before the root is looked at, so a root that cannot be resolved (a
+  # disconnected drive) never defeats an override.
+  $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
+  if ($fromVariable) {
+    return [pscustomobject]@{ Value = $fromVariable; Source = 'variable'; Message = "$Key from `$env:$Variable" }
+  }
   # The checkout that holds this file (scripts/lib/..), never the caller's working directory.
   if (-not $Root) { $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
   # One absolute path for every use: .NET resolves a relative path against the process folder, PowerShell against its
   # own location, and the two differ after Set-Location.
   $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
-
-  $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
-  if ($fromVariable) {
-    return [pscustomobject]@{ Value = $fromVariable; Source = 'variable'; Message = "$Key from `$env:$Variable" }
-  }
   $config = Join-Path $Root '.private' 'config.toml'
   if (Test-Path -LiteralPath $config -PathType Leaf) {
     $values = Read-BosunOverlayConfig -Path $config
