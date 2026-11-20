@@ -46,6 +46,11 @@ foreach ($name in 'pre-commit', 'post-merge') {
 # Git on Linux and WSL ignores a hook that is not executable, and what a clone there gets is the mode git recorded.
 foreach ($entry in @(git -C $Repo ls-files -s -- $hooks 2>$null)) {
   $mode, $null, $null, $path = "$entry" -split '\s+', 4
+  # Off Windows the file on disk must be executable too: git runs a hook by its file mode, not by what the index says.
+  $onDisk = Join-Path $Repo $path
+  if ($mode -eq '100755' -and -not $IsWindows -and (Test-Path -LiteralPath $onDisk) -and -not ((Get-Item -LiteralPath $onDisk).UnixFileMode -band [IO.UnixFileMode]::UserExecute)) {
+    Stop-Setup "$path is not executable in this working copy, so git would skip it: run 'chmod +x $path', then run this again"
+  }
   if ($mode -ne '100755') {
     Stop-Setup "$path is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git update-index --chmod=+x $path' and commit, then run this again"
   }
@@ -105,7 +110,7 @@ function Get-OverlaySource([string]$value) {
   }
   # An SSH user name is allowed, a password (user:secret@) is not.
   if ($value -match '^ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:\d+)?/[^\s?#]+$' -or $value -match '^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s?#:@][^\s?#@]*$') { return @{ Kind = 'url'; Value = $value } }
-  if (-not $value.StartsWith('-') -and [IO.Path]::IsPathRooted($value) -and (Test-Path -LiteralPath $value -PathType Container)) {
+  if (-not $value.StartsWith('-') -and [IO.Path]::IsPathFullyQualified($value) -and (Test-Path -LiteralPath $value -PathType Container)) {
     return @{ Kind = 'path'; Value = (Resolve-Path -LiteralPath $value).ProviderPath }
   }
   $null
@@ -148,6 +153,7 @@ if ($item) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null
     if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config --local bosun.overlay true)' }
     'overlay: .private is the overlay; marked it as one, so every pull of this checkout that merges keeps it current'
+    'overlay: to undo the mark only (the checkout stays as it is): git -C .private config --local --unset bosun.overlay'
   } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
 } else {
   $ready = $true
@@ -178,8 +184,11 @@ if ($item) {
       "overlay: cloning $(if ($source.Kind -eq 'github') { $source.Value } else { 'the source in BOSUN_OVERLAY_REPO' }) into .private"
       $said = if ($source.Kind -eq 'github') { gh repo clone $source.Value $partial -- --quiet 2>&1 } else { git clone --quiet -- $source.Value $partial 2>&1 }
       if ($LASTEXITCODE -or -not (Test-Path -LiteralPath (Join-Path $partial '.git') -PathType Container)) {
-        # A clone's own message can name a URL with a credential in it, so it is shown only for owner/name sources.
-        $why = if ($source.Kind -eq 'github') { " ($((@($said) | Select-Object -Last 1 | Out-String).Trim()))" } else { '' }
+        # The clone's own last line says why (a full disk, a refused permission, an unreachable remote), with every URL
+        # and anything shaped like user@host taken out first: a transport message can carry a credential.
+        $last = "$((@($said) | Where-Object { "$_".Trim() } | Select-Object -Last 1 | Out-String).Trim())"
+        $last = $last -replace '[A-Za-z][A-Za-z0-9+.-]*://\S+', '<url>' -replace '\S+@\S+', '<address>'
+        $why = if ($last) { " ($last)" } else { '' }
         Stop-Setup "the overlay could not be cloned$why; nothing was left in .private, so running this again starts clean"
       }
       if (-not (Test-OverlayOrigin (Get-OverlayOrigin $partial) $source)) { Stop-Setup 'the overlay clone''s origin is not the source asked for; it was removed' }
@@ -194,7 +203,7 @@ if ($item) {
     $fault = Get-OverlayCloneFault $private
     if ($fault -or -not (Test-OverlayOrigin (Get-OverlayOrigin $private) $source)) { Stop-Setup '.private does not read back as the overlay after the clone' }
     'overlay: cloned into .private and marked; every pull of this checkout that merges now pulls it too'
-    "overlay: to remove it, check 'git -C .private status' and 'git -C .private log --branches --not --remotes' for edits and commits not pushed yet, then delete .private; the checkout works without it, and running this script again brings it back"
+    "overlay: to remove it, first look for work only it holds: 'git -C .private status --ignored' (edits, new and ignored files), 'git -C .private stash list' (stashes) and 'git -C .private log --branches --not --remotes' (commits not pushed); keep what you need, then delete .private. The checkout works without it, and running this script again brings it back"
   }
 }
 

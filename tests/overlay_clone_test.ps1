@@ -31,7 +31,7 @@ $mode = $env:FAKE_GH_MODE
 if ($args[0] -eq 'auth') { exit ([int]($mode -eq 'signed-out' -or ($mode -eq 'other-host-expired' -and $args -notcontains 'github.com'))) }
 if ($args[0] -eq 'repo' -and $args[1] -eq 'view') { exit ([int]($mode -in 'refused', 'signed-out')) }
 if ($args[0] -eq 'repo' -and $args[1] -eq 'clone') {
-  if ($mode -eq 'clone-fails') { 'fatal: the transfer was cut off'; exit 1 }
+  if ($mode -eq 'clone-fails') { "fatal: unable to access 'https://someone:s3cretTOKEN@github.com/x.git/': the transfer was cut off"; exit 1 }
   # Another run finishing first: .private appears in the checkout while this clone is still being made.
   if ($mode -eq 'race') { $won = Join-Path (Split-Path $args[3]) '.private'; New-Item -ItemType Directory -Path $won | Out-Null; Set-Content -LiteralPath (Join-Path $won 'first.txt') -Value 'the first run' }
   git clone --quiet -- $env:FAKE_GH_REMOTE $args[3] 2>&1 | Out-Null
@@ -48,6 +48,9 @@ $env:GIT_CONFIG_NOSYSTEM = '1'
 Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value "[user]`n`tname = Overlay Test`n`temail = overlay-test@example.invalid`n[init]`n`tdefaultBranch = main`n[pull]`n`trebase = false"
 foreach ($name in 'BOSUN_OVERLAY_REPO', 'GH_TOKEN', 'GITHUB_TOKEN') { [Environment]::SetEnvironmentVariable($name, $null) }
 $env:GH_CONFIG_DIR = Join-Path $work 'gh-config'
+$env:HOME = Join-Path $work 'home'
+$env:USERPROFILE = $env:HOME
+New-Item -ItemType Directory -Path $env:HOME | Out-Null
 $env:FAKE_GH_LOG = Join-Path $work 'gh-calls.txt'
 
 function Invoke-Setup([string]$repo, [string]$from = $work, [switch]$WithGh) {
@@ -115,7 +118,7 @@ try {
   Check 'its origin reads back as the source' ([IO.Path]::GetFullPath("$(git -C $private config --get remote.origin.url)") -eq [IO.Path]::GetFullPath($overlayRemote))
   Check 'it is marked as the overlay' ("$(git -C $private config --get bosun.overlay)" -eq 'true')
   Check 'no partial clone is left in the git folder' ((Get-Partials $owner).Count -eq 0)
-  Check 'the undo is printed' ($r.Text -match 'delete \.private' -and $r.Text -match 'log --branches --not --remotes')
+  Check 'the undo is printed, naming every kind of work only the overlay holds' ($r.Text -match 'delete \.private' -and $r.Text -match 'log --branches --not --remotes' -and $r.Text -match 'stash list' -and $r.Text -match 'status --ignored')
   Check 'the public checkout does not see the overlay' (-not (git -C $owner status --porcelain))
   $r = Invoke-Setup $owner
   Check 'a second run leaves the overlay as it is and says so' ($r.Exit -eq 0 -and $r.Text -match 'already present') "(exit $($r.Exit): $($r.Text))"
@@ -146,7 +149,7 @@ try {
   $retry = New-Clone 'clone-fails'
   $env:FAKE_GH_MODE = 'clone-fails'
   $r = Invoke-Setup $retry -WithGh
-  Check 'a probe that passes and a clone that fails exits 1 with the reason' ($r.Exit -eq 1 -and $r.Text -match 'could not be cloned' -and $r.Text -match 'transfer was cut off') "(exit $($r.Exit): $($r.Text))"
+  Check 'a probe that passes and a clone that fails exits 1 with the reason' ($r.Exit -eq 1 -and $r.Text -match 'could not be cloned' -and $r.Text -match 'transfer was cut off' -and $r.Text -notmatch 's3cretTOKEN') "(exit $($r.Exit): $($r.Text))"
   Check 'and leaves no .private and no partial clone' (-not (Test-Path (Join-Path $retry '.private')) -and (Get-Partials $retry).Count -eq 0)
   $env:FAKE_GH_MODE = 'ok'
   $r = Invoke-Setup $retry -WithGh
@@ -214,13 +217,22 @@ try {
   $env:FAKE_GH_MODE = 'ok'
 
   # --- setup: sources ---
-  foreach ($bad in 'https://someone:s3cretTOKEN@example.com/overlay.git', 'https://example.com/overlay.git?access_token=s3cretTOKEN', 'https://example.com/overlay.git#s3cretTOKEN', 'ssh://git:s3cretTOKEN@example.com/overlay.git', 'git:s3cretTOKEN@example.com:overlay.git', '-uupload-pack=evil', 'not a source') {
+  # A drive-relative source (D:name) names a different folder in each session: refused even when it resolves now.
+  git init -q --bare (Join-Path $work 'relative-overlay')
+  foreach ($bad in 'https://someone:s3cretTOKEN@example.com/overlay.git', 'https://example.com/overlay.git?access_token=s3cretTOKEN', 'https://example.com/overlay.git#s3cretTOKEN', 'ssh://git:s3cretTOKEN@example.com/overlay.git', 'git:s3cretTOKEN@example.com:overlay.git', '-uupload-pack=evil', 'not a source', "$($work.Substring(0, 2))relative-overlay") {
     $clone = New-Clone ('bad-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
     $env:BOSUN_OVERLAY_REPO = $bad
     $r = Invoke-Setup $clone
     Check "an unsupported source is refused without repeating it ($($bad.Substring(0, 12)))" ($r.Exit -eq 1 -and $r.Text -match 'not a supported overlay source' -and $r.Text -notmatch 's3cretTOKEN' -and $r.Text -notmatch 'upload-pack' -and -not (Test-Path (Join-Path $clone '.private'))) "(exit $($r.Exit): $($r.Text))"
   }
 
+  # --- setup: off Windows, a hook must be executable on disk as well as in the index ---
+  if (-not $IsWindows) {
+    $noExec = New-Clone 'hook-not-executable-on-disk'
+    chmod -x (Join-Path $noExec 'scripts/hooks/post-merge')
+    $r = Invoke-Setup $noExec
+    Check 'a hook that lost its execute bit on disk is refused' ($r.Exit -eq 1 -and $r.Text -match 'not executable in this working copy') "(exit $($r.Exit): $($r.Text))"
+  }
   # --- setup: -Repo names the checkout, wherever it is run from ---
   $env:BOSUN_OVERLAY_REPO = $overlayRemote
   $spaced = New-Clone 'a checkout with spaces'
@@ -239,7 +251,8 @@ try {
   $r = Invoke-Setup $missing
   Check 'a checkout without its post-merge hook is refused, with the fix' ($r.Exit -eq 1 -and $r.Text -match 'post-merge is missing' -and -not (Test-Path (Join-Path $missing '.private'))) "(exit $($r.Exit): $($r.Text))"
   # --- the post-merge hook, through a real pull ---
-  function Invoke-Pull([string]$clone) { (git -C $clone pull --no-rebase 2>&1 | Out-String) }
+  $script:pulls = [Collections.Generic.List[string]]::new()
+  function Invoke-Pull([string]$clone) { $said = (git -C $clone pull --no-rebase 2>&1 | Out-String); $script:pulls.Add($said); $said }
   $incoming = Add-Commit $overlayRemote 'from-elsewhere.txt'
   $publicHead = Add-Commit $public 'public-1.txt'
   $out = Invoke-Pull $owner
@@ -277,7 +290,7 @@ try {
   $null = Add-Commit $overlayRemote 'diverging.txt'
   $publicHead = Add-Commit $public 'public-5.txt'
   $out = Invoke-Pull $owner
-  Check 'a diverged overlay is left as it was, and says so' ((Get-Head $private) -eq $local -and $out -match 'could not be fast-forwarded' -and (Get-Head $owner) -eq $publicHead) "($out)"
+  Check 'a diverged overlay is left as it was, and says so' ((Get-Head $private) -eq $local -and $out -match 'has diverged' -and (Get-Head $owner) -eq $publicHead) "($out)"
 
   $empty = New-Clone 'empty-overlay'
   $env:BOSUN_OVERLAY_REPO = $emptyRemote
@@ -348,7 +361,8 @@ try {
   $null = Add-Commit $overlayRemote 'owner.local'
   $null = Add-Commit $public 'public-ignored.txt'
   $out = Invoke-Pull $ignoring
-  Check 'an incoming file that would replace an ignored local one is not pulled' ((Get-Content -LiteralPath (Join-Path $ignoringPrivate 'owner.local') -Raw).Trim() -eq 'my local value' -and (Get-Head $ignoringPrivate) -eq $collisionHead -and $out -match 'could not be fast-forwarded') "($out)"
+  Check 'an incoming file that would replace an ignored local one is not pulled' ((Get-Content -LiteralPath (Join-Path $ignoringPrivate 'owner.local') -Raw).Trim() -eq 'my local value' -and (Get-Head $ignoringPrivate) -eq $collisionHead -and $out -match 'would replace an ignored file') "($out)"
+  $ignoredOut = $out
 
   # --- a linked worktree at .private is neither marked nor pulled ---
   $treeOwner = Join-Path $work 'worktree-owner'
@@ -362,6 +376,30 @@ try {
   $null = Add-Commit $public 'public-worktree.txt'
   $out = Invoke-Pull $treed
   Check 'and the hook does not pull it, even marked through its main checkout' ($out -match 'linked worktree') "($out)"
+  # The retry the hook prints after a refused update keeps its protection when followed as printed.
+  $retryLine = [regex]::Match($ignoredOut, 'then: (git -C \.private merge [^\r\n]+)').Groups[1].Value
+  Push-Location -LiteralPath $ignoring
+  try { if ($retryLine) { Invoke-Expression ($retryLine -replace '@\{u\}', "'@{u}'") 2>&1 | Out-Null } } finally { Pop-Location }
+  Check 'following the printed retry still keeps the ignored file' ($retryLine -and (Get-Content -LiteralPath (Join-Path $ignoringPrivate 'owner.local') -Raw).Trim() -eq 'my local value') "(retry: $retryLine)"
+
+  # The undo printed for a marked existing clone removes the mark and nothing else.
+  $adopt = New-Clone 'adopt-undo'
+  git clone -q $overlayRemote (Join-Path $adopt '.private') 2>$null
+  Set-Content -LiteralPath (Join-Path $adopt '.private\mine.txt') -Value 'work from before setup'
+  $r = Invoke-Setup $adopt
+  $undo = [regex]::Match($r.Text, 'mark only \(the checkout stays as it is\): (git -C \.private config --local --unset bosun\.overlay)').Groups[1].Value
+  Push-Location -LiteralPath $adopt
+  try { if ($undo) { Invoke-Expression $undo } } finally { Pop-Location }
+  Check 'adopting a clone prints the undo of its mark, which keeps the checkout' ($undo -and -not "$(git -C (Join-Path $adopt '.private') config --local --get bosun.overlay)" -and (Get-Content -LiteralPath (Join-Path $adopt '.private\mine.txt') -Raw).Trim() -eq 'work from before setup') "($($r.Text))"
+
+  # A git source that fails names why, from git's own message.
+  $notRepo = Join-Path $work 'not-a-repository'
+  New-Item -ItemType Directory -Path $notRepo | Out-Null
+  $failing = New-Clone 'git-clone-fails'
+  $env:BOSUN_OVERLAY_REPO = $notRepo
+  $r = Invoke-Setup $failing
+  Check 'a git source that cannot be cloned says why' ($r.Exit -eq 1 -and $r.Text -match 'could not be cloned \(.+\)' -and -not (Test-Path (Join-Path $failing '.private'))) "(exit $($r.Exit): $($r.Text))"
+  $env:BOSUN_OVERLAY_REPO = $overlayRemote
   # --- an empty overlay whose first commit lands on a branch of another name ---
   $renamedRemote = Join-Path $work 'renamed.git'
   git init -q --bare $renamedRemote
@@ -423,6 +461,7 @@ try {
   $env:BOSUN_OVERLAY_REPO = $overlayRemote
   $r = Invoke-Setup $owner
   Check 'running setup again brings it back' ($r.Exit -eq 0 -and "$(git -C $private config --get bosun.overlay)" -eq 'true') "(exit $($r.Exit): $($r.Text))"
+  Check 'no pull printed a shell error from the hook' (-not ($script:pulls | Where-Object { $_ -match 'post-merge: ' -or $_ -match 'command not found' })) "($(($script:pulls | Where-Object { $_ -match 'post-merge: |command not found' }) -join ' / '))"
 } finally {
   foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
   Remove-Item -LiteralPath $work -Recurse -Force

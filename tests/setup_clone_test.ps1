@@ -7,11 +7,19 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("bosun-setup-clone-test-" + [guid]
 New-Item -ItemType Directory -Path $work | Out-Null
 $failed = 0
 # The setup script also clones the private overlay when gh can see it (D00 T05 §2, tested in
-# tests/overlay_clone_test.ps1). Here gh gets an empty config folder and no token, so it is signed out, and no
-# overlay source is set: these clones never reach the operator's account or the real overlay.
+# tests/overlay_clone_test.ps1). Here no gh is on PATH (and any that were would find an empty config and no token),
+# and no overlay source is set: these clones never reach the operator's account or the real overlay.
 $savedEnv = @{}
-foreach ($name in 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO') { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO', 'PATH', 'HOME', 'USERPROFILE', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM') { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
 $env:GH_CONFIG_DIR = Join-Path $work 'gh-config'
+# Its own home, git config and a PATH of git, pwsh and Windows only, so no real gh and no user setting reaches a case.
+$env:HOME = Join-Path $work 'home'
+$env:USERPROFILE = $env:HOME
+New-Item -ItemType Directory -Path $env:HOME | Out-Null
+$env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'
+$env:GIT_CONFIG_NOSYSTEM = '1'
+Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value "[user]`n`tname = Setup Test`n`temail = setup-test@example.invalid`n[init]`n`tdefaultBranch = main"
+$env:PATH = (@((Split-Path (Get-Command git -CommandType Application | Select-Object -First 1).Source), $PSHOME, (Join-Path $env:SystemRoot 'System32')) | Select-Object -Unique) -join ';'
 foreach ($name in 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO') { [Environment]::SetEnvironmentVariable($name, $null) }
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
@@ -58,7 +66,7 @@ try {
   Check 'a fresh clone gets core.hooksPath, read back' ($r.Exit -eq 0 -and (Get-Setting $clone) -eq 'scripts/hooks' -and $r.Text -match 'is not set' -and $r.Text -match 'hooks: on') "(exit $($r.Exit): $($r.Text))"
   Check 'it prints the command that puts the setting back' ($r.Text -match 'config --local --unset core\.hooksPath')
   Check 'setting up a clone never runs its run guard' (-not (Get-Calls $clone))
-  Check 'with gh signed out the overlay is skipped in one line, and none is made' ($r.Text -match 'overlay: skipped' -and -not (Test-Path -LiteralPath (Join-Path $clone '.private'))) "($($r.Text))"
+  Check 'with no gh on PATH the overlay is skipped in one line, and none is made' ($r.Text -match 'overlay: skipped, gh is not installed' -and -not (Test-Path -LiteralPath (Join-Path $clone '.private'))) "($($r.Text))"
 
   $config = Get-Content -LiteralPath (Join-Path $clone '.git\config') -Raw
   $r = Invoke-Setup @('-Repo', $clone)

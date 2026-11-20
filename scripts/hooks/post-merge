@@ -36,15 +36,15 @@ if [ "$(git -C "$overlay" config --local --get bosun.overlay 2>/dev/null)" != "t
     say "not pulled: .private is not marked as the overlay (pwsh scripts/setup-clone.ps1 marks a checkout of it)"
     exit 0
 fi
-# Untracked files asked for outright, so a status.showUntrackedFiles setting can't hide one; 
-ormal names a new folder
-# once rather than every file in it, which is all the clean check needs.
+# Untracked files asked for outright, so a status.showUntrackedFiles setting can't hide one; "normal" names a new
+# folder once rather than every file in it, which is all the clean check needs.
 if ! status=$(git -C "$overlay" status --porcelain --untracked-files=normal 2>/dev/null); then
     say "not pulled: git cannot read .private"
     exit 0
 fi
 if [ -n "$status" ]; then
-    say "not pulled: .private has uncommitted changes; commit or stash them, then: git -C .private pull --ff-only"
+    # The retry given keeps the hook's own protection: a plain pull would replace an ignored file.
+    say "not pulled: .private has uncommitted changes; commit or stash them, then: git -C .private fetch && git -C .private merge --ff-only --no-overwrite-ignore @{u}"
     exit 0
 fi
 # The pull's own output is not shown: a remote's message can name a URL with a credential in it.
@@ -69,15 +69,22 @@ if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/
     exit 0
 fi
 before=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
-# Fetch, then a fast-forward that refuses to replace an ignored local file (a plain pull would overwrite one).
-if git -C "$overlay" fetch --quiet >/dev/null 2>&1 && git -C "$overlay" merge --ff-only --no-overwrite-ignore --quiet '@{u}' >/dev/null 2>&1; then
+# Fetch, then a fast-forward that refuses to replace an ignored local file (a plain pull would overwrite one). Each
+# failure has its own line, so the owner knows which one to look at.
+if ! git -C "$overlay" fetch --quiet >/dev/null 2>&1; then
+    say "not pulled: .private's remote could not be reached; try again later, or see: git -C .private fetch"
+elif ! git -C "$overlay" merge --ff-only --no-overwrite-ignore --quiet '@{u}' >/dev/null 2>&1; then
+    if [ -z "$(git -C "$overlay" rev-list --max-count=1 '@{u}..HEAD' 2>/dev/null)" ]; then
+        say "not pulled: an incoming file would replace an ignored file in .private; move it aside, then: git -C .private merge --ff-only --no-overwrite-ignore @{u}"
+    else
+        say "not pulled: .private has commits of its own that its remote lacks (it has diverged); see: git -C .private log @{u}..HEAD"
+    fi
+else
     after=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
     if [ "$before" = "$after" ]; then
         say "already current"
     else
         say "updated to $(git -C "$overlay" rev-parse --short HEAD 2>/dev/null)"
     fi
-else
-    say "not pulled: .private could not be fast-forwarded (it has diverged, or its remote cannot be reached); see: git -C .private status"
 fi
 exit 0
