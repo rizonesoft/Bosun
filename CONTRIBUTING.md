@@ -44,7 +44,7 @@ That one command runs every gate in order and stops at the first failure, naming
 
 ## How do I report something?
 
-Use the [issue forms](https://github.com/rizonetech/Bosun/issues/new/choose) for bugs and ideas. Security problems go through [SECURITY.md](SECURITY.md), never a public issue.
+Use the [issue forms](https://github.com/rizonesoft/Bosun/issues/new/choose) for bugs and ideas. Security problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Under what licence are contributions made?
 

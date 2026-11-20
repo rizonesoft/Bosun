@@ -10,9 +10,7 @@ Bosun runs other people's commands, reads process details and, in the planned pa
 
 ## How do I report a vulnerability?
 
-This repository is private for now, and GitHub offers private vulnerability reporting only on public repositories. If you can read this, you have access through the [Rizonetech organization](https://github.com/rizonetech), so contact one of its owners directly and ask for a private channel.
-
-If the repository becomes public, use GitHub private vulnerability reporting instead: open the repository's **Security** tab and choose **Report a vulnerability**. Only the maintainers see the report.
+Use GitHub private vulnerability reporting: open the repository's **Security** tab and choose **Report a vulnerability**. Only the maintainers see the report.
 
 Do not open a public issue, pull request or discussion about a vulnerability.
 

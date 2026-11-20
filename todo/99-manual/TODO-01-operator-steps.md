@@ -98,7 +98,7 @@ Unattended checks prove the parts. Only a person can say the whole thing is righ
 
 ## 4. Decide whether to make the repo public
 
-`rizonetech/Bosun` is private, with the README, licence and community files of a public repo. Publishing cannot be fully undone, because forks and caches keep what was seen, so these checks come first. Staying private is a valid outcome: record it, and the publishing steps below are marked not applicable.
+`rizonesoft/Bosun` was private (as `rizonetech/Bosun`), with the README, licence and community files of a public repo. Publishing cannot be fully undone, because forks and caches keep what was seen, so these checks come first. Staying private is a valid outcome: record it, and the publishing steps below are marked not applicable.
 
 **Phase:** 99
 **Needs:** owner-decision,operator
@@ -109,18 +109,18 @@ Unattended checks prove the parts. Only a person can say the whole thing is righ
 1. Clean what should not be public. Done when: each check below passes.
 2. Record the decision, and change the visibility only if it is to publish. Done when: the note is committed, and `gh repo view --json visibility` matches it.
 
-- [ ] Record publish or stay private in this section. `GPL-3.0-or-later` in `LICENSE` was confirmed by the owner on 2026-11-07. Done when: the decision is committed.
+- [x] Record publish or stay private in this section. `GPL-3.0-or-later` in `LICENSE` was confirmed by the owner on 2026-11-07. Done when: the decision is committed. Decided 2026-11-20 (owner): published. The repo went public with its full history and moved to `rizonesoft/Bosun` the same day. Development happens on the public repo, and a small private overlay repo holds the owner's machine and account specifics. The checks below that were still open run as part of that extraction.
 - [ ] Revisit code signing in `scripts/signing-status.ps1` if publishing. Done when: the decision is recorded.
 - [x] Move the alert recipient in `.conclave/automations/alert.py` out of the source into ignored local config. Done when: `git grep -n "@gmail" -- .conclave` prints nothing, including `.conclave/automations/README.md`. Resolved 2026-11-12: the whole of `.conclave/automations/` was removed with `D00 T01 §5` and `§9` (owner, 2026-11-12), and `git grep -n "@gmail" -- .conclave` prints nothing.
 - [ ] Replace personal absolute paths in `todo/`, `AGENTS.md` and `docs/specs/` with repo names, keeping a stamped section's text as history. Done when: `git grep -lE "[A-Z]:\\\\GitHub" -- AGENTS.md docs` prints nothing, and open sections in `todo/` cite by repo name.
 - [ ] Review the sibling repo names in `design/mockups/control-panel.html` and `docs/images/`. Done when: private client and project names are replaced with samples.
 - [ ] Install `gitleaks` per user, then scan the full history with `gitleaks detect`. Done when: it reports no leaks.
-- [ ] Enable private vulnerability reporting and secret scanning with push protection on `rizonetech/Bosun`. Done when: `gh api repos/rizonetech/Bosun/private-vulnerability-reporting` says enabled.
-- [ ] Remove the private-repository paragraph from `SECURITY.md`. Done when: its only reporting route is private vulnerability reporting.
-- [ ] Run `gh repo edit rizonetech/Bosun --visibility public --accept-visibility-change-consequences`. Done when: the README renders with its badges for a signed-out visitor. Cheaper substitute: publishing before the checks above pass.
+- [x] Enable private vulnerability reporting and secret scanning with push protection on `rizonesoft/Bosun`. Done when: `gh api repos/rizonesoft/Bosun/private-vulnerability-reporting` says enabled. Done 2026-11-20: reporting enabled, secret scanning and push protection enabled, 0 open alerts.
+- [x] Remove the private-repository paragraph from `SECURITY.md`. Done when: its only reporting route is private vulnerability reporting.
+- [x] Run `gh repo edit rizonetech/Bosun --visibility public --accept-visibility-change-consequences`. Done when: the README renders with its badges for a signed-out visitor. Cheaper substitute: publishing before the checks above pass. Done 2026-11-20 by the owner, before the open checks above, and transferred to `rizonesoft/Bosun`.
 - [ ] Commit: `manual: publish the repo`
 
-**Test checkpoint:** `gh repo view rizonetech/Bosun --json visibility` matches the decision recorded in this section.
+**Test checkpoint:** `gh repo view rizonesoft/Bosun --json visibility` matches the decision recorded in this section.
 
 ## 5. Acceptance: real machine changes
 

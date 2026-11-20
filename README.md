@@ -6,8 +6,8 @@
 
 **Run more repos on the same RAM. Heavy jobs take turns across Windows and WSL, and a logger records what each repo really uses.**
 
-[![Build](https://github.com/rizonetech/Bosun/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/rizonetech/Bosun/actions/workflows/build.yml)
-[![Plan](https://github.com/rizonetech/Bosun/actions/workflows/plan.yml/badge.svg?branch=main)](https://github.com/rizonetech/Bosun/actions/workflows/plan.yml)
+[![Build](https://github.com/rizonesoft/Bosun/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/rizonesoft/Bosun/actions/workflows/build.yml)
+[![Plan](https://github.com/rizonesoft/Bosun/actions/workflows/plan.yml/badge.svg?branch=main)](https://github.com/rizonesoft/Bosun/actions/workflows/plan.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-35D6A6)](LICENSE)
 ![Platform: Windows 11 and WSL 2](https://img.shields.io/badge/platform-Windows%2011%20%7C%20WSL%202-0F1319)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-6EA8FF)
