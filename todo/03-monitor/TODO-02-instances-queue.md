@@ -270,6 +270,8 @@ The window reporter (`§4`) is installed into the default profile, and VS Code k
 
 ## 6. WSL folders under a relocated automount
 
+> **Started:** 2026-11-20T13:16:31Z
+
 Grouping and opening read a guest path under `/mnt/<drive>/` as that Windows drive's folder. WSL lets `[automount] root` move the mounts or turn them off, and then `/mnt/c/app` is a real guest folder: it joins an unrelated Windows group and opens the wrong place. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 6).
 
 **Phase:** 3
