@@ -24,7 +24,7 @@ function Get-Refusal([scriptblock]$Call) {
   try { & $Call | Out-Null; $null } catch { $_.Exception.Message }
 }
 $saved = @{}
-foreach ($name in 'BOSUN_VAULT_ITEM', 'BOSUN_OTHER_NAME') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in 'BOSUN_VAULT_ITEM', 'BOSUN_OTHER_NAME', 'BOSUN_OVERLAY_REPO') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 function Clear-Vars { foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $null) } }
 
 Push-Location $elsewhere
@@ -171,6 +171,32 @@ try {
   Set-Config "`tvault_item`t=`t`"tabs`"`t# note"
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'tabs around the key, = and comment are allowed' ($r.Value -eq 'tabs') $r.Value
+
+  # A key with a hyphen: accepted by the file, asked for by the same name, overridden by BOSUN_OVERLAY_REPO.
+  Set-Config "overlay-repo = `"owner/repo`"`n"
+  $r = try { Get-BosunOverlayValue -Key overlay-repo } catch { [pscustomobject]@{ Source = 'error'; Value = $_.Exception.Message } }
+  Check 'a hyphenated file key can be asked for' ($r.Source -eq 'file' -and $r.Value -eq 'owner/repo') "($($r.Source) $($r.Value))"
+  $env:BOSUN_OVERLAY_REPO = 'other/repo'
+  try {
+    $r = try { Get-BosunOverlayValue -Key overlay-repo } catch { [pscustomobject]@{ Source = 'error'; Value = $_.Exception.Message } }
+    Check 'a hyphenated key reads its variable with an underscore' ($r.Source -eq 'variable' -and $r.Value -eq 'other/repo') "($($r.Source) $($r.Value))"
+  } finally { Clear-Vars }
+
+  # Line endings: CRLF ends a line, a lone carriage return at the end of the file is malformed TOML.
+  New-Item -ItemType Directory -Force -Path $private | Out-Null
+  [IO.File]::WriteAllBytes($config, [Text.Encoding]::ASCII.GetBytes("vault_item = `"crlf`"`r`n"))
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'a file ending in CRLF reads' ($r.Value -eq 'crlf') $r.Value
+  [IO.File]::WriteAllBytes($config, [Text.Encoding]::ASCII.GetBytes("vault_item = `"secret`"`r"))
+  $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+  Check 'a lone carriage return at the end of the file is refused' ($message -and $message.Contains("${config}:1") -and $message -notmatch 'secret') "($message)"
+
+  # A folder where the file should be is refused with its reason, not reported as an unconfigured checkout.
+  Remove-Item -LiteralPath $config
+  New-Item -ItemType Directory -Path $config | Out-Null
+  $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+  Check 'a folder named config.toml is refused, not setup-required' ($message -and $message.Contains($config) -and $message -match 'cannot be read') "($message)"
+  Remove-Item -LiteralPath $config
 
   # The override needs no checkout: a root on a drive that does not exist is never resolved while the variable is set.
   $missing = [char[]](90..68) | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1

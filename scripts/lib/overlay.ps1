@@ -1,7 +1,7 @@
 # The one lookup order for an owner value (D00 T05 §1). Dot-source this file and call Get-BosunOverlayValue.
 #
 # A value comes from, in order:
-#   1. the tool's own environment variable (BOSUN_ plus the key in upper case, or the -Variable given), for a
+#   1. the tool's own environment variable (BOSUN_ plus the key in upper case with - as _, or the -Variable given), for a
 #      one-off override; an empty variable counts as unset;
 #   2. .private/config.toml in the checkout (the private overlay, rizonetech/Bosun-private), when it holds the key
 #      with a non-empty value;
@@ -64,6 +64,8 @@ function Read-BosunOverlayConfig([string]$Path) {
       break
     } catch {
       $reason = $_.Exception.InnerException ?? $_.Exception
+      # No file (or no .private folder) is the one case that is not an error: the caller reports setup-required.
+      if ($reason -is [IO.FileNotFoundException] -or $reason -is [IO.DirectoryNotFoundException]) { return $null }
       $sharing = $reason -is [IO.IOException] -and ($reason.HResult -band 0xFFFF) -in 32, 33
       if (-not $sharing -or $attempt -ge 5) { throw "${Path}: cannot be read ($($reason.Message))" }
       Start-Sleep -Milliseconds 100
@@ -78,7 +80,8 @@ function Read-BosunOverlayConfig([string]$Path) {
     $end = [Array]::IndexOf($bytes, [byte]0x0A, $start)
     if ($end -lt 0) { $end = $bytes.Length }
     $length = $end - $start
-    if ($length -gt 0 -and $bytes[$end - 1] -eq 0x0D) { $length-- }
+    # A carriage return ends a line only as part of CRLF; a lone one (a file cut after its CR) stays and is refused.
+    if ($end -lt $bytes.Length -and $length -gt 0 -and $bytes[$end - 1] -eq 0x0D) { $length-- }
     try { $lines.Add($utf8.GetString($bytes, $start, $length)) }
     catch [Text.DecoderFallbackException] { throw "${Path}:$($lines.Count + 1): is not valid UTF-8; save the file as UTF-8" }
     $start = $end + 1
@@ -116,11 +119,13 @@ function Read-BosunOverlayConfig([string]$Path) {
 
 function Get-BosunOverlayValue {
   param(
-    [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9_]+$')][string]$Key,
+    # The same key grammar as the file's, so every key the file accepts can be asked for.
+    [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Key,
     [ValidatePattern('^[A-Za-z_][A-Za-z0-9_]*$')][string]$Variable,
     [string]$Root
   )
-  if (-not $Variable) { $Variable = 'BOSUN_' + $Key.ToUpperInvariant() }
+  # A hyphen cannot be in a variable name, so overlay-repo reads BOSUN_OVERLAY_REPO.
+  if (-not $Variable) { $Variable = 'BOSUN_' + $Key.ToUpperInvariant().Replace('-', '_') }
   # The variable alone is enough: it is read before the root is looked at, so a root that cannot be resolved (a
   # disconnected drive) never defeats an override.
   $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
@@ -133,8 +138,10 @@ function Get-BosunOverlayValue {
   # own location, and the two differ after Set-Location.
   $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
   $config = Join-Path $Root '.private' 'config.toml'
-  if (Test-Path -LiteralPath $config -PathType Leaf) {
-    $values = Read-BosunOverlayConfig -Path $config
+  # Opened directly, not probed first: only a missing file is setup-required, and a folder named config.toml or a
+  # path that cannot be read is refused with its reason.
+  $values = Read-BosunOverlayConfig -Path $config
+  if ($null -ne $values) {
     if ($values.ContainsKey($Key) -and $values[$Key] -ne '') {
       return [pscustomobject]@{ Value = $values[$Key]; Source = 'file'; Message = "$Key from $config" }
     }
