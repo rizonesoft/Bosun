@@ -253,6 +253,17 @@ try {
   $indexBefore = (Get-FileHash -LiteralPath (Join-Path $private '.git\index')).Hash
   $r = Invoke-Sync $owner -Check
   Check '-Check leaves the index file byte for byte' ((Get-FileHash -LiteralPath (Join-Path $private '.git\index')).Hash -eq $indexBefore) "($($r.Text))"
+  # --- run with & in the caller's own session: its git variables are put back ---
+  $probe = Join-Path $work 'caller-probe.ps1'
+  Set-Content -LiteralPath $probe -Value "`$env:GIT_INDEX_FILE = 'caller-index'; & '$(Join-Path $owner 'scripts\sync.ps1')' -Check | Out-Null; 'after=' + `$env:GIT_INDEX_FILE"
+  $said = & $pwshExe -NoProfile -File $probe 2>&1 | Out-String
+  Check 'a caller''s GIT_INDEX_FILE is the same after sync ran in its session' ($said -match 'after=caller-index') "($said)"
+
+  # --- no git on PATH ---
+  $savedPath = $env:PATH
+  $env:PATH = (@((Split-Path $pwshExe), (Join-Path $env:SystemRoot 'System32')) | Select-Object -Unique) -join ';'
+  try { $r = Invoke-Sync $owner -Check } finally { $env:PATH = $savedPath }
+  Check 'with no git on PATH it says so and exits 1' ($r.Exit -eq 1 -and $r.Text -match 'git is not on PATH') "(exit $($r.Exit): $($r.Text))"
   # --- run from another checkout, with GIT_DIR pointing at it ---
   $elsewhere = Join-Path $work 'elsewhere'
   git init -q $elsewhere

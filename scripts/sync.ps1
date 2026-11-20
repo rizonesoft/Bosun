@@ -16,10 +16,17 @@ param([switch]$Check)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
 
-# Git takes these from the environment over -C, so a caller's GIT_DIR would point every command below elsewhere.
-foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX') {
+if (-not (Get-Command git -CommandType Application -ErrorAction Ignore)) { 'sync: git is not on PATH: install Git for Windows, then run this again'; exit 1 }
+
+# Git takes these from the environment over -C, so a caller's GIT_DIR would point every command below elsewhere. They
+# are cleared for this run and put back when it ends, since a script run with & shares its caller's environment.
+$gitVariables = 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX'
+$callerGit = @{}
+foreach ($name in $gitVariables) {
+  $callerGit[$name] = [Environment]::GetEnvironmentVariable($name)
   Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore
 }
+try {
 $publicRoot = Split-Path $PSScriptRoot
 $overlayRoot = Join-Path $publicRoot '.private'
 
@@ -149,3 +156,6 @@ elseif ($done) { "sync: $($done -join '; ')" }
 $states = Get-States
 Write-States $states
 exit $(if ($failed -or @($states | Where-Object { -not $_.Ok }).Count) { 1 } else { 0 })
+} finally {
+  foreach ($name in $gitVariables) { if ($null -ne $callerGit[$name]) { Set-Item -LiteralPath "Env:$name" -Value $callerGit[$name] } }
+}
