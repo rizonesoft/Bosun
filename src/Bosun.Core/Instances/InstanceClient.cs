@@ -21,7 +21,9 @@ public sealed record InstanceRow(InstanceDoc Instance, string? Distro, DriveMoun
 /// path for a WSL repo under <c>/mnt/&lt;drive&gt;/</c>, since that is the same folder), null for instances outside any
 /// checkout; <see cref="Distro"/> names the distro whose own file system holds it.
 /// </summary>
-public sealed record RepoGroup(string? Repo, string? Distro, IReadOnlyList<InstanceRow> Rows);
+/// <param name="Unknown">The rows whose repo could not be told (D03 T02 §7): a lookup that failed, never a folder outside
+/// any checkout, which is its own group.</param>
+public sealed record RepoGroup(string? Repo, string? Distro, IReadOnlyList<InstanceRow> Rows, bool Unknown = false);
 
 /// <summary>
 /// Everything running, merged by repo (D03 T02 §1): the groups, what each side answered (a side that failed keeps the
@@ -277,9 +279,10 @@ public sealed partial class InstanceClient : IInstanceSource
             {
                 var first = g.First();
                 var (repo, distro) = Place(first);
-                return new RepoGroup(repo, distro, g.OrderBy(r => r.Instance.Kind, StringComparer.Ordinal).ThenBy(r => r.Instance.Pid).ToList());
+                return new RepoGroup(repo, distro, g.OrderBy(r => r.Instance.Kind, StringComparer.Ordinal).ThenBy(r => r.Instance.Pid).ToList(), g.Key == "unknown");
             })
             .OrderBy(g => g.Repo is null)
+            .ThenBy(g => g.Unknown)
             .ThenBy(g => g.Repo, StringComparer.OrdinalIgnoreCase)
             .ThenBy(g => g.Distro, StringComparer.Ordinal)
             .ToList();
@@ -304,7 +307,7 @@ public sealed partial class InstanceClient : IInstanceSource
     private static string Key(InstanceRow row)
     {
         var (repo, distro) = Place(row);
-        if (repo is null) return "none";
+        if (repo is null) return row.Instance.RepoWhy is not null ? "unknown" : "none";
         return distro is null ? "win:" + repo.Replace('\\', '/').TrimEnd('/').ToUpperInvariant() : $"wsl:{distro}:{repo}";
     }
 

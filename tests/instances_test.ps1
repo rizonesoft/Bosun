@@ -183,12 +183,92 @@ try {
   Check ($agRow -and $null -eq $agRow.placed_by -and $null -eq $agRow.window -and (Same-Path $agRow.cwd $loose)) 'the agent app is never placed by a window record'
   Check (@($doc.problems | Where-Object { $_.source -eq 'editor-windows' -and $_.why -like '*stale.json is stale*' }).Count -eq 1 -and @($doc.problems | Where-Object { $_.why -like '*damaged.json is not a window record*' }).Count -eq 1) 'a stale and a damaged record are each said, beside the rows'
   Check (Test-Path -LiteralPath (Join-Path $windows 'stale.json')) 'and the scanner deletes no record'
-  Check ($wslRow -and @($doc.problems | Where-Object { $_.why -like '*so no WSL window''s repo is looked up' }).Count -eq 1) 'a WSL that can''t be asked is said once'
+  # D03 T02 §7: a WSL window whose distro wsl.exe could not name keeps its row, its reason on it, never a problem for all.
+  Check ($wslRow -and $wslRow.repo_why -like 'its repo is not looked up: Ubuntu was not seen running (wsl.exe: *can''t be started*)') "a WSL window wsl.exe can't answer for says so on its row ($($wslRow.repo_why))"
   & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $editorA.Id 2>&1 | Out-Null
   $null = Wait-Until { -not (Get-Process -Id $editorA.Id, $editorA.Host -ErrorAction Ignore) } 5000
   $doc = Scan
   Check (-not @($doc.instances | Where-Object { $_.pid -eq $editorA.Id }).Count -and @($doc.problems | Where-Object { $_.why -like '*sa1.json is stale*' }).Count -eq 1) 'an editor that has exited is not listed, and its record is stale'
   Remove-Item Env:BOSUN_WSL_EXE
+
+  # D03 T02 §7: a repo lookup that failed is said on its row, apart from a folder outside Git. The fixture: a checkout
+  # (outer) holding a folder (shut) whose own .git this user may not read, shut's listing denied too; an agent and an
+  # editor window in shut\work. The probe is proved to fail before anything relies on it.
+  $outer = Join-Path $work 'outer'
+  $shut = Join-Path $outer 'shut'
+  $shutWork = Join-Path $shut 'work'
+  New-Item -ItemType Directory -Path (Join-Path $outer '.git'), (Join-Path $shut '.git'), $shutWork | Out-Null
+  $deniedAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'd.txt')) 60000" $shutWork
+  $deniedEditor = Start-Editor 'Code.exe' 'ed7'
+  Window 'sd7' $deniedEditor @((Uri $shutWork))
+  $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  & icacls.exe (Join-Path $shut '.git') /deny "${me}:(RA,REA,RD,X)" | Out-Null
+  & icacls.exe $shut /deny "${me}:(RD)" | Out-Null
+  try {
+    $probeFails = $false
+    try { $null = Test-Path -LiteralPath (Join-Path $shut '.git') -ErrorAction Stop } catch { $probeFails = $true }
+    Check ($probeFails -and [IO.Directory]::Exists($shutWork)) 'the fixture''s .git probe fails for this user while its working folder reads'
+    $doc = Scan
+    $agentRow = Row $doc $deniedAgent.Id
+    Check ($agentRow -and $null -eq $agentRow.repo -and $agentRow.repo_why -like '*shut could not be checked for a repo: *' -and (Same-Path $agentRow.cwd $shutWork)) "an agent whose repo can't be told says why on its row, its folder kept ($($agentRow.repo_why))"
+    $editorRow = @($doc.instances | Where-Object { $_.pid -eq $deniedEditor.Id })[0]
+    Check ($editorRow -and $null -eq $editorRow.repo -and $editorRow.repo_why -like '*shut could not be checked for a repo: *') 'an editor window there says the same, never the checkout above it'
+    $again = Row (Scan) $deniedAgent.Id
+    Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer'
+    $looseRow = Row $doc $codexLoose.Id
+    Check ($looseRow -and $null -eq $looseRow.repo -and $null -eq $looseRow.repo_why) 'a folder outside any checkout has no repo and no reason'
+    $text = & $bosun instances --ns $ns
+    Check (($text -join "`n") -match "claude $($deniedAgent.Id) \(repo unknown: .*shut could not be checked") 'the text form says the repo is unknown, with why'
+  } finally {
+    & icacls.exe $shut /remove:d $me | Out-Null
+    & icacls.exe (Join-Path $shut '.git') /remove:d $me | Out-Null
+  }
+
+  # And a WSL window's repo: looked up through the distro's share only when wsl.exe names the distro running. The share is
+  # a folder of the test's own (BOSUN_WSL_SHARE), and wsl.exe the test child answering as scripted.
+  $child = Join-Path $PSScriptRoot '..\build\dotnet\bin\Bosun.TestChild\debug\Bosun.TestChild.exe'
+  if (Test-Path -LiteralPath $child) {
+    $share = Join-Path $work 'share'
+    New-Item -ItemType Directory -Path (Join-Path $share 'Fake\home\me\app\.git') -Force | Out-Null
+    $guestShut = Join-Path $share 'Fake\home\me\shut'
+    New-Item -ItemType Directory -Path (Join-Path $guestShut '.git'), (Join-Path $guestShut 'work') -Force | Out-Null
+    $wslEditor = Start-Editor 'Code.exe' 'ew7'
+    Window 'sw7' $wslEditor @('vscode-remote://wsl%2BFake/home/me/app')
+    $deniedWsl = Start-Editor 'Code.exe' 'ex7'
+    Window 'sx7' $deniedWsl @('vscode-remote://wsl%2BFake/home/me/shut/work')
+    $env:BOSUN_WSL_EXE = (Resolve-Path $child).Path
+    $env:BOSUN_WSL_SHARE = $share
+    function Answer([string]$text, [int]$exit) {
+      $file = Join-Path $work "wsl-answer-$exit.txt"
+      Set-Content -LiteralPath $file -Value $text -NoNewline -Encoding utf8
+      $env:BOSUN_FAKE_SCRIPT = (@{ '-l --running -q' = @{ answer = $file; exit = $exit } } | ConvertTo-Json -Compress)
+      @((Scan).instances | Where-Object { $_.pid -eq $wslEditor.Id })[0]
+    }
+    try {
+      $row = Answer "Fake`nOther`n" 0
+      Check ($row.repo -eq '/home/me/app' -and $null -eq $row.repo_why) "a distro wsl.exe names running is looked up through its share ($($row.repo), $($row.repo_why))"
+      # Through the share, a guest folder whose own .git can't be read: the row's reason, never the folder outside Git.
+      & icacls.exe (Join-Path $guestShut '.git') /deny "${me}:(RA,REA,RD,X)" | Out-Null
+      & icacls.exe $guestShut /deny "${me}:(RD)" | Out-Null
+      try {
+        $denied = @((Scan).instances | Where-Object { $_.pid -eq $deniedWsl.Id })[0]
+        Check ($denied -and $null -eq $denied.repo -and $denied.repo_why -like '*could not be checked for a repo: *') "a guest folder whose .git the share refuses says why on its row ($($denied.repo_why))"
+      } finally {
+        & icacls.exe $guestShut /remove:d $me | Out-Null
+        & icacls.exe (Join-Path $guestShut '.git') /remove:d $me | Out-Null
+      }
+      $row = Answer 'There are no running distributions.' 1
+      Check ($null -eq $row.repo -and $row.repo_why -like "*Fake was not seen running (wsl.exe: 'There are no running distributions.', exit 1)") "none running is the row's reason, in wsl.exe's words ($($row.repo_why))"
+      $row = Answer 'the service failed' 5
+      Check ($row.repo_why -like "*Fake was not seen running (wsl.exe: 'the service failed', exit 5)") 'a failing wsl.exe is the row''s reason too'
+      $row = Answer 'not a list at all' 0
+      Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'output that names no distro allows no lookup'
+    } finally {
+      Remove-Item Env:BOSUN_WSL_EXE, Env:BOSUN_WSL_SHARE, Env:BOSUN_FAKE_SCRIPT -ErrorAction Ignore
+    }
+  } else {
+    Check $false "the test child is not built at $child, so the WSL lookup cases can't run: build Bosun.slnx first"
+  }
 
   # Problems are said by source, and every instance is still listed beside them.
   Set-Content -LiteralPath (Join-Path $sessions 'broken.json') -Value '{not json'

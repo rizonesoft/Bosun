@@ -30,7 +30,7 @@ public sealed class InstanceLine : Observable
         GroupOrder = groupOrder;
         Order = order;
         Instance = i.Kind == "job" ? $"Build job: {i.Command ?? i.Name}" : KindWord(i.Kind);
-        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" + (i.Location == "wsl" && i.Side == "windows" ? $" in WSL ({i.Distro})" : "") : i.Window is { } window ? window.EndsWith("#empty", StringComparison.Ordinal) ? ", an empty window"
+        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.RepoWhy is { } unknown ? $", its repo could not be told ({unknown})" : "") + (i.Cwd is { } cwd ? $", in {cwd}" + (i.Location == "wsl" && i.Side == "windows" ? $" in WSL ({i.Distro})" : "") : i.Window is { } window ? window.EndsWith("#empty", StringComparison.Ordinal) ? ", an empty window"
                 : ", a window whose folder Bosun can't place (a remote that is not WSL)" : "");
         Side = SideOf(row);
         IsStale = staleAs is not null;
@@ -214,6 +214,9 @@ public sealed class InstancesPage : PageBase
 
     public const string NotInRepo = "Not in a repo";
 
+    /// <summary>The group of rows whose repo could not be told (D03 T02 §7), apart from those outside any checkout.</summary>
+    public const string RepoUnknown = "Repo could not be told";
+
     private readonly IInstanceSource _source;
     private readonly ActivityLog _log;
     private readonly ILauncher _launcher;
@@ -331,7 +334,7 @@ public sealed class InstancesPage : PageBase
         for (var g = 0; g < groups.Count; g++)
         {
             var group = groups[g];
-            var header = group.Repo is null ? NotInRepo : group.Distro is { } d ? $"{group.Repo} in WSL ({d})" : group.Repo;
+            var header = group.Repo is null ? group.Unknown ? RepoUnknown : NotInRepo : group.Distro is { } d ? $"{group.Repo} in WSL ({d})" : group.Repo;
             for (var r = 0; r < group.Rows.Count; r++)
             {
                 var row = group.Rows[r];

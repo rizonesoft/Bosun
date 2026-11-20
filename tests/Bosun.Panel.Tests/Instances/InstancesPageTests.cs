@@ -512,6 +512,33 @@ public class InstancesPageTests
     }
 
     [Fact]
+    public void Each_row_whose_repo_could_not_be_told_says_why_and_still_opens_its_folder()
+    {
+        // D03 T02 §7: two rows whose lookups failed, each with its own reason, and one outside any checkout.
+        var source = new FakeInstances
+        {
+            Answer = View(null, Win(
+                I("claude", 801, cwd: @"D:\a\shut\work") with { RepoWhy = "D:/a/shut could not be checked for a repo: Access is denied." },
+                I("codex", 802, cwd: @"E:\b\shut") with { RepoWhy = "E:/b/shut did not answer within the scan's time" },
+                I("claude", 803, cwd: @"C:\loose"))),
+        };
+        OnPage(source, h =>
+        {
+            var first = Line(h.Page, 801);
+            var second = Line(h.Page, 802);
+            Assert.Equal(InstancesPage.RepoUnknown, first.Group);
+            Assert.Equal(InstancesPage.RepoUnknown, second.Group);
+            Assert.Contains("its repo could not be told (D:/a/shut could not be checked for a repo: Access is denied.)", first.InstanceDetail);
+            Assert.Contains("its repo could not be told (E:/b/shut did not answer within the scan's time)", second.InstanceDetail);
+            Assert.Equal(InstancesPage.NotInRepo, Line(h.Page, 803).Group);
+            Assert.DoesNotContain("could not be told", Line(h.Page, 803).InstanceDetail);
+            first.OpenFolder!.Execute(null);
+            Until(() => h.Launcher.Started.Count == 1);
+            Assert.Equal(@"D:\a\shut\work", h.Launcher.Started[^1].ArgumentList.Single());
+        });
+    }
+
+    [Fact]
     public void An_empty_window_and_a_window_whose_folder_can_t_be_placed_are_told_apart()
     {
         // Round 2: an SSH window's row (no folder Bosun can place) read "an empty window".

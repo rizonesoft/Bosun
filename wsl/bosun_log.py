@@ -40,6 +40,35 @@ def repo_for_dir(path, has_git, cache):
     return repo
 
 
+class ProbeFailed(Exception):
+    """A `.git` probe that could not tell (D03 T02 §7): the folder could not be read, which is not "outside Git"."""
+
+
+def git_probe(folder):
+    """True when `folder` holds `.git`, False when it does not; ProbeFailed with why when that can't be told (a folder this
+    user may not enter, an I/O error): os.path.exists would call any of those "not there"."""
+    try:
+        os.stat(folder + "/.git")
+        return True
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError as e:
+        raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e
+
+
+def repo_answer(path, cache):
+    """(repo, why): the nearest folder holding .git, or "" when none does; why when a probe failed on the way, which
+    stops the walk, so a checkout above a folder that could not be read is never taken for its repo (D03 T02 §7)."""
+    if path in cache:
+        return cache[path]
+    try:
+        answer = repo_for_dir(path, git_probe, {}), None
+    except ProbeFailed as e:
+        answer = "", str(e)
+    cache[path] = answer
+    return answer
+
+
 def utf8_text(name):
     """A name as text both the CSV and the snapshot's JSON can hold: a Linux path need not be UTF-8, and Python keeps
     its stray bytes as surrogates, which a UTF-8 write refuses. Each such byte becomes U+FFFD (D01 T01 §4, round 1)."""
@@ -526,12 +555,12 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
         try:
             cwd = os.readlink(f"{proc}/{pid}/cwd")
         except OSError:
-            return None, None
-        repo = repo_for_dir(cwd, lambda d: os.path.exists(d + "/.git"), cache) if cwd != "/" else ""
-        return utf8_text(cwd), (utf8_text(repo) if repo else None)
+            return None, None, None
+        repo, why = repo_answer(cwd, cache) if cwd != "/" else ("", None)
+        return utf8_text(cwd), (utf8_text(repo) if repo else None), (utf8_text(why) if why else None)
 
     for pid in sorted(agents):
-        cwd, repo = where(pid)
+        cwd, repo, repo_why = where(pid)
         if cwd is None:
             unreadable += 1
         mark = None
@@ -549,14 +578,14 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
         state, evidence = instance_state(mark, sessions.get(pid), procs[pid][3])
         rows.append({"side": "wsl", "kind": instance_kind(procs[pid][0]), "name": utf8_text(procs[pid][0]), "pid": pid, "cwd": cwd,
                      "repo": repo, "private_mb": memory[pid], "started_at": started(pid), "state": state, "evidence": evidence,
-                     "slot": None, "command": None, "guest_pid": None, "guest_distro": None})
+                     "slot": None, "command": None, "guest_pid": None, "guest_distro": None, "repo_why": repo_why})
     for pid in sorted(jobs):
-        cwd, repo = where(pid)
+        cwd, repo, repo_why = where(pid)
         command = shims[pid]
         # No start: the shim's own is not its command's, which waits for a slot and for guest memory first (round 5).
         rows.append({"side": "wsl", "kind": "job", "name": utf8_text(os.path.basename(command[0]) if command else "bosun"), "pid": pid,
                      "cwd": cwd, "repo": repo, "private_mb": memory[pid], "started_at": None, "state": "unknown", "evidence": None,
-                     "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None, "guest_distro": None})
+                     "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None, "guest_distro": None, "repo_why": repo_why})
     rows.sort(key=lambda r: (r["repo"] is not None, r["repo"] or "", r["kind"], r["pid"]))
     drives, drives_why = drive_mounts(mountinfo)
     if drives_why:
@@ -569,7 +598,8 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
 def instances_text(doc):
     lines = [] if doc["instances"] else ["no agents, editors or jobs running"]
     for i in doc["instances"]:
-        line = f"{i['kind']} {i['pid']} {i['repo'] or '(no repo)'} {i['state']}"
+        place = i["repo"] or (f"(repo unknown: {i['repo_why']})" if i.get("repo_why") else "(no repo)")
+        line = f"{i['kind']} {i['pid']} {place} {i['state']}"
         if i["private_mb"] is not None:
             line += f" {i['private_mb']} MB"
         lines.append(line)

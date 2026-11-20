@@ -350,6 +350,36 @@ public sealed class InstanceClientTests : IDisposable
         Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
     }
 
+    [Fact]
+    public void Rows_whose_repo_could_not_be_told_are_a_group_of_their_own_apart_from_rows_outside_any_checkout()
+    {
+        // D03 T02 §7.
+        var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
+        JsonObject Agent(long pid, string cwd, string? why)
+        {
+            var row = Row("claude", pid, "windows", cwd, null);
+            row["repo_why"] = why;
+            return row;
+        }
+        foreach (var row in new[] { Agent(801, @"D:\a\shut\work", @"D:/a/shut could not be checked for a repo: Access is denied."),
+                     Agent(802, @"E:\b\shut", "E:/b/shut did not answer within the scan's time"), Agent(803, @"C:\loose", null) })
+            doc["instances"]!.AsArray().Add(row);
+        var windows = JsonSerializer.Deserialize(doc.ToJsonString(), InstanceJson.Default.InstancesDoc)!;
+        var groups = InstanceClient.Merge([new SideReading("windows", null, Reading<InstancesDoc>.Of(windows, Now))]);
+        var unknown = Assert.Single(groups, g => g.Unknown);
+        Assert.Equal([801L, 802L], unknown.Rows.Select(r => r.Instance.Pid).Order());
+        Assert.Null(unknown.Repo);
+        var none = Assert.Single(groups, g => g is { Repo: null, Unknown: false });
+        Assert.Contains(none.Rows, r => r.Instance.Pid == 803);
+        Assert.DoesNotContain(none.Rows, r => r.Instance.RepoWhy is not null);
+        // A reason beside a repo is not a row any scanner writes.
+        var both = doc.DeepClone().AsObject();
+        var bad = Agent(804, @"D:\x", "x");
+        bad["repo"] = "D:/x";
+        both["instances"]!.AsArray().Add(bad);
+        Assert.NotNull(JsonSerializer.Deserialize(both.ToJsonString(), InstanceJson.Default.InstancesDoc)!.Fault());
+    }
+
     [Theory]
     [MemberData(nameof(NotTheShape))]
     public async Task A_document_that_isn_t_the_shape_is_refused_with_why(string wrong, string said)

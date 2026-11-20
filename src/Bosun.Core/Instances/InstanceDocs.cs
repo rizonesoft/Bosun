@@ -49,6 +49,7 @@ public sealed record InstancesDoc : ICheckedDoc
             if (i.PrivateMb < 0) return $"instance {i.Pid}'s memory is negative";
             if (i.GuestDistro is { } g && !DistroName.IsMatch(g)) return $"instance {i.Pid} names the distro '{(g.Length > 64 ? g[..64] + "..." : g)}'";
             if (WindowFault(i) is { } window) return window;
+            if (i.RepoWhy is { } why && (why.Length is 0 or > 8192 || i.Repo is not null)) return $"instance {i.Pid} gives a reason its repo could not be told beside a repo, or one no scanner writes";
         }
         foreach (var p in Problems)
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
@@ -120,6 +121,12 @@ public sealed record InstanceDoc
 
     /// <summary>The editor's memory, which every row of its process shares; its first row alone carries <see cref="PrivateMb"/>.</summary>
     [JsonPropertyName("shared_mb")] public long? SharedMb { get; init; }
+
+    /// <summary>
+    /// Why the row's repo could not be told (D03 T02 §7): a probe that failed or did not answer, naming the folder. Null for a
+    /// row whose repo is known, or that is outside any checkout.
+    /// </summary>
+    [JsonPropertyName("repo_why")] public string? RepoWhy { get; init; }
 
     /// <summary>True when the row's folder is in WSL: a WSL instance, or a WSL window of a Windows editor.</summary>
     [JsonIgnore] public bool InWsl => Location is { } location ? location == "wsl" : Side == "wsl";

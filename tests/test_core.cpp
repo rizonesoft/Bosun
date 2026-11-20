@@ -82,6 +82,32 @@ static void repos() {
     auto record = [&](const std::string& d) { asked.push_back(d); return d == "D:/"; };
     CHECK(dm::repo_from_path("D:\\scratch\\x", record) == std::optional<std::string>("D:/"));
     CHECK((asked == std::vector<std::string>{"D:/scratch/x", "D:/scratch", "D:/"}));
+    // D03 T02 §7: a probe that fails stops the walk with why; a checkout above it is never taken for its repo.
+    auto failing = [](const std::string& d) -> dm::GitProbe {
+        if (d == "D:/outer/denied") return {false, std::string("Access is denied.")};
+        return {d == "D:/outer", std::nullopt};
+    };
+    auto denied = dm::repo_walk("D:\\outer\\denied\\work", failing);
+    CHECK(!denied.repo && denied.why == std::optional<std::string>("D:/outer/denied could not be checked for a repo: Access is denied."));
+    auto beside = dm::repo_walk("D:\\outer\\open\\work", failing);
+    CHECK(beside.repo == std::optional<std::string>("D:/outer") && !beside.why);
+    auto outside = dm::repo_walk("C:\\loose", [](const std::string&) { return dm::GitProbe{}; });
+    CHECK(!outside.repo && !outside.why);
+    // The text form says a repo that could not be told apart from no repo.
+    dm::InstancesDoc doc;
+    doc.side = "windows";
+    dm::Instance unknown;
+    unknown.side = "windows";
+    unknown.kind = "claude";
+    unknown.pid = 7;
+    unknown.repo_why = denied.why;
+    dm::Instance loose = unknown;
+    loose.pid = 8;
+    loose.repo_why = std::nullopt;
+    doc.instances = {unknown, loose};
+    auto text = dm::instances_text(doc);
+    CHECK(text.find("claude 7 (repo unknown: D:/outer/denied could not be checked for a repo: Access is denied.) unknown") != std::string::npos);
+    CHECK(text.find("claude 8 (no repo) unknown") != std::string::npos);
 }
 
 static void rows() {
@@ -912,11 +938,11 @@ static void editor_windows() {
         *dm::parse_editor_window(window_record("s3", 10, 11, "[]"), why),
     };
     std::vector<std::pair<std::string, std::string>> problems;
-    auto rows = dm::editor_rows(launch, windows, [](const dm::EditorRoot& root) -> std::optional<std::string> {
-        if (root.path == "D:\\one\\app\\src") return std::string("D:/one/app");
-        if (root.path == "E:\\two\\app") return std::string("E:/two/app");
-        if (root.location == "wsl") return std::string("/home/me/app");
-        return std::nullopt;
+    auto rows = dm::editor_rows(launch, windows, [](const dm::EditorRoot& root) -> dm::RepoAnswer {
+        if (root.path == "D:\\one\\app\\src") return {std::string("D:/one/app"), std::nullopt};
+        if (root.path == "E:\\two\\app") return {std::string("E:/two/app"), std::nullopt};
+        if (root.location == "wsl") return {std::string("/home/me/app"), std::nullopt};
+        return {};
     }, problems);
     auto key = [](const char* session, const char* uri) { return std::optional<std::string>(std::string(session) + "#" + dm::root_key(uri)); };
     CHECK(rows.size() == 5);
@@ -937,7 +963,7 @@ static void editor_windows() {
     CHECK(counted == 900);  // the editor's memory counts once
     CHECK(problems.size() == 1 && problems[0].first == "editor-windows" && problems[0].second.find("ssh-remote") != std::string::npos);
     // VS Code writes the distro lowercased; the row takes WSL's own spelling, so it joins that distro's group.
-    auto spelled = dm::editor_rows(launch, windows, [](const dm::EditorRoot&) { return std::optional<std::string>(); }, problems,
+    auto spelled = dm::editor_rows(launch, windows, [](const dm::EditorRoot&) { return dm::RepoAnswer{}; }, problems,
                                    [](const std::string& d) { return d == "ubuntu" ? std::string("Ubuntu") : d; });
     CHECK(spelled[1].distro == std::optional<std::string>("Ubuntu"));
 }
@@ -1075,10 +1101,10 @@ static void instances() {
           R"j({"schema_version":1,"side":"windows","distro":null,"at":"2026-11-16T09:00:00Z","instances":[)j"
           R"j({"side":"windows","kind":"claude","name":"claude.exe","pid":30,"cwd":"D:\\a\"b","repo":"D:/a\"b","private_mb":400,)j"
           R"j("started_at":"2026-11-16T08:00:00Z","state":"working","evidence":"Claude Code says busy (session record)","slot":null,"command":null,"guest_pid":null,"guest_distro":null,)j"
-          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null},)j"
+          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null,"repo_why":null},)j"
           R"j({"side":"wsl","kind":"job","name":"make","pid":40,"cwd":null,"repo":null,"private_mb":null,"started_at":null,"state":"unknown","evidence":null,)j"
           R"j("slot":0,"command":"make -j8","guest_pid":4321,"guest_distro":"Ubuntu",)j"
-          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
+          R"j("window":null,"location":null,"distro":null,"placed_by":null,"shared_mb":null,"repo_why":null}],"unreadable":3,"problems":[{"source":"sessions","why":"C:\\Users\\x\\.claude\\sessions can't be read: denied"}]})j");
 
     // A holder's record carries its WSL job's own process when the shim names it, and one without it still reads.
     dm::SlotRecord holder;

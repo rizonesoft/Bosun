@@ -973,30 +973,44 @@ std::wstring process_cwd(ULONG_PTR pid) {
     return result;
 }
 
+// A `.git` probe on Windows: there, not there, or the error (D03 T02 §7). A share's folders start at //server/share, and
+// nothing above it can hold a repo (D03 T02 §4, round 1).
+dm::GitProbe windows_git_probe(const std::string& d) {
+    if (d.rfind("//", 0) == 0 && std::count(d.begin() + 2, d.end(), '/') < 1) return {};
+    if (!d.empty() && d[0] == '/' && d.rfind("//", 0) != 0) return {};  // what is left above a share: no folder
+    std::error_code ec;
+    std::u8string utf8(reinterpret_cast<const char8_t*>(d.data()), d.size());
+    bool there = fs::exists(fs::path(utf8) / u8".git", ec);
+    if (ec) return {false, ec.message()};  // not there is no error; anything else (denied, a share refusing) is
+    return {there, std::nullopt};
+}
+
+// A folder's repo, found, absent or not told with why (D03 T02 §7), cached by folder for the scan.
+dm::RepoAnswer repo_answer_for_dir(const std::wstring& dir, std::unordered_map<std::wstring, dm::RepoAnswer>& cache) {
+    auto it = cache.find(dir);
+    if (it != cache.end()) return it->second;
+    dm::RepoAnswer answer;
+    bool share = dir.size() > 2 && dir[0] == L'\\' && dir[1] == L'\\' && dir[2] != L'?' && dir[2] != L'.';
+    if ((dir.size() >= 2 && dir[1] == L':') || share) {
+        answer = dm::repo_walk(narrow(dir), windows_git_probe);
+        if (answer.repo) {
+            // A working directory can carry any letter case, so use the name stored on disk.
+            std::error_code ec;
+            std::u8string utf8(reinterpret_cast<const char8_t*>(answer.repo->data()), answer.repo->size());
+            fs::path real = fs::canonical(fs::path(utf8), ec);
+            if (!ec) answer.repo = narrow(real.generic_wstring());
+        }
+    }
+    cache[dir] = answer;
+    return answer;
+}
+
+// The repo alone, for callers that only group by it (the sampler): a lookup that could not tell is no repo there.
 std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstring, std::string>& cache) {
     auto it = cache.find(dir);
     if (it != cache.end()) return it->second;
-    std::string repo;
-    bool share = dir.size() > 2 && dir[0] == L'\\' && dir[1] == L'\\' && dir[2] != L'?' && dir[2] != L'.';
-    if ((dir.size() >= 2 && dir[1] == L':') || share) {
-        auto found = dm::repo_from_path(narrow(dir), [](const std::string& d) {
-            // A share's folders start at //server/share: nothing above it can hold a repo (D03 T02 §4, round 1).
-            if (d.rfind("//", 0) == 0 && std::count(d.begin() + 2, d.end(), '/') < 1) return false;
-            if (!d.empty() && d[0] == '/' && d.rfind("//", 0) != 0) return false;  // what is left above a share: no folder
-            std::error_code ec;
-            std::u8string utf8(reinterpret_cast<const char8_t*>(d.data()), d.size());
-            return fs::exists(fs::path(utf8) / u8".git", ec);
-        });
-        if (found) {
-            // A working directory can carry any letter case, so use the name stored on disk.
-            std::error_code ec;
-            std::u8string utf8(reinterpret_cast<const char8_t*>(found->data()), found->size());
-            fs::path real = fs::canonical(fs::path(utf8), ec);
-            repo = ec ? *found : narrow(real.generic_wstring());
-        }
-    }
-    cache[dir] = repo;
-    return repo;
+    std::unordered_map<std::wstring, dm::RepoAnswer> answers;
+    return cache[dir] = repo_answer_for_dir(dir, answers).repo.value_or("");
 }
 
 // Repo lookups within one scan's time (D03 T02 §4, round 1): a folder on a fixed local drive is looked up at once; one
@@ -1004,37 +1018,37 @@ std::string repo_for_dir(const std::wstring& dir, std::unordered_map<std::wstrin
 // deadline, so a share that stopped answering (a VPN gone) costs that folder its repo, never the whole scan. A lookup
 // still waiting is left to end with the process, and the folder is named in `late`.
 struct RepoLookup {
-    std::unordered_map<std::wstring, std::string> cache;
+    std::unordered_map<std::wstring, dm::RepoAnswer> cache;
     std::chrono::steady_clock::time_point deadline;
     std::vector<std::wstring> late;
 };
 
 // `find` on a thread of its own, waited for until the scan's deadline; `key` names the folder (its cache entry, and
 // what `late` says when it did not answer in time).
-std::string lookup_bounded(const std::wstring& key, RepoLookup& look, std::function<std::string()> find) {
+dm::RepoAnswer lookup_bounded(const std::wstring& key, RepoLookup& look, std::function<dm::RepoAnswer()> find) {
     auto it = look.cache.find(key);
     if (it != look.cache.end()) return it->second;
-    if (std::chrono::steady_clock::now() >= look.deadline) {
+    auto late = [&] {
         look.late.push_back(key);
-        return "";
-    }
-    auto answer = std::make_shared<std::promise<std::string>>();
+        return dm::RepoAnswer{std::nullopt, narrow(key) + " did not answer within the scan's time"};
+    };
+    if (std::chrono::steady_clock::now() >= look.deadline) return late();
+    auto answer = std::make_shared<std::promise<dm::RepoAnswer>>();
     auto future = answer->get_future();
     std::thread([find = std::move(find), answer] {
         try {
             answer->set_value(find());
+        } catch (const std::exception& e) {
+            answer->set_value(dm::RepoAnswer{std::nullopt, std::string("the repo lookup failed: ") + e.what()});
         } catch (...) {
-            answer->set_value("");
+            answer->set_value(dm::RepoAnswer{std::nullopt, "the repo lookup failed"});
         }
     }).detach();
-    if (future.wait_until(look.deadline) != std::future_status::ready) {
-        look.late.push_back(key);
-        return "";
-    }
+    if (future.wait_until(look.deadline) != std::future_status::ready) return late();
     return look.cache[key] = future.get();
 }
 
-std::string repo_bounded(const std::wstring& dir, RepoLookup& look) {
+dm::RepoAnswer repo_bounded(const std::wstring& dir, RepoLookup& look) {
     auto it = look.cache.find(dir);
     if (it != look.cache.end()) return it->second;
     bool local = false;
@@ -1043,10 +1057,10 @@ std::string repo_bounded(const std::wstring& dir, RepoLookup& look) {
         UINT type = GetDriveTypeW(root);
         local = type == DRIVE_FIXED || type == DRIVE_RAMDISK;
     }
-    if (local) return repo_for_dir(dir, look.cache);
+    if (local) return repo_answer_for_dir(dir, look.cache);
     return lookup_bounded(dir, look, [dir] {
-        std::unordered_map<std::wstring, std::string> own;
-        return repo_for_dir(dir, own);
+        std::unordered_map<std::wstring, dm::RepoAnswer> own;
+        return repo_answer_for_dir(dir, own);
     });
 }
 
@@ -1301,7 +1315,7 @@ std::string job_name(const std::string& command) {
 // The WSL distros running now (`wsl.exe -l --running -q`), or nothing with why. Asking starts no distro, so a WSL
 // window's repo is looked up only inside a distro that is already up (D03 T02 §4); the call is bounded to three seconds
 // and ended with its tree on timeout. `BOSUN_WSL_EXE` names a stand-in for tests.
-std::optional<std::set<std::string>> wsl_running_distros(std::string& why) {
+std::optional<std::set<std::string>> wsl_running_distros(std::string& why, std::string& said) {
     std::wstring exe = env(L"BOSUN_WSL_EXE");
     if (exe.empty()) exe = env(L"SystemRoot") + L"\\System32\\wsl.exe";
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -1362,7 +1376,6 @@ std::optional<std::set<std::string>> wsl_running_distros(std::string& why) {
     std::wstring text;
     if (bytes.size() >= 2 && bytes.size() % 2 == 0 && bytes[1] == '\0') text.assign(reinterpret_cast<const wchar_t*>(bytes.data()), bytes.size() / 2);
     else text = widen(bytes);
-    (void)code;
     std::wstring name;
     for (wchar_t c : text + L"\n") {
         if (c == L'\r' || c == L'\n') {
@@ -1371,6 +1384,15 @@ std::optional<std::set<std::string>> wsl_running_distros(std::string& why) {
         } else if (c != 0xFEFF) {
             name.push_back(c);
         }
+    }
+    if (out.empty()) {
+        // Nothing named: what it said, and how it ended, for the rows that are not looked up (D03 T02 §7).
+        std::string words = narrow(text);
+        words.erase(std::remove(words.begin(), words.end(), '\r'), words.end());
+        std::replace(words.begin(), words.end(), '\n', ' ');
+        while (!words.empty() && words.back() == ' ') words.pop_back();
+        if (words.size() > 200) words = words.substr(0, 200) + "...";
+        said = (words.empty() ? std::string("nothing") : "'" + words + "'") + ", exit " + std::to_string(code);
     }
     return out;
 }
@@ -1496,31 +1518,38 @@ int cmd_instances(const Options& o) {
         auto found = distro_names->find(lower);
         return found == distro_names->end() ? written : found->second;
     };
-    auto repo_of_root = [&](const dm::EditorRoot& root) -> std::optional<std::string> {
-        if (root.location == "windows") {
-            std::string repo = repo_bounded(widen(root.path), lookup);
-            return repo.empty() ? std::nullopt : std::optional(repo);
-        }
+    std::string distros_said;  // what wsl.exe said when it named no distro (D03 T02 §7)
+    auto repo_of_root = [&](const dm::EditorRoot& root) -> dm::RepoAnswer {
+        if (root.location == "windows") return repo_bounded(widen(root.path), lookup);
         if (!asked_distros) {
             asked_distros = true;
             std::string unread;
-            running_distros = wsl_running_distros(unread);
-            if (!running_distros) doc.problems.push_back({"editor-windows", unread + ", so no WSL window's repo is looked up"});
+            running_distros = wsl_running_distros(unread, distros_said);
+            if (!running_distros) distros_said = unread;
         }
-        if (!running_distros || !running_distros->count(*root.distro)) return std::nullopt;  // never wakes a distro (the name is WSL's own spelling)
+        // Only a list that names the root's distro lets its share be read (D03 T02 §7): anything else, nothing running or
+        // wsl.exe failing or answering what is not a list, is the row's reason, with wsl.exe's own words, and never wakes
+        // a distro (the name is WSL's own spelling).
+        if (!running_distros || !running_distros->count(*root.distro))
+            return {std::nullopt, "its repo is not looked up: " + *root.distro + " was not seen running" +
+                                      (distros_said.empty() ? std::string() : " (wsl.exe: " + distros_said + ")")};
         // Through the distro's share, on a thread of its own under the scan's deadline, as a network folder is: a guest
         // folder on a mount that stopped answering costs that window its repo, never the scan (completion review).
-        std::wstring share = L"\\\\wsl.localhost\\" + widen(*root.distro);
+        // BOSUN_WSL_SHARE names another share root, for tests.
+        std::wstring root_share = env(L"BOSUN_WSL_SHARE");
+        if (root_share.empty()) root_share = L"\\\\wsl.localhost";
+        std::wstring share = root_share + L"\\" + widen(*root.distro);
         std::string guest_path = root.path;
-        std::string repo = lookup_bounded(share + widen(guest_path), lookup, [share, guest_path] {
-            return dm::repo_from_path(guest_path, [&](const std::string& d) {
+        return lookup_bounded(share + widen(guest_path), lookup, [share, guest_path] {
+            return dm::repo_walk(guest_path, [&](const std::string& d) -> dm::GitProbe {
                 std::error_code ec;
                 std::wstring guest = widen(d);
                 std::replace(guest.begin(), guest.end(), L'/', L'\\');
-                return fs::exists(fs::path(share + guest) / L".git", ec);
-            }).value_or("");
+                bool there = fs::exists(fs::path(share + guest) / L".git", ec);
+                if (ec) return {false, ec.message()};
+                return {there, std::nullopt};
+            });
         });
-        return repo.empty() ? std::nullopt : std::optional(repo);
     };
     std::map<std::string, std::vector<dm::ReviewMark>> marks_by_repo;  // read once per repo
     const double now_s = static_cast<double>(epoch_ms()) / 1000;
@@ -1574,8 +1603,9 @@ int cmd_instances(const Options& o) {
         } else {
             if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
             i.cwd = narrow(dir);
-            std::string repo = repo_bounded(dir, lookup);
-            if (!repo.empty()) i.repo = repo;
+            auto answer = repo_bounded(dir, lookup);
+            i.repo = answer.repo;
+            i.repo_why = answer.why;
         }
         i.private_mb = memory[pid];
         if (p.start) i.started_at = utc_of_filetime(*p.start);

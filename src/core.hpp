@@ -139,6 +139,36 @@ inline std::optional<std::string> repo_from_path(std::string dir, const std::fun
     return std::nullopt;
 }
 
+// A folder's repo, as a lookup can tell it (D03 T02 §7): found (`repo`), absent (neither), or not told because a probe
+// failed or did not answer (`why`, naming the folder and the error), never a failure taken for "not in a repo".
+struct RepoAnswer {
+    std::optional<std::string> repo;
+    std::optional<std::string> why;
+};
+
+// What one `.git` probe found: there, not there, or an error with why.
+struct GitProbe {
+    bool there = false;
+    std::optional<std::string> error;
+};
+
+// repo_from_path with every probe's error kept: the walk stops at the first probe that fails, so a checkout above a
+// folder whose own `.git` could not be read is never taken for its repo.
+inline RepoAnswer repo_walk(std::string dir, const std::function<GitProbe(const std::string&)>& probe) {
+    std::replace(dir.begin(), dir.end(), '\\', '/');
+    while (!dir.empty() && dir.back() == '/') dir.pop_back();
+    while (!dir.empty()) {
+        std::string at = dir.size() == 2 && dir[1] == ':' ? dir + "/" : dir;
+        GitProbe found = probe(at);
+        if (found.error) return {std::nullopt, at + " could not be checked for a repo: " + *found.error};
+        if (found.there) return {at, std::nullopt};
+        size_t p = dir.rfind('/');
+        if (p == std::string::npos) break;
+        dir.resize(p);
+    }
+    return {};
+}
+
 // Percent-encodes the characters that would break a CSV row, so distinct names stay distinct.
 inline std::string csv_name(const std::string& s) {
     std::string out;
@@ -1509,6 +1539,8 @@ struct Instance {
     // its first row only, so a sum counts it once.
     std::optional<std::string> window, location, distro, placed_by;
     std::optional<int64_t> shared_mb;
+    // Why the repo could not be told (D03 T02 §7): a probe that failed or did not answer, never a folder outside Git.
+    std::optional<std::string> repo_why;
 };
 
 // An instance's state, from the evidence in this order: the slot its job holds, a live review its process runs under,
@@ -1599,6 +1631,8 @@ inline std::string instances_json(const InstancesDoc& d) {
         text(i.placed_by);
         o << ",\"shared_mb\":";
         count(i.shared_mb);
+        o << ",\"repo_why\":";
+        text(i.repo_why);
         o << "}";
     }
     o << "],\"unreadable\":" << d.unreadable << ",\"problems\":[";
@@ -1613,7 +1647,7 @@ inline std::string instances_text(const InstancesDoc& d) {
     std::ostringstream o;
     if (d.instances.empty()) o << "no agents, editors or jobs running\n";
     for (const auto& i : d.instances) {
-        o << i.kind << " " << i.pid << " " << (i.repo ? *i.repo : "(no repo)") << " " << i.state;
+        o << i.kind << " " << i.pid << " " << (i.repo ? *i.repo : i.repo_why ? "(repo unknown: " + *i.repo_why + ")" : std::string("(no repo)")) << " " << i.state;
         if (i.private_mb) o << " " << *i.private_mb << " MB";
         if (i.slot) o << " slot " << *i.slot;
         o << "\n";
@@ -1853,7 +1887,7 @@ inline std::string root_key(const std::string& uri) {
 // `distro_name` gives a distro's name as WSL spells it (VS Code writes the authority lowercased: `wsl+ubuntu` for the
 // distro `Ubuntu`), so the row joins its distro's own group.
 inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<EditorWindow> windows,
-                                         const std::function<std::optional<std::string>(const EditorRoot&)>& repo_of,
+                                         const std::function<RepoAnswer(const EditorRoot&)>& repo_of,
                                          std::vector<std::pair<std::string, std::string>>& problems,
                                          const std::function<std::string(const std::string&)>& distro_name = nullptr) {
     std::sort(windows.begin(), windows.end(), [](const EditorWindow& a, const EditorWindow& b) { return a.session_id < b.session_id; });
@@ -1888,7 +1922,9 @@ inline std::vector<Instance> editor_rows(const Instance& launch, std::vector<Edi
             i.cwd = root->path;
             i.location = root->location;
             i.distro = root->distro;
-            i.repo = repo_of(*root);
+            auto answer = repo_of(*root);
+            i.repo = answer.repo;
+            i.repo_why = answer.why;
             rows.push_back(std::move(i));
         }
     }

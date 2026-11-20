@@ -434,7 +434,36 @@ class Instances(unittest.TestCase):
         self.assertEqual((codex["repo"], codex["cwd"]), (None, self.outside))
         self.assertEqual((code["cwd"], code["repo"], doc["unreadable"]), (None, None, 1))
         self.assertTrue(all(r["state"] == "unknown" and r["evidence"] is None for r in rows.values()))  # no evidence at all
-        self.assertEqual(list(claude), ["side", "kind", "name", "pid", "cwd", "repo", "private_mb", "started_at", "state", "evidence", "slot", "command", "guest_pid", "guest_distro"])
+        self.assertEqual(list(claude), ["side", "kind", "name", "pid", "cwd", "repo", "private_mb", "started_at", "state", "evidence", "slot", "command", "guest_pid", "guest_distro", "repo_why"])
+        self.assertIsNone(codex["repo_why"])  # outside any checkout: no repo, and nothing failed
+
+    @unittest.skipUnless(sys.platform.startswith("linux") and os.geteuid() != 0, "needs Linux, as a user that folder modes bind")
+    def test_a_repo_that_can_t_be_told_is_said_on_its_row_in_the_written_report(self):
+        # D03 T02 §7: an agent in a folder (its name holding the byte 0xff) under one this user may not enter: its .git
+        # can't be checked, the walk stops there, and the checkout above it is not taken for its repo.
+        outer = os.path.join(self.root, "outer")
+        shut = os.path.join(outer, "shut")
+        work = os.path.join(shut, "work-\udcff")
+        os.makedirs(os.path.join(outer, ".git"))
+        os.makedirs(work)
+        self.process(1, "init", 0, 1024, 1)
+        self.process(10, "claude", 1, 1024, 5000, cwd=work)
+        self.process(30, "codex", 1, 1024, 7000, cwd=self.outside)
+        logs = os.path.join(self.root, "logs")
+        os.makedirs(logs)
+        os.chmod(shut, 0o000)
+        try:
+            dl.write_instances(logs, proc=self.proc, home=self.home, now=1700001000.0, distro="Ubuntu", ticks=100)
+        finally:
+            os.chmod(shut, 0o755)
+        with open(os.path.join(logs, dl.instances_file("Ubuntu")), encoding="utf-8") as f:
+            rows = {r["pid"]: r for r in json.load(f)["instances"]}
+        self.assertIsNone(rows[10]["repo"])
+        self.assertIn("shut/work-\ufffd could not be checked for a repo: Permission denied", rows[10]["repo_why"])
+        self.assertEqual((rows[30]["repo"], rows[30]["repo_why"]), (None, None))
+        text = dl.instances_text({"instances": list(rows.values()), "problems": [], "unreadable": 0})
+        self.assertIn("claude 10 (repo unknown: ", text)
+        self.assertIn("codex 30 (no repo)", text)
 
     def test_state_from_session_records_and_review_marks(self):
         self.process(1, "init", 0, 1024, 1)
