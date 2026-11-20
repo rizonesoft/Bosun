@@ -48,7 +48,7 @@ Sections: 42 | Checklist items: 416
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 11    |
-| [ ]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
+| [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
 | [ ]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 9     |
 | [ ]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 7     |
 | [ ]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 5     |
@@ -181,6 +181,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 93/126 verified sections, 11 ready to run now.
+Progress: 94/126 verified sections, 10 ready to run now.
 
-Checklist: 911/1064 items completed (includes Commit items).
+Checklist: 912/1064 items completed (includes Commit items).
