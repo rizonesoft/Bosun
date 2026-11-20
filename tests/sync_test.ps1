@@ -235,6 +235,24 @@ try {
   Check 'an unreachable remote is named' ($r.Exit -eq 1 -and $r.Text -match 'overlay: main, (remote unreachable|push goes elsewhere)') "($($r.Text))"
   git -C $private remote set-url origin $overlay
 
+  # --- tags: never pruned, never pushed along ---
+  git -C $owner config fetch.pruneTags true
+  git -C $owner tag local-recovery
+  git -C $owner config push.followTags true
+  $tagged = Add-Local $owner 'tagged.txt'
+  git -C $owner tag -a release-notes -m 'private tag message'
+  $r = Invoke-Sync $owner -Check
+  Check '-Check keeps a local-only tag even with fetch.pruneTags' ("$(git -C $owner tag --list local-recovery)" -eq 'local-recovery') "($($r.Text))"
+  $r = Invoke-Sync $owner
+  Check 'a push sends the branch commit and no tag, even with push.followTags' ($r.Exit -eq 0 -and (Get-Head $public 'refs/heads/main') -eq $tagged -and -not (git --git-dir=$public tag --list)) "(exit $($r.Exit): $($r.Text) tags: $(git --git-dir=$public tag --list))"
+  git -C $owner config --unset fetch.pruneTags; git -C $owner config --unset push.followTags
+
+  # --- -Check never rewrites the index ---
+  $touched = Join-Path $private 'config.toml'
+  (Get-Item -LiteralPath $touched).LastWriteTime = (Get-Date).AddMinutes(-5)
+  $indexBefore = (Get-FileHash -LiteralPath (Join-Path $private '.git\index')).Hash
+  $r = Invoke-Sync $owner -Check
+  Check '-Check leaves the index file byte for byte' ((Get-FileHash -LiteralPath (Join-Path $private '.git\index')).Hash -eq $indexBefore) "($($r.Text))"
   # --- run from another checkout, with GIT_DIR pointing at it ---
   $elsewhere = Join-Path $work 'elsewhere'
   git init -q $elsewhere
