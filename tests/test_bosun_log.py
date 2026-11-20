@@ -312,6 +312,14 @@ class Instances(unittest.TestCase):
         self.assertEqual(drives, [{"mount": "/mnt/c", "windows": "C:\\"}])
         self.assertIn("1 mount with a name that is not text is left out", why)
 
+    def test_thousands_of_sibling_mounts_are_read_in_linear_time(self):
+        # Round 9: each step of the walk is one lookup, so 8,000 binds under /work read in well under a second.
+        binds = [f"{1000 + k} 85 8:32 /home/me/b{k} /work/b{k} rw,relatime - ext4 /dev/sdc rw" for k in range(8000)]
+        start = time.monotonic()
+        drives, _ = dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), *binds))
+        self.assertEqual(drives, [{"mount": "/mnt/c", "windows": "C:\\"}])
+        self.assertLess(time.monotonic() - start, 1.0)
+
     def test_a_log_folder_that_can_t_be_found_skips_the_sample_and_writes_nowhere(self):
         # Round 1: never the last folder found, which may now be another drive's.
         mountinfo = self.table(self.drive("/mnt/d", "D"))

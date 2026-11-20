@@ -332,17 +332,21 @@ def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
         windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive and path else None
         entries.append((int(fields[0]), int(fields[1]), mount, windows))
     ids = {e[0] for e in entries}
+    # Each mount's children by (parent, mount point): a step of the walk is one lookup, never a scan of every sibling
+    # (round 9: thousands of binds under one folder made each sample quadratic). The latest at a point wins, as listed.
     children = {}
-    for order, e in enumerate(entries):
-        children.setdefault(e[1], []).append((order, e))
+    for e in entries:
+        if e[0] != e[1]:
+            children[(e[1], e[2])] = e
 
     def on_top(current, point):
-        # What is mounted at `point` over `current`, followed up the stack: the latest of several, as the table lists them.
-        while True:
-            above = [c for c in children.get(current[0], []) if c[1][2] == point and c[1][0] != current[0]]
-            if not above:
+        # What is mounted at `point` over `current`, followed up the stack, bounded so a loop of parent links ends.
+        for _ in range(len(entries) + 1):
+            above = children.get((current[0], point))
+            if above is None or above is current:
                 return current
-            current = max(above)[1]
+            current = above
+        return current
 
     roots = [e for e in entries if e[2] == "/" and (e[1] not in ids or e[1] == e[0])]
     if not roots:
