@@ -77,44 +77,6 @@ else {
 # account can see it. A stranger's clone skips it with one line and is set up all the same.
 . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
 function Skip-Overlay([string]$why) { "overlay: skipped, $why" }
-function Get-OverlayOrigin([string]$folder) {
-  $value = git -C $folder config --get remote.origin.url 2>$null
-  if ($LASTEXITCODE) { $null } else { "$value" }
-}
-# Whether a clone's origin is the source asked for: the GitHub URL of owner/name in HTTPS or SSH form, the same
-# resolved local path, or the same URL.
-function Test-OverlayOrigin([string]$origin, [hashtable]$source) {
-  if (-not $origin) { return $false }
-  switch ($source.Kind) {
-    'github' {
-      $name = [regex]::Escape($source.Value)
-      return $origin -match "^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)$name(\.git)?/?$"
-    }
-    'path' {
-      if (-not [IO.Path]::IsPathRooted($origin)) { return $false }
-      # Windows folders compare without case, as Windows opens them; elsewhere a path's case is part of its name.
-      $compare = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
-      return [string]::Equals([IO.Path]::GetFullPath($origin).TrimEnd('\', '/'), [IO.Path]::GetFullPath($source.Value).TrimEnd('\', '/'), $compare)
-    }
-    default { return $origin.TrimEnd('/') -ceq $source.Value.TrimEnd('/') }
-  }
-}
-# The source forms setup accepts. Anything else is refused without repeating the value, which may hold a credential.
-function Get-OverlaySource([string]$value) {
-  if ($value -match '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$') { return @{ Kind = 'github'; Value = $value } }
-  if ($value -match '^https://') {
-    $uri = $null
-    # No user information, query or fragment: each can carry a token, which git would keep in .private/.git/config.
-    if ([Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -and -not $uri.UserInfo -and -not $uri.Query -and -not $uri.Fragment -and $value -notmatch '[\s?#@]') { return @{ Kind = 'url'; Value = $value } }
-    return $null
-  }
-  # An SSH user name is allowed, a password (user:secret@) is not.
-  if ($value -match '^ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+(:\d+)?/[^\s?#]+$' -or $value -match '^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s?#:@][^\s?#@]*$') { return @{ Kind = 'url'; Value = $value } }
-  if (-not $value.StartsWith('-') -and [IO.Path]::IsPathFullyQualified($value) -and (Test-Path -LiteralPath $value -PathType Container)) {
-    return @{ Kind = 'path'; Value = (Resolve-Path -LiteralPath $value).ProviderPath }
-  }
-  $null
-}
 
 $private = Join-Path $Repo '.private'
 # From the variable alone: .private/config.toml lives in the folder being checked, so it must not name what it is checked against.
@@ -126,24 +88,6 @@ if (-not $source) {
   Stop-Setup 'BOSUN_OVERLAY_REPO is not a supported overlay source: use owner/name, an absolute path to a repository, an https:// URL without user information, an ssh:// URL or git@host:path'
 }
 
-# The one rule for what counts as the overlay's own clone, here and in scripts/hooks/post-merge: .private and its .git
-# are real folders at their own paths (no link, junction, or .git file of a linked worktree or submodule), and git
-# reports that .git as both the clone's git folder and its common one. Anything else may belong to another checkout,
-# whose config would take the mark: it is never marked or pulled.
-function Get-OverlayCloneFault([string]$folder) {
-  foreach ($path in $folder, (Join-Path $folder '.git')) {
-    $entry = Get-Item -LiteralPath $path -Force -ErrorAction Ignore
-    if (-not $entry) { return '.private is a folder that is not a git checkout' }
-    if ($entry.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return "$(if ($path -eq $folder) { '.private' } else { '.private/.git' }) is a link to another folder" }
-    if (-not $entry.PSIsContainer) { return "$(if ($path -eq $folder) { '.private is a file' } else { '.private is a linked worktree or submodule' }), not a clone of its own" }
-  }
-  $own = [IO.Path]::GetFullPath((Join-Path $folder '.git')).TrimEnd('\', '/')
-  foreach ($ask in '--absolute-git-dir', '--git-common-dir') {
-    $said = "$(git -C $folder rev-parse --path-format=absolute $ask 2>$null)"
-    if ($LASTEXITCODE -or -not $said -or [IO.Path]::GetFullPath($said).TrimEnd('\', '/') -ne $own) { return '.private is not a git clone of its own' }
-  }
-  $null
-}
 $item = Get-Item -LiteralPath $private -Force -ErrorAction Ignore
 if ($item) {
   $fault = Get-OverlayCloneFault $private

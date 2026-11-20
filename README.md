@@ -132,6 +132,19 @@ Bosun Panel, a .NET 11 WPF control panel for memory, dev instances, the queue an
 
 See the [design](docs/specs/2026-11-07-control-panel-design.md), the [interface spec](design/SPEC.md) and the [plan](todo/implementation-plan.md).
 
+## How do I keep my checkout and its overlay in sync?
+
+Run `pwsh scripts/setup-clone.ps1` once on a new clone. It turns on the repository's git hooks and, if your `gh` account can see the private overlay, clones it into the ignored `.private` folder. A clone without the overlay builds and passes every gate all the same.
+
+Then one command shows and syncs both repositories:
+
+```
+pwsh scripts/sync.ps1 -Check   # one line each, changes nothing
+pwsh scripts/sync.ps1          # fast-forward what is behind, push what is ahead
+```
+
+Each line reads `public: <branch>, <state>` or `overlay: <branch>, <state>`. `-Check` exits 0 when both are `level and clean` (a clone without an overlay counts as clean) and 1 otherwise. A plain run is all or nothing: if either repository is diverged, has uncommitted changes, is on a detached HEAD, has no upstream or a deleted one, cannot reach its remote, or its `.private` is not the overlay (or its remote points somewhere else), it changes neither repository and says why. Otherwise it updates the overlay first, then this checkout. It never commits, stashes or stages for you, and a fast-forward never replaces an ignored file. If a push or fast-forward is refused partway, it says what was already done; fix the cause it names and run it again. A pull that merges also updates the overlay through the `post-merge` hook.
+
 ## How is the project run?
 
 Work follows a validated TODO graph in [`todo/`](todo/TODO-00-INDEX.md), and changes are recorded in the [changelog](CHANGELOG.md). [CONTRIBUTING.md](CONTRIBUTING.md) explains how to take part, and [SECURITY.md](SECURITY.md) explains how to report a vulnerability privately.
