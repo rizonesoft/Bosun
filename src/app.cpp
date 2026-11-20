@@ -979,12 +979,22 @@ dm::GitProbe git_probe_at(const fs::path& git) {
     std::error_code ec;
     // The folder itself first (round 2): a folder that has gone (renamed while a window or a process is in it) is no
     // folder outside Git, so the walk must not go on to a checkout above it.
-    auto folder = fs::status(git.parent_path(), ec);
-    if (ec || folder.type() == fs::file_type::not_found)
-        return {false, ec && ec != std::errc::no_such_file_or_directory ? ec.message() : std::string("the folder is no longer there")};
+    auto still_a_folder = [&]() -> std::optional<std::string> {
+        std::error_code fec;
+        auto folder = fs::status(git.parent_path(), fec);
+        if (fec || folder.type() == fs::file_type::not_found)
+            return fec && fec != std::errc::no_such_file_or_directory ? fec.message() : std::string("the folder is no longer there");
+        if (folder.type() != fs::file_type::directory) return std::string("it is no longer a folder");  // round 3
+        return std::nullopt;
+    };
+    if (auto gone = still_a_folder()) return {false, *gone};
     auto own = fs::symlink_status(git, ec);
     if (ec && ec != std::errc::no_such_file_or_directory) return {false, ec.message()};
-    if (ec || own.type() == fs::file_type::not_found) return {};
+    if (ec || own.type() == fs::file_type::not_found) {
+        // No .git here only while the folder is still there to have none (round 3: a rename between the two looks).
+        if (auto gone = still_a_folder()) return {false, *gone};
+        return {};
+    }
     // A junction is a link too (any user can make one), and the standard library names it apart from a symlink.
     if (own.type() != fs::file_type::symlink && own.type() != fs::file_type::junction) return {true, std::nullopt};
     auto target = fs::status(git, ec);

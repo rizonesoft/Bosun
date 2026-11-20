@@ -227,6 +227,12 @@ try {
     Window 'sg7' $goneEditor @((Uri (Join-Path $outer 'renamed\work')))
     $goneRow = @((Scan).instances | Where-Object { $_.pid -eq $goneEditor.Id })[0]
     Check ($goneRow -and $null -eq $goneRow.repo -and $goneRow.repo_why -like '*/outer/renamed/work could not be checked for a repo: the folder is no longer there') "a window whose folder has gone is no checkout's ($($goneRow.repo), $($goneRow.repo_why))"
+    # Round 3: a window whose folder's name now belongs to a file is no checkout's either.
+    Set-Content -LiteralPath (Join-Path $outer 'a-file') -Value 'x'
+    $fileEditor = Start-Editor 'Code.exe' 'ef7'
+    Window 'sf7' $fileEditor @((Uri (Join-Path $outer 'a-file')))
+    $fileRow = @((Scan).instances | Where-Object { $_.pid -eq $fileEditor.Id })[0]
+    Check ($fileRow -and $null -eq $fileRow.repo -and $fileRow.repo_why -like '*/outer/a-file could not be checked for a repo: it is no longer a folder') "a window on what is now a file is no checkout's ($($fileRow.repo_why))"
     $again = Row (Scan) $deniedAgent.Id
     Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer'
     $looseRow = Row $doc $codexLoose.Id

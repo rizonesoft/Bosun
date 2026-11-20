@@ -49,15 +49,20 @@ def git_probe(folder):
     user may not enter, an I/O error): os.path.exists would call any of those "not there"."""
     # The folder itself first (round 2): one that has gone (renamed while a process is in it) is no folder outside Git, so
     # the walk must not go on to a checkout above it.
-    try:
-        os.stat(folder or "/")
-    except FileNotFoundError:
-        raise ProbeFailed(f"{folder} could not be checked for a repo: the folder is no longer there")
-    except OSError as e:
-        raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e
+    def still_a_folder():
+        try:
+            mode = os.stat(folder or "/").st_mode
+        except FileNotFoundError:
+            raise ProbeFailed(f"{folder} could not be checked for a repo: the folder is no longer there")
+        except OSError as e:
+            raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e
+        if not stat.S_ISDIR(mode):  # round 3: a file now has the folder's name (a removed cwd's " (deleted)" path)
+            raise ProbeFailed(f"{folder} could not be checked for a repo: it is not a folder")
+    still_a_folder()
     try:
         os.lstat(folder + "/.git")
     except (FileNotFoundError, NotADirectoryError):
+        still_a_folder()  # no .git here only while the folder is still there to have none (round 3)
         return False
     except OSError as e:
         raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e

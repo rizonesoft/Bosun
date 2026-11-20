@@ -467,6 +467,24 @@ class Instances(unittest.TestCase):
         repo, why = dl.repo_answer(os.path.join(outer, "renamed", "work"), {})
         self.assertEqual(repo, "")
         self.assertIn("renamed/work could not be checked for a repo: the folder is no longer there", why)
+        # Round 3: a file now holding the folder's name is no folder outside Git; nor is a folder renamed between the
+        # probe's two looks (the rename made inside the stand-in lstat, so the order is certain).
+        with open(os.path.join(outer, "inner (deleted)"), "w") as f:
+            f.write("x")
+        repo, why = dl.repo_answer(os.path.join(outer, "inner (deleted)"), {})
+        self.assertEqual(repo, "")
+        self.assertIn("inner (deleted) could not be checked for a repo: it is not a folder", why)
+        moving = os.path.join(outer, "moving")
+        os.makedirs(moving)
+        real_lstat = os.lstat
+        def lstat_after_rename(path, *a, **k):
+            if path == moving + "/.git" and os.path.isdir(moving):
+                os.rename(moving, moving + "-moved")
+            return real_lstat(path, *a, **k)
+        with unittest.mock.patch.object(dl.os, "lstat", lstat_after_rename):
+            repo, why = dl.repo_answer(moving, {})
+        self.assertEqual(repo, "")
+        self.assertIn("moving could not be checked for a repo: the folder is no longer there", why)
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))
