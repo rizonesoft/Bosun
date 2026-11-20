@@ -276,6 +276,8 @@ Grouping and opening read a guest path under `/mnt/<drive>/` as that Windows dri
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-20** against the tree before building: the document carries `"automount": {"enabled", "root"}` (an object, so an older report without it reads as WSL's default and a disabled one stays apart from an absent one), a `/etc/wsl.conf` value that can't be used is an `automount` problem with the defaults kept, and each merged row carries its distro's mounts (`InstanceRow.Mounts`), which `InstanceClient.Place` and `OpenCommands.MountedDrive` read; a Windows editor's WSL window with no report of its distro has none, so it stays a guest folder. This distro's `/etc/wsl.conf` has no `[automount]`, so its root is `/mnt/`.
+
 **Build order:**
 
 1. Each distro's mount root, read without starting it. Done when: the merge and the open commands know whether `/mnt/c` is a drive in that distro.
