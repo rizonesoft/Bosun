@@ -40,7 +40,7 @@ title: "TODO-02 -- Instances and queue"
 | 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [x] |
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [x] |
 | 4 | §4 | Editor windows by repo | §1 | [x] |
-| 5 | §5 | Editor windows in every VS Code profile | §4 | [ ] |
+| 5 | §5 | Editor windows in every VS Code profile | §4 | [x] |
 | 6 | §6 | WSL folders under a relocated automount | §4 | [ ] |
 | 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
@@ -264,6 +264,9 @@ The window reporter (`§4`) is installed into the default profile, and VS Code k
 - [x] Commit: `instances: editor windows in every profile`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `pwsh tests/editor_extension_test.ps1`, `pwsh tests/instances_test.ps1` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests"` exit 0, and fail if the change is reverted (the native tool rebuilt after the revert).
+
+> **Verified:** 2026-11-20 | §5 | 221e9692db13ee2662d916e333fc8b9f000460e9
+> **Review:** `docs/reviews/d03-t02-s5.json`
 
 ## 6. WSL folders under a relocated automount
 

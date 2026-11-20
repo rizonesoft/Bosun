@@ -1,0 +1,97 @@
+{
+  "ref": "D03 T02 \u00a75",
+  "title": "Editor windows in every VS Code profile",
+  "implementation_sha": "221e9692db13ee2662d916e333fc8b9f000460e9",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "bosun run -- pwsh scripts/build.ps1 -> built",
+    "build/Release/test_core.exe editor-windows -> ok",
+    "pwsh tests/instances_test.ps1 -> all passed",
+    "pwsh tests/editor_extension_test.ps1 -> all checks passed",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class *InstancesPageTests --filter-class *OverviewPageTests -> total: 49, failed: 0",
+    "python scripts/ci_status.py --gate --sha 221e9692db13ee2662d916e333fc8b9f000460e9 -> proceed: build.yml https://github.com/rizonetech/Bosun/actions/runs/44738776238, plan.yml https://github.com/rizonetech/Bosun/actions/runs/44738776263"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s5.md",
+    "verdict": "filed",
+    "candidate": "453c5e7c84efcb38f10a590238fea592344fa7c8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D03 T02 \u00a79"
+    ]
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 returned three P3 test gaps (the second editor already installed, no uninstall rerun, the folders unasserted on calls), all fixed in 453c5e7; nothing left over",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s5.md",
+    "candidate": "8ab23ee38f8470cf22dda0db2e1b284aeda9488a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "8ab23ee38f8470cf22dda0db2e1b284aeda9488a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
