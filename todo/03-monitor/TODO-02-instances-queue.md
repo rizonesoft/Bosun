@@ -235,6 +235,8 @@ An editor is one process tree however many windows it has open, and the scanner 
 
 ## 5. Editor windows in every VS Code profile
 
+> **Started:** 2026-11-20T12:16:18Z
+
 The window reporter (`§4`) is installed into the default profile, and VS Code keeps extensions per profile, so a window opened in a profile with its own extensions writes no record and, once another window of the same editor has reported, is missing from the page without a word. Filed 2026-11-20 from the completion review of `D03 T02 §4` (`docs/reviews/03-monitor/D03-T02-s4.md`, gap 2).
 
 **Corrected 2026-11-20** against this machine before building: VS Code 1.147's `storage.json` lists each profile in `userDataProfiles` (here one, `Agents`, `location` `builtin/agents`), with `useDefaultFlags.extensions` true when the profile uses the default profile's extensions; only a profile without that flag has extensions of its own, so only those need their own install (`--profile <name>`). Each open window is one `Code.exe` renderer child of the main process carrying `--vscode-window-config=vscode:<id>` (two here, the two windows the reporter's two records name); other renderers, without that switch, are not windows. The plan said to read the count first: it is read, and the items name the switch.
