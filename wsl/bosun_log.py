@@ -298,8 +298,8 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
     file system mounted inside a reachable drive is {"mount": ..., "windows": None}: it hides the drive there. None with
     why when the table can't be read."""
     try:
-        with open(mountinfo, encoding="utf-8", errors="replace") as f:
-            # Records end at the kernel's newline only: a mount point may hold any other character, U+2028 included
+        with open(mountinfo, encoding="utf-8", errors="replace", newline="") as f:
+            # Records end at the kernel's newline only (newline="" keeps a carriage return in a name, round 7): a mount point may hold any other character, U+2028 included
             # (round 6), and a newline in one is written as \012.
             lines = f.read(4 * 1024 * 1024).split("\n")
     except OSError as e:
@@ -381,15 +381,15 @@ def guest_path(windows_path, drives):
     def parts(path, fold):
         found = [p for p in path.rstrip("\\").split("\\") if p]
         return [p.lower() for p in found] if fold else found
-    # A mount whose Windows folder matches with its case exactly comes first, then one that matches only without case:
-    # a folder can be case-sensitive on Windows, and then Bosun and bosun are two folders (round 6). The drive letter is
-    # never case-sensitive.
+    # A mount's Windows folder must match with its case exactly: a folder can be case-sensitive on Windows, and then Bosun
+    # and bosun are two folders (rounds 6 and 7), so a match without case is never taken. The drive letter is never
+    # case-sensitive, and a drive's own mount (C:\) has nothing else to match; the install gives the folder in its case.
     exact = lambda p: [p[0][:1].upper() + p[0][1:]] + p[1:] if p else p
     candidates = []
     for d in drives:
         if d["windows"] is None:
             continue
-        for fold in (False, True):
+        for fold in (False,):
             held = parts(d["windows"], fold)
             if exact(parts(wanted, fold)[:len(held)]) == exact(held):
                 rest = "/".join(wanted.rstrip("\\").split("\\")[len(held):])

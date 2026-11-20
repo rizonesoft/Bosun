@@ -54,7 +54,8 @@ public sealed record InstancesDoc : ICheckedDoc
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
         if (Drives is { } drives)
         {
-            if (drives.Count > 1024) return $"it lists {drives.Count} drive mounts, more than a mount table this size holds";
+            // Bounded by what the logger reads of its mount table (4 MiB), never by a guess at how many mounts there are (round 7).
+            if (drives.Count > 200_000) return $"it lists {drives.Count} drive mounts, more than a mount table the logger reads holds";
             foreach (var mount in drives)
                 if (mount is null || !DriveMounts.IsValid(mount)) return $"it lists a drive mount that is not a Linux folder and a Windows folder ('{Cut(mount?.Mount)}' for '{Cut(mount?.Windows)}')";
         }

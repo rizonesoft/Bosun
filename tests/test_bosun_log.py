@@ -277,17 +277,20 @@ class Instances(unittest.TestCase):
         self.assertIn("no mount holds", why)
         bosun = self.drive("/bosun", "C").replace(" / /bosun ", " /Users/me/AppData/Local/Bosun /bosun ")
         self.assertEqual(dl.log_folder(logs, self.table(bosun))[0], "/bosun/logs")
-        # Windows compares folders without case, on whole components.
-        self.assertEqual(dl.log_folder("c:/users/ME/appdata/local/bosun/logs", self.table(bosun))[0], "/bosun/logs")
+        # Whole components, with case (round 7: a folder may be case-sensitive); the drive letter alone has none.
+        self.assertEqual(dl.log_folder("c:/Users/me/AppData/Local/Bosun/logs", self.table(bosun))[0], "/bosun/logs")
+        self.assertIsNone(dl.log_folder("C:/users/ME/appdata/local/bosun/logs", self.table(bosun))[0])
         self.assertIsNone(dl.guest_path("C:\\Users\\me\\AppData\\Local\\BosunX\\logs", dl.drive_mounts(self.table(bosun))[0]))
 
     def test_a_folder_matching_only_without_case_comes_after_one_matching_exactly(self):
         # Round 6: on a case-sensitive Windows folder, C:\work\Bosun and C:\work\bosun are two folders.
         alias = self.drive("/alias", "C").replace(" / /alias ", " /work/bosun /alias ")
         self.assertEqual(dl.log_folder("C:/work/Bosun/logs", self.table(self.drive("/mnt/c", "C"), alias))[0], "/mnt/c/work/Bosun/logs")
-        # With nothing that matches exactly, the folder that matches without case is still used, as Windows reads it.
-        self.assertEqual(dl.log_folder("C:/work/Bosun/logs", self.table(alias))[0], "/alias/logs")
+        # Round 7: with nothing that matches exactly, nothing is used: a match without case may be another folder.
+        self.assertIsNone(dl.log_folder("C:/work/Bosun/logs", self.table(alias))[0])
         self.assertEqual(dl.log_folder("c:/work/bosun/logs", self.table(alias))[0], "/alias/logs")  # the drive letter is never case-sensitive
+        # A carriage return in a mount point stays in its one record.
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/work/drive\rarchive", "F")))[0], [{"mount": "/work/drive\rarchive", "windows": "F:\\"}])
         # And a mount point holding U+2028 is one record, as the kernel writes it.
         odd = self.drive("/work/drive\u2028archive", "E")
         self.assertEqual(dl.drive_mounts(self.table(odd))[0], [{"mount": "/work/drive\u2028archive", "windows": "E:\\"}])
