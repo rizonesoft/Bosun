@@ -317,7 +317,7 @@ A folder whose `.git` probe failed (an ancestor denied, a share refusing) and on
 - [ ] Tell `wsl.exe -l --running` failing (a non-zero exit with no names, or output that is not a list) from no distro running in `wsl_running_distros`, and say the first as a problem. Done when: `tests/instances_test.ps1` with a stand-in `BOSUN_WSL_EXE` that exits 1 saying an error, and one that prints nothing and exits 0, reads the problem only for the first. Cheaper substitute: an empty set for both.
 - [ ] Commit: `instances: a failed repo lookup is said`
 
-**Test checkpoint:** `pwsh tests/instances_test.ps1` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `pwsh tests/instances_test.ps1` and `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` exit 0, and fail if the change is reverted.
 
 ## 8. A terminal at a share when Windows Terminal is missing
 
