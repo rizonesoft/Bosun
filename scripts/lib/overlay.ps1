@@ -51,8 +51,9 @@ function Read-BosunOverlayConfig([string]$Path) {
   # Reads the whole file before returning anything, so a malformed line anywhere refuses the file.
   # Shared for reading only: a file another process has open for writing (a save in progress) is not read half
   # written. A save is short, so a sharing refusal is tried again a few times before the file is refused.
+  # The loop is bounded by its attempts, and a successful read (an empty file included) ends it.
   $bytes = $null
-  for ($attempt = 1; -not $bytes; $attempt++) {
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
     try {
       $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
       try {
@@ -60,6 +61,7 @@ function Read-BosunOverlayConfig([string]$Path) {
         $stream.CopyTo($buffer)
         $bytes = $buffer.ToArray()
       } finally { $stream.Dispose() }
+      break
     } catch {
       $reason = $_.Exception.InnerException ?? $_.Exception
       $sharing = $reason -is [IO.IOException] -and ($reason.HResult -band 0xFFFF) -in 32, 33

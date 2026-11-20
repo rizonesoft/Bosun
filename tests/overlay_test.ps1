@@ -59,6 +59,18 @@ try {
   Check 'an empty variable counts as unset' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
   Clear-Vars
 
+  # An empty file holds no key: setup-required, at once (round 2 found the read retried an empty file forever).
+  Set-Config ''
+  # In a child process, so a hang is stopped (with its whole tree) at 10 s and fails the case instead of the run.
+  $probe = Join-Path $dir 'empty-probe.ps1'
+  $answer = Join-Path $dir 'empty-probe.txt'
+  Set-Content -LiteralPath $probe -Value "param(`$lib, `$out) . `$lib; (Get-BosunOverlayValue -Key vault_item).Source | Set-Content -LiteralPath `$out"
+  $child = Start-Process pwsh -ArgumentList '-NoProfile', '-File', $probe, (Join-Path $checkout 'scripts\lib\overlay.ps1'), $answer -NoNewWindow -PassThru
+  $done = $child.WaitForExit(10000)
+  if (-not $done) { taskkill /T /F /PID $child.Id | Out-Null; $child.WaitForExit() }
+  $source = if (Test-Path -LiteralPath $answer) { (Get-Content -LiteralPath $answer -Raw).Trim() } else { '' }
+  Check 'an empty file is setup-required, without hanging' ($done -and $source -eq 'setup-required') "($(if ($done) { $source } else { 'still running after 10 s, stopped' }))"
+
   Set-Config "other = `"x`"`n"
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'a key missing from the file is setup-required' ($r.Source -eq 'setup-required' -and $null -eq $r.Value) $r.Source
