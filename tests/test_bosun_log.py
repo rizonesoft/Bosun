@@ -249,6 +249,20 @@ class Instances(unittest.TestCase):
         # A mount of a drive's subfolder is no root for the log folder: only the drive's own root is.
         self.assertIsNone(dl.guest_path("C:\\Users\\me", [{"mount": "/work", "windows": "C:\\src"}]))
 
+    def test_the_log_folder_is_found_by_the_panel_s_own_rule(self):
+        # Round 2 of D03 T02 §6: a guest file system bound over the log folder is never written into, and a mounted
+        # subfolder that holds the folder supplies it with no mount of the whole drive.
+        logs = "C:/Users/me/AppData/Local/Bosun/logs"
+        over = "200 140 8:32 /home/me/fake /mnt/c/Users/me/AppData/Local/Bosun/logs rw,relatime - ext4 /dev/sdc rw"
+        found, why = dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), over))
+        self.assertIsNone(found)
+        self.assertIn("no mount holds", why)
+        bosun = self.drive("/bosun", "C").replace(" / /bosun ", " /Users/me/AppData/Local/Bosun /bosun ")
+        self.assertEqual(dl.log_folder(logs, self.table(bosun))[0], "/bosun/logs")
+        # Windows compares folders without case, on whole components.
+        self.assertEqual(dl.log_folder("c:/users/ME/appdata/local/bosun/logs", self.table(bosun))[0], "/bosun/logs")
+        self.assertIsNone(dl.guest_path("C:\\Users\\me\\AppData\\Local\\BosunX\\logs", dl.drive_mounts(self.table(bosun))[0]))
+
     def test_a_log_folder_that_can_t_be_found_skips_the_sample_and_writes_nowhere(self):
         # Round 1: never the last folder found, which may now be another drive's.
         mountinfo = self.table(self.drive("/mnt/d", "D"))
@@ -271,7 +285,7 @@ class Instances(unittest.TestCase):
         self.assertEqual(dl.log_folder(windows, self.table(self.drive("/c", "C")))[0], "/c/Users/me/AppData/Local/Bosun/logs")
         found, why = dl.log_folder(windows, self.table(self.drive("/mnt/d", "D")))
         self.assertIsNone(found)
-        self.assertIn("no mount holds the drive", why)
+        self.assertIn("no mount holds", why)
         self.assertEqual(dl.log_folder("/mnt/c/old/logs", os.path.join(self.root, "missing")), ("/mnt/c/old/logs", None))  # an older install's guest path
 
     def process(self, pid, name, ppid, rss_kb, start, cwd=None, argv=None):

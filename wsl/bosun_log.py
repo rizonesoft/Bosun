@@ -324,17 +324,44 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
     return found, None
 
 
+def windows_of(linux_path, drives):
+    """A guest path's Windows folder, by the panel's own rule (DriveMounts.WindowsPath): the longest mount it is at or
+    under; None when that mount is a guest one, or none holds it."""
+    best = None
+    for d in drives or []:
+        mount = d["mount"].rstrip("/") if len(d["mount"]) > 1 else d["mount"]
+        if (linux_path == mount or linux_path.startswith("/" if mount == "/" else mount + "/")) and (best is None or len(mount) > len(best[0])):
+            best = (mount, d["windows"])
+    if best is None or best[1] is None:
+        return None
+    tail = linux_path[len(best[0]):].strip("/").replace("/", "\\")
+    return best[1] if not tail else best[1].rstrip("\\") + "\\" + tail
+
+
 def guest_path(windows_path, drives):
-    """A Windows path's folder in this distro, through the drive mounts: the mount of its drive's root joined with the
-    rest, or None when no mount holds its drive's root (D03 T02 §6: the logger finds its log folder this way on each
-    write, so moved mounts are followed)."""
+    """A Windows folder's path in this distro, through the drive mounts (D03 T02 §6: the logger finds its log folder this
+    way on each write, so moved mounts are followed): a mount of the folder or of any folder holding it (on whole
+    components, as Windows compares them), joined with the rest, taken only when the panel's own rule maps it back to
+    this same folder, so a guest file system mounted over it is never written into (round 2). None when none does."""
     m = re.fullmatch(r"([A-Za-z]):[\\/]?(.*)", windows_path or "")
     if not m or drives is None:
         return None
+    wanted = m.group(1).upper() + ":\\" + m.group(2).replace("/", "\\").strip("\\")
+    def parts(path):
+        return [p for p in path.rstrip("\\").lower().split("\\") if p]
+    candidates = []
     for d in drives:
-        if d["windows"] == m.group(1).upper() + ":\\":
-            rest = m.group(2).replace("\\", "/").strip("/")
-            return d["mount"].rstrip("/") + ("/" + rest if rest else "") if d["mount"] != "/" else "/" + rest
+        if d["windows"] is None:
+            continue
+        held = parts(d["windows"])
+        if parts(wanted)[:len(held)] == held:
+            rest = "/".join(wanted.rstrip("\\").split("\\")[len(held):])
+            base = d["mount"].rstrip("/") if len(d["mount"]) > 1 else ""
+            candidates.append((len(held), (base + "/" + rest) if rest else (d["mount"] if d["mount"] else "/")))
+    for _, guest in sorted(candidates, key=lambda c: -c[0]):
+        back = windows_of(guest, drives)
+        if back is not None and parts(back) == parts(wanted):
+            return guest
     return None
 
 
@@ -347,7 +374,7 @@ def log_folder(given, mountinfo="/proc/self/mountinfo"):
     if drives is None:
         return None, why
     found = guest_path(given, drives)
-    return (found, None) if found else (None, f"no mount holds the drive of {given}, so the reports can't reach Windows")
+    return (found, None) if found else (None, f"no mount holds {given} as Windows has it (none of its drive, or a guest file system over it), so the reports can't reach Windows")
 
 
 def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mountinfo="/proc/self/mountinfo"):
