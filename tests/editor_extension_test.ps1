@@ -92,7 +92,8 @@ try {
             'if "%V%"=="--install-extension" ( if exist "%S%\mode-lie" exit /b 0'
             '  type nul > "%S%\%P%"'
             '  exit /b 0 )'
-            'if "%V%"=="--uninstall-extension" ( if not exist "%S%\%P%" exit /b 1'
+            'if "%V%"=="--uninstall-extension" ( if exist "%S%\mode-stick" exit /b 0'
+            '  if not exist "%S%\%P%" exit /b 1'
             '  del "%S%\%P%"'
             '  exit /b 0 )'
             'exit /b 9'
@@ -105,7 +106,7 @@ try {
         }
         [pscustomobject]@{ Cli = $cli; State = $state }
     }
-    function Installed($editor) { @(Get-ChildItem -LiteralPath $editor.State -File | Where-Object Name -notin 'calls.log', 'mode-lie' | ForEach-Object Name | Sort-Object) -join ',' }
+    function Installed($editor) { @(Get-ChildItem -LiteralPath $editor.State -File | Where-Object Name -notin 'calls.log', 'mode-lie', 'mode-stick' | ForEach-Object Name | Sort-Object) -join ',' }
     function Run-Installer([string[]]$extra) {
         $before = $env:APPDATA
         $env:APPDATA = $appData
@@ -135,11 +136,19 @@ try {
     # A CLI that says it installed while its listing disagrees is not done; a second run completes what the first left.
     $liar = New-Editor 'liar' 'StandinLiar' @(@{ name = 'Work'; location = 'w1' })
     Set-Content -LiteralPath (Join-Path $liar.State 'mode-lie') -Value 'x'
-    $said = Run-Installer @('-Cli', "$($liar.Cli);$($fresh.Cli)")
-    Check "an install its listing doesn't show is not done, and the other editor still is ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $liar) -eq '' -and ($said -join "`n") -match 'could not install bosun\.bosun-windows \(exit 0\)' -and ($said -join "`n") -match 'run this again') ($said | Out-String)
+    $second = New-Editor 'second' 'StandinSecond' $null
+    $said = Run-Installer @('-Cli', "$($liar.Cli);$($second.Cli)")
+    Check "an install its listing doesn't show is not done, and the other editor still is ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $liar) -eq '' -and (Installed $second) -eq 'default' -and ($said -join "`n") -match 'could not install bosun\.bosun-windows \(exit 0\)' -and ($said -join "`n") -match 'run this again') ($said | Out-String)
     Remove-Item -LiteralPath (Join-Path $liar.State 'mode-lie')
     $said = Run-Installer @('-Cli', $liar.Cli)
     Check "a second run completes it ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $liar) -eq 'default,Work') ($said | Out-String)
+    # An uninstall that exits 0 while the listing still has it is not done; a rerun completes it.
+    Set-Content -LiteralPath (Join-Path $liar.State 'mode-stick') -Value 'x'
+    $said = Run-Installer @('-Uninstall', '-Cli', $liar.Cli)
+    Check "an uninstall its listing still shows is not done ($LASTEXITCODE)" ($LASTEXITCODE -eq 1 -and (Installed $liar) -eq 'default,Work' -and ($said -join "`n") -match 'could not remove') ($said | Out-String)
+    Remove-Item -LiteralPath (Join-Path $liar.State 'mode-stick')
+    $said = Run-Installer @('-Uninstall', '-Cli', $liar.Cli)
+    Check "and a rerun removes it ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $liar) -eq '') ($said | Out-String)
 
     # Round 1 of D03 T02 §5. A profile name the CLI's command shell would change is refused, never passed through it.
     $odd = New-Editor 'odd' 'StandinOdd' @(@{ name = 'QA-%USERNAME%'; location = 'q1' }, @{ name = 'Plain'; location = 'p1' })
@@ -153,8 +162,13 @@ try {
     @{ userDataProfiles = @(@{ name = 'Work'; location = 'w1' }) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $isolated 'User\globalStorage\storage.json')
     $wrapped = New-Editor 'wrapped' 'StandinWrapped' $null
     Remove-Item -LiteralPath (Join-Path (Split-Path $wrapped.Cli) 'product.json')
-    $said = Run-Installer @('-Cli', $wrapped.Cli, '-UserDataDir', $isolated)
+    $isolatedExt = Join-Path $work 'isolated-ext'
+    $said = Run-Installer @('-Cli', $wrapped.Cli, '-UserDataDir', $isolated, '-ExtensionsDir', $isolatedExt)
     Check "-UserDataDir names the registry even for a wrapper with no product.json ($LASTEXITCODE)" ($LASTEXITCODE -eq 0 -and (Installed $wrapped) -eq 'default,Work') "$(Installed $wrapped)`n$($said | Out-String)"
+    # And both folders reach the editor on every call, the install and its listing alike.
+    $calls = @(Get-Content -LiteralPath (Join-Path $wrapped.State 'calls.log'))
+    $folders = { param($line) $line.Contains("--user-data-dir $isolated") -and $line.Contains("--extensions-dir $isolatedExt") }
+    Check 'the editor is given its own folders on each install and listing' (@($calls | Where-Object { $_ -like '--install-extension*' -or $_ -like '--list-extensions*' }).Count -eq 4 -and -not @($calls | Where-Object { -not (& $folders $_) }).Count) ($calls -join "`n")
     # An editor that can't be run is said, and the next one is still done.
     $later = New-Editor 'later' 'StandinLater' $null
     $said = Run-Installer @('-Cli', "$(Join-Path $work 'no-such-editor.cmd');$($later.Cli)")
