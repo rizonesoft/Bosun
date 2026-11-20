@@ -1,0 +1,151 @@
+{
+  "ref": "D03 T02 \u00a77",
+  "title": "A failed repo lookup said apart from no repo",
+  "implementation_sha": "8180e3bd83814b5b4cae9c33e7fa592568dbfac6",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 10,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 11,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 12,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 13,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 14,
+      "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh -NoProfile -File tests/instances_test.ps1 -> all passed",
+    "build/Release/test_core.exe repos, instances, editor-windows -> ok",
+    "python3 -m unittest tests.test_bosun_log (WSL) -> OK",
+    "dotnet test InstanceClientTests -> 30 passed; InstancesPageTests, OverviewPageTests, OpenCommandsTests -> 58 passed",
+    "ci_status --gate 8180e3b -> proceed (build.yml https://github.com/rizonetech/Bosun/actions/runs/44768470330, plan.yml https://github.com/rizonetech/Bosun/actions/runs/44768470407)"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+    "verdict": "filed",
+    "candidate": "8180e3bd83814b5b4cae9c33e7fa592568dbfac6",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D03 T02 \u00a711"
+    ]
+  },
+  "rounds_spent": 14,
+  "cap_outcome": "Round 14 returned one P3 only (a test that proved a second scan, not the cache within one); it was taken in 8180e3b. The completion review's six gaps are filed as D03 T02 \u00a711.",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s7.md",
+    "candidate": "e051d770dd6404b7f0df5b28f67a84fb8113bfdd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "e051d770dd6404b7f0df5b28f67a84fb8113bfdd",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

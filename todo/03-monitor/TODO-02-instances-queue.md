@@ -42,7 +42,7 @@ title: "TODO-02 -- Instances and queue"
 | 4 | §4 | Editor windows by repo | §1 | [x] |
 | 5 | §5 | Editor windows in every VS Code profile | §4 | [x] |
 | 6 | §6 | WSL folders under a relocated automount | §4 | [x] |
-| 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
+| 7 | §7 | A failed repo lookup said apart from no repo | §4 | [x] |
 | 8 | §8 | A terminal at a share when Windows Terminal is missing | §4 | [ ] |
 | 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
 | 10 | §10 | A WSL terminal opened at the row's own guest folder | §6 | [ ] |
@@ -325,6 +325,9 @@ A folder whose `.git` probe failed (an ancestor denied, a share refusing) and on
 - [x] Commit: `instances: a failed repo lookup is said`
 
 **Test checkpoint:** `bosun run -- pwsh scripts/build.ps1`, then `pwsh tests/instances_test.ps1`, `build/Release/test_core.exe instances`, `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`, and `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` and `--project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests"` exit 0, and fail if the change is reverted.
+
+> **Verified:** 2026-11-20 | §7 | 8180e3bd83814b5b4cae9c33e7fa592568dbfac6
+> **Review:** `docs/reviews/d03-t02-s7.json`
 
 ## 8. A terminal at a share when Windows Terminal is missing
 
