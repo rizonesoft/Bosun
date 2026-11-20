@@ -53,7 +53,7 @@ if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/
     # pushed, the branch is taken from origin and tracked from then on.
     # The branch is the remote's default (its HEAD), whatever name the empty clone's unborn branch was given.
     if ! git -C "$overlay" rev-parse --verify --quiet HEAD >/dev/null 2>&1 &&
-        git -C "$overlay" fetch --quiet origin >/dev/null 2>&1 &&
+        git -C "$overlay" fetch --quiet --no-prune --no-tags origin >/dev/null 2>&1 &&
         git -C "$overlay" remote set-head origin --auto >/dev/null 2>&1 &&
         branch=$(git -C "$overlay" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) &&
         [ -n "$branch" ]; then
@@ -69,9 +69,10 @@ if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/
     exit 0
 fi
 before=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
-# Fetch, then a fast-forward that refuses to replace an ignored local file (a plain pull would overwrite one). Each
+# Fetch without pruning (a prune or pruneTags setting would delete local-only tags) or tags, then a fast-forward that
+# refuses to replace an ignored local file (a plain pull would overwrite one). Each
 # failure has its own line, so the owner knows which one to look at.
-if ! git -C "$overlay" fetch --quiet >/dev/null 2>&1; then
+if ! git -C "$overlay" fetch --quiet --no-prune --no-tags >/dev/null 2>&1; then
     say "not pulled: .private's remote could not be reached; try again later, or see: git -C .private fetch"
 elif ! git -C "$overlay" merge --ff-only --no-overwrite-ignore --quiet '@{u}' >/dev/null 2>&1; then
     if [ -z "$(git -C "$overlay" rev-list --max-count=1 '@{u}..HEAD' 2>/dev/null)" ]; then

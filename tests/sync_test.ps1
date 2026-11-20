@@ -266,6 +266,13 @@ try {
   Check 'a push sends the branch commit and no tag, even with push.followTags' ($r.Exit -eq 0 -and (Get-Head $public 'refs/heads/main') -eq $tagged -and -not (git --git-dir=$public tag --list)) "(exit $($r.Exit): $($r.Text) tags: $(git --git-dir=$public tag --list))"
   git -C $owner config --unset fetch.pruneTags; git -C $owner config --unset push.followTags
 
+  # --- the hook's own fetch, run by sync's public fast-forward, prunes nothing either ---
+  git -C $private tag overlay-only
+  git -C $private config fetch.prune true; git -C $private config fetch.pruneTags true
+  $incoming = Add-Remote $public 'hook-prune.txt'
+  $r = Invoke-Sync $owner
+  Check 'a public fast-forward keeps a local-only overlay tag through the hook' ($r.Exit -eq 0 -and (Get-Head $owner) -eq $incoming -and "$(git -C $private tag --list overlay-only)" -eq 'overlay-only') "(exit $($r.Exit): $($r.Text))"
+  git -C $private config --unset fetch.prune; git -C $private config --unset fetch.pruneTags
   # --- -Check never rewrites the index ---
   $touched = Join-Path $private 'config.toml'
   (Get-Item -LiteralPath $touched).LastWriteTime = (Get-Date).AddMinutes(-5)

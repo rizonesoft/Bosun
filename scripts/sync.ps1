@@ -37,7 +37,7 @@ function Invoke-Git([string]$repo, [string[]]$arguments) {
 
 # One repository's state: the line to print, and what a plain run would do (merge, push, first) or why it won't act.
 function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
-  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null; RemoteTip = $null; PushUrl = $null }
+  $state = [ordered]@{ Label = $label; Repo = $repo; Branch = $null; Text = $null; Ok = $false; Action = 'none'; Remote = $null; Upstream = $null; Default = $null; Commit = $null; Target = $null; RemoteTip = $null; PushUrl = $null; FetchUrls = $null; PushUrls = $null }
   function Done([string]$text, [bool]$ok = $false, [string]$action = 'none') { $state.Text = $text; $state.Ok = $ok; $state.Action = $action; [pscustomobject]$state }
 
   if ($Overlay) {
@@ -62,8 +62,12 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
     $looked = Get-BosunOverlayValue -Key overlay-repo -Root $publicRoot -VariableOnly
     $source = Get-OverlaySource $(if ($looked.Source -eq 'setup-required') { 'rizonetech/Bosun-private' } else { $looked.Value })
     if (-not $source) { return Done 'not the overlay (BOSUN_OVERLAY_REPO is not a supported overlay source)' }
-    $urls = @((Invoke-Git $repo @('remote', 'get-url', '--all', $remote)).Out) + @((Invoke-Git $repo @('remote', 'get-url', '--push', '--all', $remote)).Out)
-    if (-not $urls -or @($urls | Where-Object { -not (Test-OverlayOrigin $_ $source) }).Count) { return Done 'push goes elsewhere (its remote is not the overlay source)' }
+    $state.FetchUrls = @((Invoke-Git $repo @('remote', 'get-url', '--all', $remote)).Out | Where-Object { $_ })
+    $state.PushUrls = @((Invoke-Git $repo @('remote', 'get-url', '--push', '--all', $remote)).Out | Where-Object { $_ })
+    $urls = @($state.FetchUrls) + @($state.PushUrls)
+    if (-not $state.FetchUrls -or -not $state.PushUrls -or @($urls | Where-Object { -not (Test-OverlayOrigin $_ $source) }).Count) { return Done 'push goes elsewhere (its remote is not the overlay source)' }
+  } else {
+    $state.PushUrls = @((Invoke-Git $repo @('remote', 'get-url', '--push', '--all', $remote)).Out | Where-Object { $_ })
   }
 
   # Read locally before the fetch: a damaged index fails the fetch too, and must be named as what it is.
@@ -101,8 +105,10 @@ function Get-RepoState([string]$label, [string]$repo, [switch]$Overlay) {
   # the remote tip, and the one address a push would go to. Nothing later reads HEAD, the remote or its URL again.
   $state.Commit = (Invoke-Git $repo @('rev-parse', '--verify', '--quiet', 'HEAD')).Out -join ''
   $state.Target = $state.RemoteTip
-  $pushUrls = @((Invoke-Git $repo @('remote', 'get-url', '--push', '--all', $remote)).Out | Where-Object { $_ })
-  $state.PushUrl = if ($pushUrls.Count -eq 1) { $pushUrls[0] } else { $null }
+  # The push address is the one read (and, for the overlay, validated) above, never read again. The overlay pushes to
+  # it as a URL, which validation guarantees holds no credential; this checkout pushes through its remote name, so a
+  # URL with a credential in it never reaches a command line.
+  $state.PushUrl = if (@($state.PushUrls).Count -ne 1) { $null } elseif ($Overlay) { $state.PushUrls[0] } else { $remote }
   $counts = Invoke-Git $repo @('rev-list', '--left-right', '--count', "$($state.Commit)...$($state.Target)")
   if (-not $state.Commit -or $counts.Code -or ($counts.Out -join '') -notmatch '^(\d+)\s+(\d+)$') { return Done 'could not be read (compare)' }
   $ahead, $behind = [int]$Matches[1], [int]$Matches[2]
