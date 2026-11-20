@@ -300,7 +300,9 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
             lines = f.read(4 * 1024 * 1024).splitlines()
     except OSError as e:
         return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
-    drives, others = [], []
+    # The table lists mounts in the order they were made, so of two at one mount point the later is on top (round 3:
+    # a guest folder bound over /mnt/c itself hides C: there): each mount point is the last entry for it.
+    top = {}
     for line in lines:
         if " - " not in line:
             continue
@@ -313,9 +315,13 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
         if rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs"):
             inside = root.strip("/").replace("/", "\\")
-            drives.append({"mount": mount, "windows": path.group(1).upper() + ":\\" + inside})
+            top.pop(mount, None)
+            top[mount] = path.group(1).upper() + ":\\" + inside
         else:
-            others.append(mount)
+            top.pop(mount, None)
+            top[mount] = None
+    drives = [{"mount": m, "windows": w} for m, w in top.items() if w is not None]
+    others = [m for m, w in top.items() if w is None]
     def under(path, top):
         return top != "/" and path.startswith(top.rstrip("/") + "/")
     hidden = [{"mount": m, "windows": None} for m in others if any(under(m, d["mount"]) for d in drives)]
@@ -1085,7 +1091,12 @@ class Throttle:
         left as it is."""
         if self.identity_fault or self.lock_fd is None:
             return None  # a logger that never owned the throttle restores nothing
+        known = self.state  # what this run last recorded lowering
         self.state, self.operator, self.state_fault = self.safe_load_state()
+        if known is not None and (self.state_fault or (self.state is None and not os.path.isdir(self.log_dir))):
+            # The record can't be read now (its folder on a drive that is gone, D03 T02 §6): this run's own record of
+            # what it lowered is enough to put the original back, so a stop never leaves a job throttled (round 3).
+            self.state, self.state_fault = known, None
         if self.state_fault or self.state is None:
             return None
         try:

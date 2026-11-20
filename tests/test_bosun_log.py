@@ -246,6 +246,12 @@ class Instances(unittest.TestCase):
         guest = "200 140 8:32 /home/me/app /mnt/c/work/app rw,relatime - ext4 /dev/sdc rw"
         self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), bind, guest))[0],
                          [{"mount": "/mnt/c", "windows": "C:\\"}, {"mount": "/mnt/c/work/app", "windows": None}, {"mount": "/work", "windows": "C:\\src"}])
+        # Round 3: a guest folder bound over /mnt/c itself, after C: was mounted there, hides all of C:; a drive mounted
+        # again on top of it shows it again.
+        cover = "201 140 8:32 /home/me/empty /mnt/c rw,relatime - ext4 /dev/sdc rw"
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), cover))[0], [])
+        self.assertIsNone(dl.log_folder("C:/Users/me/logs", self.table(self.drive("/mnt/c", "C"), cover))[0])
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), cover, self.drive("/mnt/c", "C")))[0], [{"mount": "/mnt/c", "windows": "C:\\"}])
         # A mount of a drive's subfolder is no root for the log folder: only the drive's own root is.
         self.assertIsNone(dl.guest_path("C:\\Users\\me", [{"mount": "/work", "windows": "C:\\src"}]))
 
@@ -1085,6 +1091,13 @@ class ThrottleStop(ThrottleCase):
         self.throttle.stop()
         self.assertEqual(self.slice.value, 8 * GB)
         self.assertIsNone(self.throttle.safe_load_state()[0])
+
+    def test_a_stopping_service_puts_its_lowering_back_when_its_record_s_folder_is_gone(self):
+        # Round 3 of D03 T02 §6: the drive holding the log folder unmounted while lowered; the stop still restores.
+        self.assertEqual(self.tick(1000), "lowered")
+        self.throttle.log_dir = os.path.join(self.dir, "gone", "logs")
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, 8 * GB)
 
     def test_a_stopping_service_leaves_an_operators_value_and_an_untouched_slice_alone(self):
         self.throttle.stop()                                          # nothing lowered: nothing written
