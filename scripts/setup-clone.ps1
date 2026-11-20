@@ -127,6 +127,9 @@ if ($item -and $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { Sk
 elseif (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
 elseif (Test-Path -LiteralPath $private -PathType Container) {
   if (-not (Test-Path -LiteralPath (Join-Path $private '.git'))) { Skip-Overlay '.private is a folder that is not a git checkout; it was left as it is' }
+  # A linked worktree or a submodule has a .git file and shares its config with another checkout, so marking it would
+  # mark that checkout too.
+  elseif (-not (Test-Path -LiteralPath (Join-Path $private '.git') -PathType Container)) { Skip-Overlay '.private is a linked worktree or submodule, not a clone of its own; it was left as it is' }
   elseif ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
   elseif (Test-OverlayOrigin (Get-OverlayOrigin $private) $source) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null

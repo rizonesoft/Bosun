@@ -331,6 +331,31 @@ try {
     $out = Invoke-Pull $global
     Check 'and the hook does not pull it' ((Get-Head $globalPrivate) -eq $globalHead -and $globalHead -ne $otherIncoming -and $out -match 'not marked as the overlay') "($out)"
   } finally { git config --global --unset bosun.overlay }
+  # --- an ignored local file is never replaced by an incoming tracked one ---
+  $ignoring = New-Clone 'ignored-collision'
+  $env:BOSUN_OVERLAY_REPO = $overlayRemote
+  $null = Invoke-Setup $ignoring
+  $ignoringPrivate = Join-Path $ignoring '.private'
+  Add-Content -LiteralPath (Join-Path $ignoringPrivate '.git\info\exclude') -Value 'owner.local'
+  Set-Content -LiteralPath (Join-Path $ignoringPrivate 'owner.local') -Value 'my local value'
+  $collisionHead = Get-Head $ignoringPrivate
+  $null = Add-Commit $overlayRemote 'owner.local'
+  $null = Add-Commit $public 'public-ignored.txt'
+  $out = Invoke-Pull $ignoring
+  Check 'an incoming file that would replace an ignored local one is not pulled' ((Get-Content -LiteralPath (Join-Path $ignoringPrivate 'owner.local') -Raw).Trim() -eq 'my local value' -and (Get-Head $ignoringPrivate) -eq $collisionHead -and $out -match 'could not be fast-forwarded') "($out)"
+
+  # --- a linked worktree at .private is neither marked nor pulled ---
+  $treeOwner = Join-Path $work 'worktree-owner'
+  git clone -q $overlayRemote $treeOwner 2>$null
+  $treed = New-Clone 'worktree-at-private'
+  git -C $treeOwner worktree add -q --detach (Join-Path $treed '.private') 2>$null
+  $r = Invoke-Setup $treed
+  Check 'a linked worktree at .private is left alone, and its main checkout not marked' ($r.Exit -eq 0 -and $r.Text -match 'linked worktree' -and -not "$(git -C $treeOwner config --local --get bosun.overlay)") "(exit $($r.Exit): $($r.Text))"
+  git -C $treeOwner config --local bosun.overlay true
+  git -C $treed config core.hooksPath scripts/hooks
+  $null = Add-Commit $public 'public-worktree.txt'
+  $out = Invoke-Pull $treed
+  Check 'and the hook does not pull it, even marked through its main checkout' ($out -match 'linked worktree') "($out)"
   # --- the hook never follows a junction to another checkout's overlay ---
   $hopper = New-Clone 'hook-junction'
   $targetPrivate = Join-Path $direct '.private'
