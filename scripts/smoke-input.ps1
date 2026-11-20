@@ -423,11 +423,16 @@ try {
     $env:BOSUN_DESKTOP_HELD = $holder.HeldValue
 
     # The watcher, from the start: a person's input from now on is told from the smoke's own by Windows' mark.
-    $watcherExe = if ($Watcher) { $Watcher } else { Join-Path $repo 'build\dotnet\bin\Bosun.TestChild\debug\Bosun.TestChild.exe' }
+    # The run builds into an output tree of its own, never the shared build\dotnet, so a panel or test left running from
+    # the shared tree can't lock a file this build must write (2026-11-19: a Bosun.Panel running from build\dotnet held
+    # Bosun.Core.dll, and the night failed at its build).
+    $artifacts = Join-Path $repo 'build\smoke-input\dotnet'
+    $artifactsArg = "-p:ArtifactsPath=$artifacts"
+    $watcherExe = if ($Watcher) { $Watcher } else { Join-Path $artifacts 'bin\Bosun.TestChild\debug\Bosun.TestChild.exe' }
 
     # A full build is a heavy job: it waits its turn in the Bosun queue when there is one, and uses the two nodes the
     # gate and CI build with (docs/build-performance.md). Its wait counts against the deadline.
-    $buildArgs = @('build', $project, '-nologo', '-maxCpuCount:2')
+    $buildArgs = @('build', $project, '-nologo', '-maxCpuCount:2', $artifactsArg)
     $queued = -not $NoQueue -and [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
     $build = Measure-Job -FilePath $(if ($queued) { 'bosun' } else { $Dotnet }) -ArgumentList $(if ($queued) { @('run', '--', $Dotnet) + $buildArgs } else { $buildArgs }) -WorkingDirectory $repo -OutputPath (Join-Path $results 'build.log') -TimeoutSeconds (Remaining)
     if ($build.TimedOut) { Finish 'stopped-deadline' "the build ran into its deadline, $($end.ToString('HH:mm'))" 1; return }
@@ -436,7 +441,7 @@ try {
     # Which tests there are, by name: what ran is reconciled against this.
     $env:BOSUN_SMOKE_INPUT = '1'
     $listing = Join-Path $results 'tests.json'
-    $list = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--list-tests', 'json', '--filter-trait', 'Input=Real') -WorkingDirectory $repo -OutputPath $listing -TimeoutSeconds (Remaining)
+    $list = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', $artifactsArg, '--list-tests', 'json', '--filter-trait', 'Input=Real') -WorkingDirectory $repo -OutputPath $listing -TimeoutSeconds (Remaining)
     if ($list.TimedOut) { Finish 'stopped-deadline' "finding the tests ran into its deadline, $($end.ToString('HH:mm'))" 1; return }
     if ($list.ExitCode -ne 0) { Finish 'failed' "the tests could not be listed (exit $($list.ExitCode))" 1; return }
     $text = Get-Content -LiteralPath $listing -Raw
@@ -508,7 +513,7 @@ try {
         if ($why) { Stop-For $why "before $class"; return }
         Say "running $class"
         $trx = "$($class.Split('.')[-1]).trx"
-        $run = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', '--filter-class', $class, '--filter-trait', 'Input=Real',
+        $run = Measure-Job -FilePath $Dotnet -ArgumentList @('test', '--project', $project, '--no-build', $artifactsArg, '--filter-class', $class, '--filter-trait', 'Input=Real',
             '--results-directory', $results, '--report-xunit-trx', '--report-xunit-trx-filename', $trx) -WorkingDirectory $repo -OutputPath (Join-Path $results "$trx.log") -StopWhen { StopReason }
         # A class that was ended, or whose host failed, may have left a button or a key down (a drag, a chord): let go
         # of what the smoke still holds first, before anything that could end the run here.

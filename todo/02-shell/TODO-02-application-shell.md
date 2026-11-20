@@ -554,7 +554,9 @@ Decisions, each with what reversing it costs:
 Filed 2026-11-18 at the operator's request: the end-to-end smoke borrows the operator's mouse and keyboard for its real-input tests (the caption buttons and the snap layouts flyout, the splitter's drag, the tray icon, the Tab, Space and shortcut paths), a few seconds at a time, while they work. The operator decided: the default smoke never touches the pointer or the keyboard and runs whenever a change needs it, as now; the real-input tests are opt-in, run on demand and on a schedule between 03:00 and 05:00. Real input needs an unlocked desktop nobody is using, so the scheduled run starts only on one and otherwise records that it skipped, never waking, unlocking or taking a desktop in use.
 
 **Phase:** 3
-**Needs:** none
+**Needs:** third-party
+
+**Corrected 2026-11-20 (waiting on a passed night):** the wake of 2026-11-20 fired on any scheduled record, which is not item 11's Done when. The first two nights did not pass: 2026-11-19 `failed` at its build, because a `Bosun.Panel` running from the shared `build\dotnet` held `Bosun.Core.dll` (fixed: the runner now builds and runs from `build\smoke-input\dotnet`, its own output tree, checked in `tests/smoke_input_test.ps1`); 2026-11-20 `skipped-in-use` (the desk was used at 03:00). The wake check in `todo/wakes.json` now needs a scheduled record whose outcome is `passed`.
 
 **Corrected 2026-11-18 (waiting on the first nightly run):** every item but 11 is built and reviewed (27 rounds, the last clean; the completion review's six gaps fixed in 173d2c2, CI green https://github.com/rizonetech/Bosun/actions/runs/44313098024). Item 11 waits for the installed task's first run, 03:00 to 06:00 on 2026-11-19, so the section waits on that (`third-party`, its check in `todo/wakes.json`: a scheduled run in `%LOCALAPPDATA%\Bosun\smoke\input-history.jsonl`), and the run carries on with other rows meanwhile.
 **Surface:** no

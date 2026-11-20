@@ -37,6 +37,7 @@ $class = $args[[array]::IndexOf($args, '--filter-class') + 1]
 $dir = $args[[array]::IndexOf($args, '--results-directory') + 1]
 $file = $args[[array]::IndexOf($args, '--report-xunit-trx-filename') + 1]
 Add-Content -LiteralPath (Join-Path $state 'classes.txt') -Value $class
+Add-Content -LiteralPath (Join-Path $state 'test-args.txt') -Value ($args -join ' ')
 $mine = @($tests | Where-Object { ($_ -replace '\.[^.]+$', '') -eq $class })
 if ($which -and $which -eq $class) {
   if ($word -eq 'person') {
@@ -159,6 +160,14 @@ try {
   Check "a complete run is passed with exit 0 ($($run.Code))" ($run.Code -eq 0 -and $run.Last.outcome -eq 'passed' -and $run.Last.passed -eq 5 -and $run.Last.discovered -eq 5 -and $run.Last.mode -eq 'manual') $run.Said
   # The stand-in is a PowerShell script, whose -File parsing splits "-maxCpuCount:2" in two: either form is the limit.
   Check 'the build is the two-node build the gate uses' ((Get-Content -LiteralPath (Join-Path $run.State 'build-args.txt') -Raw) -match 'build .*Bosun\.Panel\.E2E.* -maxCpuCount[: ]2')
+  # The run builds and runs from an output tree of its own, so a panel left running from the shared build\dotnet can't
+  # lock its build (2026-11-19, a night failed so).
+  # The stand-in's -File parsing splits "-p:ArtifactsPath=..." as it does "-maxCpuCount:2": either form is the property.
+  $ownTree = "-p[: ]ArtifactsPath=$([regex]::Escape((Join-Path $repo 'build\smoke-input\dotnet')))(\s|$)"
+  $built = Get-Content -LiteralPath (Join-Path $run.State 'build-args.txt') -Raw
+  $ran = @(Get-Content -LiteralPath (Join-Path $run.State 'test-args.txt'))
+  Check 'the build writes to the run''s own output tree' ($built -match $ownTree) $built
+  Check 'every class runs from the run''s own output tree' (@($ran | Where-Object { $_ -notmatch $ownTree }).Count -eq 0 -and $ran.Count -eq 3) ($ran -join "`n")
   Check 'each class ran once, in turn' ((Get-Content -LiteralPath (Join-Path $run.State 'classes.txt')) -join ',' -eq 'Bosun.Panel.E2E.Alpha,Bosun.Panel.E2E.Beta,Bosun.Panel.E2E.Gamma') $run.Said
 
   # Whatever keeps a run from being whole fails it, with the names and exit 1.
