@@ -106,6 +106,8 @@ The owner should never have to remember the overlay exists: a fresh clone gets i
 
 ## 3. One sync command for both repositories
 
+> **Started:** 2026-11-20T20:31:43Z
+
 The owner needs one place to see whether anything is waiting: one command that pulls and pushes both repositories and prints their state, so nothing is left unsynced by accident. It is also how both are updated when a public pull runs no `post-merge` hook (already up to date, or a rebase; `D00 T05 §2`).
 
 **Phase:** 0
