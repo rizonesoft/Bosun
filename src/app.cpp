@@ -1774,17 +1774,48 @@ int cmd_instances(const Options& o) {
         auto found = marks_by_repo.find(repo);
         if (found != marks_by_repo.end()) return found->second;
         auto& marks = marks_by_repo[repo];
-        std::string listing;
         fs::path dir = fs::path(widen(repo)) / L"build" / L"review-in-flight";
-        auto files = json_files(dir, listing);
-        if (!files) {
-            doc.problems.push_back({"review-marks", listing});
+        // The folder's files are read on a thread of their own under the scan's deadline, as its repo was (round 9 of
+        // D03 T02 §7): a build folder on a mount that stopped answering costs that repo its marks, never the scan.
+        struct Read {
+            std::optional<std::string> listing_why;
+            std::vector<std::tuple<fs::path, std::optional<std::string>, std::string, bool>> files;  // text, why, gone
+        };
+        auto box = std::make_shared<std::promise<Read>>();
+        auto ready = box->get_future();
+        bool started = std::chrono::steady_clock::now() < lookup.deadline;
+        if (started) {
+            try {
+                std::thread([dir, box] {
+                    Read r;
+                    std::string listing;
+                    auto files = json_files(dir, listing);
+                    if (!files) {
+                        r.listing_why = listing;
+                    } else {
+                        for (const auto& file : *files) {
+                            bool gone = false;
+                            std::string unread;
+                            auto text = read_small(file, unread, gone);
+                            r.files.emplace_back(file, std::move(text), std::move(unread), gone);
+                        }
+                    }
+                    box->set_value(std::move(r));
+                }).detach();
+            } catch (const std::system_error&) {
+                started = false;
+            }
+        }
+        if (!started || ready.wait_until(lookup.deadline) != std::future_status::ready) {
+            doc.problems.push_back({"review-marks", narrow(dir.wstring()) + " did not answer within the scan's time, so its review marks are not read"});
             return marks;
         }
-        for (const auto& file : *files) {
-            bool gone = false;
-            std::string unread;
-            auto text = read_small(file, unread, gone);
+        Read read = ready.get();
+        if (read.listing_why) {
+            doc.problems.push_back({"review-marks", *read.listing_why});
+            return marks;
+        }
+        for (auto& [file, text, unread, gone] : read.files) {
             if (!text) {
                 if (!gone) doc.problems.push_back({"review-marks", unread});
                 continue;
@@ -1817,6 +1848,7 @@ int cmd_instances(const Options& o) {
         std::wstring dir = process_cwd(static_cast<ULONG_PTR>(pid));
         if (dir.empty()) {
             ++doc.unreadable;  // another user's process, or one that went: its folder can't be read
+            i.repo_why = "its folder can't be read, so its repo can't be told";  // on its row too (round 9)
         } else {
             if (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
             i.cwd = narrow(dir);

@@ -96,22 +96,28 @@ def repo_answer(path, cache, until=None):
 
     if until is None:
         answer = walk()
-    elif time.monotonic() >= until:
-        # The scan's time is spent: no more threads, which a mount that stopped answering would each hold (round 6).
-        answer = "", f"{path} did not answer within the scan's time"
     else:
-        box = []
-        worker = threading.Thread(target=lambda: box.append(walk()), daemon=True)
-        try:
-            worker.start()
-        except RuntimeError as e:  # the process at its thread limit: this folder's reason, never the scan's end
-            answer = "", f"{path} could not be looked up: no thread for it ({e})"
-        else:
-            worker.join(max(0.0, until - time.monotonic()))
-            # A walk still waiting is left to end with the process; its row says so.
-            answer = box[0] if box else ("", f"{path} did not answer within the scan's time")
+        done, got = within(until, walk)
+        answer = got if done else ("", f"{path} {got}")
     cache[path] = answer
     return answer
+
+
+def within(until, work):
+    """(True, work()) when it ends before `until` (a time.monotonic() instant), else (False, why) (D03 T02 §7, rounds 5,
+    6 and 9): work runs on a thread of its own, left to end with the process when late; once the time is spent no thread
+    starts, which a mount that stopped answering would each hold, and a thread that can't be made is said, never the
+    scan's end."""
+    if time.monotonic() >= until:
+        return False, "did not answer within the scan's time"
+    box = []
+    worker = threading.Thread(target=lambda: box.append(work()), daemon=True)
+    try:
+        worker.start()
+    except RuntimeError as e:
+        return False, f"could not be looked up: no thread for it ({e})"
+    worker.join(max(0.0, until - time.monotonic()))
+    return (True, box[0]) if box else (False, "did not answer within the scan's time")
 
 
 def utf8_text(name):
@@ -600,8 +606,9 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
     def where(pid):
         try:
             cwd = os.readlink(f"{proc}/{pid}/cwd")
-        except OSError:
-            return None, None, None
+        except OSError as e:
+            # Said on its row too (round 9 of D03 T02 §7), never taken for a folder outside Git.
+            return None, None, f"its folder can't be read ({e.strerror or e}), so its repo can't be told"
         repo, why = repo_answer(cwd, cache, until) if cwd != "/" else ("", None)
         return utf8_text(cwd), (utf8_text(repo) if repo else None), (utf8_text(why) if why else None)
 
@@ -612,7 +619,15 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mounti
         mark = None
         if repo:
             if repo not in marks_by_repo:
-                marks = read_json_files(os.path.join(repo, "build", "review-in-flight"), "review-marks", problems, parse_mark)
+                # Read under the scan's time, as the repo was (round 9): a build folder on a mount that stopped
+                # answering costs that repo its marks, never the scan.
+                marks_dir = os.path.join(repo, "build", "review-in-flight")
+                found_problems = []
+                done, marks = within(until, lambda: read_json_files(marks_dir, "review-marks", found_problems, parse_mark))
+                problems.extend(found_problems if done else [])
+                if not done:
+                    problems.append({"source": "review-marks", "why": f"{utf8_text(marks_dir)} {marks}, so its review marks are not read"})
+                    marks = []
                 for m in marks:
                     m["live"] = m["deadline"] >= now and os.path.isdir(f"{proc}/{m['pid']}")
                 marks_by_repo[repo] = marks

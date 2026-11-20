@@ -507,6 +507,30 @@ class Instances(unittest.TestCase):
         self.assertLess(took, 5)
         self.assertEqual((late[40]["repo"], late[40]["repo_why"]), (None, f"{stuck} did not answer within the scan's time"))
         self.assertEqual((late[30]["repo"], late[30]["repo_why"]), (None, None))
+        # Round 9: a repo whose build folder never answers costs only its marks; an agent whose folder can't be read says
+        # so on its row.
+        os.makedirs(os.path.join(self.repo, "build", "review-in-flight"), exist_ok=True)
+        self.process(50, "claude", 1, 1024, 9100, cwd=self.repo)
+        self.process(60, "claude", 1, 1024, 9200)  # no cwd link: its folder can't be read
+        real_read = dl.read_json_files
+        def hanging_marks(folder, *a, **k):
+            if folder == os.path.join(self.repo, "build", "review-in-flight"):  # read after its own repo's lookup
+                release.wait(30)
+            return real_read(folder, *a, **k)
+        release.clear()
+        try:
+            with unittest.mock.patch.object(dl, "read_json_files", hanging_marks), unittest.mock.patch.object(dl, "REPO_LOOKUP_SECONDS", 0.3):
+                began = time.monotonic()
+                doc = dl.instances(proc=self.proc, home=self.home, now=1700001000.0, distro="Ubuntu", ticks=100)
+                took = time.monotonic() - began
+        finally:
+            release.set()
+        rows = {r["pid"]: r for r in doc["instances"]}
+        self.assertLess(took, 5)
+        self.assertEqual(rows[50]["repo"], self.repo)
+        self.assertTrue(any(p["source"] == "review-marks" and "did not answer within the scan's time, so its review marks are not read" in p["why"] for p in doc["problems"]), doc["problems"])
+        self.assertEqual(rows[60]["repo"], None)
+        self.assertIn("its folder can't be read (", rows[60]["repo_why"])
         # Round 6: once the scan's time is spent no thread is started; a thread that can't be made is that folder's reason.
         started = []
         real_start = threading.Thread.start
