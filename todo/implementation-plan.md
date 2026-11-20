@@ -94,7 +94,7 @@ Sections: 26 | Checklist items: 261
 
 ### Phase 3: Monitoring
 
-Sections: 27 | Checklist items: 192
+Sections: 27 | Checklist items: 193
 
 | Status | Reference   | Deliverable                                                      | Needs       | Items |
 | ------ | ----------- | ---------------------------------------------------------------- | ----------- | ----- |
@@ -121,7 +121,7 @@ Sections: 27 | Checklist items: 192
 | [x]    | D03 T02 §4  | Editor windows by repo                                           | none        | 9     |
 | [x]    | D03 T02 §5  | Editor windows in every VS Code profile                          | none        | 6     |
 | [x]    | D03 T02 §6  | WSL folders under a relocated automount                          | none        | 5     |
-| [ ]    | D03 T02 §7  | A failed repo lookup said apart from no repo                     | none        | 3     |
+| [ ]    | D03 T02 §7  | A failed repo lookup said apart from no repo                     | none        | 4     |
 | [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing           | none        | 2     |
 | [ ]    | D03 T02 §9  | VS Code forks placed by their windows                            | none        | 3     |
 | [ ]    | D03 T02 §10 | A WSL terminal opened at the row's own guest folder              | none        | 2     |
@@ -174,4 +174,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 90/117 verified sections, 8 ready to run now.
 
-Checklist: 875/991 items completed (includes Commit items).
+Checklist: 875/992 items completed (includes Commit items).

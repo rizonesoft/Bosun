@@ -306,11 +306,14 @@ A folder whose `.git` probe failed (an ancestor denied, a share refusing) and on
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-20** against the tree before building: since `D03 T02 §6` a lookup runs through `repo_bounded` and `lookup_bounded` (`src/app.cpp`), a network or WSL folder on a thread of its own under the scan's deadline, and `repo_for_dir` keeps its answers in a cache; so the found, absent or failed answer is what those return and cache, a failure kept apart from a late answer (already said as late). `wsl_running_distros` drops `wsl.exe`'s exit code at `(void)code`. The WSL scanner (`wsl/bosun_log.py`) makes the same lookup for its own instances and is in scope too: its `has_git` (`os.path.exists(d + "/.git")`, the sampler at line 668) drops the error the same way.
+
 **Build order:**
 
 1. Every lookup is found, absent, or failed with why. Done when: a failed probe is a problem naming the folder, never a silent no repo.
 
 - [ ] Return found, absent or failed from `repo_for_dir` and the WSL lookup in `src/app.cpp`, keeping the `std::error_code` of each `fs::exists`: a failed probe stops the walk and adds a `processes` or `editor-windows` problem naming the folder and the error, beside the row. Done when: `tests/instances_test.ps1` with a folder whose parent denies listing reads the row, no repo and the problem, and a folder outside any checkout reads no repo and no problem. Cheaper substitute: treating every error as absent.
+- [ ] Do the same in the WSL scanner (`wsl/bosun_log.py`): its lookup of an instance's repo tells a folder outside Git from a probe that failed (`PermissionError` or another `OSError` on a `.git` probe), and a failure is a `processes` problem naming the folder and why, beside the row. Done when: `tests/test_bosun_log.py` reads, for a folder under one this user can't enter, the row, no repo and the problem, and for a folder outside any checkout no repo and no problem. Cheaper substitute: treating every error as absent.
 - [ ] Tell `wsl.exe -l --running` failing (a non-zero exit with no names, or output that is not a list) from no distro running in `wsl_running_distros`, and say the first as a problem. Done when: `tests/instances_test.ps1` with a stand-in `BOSUN_WSL_EXE` that exits 1 saying an error, and one that prints nothing and exits 0, reads the problem only for the first. Cheaper substitute: an empty set for both.
 - [ ] Commit: `instances: a failed repo lookup is said`
 
