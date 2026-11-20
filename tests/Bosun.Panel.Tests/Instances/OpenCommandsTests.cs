@@ -86,6 +86,10 @@ public class OpenCommandsTests
         Opens(bound, "/mnt/c/work/other", @"C:\work\other");
         // A mount deep in the guest (over 256 characters, within PATH_MAX) is a mount like any other.
         Assert.True(DriveMounts.IsValid(new DriveMount { Mount = "/" + new string('a', 300), Windows = @"C:\" }));
+        // Round 5: Linux allows a tab in a folder's name, so a mount point holding one is a mount like any other; NUL is not.
+        Assert.True(DriveMounts.IsValid(new DriveMount { Mount = "/tmp/bosun\tmount", Windows = @"C:\" }));
+        Opens(new DriveMounts([new() { Mount = "/tmp/bosun\tmount", Windows = @"C:\" }]), "/tmp/bosun\tmount/app", @"C:\app");
+        Assert.False(DriveMounts.IsValid(new DriveMount { Mount = "/tmp/a\0b", Windows = @"C:\" }));
         Assert.Null(OpenCommands.MountedDrive("/mnt/c/app", null));
     }
 
