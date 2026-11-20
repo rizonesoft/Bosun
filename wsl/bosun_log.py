@@ -330,7 +330,8 @@ def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
         path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
         drive = rest[0] in ("9p", "drvfs") and path and ("aname=drvfs" in options or rest[0] == "drvfs")
         windows = path.group(1).upper() + ":\\" + root.strip("/").replace("/", "\\") if drive and path else None
-        entries.append((int(fields[0]), int(fields[1]), mount, windows))
+        read_only = "ro" in fields[5].split(",")  # the mount's own options: a bind can be read-only on a writable drive
+        entries.append((int(fields[0]), int(fields[1]), mount, windows, read_only))
     ids = {e[0] for e in entries}
     # Each mount's children by (parent, mount point): a step of the walk is one lookup, never a scan of every sibling
     # (round 9: thousands of binds under one folder made each sample quadratic). The latest at a point wins, as listed.
@@ -366,11 +367,12 @@ def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
 
     def under(path, top):
         return top != "/" and path.startswith(top.rstrip("/") + "/")
-    found = [{"mount": e[2], "windows": e[3]} for e in drives]
-    found += [{"mount": e[2], "windows": None} for e in reachable if e[3] is None and any(under(e[2], d[2]) for d in drives)]
+    found = [{"mount": e[2], "windows": e[3], "read_only": e[4]} for e in drives]
+    found += [{"mount": e[2], "windows": None, "read_only": e[4]} for e in reachable if e[3] is None and any(under(e[2], d[2]) for d in drives)]
     found.sort(key=lambda d: d["mount"])
     if every:
         return found, None
+    found = [{"mount": d["mount"], "windows": d["windows"]} for d in found]
     named = [d for d in found if is_text(d["mount"]) and (d["windows"] is None or is_text(d["windows"]))]
     left = len(found) - len(named)
     return named, (f"{left} mount{'s' if left != 1 else ''} with a name that is not text {'are' if left != 1 else 'is'} left out of the report" if left else None)
@@ -408,8 +410,9 @@ def guest_path(windows_path, drives):
     exact = lambda p: [p[0][:1].upper() + p[0][1:]] + p[1:] if p else p
     candidates = []
     for d in drives:
-        # A mount whose name is not text is never the folder written to (round 8): a path made of it would not be it.
-        if d["windows"] is None or not is_text(d["mount"]):
+        # A mount whose name is not text is never the folder written to (round 8): a path made of it would not be it; nor is
+        # a read-only one, where every write would fail while a writable route may exist (round 11).
+        if d["windows"] is None or not is_text(d["mount"]) or d.get("read_only"):
             continue
         for fold in (False,):
             held = parts(d["windows"], fold)

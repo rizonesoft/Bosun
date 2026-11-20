@@ -312,6 +312,16 @@ class Instances(unittest.TestCase):
         self.assertEqual(drives, [{"mount": "/mnt/c", "windows": "C:\\"}])
         self.assertIn("1 mount with a name that is not text is left out", why)
 
+    def test_a_read_only_mount_is_never_the_log_folder(self):
+        # Round 11: a read-only bind of the logs folder beside C: writable at /mnt/c; the writable route is the one used.
+        logs = "C:/Users/me/AppData/Local/Bosun/logs"
+        bind = self.drive("/srv/bosun-logs", "C").replace(" / /srv/bosun-logs rw,", " /Users/me/AppData/Local/Bosun/logs /srv/bosun-logs ro,")
+        self.assertEqual(dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), bind))[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
+        found, why = dl.log_folder(logs, self.table(bind))  # only the read-only route: none to write to
+        self.assertIsNone(found)
+        # The report says what is mounted, read-only or not: both map guest folders to Windows.
+        self.assertEqual(dl.drive_mounts(self.table(bind))[0], [{"mount": "/srv/bosun-logs", "windows": "C:\\Users\\me\\AppData\\Local\\Bosun\\logs"}])
+
     def test_thousands_of_sibling_mounts_are_read_in_linear_time(self):
         # Round 9: each step of the walk is one lookup, so 8,000 binds under /work read in well under a second.
         binds = [f"{1000 + k} 85 8:32 /home/me/b{k} /work/b{k} rw,relatime - ext4 /dev/sdc rw" for k in range(8000)]
