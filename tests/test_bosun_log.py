@@ -295,6 +295,23 @@ class Instances(unittest.TestCase):
         odd = self.drive("/work/drive\u2028archive", "E")
         self.assertEqual(dl.drive_mounts(self.table(odd))[0], [{"mount": "/work/drive\u2028archive", "windows": "E:\\"}])
 
+    def test_a_table_too_large_to_read_whole_is_unknown_and_a_name_that_is_not_text_is_never_written_to(self):
+        # Round 8: a part of a table could miss the mount that hides a drive, so a table past the bound is not read.
+        with unittest.mock.patch.object(dl, "MAX_MOUNTINFO", 200):
+            drives, why = dl.drive_mounts(self.table(self.drive("/mnt/c", "C")))
+        self.assertIsNone(drives)
+        self.assertIn("longer than", why)
+        # A bind of the log folder at a mount point whose name holds the byte 0xff, beside C: at /mnt/c: the logger never
+        # writes to it (a path made of its name would not be it), and the report leaves it out, saying so.
+        path = os.path.join(self.root, "mountinfo-bytes")
+        bind = self.drive("/tmp/bosun-X", "C").replace(" / /tmp/bosun-X ", " /Users/me/AppData/Local/Bosun /tmp/bosun-X ").encode()
+        with open(path, "wb") as f:
+            f.write(b"85 1 8:32 / / rw,relatime - ext4 /dev/sdc rw\n" + self.drive("/mnt/c", "C").encode() + b"\n" + bind.replace(b"bosun-X", b"bosun-\xff") + b"\n")
+        self.assertEqual(dl.log_folder("C:/Users/me/AppData/Local/Bosun/logs", path)[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
+        drives, why = dl.drive_mounts(path)
+        self.assertEqual(drives, [{"mount": "/mnt/c", "windows": "C:\\"}])
+        self.assertIn("1 mount with a name that is not text is left out", why)
+
     def test_a_log_folder_that_can_t_be_found_skips_the_sample_and_writes_nowhere(self):
         # Round 1: never the last folder found, which may now be another drive's.
         mountinfo = self.table(self.drive("/mnt/d", "D"))

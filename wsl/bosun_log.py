@@ -287,7 +287,15 @@ def unescape_mount(text):
     return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), text)
 
 
-def drive_mounts(mountinfo="/proc/self/mountinfo"):
+MAX_MOUNTINFO = 64 * 1024 * 1024  # a mount table past this is said to be too large, never read in part
+
+
+def is_text(path):
+    """True when a path can be written as text: no byte of its name was undecodable (round 8)."""
+    return not any("\udc80" <= c <= "\udcff" for c in path)
+
+
+def drive_mounts(mountinfo="/proc/self/mountinfo", every=False):
     """The Windows folders this distro can reach now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
     which says what the next start will mount. A drive is a 9p or drvfs mount whose options name aname=drvfs and
     path=<X>:\\, as {"mount": "/mnt/c", "windows": "C:\\\\"}, its root field kept, so a bind of a drive's subfolder
@@ -296,14 +304,19 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
     mounted on top there, as the kernel resolves a path, so a mount over the same point, over a parent folder or over any
     folder on the way hides what is under it (rounds 3 and 4: a case at a time was the wrong mechanism). A reachable guest
     file system mounted inside a reachable drive is {"mount": ..., "windows": None}: it hides the drive there. None with
-    why when the table can't be read."""
+    why when the table can't be read whole (round 8: a part of one could miss the mount that hides a drive). A name's bytes
+    are kept as they are (surrogateescape), so a path is the folder Linux has; with `every` the result keeps a mount whose
+    name is not text, for the logger's own lookups, and without it such a mount is left out, said, for the report."""
     try:
-        with open(mountinfo, encoding="utf-8", errors="replace", newline="") as f:
-            # Records end at the kernel's newline only (newline="" keeps a carriage return in a name, round 7): a mount point may hold any other character, U+2028 included
-            # (round 6), and a newline in one is written as \012.
-            lines = f.read(4 * 1024 * 1024).split("\n")
+        with open(mountinfo, encoding="utf-8", errors="surrogateescape", newline="") as f:
+            # Records end at the kernel's newline only (newline="" keeps a carriage return in a name, round 7): a mount point
+            # may hold any other character, U+2028 included (round 6), and a newline in one is written as \012.
+            text = f.read(MAX_MOUNTINFO + 1)
     except OSError as e:
         return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
+    if len(text) > MAX_MOUNTINFO:
+        return None, f"{mountinfo} is longer than {MAX_MOUNTINFO // (1024 * 1024)} MB, so it is not read and which guest folders are Windows drives is not known"
+    lines = text.split("\n")
     entries = []  # (id, parent, mount point, Windows folder or None), in the table's order
     for line in lines:
         if " - " not in line:
@@ -352,7 +365,11 @@ def drive_mounts(mountinfo="/proc/self/mountinfo"):
     found = [{"mount": e[2], "windows": e[3]} for e in drives]
     found += [{"mount": e[2], "windows": None} for e in reachable if e[3] is None and any(under(e[2], d[2]) for d in drives)]
     found.sort(key=lambda d: d["mount"])
-    return found, None
+    if every:
+        return found, None
+    named = [d for d in found if is_text(d["mount"]) and (d["windows"] is None or is_text(d["windows"]))]
+    left = len(found) - len(named)
+    return named, (f"{left} mount{'s' if left != 1 else ''} with a name that is not text {'are' if left != 1 else 'is'} left out of the report" if left else None)
 
 
 def windows_of(linux_path, drives):
@@ -387,7 +404,8 @@ def guest_path(windows_path, drives):
     exact = lambda p: [p[0][:1].upper() + p[0][1:]] + p[1:] if p else p
     candidates = []
     for d in drives:
-        if d["windows"] is None:
+        # A mount whose name is not text is never the folder written to (round 8): a path made of it would not be it.
+        if d["windows"] is None or not is_text(d["mount"]):
             continue
         for fold in (False,):
             held = parts(d["windows"], fold)
@@ -408,7 +426,7 @@ def log_folder(given, mountinfo="/proc/self/mountinfo"):
     install now gives, mapped through the drive mounts now. (None, why) when it can't be found."""
     if not re.match(r"^[A-Za-z]:[\\/]", given or ""):
         return given, None
-    drives, why = drive_mounts(mountinfo)
+    drives, why = drive_mounts(mountinfo, every=True)
     if drives is None:
         return None, why
     found = guest_path(given, drives)
