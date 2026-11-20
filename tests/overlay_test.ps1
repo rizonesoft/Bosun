@@ -48,6 +48,13 @@ try {
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'the file is read from the checkout, not the working directory' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
 
+  # A relative -Root after Set-Location: PowerShell's location is the checkout, the process folder is not.
+  Push-Location $checkout
+  try {
+    $r = try { Get-BosunOverlayValue -Key vault_item -Root '.' } catch { [pscustomobject]@{ Source = 'error'; Value = $_.Exception.Message } }
+    Check 'a relative -Root is read from the PowerShell location' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
+  } finally { Pop-Location }
+
   $env:BOSUN_VAULT_ITEM = 'from the variable'
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'the variable wins over the file' ($r.Source -eq 'variable' -and $r.Value -eq 'from the variable') "($($r.Source) $($r.Value))"

@@ -111,6 +111,9 @@ function Get-BosunOverlayValue {
   if (-not $Variable) { $Variable = 'BOSUN_' + $Key.ToUpperInvariant() }
   # The checkout that holds this file (scripts/lib/..), never the caller's working directory.
   if (-not $Root) { $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot) }
+  # One absolute path for every use: .NET resolves a relative path against the process folder, PowerShell against its
+  # own location, and the two differ after Set-Location.
+  $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
 
   $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
   if ($fromVariable) {
