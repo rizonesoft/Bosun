@@ -91,6 +91,10 @@ static void repos() {
     CHECK(!denied.repo && denied.why == std::optional<std::string>("D:/outer/denied could not be checked for a repo: Access is denied."));
     auto beside = dm::repo_walk("D:\\outer\\open\\work", failing);
     CHECK(beside.repo == std::optional<std::string>("D:/outer") && !beside.why);
+    // Round 2: a Linux path keeps a backslash as a name's own character.
+    std::vector<std::string> walked;
+    dm::repo_walk("/home/me/client\\api", [&](const std::string& d) { walked.push_back(d); return dm::GitProbe{}; }, false);
+    CHECK(!walked.empty() && walked.front() == "/home/me/client\\api");
     auto outside = dm::repo_walk("C:\\loose", [](const std::string&) { return dm::GitProbe{}; });
     CHECK(!outside.repo && !outside.why);
     // The text form says a repo that could not be told apart from no repo.

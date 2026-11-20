@@ -154,8 +154,10 @@ struct GitProbe {
 
 // repo_from_path with every probe's error kept: the walk stops at the first probe that fails, so a checkout above a
 // folder whose own `.git` could not be read is never taken for its repo.
-inline RepoAnswer repo_walk(std::string dir, const std::function<GitProbe(const std::string&)>& probe) {
-    std::replace(dir.begin(), dir.end(), '\\', '/');
+// `windows` is true for a Windows path, whose backslashes are separators; a Linux path keeps them, as a name's own
+// characters (round 2 of D03 T02 §7: /home/me/client\\api is not /home/me/client/api).
+inline RepoAnswer repo_walk(std::string dir, const std::function<GitProbe(const std::string&)>& probe, bool windows = true) {
+    if (windows) std::replace(dir.begin(), dir.end(), '\\', '/');
     while (!dir.empty() && dir.back() == '/') dir.pop_back();
     while (!dir.empty()) {
         std::string at = dir.size() == 2 && dir[1] == ':' ? dir + "/" : dir;

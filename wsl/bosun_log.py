@@ -47,6 +47,14 @@ class ProbeFailed(Exception):
 def git_probe(folder):
     """True when `folder` holds `.git`, False when it does not; ProbeFailed with why when that can't be told (a folder this
     user may not enter, an I/O error): os.path.exists would call any of those "not there"."""
+    # The folder itself first (round 2): one that has gone (renamed while a process is in it) is no folder outside Git, so
+    # the walk must not go on to a checkout above it.
+    try:
+        os.stat(folder or "/")
+    except FileNotFoundError:
+        raise ProbeFailed(f"{folder} could not be checked for a repo: the folder is no longer there")
+    except OSError as e:
+        raise ProbeFailed(f"{folder} could not be checked for a repo: {e.strerror or e}") from e
     try:
         os.lstat(folder + "/.git")
     except (FileNotFoundError, NotADirectoryError):

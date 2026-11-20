@@ -222,6 +222,11 @@ try {
     $null = Wait-Until { Row (Scan) $danglingAgent.Id }
     $danglingRow = Row (Scan) $danglingAgent.Id
     Check ($danglingRow -and $null -eq $danglingRow.repo -and $danglingRow.repo_why -like '*dangling could not be checked for a repo: its .git is a link to*') "a .git junction pointing nowhere is a failure, not the checkout above ($($danglingRow.repo), $($danglingRow.repo_why))"
+    # Round 2: a window whose folder has gone (renamed while it was open) is not the checkout above it.
+    $goneEditor = Start-Editor 'Code.exe' 'eg7'
+    Window 'sg7' $goneEditor @((Uri (Join-Path $outer 'renamed\work')))
+    $goneRow = @((Scan).instances | Where-Object { $_.pid -eq $goneEditor.Id })[0]
+    Check ($goneRow -and $null -eq $goneRow.repo -and $goneRow.repo_why -like '*/outer/renamed/work could not be checked for a repo: the folder is no longer there') "a window whose folder has gone is no checkout's ($($goneRow.repo), $($goneRow.repo_why))"
     $again = Row (Scan) $deniedAgent.Id
     Check ($again.repo_why -eq $agentRow.repo_why) 'a second scan gives the same answer'
     $looseRow = Row $doc $codexLoose.Id
@@ -272,6 +277,12 @@ try {
       Check ($row.repo_why -like "*Fake was not seen running (wsl.exe: 'the service failed', exit 5)") 'a failing wsl.exe is the row''s reason too'
       $row = Answer 'not a list at all' 0
       Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'output that names no distro allows no lookup'
+      # Round 2: a guest folder whose name holds a backslash can't be read through the share, so it is said, never another.
+      $slashEditor = Start-Editor 'Code.exe' 'es7'
+      Window 'ss7' $slashEditor @('vscode-remote://wsl%2BFake/home/me/client%5Capi')
+      $null = Answer "Fake`n" 0
+      $slash = @((Scan).instances | Where-Object { $_.pid -eq $slashEditor.Id })[0]
+      Check ($slash -and $null -eq $slash.repo -and $slash.repo_why -like '*client\api can''t be looked up through the distro''s share: its name holds a backslash') "a guest name holding a backslash is said, not looked up as another ($($slash.repo_why))"
       # Round 1: a distro's name beside anything else, or with a failing exit, allows no lookup either.
       $row = Answer "Fake`nthe service failed`n" 5
       Check ($null -eq $row.repo -and $row.repo_why -like '*Fake was not seen running*') 'a name beside a failure allows no lookup'

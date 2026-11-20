@@ -463,6 +463,10 @@ class Instances(unittest.TestCase):
         self.assertEqual((rows[30]["repo"], rows[30]["repo_why"]), (None, None))
         text = dl.instances_text({"instances": list(rows.values()), "problems": [], "unreadable": 0})
         self.assertIn("claude 10 (repo unknown: ", text)
+        # Round 2: a folder that has gone (renamed while a process was in it) is no folder outside Git.
+        repo, why = dl.repo_answer(os.path.join(outer, "renamed", "work"), {})
+        self.assertEqual(repo, "")
+        self.assertIn("renamed/work could not be checked for a repo: the folder is no longer there", why)
         # Round 1: a .git that is a link pointing nowhere is a failure, never "no repo", so outer is not taken.
         inner = os.path.join(outer, "inner")
         os.makedirs(os.path.join(inner, "work"))

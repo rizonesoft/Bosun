@@ -977,6 +977,11 @@ std::wstring process_cwd(ULONG_PTR pid) {
 // its target is (round 1 of D03 T02 §7): a link pointing nowhere is a failure, never "no repo here".
 dm::GitProbe git_probe_at(const fs::path& git) {
     std::error_code ec;
+    // The folder itself first (round 2): a folder that has gone (renamed while a window or a process is in it) is no
+    // folder outside Git, so the walk must not go on to a checkout above it.
+    auto folder = fs::status(git.parent_path(), ec);
+    if (ec || folder.type() == fs::file_type::not_found)
+        return {false, ec && ec != std::errc::no_such_file_or_directory ? ec.message() : std::string("the folder is no longer there")};
     auto own = fs::symlink_status(git, ec);
     if (ec && ec != std::errc::no_such_file_or_directory) return {false, ec.message()};
     if (ec || own.type() == fs::file_type::not_found) return {};
@@ -1564,12 +1569,16 @@ int cmd_instances(const Options& o) {
         if (root_share.empty()) root_share = L"\\\\wsl.localhost";
         std::wstring share = root_share + L"\\" + widen(*root.distro);
         std::string guest_path = root.path;
+        // A Linux name may hold a backslash, which a Windows path through the share reads as a separator: such a folder
+        // can't be read there, and is never taken for another one (round 2).
+        if (guest_path.find('\\') != std::string::npos)
+            return {std::nullopt, guest_path + " can't be looked up through the distro's share: its name holds a backslash"};
         return lookup_bounded(share + widen(guest_path), lookup, [share, guest_path] {
             return dm::repo_walk(guest_path, [&](const std::string& d) -> dm::GitProbe {
                 std::wstring guest = widen(d);
                 std::replace(guest.begin(), guest.end(), L'/', L'\\');
                 return git_probe_at(fs::path(share + guest) / L".git");
-            });
+            }, false);
         });
     };
     std::map<std::string, std::vector<dm::ReviewMark>> marks_by_repo;  // read once per repo
