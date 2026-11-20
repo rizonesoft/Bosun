@@ -113,6 +113,8 @@ jobs:
         run: pwsh tests\setup_clone_test.ps1
       - name: Overlay lookup test
         run: pwsh tests\overlay_test.ps1
+      - name: Overlay clone and pull test
+        run: pwsh tests\overlay_clone_test.ps1
       - name: Campaign admin setup test
         run: pwsh tests\campaign_admin_test.ps1
       - name: Campaign hold test

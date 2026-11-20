@@ -6,6 +6,13 @@ $setup = Join-Path $PSScriptRoot '..\scripts\setup-clone.ps1'
 $work = Join-Path ([IO.Path]::GetTempPath()) ("bosun-setup-clone-test-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
 $failed = 0
+# The setup script also clones the private overlay when gh can see it (D00 T05 §2, tested in
+# tests/overlay_clone_test.ps1). Here gh gets an empty config folder and no token, so it is signed out, and no
+# overlay source is set: these clones never reach the operator's account or the real overlay.
+$savedEnv = @{}
+foreach ($name in 'GH_CONFIG_DIR', 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO') { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name) }
+$env:GH_CONFIG_DIR = Join-Path $work 'gh-config'
+foreach ($name in 'GH_TOKEN', 'GITHUB_TOKEN', 'BOSUN_OVERLAY_REPO') { [Environment]::SetEnvironmentVariable($name, $null) }
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
 }
@@ -49,6 +56,7 @@ try {
   Check 'a fresh clone gets core.hooksPath, read back' ($r.Exit -eq 0 -and (Get-Setting $clone) -eq 'scripts/hooks' -and $r.Text -match 'is not set' -and $r.Text -match 'hooks: on') "(exit $($r.Exit): $($r.Text))"
   Check 'it prints the command that puts the setting back' ($r.Text -match 'config --local --unset core\.hooksPath')
   Check 'setting up a clone never runs its run guard' (-not (Get-Calls $clone))
+  Check 'with gh signed out the overlay is skipped in one line, and none is made' ($r.Text -match 'overlay: skipped' -and -not (Test-Path -LiteralPath (Join-Path $clone '.private'))) "($($r.Text))"
 
   $config = Get-Content -LiteralPath (Join-Path $clone '.git\config') -Raw
   $r = Invoke-Setup @('-Repo', $clone)
@@ -116,6 +124,9 @@ exit `$LASTEXITCODE
   $w = New-Clone 'no-watchdog'
   $r = Invoke-Setup @('-Repo', $w, '-Watchdog')
   Check 'the retired -Watchdog option is refused, and nothing is set up or run for it' ($r.Exit -ne 0 -and $r.Text -match 'Watchdog' -and $null -eq (Get-Setting $w) -and -not (Get-Calls $w)) "(exit $($r.Exit): $($r.Text))"
-} finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore }
+} finally {
+  foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
+}
 if ($failed) { "$failed check(s) failed"; exit 1 }
 'all checks passed'

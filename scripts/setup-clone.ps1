@@ -7,6 +7,12 @@
 # refuses a commit that would leave the generated plan stale or the TODO graph invalid.
 #   Undo: git config --local --unset core.hooksPath   (the script prints the exact command, with any earlier value)
 #
+# Overlay: clones the private overlay (BOSUN_OVERLAY_REPO, else rizonetech/Bosun-private) into the ignored .private
+# folder when gh can see it, checks its origin, and marks it (bosun.overlay in its config) so scripts/hooks/post-merge
+# pulls it after every pull that merges. Without gh, sign-in or access it says so in one line and goes on. An existing
+# .private is never changed, except that a checkout of the overlay itself is marked.
+#   Undo: delete .private, once 'git -C .private status' and unpushed commits are seen to (the script prints this)
+#
 # Nothing is scheduled: the watchdog task that resumed an unattended run was retired on 2026-11-12, with the
 # -Watchdog option that installed it. A clone that still has one removes it with `python scripts/run-guard.py uninstall`.
 #
@@ -32,9 +38,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType
   Stop-Setup "$Repo has no $hooks/pre-commit, so it is not a checkout of this repository"
 }
 # Git on Linux and WSL ignores a hook that is not executable, and what a clone there gets is the mode git recorded.
-$recorded = "$(git -C $Repo ls-files -s -- "$hooks/pre-commit" 2>$null)"
-if (-not $recorded.StartsWith('100755 ')) {
-  Stop-Setup "$hooks/pre-commit is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git update-index --chmod=+x $hooks/pre-commit' and commit, then run this again"
+foreach ($entry in @(git -C $Repo ls-files -s -- $hooks 2>$null)) {
+  $mode, $null, $null, $path = "$entry" -split '\s+', 4
+  if ($mode -ne '100755') {
+    Stop-Setup "$path is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git update-index --chmod=+x $path' and commit, then run this again"
+  }
 }
 
 # --- hooks ---
@@ -51,6 +59,105 @@ else {
   if ((Get-HooksPath) -ne $hooks) { Stop-Setup "core.hooksPath was written but does not read back as $hooks" }
   $undo = if ($null -eq $before) { '--unset core.hooksPath' } else { "core.hooksPath `"$before`"" }
   "hooks: on. To put it back: git -C `"$Repo`" config --local $undo"
+}
+
+# --- overlay ---
+# The private overlay (rizonetech/Bosun-private, D00 T05 §2) is cloned into the ignored .private folder when the
+# account can see it. A stranger's clone skips it with one line and is set up all the same.
+. (Join-Path $PSScriptRoot 'lib/overlay.ps1')
+function Skip-Overlay([string]$why) { "overlay: skipped, $why" }
+function Get-OverlayOrigin([string]$folder) {
+  $value = git -C $folder config --get remote.origin.url 2>$null
+  if ($LASTEXITCODE) { $null } else { "$value" }
+}
+# Whether a clone's origin is the source asked for: the GitHub URL of owner/name in HTTPS or SSH form, the same
+# resolved local path, or the same URL.
+function Test-OverlayOrigin([string]$origin, [hashtable]$source) {
+  if (-not $origin) { return $false }
+  switch ($source.Kind) {
+    'github' {
+      $name = [regex]::Escape($source.Value)
+      return $origin -match "^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)$name(\.git)?/?$"
+    }
+    'path' {
+      if (-not [IO.Path]::IsPathRooted($origin)) { return $false }
+      return [IO.Path]::GetFullPath($origin).TrimEnd('\', '/') -eq [IO.Path]::GetFullPath($source.Value).TrimEnd('\', '/')
+    }
+    default { return $origin.TrimEnd('/') -ceq $source.Value.TrimEnd('/') }
+  }
+}
+# The source forms setup accepts. Anything else is refused without repeating the value, which may hold a credential.
+function Get-OverlaySource([string]$value) {
+  if ($value -match '^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$') { return @{ Kind = 'github'; Value = $value } }
+  if ($value -match '^https://') {
+    $uri = $null
+    if ([Uri]::TryCreate($value, [UriKind]::Absolute, [ref]$uri) -and -not $uri.UserInfo -and $value -notmatch '\s') { return @{ Kind = 'url'; Value = $value } }
+    return $null
+  }
+  if ($value -match '^ssh://\S+$' -or $value -match '^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:\S+$') { return @{ Kind = 'url'; Value = $value } }
+  if (-not $value.StartsWith('-') -and [IO.Path]::IsPathRooted($value) -and (Test-Path -LiteralPath $value -PathType Container)) {
+    return @{ Kind = 'path'; Value = (Resolve-Path -LiteralPath $value).ProviderPath }
+  }
+  $null
+}
+
+$private = Join-Path $Repo '.private'
+try { $lookup = Get-BosunOverlayValue -Key overlay-repo -Root $Repo }
+catch { Stop-Setup "the overlay source could not be read: $($_.Exception.Message)" }
+$raw = if ($lookup.Source -eq 'setup-required') { 'rizonetech/Bosun-private' } else { $lookup.Value }
+$source = Get-OverlaySource $raw
+if (-not $source) {
+  Stop-Setup 'BOSUN_OVERLAY_REPO is not a supported overlay source: use owner/name, an absolute path to a repository, an https:// URL without user information, an ssh:// URL or git@host:path'
+}
+
+if (Test-Path -LiteralPath $private -PathType Leaf) { Skip-Overlay '.private is a file, not the overlay; it was left as it is' }
+elseif (Test-Path -LiteralPath $private -PathType Container) {
+  if (-not (Test-Path -LiteralPath (Join-Path $private '.git'))) { Skip-Overlay '.private is a folder that is not a git checkout; it was left as it is' }
+  elseif ("$(git -C $private config --get bosun.overlay 2>$null)" -eq 'true') { 'overlay: already present in .private' }
+  elseif (Test-OverlayOrigin (Get-OverlayOrigin $private) $source) {
+    git -C $private config bosun.overlay true 2>&1 | Out-Null
+    if ("$(git -C $private config --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config bosun.overlay true)' }
+    'overlay: .private is the overlay; marked it as one, so every pull keeps it current'
+  } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
+} else {
+  $ready = $true
+  if ($source.Kind -eq 'github') {
+    if (-not (Get-Command gh -CommandType Application -ErrorAction Ignore)) { Skip-Overlay 'gh is not installed, so the private overlay cannot be looked for'; $ready = $false }
+    else {
+      gh auth status *> $null
+      if ($LASTEXITCODE) { Skip-Overlay 'gh is not signed in, so the private overlay cannot be looked for'; $ready = $false }
+      else {
+        gh repo view $source.Value --json name *> $null
+        if ($LASTEXITCODE) { Skip-Overlay "this account cannot see $($source.Value)"; $ready = $false }
+      }
+    }
+  }
+  if ($ready) {
+    # Cloned beside the checkout's own git data first, and moved to .private only once it is checked and marked, so
+    # a failed or interrupted clone is never taken for the overlay and a retry starts clean.
+    $gitDir = "$(git -C $Repo rev-parse --absolute-git-dir 2>$null)"
+    if ($LASTEXITCODE -or -not $gitDir) { Stop-Setup 'the checkout''s git folder could not be found for the overlay clone' }
+    $partial = Join-Path $gitDir ('bosun-overlay-clone-' + [guid]::NewGuid().ToString('N'))
+    try {
+      "overlay: cloning $(if ($source.Kind -eq 'github') { $source.Value } else { 'the source in BOSUN_OVERLAY_REPO' }) into .private"
+      $said = if ($source.Kind -eq 'github') { gh repo clone $source.Value $partial -- --quiet 2>&1 } else { git clone --quiet -- $source.Value $partial 2>&1 }
+      if ($LASTEXITCODE -or -not (Test-Path -LiteralPath (Join-Path $partial '.git'))) {
+        # A clone's own message can name a URL with a credential in it, so it is shown only for owner/name sources.
+        $why = if ($source.Kind -eq 'github') { " ($((@($said) | Select-Object -Last 1 | Out-String).Trim()))" } else { '' }
+        Stop-Setup "the overlay could not be cloned$why; nothing was left in .private, so running this again starts clean"
+      }
+      if (-not (Test-OverlayOrigin (Get-OverlayOrigin $partial) $source)) { Stop-Setup 'the overlay clone''s origin is not the source asked for; it was removed' }
+      git -C $partial config bosun.overlay true 2>&1 | Out-Null
+      if ("$(git -C $partial config --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup 'the overlay clone could not be marked as the overlay; it was removed' }
+      try { Move-Item -LiteralPath $partial -Destination $private -ErrorAction Stop }
+      catch { Stop-Setup "the overlay could not be moved into .private ($($_.Exception.Message)); it was removed" }
+    } finally {
+      if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
+    }
+    if (-not (Test-OverlayOrigin (Get-OverlayOrigin $private) $source)) { Stop-Setup '.private does not read back as the overlay after the clone' }
+    'overlay: cloned into .private and marked; every pull of this checkout that merges now pulls it too'
+    "overlay: to remove it, check 'git -C .private status' and 'git -C .private log --branches --not --remotes' for edits and commits not pushed yet, then delete .private; the checkout works without it, and running this script again brings it back"
+  }
 }
 
 exit 0

@@ -1,0 +1,45 @@
+#!/bin/sh
+# Pull the private overlay in .private after a pull of this repository merges or fast-forwards (D00 T05 §2).
+# Only a checkout that scripts/setup-clone.ps1 marked as the overlay (bosun.overlay = true) and whose working tree is
+# clean is pulled, and only as a fast-forward. Every outcome is one line, and the merge itself never fails here.
+# An already up to date pull, or one that rebases, runs no post-merge hook: scripts/sync.ps1 updates both then.
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+overlay="$root/.private"
+[ -e "$overlay/.git" ] || exit 0
+
+# Git gives a hook the public repository's own variables, and `git -C` does not override them: without this, the
+# commands below would read and pull the public repository instead of the overlay.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+
+say() { echo "overlay: $*"; }
+
+if [ "$(git -C "$overlay" config --get bosun.overlay 2>/dev/null)" != "true" ]; then
+    say "not pulled: .private is not marked as the overlay (pwsh scripts/setup-clone.ps1 marks a checkout of it)"
+    exit 0
+fi
+if ! status=$(git -C "$overlay" status --porcelain 2>/dev/null); then
+    say "not pulled: git cannot read .private"
+    exit 0
+fi
+if [ -n "$status" ]; then
+    say "not pulled: .private has uncommitted changes; commit or stash them, then: git -C .private pull --ff-only"
+    exit 0
+fi
+if ! git -C "$overlay" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+    say "not pulled: .private has no upstream branch yet"
+    exit 0
+fi
+before=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
+# The pull's own output is not shown: a remote's message can name a URL with a credential in it.
+if git -C "$overlay" pull --ff-only --quiet >/dev/null 2>&1; then
+    after=$(git -C "$overlay" rev-parse HEAD 2>/dev/null)
+    if [ "$before" = "$after" ]; then
+        say "already current"
+    else
+        say "updated to $(git -C "$overlay" rev-parse --short HEAD 2>/dev/null)"
+    fi
+else
+    say "not pulled: .private could not be fast-forwarded (it has diverged, or its remote cannot be reached); see: git -C .private status"
+fi
+exit 0
