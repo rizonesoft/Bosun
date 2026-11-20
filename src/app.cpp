@@ -1141,12 +1141,20 @@ dm::GitProbe windows_git_probe(const std::string& d) {
 }
 
 // A folder's repo, found, absent or not told with why (D03 T02 §7), cached by folder for the scan.
-dm::RepoAnswer repo_answer_for_dir(const std::wstring& dir, std::unordered_map<std::wstring, dm::RepoAnswer>& cache) {
-    auto it = cache.find(dir);
+dm::RepoAnswer repo_answer_for_dir(const std::wstring& asked, std::unordered_map<std::wstring, dm::RepoAnswer>& cache) {
+    auto it = cache.find(asked);
     if (it != cache.end()) return it->second;
     dm::RepoAnswer answer;
+    // An extended-length path names the same folder as its plain form (round 7 of D03 T02 §7): the \\?\ prefix comes off
+    // a drive path, and \\?\UNC\ becomes the share's two backslashes. Any other form is said on the row, never taken for
+    // "not in a repo".
+    std::wstring dir = asked;
+    if (dir.rfind(L"\\\\?\\UNC\\", 0) == 0) dir = L"\\\\" + dir.substr(8);
+    else if (dir.rfind(L"\\\\?\\", 0) == 0 && dir.size() >= 6 && dir[5] == L':') dir = dir.substr(4);
     bool share = dir.size() > 2 && dir[0] == L'\\' && dir[1] == L'\\' && dir[2] != L'?' && dir[2] != L'.';
-    if ((dir.size() >= 2 && dir[1] == L':') || share) {
+    if (!((dir.size() >= 2 && dir[1] == L':') || share)) {
+        answer.why = narrow(asked) + " can't be looked up for a repo: it is neither on a drive nor on a share";
+    } else {
         answer = dm::repo_walk(narrow(dir), windows_git_probe);
         if (answer.repo) {
             // A working directory can carry any letter case, so use the name stored on disk.
@@ -1156,7 +1164,7 @@ dm::RepoAnswer repo_answer_for_dir(const std::wstring& dir, std::unordered_map<s
             if (!ec) answer.repo = narrow(real.generic_wstring());
         }
     }
-    cache[dir] = answer;
+    cache[asked] = answer;
     return answer;
 }
 

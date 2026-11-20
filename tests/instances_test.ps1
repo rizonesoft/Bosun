@@ -220,6 +220,11 @@ try {
     Remove-Item -LiteralPath (Join-Path $work 'gone-target')
     $danglingAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'g.txt')) 60000" (Join-Path $dangling 'work')
     $null = Wait-Until { Row (Scan) $danglingAgent.Id }
+    # Round 7: a folder in its extended-length form (\\?\D:\...) is the same folder, and its repo is found.
+    $longAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'lg.txt')) 60000" ('\\?\' + $repo)
+    $null = Wait-Until { Row (Scan) $longAgent.Id }
+    $longRow = Row (Scan) $longAgent.Id
+    Check ($longRow -and (Same-Path $longRow.repo $repo) -and $null -eq $longRow.repo_why) "an extended-length folder has its repo ($($longRow.cwd): $($longRow.repo), $($longRow.repo_why))"
     $danglingRow = Row (Scan) $danglingAgent.Id
     Check ($danglingRow -and $null -eq $danglingRow.repo -and $danglingRow.repo_why -like '*dangling could not be checked for a repo: its .git is a link to*') "a .git junction pointing nowhere is a failure, not the checkout above ($($danglingRow.repo), $($danglingRow.repo_why))"
     # Round 4: a job run there is not given the checkout above either: its holder records no repo, and its row says why.
