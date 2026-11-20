@@ -1160,7 +1160,9 @@ class Throttle:
         made is put back now, as when the policy is gone (D05 T02 §5), never left on a running job until the folder returns
         (round 10). Only a slice still at Bosun's own value is touched, and nothing is written to any folder; the record left
         behind is dropped by the first sample that reads the original again."""
-        if self.identity_fault or self.lock_fd is None or not self.state:
+        # A restore this run already made, its record not yet dropped, ends its say over the slice (round 13): a value set
+        # since is someone else's, even one equal to Bosun's old limit.
+        if self.identity_fault or self.lock_fd is None or not self.state or self.restore_written:
             return None
         try:
             current = self.read_limit()
@@ -1179,6 +1181,8 @@ class Throttle:
         left as it is."""
         if self.identity_fault or self.lock_fd is None:
             return None  # a logger that never owned the throttle restores nothing
+        if self.restore_written:
+            return None  # this run already put the original back (round 13): what the slice holds now is not Bosun's
         known = self.state  # what this run last recorded lowering
         self.state, self.operator, self.state_fault = self.safe_load_state()
         # The record can't be read, or is not there, while this run recorded a lowering: its folder is on a drive that is
@@ -1200,6 +1204,12 @@ class Throttle:
     def decide_lowered(self, policy, policy_why, on, host_mb, host_why, total_mb=None):
         state = self.state
         current = self.read_limit()
+        if self.restore_written and current != state["original"]:
+            # Bosun put the original back and could not drop its record: a value set since is someone else's, even one equal
+            # to Bosun's old limit (round 13), and it is theirs for the rest of this pressure episode.
+            self.restore_written = False
+            self.save_state(None, {"unit": self.unit, "seen": current})
+            return self.report("left_alone", f"{self.unit} reads {limit_text(current)}, set after Bosun had put back {limit_text(state['original'])}: someone changed it, so Bosun left it and will not lower it again until this pressure episode ends")
         if state.get("previous") is not None and current == state["previous"]:
             # A tightening that did not take (the write failed, or its read-back did): the slice is at the earlier value of
             # Bosun's, so the record goes back to it and the tightening is tried again below.

@@ -1176,11 +1176,28 @@ class ThrottleStop(ThrottleCase):
         self.throttle.stop()
         self.assertEqual(open(record, encoding="utf-8").read(), before)  # nothing written while cut off
         self.assertFalse([n for n in os.listdir(self.dir) if n.endswith(".tmp")])
+        # Round 13: an operator sets the slice to Bosun's old limit while the folder is still gone; it is theirs now.
+        self.slice.value = self.LIMIT
+        self.assertIsNone(self.throttle.release("the log folder can't be reached"))
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.throttle.stop()
+        self.assertEqual(self.slice.value, self.LIMIT)
+        self.slice.value = 8 * GB  # back to the original, for the recovery below
         # The folder back: the record left behind is dropped, the slice at its original, never taken for an operator's.
         self.throttle.log_dir = self.dir
         self.tick(20000)
         self.assertEqual(self.slice.value, 8 * GB)
         self.assertIsNone(self.throttle.safe_load_state()[0])
+
+    def test_a_value_set_after_bosun_s_own_restore_is_the_operator_s_when_the_folder_returns(self):
+        # Round 13: Bosun restored while cut off and could not drop its record; the operator then set its old limit.
+        self.assertEqual(self.tick(1000), "lowered")
+        self.throttle.log_dir = None
+        self.assertEqual(self.throttle.release("the log folder can't be reached"), "done")
+        self.slice.value = self.LIMIT
+        self.throttle.log_dir = self.dir
+        self.assertEqual(self.tick(1000), "left_alone")
+        self.assertEqual(self.slice.value, self.LIMIT)
 
     def test_a_stopping_service_puts_its_lowering_back_when_its_folder_is_on_a_replacement_drive(self):
         # Round 4: the same folder on another drive, with no record in it: this run's own record still restores.
