@@ -1,0 +1,101 @@
+{
+  "ref": "D03 T02 \u00a74",
+  "title": "Editor windows by repo",
+  "implementation_sha": "cd0fd10e401e4b2adb7fe26575a465a82e2d6dda",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-monitor/D03-T02-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/03-monitor/D03-T02-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/03-monitor/D03-T02-s4.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "build/Release/test_core.exe instances, editor-windows, repos -> ok",
+    "pwsh tests/instances_test.ps1 -> all passed",
+    "node --test editors/bosun-windows/test -> 10 passed, 0 failed",
+    "pwsh tests/editor_extension_test.ps1 -> all checks passed",
+    "bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class *InstanceClientTests -> total: 27, failed: 0",
+    "bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class *InstancesPageTests --filter-class *OverviewPageTests -> total: 48, failed: 0",
+    "python scripts/ci_status.py --gate --sha cd0fd10e401e4b2adb7fe26575a465a82e2d6dda -> proceed: build.yml green https://github.com/rizonetech/Bosun/actions/runs/44730225723, plan.yml green https://github.com/rizonetech/Bosun/actions/runs/44730225715"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-monitor/D03-T02-s4.md",
+    "verdict": "filed",
+    "candidate": "a9b72ae202a941eebc09040bc867d8b133dbc8e0",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D03 T02 \u00a75",
+      "D03 T02 \u00a76",
+      "D03 T02 \u00a77",
+      "D03 T02 \u00a78"
+    ]
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 returned two P3 findings (activate and deactivate tested only through the recorder; content types checked for .js alone), both fixed in a9b72ae; nothing left over",
+  "plan": {
+    "report": "docs/reviews/03-monitor/D03-T02-s4.md",
+    "candidate": "b9d7a1885f8fff9f7da05c175fe540603cc70ae9",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "b9d7a1885f8fff9f7da05c175fe540603cc70ae9",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

@@ -39,7 +39,7 @@ title: "TODO-02 -- Instances and queue"
 | 1 | §1 | Instance scanner | D01 T01 §3, D02 T02 §3 | [x] |
 | 2 | §2 | Instances page | §1, D02 T02 §9, D02 T03 §4, D02 T03 §7 | [x] |
 | 3 | §3 | Queue page | D01 T01 §5, §2, D02 T03 §6 | [x] |
-| 4 | §4 | Editor windows by repo | §1 | [ ] |
+| 4 | §4 | Editor windows by repo | §1 | [x] |
 | 5 | §5 | Editor windows in every VS Code profile | §4 | [ ] |
 | 6 | §6 | WSL folders under a relocated automount | §4 | [ ] |
 | 7 | §7 | A failed repo lookup said apart from no repo | §4 | [ ] |
@@ -229,6 +229,9 @@ An editor is one process tree however many windows it has open, and the scanner 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClientTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPageTests" --filter-class "*OverviewPageTests"` exit 0, as do `build/Release/test_core.exe instances`, `build/Release/test_core.exe editor-windows`, `pwsh tests/instances_test.ps1`, `node --test "editors/bosun-windows/test/*.test.js"` and `pwsh tests/editor_extension_test.ps1` (**Corrected 2026-11-20:** the extension's own tests added); they fail if an editor with windows on two same-named repos is listed in only one, or counted twice.
 
 > **Woken:** 2026-11-20: its `third-party` check in todo/wakes.json passed
+
+> **Verified:** 2026-11-20 | §4 | cd0fd10e401e4b2adb7fe26575a465a82e2d6dda
+> **Review:** `docs/reviews/d03-t02-s4.json`
 
 ## 5. Editor windows in every VS Code profile
 
