@@ -1,0 +1,106 @@
+{
+  "ref": "D00 T05 \u00a71",
+  "title": "Overlay folder, config lookup and the rule that admits it",
+  "implementation_sha": "d28016fc1707a524af9da0073c694f4d4776b8eb",
+  "date": "2026-11-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/overlay_test.ps1 -> 67 checks, all passed, exit 0; fails with the variable read after the file and with the root taken from the working directory",
+    "CI build.yml green at 2866e7b (https://github.com/rizonesoft/Bosun/actions/runs/44789853615), Overlay lookup test step success",
+    "CI plan.yml green at 2866e7b (https://github.com/rizonesoft/Bosun/actions/runs/44789853821)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+    "verdict": "completed",
+    "candidate": "4fbb259edf95086c92bda72cf3ebec1dfad23c8e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T05-s1.md",
+    "candidate": "95b9cde1d6c8e2880dc148841a590e64d769664c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "95b9cde1d6c8e2880dc148841a590e64d769664c",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
