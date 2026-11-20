@@ -45,6 +45,8 @@ title: "TODO-05 -- Public core and private overlay"
 
 ## 1. Overlay folder, config lookup and the rule that admits it
 
+> **Started:** 2026-11-20T17:35:31Z
+
 Bosun's rule is that it depends on no other repository. The overlay is Bosun's own private half, so the rule must say so before any code reads it, and every read goes through one helper so no script invents its own lookup order.
 
 **Phase:** 0
