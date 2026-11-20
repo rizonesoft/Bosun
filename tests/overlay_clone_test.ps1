@@ -27,8 +27,9 @@ New-Item -ItemType Directory -Path $fakeBin | Out-Null
 Set-Content -LiteralPath (Join-Path $fakeBin 'fake-gh.ps1') -Encoding utf8 -Value @'
 Add-Content -LiteralPath $env:FAKE_GH_LOG -Value ($args -join ' ')
 $mode = $env:FAKE_GH_MODE
-if ($args[0] -eq 'auth') { exit ([int]($mode -eq 'signed-out')) }
-if ($args[0] -eq 'repo' -and $args[1] -eq 'view') { exit ([int]($mode -eq 'refused')) }
+# Signed out on github.com, or only on another host ('other-host-expired'), where github.com itself still works.
+if ($args[0] -eq 'auth') { exit ([int]($mode -eq 'signed-out' -or ($mode -eq 'other-host-expired' -and $args -notcontains 'github.com'))) }
+if ($args[0] -eq 'repo' -and $args[1] -eq 'view') { exit ([int]($mode -in 'refused', 'signed-out')) }
 if ($args[0] -eq 'repo' -and $args[1] -eq 'clone') {
   if ($mode -eq 'clone-fails') { 'fatal: the transfer was cut off'; exit 1 }
   # Another run finishing first: .private appears in the checkout while this clone is still being made.
@@ -138,6 +139,10 @@ try {
     Check "$($case.Name): one line, exit 0, no overlay" ($r.Exit -eq 0 -and $r.Text -match "overlay: skipped, .*$($case.Says)" -and -not (Test-Path (Join-Path $clone '.private')) -and "$(git -C $clone config --get core.hooksPath)" -eq 'scripts/hooks') "(exit $($r.Exit): $($r.Text))"
   }
 
+  $expired = New-Clone 'other-host-expired'
+  $env:FAKE_GH_MODE = 'other-host-expired'; $env:FAKE_GH_REMOTE = $overlayRemote
+  $r = Invoke-Setup $expired -WithGh
+  Check 'an expired login on another host does not hide an overlay github.com can see' ($r.Exit -eq 0 -and "$(git -C (Join-Path $expired '.private') config --local --get bosun.overlay)" -eq 'true') "(exit $($r.Exit): $($r.Text))"
   $retry = New-Clone 'clone-fails'
   $env:FAKE_GH_MODE = 'clone-fails'
   $r = Invoke-Setup $retry -WithGh

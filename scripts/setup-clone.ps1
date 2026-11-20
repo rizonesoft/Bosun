@@ -147,18 +147,21 @@ if ($item) {
   elseif (Test-OverlayOrigin (Get-OverlayOrigin $private) $source) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null
     if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config --local bosun.overlay true)' }
-    'overlay: .private is the overlay; marked it as one, so every pull keeps it current'
+    'overlay: .private is the overlay; marked it as one, so every pull of this checkout that merges keeps it current'
   } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
 } else {
   $ready = $true
   if ($source.Kind -eq 'github') {
     if (-not (Get-Command gh -CommandType Application -ErrorAction Ignore)) { Skip-Overlay 'gh is not installed, so the private overlay cannot be looked for'; $ready = $false }
     else {
-      gh auth status *> $null
-      if ($LASTEXITCODE) { Skip-Overlay 'gh is not signed in, so the private overlay cannot be looked for'; $ready = $false }
-      else {
-        gh repo view $source.Value --json name *> $null
-        if ($LASTEXITCODE) { Skip-Overlay "this account cannot see $($source.Value)"; $ready = $false }
+      # The probe is the repository itself; sign-in on github.com is asked only to say why it failed, so an expired
+      # login on another host never hides an overlay this account can see.
+      gh repo view $source.Value --json name *> $null
+      if ($LASTEXITCODE) {
+        gh auth status --hostname github.com *> $null
+        if ($LASTEXITCODE) { Skip-Overlay 'gh is not signed in to github.com, so the private overlay cannot be looked for' }
+        else { Skip-Overlay "this account cannot see $($source.Value)" }
+        $ready = $false
       }
     }
   }
