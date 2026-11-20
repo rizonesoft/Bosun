@@ -20,6 +20,10 @@ $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $Repo 'scripts\install.ps1'), [ref]$tokens, [ref]$errors)
 $default = ($ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'Build' }).DefaultValue.Extent.Text
 Check ($default -match '\\bin"$') "install.ps1 defaults to bin (got: $default)"
+# D03 T02 §6: the logger is given the Windows log folder, found through the drive mounts on each sample; a guest path
+# translated once at install (wslpath) would be stranded when the mounts move.
+$logs = $ast.FindAll({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$logsWsl' }, $true) | Select-Object -First 1
+Check ($logs -and $logs.Right.Extent.Text -notmatch 'wslpath' -and $logs.Right.Extent.Text -match "LOCALAPPDATA") "install.ps1 hands the logger the Windows log folder (got: $($logs.Right.Extent.Text))"
 
 git -C $Repo check-ignore -q bin/bosun.exe
 Check ($LASTEXITCODE -eq 0) 'bin is ignored by Git'

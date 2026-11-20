@@ -25,7 +25,9 @@ Start-Process $logger
 
 $stageWsl = & (Join-Path $PSScriptRoot 'stage-wsl.ps1') -Destination (Join-Path $env:LOCALAPPDATA 'Bosun\wsl-install') -Distro $Distro
 $exeWsl = (wsl.exe -d $Distro -- wslpath -a ((Join-Path $bin 'bosun.exe') -replace '\\', '/')).Trim()
-$logsWsl = (wsl.exe -d $Distro -- wslpath -a ((Join-Path $env:LOCALAPPDATA 'Bosun\logs') -replace '\\', '/')).Trim()
+# The logger is given the Windows log folder itself (forward slashes, which a systemd ExecStart keeps as written) and
+# finds it through its distro's drive mounts on each sample, so moving the mounts can't strand its reports (D03 T02 §6).
+$logsWsl = (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -replace '\\', '/'
 wsl.exe -d $Distro -- bash "$stageWsl/install.sh" $exeWsl $logsWsl
 if ($LASTEXITCODE) { throw "WSL install failed with exit $LASTEXITCODE" }
 

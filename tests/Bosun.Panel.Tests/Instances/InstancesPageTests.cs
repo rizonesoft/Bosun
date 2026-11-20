@@ -497,6 +497,21 @@ public class InstancesPageTests
     }
 
     [Fact]
+    public void A_distro_whose_logger_is_older_than_drive_mounts_says_so_and_one_that_could_not_read_them_says_why()
+    {
+        // D03 T02 §6: a report with no drives and no word why is from an older logger; one that could not read its mount
+        // table says so itself, as an automount problem, and is not told to update.
+        var older = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl", cwd: "/mnt/d/Bosun")], olderLogger: true), Now));
+        Assert.Contains("WSL (Ubuntu): its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1",
+            InstancesPage.NoticesOf(View(null, Win(), older)));
+        var unread = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl")],
+            [new SourceProblemDoc { Source = "automount", Why = "/proc/self/mountinfo can't be read (Permission denied)" }]), Now));
+        var notices = InstancesPage.NoticesOf(View(null, Win(), unread));
+        Assert.Contains("WSL (Ubuntu): its drive mounts (/proc/self/mountinfo) could not be read: /proc/self/mountinfo can't be read (Permission denied)", notices);
+        Assert.DoesNotContain(notices, n => n.Contains("older than drive mounts", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void An_empty_window_and_a_window_whose_folder_can_t_be_placed_are_told_apart()
     {
         // Round 2: an SSH window's row (no folder Bosun can place) read "an empty window".

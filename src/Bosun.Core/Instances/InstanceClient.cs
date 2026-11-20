@@ -12,7 +12,9 @@ public sealed record SideReading(string Side, string? Distro, Reading<InstancesD
 }
 
 /// <summary>One instance as the Instances page shows it: its side's row, with the distro it runs in (null on Windows).</summary>
-public sealed record InstanceRow(InstanceDoc Instance, string? Distro);
+/// <param name="Mounts">The Windows drives the row's distro has mounted (D03 T02 §6), from that distro's own report: null
+/// when no report of it gave them, so a guest path is never taken for a drive's folder on a guess.</param>
+public sealed record InstanceRow(InstanceDoc Instance, string? Distro, DriveMounts? Mounts = null);
 
 /// <summary>
 /// The instances of one repo, from every side: <see cref="Repo"/> is the repo's path as its side writes it (a Windows
@@ -210,10 +212,28 @@ public sealed partial class InstanceClient : IInstanceSource
     /// <param name="keepStale">Keep a stale distro's last rows too, for a page that says they are old (D03 T02 §2).</param>
     public static IReadOnlyList<RepoGroup> Merge(IReadOnlyList<SideReading> sides, bool keepStale = false)
     {
+        // Each distro's drive mounts, from its own fresh report: a stale one speaks for its own rows only, never for a
+        // live Windows editor's window or holder in that distro (plan review of D03 T02 §6).
+        var mountsOf = new Dictionary<string, DriveMounts>(StringComparer.OrdinalIgnoreCase);
+        foreach (var side in sides)
+            if (side is { Side: "wsl" } && side.Reading is { Value: { Drives: { } drives } report, IsStale: false } && (side.Distro ?? report.Distro) is { } named)
+                mountsOf.TryAdd(named, new DriveMounts(drives));
+        DriveMounts? MountsOf(string? distro) => distro is not null && mountsOf.TryGetValue(distro, out var m) ? m : null;
+
         var rows = new List<InstanceRow>();
         foreach (var side in sides)
             if (side.Reading is { Value: { } doc } reading && (keepStale || !reading.IsStale))
-                rows.AddRange(doc.Instances.Select(i => new InstanceRow(i, side.Side == "wsl" ? side.Distro ?? doc.Distro : null)));
+                rows.AddRange(doc.Instances.Select(i =>
+                {
+                    var distro = side.Side == "wsl" ? side.Distro ?? doc.Distro : null;
+                    // A WSL row its own report's mounts; a Windows editor's WSL window, or a WSL holder Windows saw, its named
+                    // distro's fresh report's; none read, none (the guest path kept).
+                    var mounts = side.Side == "wsl" ? doc.Drives is { } own ? new DriveMounts(own) : null
+                        : i.Location == "wsl" ? MountsOf(i.Distro)
+                        : i.Side == "wsl" ? MountsOf(i.GuestDistro)
+                        : null;
+                    return new InstanceRow(i, distro, mounts);
+                }));
 
         // Pair each WSL holder in the Windows document with the job of its own distro whose pid is its guest_pid: a
         // Linux pid is unique only within one distro (round 1), so a holder that names no distro is never joined.
@@ -272,9 +292,12 @@ public sealed partial class InstanceClient : IInstanceSource
         if (repo is null) return (null, null);
         // A WSL window of a Windows editor is in its distro's repo, though its process is on Windows (D03 T02 §4).
         if (!row.Instance.InWsl) return (repo, null);
-        if (MountedDrive().Match(repo) is { Success: true } mounted)
-            return ($"{char.ToUpperInvariant(mounted.Groups[1].Value[0])}:/{mounted.Groups[2].Value}".TrimEnd('/'), null);
-        return (repo, row.Instance.Side == "windows" ? row.Instance.Distro : row.Distro);
+        // A drive's folder only under its distro's own mount root (D03 T02 §6): with the mounts moved or off, /mnt/c/app
+        // is a guest folder like any other.
+        if (row.Mounts?.Drive(repo) is { } drive)
+            return ($"{drive.Letter}:/{drive.Tail}".TrimEnd('/'), null);
+        // A Windows editor's WSL window is in the distro it names; an unjoined WSL holder Windows saw, the one it names.
+        return (repo, row.Instance.Side == "windows" ? row.Instance.Distro : row.Distro ?? row.Instance.GuestDistro);
     }
 
     /// <summary>The grouping key: a Windows folder compared as Windows compares them, a guest folder per distro, exactly.</summary>
@@ -285,6 +308,4 @@ public sealed partial class InstanceClient : IInstanceSource
         return distro is null ? "win:" + repo.Replace('\\', '/').TrimEnd('/').ToUpperInvariant() : $"wsl:{distro}:{repo}";
     }
 
-    [GeneratedRegex(@"^/mnt/([A-Za-z])(?:/(.*))?$")]
-    private static partial Regex MountedDrive();
 }

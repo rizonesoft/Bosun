@@ -21,10 +21,15 @@ internal static class InstanceFixtures
     internal static InstanceDoc EditorWindow(long pid, string window, string? cwd, string? repo, long? mb, long shared = 4096, string location = "windows", string? distro = null) =>
         I("code", pid, cwd: cwd, repo: repo, mb: mb, state: "unknown") with { Window = window, PlacedBy = "window", Location = location, Distro = distro, SharedMb = shared };
 
+    /// <summary>The drives a current WSL logger reports (D03 T02 §6): C: and D: at WSL's default mounts.</summary>
+    internal static readonly IReadOnlyList<DriveMount> DefaultDrives = [new() { Mount = "/mnt/c", Windows = "C:\\" }, new() { Mount = "/mnt/d", Windows = "D:\\" }];
+
+    /// <param name="olderLogger">A WSL report from a logger older than drive mounts (no <c>drives</c>).</param>
     internal static InstancesDoc Doc(string side, string? distro, IReadOnlyList<InstanceDoc> instances, IReadOnlyList<SourceProblemDoc>? problems = null,
-        long unreadable = 0) => new()
+        long unreadable = 0, bool olderLogger = false) => new()
     {
         SchemaVersion = 1, Side = side, Distro = distro, At = "2026-11-16T09:00:00Z", Instances = instances, Unreadable = unreadable, Problems = problems ?? [],
+        Drives = side == "wsl" && !olderLogger && !(problems ?? []).Any(p => p.Source == "automount") ? DefaultDrives : null,
     };
 
     internal static SideReading Win(params InstanceDoc[] instances) => new("windows", null, Reading<InstancesDoc>.Of(Doc("windows", null, instances), Now));

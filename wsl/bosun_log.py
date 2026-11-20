@@ -281,7 +281,70 @@ def boot_time(proc):
     return None
 
 
-def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
+def unescape_mount(text):
+    """A mountinfo field as the path it names: the kernel writes a space, tab, newline and backslash as \\040, \\011,
+    \\012 and \\134."""
+    return re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), text)
+
+
+def drive_mounts(mountinfo="/proc/self/mountinfo"):
+    """The Windows drives this distro has mounted now (D03 T02 §6), from its own mount table, never from /etc/wsl.conf,
+    which says what the next start will mount: each 9p or drvfs mount whose options name aname=drvfs and path=<X>:\\,
+    as [{"mount": "/mnt/c", "windows": "C:\\\\"}], or None with why when the table can't be read. A drive mounted by hand
+    is here as WSL's own are, and one the configuration names but nothing mounted is not."""
+    try:
+        with open(mountinfo, encoding="utf-8", errors="replace") as f:
+            lines = f.read(4 * 1024 * 1024).splitlines()
+    except OSError as e:
+        return None, f"{mountinfo} can't be read ({e.strerror or e}), so which guest folders are Windows drives is not known"
+    drives = []
+    for line in lines:
+        fields = line.split(" ")
+        if " - " not in line or len(fields) < 5:
+            continue
+        before, after = line.split(" - ", 1)
+        rest = after.split(" ")
+        if len(rest) < 3 or rest[0] not in ("9p", "drvfs"):
+            continue
+        options = rest[2]
+        path = re.search(r"(?:^|[;,])path=([A-Za-z]):\\(?:[;,]|$)", options)
+        if "aname=drvfs" not in options and rest[0] != "drvfs":
+            continue
+        if not path:
+            continue
+        mount = unescape_mount(before.split(" ")[4])
+        drives.append({"mount": mount, "windows": path.group(1).upper() + ":\\"})
+    drives.sort(key=lambda d: d["mount"])
+    return drives, None
+
+
+def guest_path(windows_path, drives):
+    """A Windows path's folder in this distro, through the drive mounts: the mount of its drive joined with the rest, or
+    None when no mount holds its drive (D03 T02 §6: the logger finds its log folder this way on each write, so moved
+    mounts are followed)."""
+    m = re.fullmatch(r"([A-Za-z]):[\\/]?(.*)", windows_path or "")
+    if not m or drives is None:
+        return None
+    for d in drives:
+        if d["windows"][0] == m.group(1).upper():
+            rest = m.group(2).replace("\\", "/").strip("/")
+            return d["mount"].rstrip("/") + ("/" + rest if rest else "") if d["mount"] != "/" else "/" + rest
+    return None
+
+
+def log_folder(given, mountinfo="/proc/self/mountinfo"):
+    """The folder the reports go to: a guest path as given (an older install), or the Windows folder (C:\\...) the
+    install now gives, mapped through the drive mounts now. (None, why) when it can't be found."""
+    if not re.match(r"^[A-Za-z]:[\\/]", given or ""):
+        return given, None
+    drives, why = drive_mounts(mountinfo)
+    if drives is None:
+        return None, why
+    found = guest_path(given, drives)
+    return (found, None) if found else (None, f"no mount holds the drive of {given}, so the reports can't reach Windows")
+
+
+def instances(proc="/proc", home=None, now=None, distro=None, ticks=None, mountinfo="/proc/self/mountinfo"):
     """This side's instances document (the shape of dm::instances_json)."""
     home = home if home is not None else os.path.expanduser("~")
     now = time.time() if now is None else now
@@ -363,9 +426,12 @@ def instances(proc="/proc", home=None, now=None, distro=None, ticks=None):
                      "cwd": cwd, "repo": repo, "private_mb": memory[pid], "started_at": None, "state": "unknown", "evidence": None,
                      "slot": None, "command": utf8_text(shlex.join(command)), "guest_pid": None, "guest_distro": None})
     rows.sort(key=lambda r: (r["repo"] is not None, r["repo"] or "", r["kind"], r["pid"]))
+    drives, drives_why = drive_mounts(mountinfo)
+    if drives_why:
+        problems.append({"source": "automount", "why": drives_why})
     return {"schema_version": 1, "side": "wsl", "distro": distro if distro is not None else os.environ.get("WSL_DISTRO_NAME"),
             "at": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "instances": rows, "unreadable": unreadable, "problems": problems}
+            "instances": rows, "unreadable": unreadable, "problems": problems, "drives": drives}
 
 
 def instances_text(doc):
@@ -1170,9 +1236,18 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 64
-    log_dir = argv[1]
+    given = argv[1]
     interval = int(argv[argv.index("--interval") + 1]) if "--interval" in argv else 30
     once = "--once" in argv
+    # The Windows log folder is found through the drive mounts on each sample, so moving them can't strand the reports
+    # (D03 T02 §6); a guest path, as an older install gives, is used as it is.
+    log_dir, why = log_folder(given)
+    while log_dir is None:
+        print(f"[bosun] {why}", file=sys.stderr)
+        if once:
+            return 1
+        time.sleep(interval)
+        log_dir, why = log_folder(given)
     os.makedirs(log_dir, exist_ok=True)
     cache = {}
     last_clear = time.monotonic()
@@ -1182,6 +1257,12 @@ def main(argv):
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     try:
         while True:
+            found, why = log_folder(given)
+            if found is None:
+                print(f"[bosun] {why}; the last folder found is kept", file=sys.stderr)
+            elif found != log_dir:
+                log_dir = throttle.log_dir = found
+                os.makedirs(log_dir, exist_ok=True)
             sample(log_dir, cache, interval)
             if not once:  # a one-shot run never throttles: only the service owns the slice and its record
                 try:

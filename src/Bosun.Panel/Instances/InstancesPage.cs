@@ -418,6 +418,10 @@ public sealed class InstancesPage : PageBase
                     ? $"{side.Name}: an editor's windows are not all placed: {source.First().Why}{also}"
                     : $"{side.Name}: its {SourceWord(source.Key)} could not be read: {source.First().Why}{also}");
             }
+            // A distro's report with no drive mounts and no word why is from a logger older than them (D03 T02 §6): its
+            // folders under the drives' mounts stay its own until the logger is updated.
+            if (side.Side == "wsl" && doc.Drives is null && !doc.Problems.Any(p => p.Source == "automount"))
+                notices.Add($"{side.Name}: its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1");
             if (doc.Unreadable > 0)
                 notices.Add(string.Create(CultureInfo.InvariantCulture, $"{side.Name}: {doc.Unreadable} {(doc.Unreadable == 1 ? "process" : "processes")} could not be read, so an instance may be missing."));
         }
@@ -430,6 +434,7 @@ public sealed class InstancesPage : PageBase
         "sessions" => "Claude Code session records",
         "review-marks" => "review marks",
         "queue-records" => "queue records",
+        "automount" => "drive mounts (/proc/self/mountinfo)",
         _ => source,
     };
 
@@ -442,7 +447,7 @@ public sealed class InstancesPage : PageBase
             // A Windows folder is checked before anything is started; a distro's own folder is not, since reaching its
             // share would start a stopped distro just to look. The check and the start run off the UI thread, the
             // check bounded: a folder on a network share that has gone can block for the network's own timeout (round 1).
-            var windowsSide = target.Distro is null || OpenCommands.MountedDrive(target.Path) is not null;
+            var windowsSide = target.Distro is null || OpenCommands.MountedDrive(target.Path, target.Mounts) is not null;
             if (checkFolder && windowsSide)
             {
                 bool there;

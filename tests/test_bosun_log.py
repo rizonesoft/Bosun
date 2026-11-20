@@ -213,6 +213,52 @@ class Instances(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
+    # A drive's line of /proc/self/mountinfo, as read on this machine 2026-11-20 (D03 T02 §6).
+    @staticmethod
+    def drive(mount, letter, fs="9p"):
+        return (f"140 85 0:75 / {mount} rw,noatime - {fs} {letter}:\\134 rw,aname=drvfs;path={letter}:\\;uid=1000;gid=1000;"
+                f"symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6")
+
+    def table(self, *lines):
+        path = os.path.join(self.root, "mountinfo")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(["82 85 0:36 / /usr/lib/wsl/drivers ro,nosuid - 9p drivers ro,aname=drivers;fmask=222",
+                               "25 1 8:32 / / rw,relatime - ext4 /dev/sdc rw"] + list(lines)) + "\n")
+        return path
+
+    def test_drive_mounts_are_read_from_the_mount_table_as_they_are_now(self):
+        # D03 T02 §6: what is mounted now, never what wsl.conf says the next start will mount.
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/mnt/c", "C"), self.drive("/mnt/d", "D")))[0],
+                         [{"mount": "/mnt/c", "windows": "C:\\"}, {"mount": "/mnt/d", "windows": "D:\\"}])
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/c", "C")))[0], [{"mount": "/c", "windows": "C:\\"}])  # root=/
+        # A drive mounted by hand under a moved root, and a mount point with a space, the kernel's \040.
+        self.assertEqual(dl.drive_mounts(self.table(self.drive("/windir/c", "C"), self.drive("/my\\040drives/e", "E", fs="drvfs")))[0],
+                         [{"mount": "/my drives/e", "windows": "E:\\"}, {"mount": "/windir/c", "windows": "C:\\"}])
+        self.assertEqual(dl.drive_mounts(self.table())[0], [])  # nothing mounted: none, and known to be none
+        drives, why = dl.drive_mounts(os.path.join(self.root, "missing"))
+        self.assertIsNone(drives)
+        self.assertIn("can't be read", why)
+
+    def test_the_document_carries_the_drives_and_says_a_table_it_could_not_read(self):
+        doc = dl.instances(proc=self.proc, home=self.home, now=1700000100, distro="Ubuntu", ticks=100,
+                           mountinfo=self.table(self.drive("/windir/c", "C")))
+        self.assertEqual(doc["drives"], [{"mount": "/windir/c", "windows": "C:\\"}])
+        doc = dl.instances(proc=self.proc, home=self.home, now=1700000100, distro="Ubuntu", ticks=100,
+                           mountinfo=os.path.join(self.root, "missing"))
+        self.assertIsNone(doc["drives"])
+        self.assertEqual([p["source"] for p in doc["problems"]], ["automount"])
+
+    def test_the_log_folder_follows_the_drive_mounts(self):
+        # D03 T02 §6: the install gives the Windows folder; moving C: from /mnt/c to /windir/c moves where reports go.
+        windows = "C:\\Users\\me\\AppData\\Local\\Bosun\\logs"
+        self.assertEqual(dl.log_folder(windows, self.table(self.drive("/mnt/c", "C")))[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
+        self.assertEqual(dl.log_folder(windows, self.table(self.drive("/windir/c", "C")))[0], "/windir/c/Users/me/AppData/Local/Bosun/logs")
+        self.assertEqual(dl.log_folder(windows, self.table(self.drive("/c", "C")))[0], "/c/Users/me/AppData/Local/Bosun/logs")
+        found, why = dl.log_folder(windows, self.table(self.drive("/mnt/d", "D")))
+        self.assertIsNone(found)
+        self.assertIn("no mount holds the drive", why)
+        self.assertEqual(dl.log_folder("/mnt/c/old/logs", os.path.join(self.root, "missing")), ("/mnt/c/old/logs", None))  # an older install's guest path
+
     def process(self, pid, name, ppid, rss_kb, start, cwd=None, argv=None):
         d = os.path.join(self.proc, str(pid))
         os.makedirs(d)

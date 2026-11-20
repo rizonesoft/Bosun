@@ -41,14 +41,45 @@ public class OpenCommandsTests
         Assert.Equal(("wsl.exe", "-d Ubuntu", @"\\wsl.localhost\Ubuntu\home\me\app", true), (wsl.FileName, wsl.Arguments, wsl.WorkingDirectory, wsl.UseShellExecute));
     }
 
+    /// <summary>The drives a distro's report lists, as its logger reads them from the mount table (D03 T02 §6).</summary>
+    static DriveMounts Mounts(params (string Mount, char Letter)[] drives) =>
+        new([.. drives.Select(d => new DriveMount { Mount = d.Mount, Windows = $"{d.Letter}:\\" })]);
+
+    static readonly DriveMounts Default = Mounts(("/mnt/c", 'C'), ("/mnt/d", 'D'));
+
     [Fact]
     public void A_WSL_row_under_mnt_opens_the_Windows_drive_in_Explorer_and_keeps_its_Linux_path_in_the_shell()
     {
-        var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/mnt/d/Bosun/src", repo: "/mnt/d/Bosun"), "Ubuntu"));
+        // The distro's drive mounts as its report gives them, which the merge puts on each row.
+        var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/mnt/d/Bosun/src", repo: "/mnt/d/Bosun"), "Ubuntu", Default));
         Assert.Equal(@"D:\Bosun\src", OpenCommands.Folder(target).ArgumentList.Single());
         Assert.Equal(@"D:\Bosun\src", OpenCommands.Terminal(target, true).WorkingDirectory);    // wsl.exe starts in /mnt/d/Bosun/src behind it
-        Assert.Equal(@"C:\", OpenCommands.MountedDrive("/mnt/c"));
-        Assert.Null(OpenCommands.MountedDrive("/mnt/cdrom/x"));                         // a folder named like a drive is not one
+        Assert.Equal(@"C:\", OpenCommands.MountedDrive("/mnt/c", Default));
+        Assert.Null(OpenCommands.MountedDrive("/mnt/cdrom/x", Default));                         // a folder named like a drive is not one
+    }
+
+    [Fact]
+    public void A_guest_path_names_a_Windows_folder_only_under_a_drive_the_distro_has_mounted()
+    {
+        // D03 T02 §6: from OpenCommands.Resolve, each row's Explorer argument and terminal folder, with and without
+        // Windows Terminal, by the drives its distro has mounted now.
+        void Opens(DriveMounts? mounts, string cwd, string windowsFolder)
+        {
+            var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: cwd), "Ubuntu", mounts));
+            Assert.Equal(windowsFolder, OpenCommands.Folder(target).ArgumentList.Single());
+            Assert.Equal(windowsFolder, OpenCommands.Terminal(target, windowsTerminal: true).WorkingDirectory);
+            var console = OpenCommands.Terminal(target, windowsTerminal: false);
+            Assert.Equal(("wsl.exe", "-d Ubuntu", windowsFolder), (console.FileName, console.Arguments, console.WorkingDirectory));
+        }
+        var moved = Mounts(("/windir/c", 'C'));
+        Opens(moved, "/windir/c/app", @"C:\app");                                     // the drive under its moved mount
+        Opens(moved, "/mnt/c/app", @"\\wsl.localhost\Ubuntu\mnt\c\app");               // /mnt/c is a guest folder there
+        Opens(Mounts(("/c", 'C')), "/c/app", @"C:\app");                               // root=/
+        Opens(Default, "/mnt/c", @"C:\");                                             // a drive's own root
+        Opens(Default, "/mnt/C/app", @"\\wsl.localhost\Ubuntu\mnt\C\app");             // no such mount: Linux paths are exact
+        Opens(Mounts(("/mnt/c", 'C'), ("/mnt/c/share", 'E')), "/mnt/c/share/x", @"E:\x"); // the longest mount holds it
+        Opens(null, "/mnt/c/app", @"\\wsl.localhost\Ubuntu\mnt\c\app");               // not known: kept a guest folder
+        Assert.Null(OpenCommands.MountedDrive("/mnt/c/app", null));
     }
 
     [Fact]

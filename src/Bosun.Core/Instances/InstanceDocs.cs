@@ -11,7 +11,7 @@ public sealed record InstancesDoc : ICheckedDoc
 {
     public static readonly IReadOnlySet<string> Kinds = new HashSet<string> { "claude", "codex", "agy", "code", "antigravity", "job" };
     public static readonly IReadOnlySet<string> States = new HashSet<string> { "working", "reviewing", "idle", "unknown" };
-    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records", "editor-windows", "editor-coverage" };
+    public static readonly IReadOnlySet<string> Sources = new HashSet<string> { "processes", "sessions", "review-marks", "queue-records", "editor-windows", "editor-coverage", "automount" };
 
     [JsonPropertyName("schema_version")] public required int SchemaVersion { get; init; }
     [JsonPropertyName("side")] public required string Side { get; init; }
@@ -21,8 +21,16 @@ public sealed record InstancesDoc : ICheckedDoc
     [JsonPropertyName("unreadable")] public required long Unreadable { get; init; }
     [JsonPropertyName("problems")] public required IReadOnlyList<SourceProblemDoc> Problems { get; init; }
 
+    /// <summary>
+    /// The Windows drives this distro has mounted now (D03 T02 §6), from its mount table; null when it could not be read
+    /// (with an <c>automount</c> problem) or the report is older than the field: then no guest path is taken for a drive's.
+    /// </summary>
+    [JsonPropertyName("drives")] public IReadOnlyList<DriveMount>? Drives { get; init; }
+
     /// <summary>A WSL distro's name: letters, digits, dot, underscore and hyphen, at most 64.</summary>
     private static readonly System.Text.RegularExpressions.Regex DistroName = new("^[A-Za-z0-9._-]{1,64}$");
+
+    private static string Cut(string? v) => v is null ? "" : v.Length > 64 ? v[..64] + "..." : v;
 
     public string? Fault()
     {
@@ -44,6 +52,12 @@ public sealed record InstancesDoc : ICheckedDoc
         }
         foreach (var p in Problems)
             if (!Sources.Contains(p.Source)) return $"a problem names the source '{p.Source}', which no scanner reads";
+        if (Drives is { } drives)
+        {
+            if (drives.Count > 64) return $"it lists {drives.Count} drive mounts, more than Windows has drives";
+            foreach (var mount in drives)
+                if (mount is null || !DriveMounts.IsValid(mount)) return $"it lists a drive mount that is not a Linux folder and a drive's root ('{Cut(mount?.Mount)}' for '{Cut(mount?.Windows)}')";
+        }
         return null;
     }
 
@@ -119,3 +133,45 @@ public sealed record SourceProblemDoc
 [JsonSourceGenerationOptions(RespectNullableAnnotations = true, RespectRequiredConstructorParameters = true)]
 [JsonSerializable(typeof(InstancesDoc))]
 public sealed partial class InstanceJson : JsonSerializerContext;
+
+/// <summary>One Windows drive a distro has mounted now (D03 T02 §6), from its own mount table: where, and which drive.</summary>
+public sealed record DriveMount
+{
+    [JsonPropertyName("mount")] public required string Mount { get; init; }
+
+    [JsonPropertyName("windows")] public required string Windows { get; init; }
+}
+
+/// <summary>
+/// A distro's drive mounts as its logger read them (D03 T02 §6): the one mapping from a guest path to Windows, used for
+/// grouping and opening alike. A path names a Windows folder only under a mount of a drive, the longest it is at or
+/// under, compared exactly as Linux compares paths; every other path is the distro's own.
+/// </summary>
+public sealed record DriveMounts(IReadOnlyList<DriveMount> Drives)
+{
+    /// <summary>A mount a logger writes: a Linux folder, at most 256 characters, no control character, and a drive's root (<c>C:\</c>).</summary>
+    public static bool IsValid(DriveMount d) =>
+        d.Mount is { Length: >= 1 and <= 256 } m && m[0] == '/' && !m.Any(char.IsControl)
+        && d.Windows is { Length: 3 } w && char.IsAsciiLetterUpper(w[0]) && w[1] == ':' && w[2] == '\\';
+
+    /// <summary>The drive letter and the rest of the path (forward slashes, no leading one), or null when no mount holds it.</summary>
+    public (char Letter, string Tail)? Drive(string linuxPath)
+    {
+        ArgumentNullException.ThrowIfNull(linuxPath);
+        DriveMount? best = null;
+        foreach (var d in Drives)
+        {
+            var mount = d.Mount.Length > 1 ? d.Mount.TrimEnd('/') : d.Mount;
+            var under = linuxPath == mount || linuxPath.StartsWith(mount == "/" ? "/" : mount + "/", StringComparison.Ordinal);
+            if (under && (best is null || mount.Length > best.Mount.TrimEnd('/').Length)) best = d;
+        }
+        if (best is null) return null;
+        var root = best.Mount.Length > 1 ? best.Mount.TrimEnd('/') : best.Mount;
+        var tail = linuxPath.Length > root.Length ? linuxPath[root.Length..].TrimStart('/') : "";
+        return (best.Windows[0], tail.TrimEnd('/'));
+    }
+
+    /// <summary>The Windows folder of a guest path (<c>C:\app</c>), or null when no mount holds it.</summary>
+    public string? WindowsPath(string linuxPath) =>
+        Drive(linuxPath) is { } d ? $"{d.Letter}:\\{d.Tail.Replace('/', '\\')}" : null;
+}

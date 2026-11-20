@@ -226,6 +226,8 @@ public sealed class InstanceClientTests : IDisposable
         { "window-folder", @"is in WSL with the folder 'D:\x'" },
         { "window-kind", "which no window places" },
         { "window-location", "location is 'mac'" },
+        // D03 T02 §6: a drive mount is a Linux folder and a drive's root.
+        { "drives", @"it lists a drive mount that is not a Linux folder and a drive's root ('windir' for 'D:\')" },
     };
 
     /// <summary>Makes a row an editor's window row, as the Windows scanner writes one (D03 T02 §4).</summary>
@@ -270,6 +272,84 @@ public sealed class InstanceClientTests : IDisposable
         Assert.DoesNotContain(ubuntuApp.Rows, r => r.Instance.Window == "s3#0");
     }
 
+    /// <summary>A report as a distro's logger writes it, from the fixture with its drives and extra rows set.</summary>
+    private static InstancesDoc Wsl(string fixture, JsonArray? drives, params JsonObject[] extra)
+    {
+        var doc = JsonNode.Parse(File.ReadAllText(Fixture(fixture)))!.AsObject();
+        if (drives is null) doc.Remove("drives");
+        else doc["drives"] = drives;
+        foreach (var row in extra) doc["instances"]!.AsArray().Add(row);
+        return JsonSerializer.Deserialize(doc.ToJsonString(), InstanceJson.Default.InstancesDoc)!;
+    }
+
+    private static JsonArray Drives(params (string Mount, string Windows)[] drives) =>
+        [.. drives.Select(d => (JsonNode)new JsonObject { ["mount"] = d.Mount, ["windows"] = d.Windows })];
+
+    private static JsonObject Row(string kind, long pid, string side, string? cwd, string? repo) => new()
+    {
+        ["side"] = side, ["kind"] = kind, ["name"] = kind, ["pid"] = pid, ["cwd"] = cwd, ["repo"] = repo, ["private_mb"] = 10,
+        ["started_at"] = null, ["state"] = "unknown", ["evidence"] = null, ["slot"] = null, ["command"] = null, ["guest_pid"] = null, ["guest_distro"] = null,
+    };
+
+    [Fact]
+    public void Each_row_takes_its_own_distro_s_drive_mounts_and_an_unknown_one_keeps_the_guest_path()
+    {
+        // D03 T02 §6. Ubuntu has D: at /mnt/d; Debian moved its drives, D: at /windir/d. A Windows editor has a window on
+        // /mnt/d/Bosun in each distro, and Windows saw an unjoined holder in Debian with that repo.
+        var ubuntu = Wsl("wsl-ubuntu.json", Drives(("/mnt/c", "C:\\"), ("/mnt/d", "D:\\")));
+        var debian = Wsl("wsl-debian.json", Drives(("/windir/d", "D:\\")), Row("claude", 7001, "wsl", "/windir/d/Bosun", "/windir/d/Bosun"), Row("claude", 7002, "wsl", "/mnt/d/Bosun", "/mnt/d/Bosun"));
+        var windowsDoc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
+        JsonObject Editor(string window, string distro)
+        {
+            var row = Row("code", 777, "windows", "/mnt/d/Bosun", "/mnt/d/Bosun");
+            row["placed_by"] = "window";
+            row["window"] = window;
+            row["location"] = "wsl";
+            row["distro"] = distro;
+            row["shared_mb"] = 10;
+            return row;
+        }
+        var holder = Row("job", 9300, "wsl", null, "/mnt/d/Bosun");
+        holder["slot"] = 2;
+        holder["guest_pid"] = 99999;
+        holder["guest_distro"] = "Debian";
+        foreach (var row in new[] { Editor("u#1", "Ubuntu"), Editor("d#1", "Debian"), holder }) windowsDoc["instances"]!.AsArray().Add(row);
+        var windows = JsonSerializer.Deserialize(windowsDoc.ToJsonString(), InstanceJson.Default.InstancesDoc)!;
+
+        SideReading Win() => new("windows", null, Reading<InstancesDoc>.Of(windows, Now));
+        SideReading Fresh(string distro, InstancesDoc doc) => new("wsl", distro, Reading<InstancesDoc>.Of(doc, Now));
+        (string? Repo, string? Distro) Group(IReadOnlyList<RepoGroup> groups, Func<InstanceRow, bool> which)
+        {
+            var group = groups.Single(g => g.Rows.Any(which));
+            return (group.Repo, group.Distro);
+        }
+
+        var groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), Fresh("Debian", debian)]);
+        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Window == "u#1"));
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));     // a guest folder in Debian
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 9300));          // the unjoined holder: its distro's
+        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));                 // Debian's own D: folder
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
+
+        // Debian's report missing: its editor window and holder have no mounts, so they stay Debian's guest folders.
+        groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu)]);
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+        Assert.Null(groups.SelectMany(g => g.Rows).Single(r => r.Instance.Pid == 9300).Mounts);
+
+        // Debian's report stale: it speaks for its own rows (kept for the page), never for the live editor's window.
+        var stale = new SideReading("wsl", "Debian", Reading<InstancesDoc>.Stale(debian, Now, TimeSpan.FromMinutes(12), "WSL (Debian) last reported 12 minutes ago."));
+        groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), stale], keepStale: true);
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+        Assert.Null(groups.SelectMany(g => g.Rows).Single(r => r.Instance.Window == "d#1").Mounts);
+        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));
+
+        // Debian's report older than drive mounts: not known, so even /mnt/d stays Debian's own.
+        var legacy = Wsl("wsl-debian.json", null, Row("claude", 7002, "wsl", "/mnt/d/Bosun", "/mnt/d/Bosun"));
+        groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), Fresh("Debian", legacy)]);
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
+        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+    }
+
     [Theory]
     [MemberData(nameof(NotTheShape))]
     public async Task A_document_that_isn_t_the_shape_is_refused_with_why(string wrong, string said)
@@ -290,6 +370,7 @@ public sealed class InstanceClientTests : IDisposable
             case "window-folder": Window(first, "wsl", "Ubuntu", @"D:\x"); break;
             case "window-kind": Window(first, "windows", null, @"D:\x"); first["kind"] = "claude"; break;
             case "window-location": Window(first, "mac", null, @"D:\x"); break;
+            case "drives": doc["drives"] = new JsonArray(new JsonObject { ["mount"] = "windir", ["windows"] = "D:\\" }); break;
         }
         var text = wrong == "text" ? "{not json" : doc.ToJsonString();
         var view = await Fake(Answer(Write("doc.json", text))).ReadAsync(Token);

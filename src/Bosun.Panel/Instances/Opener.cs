@@ -8,11 +8,12 @@ namespace Bosun.Panel.Instances;
 /// <summary>Where an instance's Open folder and Open terminal go: a Windows folder, or a folder inside a WSL distro.</summary>
 /// <param name="Distro">The distro, for a WSL folder; null for a Windows one.</param>
 /// <param name="Path">The folder as its side writes it: <c>D:\Bosun</c>, or <c>/home/me/app</c> or <c>/mnt/c/src</c>.</param>
-public sealed record OpenTarget(string? Distro, string Path)
+/// <param name="Mounts">The Windows drives the distro has mounted (D03 T02 §6); null when not known, so no guest path is taken for a drive's folder.</param>
+public sealed record OpenTarget(string? Distro, string Path, DriveMounts? Mounts = null)
 {
     /// <summary>The folder as Windows reaches it: itself, the drive behind <c>/mnt/&lt;drive&gt;/</c>, or the distro's share.</summary>
     public string WindowsPath => Distro is null ? Path
-        : OpenCommands.MountedDrive(Path) is { } windows ? windows
+        : OpenCommands.MountedDrive(Path, Mounts) is { } windows ? windows
         : $@"\\wsl.localhost\{Distro}{Path.Replace('/', '\\')}";
 }
 
@@ -44,17 +45,14 @@ public static partial class OpenCommands
         var distro = instance.Side == "windows" ? instance.Location == "wsl" ? instance.Distro : instance.GuestDistro : row.Distro ?? instance.GuestDistro;
         // A distro is named as WSL names one, never with characters a command line would read.
         if (distro is null || !DistroName().IsMatch(distro) || !folder.StartsWith('/')) return (null, NoDistro);
-        return (new OpenTarget(distro, folder), null);
+        return (new OpenTarget(distro, folder, row.Mounts), null);
     }
 
-    /// <summary>The Windows path of a folder under <c>/mnt/&lt;drive&gt;/</c>, or null for any other Linux path.</summary>
-    public static string? MountedDrive(string linuxPath)
+    /// <summary>The Windows path of a drive's folder under the distro's own mount root (D03 T02 §6), or null for any other Linux path, or when the mounts are not known.</summary>
+    public static string? MountedDrive(string linuxPath, DriveMounts? mounts)
     {
         ArgumentNullException.ThrowIfNull(linuxPath);
-        if (linuxPath.Length < 6 || !linuxPath.StartsWith("/mnt/", StringComparison.Ordinal) || !char.IsAsciiLetterLower(linuxPath[5])) return null;
-        if (linuxPath.Length > 6 && linuxPath[6] != '/') return null;
-        var rest = linuxPath.Length > 7 ? linuxPath[7..].Replace('/', '\\') : "";
-        return $@"{char.ToUpperInvariant(linuxPath[5])}:\{rest}";
+        return mounts?.WindowsPath(linuxPath);
     }
 
     /// <summary>Explorer at the folder, as Windows reaches it.</summary>
