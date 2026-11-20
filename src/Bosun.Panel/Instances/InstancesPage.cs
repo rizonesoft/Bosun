@@ -30,7 +30,8 @@ public sealed class InstanceLine : Observable
         GroupOrder = groupOrder;
         Order = order;
         Instance = i.Kind == "job" ? $"Build job: {i.Command ?? i.Name}" : KindWord(i.Kind);
-        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" + (i.Location == "wsl" && i.Side == "windows" ? $" in WSL ({i.Distro})" : "") : i.Window is not null ? ", an empty window" : "");
+        InstanceDetail = $"{i.Name}, pid {i.Pid}" + (i.Cwd is { } cwd ? $", in {cwd}" + (i.Location == "wsl" && i.Side == "windows" ? $" in WSL ({i.Distro})" : "") : i.Window is { } window ? window.EndsWith("#empty", StringComparison.Ordinal) ? ", an empty window"
+                : ", a window whose folder Bosun can't place (a remote that is not WSL)" : "");
         Side = SideOf(row);
         IsStale = staleAs is not null;
         StaleWhy = staleWhy;

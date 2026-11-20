@@ -1502,7 +1502,7 @@ struct Instance {
     std::optional<int64_t> guest_pid;
     std::optional<std::string> guest_distro;
     // An editor placed by its open windows (D03 T02 §4): one row per root, `window` its identity across scans (the
-    // window's session and the root's index), `location` and `distro` where the root is (a WSL root of a Windows editor
+    // window's session and a hash of the root's URI, root_key), `location` and `distro` where the root is (a WSL root of a Windows editor
     // is in WSL, while the process stays on Windows), `placed_by` "window" or "launch" (no window record: the folder it
     // was started in), and `shared_mb` the editor's memory, which every row of the process shares; `private_mb` is on
     // its first row only, so a sum counts it once.

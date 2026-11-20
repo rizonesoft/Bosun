@@ -90,7 +90,7 @@ public sealed record InstanceDoc
     // An editor placed by its windows (D03 T02 §4). The Windows scanner writes these; WSL's writes none, so each is
     // optional, and absent reads as null.
 
-    /// <summary>The window and root this row is, stable across scans: the window's session and the root's index.</summary>
+    /// <summary>The window and root this row is, stable across scans: the window's session and a hash of the root's URI (<c>#empty</c> for a window with none), so removing one root never moves another's.</summary>
     [JsonPropertyName("window")] public string? Window { get; init; }
 
     /// <summary>Where the row's folder is: "windows", or "wsl" for a WSL window of a Windows editor; null when not said.</summary>

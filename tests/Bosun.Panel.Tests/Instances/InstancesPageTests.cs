@@ -467,6 +467,19 @@ public class InstancesPageTests
     }
 
     [Fact]
+    public void An_empty_window_and_a_window_whose_folder_can_t_be_placed_are_told_apart()
+    {
+        // Round 2: an SSH window's row (no folder Bosun can place) read "an empty window".
+        var source = new FakeInstances { Answer = View(null, Win(EditorWindow(600, "s1#empty", null, null, 4096), EditorWindow(600, "s2#0123456789abcdef", null, null, null))) };
+        OnPage(source, h =>
+        {
+            Assert.Equal("code, pid 600, an empty window", h.Page.Lines.Single(l => l.Row.Instance.Window == "s1#empty").InstanceDetail);
+            Assert.Equal("code, pid 600, a window whose folder Bosun can't place (a remote that is not WSL)",
+                h.Page.Lines.Single(l => l.Row.Instance.Window == "s2#0123456789abcdef").InstanceDetail);
+        });
+    }
+
+    [Fact]
     public void Ctrl_K_acts_on_the_selected_row_and_offers_nothing_without_one_and_a_refresh_keeps_or_clears_the_selection()
     {
         var source = new FakeInstances();
