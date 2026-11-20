@@ -117,6 +117,48 @@ try {
     Check 'a locked file is refused with its path and the reason' ($message -and $message.Contains($config) -and $message -match 'cannot be read') "($message)"
   } finally { $lock.Dispose() }
 
+  # A save in progress: another handle has the file open for writing, so the lookup refuses rather than read it
+  # half written.
+  $writer = [IO.File]::Open($config, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+  try {
+    $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+    Check 'a file open for writing elsewhere is refused, not read half written' ($message -and $message -match 'cannot be read') "($message)"
+  } finally { $writer.Dispose() }
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'the same file reads once the writer has closed it' ($r.Source -eq 'file' -and $r.Value -eq 'good') "($($r.Source) $($r.Value))"
+
+  New-Item -ItemType Directory -Force -Path $private | Out-Null
+  [IO.File]::WriteAllBytes($config, [byte[]](([Text.Encoding]::ASCII.GetBytes("vault_item = 'caf")) + 0xE9 + [byte][char]"'"))
+  $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+  Check 'a file that is not UTF-8 is refused, not decoded into a changed value' ($message -and $message -match 'not valid UTF-8') "($message)"
+
+  [IO.File]::WriteAllBytes($config, [byte[]](@(0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes("vault_item = 'caf$([char]0xE9)'")))
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'a UTF-8 file with a byte order mark reads' ($r.Value -eq "caf$([char]0xE9)") $r.Value
+
+  Set-Config "VAULT_ITEM = `"other`"`n"
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'keys are case-sensitive' ($r.Source -eq 'setup-required') "($($r.Source) $($r.Value))"
+  Set-Config "VAULT_ITEM = `"other`"`nvault_item = `"mine`"`n"
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'two spellings of a key are two keys' ($r.Source -eq 'file' -and $r.Value -eq 'mine') "($($r.Source) $($r.Value))"
+
+  $controls = [ordered]@{ 'a raw carriage return in a basic string' = "vault_item = `"secret`rvalue`""; 'a raw carriage return in a literal string' = "vault_item = 'secret`rvalue'"; 'a raw control character' = "vault_item = `"secret$([char]1)value`"" }
+  foreach ($case in $controls.GetEnumerator()) {
+    Set-Config $case.Value
+    $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+    Check "$($case.Key) is refused with the file and line" ($message -and $message.Contains("${config}:1") -and $message -notmatch 'secret') "($message)"
+  }
+  Set-Config "vault_item = `"tab`there`"`n"
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'a raw tab is allowed' ($r.Value -eq "tab`there") $r.Value
+
+  foreach ($escape in '\UFFFFFFFF', '\U00110000', '\uD800') {
+    Set-Config "vault_item = `"$escape`""
+    $message = Get-Refusal { Get-BosunOverlayValue -Key vault_item }
+    Check "$escape is refused with the file and line" ($message -and $message.Contains("${config}:1") -and $message -match 'Unicode scalar') "($message)"
+  }
+
   $message = Get-Refusal { Get-BosunOverlayValue -Key 'bad key' }
   Check 'a key that is not a plain name is refused' ([bool]$message) ''
 } finally {
