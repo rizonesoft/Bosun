@@ -1040,10 +1040,16 @@ std::optional<std::string> share_not_running(const std::wstring& path) {
 // What a drive letter stands for, read from this session's own tables without a look at the target (round 6 of D03 T02
 // §7): a mapped network drive's share (WNetGetConnectionW), or a subst drive's folder (QueryDosDeviceW), followed up to
 // four drives deep. Nothing for a drive that is a disk of its own, or a path with no drive letter.
-std::optional<std::wstring> drive_stands_for(const fs::path& path) {
-    std::wstring name = path.root_name().wstring();
-    std::optional<std::wstring> found;
-    for (int depth = 0; depth < 4 && name.size() == 2 && name[1] == L':'; ++depth) {
+std::optional<fs::path> drive_stands_for(const fs::path& path) {
+    // The whole path is carried through each drive (round 8 of D03 T02 §7): Y: standing for X:\team, and X: for a share,
+    // makes Y:\app the share's team\app, never its app. An extended-length path's drive (\\?\Y:) is the same drive.
+    fs::path at = path;
+    bool moved = false;
+    for (int depth = 0; depth < 4; ++depth) {
+        std::wstring name = at.root_name().wstring();
+        bool extended = name.rfind(L"\\\\?\\", 0) == 0;
+        if (extended) name = name.substr(4);
+        if (name.size() != 2 || name[1] != L':') break;
         wchar_t remote[1024];
         DWORD size = 1024;
         std::wstring target;
@@ -1057,10 +1063,11 @@ std::optional<std::wstring> drive_stands_for(const fs::path& path) {
             else if (d.rfind(L"\\??\\", 0) == 0) target = d.substr(4);
             else break;  // a device of its own: a disk
         }
-        found = target;
-        name = fs::path(target).root_name().wstring();
+        at = fs::path(target) / at.relative_path();
+        moved = true;
     }
-    return found;
+    if (!moved) return std::nullopt;
+    return at;
 }
 
 // Follows a path's links one part at a time, asking share_not_running before each look, so nothing a probe touches can
@@ -1071,7 +1078,7 @@ std::optional<std::string> links_stay_off_stopped_shares(const fs::path& start) 
     fs::path begin = start;
     // A drive letter mapped or substituted onto a share is that share (round 6): it holds no link to follow, and a look
     // through it reaches the distro all the same.
-    if (auto stands = drive_stands_for(start)) begin = fs::path(*stands) / start.relative_path();
+    if (auto stands = drive_stands_for(start)) begin = *stands;
     std::deque<fs::path> todo(begin.begin(), begin.end());
     fs::path done;
     for (int hops = 0; !todo.empty();) {
@@ -1091,7 +1098,7 @@ std::optional<std::string> links_stay_off_stopped_shares(const fs::path& start) 
         fs::path to = fs::read_symlink(next, ec);
         if (ec) return std::nullopt;
         if (to.is_relative()) to = done / to;
-        if (auto stands = drive_stands_for(to)) to = fs::path(*stands) / to.relative_path();
+        if (auto stands = drive_stands_for(to)) to = *stands;
         std::deque<fs::path> rest(to.begin(), to.end());
         rest.insert(rest.end(), todo.begin(), todo.end());
         todo.swap(rest);
@@ -1133,12 +1140,22 @@ dm::GitProbe git_probe_at(const fs::path& git) {
 
 // A `.git` probe on Windows: there, not there, or the error (D03 T02 §7). A share's folders start at //server/share, and
 // nothing above it can hold a repo (D03 T02 §4, round 1).
-dm::GitProbe windows_git_probe(const std::string& d) {
+// The path Windows is given for a folder the walk names in its plain form. `extended` (round 8 of D03 T02 §7) keeps the
+// \\?\ form the folder came in, so Windows does not rewrite its name: "project." stays "project.", never "project".
+fs::path windows_folder(const std::string& d, bool extended) {
+    std::wstring w = widen(d);
+    std::replace(w.begin(), w.end(), L'/', L'\\');
+    if (extended) w = w.rfind(L"\\\\", 0) == 0 ? L"\\\\?\\UNC\\" + w.substr(2) : L"\\\\?\\" + w;
+    return fs::path(w);
+}
+
+dm::GitProbe windows_git_probe(const std::string& d, bool extended) {
     if (d.rfind("//", 0) == 0 && std::count(d.begin() + 2, d.end(), '/') < 1) return {};
     if (!d.empty() && d[0] == '/' && d.rfind("//", 0) != 0) return {};  // what is left above a share: no folder
-    std::u8string utf8(reinterpret_cast<const char8_t*>(d.data()), d.size());
-    return git_probe_at(fs::path(utf8) / u8".git");
+    return git_probe_at(windows_folder(d, extended) / L".git");
 }
+
+dm::GitProbe windows_git_probe(const std::string& d) { return windows_git_probe(d, false); }
 
 // A folder's repo, found, absent or not told with why (D03 T02 §7), cached by folder for the scan.
 dm::RepoAnswer repo_answer_for_dir(const std::wstring& asked, std::unordered_map<std::wstring, dm::RepoAnswer>& cache) {
@@ -1149,19 +1166,26 @@ dm::RepoAnswer repo_answer_for_dir(const std::wstring& asked, std::unordered_map
     // a drive path, and \\?\UNC\ becomes the share's two backslashes. Any other form is said on the row, never taken for
     // "not in a repo".
     std::wstring dir = asked;
+    bool extended = true;
     if (dir.rfind(L"\\\\?\\UNC\\", 0) == 0) dir = L"\\\\" + dir.substr(8);
     else if (dir.rfind(L"\\\\?\\", 0) == 0 && dir.size() >= 6 && dir[5] == L':') dir = dir.substr(4);
+    else extended = false;
     bool share = dir.size() > 2 && dir[0] == L'\\' && dir[1] == L'\\' && dir[2] != L'?' && dir[2] != L'.';
     if (!((dir.size() >= 2 && dir[1] == L':') || share)) {
         answer.why = narrow(asked) + " can't be looked up for a repo: it is neither on a drive nor on a share";
     } else {
-        answer = dm::repo_walk(narrow(dir), windows_git_probe);
+        // The plain form names the folders; Windows is given the form the folder came in (round 8).
+        answer = dm::repo_walk(narrow(dir), [extended](const std::string& d) { return windows_git_probe(d, extended); });
         if (answer.repo) {
             // A working directory can carry any letter case, so use the name stored on disk.
             std::error_code ec;
-            std::u8string utf8(reinterpret_cast<const char8_t*>(answer.repo->data()), answer.repo->size());
-            fs::path real = fs::canonical(fs::path(utf8), ec);
-            if (!ec) answer.repo = narrow(real.generic_wstring());
+            fs::path real = fs::canonical(windows_folder(*answer.repo, extended), ec);
+            if (!ec) {
+                std::wstring named = real.wstring();
+                if (named.rfind(L"\\\\?\\UNC\\", 0) == 0) named = L"\\\\" + named.substr(8);
+                else if (named.rfind(L"\\\\?\\", 0) == 0) named = named.substr(4);
+                answer.repo = narrow(fs::path(named).generic_wstring());
+            }
         }
     }
     cache[asked] = answer;

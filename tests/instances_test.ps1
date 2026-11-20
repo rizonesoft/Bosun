@@ -311,6 +311,19 @@ try {
           # Found, it is named as stored on disk (the canonical name the scanner gives every repo).
           Check ($driveRow -and $driveRow.repo -like '*/share/Fake/home/me/app' -and $null -eq $driveRow.repo_why) "and is while the distro runs ($($driveRow.repo), $($driveRow.repo_why))"
           $null = Answer 'There are no running distributions.' 1
+          # Round 8: a drive standing for another drive's folder carries the whole path through both.
+          $inner = @('J', 'I', 'H', 'G') | Where-Object { -not (Test-Path "$($_):\") } | Select-Object -First 1
+          & subst.exe "$($letter):" /D | Out-Null
+          & subst.exe "$($letter):" $share | Out-Null
+          & subst.exe "$($inner):" "$($letter):\Fake" | Out-Null
+          try {
+            $deepAgent = Start-Detached (Join-Path $bin 'claude.exe') "$(Q (Join-Path $work 'dd.txt')) 60000" "$($inner):\home\me\app"
+            $null = Wait-Until { Row (Scan) $deepAgent.Id }
+            $deepRow = Row (Scan) $deepAgent.Id
+            Check ($deepRow -and $null -eq $deepRow.repo -and $deepRow.repo_why -like "*Fake was not seen running*") "a drive through a drive reaches the right distro ($($deepRow.repo_why))"
+          } finally {
+            & subst.exe "$($inner):" /D | Out-Null
+          }
         } finally {
           & subst.exe "$($letter):" /D | Out-Null
         }
