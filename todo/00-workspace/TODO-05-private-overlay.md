@@ -276,6 +276,8 @@ Evidence from the private files stays private: this public section records only 
 
 ## 8. Machine paths and personal names scrubbed from public files
 
+> **Started:** 2026-11-21T14:59:34Z
+
 The last private details in the public tree are machine paths and a personal name. Live files cite repository-relative paths or placeholders; stamped sections, phase-run records and review receipts are history and stay as written.
 
 > **Corrected 2026-11-21:** a "machine path" here is one that shows the owner's own machine: the Windows user-profile name, the folder the owner's checkouts live in (as a Windows path, a WSL `/mnt/<drive>/` path or a percent-encoded `file:` URI), a checkout kept directly under a drive root, the scratch drives and the WSL home. Generic sample paths in tests (`C:\Windows\...`, `C:\work\...`, a fixture's own made-up folder) stay: the app handles Windows paths, and its tests need real-looking ones. Measured 2026-11-21: 22 tracked files outside `docs/reviews/` and `docs/phase-runs/` by the first three forms, of 70 holding any drive path; the plan review found three more forms (an encoded URI, a drive-root checkout, a WSL spelling), so the check below covers all of them.
