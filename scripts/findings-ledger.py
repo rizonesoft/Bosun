@@ -52,7 +52,7 @@ def resolve(ref, root):
     row = rows[found]
     return todo_graph.disposition(row, rows), row.body
 
-def problem(entry, disposition, root, resolver=resolve):
+def problem(entry, disposition, root, resolver=resolve, line=0):
     """Why a struck entry's disposition does not settle it, or None."""
     m = re.match(r"(%s): (.+)" % "|".join(KINDS), disposition.strip())
     if not m:
@@ -66,16 +66,20 @@ def problem(entry, disposition, root, resolver=resolve):
         code, body = resolver(refs[0], root)
         if code not in (0, 4):
             return "%s is not an open section (resolve exit %d)" % (refs[0], code)
-        named = re.search(r"`([^`]+)`", entry)
-        key = re.split(r"[:\s]", named.group(1))[0] if named else ""
-        if key and key not in body:
+        key = finding_file(entry)
+        if key and key not in body.replace("\\", "/"):
             return "%s does not name %s, so it does not visibly own this finding" % (refs[0], key)
+        if not key and "findings base line %d" % line not in body:
+            return "the finding names no file, and %s does not cite `findings base line %d`" % (refs[0], line)
     elif kind == "Fixed":
         if not shas or not is_commit(shas[0], root):
             return "Fixed names no commit in history"
-        if "test:" not in detail:
+        if not re.search(r"test:\s*\S", detail):
             return "Fixed names no regression test (test: <command>)"
     elif kind in ("Done", "Superseded"):
+        why = REF.sub("", re.sub(r"`?\b[0-9a-f]{7,40}\b`?", "", detail)).split()
+        if kind == "Superseded" and len(why) < 3:
+            return "Superseded says not what replaced the behavior (at least three words besides the commit or section)"
         if shas and is_commit(shas[0], root):
             return None
         if refs and resolver(refs[0], root)[0] == 3:
@@ -86,7 +90,20 @@ def problem(entry, disposition, root, resolver=resolve):
     return None
 
 
+def finding_file(entry):
+    """The file a finding is about: its first backticked path, else the first path-like word, with / as separator."""
+    named = re.search(r"`([^`]+)`", entry)
+    word = re.split(r"[:\s]", named.group(1))[0] if named else ""
+    if not re.search(r"[/\\]|\.\w+$", word):
+        loose = re.search(r"[\w.-]+(?:[/\\][\w.*-]+)+", entry)
+        word = loose.group(0) if loose else ""
+    return word.replace("\\", "/")
+
+
 def check(base, first, last, root=ROOT, resolver=resolve):
+    if first < 1 or first > last:
+        print("findings-ledger: the range %d-%d is empty or reversed; give first-last with first at least 1" % (first, last))
+        return 2
     shown = git("show", "%s:%s" % (base, FINDINGS), root=root)
     if shown.returncode:
         print("findings-ledger: cannot read %s at %s" % (FINDINGS, base))
@@ -105,7 +122,7 @@ def check(base, first, last, root=ROOT, resolver=resolve):
         elif len(hits) != 1:
             why = "struck %d times (the text must be kept exactly, once)" % len(hits) if hits else "missing (deleted or its text changed)"
         else:
-            why = problem(text, hits[0][len(struck):], root, resolver)
+            why = problem(text, hits[0][len(struck):], root, resolver, n)
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))

@@ -108,6 +108,42 @@ class FindingsLedgerTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("base line 8: struck 2 times", out)
 
+    def test_round_1_gaps_fail(self):
+        # Round 1 of D00 T06 §1: an empty test command, a bare Superseded and an entry with no backticked path passed.
+        for name, disposition in {"an empty test command": "Fixed: %s, test:" % self.base[:9],
+                                  "a Superseded without what replaced it": "Superseded: %s" % self.base[:9]}.items():
+            with self.subTest(name):
+                self.settle(disposition, "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+                code, out = self.run_check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("base line 5:", out)
+        self.settle("Superseded: %s replaced the reader with a batch." % self.base[:9],
+                    "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        self.assertEqual(self.run_check()[0], 0)
+
+    def test_a_finding_without_backticks_is_owned_by_its_path_or_its_line(self):
+        loose = "- The hook in scripts\\hooks\\pre-push says nothing.\n"
+        self.findings.write_text(BASE + loose, encoding="utf-8")
+        git(self.root, "commit", "-q", "-am", "loose")
+        self.base = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        struck = "- ~~%s~~ " % loose[2:].rstrip("\n")
+        for body, ok in (("Unrelated work.", False), ("Fix scripts/hooks/pre-push so it speaks.", True)):
+            with self.subTest(body):
+                OPEN["D09 T01 §4"] = (0, body)
+                self.findings.write_text(BASE + struck + "Scheduled: D09 T01 §4.\n", encoding="utf-8")
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = ledger.check(self.base, 9, 9, root=self.root, resolver=fake_resolve)
+                self.assertEqual(code, 0 if ok else 1, out.getvalue())
+        self.assertEqual(ledger.finding_file("- Nothing names a file here at all."), "")
+        OPEN.pop("D09 T01 §4")
+
+    def test_a_reversed_range_is_refused(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ledger.check(self.base, 8, 5, root=self.root, resolver=fake_resolve)
+        self.assertEqual(code, 2, out.getvalue())
+
     def test_an_unreadable_base_is_incomplete(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
