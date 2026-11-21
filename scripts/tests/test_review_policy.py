@@ -405,6 +405,127 @@ class CurrentPolicy(unittest.TestCase):
         find.assert_not_called()
 
 
+def recurring_round(times, clean=False, cite=True):
+    """A returned round whose most repeated P1 or P2 finding has been reported in `times` rounds (None: no line),
+    its mark citing rounds 1 to times - 1 unless `cite` is False."""
+    e = entry('round', clean=clean)
+    if times is not None:
+        head, overall = e['review'].rsplit('\n', 1)
+        mark = ', '.join(f'round {n}' for n in range(1, times))
+        finding = f"1. P2 a defect (recurring: {mark})\n" if cite and times > 1 else "1. P2 a new defect\n"
+        e['review'] = f"{finding}{head}\nRECURRING: {'none' if times == 1 else times}\n{overall}"
+    return e
+
+
+class RecurringFindings(unittest.TestCase):
+    """A finding the fixes keep bringing back ends a cycle's rounds; new findings at the same severity never do."""
+
+    def schedule(self, cap=3):
+        return {**policy(), 'max_low_rounds': 32, **({'recurrence_cap': cap} if cap else {})}
+
+    def found(self, *times, last_clean=False):
+        rounds = [recurring_round(t) for t in times]
+        if last_clean:
+            rounds[-1] = recurring_round(times[-1], clean=True)
+        return dict(plans=[entry('plan')], rounds=rounds, completions=[])
+
+    def check(self, kind, found, cap=3):
+        d.check_sequence(self.schedule(cap), kind, found, 'codex', 'gpt-6.2-astra')
+
+    def test_the_cap_is_validated(self):
+        d.check_schedule(self.schedule(3), {'codex'})
+        d.check_schedule(self.schedule(None), {'codex'})
+        for bad in (1, 34, True, '3'):
+            with self.subTest(bad), self.assertRaisesRegex(d.Refused, 'recurrence_cap'):
+                d.check_schedule(self.schedule(bad), {'codex'})
+
+    def test_the_live_pin_sets_three(self):
+        self.assertEqual(d.load_pin()['schedule']['recurrence_cap'], 3)
+
+    def test_a_finding_in_its_third_round_ends_the_rounds(self):
+        with self.assertRaisesRegex(d.Refused, 'recurrence_cap 3') as caught:
+            self.check('round', self.found(1, 2, 3))
+        self.assertIn('todo-graph.py repair', str(caught.exception))
+        with self.assertRaisesRegex(d.Refused, 'clean terminal round'):  # and it is never approval
+            self.check('completion', self.found(1, 2, 3))
+
+    def test_new_findings_at_the_same_severity_keep_running(self):
+        self.check('round', self.found(*([1] * 15)))  # 15 P2 rounds of new findings, as D03 T02 §6 converged
+        self.check('round', self.found(1, 2))
+
+    def test_a_claim_is_held_to_the_rounds_that_exist(self):
+        self.check('round', self.found(1, 5))
+
+    def test_a_claim_needs_its_earlier_rounds_cited(self):
+        found = self.found(1, 1)
+        found['rounds'].append(recurring_round(3, cite=False))  # three new P2 findings, an unsupported count of 3
+        self.check('round', found)
+        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('a new defect', 'a defect (recurring: round 2, round 2)')
+        self.check('round', found)  # one earlier round cited twice is two rounds, not three
+        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('round 2, round 2', 'round 2, round 7')
+        self.check('round', found)  # a later round can't be cited
+        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('round 2, round 7', 'round 1, round 2')
+        with self.assertRaisesRegex(d.Refused, 'recurrence_cap 3'):
+            self.check('round', found)
+
+    def test_a_round_without_its_line_is_not_admitted_under_the_cap(self):
+        schedule = self.schedule()
+        self.assertTrue(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nOVERALL: needs-attention'))
+        self.assertTrue(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING: 2\nRECURRING: none\nOVERALL: x'))
+        self.assertFalse(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING: none\nOVERALL: x'))
+        self.assertTrue(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING:\n3\nOVERALL: x'))
+        self.assertFalse(d.recurrence_missing(schedule, 'plan', 'PLAN: complete\nOVERALL: approve'))
+        self.assertFalse(d.recurrence_missing(self.schedule(None), 'round', 'HIGHEST: P2\nOVERALL: x'))
+
+    def test_a_clean_round_is_never_a_stall(self):
+        self.check('completion', self.found(1, 2, 3, last_clean=True))
+
+    def test_without_the_cap_or_the_line_nothing_stops(self):
+        self.check('round', self.found(1, 2, 3, 4), cap=None)
+        self.check('round', self.found(1, 2, None))
+        doubled = self.found(1, 2, 3)
+        doubled['rounds'][-1]['review'] = doubled['rounds'][-1]['review'].replace('RECURRING: 3', 'RECURRING: 3\nRECURRING: 1')
+        self.check('round', doubled)
+
+    def test_the_graph_reads_a_stalled_cycle_as_a_dead_end(self):
+        dispatch = fixtures.tg.review_dispatch()
+        pin = historical_pin()
+        pin['schedule']['recurrence_cap'] = 3
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'D00-T01-s1.md'
+            plan = entry('plan')
+            plan.update(attempt_reviewer='carbon', attempt_model=plan['model'], attempt_cli='agy', failover=[],
+                        effort='medium', lenses=['plan'])
+            dispatch.record_completion(path, plan, '2026-11-06T00:00:00Z', 'b'*40, 'plan')
+            for n, times in enumerate((1, 2, 3)):
+                e = recurring_round(times)
+                e.update(attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy', failover=[],
+                         effort='medium', lenses=['adversarial'])
+                dispatch.record(path, e, f'2026-11-06T00:00:0{n + 1}Z')
+                with patch.object(fixtures.tg, 'cycle_findings', return_value=path), \
+                        patch.object(dispatch, 'load_pin', return_value=pin), \
+                        patch.object(dispatch, 'record_policy', return_value=(pin, 'a'*40)):
+                    why = fixtures.tg.review_dead_end(Path(folder), 'D00 T01 §1')
+                self.assertEqual(why is not None, times == 3, why)
+            self.assertIn('recurred in 3', why)
+
+    def test_the_round_prompt_asks_for_the_line_and_names_the_record(self):
+        pin = d.load_pin()
+        step = dict(d.scheduled(pin['schedule'], 'round', [entry()], False),
+                    recurrence=('docs/reviews/00-workspace/D00-T01-s1.md', 3, 2))
+        seen = {}
+
+        def run(argv, stdin, timeout, watched, stderr_path=None):
+            seen['prompt'] = stdin if isinstance(stdin, str) else stdin.decode('utf-8')
+            watched[1].write_text('HIGHEST: none\nRECURRING: none\nOVERALL: approve')
+            return 0, None
+        with patch.object(d, 'find_cli', return_value='codex.exe'), patch.object(d, 'run', side_effect=run):
+            d.review(pin, 'claude', ROOT / 'docs/review-round-prompt.md', 1, step)
+        self.assertIn('`RECURRING: <n>`', seen['prompt'])
+        self.assertIn('docs/reviews/00-workspace/D00-T01-s1.md', seen['prompt'])
+        self.assertIn('This is round 2.', seen['prompt'])
+
+
 class WriterReviewerRoles(unittest.TestCase):
     def test_only_two_writers_and_codex_reviewer(self):
         pin = d.load_pin()

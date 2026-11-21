@@ -16,6 +16,10 @@ completion_order = "last"
 max_low_rounds = 32
 max_repair_cycles = 33
 severity_stop_after = 0
+# A P1 or P2 finding reported in 3 rounds of a cycle (found, and its fix undone twice) ends the cycle's rounds:
+# the section takes a repair cycle with a fresh plan review, never a stamp. New findings at the same severity
+# never trip it. Each round's reply carries the reviewer's `RECURRING:` count (scripts/review-dispatch.py).
+recurrence_cap = 3
 
 [schedule.plan]
 effort = "medium"

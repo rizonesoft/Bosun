@@ -1018,12 +1018,16 @@ def review_dead_end(root, ref, cycle=1):
         return None  # a returned completion is settled in its cycle, fixed or filed, so it's never a dead end
     rounds = [e for e in found["rounds"] if dispatch.returned_review(e)]
     try:  # the cycle's own policy, as the dispatcher reads it, so a later pin change can't make the two disagree
-        cap = dispatch.schedule_cap(dispatch.record_policy(dispatch.load_pin(Path(root) / PIN), found, root)[0]["schedule"])
+        schedule = dispatch.record_policy(dispatch.load_pin(Path(root) / PIN), found, root)[0]["schedule"]
+        cap = dispatch.schedule_cap(schedule)
     except (Refused, dispatch.Refused, OSError, KeyError, ValueError) as exc:
         if any(e.get("policy") for e in [*found["plans"], *found["rounds"], *found["completions"]]):
             # The cycle names its policy and it can't be read, as in a shallow clone. Guessing could spend a repair.
             raise Refused(f"the review policy of its current cycle can't be read: {exc}") from None
-        cap = round_cap(root)  # a record from before policies were recorded
+        schedule, cap = {}, round_cap(root)  # a record from before policies were recorded
+    stalled = dispatch.recurrence_stalled(schedule, rounds)
+    if stalled:
+        return f"a finding recurred in {stalled} of its review rounds, so the fixes aren't converging"
     if len(rounds) < cap or dispatch.clean(rounds[-1]["review"]):
         return None
     return f"its {len(rounds)} review rounds ran out with findings open"

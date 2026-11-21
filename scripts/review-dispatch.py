@@ -205,7 +205,8 @@ def check_schedule(schedule, clis):
     Antigravity reviewer keeps the effort its model name carries), every lens known."""
     efforts = [e for e in EFFORTS["claude"] if all(e in EFFORTS[cli] for cli in clis if cli in EFFORTS)]
     keys = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
-    if not isinstance(schedule, dict) or not keys <= set(schedule) <= keys | {"completion_order", "max_repair_cycles", "max_low_rounds"}:
+    if not isinstance(schedule, dict) or not keys <= set(schedule) <= keys | {"completion_order", "max_repair_cycles",
+                                                                             "max_low_rounds", "recurrence_cap"}:
         raise Refused(f"[schedule] needs exactly {', '.join(sorted(keys))}")
     check_step("plan", schedule["plan"], efforts)
     check_step("completion", schedule["completion"], efforts, lenses=False)
@@ -246,9 +247,13 @@ def check_schedule(schedule, clis):
     stop = schedule["severity_stop_after"]
     if type(stop) is not int or not 0 <= stop <= 33:
         raise Refused("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
+    if "recurrence_cap" in schedule:
+        recur = schedule["recurrence_cap"]
+        if type(recur) is not int or not 2 <= recur <= 33:
+            raise Refused("[schedule] recurrence_cap needs a whole number of rounds from 2 to 33")
 
 
-HIGHEST = re.compile(r"^\s*HIGHEST:\s*(P[123])\b", re.IGNORECASE | re.MULTILINE)
+HIGHEST =re.compile(r"^\s*HIGHEST:\s*(P[123])\b", re.IGNORECASE | re.MULTILINE)
 
 
 def highest(review):
@@ -265,6 +270,73 @@ def clean(review):
 
 def schedule_cap(schedule):
     return 1 + schedule.get("max_low_rounds", 8) if schedule.get("completion_order") == "last" else 33
+
+
+# A finding the writer's fixes keep bringing back is a cycle's real dead end. Rounds that keep finding new defects at
+# the same severity are converging (D03 T02 §6 ran 15 P1 rounds, then went clean), so severity alone can't tell the two
+# apart; the reviewer, who reads the earlier rounds, can. Each round ends with `RECURRING: <n>`, the most rounds of
+# this cycle, itself included, that any one of its P1 or P2 findings has been reported in, or `RECURRING: none`. Under
+# a pin with [schedule] recurrence_cap, a round whose finding has reached that count ends the cycle's rounds: the
+# section takes a repair cycle (a fresh plan review), and is never stamped on it.
+RECURRING = re.compile(r"^[ \t]*RECURRING:[ \t]*(none|[1-9]\d{0,2})[ \t]*$", re.IGNORECASE | re.MULTILINE)
+
+
+def recurring(review):
+    """The rounds a review's most repeated P1 or P2 finding has been reported in (1 when none repeats), or None when
+    the review doesn't declare exactly one valid `RECURRING:` line."""
+    found = RECURRING.findall(review or "")
+    if len(found) != 1:
+        return None
+    return 1 if found[0].lower() == "none" else int(found[0])
+
+
+# A recurring finding is marked `(recurring: round 2, round 5)` with every earlier round that reported it.
+RECURRING_MARK = re.compile(r"\(recurring:\s*(round\s+[1-9]\d{0,2}(?:\s*,\s*round\s+[1-9]\d{0,2})*)\s*\)", re.IGNORECASE)
+
+
+def cited_recurrence(review, position):
+    """The most rounds any one marked finding has been reported in, counting this round (`position`) and the distinct
+    earlier rounds its mark cites; 1 when no mark cites an earlier round."""
+    best = 1
+    for mark in RECURRING_MARK.findall(review or ""):
+        earlier = {int(n) for n in re.findall(r"\d+", mark) if 1 <= int(n) < position}
+        best = max(best, 1 + len(earlier))
+    return best
+
+
+def recurrence_stalled(schedule, rounds):
+    """The count when the last returned round reports a P1 or P2 finding recurring in `recurrence_cap` rounds or more,
+    else None. The `RECURRING:` claim counts only as far as the round's own marks back it, citing distinct earlier
+    rounds of the cycle, so a miscount can't end a converging cycle; a clean round never stalls."""
+    cap = schedule.get("recurrence_cap")
+    returned = [r for r in rounds if returned_review(r)]
+    if cap is None or not returned or clean(returned[-1].get("review")):
+        return None
+    review = returned[-1].get("review")
+    seen = recurring(review)
+    if seen is None:
+        return None
+    seen = min(seen, cited_recurrence(review, returned[-1].get("number", len(returned))))
+    return seen if seen >= cap else None
+
+def recurrence_missing(schedule, kind, review):
+    """True for a round under a recurrence_cap pin whose reply lacks exactly one valid `RECURRING:` line. Such a reply
+    is not admitted as a review: counted, it would hide a repeating finding from the stall rule."""
+    return kind == "round" and "recurrence_cap" in schedule and recurring(review) is None
+
+
+def recurrence_block(record, cap, number):
+    """The prompt section asking for the `RECURRING:` line, appended after the lenses under a recurrence_cap pin."""
+    return ("\n\n## Recurring findings (appended by scripts/review-dispatch.py)\n\n"
+            f"This is round {number}. The earlier rounds of this review cycle, if any, are recorded under the `## Round` headings of `{record}`. "
+            "Read them. For each P1 or P2 finding you report, decide whether an earlier round of this cycle already "
+            "reported the same defect: the same cause, even if its line moved or the writer's fix only moved it. Mark "
+            "each such finding `(recurring: round N, ...)`, naming every earlier round that reported it. A new defect "
+            "of the same kind, in another place or from another cause, is not recurring.\n\n"
+            "Then, on its own line before the final OVERALL line, write `RECURRING: <n>`, where n is the largest number "
+            "of rounds of this cycle, this one included, that any one of your P1 or P2 findings has now been reported "
+            f"in, or `RECURRING: none` when none repeats. A finding reported in {cap} rounds ends this cycle's rounds "
+            "and sends the section back to a fresh plan, so count only true repeats.\n")
 
 
 def check_sequence(schedule, kind, found, writer, writer_model):
@@ -292,6 +364,11 @@ def check_sequence(schedule, kind, found, writer, writer_model):
             raise Refused("rounds are clean; completion is next")
         if len(rounds) >= schedule_cap(schedule):
             raise Refused("review budget exhausted with unresolved findings; run todo-graph.py repair, or park once its repair cycles are used up")
+        stalled = recurrence_stalled(schedule, rounds)
+        if stalled:
+            raise Refused(f"a P1 or P2 finding has now been reported in {stalled} rounds (recurrence_cap "
+                          f"{schedule['recurrence_cap']}), so fixing it again is not converging; run todo-graph.py "
+                          f"repair, or park once its repair cycles are used up")
     if kind == "completion" and (not rounds or not clean(rounds[-1]["review"])
             or not returned_review(found["rounds"][-1])):
         raise Refused("completion requires a clean terminal round; exhaustion is not approval")
@@ -670,6 +747,8 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
         prompt = prompt.rstrip("\n") + lens_block({**plan, "effort": effort})
     if settled:
         prompt = prompt.rstrip("\n") + settled_block(settled)
+    if plan and plan.get("recurrence"):
+        prompt = prompt.rstrip("\n") + recurrence_block(*plan["recurrence"])
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
     def none(reason):
@@ -1417,6 +1496,11 @@ def main(argv=None):
                                      f"format --record writes{unreadable_heading(existing)}; {RESERVED_NAMES}), so "
                                      f"no round was run")
             plan = scheduled(pin["schedule"], args.kind, rounds, args.surface)
+            if args.kind == "round" and args.record and "recurrence_cap" in pin["schedule"]:
+                # The reviewer runs at the repository root, so it is given the record's path from there.
+                where = Path(args.record).resolve()
+                shown = where.relative_to(ROOT).as_posix() if where.is_relative_to(ROOT) else where.as_posix()
+                plan["recurrence"] = (shown, pin["schedule"]["recurrence_cap"], len(rounds) + 1)
         if args.writer_model:
             if not MODEL.fullmatch(args.writer_model):
                 raise Refused("invalid exact writer model")
@@ -1437,6 +1521,8 @@ def main(argv=None):
             result["policy"] = policy_sha
         if pin.get("schedule", {}).get("completion_order") == "last" and result["reviewer"]:
             returned = returned_pass(args.kind, result) if one_pass else returned_review(result)
+            if returned and recurrence_missing(pin["schedule"], args.kind, result.get("review")):
+                returned = False  # without its RECURRING line the stall rule could not see a repeating finding
             if not returned:
                 result.update(reviewer=None, execution="invalid", review=None,
                               failover=[{"reviewer": result["attempt_reviewer"], "reason": "invalid terminal verdict"}])

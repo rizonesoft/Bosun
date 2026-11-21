@@ -1292,6 +1292,19 @@ class Schedule(Harness):
 
     def effort_of(self, call):
         return next(a.split("=", 1)[1] for a in call["argv"] if a.startswith("model_reasoning_effort="))
+    def test_a_recurrence_pin_gives_the_round_its_record_from_the_repository_root(self):
+        # The reviewer runs at the repository root, so a --record given from a subfolder is named from the root.
+        pin = SCHEDULED_PIN.replace("[schedule]\n", "[schedule]\nrecurrence_cap = 3\n", 1)
+        (self.repo / ".conclave/reviewers.toml").write_text(pin, encoding="utf-8")
+        (self.repo / "docs/reviews").mkdir(parents=True)
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record",
+                                        "reviews/r.md", cwd=str(self.repo / "docs"), codex="say",
+                                        say="HIGHEST: P2\nRECURRING: none\nOVERALL: needs-attention")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["round"], 1)
+        (call,) = self.calls()
+        self.assertIn("`docs/reviews/r.md`", call["stdin"])
+        self.assertIn("This is round 1.", call["stdin"])
 
     def test_rounds_follow_the_fixed_list_then_rotate_one_lens_each(self):
         seen = []
