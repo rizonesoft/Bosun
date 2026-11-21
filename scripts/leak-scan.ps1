@@ -16,10 +16,13 @@
 # listed, a git command that fails, a report that cannot be read. Exit 0 when clean, 1 otherwise.
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory)][string]$Remote,
+  # The remote by name or address; the hook passes it in BOSUN_LEAK_REMOTE, so an address with a credential in it
+  # never reaches a process command line.
+  [string]$Remote = $env:BOSUN_LEAK_REMOTE,
   [string[]]$Updates
 )
 $ErrorActionPreference = 'Stop'
+if (-not $Remote) { [Console]::Error.WriteLine('leak-scan: push refused: no remote was given to check against'); exit 1 }
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $repoRoot = Split-Path $PSScriptRoot
 $zero = '0' * 40
@@ -180,8 +183,8 @@ if ($deny.Count) {
       $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
       if ($type -eq 'tag') { $hit = Test-Deny ((Invoke-Git @('cat-file', '-p', $object)) -join "`n") }
       elseif (-not $peelsToCommit -and $type -eq 'tree') {
-        # Tree entries are read as raw NUL-separated records, so a name is checked as it is stored.
-        $hit = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-z', $object))) -split "`0") | Where-Object { $_ -and (Test-Deny ($_ -replace '^[^\t]*\t', '')) }).Count -gt 0
+        # Every path under the tree, whole (an entry can hold a separator), read as raw NUL-separated records.
+        $hit = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-r', '-t', '-z', '--full-tree', $object))) -split "`0") | Where-Object { $_ -and (Test-Deny ($_ -replace '^[^\t]*\t', '')) }).Count -gt 0
       }
       elseif (-not $peelsToCommit -and $type -eq 'blob') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
       if ($hit) { break }

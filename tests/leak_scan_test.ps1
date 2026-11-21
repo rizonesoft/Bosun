@@ -293,6 +293,14 @@ Client: Acme Corp (EU)"))
   Check 'an entry at the bottom of a 56-tag chain is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list chain-55)) "(exit $($r.Exit): $($r.Text))"
   foreach ($n in 0..55) { git -C $owner tag -d "chain-$n" | Out-Null }
 
+  # --- a tagged tree is checked by whole paths ---
+  $pathy = New-Checkout 'pathy' $remote -Deny @('clients/demo-private')
+  $null = Add-Commit $pathy 'export\clients\demo-private\report.txt' ''
+  git -C $pathy tag -a export-v1 -m 'release' 'HEAD:export'
+  git -C $pathy reset -q --hard origin/main
+  $r = Invoke-Push $pathy @('refs/tags/export-v1')
+  Check 'a deny entry holding a separator is found in a tagged tree''s full paths' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list export-v1)) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
