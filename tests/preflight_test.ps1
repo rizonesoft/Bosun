@@ -394,11 +394,20 @@ try {
     try { & $pwsh -NoProfile -Command $command 2>&1 | Out-Null } finally { $env:Path = $env:Path.Substring($recorder.Length + 1) }
     [pscustomobject]@{ Args = @(Get-Content -LiteralPath "$recorder\args.txt" -ErrorAction Ignore); Body = (Get-Content -LiteralPath "$recorder\stdin.txt" -Raw -ErrorAction Ignore) }
   }
-  function Fix-Of($r) { ($r.Text -split "`n" | Where-Object { $_ -match '^\s+fix: ' } | Select-Object -First 1) -replace '^\s+fix: ', '' }
+  # A fix as printed: its sentence, then each command on a line of its own, copied as it stands (round 2).
+  function Fix-Of($r) {
+    $ls = @($r.Text -split "`n"); $at = -1
+    for ($k = 0; $k -lt $ls.Count; $k++) { if ($ls[$k] -match '^\s+fix: ') { $at = $k; break } }
+    if ($at -lt 0) { return [pscustomobject]@{ Head = ''; Commands = @(); Text = '' } }
+    $cmds = @(); for ($k = $at + 1; $k -lt $ls.Count -and $ls[$k] -match '^ {10}\S'; $k++) { $cmds += $ls[$k].Trim() }
+    $head = $ls[$at] -replace '^\s+fix: ', ''
+    [pscustomobject]@{ Head = $head; Commands = $cmds; Text = (@($head) + $cmds) -join "`n" }
+  }
   $r = Preflight "$(Protection 'gh-absent' '{"message":"Branch not protected","status":"404"}' 1);$system" @('-Only', 'protection')
   $fix = Fix-Of $r
-  $null = $fix -match '^turn it on: (?<put>.+?); then read it back: (?<back>.+?) \(to undo: (?<undo>.+)\)$'
-  $put = Run-Printed $Matches.put; $back = Run-Printed $Matches.back; $undo = Run-Printed $Matches.undo
+  $null = $fix.Head -match '^turn it on, then read it back, one command per line \(to undo it later: (?<undo>gh api .+)\):$'
+  $put = Run-Printed $fix.Commands[0]; $back = Run-Printed $fix.Commands[1]; $undo = Run-Printed $Matches.undo
+  Check ($fix.Commands.Count -eq 2) "an absent protection's fix is a sentence and two command lines ($($fix.Commands.Count))"
   $sent = try { $put.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
   Check ($put.Args[0] -eq "api --hostname $wantHost --method PUT $wantPath --input -" -and $sent.enforce_admins -eq $true -and $sent.allow_force_pushes -eq $false -and $sent.allow_deletions -eq $false) "an absent protection's PUT, run as printed, sends the whole body to this origin's main ($($put.Args[0]))"
   Check ($back.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $undo.Args[0] -eq "api --hostname $wantHost --method DELETE $wantPath") 'its read-back and its undo, run as printed, name the same host, repository and branch'
@@ -407,26 +416,26 @@ try {
   # Only admins exempt: the enforce_admins endpoint, which changes nothing else (round 1).
   $adminsOnly = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
   $r = Preflight "$(Protection 'gh-admins-only' $adminsOnly);$system" @('-Only', 'protection')
-  $null = (Fix-Of $r) -match '^hold admins to it, changing nothing else: (?<post>.+?); then read it back: (?<back>.+)$'
-  $post = Run-Printed $Matches.post; $back = Run-Printed $Matches.back
+  $fix = Fix-Of $r
+  $post = Run-Printed $fix.Commands[0]; $back = Run-Printed $fix.Commands[1]
   Check ($post.Args[0] -eq "api --hostname $wantHost --method POST $wantPath/enforce_admins" -and -not $post.Body -and $back.Args[0] -like "api --hostname $wantHost $wantPath/enforce_admins *") "admins alone exempt are held by the enforce_admins endpoint, with no body ($($post.Args[0]))"
   # Force pushes allowed: a PUT that keeps each required check with the app it is pinned to, and the other rules.
   $forced = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false }; required_linear_history = @{ enabled = $true } } | ConvertTo-Json -Depth 6 -Compress
   $r = Preflight "$(Protection 'gh-partial' $forced);$system" @('-Only', 'protection')
-  $null = (Fix-Of $r) -match '^mend it, keeping its other rules: (?<put>.+?); then read it back: (?<back>.+)$'
-  $mend = Run-Printed $Matches.put
+  $fix = Fix-Of $r
+  $mend = Run-Printed $fix.Commands[0]; $mendBack = Run-Printed $fix.Commands[1]
   $kept = try { $mend.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
   $check = @($kept.required_status_checks.checks)[0]
-  Check ($r.Text -match 'partial: force pushes are allowed' -and $kept.allow_force_pushes -eq $false -and $check.context -eq 'build' -and $check.app_id -eq 42 -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's PUT keeps its required check pinned to its app and its other rules ($($mend.Body))"
+  Check ($fix.Head -match '^mend it, keeping its other rules' -and $mendBack.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $r.Text -match 'partial: force pushes are allowed' -and $kept.allow_force_pushes -eq $false -and $check.context -eq 'build' -and $check.app_id -eq 42 -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's PUT keeps its required check pinned to its app and its other rules ($($mend.Body))"
   $actors = [ordered]@{ url = 'x'; required_pull_request_reviews = @{ dismissal_restrictions = @{ teams = @(@{ slug = 'release' }) } }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
   $r = Preflight "$(Protection 'gh-actors' $actors);$system" @('-Only', 'protection')
-  Check ((Fix-Of $r) -match '^its review rule names who may dismiss or bypass reviews.*settings/branches' -and (Fix-Of $r) -notmatch 'method PUT') 'a review rule naming who may dismiss reviews is mended by hand, never by a PUT'
+  Check ((Fix-Of $r).Text -match '^its review rule names who may dismiss or bypass reviews.*settings/branches' -and (Fix-Of $r).Text -notmatch 'method PUT') 'a review rule naming who may dismiss reviews is mended by hand, never by a PUT'
   $restricted = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 5 -Compress
   $r = Preflight "$(Protection 'gh-restricted' $restricted);$system" @('-Only', 'protection')
-  Check ((Fix-Of $r) -match '^it restricts who may push.*settings/branches' -and (Fix-Of $r) -notmatch 'method PUT') 'a protection with push restrictions is mended by hand on the settings page, never by a PUT'
+  Check ((Fix-Of $r).Text -match '^it restricts who may push.*settings/branches' -and (Fix-Of $r).Text -notmatch 'method PUT') 'a protection with push restrictions is mended by hand on the settings page, never by a PUT'
   foreach ($case in @(@{ Name = 'gh-refused'; Answer = 'gh: Not Found (HTTP 404)'; Code = 1 }, @{ Name = 'gh-garbled'; Answer = 'not json'; Code = 0 })) {
     $r = Preflight "$(Protection $case.Name $case.Answer $case.Code);$system" @('-Only', 'protection')
-    Check ($r.Code -eq 1 -and (Fix-Of $r) -match 'gh auth status' -and $r.Text -notmatch 'method PUT') "protection that cannot be read ($($case.Name -replace '^gh-', '')) gets a diagnosis and no write"
+    Check ($r.Code -eq 1 -and (Fix-Of $r).Text -match 'gh auth status' -and $r.Text -notmatch 'method PUT') "protection that cannot be read ($($case.Name -replace '^gh-', '')) gets a diagnosis and no write"
   }
   $r = Preflight "$slowGh;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
   Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
@@ -666,7 +675,7 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
   foreach ($case in @(@('SetComplianceDeadline', 1), @('ConfigureDeadlineForQualityUpdates', 2), @('ConfigureDeadlineForFeatureUpdates', 7))) {
     New-ItemProperty -LiteralPath $deadlineKey -Name $case[0] -Value $case[1] -PropertyType DWord -Force | Out-Null
     $r = Preflight $system (@('-Only', 'setup') + $place)
-    Check ($r.Code -eq 1 -and $r.Text -match "an update deadline is set .*$($case[0])=$($case[1])" -and $r.Text -match 'Not Configured') "a deadline set by $($case[0]) fails with how to clear it"
+    Check ($r.Code -eq 1 -and $r.Text -match "an update deadline is set .*$($case[0])=$($case[1])" -and $r.Text -match 'Not Configured' -and $r.Text -match '(?s)in an elevated shell:\s+\d+\. set Windows Update''s') "a deadline set by $($case[0]) fails with how to clear it, listed under an elevated shell, since its owning check says so (round 2 of D00 T03 §25)"
     if ($case[0] -eq 'ConfigureDeadlineForQualityUpdates') {
       New-ItemProperty -LiteralPath $deadlineKey -Name ConfigureDeadlineNoAutoReboot -Value 1 -PropertyType DWord -Force | Out-Null
       $r = Preflight $system (@('-Only', 'setup') + $place)

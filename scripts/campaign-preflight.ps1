@@ -71,9 +71,12 @@ function Took { "($(Seconds $script:clock) s)" }
 function Pass([string]$what) { Write-Host "ok   $what $(Took)" }
 function Fail([string]$what, [string]$fix, [ValidateSet('', 'account', 'elevated', 'owner')][string]$kind = '') {
   Write-Host "FAIL $what $(Took)"
-  Write-Host "     fix: $fix"
+  # A fix of several lines is a sentence, then one command per line: each command line can be copied as it stands.
+  $first, $rest = $fix -split "`n"
+  Write-Host "     fix: $first"
+  foreach ($line in $rest) { Write-Host "          $line" }
   $script:failed++
-  if (-not $kind) { $kind = if ($fix -match '\belevated shell\b') { 'elevated' } else { 'account' } }
+  if (-not $kind) { $kind = 'account' }  # the check that owns the remedy names who can apply it, never its wording (round 2)
   if (-not ($script:fixes | Where-Object { $_.Fix -eq $fix })) { $script:fixes.Add([pscustomobject]@{ Kind = $kind; Fix = $fix }) }
 }
 function Tail([string]$text) { (($text -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' / ').Trim() }
@@ -306,15 +309,17 @@ function Test-Protection {
   # missing one is created; a partial one is mended with the rules it already has. Each write is one copyable command,
   # its whole body on stdin, then the read-back that confirms it.
   $unread = '`gh auth status`, and check that this account may read the repository''s settings, then run the preflight again'
-  $readBack = "then read it back: gh api --hostname $hostName $endpoint --jq '{enforce_admins: .enforce_admins.enabled, allow_force_pushes: .allow_force_pushes.enabled, allow_deletions: .allow_deletions.enabled}'"
-  $put = { param($body) "'$($body.Replace("'", "''"))' | gh api --hostname $hostName --method PUT $endpoint --input -; $readBack" }
+  # Each write and its read-back on lines of their own, the sentence that explains them apart (round 2): a line with prose
+  # in it would run the write and then fail on the prose.
+  $readBack = "gh api --hostname $hostName $endpoint --jq '{enforce_admins: .enforce_admins.enabled, allow_force_pushes: .allow_force_pushes.enabled, allow_deletions: .allow_deletions.enabled}'"
+  $put = { param($body) "'$($body.Replace("'", "''"))' | gh api --hostname $hostName --method PUT $endpoint --input -`n$readBack" }
   Write-Host "     asking $hostName for the branch protection of $owner/$name's main, up to $ProbeSeconds s"
   $r = Probe 'gh' @('api', '--hostname', $hostName, $endpoint) $unread $Repo @{ GH_REPO = $null; GH_HOST = $null; GH_ENTERPRISE_TOKEN = $null }
   if (-not $r) { return }
   if ($r.Code -ne 0) {
     if ($r.Out -match 'Branch not protected') {
       $body = '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}'
-      Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" "turn it on: $(& $put $body) (to undo: gh api --hostname $hostName --method DELETE $endpoint)"
+      Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" "turn it on, then read it back, one command per line (to undo it later: gh api --hostname $hostName --method DELETE $endpoint):`n$(& $put $body)"
     }
     else { Fail "main's protection can't be read (gh api: $(Tail $r.Out))" $unread }
     return
@@ -350,7 +355,7 @@ function Test-Protection {
 # restrictions, review dismissal or bypass actors) is mended by hand on the settings page instead.
 function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$name, [scriptblock]$put, [bool]$adminsOnly) {
   $endpoint = "repos/$owner/$name/branches/main/protection"
-  if ($adminsOnly) { return "hold admins to it, changing nothing else: gh api --hostname $hostName --method POST $endpoint/enforce_admins; then read it back: gh api --hostname $hostName $endpoint/enforce_admins --jq .enabled" }
+  if ($adminsOnly) { return "hold admins to it, changing nothing else, then read it back, one command per line:`ngh api --hostname $hostName --method POST $endpoint/enforce_admins`ngh api --hostname $hostName $endpoint/enforce_admins --jq .enabled" }
   $byHand = "on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, then run the preflight again"
   $actors = { param($o) $o -is [Collections.IDictionary] -and (@($o['users']) + @($o['teams']) + @($o['apps']) | Where-Object { $_ }).Count -gt 0 }
   $reviews = $got['required_pull_request_reviews']
@@ -373,7 +378,7 @@ function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$na
     $v = $got[$key]
     if ($v -is [Collections.IDictionary] -and $v['enabled'] -is [bool]) { $body[$key] = $v['enabled'] }
   }
-  "mend it, keeping its other rules: $(& $put ($body | ConvertTo-Json -Depth 6 -Compress))"
+  "mend it, keeping its other rules, then read it back, one command per line:`n$(& $put ($body | ConvertTo-Json -Depth 6 -Compress))"
 }
 
 function Test-Ci {
@@ -456,9 +461,9 @@ function Test-Setup {
   $failedBefore = $script:failed
   $dir = $DotnetDir
   if (-not $dir) { $dir = Resolve-RunDotnet $SearchPath }
-  if (-not $dir) { Fail 'no dotnet.exe on a run''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup'; return }
+  if (-not $dir) { Fail 'no dotnet.exe on a run''s PATH, so the SDK task has no folder' 'install the .NET SDK, then run admin setup' 'elevated'; return }
   $wrong = @()
-  try { $now = Get-UpdateState $PolicyKey } catch { Fail "the update policy can't be read: $($_.Exception.Message)" $fix; return }
+  try { $now = Get-UpdateState $PolicyKey } catch { Fail "the update policy can't be read: $($_.Exception.Message)" $fix 'elevated'; return }
   foreach ($name in $UpdateValues.Keys) {
     if ($now[$name].Value -ne $UpdateValues[$name]) { $wrong += "$name is $(if ($now[$name].Present) { $now[$name].Value } else { 'absent' }), not $($UpdateValues[$name])" }
   }
@@ -481,7 +486,7 @@ function Test-Setup {
     if (-not (Test-Path -LiteralPath $at)) { $wrong += "$b is missing from $BinDir" }
     elseif ((Get-FileHash -LiteralPath $at).Hash -ne (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $b)).Hash) { $wrong += "$b in $BinDir differs from this checkout" }
   }
-  if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix }
+  if ($wrong) { Fail "admin setup isn't in place: $($wrong -join '; ')" $fix 'elevated' }
 
   # The record is the only way back to the values from before the setup.
   $saved = $null
@@ -491,20 +496,20 @@ function Test-Setup {
     Fail "$($_.Exception.Message); the update values from before the setup are as good as lost" "if you can, mend the record so it holds them; otherwise move it aside (``Move-Item -LiteralPath '$AdminRecord' -Destination '$AdminRecord.damaged'``), then $fix records the originals as unknown, and -Restore later returns Windows' defaults (both values absent)"
   }
   if (-not (Test-Path -LiteralPath $AdminRecord)) {
-    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix records the originals as unknown and keeps the hold, and -Restore later returns Windows' defaults (both values absent)"
+    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix records the originals as unknown and keeps the hold, and -Restore later returns Windows' defaults (both values absent)" 'elevated'
   } elseif ($saved) {
     $other = @(foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
         $given = Get-Variable -Name $name -ValueOnly
         if ($saved.PSObject.Properties.Name -contains $name -and $saved.$name -ne $given) { "$name $($saved.$name), not $given" }
       })
-    if ($other) { Fail "admin setup's record at $AdminRecord is for other targets ($($other -join '; '))" "run admin setup -Restore, then -Apply, in an elevated shell, or point the preflight at the recorded targets" }
+    if ($other) { Fail "admin setup's record at $AdminRecord is for other targets ($($other -join '; '))" "run admin setup -Restore, then -Apply, in an elevated shell, or point the preflight at the recorded targets" 'elevated' }
   }
 
   # What still restarts the machine while the owner is signed in, which no setting here holds back.
   $deadlineKey = Split-Path $PolicyKey
   try {
     $set = @(foreach ($name in $DeadlineValues) { $v = Get-RegValue $deadlineKey $name; if ($null -ne $v -and -not ($name -eq 'SetComplianceDeadline' -and $v -eq 0)) { "$name=$v" } })
-    if ($set) { Fail "an update deadline is set under $deadlineKey ($($set -join ', ')): once it passes, Windows restarts whoever is signed in" "set Windows Update's 'Specify deadlines for automatic updates and restarts' policy to Not Configured (or remove those values from $deadlineKey), then run the preflight again" }
+    if ($set) { Fail "an update deadline is set under $deadlineKey ($($set -join ', ')): once it passes, Windows restarts whoever is signed in" "set Windows Update's 'Specify deadlines for automatic updates and restarts' policy to Not Configured (or remove those values from $deadlineKey), then run the preflight again" 'elevated' }
   } catch { Fail "the update deadline policy can't be read: $($_.Exception.Message)" 'run the preflight again from your own account' }
   if (Test-Path -LiteralPath $PendingRestartKey) {
     Fail "an update restart is pending ($PendingRestartKey), and the owner can schedule it during the run, which nothing holds back" 'restart now, then run the preflight again'
@@ -561,7 +566,7 @@ if ($failed) {
     $these = @($script:fixes | Where-Object { $_.Kind -eq $group[0] })
     if (-not $these) { continue }
     "  $($group[1]):"
-    foreach ($f in $these) { $step++; "    $step. $($f.Fix)" }
+    foreach ($f in $these) { $step++; $first, $rest = $f.Fix -split "`n"; "    $step. $first"; foreach ($line in $rest) { "         $line" } }
   }
   # The same checks with the same options, single-quoted: a recheck of another checkout or other limits proves nothing.
   $again = foreach ($key in 'Repo', 'Only', 'ProbeSeconds', 'MinFreeGB', 'MinLoginDays', 'ReviewerModel', 'Distro', 'FreeDrives') {
