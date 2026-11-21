@@ -577,7 +577,12 @@ def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=Non
                     # finding (an untagged one counts as P1), declares the highest on the line before OVERALL; reading
                     # severities back out of free prose would guess where the reviewer already said.
                     lines = [x.strip() for x in e["review"].splitlines() if x.strip()]
-                    require(r["verdict"] != "stopped-low-severity" or (len(lines) >= 2 and lines[-2] == "HIGHEST: P3"),
+                    # The dispatcher may close a round with RECURRING: <n> between HIGHEST and OVERALL (recurrence_cap), so the
+                    # HIGHEST line is the last one before OVERALL that is not a RECURRING line.
+                    closing = [x for x in lines[:-1]]
+                    while closing and re.match(r"^RECURRING:\s*(none|\d+)\s*$", closing[-1], re.IGNORECASE):
+                        closing.pop()
+                    require(r["verdict"] != "stopped-low-severity" or (closing and closing[-1] == "HIGHEST: P3"),
                             f"round {r['round']} does not declare HIGHEST: P3 before its OVERALL line, so it cannot "
                             f"stop on severity: {ref}")
                     # Stopping is earned by reviews returned: a round that returned no review (an outage) does not

@@ -1593,6 +1593,32 @@ class Stamp(Tree):
         summary = tg.review_rounds(self.root)["summary"]
         self.assertEqual((summary["stopped_low_severity"], summary["stopped_at_cap"]), (1, 0))
 
+    def test_a_severity_stop_reads_past_the_recurring_line(self):
+        # The dispatcher closes a round with RECURRING: <n> between HIGHEST and OVERALL (recurrence_cap); the stop still
+        # reads the HIGHEST line, and anything else between them still refuses.
+        self.tick_work()
+        self.record_rounds(tg.SEVERITY_CUTOFF_ROUND + 1)
+        report = self.root / "docs/reviews/00-workspace/D00-T01-s1.md"
+        head = report.read_text(encoding="utf-8").rsplit("OVERALL: needs-attention", 1)[0]
+        low = [{"round": tg.SEVERITY_CUTOFF_ROUND + 1, "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+                "verdict": "stopped-low-severity"}]
+        report.write_text(head + "HIGHEST: P3\nRECURRING: none\nOVERALL: needs-attention\n\n", encoding="utf-8")
+        receipt = self.stamp("D00 T01 §1", self.sha, low, ["true -> ok"], "2026-10-13", cap_outcome="two P3s, taken")
+        self.assertTrue((self.root / receipt).exists())
+
+    def test_a_severity_stop_with_another_line_after_highest_refuses(self):
+        self.tick_work()
+        self.record_rounds(tg.SEVERITY_CUTOFF_ROUND + 1)
+        report = self.root / "docs/reviews/00-workspace/D00-T01-s1.md"
+        head = report.read_text(encoding="utf-8").rsplit("OVERALL: needs-attention", 1)[0]
+        low = [{"round": tg.SEVERITY_CUTOFF_ROUND + 1, "report": "docs/reviews/00-workspace/D00-T01-s1.md",
+                "verdict": "stopped-low-severity"}]
+        report.write_text(head + "HIGHEST: P3\nRECURRING: 2\n1. a later finding.\nOVERALL: needs-attention\n\n",
+                          encoding="utf-8")
+        with self.assertRaises(tg.Refused) as ctx:
+            self.stamp("D00 T01 §1", self.sha, low, ["true -> ok"], "2026-10-13", cap_outcome="x")
+        self.assertIn("does not declare HIGHEST: P3", str(ctx.exception))
+
     def test_a_cap_stop_must_be_the_current_cap_reached(self):
         self.tick_work()
         self.record_rounds(tg.REVIEW_ROUND_CAP)
