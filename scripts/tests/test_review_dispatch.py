@@ -1724,6 +1724,52 @@ class ChangeReviews(Harness):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("## Change review: astra", record.read_text(encoding="utf-8"))
 
+    def test_a_malformed_severity_is_no_verdict(self):
+        # Round 1: any line starting HIGHEST passed, so `HIGHEST: unknown` earned approval and blocked the retry.
+        for name, say in (("tool-f.md", "1. Fine.\n\nHIGHEST: unknown\nOVERALL: approve"),
+                          ("tool-g.md", "HIGHEST: P3\nHIGHEST: none\nOVERALL: approve")):
+            with self.subTest(say.splitlines()[-2]):
+                record = self.changes / name
+                self.change(record, say)
+                self.assertFalse(record.exists() and "## Change review: astra" in record.read_text(encoding="utf-8"),
+                                 "a malformed verdict was recorded as a returned change review")
+                self.elapse()
+                retry, _ = self.change(record, self.APPROVE)
+                self.assertEqual(retry.returncode, 0, retry.stderr)
+
+    def test_a_change_review_follows_no_link_out_of_the_checkout(self):
+        # Round 1: a junction at docs/reviews/changes, or a file link at the record, passed by its spelling.
+        outside = Path(self._tmp.name) / "elsewhere"
+        outside.mkdir()
+        self.changes.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(self.changes), str(outside)], capture_output=True)
+            linked = made.returncode == 0
+        else:
+            try:
+                os.symlink(outside, self.changes, target_is_directory=True)
+                linked = True
+            except OSError:
+                linked = False
+        if not linked:
+            self.skipTest("this machine cannot make a directory link")
+        result, _ = self.change(self.changes / "tool-h.md", self.APPROVE)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(list(outside.iterdir()), [], "a change review wrote through a junction out of the checkout")
+        self.assertEqual(self.calls(), [])
+        os.rmdir(self.changes) if os.name == "nt" else os.unlink(self.changes)
+        self.changes.mkdir()
+        note = Path(self._tmp.name) / "private-note.md"
+        note.write_text("# A private note\n", encoding="utf-8")
+        try:
+            os.symlink(note, self.changes / "tool-i.md")
+        except OSError:
+            self.skipTest("this machine cannot make a file link")
+        result, _ = self.change(self.changes / "tool-i.md", self.APPROVE)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(note.read_text(encoding="utf-8"), "# A private note\n")
+        self.assertTrue(os.path.islink(self.changes / "tool-i.md"), "the link was replaced by a record")
+
     def test_a_change_review_is_refused_anywhere_but_its_own_place(self):
         for record in (self.repo / "docs/reviews/tool.md", self.changes / "D00-T03-s26.md",
                        self.changes / "D00-T03-s26-cycle2.md", self.changes / "audit-d00-t03-s26.md",

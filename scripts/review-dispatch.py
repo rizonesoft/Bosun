@@ -1285,8 +1285,11 @@ def returned_pass(kind, entry):
     if kind == "plan":
         return family and len(lines) >= 2 and lines[-2] in ("PLAN: complete", "PLAN: gaps") \
             and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
-    if kind == "change":  # a round's verdict: a HIGHEST line, then OVERALL last
-        return family and len(lines) >= 2 and any(x.startswith("HIGHEST: ") for x in lines[:-1]) \
+    if kind == "change":
+        # A round's verdict, exactly: one HIGHEST line naming P1, P2, P3 or none, then OVERALL last (round 1 of
+        # D00 T03 §26: any HIGHEST line, `HIGHEST: unknown` included, earned approval and blocked the retry).
+        declared = [x for x in lines[:-1] if re.match(r"(?i)HIGHEST:", x)]
+        return family and len(declared) == 1 and re.fullmatch(r"(?i)HIGHEST:\s*(P[123]|none)", declared[0]) is not None \
             and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
     return family and bool(lines) and lines[-1] in ("COMPLETION: complete", "COMPLETION: gaps")
 
@@ -1509,7 +1512,12 @@ def main(argv=None):
     if args.record:
         where = Path(os.path.abspath(args.record))
         inside = where.parent == Path(os.path.abspath(CHANGES))
-        if args.kind == "change" and (not inside or where.suffix != ".md" or SECTION_NAME.fullmatch(where.stem)):
+        # By what the path is, not how it is spelled (round 1): the folder itself inside the checkout, not a junction
+        # or link out of it, and the record not a link that would pour another file's text into a public record.
+        real = Path(os.path.realpath(CHANGES))
+        genuine = inside and real.is_relative_to(Path(os.path.realpath(ROOT))) and not os.path.islink(where) \
+            and Path(os.path.realpath(where)).parent == real
+        if args.kind == "change" and (not genuine or where.suffix != ".md" or SECTION_NAME.fullmatch(where.stem)):
             print(f"refused: a change review is recorded in docs/reviews/changes/<name>.md, under a name that is not "
                   f"a section's ({args.record})", file=sys.stderr)
             return 2
@@ -1584,9 +1592,10 @@ def main(argv=None):
             result["writer_model"] = args.writer_model
         if policy_sha:
             result["policy"] = policy_sha
-        if pin.get("schedule", {}).get("completion_order") == "last" and result["reviewer"]:
+        # A change review is checked under any pin: it has no rounds or stamp after it to catch a reply without a verdict.
+        if (pin.get("schedule", {}).get("completion_order") == "last" or args.kind == "change") and result["reviewer"]:
             returned = returned_pass(args.kind, result) if one_pass else returned_review(result)
-            if returned and recurrence_missing(pin["schedule"], args.kind, result.get("review")):
+            if returned and recurrence_missing(pin.get("schedule", {}), args.kind, result.get("review")):
                 returned = False  # without its RECURRING line the stall rule could not see a repeating finding
             if not returned:
                 result.update(reviewer=None, execution="invalid", review=None,
