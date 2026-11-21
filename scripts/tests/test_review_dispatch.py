@@ -1983,6 +1983,20 @@ class Settled(Harness):
         self.assertIn(f"- Settled: written in both files (`docs/reviews/00-workspace/D00-T01-s2.md:{base_line}`)", prompt)
         self.assertIn("- Settled: only in cycle two (`docs/reviews/00-workspace/D00-T01-s2-cycle2.md:4`)", prompt)
 
+    @unittest.skipUnless(os.name == "nt", "junctions are Windows'")
+    def test_a_settled_source_is_relative_however_the_record_is_spelled(self):
+        # CI (plan 44961575384): the record spelled through the runner's RUNNER~1 temp folder made the source absolute.
+        alias = Path(self._tmp.name).parent / f"alias-{Path(self._tmp.name).name}"
+        if subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), self._tmp.name], capture_output=True).returncode:
+            self.skipTest("this machine cannot make a junction")
+        self.addCleanup(lambda: os.rmdir(alias))
+        record = self.folder / "D00-T01-s2.md"
+        record.write_text("# Findings\n\n- Settled: spelled another way\n", encoding="utf-8")
+        spelled = alias / "repo/docs/reviews/00-workspace/D00-T01-s2.md"
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(spelled))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("- Settled: spelled another way (`docs/reviews/00-workspace/D00-T01-s2.md:3`)", self.received(self.calls()[0]))
+
     def test_no_settled_lines_leave_the_prompt_as_written(self):
         record = self.folder / "D00-T01-s2.md"
         self.seed(record)

@@ -571,9 +571,11 @@ def settled_items(record, with_sources=False):
 
 
 def shown_path(path):
-    """A path as the reviewer, working at the repository root, opens it: repository-relative where it can be."""
-    where = Path(os.path.abspath(path))
-    return where.relative_to(ROOT).as_posix() if where.is_relative_to(ROOT) else where.as_posix()
+    """A path as the reviewer, working at the repository root, opens it: repository-relative where it can be, judged by
+    real paths, since the same folder can be spelled two ways (CI's runner temp folder is RUNNER~1, its root the long
+    name; plan run 44961575384)."""
+    where, root = Path(os.path.realpath(path)), Path(os.path.realpath(ROOT))
+    return where.relative_to(root).as_posix() if where.is_relative_to(root) else where.as_posix()
 
 
 def settled_block(items):
