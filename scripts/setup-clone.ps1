@@ -97,7 +97,7 @@ if ($item) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null
     if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config --local bosun.overlay true)' }
     'overlay: .private is the overlay; marked it as one, so every pull of this checkout that merges keeps it current'
-    'overlay: to undo the mark only (the checkout stays as it is): git -C .private config --local --unset bosun.overlay; pwsh scripts/update-agent-rules.ps1 (which takes the overlay''s rules out of CLAUDE.local.md)'
+    "overlay: to undo the mark only (the checkout stays as it is): git -C `"$private`" config --local --unset bosun.overlay"
   } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
 } else {
   $ready = $true
@@ -150,10 +150,5 @@ if ($item) {
     "overlay: to remove it, first look for work only it holds: 'git -C .private status --ignored' (edits, new and ignored files), 'git -C .private stash list' (stashes) and 'git -C .private log --branches --not --remotes' (commits not pushed); keep what you need, then delete .private. The checkout works without it, and running this script again brings it back"
   }
 }
-
-# The overlay's agent rules follow .private as it now is (D00 T05 §5).
-$rules = Update-BosunAgentRules $Repo
-if ($rules -eq 'added') { 'overlay: agent rules: CLAUDE.local.md now imports .private/AGENTS.md' }
-elseif ($rules -eq 'removed') { 'overlay: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
 
 exit 0

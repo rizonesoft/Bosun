@@ -220,47 +220,16 @@ function Get-OverlayCloneFault([string]$folder) {
 }
 
 # --- the overlay's agent rules (D00 T05 §5) ---
-# Claude Code reads the overlay's rules through an import kept in the checkout's ignored CLAUDE.local.md, between two
-# marker lines, only while .private is the overlay's own clone (Get-OverlayCloneFault), marked by setup and holding
-# AGENTS.md: an unrelated folder at .private is never trusted. Setup, scripts/hooks/post-merge and scripts/sync.ps1 call
-# this after their work, so the import follows the overlay as it gains or loses its rules. Any other text in the file
-# is kept byte for byte, a file left empty is removed, and a write is a temporary file renamed over the old one.
-# Returns what it did: 'added', 'removed' or 'unchanged'.
-$script:BosunRulesStart = '<!-- bosun-overlay-rules: written by scripts/setup-clone.ps1; do not edit between these lines -->'
-$script:BosunRulesEnd = '<!-- /bosun-overlay-rules -->'
-function Update-BosunAgentRules([string]$Repo) {
+# The owner-only rules, .private/AGENTS.md, as text, or $null when they are not to be trusted. They are trusted only
+# from the overlay's own clone (Get-OverlayCloneFault), marked by setup (bosun.overlay = true in its own config), and
+# only from a file of its own inside it: a link to a file elsewhere is refused. Nothing is written: Claude Code reads
+# them at every session start through scripts/overlay-rules-hook.ps1, and the other agents follow AGENTS.md's rule.
+function Get-BosunOverlayRules([string]$Repo) {
   $private = Join-Path $Repo '.private'
-  $wanted = (Test-Path -LiteralPath (Join-Path $private 'AGENTS.md') -PathType Leaf) -and -not (Get-OverlayCloneFault $private) -and
-    ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true')
-  $file = Join-Path $Repo 'CLAUDE.local.md'
-  $text = if (Test-Path -LiteralPath $file -PathType Leaf) { [IO.File]::ReadAllText($file) } else { '' }
-  # What this function wrote is taken out line by line, never by a span between markers: every marker line, and the
-  # import line that follows an opening marker. A block whose closing line was lost therefore loses its import too,
-  # and every other line, the owner's own, is kept as written, line breaks included.
-  $kept = [Text.StringBuilder]::new()
-  $afterStart = $false
-  foreach ($line in [regex]::Split($text, '(?<=\n)')) {
-    if (-not $line) { continue }
-    $bare = $line.TrimEnd("`r", "`n")
-    if ($bare -ceq $script:BosunRulesStart) { $afterStart = $true; continue }
-    if ($bare -ceq $script:BosunRulesEnd) { $afterStart = $false; continue }
-    if ($afterStart -and $bare -ceq '@.private/AGENTS.md') { $afterStart = $false; continue }
-    $afterStart = $false
-    [void]$kept.Append($line)
-  }
-  $without = $kept.ToString()
-  # The block goes first, each of its lines ending in its own line break, so the owner's text after it is never
-  # touched (a last line without a line break stays so) and taking the block out gives the file back byte for byte.
-  $new = if ($wanted) { "$($script:BosunRulesStart)`n@.private/AGENTS.md`n$($script:BosunRulesEnd)`n$without" } else { $without }
-  if ($new -ceq $text) { return 'unchanged' }
-  if (-not $new.Trim()) { Remove-Item -LiteralPath $file -Force; return 'removed' }
-  # The temporary file is ignored as CLAUDE.local.md is (.gitignore: CLAUDE.local.md*), and removed if the rename fails.
-  $temp = "$file.tmp-$PID"
-  try {
-    [IO.File]::WriteAllText($temp, $new, [Text.UTF8Encoding]::new($false))
-    Move-Item -LiteralPath $temp -Destination $file -Force
-  } finally {
-    if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction Ignore }
-  }
-  if ($wanted) { 'added' } else { 'removed' }
+  if (-not (Test-Path -LiteralPath $private -PathType Container) -or (Get-OverlayCloneFault $private)) { return $null }
+  if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { return $null }
+  $file = Get-Item -LiteralPath (Join-Path $private 'AGENTS.md') -Force -ErrorAction Ignore
+  if (-not $file -or $file.PSIsContainer -or $file.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return $null }
+  # Read as stored (a byte-order mark tells UTF-8 or UTF-16 apart; without one it is UTF-8).
+  [IO.File]::ReadAllText($file.FullName)
 }

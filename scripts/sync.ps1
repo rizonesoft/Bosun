@@ -163,12 +163,8 @@ if ($Check) {
 # All or nothing: one repository in a state this run does not act on means neither is changed.
 $blocked = @($states | Where-Object { -not $_.Ok -and $_.Action -eq 'none' })
 if ($blocked) {
-  # Nothing is synced, but the agent rules still follow .private as it is: an overlay unmarked or removed loses
-  # its import here too (D00 T05 §5).
-  $rules = Update-BosunAgentRules $publicRoot
-  if ($rules -eq 'removed') { 'sync: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
   Write-States $states
-  foreach ($s in $blocked) { "sync: $(if ($rules -eq 'removed') { 'nothing was synced' } else { 'nothing was changed' }), because $($s.Label) is $($s.Text)" }
+  foreach ($s in $blocked) { "sync: nothing was changed, because $($s.Label) is $($s.Text)" }
   exit 1
 }
 
@@ -236,10 +232,6 @@ if ($failed) {
 }
 elseif ($done) { "sync: $($done -join '; ')" }
 if ($undo) { "sync: $undo" }
-# The overlay's agent rules follow .private as this run left it (D00 T05 §5).
-$rules = Update-BosunAgentRules $publicRoot
-if ($rules -eq 'added') { 'sync: agent rules: CLAUDE.local.md now imports .private/AGENTS.md' }
-elseif ($rules -eq 'removed') { 'sync: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
 $states = Get-States
 Write-States $states
 exit $(if ($failed -or @($states | Where-Object { -not $_.Ok }).Count) { 1 } else { 0 })

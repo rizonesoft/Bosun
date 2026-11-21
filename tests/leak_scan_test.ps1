@@ -185,7 +185,8 @@ try {
   $cafe = New-Checkout 'cafe' $remote -Deny @('Café')
   $null = Add-Commit $cafe 'docs\Café.md' 'clean content'
   $r = Invoke-Push $cafe @('main')
-  Check 'a non-ASCII path holding an entry is found (git would quote it in its display)' ($r.Exit -ne 0 -and $r.Text -match 'a path: deny-list entry' -and $r.Text -notmatch '(?i)caf') "(exit $($r.Exit): $($r.Text))"
+  # The entry itself is looked for: the test's random hex folder name, in git's push lines, can hold "cafe" but never "café".
+  Check 'a non-ASCII path holding an entry is found (git would quote it in its display)' ($r.Exit -ne 0 -and $r.Text -match 'a path: deny-list entry' -and $r.Text -notmatch '(?i)café') "(exit $($r.Exit): $($r.Text))"
   $utf16 = Join-Path $owner 'report.txt'
   [IO.File]::WriteAllText($utf16, "Status report`r`nClient: Acme Corp (EU)`r`n", [Text.Encoding]::Unicode)
   git -C $owner add -A; git -C $owner commit -q -m 'report'

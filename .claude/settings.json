@@ -29,6 +29,11 @@
             "type": "command",
             "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/scripts/run-guard.py\" hook",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -NonInteractive -File \"$CLAUDE_PROJECT_DIR/scripts/overlay-rules-hook.ps1\"",
+            "timeout": 20
           }
         ]
       }

@@ -414,8 +414,9 @@ try {
   git clone -q $overlayRemote (Join-Path $adopt '.private') 2>$null
   Set-Content -LiteralPath (Join-Path $adopt '.private\mine.txt') -Value 'work from before setup'
   $r = Invoke-Setup $adopt
-  $undo = [regex]::Match($r.Text, 'mark only \(the checkout stays as it is\): (git -C \.private config --local --unset bosun\.overlay)').Groups[1].Value
-  Push-Location -LiteralPath $adopt
+  # The undo names that checkout's own .private (D00 T05 §5), so it works from any folder.
+  $undo = [regex]::Match($r.Text, 'mark only \(the checkout stays as it is\): (git -C "' + [regex]::Escape((Join-Path $adopt '.private')) + '" config --local --unset bosun\.overlay)').Groups[1].Value
+  Push-Location -LiteralPath $work
   try { if ($undo) { Invoke-Expression $undo } } finally { Pop-Location }
   Check 'adopting a clone prints the undo of its mark, which keeps the checkout' ($undo -and -not "$(git -C (Join-Path $adopt '.private') config --local --get bosun.overlay)" -and (Get-Content -LiteralPath (Join-Path $adopt '.private\mine.txt') -Raw).Trim() -eq 'work from before setup') "($($r.Text))"
 
