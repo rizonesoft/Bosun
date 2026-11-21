@@ -1737,8 +1737,8 @@ class ChangeReviews(Harness):
                 retry, _ = self.change(record, self.APPROVE)
                 self.assertEqual(retry.returncode, 0, retry.stderr)
 
-    def test_a_change_review_follows_no_link_out_of_the_checkout(self):
-        # Round 1: a junction at docs/reviews/changes, or a file link at the record, passed by its spelling.
+    def test_a_change_review_follows_no_junction_out_of_the_checkout(self):
+        # Round 1: a junction at docs/reviews/changes passed by its spelling.
         outside = Path(self._tmp.name) / "elsewhere"
         outside.mkdir()
         self.changes.parent.mkdir(parents=True, exist_ok=True)
@@ -1757,8 +1757,10 @@ class ChangeReviews(Harness):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertEqual(list(outside.iterdir()), [], "a change review wrote through a junction out of the checkout")
         self.assertEqual(self.calls(), [])
-        os.rmdir(self.changes) if os.name == "nt" else os.unlink(self.changes)
-        self.changes.mkdir()
+
+    def test_a_change_review_refuses_a_record_that_is_a_link(self):
+        # Round 1, in its own test (round 3), so a machine without the file-link privilege skips only this one.
+        self.changes.mkdir(parents=True)
         note = Path(self._tmp.name) / "private-note.md"
         note.write_text("# A private note\n", encoding="utf-8")
         try:
