@@ -111,8 +111,9 @@ class Env:
     # The campaign hold's record (D00 T03 §24): {"applied", "expires", "restore_tried"} as epoch seconds (the last
     # None when never tried), None with no hold, or {"error": why} when it can't be read.
     hold: Callable[[], dict | None] = lambda: None
-    # Run `campaign-hold.ps1 -Restore -Auto`: {"exit": its code, or None when it could not start or was stopped, "output"}.
-    restore_hold: Callable[[], dict] = lambda: {"exit": 0, "output": ""}
+    # Run `campaign-hold.ps1 -Restore -Auto -Applied <mark>` for the hold named by its mark: {"exit": its code, or None
+    # when it could not start or was stopped, "output"}.
+    restore_hold: Callable[[str], dict] = lambda mark: {"exit": 0, "output": ""}
 
 
 def stamp(now: float | None = None) -> str:
@@ -302,8 +303,11 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
     if state.get("active") and state.get("session_id") not in (None, session) and run_alive(state, env):
         return f"Another session ({state['session_id']}) owns the active run. Never run two writers on one tree: stop and say so."
     if not state.get("active"):
+        kept = state.get("hold_restore")  # the machine's, not the run's: a new run keeps it (completion review of D00 T03 §24)
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
+        if kept:
+            state["hold_restore"] = kept
     state.pop("started_at", None)  # the session is here, so it is judged like any other from now on
     for key in OWNER_KEYS:
         state.pop(key, None)  # a Claude Code session owns it now, judged by its own record, not a former owner's process
@@ -658,16 +662,16 @@ def hold_due(state: dict, hold: dict | None, now: float) -> str | None:
 
 
 def release_hold(state: dict, env: Env, now: float | None = None) -> bool:
-    """Claim the hold for an active run, and restore it when it is due, keeping the result in `hold_restore`. Called
-    under the state lock by every path that ends or reads a run, so two never restore at once. Returns whether it
-    changed the state."""
+    """Restore the hold when it is due, keeping the result in `hold_restore`. Called under the state lock by every path
+    that ends or reads a run, so two never restore at once; the claim is made apart (`claim_hold`), only for the run's
+    own session, since a foreign hook or a stale launcher must never claim a fresh hold for a dead run. Returns whether
+    it changed the state."""
     now = time.time() if now is None else now
     hold = read_hold(env)
-    claimed = claim_hold(state, hold)
     why = hold_due(state, hold, now)
     if not why or hold is None:
-        return claimed
-    result = env.restore_hold()
+        return False
+    result = env.restore_hold(hold_mark(hold))
     state["hold_restore"] = {"at": stamp(now), "applied": hold_mark(hold), "why": why,
                              "exit": result.get("exit"), "output": str(result.get("output", ""))[:500]}
     return True
@@ -828,7 +832,8 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
         state = load(path)
         before = json.dumps(state, sort_keys=True)
         merge_pending_wait(state, path, time.time())
-        claim_hold(state, read_hold(env))  # before the stop, which may be the one that ends the run
+        if state.get("session_id") == session:  # only the run's own session claims for it
+            claim_hold(state, read_hold(env))  # before the stop, which may be the one that ends the run
         reason = on_antigravity_stop(state, data, env)
         release_hold(state, env)
         if json.dumps(state, sort_keys=True) != before:
@@ -1138,10 +1143,12 @@ def stop_tree(pid: int) -> None:
             return
 
 
-def real_restore_hold(argv: list[str] | None = None, limit: float = HOLD_RESTORE_SECONDS) -> dict:
-    """Run the hold's automatic restore, stopped with its whole tree past `limit` seconds."""
+def real_restore_hold(mark: str = "", argv: list[str] | None = None, limit: float = HOLD_RESTORE_SECONDS) -> dict:
+    """Run the hold's automatic restore of the hold applied at `mark`, stopped with its whole tree past `limit`
+    seconds. The script refuses a record that is not that hold, so a manual restore and a new apply in the meantime
+    are never undone by an old decision."""
     argv = argv or ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(ROOT / "scripts" / "campaign-hold.ps1"),
-                    "-Restore", "-Auto", "-ProbeSeconds", "2"]
+                    "-Restore", "-Auto", "-ForHold", mark, "-ProbeSeconds", "2"]
     extra = hidden() if os.name == "nt" else {"start_new_session": True}
     try:
         process = subprocess.Popen(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1239,7 +1246,8 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
     state = load(path)
     before = json.dumps(state, sort_keys=True)
     merge_pending_wait(state, path, time.time())
-    claim_hold(state, read_hold(env))  # before the event, which may be the one that ends the run
+    if data.get("session_id") == state.get("session_id"):  # only the run's own session claims for it
+        claim_hold(state, read_hold(env))  # before the event, which may be the one that ends the run
     output = ""
     if event == "UserPromptSubmit":
         note = on_prompt(state, data, env)

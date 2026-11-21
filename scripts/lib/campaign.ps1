@@ -165,7 +165,8 @@ function Assert-Record($saved, [string]$path, [string]$kind) {
 function ConvertTo-HoldTime($value) {
   if ($value -is [datetime]) { return $value.ToUniversalTime() }
   $when = [datetime]::MinValue
-  if ($value -is [string] -and [datetime]::TryParse($value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AdjustToUniversal, AssumeUniversal', [ref]$when)) { return $when }
+  # The pattern the run guard reads (hold_time in scripts/lib/run_guard.py): a date and a time, never a date alone.
+  if ($value -is [string] -and $value -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)?$' -and [datetime]::TryParse($value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AdjustToUniversal, AssumeUniversal', [ref]$when)) { return $when }
   $null
 }
 
@@ -221,7 +222,10 @@ function Set-PowerValue([string]$powercfg, [string]$scheme, [string]$sub, [strin
   if ($r.Code -ne 0) { throw "powercfg $flag $scheme $sub $setting $value failed: $($r.Out)" }
   # Applies the change to the running scheme, and only to it: activating a plan the owner has since switched away from
   # would quietly undo that choice (round 1 of D00 T03 §24).
-  if ((Get-ActiveScheme $powercfg) -eq $scheme) { [void](Invoke-PowerCfg $powercfg @('/setactive', $scheme)) }
+  if ((Get-ActiveScheme $powercfg) -eq $scheme) {
+    $a = Invoke-PowerCfg $powercfg @('/setactive', $scheme)
+    if ($a.Code -ne 0) { throw "powercfg /setactive $scheme failed, so the running plan did not take $setting $line = ${value}: $($a.Out)" }
+  }
 }
 
 # The screen saver lock value: the string in $key, or $null when absent.
@@ -242,7 +246,8 @@ function Set-LockValue([string]$key, $value) {
       Add-Type -Namespace Bosun -Name Spi -MemberDefinition '[DllImport("user32.dll", SetLastError = true)] public static extern bool SystemParametersInfo(uint action, uint param, System.IntPtr vparam, uint flags);'
     }
     $on = 0; if ($value -eq '1') { $on = 1 }
-    [void][Bosun.Spi]::SystemParametersInfo(0x0077, $on, [IntPtr]::Zero, 0x3)  # SPI_SETSCREENSAVESECURE, update and broadcast
+    # SPI_SETSCREENSAVESECURE, update and broadcast; a desktop that refuses it leaves the stored value unobeyed.
+    if (-not [Bosun.Spi]::SystemParametersInfo(0x0077, $on, [IntPtr]::Zero, 0x3)) { throw "the desktop refused the screen saver lock change (SystemParametersInfo error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" }
   }
 }
 

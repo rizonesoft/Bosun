@@ -175,6 +175,7 @@ def main() -> int:
                     return 1
             try:
                 guard.start(state, args.session, guard.REAL, runner=args.runner, owner_pid=args.owner_pid, owner_started=started)
+                guard.claim_hold(state, guard.read_hold(guard.REAL))  # the hold in force at launch is this run's, before any hook
             except (ValueError, OSError) as error:
                 say(str(error))
                 return 1

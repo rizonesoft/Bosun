@@ -27,6 +27,8 @@ param(
   [Parameter(ParameterSetName = 'Status')][switch]$Status,
   [Parameter(ParameterSetName = 'Restore')][switch]$Restore,
   [Parameter(ParameterSetName = 'Restore')][switch]$Auto,
+  # With -Auto: the hold the run guard chose (-ForHold), by when it was applied (yyyy-MM-ddTHH:mm:ssZ); any other record is refused.
+  [Parameter(ParameterSetName = 'Restore')][string]$ForHold = '',  # not $Applied: PowerShell names ignore case, and -Apply's $applied is a time
   [string]$Record = ($env:BOSUN_HOLD_RECORD ? $env:BOSUN_HOLD_RECORD : (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json')),
   [string]$PowerCfg = ($env:BOSUN_HOLD_POWERCFG ? $env:BOSUN_HOLD_POWERCFG : (Join-Path $env:SystemRoot 'System32\powercfg.exe')),
   [string]$LockKey = ($env:BOSUN_HOLD_LOCKKEY ? $env:BOSUN_HOLD_LOCKKEY : 'HKCU:\Control Panel\Desktop'),
@@ -65,9 +67,11 @@ function Show-Plan($now) {
 # The one command that restores this hold, naming the targets this run was given when they are not the defaults.
 function Get-RestoreCommand {
   $parts = @('pwsh scripts/campaign-hold.ps1 -Restore')
-  if ($script:given.ContainsKey('Record') -or $env:BOSUN_HOLD_RECORD) { $parts += "-Record `"$Record`"" }
-  if ($script:given.ContainsKey('PowerCfg') -or $env:BOSUN_HOLD_POWERCFG) { $parts += "-PowerCfg `"$PowerCfg`"" }
-  if ($script:given.ContainsKey('LockKey') -or $env:BOSUN_HOLD_LOCKKEY) { $parts += "-LockKey `"$LockKey`"" }
+  # Single quotes, a quote in a path doubled: pasted as printed, a path holding $ or a backtick stays the path.
+  $quote = { param($v) "'" + $v.Replace("'", "''") + "'" }
+  if ($script:given.ContainsKey('Record') -or $env:BOSUN_HOLD_RECORD) { $parts += "-Record $(& $quote $Record)" }
+  if ($script:given.ContainsKey('PowerCfg') -or $env:BOSUN_HOLD_POWERCFG) { $parts += "-PowerCfg $(& $quote $PowerCfg)" }
+  if ($script:given.ContainsKey('LockKey') -or $env:BOSUN_HOLD_LOCKKEY) { $parts += "-LockKey $(& $quote $LockKey)" }
   $parts -join ' '
 }
 $script:given = $PSBoundParameters  # the script's own: inside a function, $PSBoundParameters is that function's
@@ -75,7 +79,9 @@ $script:given = $PSBoundParameters  # the script's own: inside a function, $PSBo
 if ($Status) {
   $saved = Read-HoldRecord
   if (-not $saved) { 'no hold'; exit 0 }
-  $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme  # first: a failed query is the one FAIL line, nothing before it
+  # First: a failed query is the one FAIL line, nothing before it, with what to do about it.
+  try { $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme }
+  catch { "FAIL the held values can't be read ($($_.Exception.Message)); check that powercfg /q $($saved.Scheme) answers, then run -Status again; the saved values are untouched in $Record"; exit 1 }
   $life = Get-HoldLife $saved $Record
   $age = [datetime]::UtcNow - $life.Applied
   "hold applied $($life.Applied.ToString('u')) ($([math]::Floor($age.TotalHours)) h $($age.Minutes) min ago), $(if ($life.Expires) { "expires $($life.Expires.ToString('u'))" } else { 'no expiry (recorded before expiries were): it goes back when its run ends' })"
@@ -95,6 +101,7 @@ if ($Restore) {
   if (-not $saved) { "nothing to restore: no record at $Record"; exit 0 }
   if ($Auto) {
     $life = Get-HoldLife $saved $Record
+    if ($ForHold -and $life.Applied.ToString('yyyy-MM-ddTHH:mm:ssZ') -ne $ForHold) { "FAIL the hold at $Record was applied $($life.Applied.ToString('u')), not at the $ForHold the run guard chose: it is a newer hold, and nothing changed"; exit 3 }
     if ($life.RestoreTried) { "FAIL an automatic restore was already tried at $($life.RestoreTried.ToString('u')); restore by hand: $(Get-RestoreCommand)"; exit 2 }
     # Marked before anything changes, so a restore that is killed or fails is never tried again by itself.
     $saved | Add-Member -NotePropertyName Applied -NotePropertyValue $life.Applied.ToString('o') -Force

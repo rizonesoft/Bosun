@@ -1384,7 +1384,8 @@ class FakeHold:
     def hold(self):
         return None if self.record is None else dict(self.record)
 
-    def restore(self):
+    def restore(self, mark=""):
+        self.marks = getattr(self, "marks", []) + [mark]
         self.restores += 1
         if self.ok:
             self.record = None
@@ -1463,7 +1464,7 @@ class CampaignHold(unittest.TestCase):
     def test_a_restore_that_failed_before_marking_the_record_is_not_tried_again(self):
         # Round 1: the script could fail before writing RestoreTried (an unwritable folder), and every read retried.
         fake = FakeHold(applied=self.now - 600, expires=self.now - 1)
-        fake.restore = lambda: (setattr(fake, "restores", fake.restores + 1), {"exit": 1, "output": "FAIL cannot write"})[1]
+        fake.restore = lambda mark: (setattr(fake, "restores", fake.restores + 1), {"exit": 1, "output": "FAIL cannot write"})[1]
         guard.save(self.run_state(), self.path)
         world = World(alive=("me",))
         guard.settle_gone(fake.env(world), self.path, now=self.now)
@@ -1479,6 +1480,24 @@ class CampaignHold(unittest.TestCase):
         word, data, lines = guard.status_view(state, fake.env())
         self.assertFalse([line for line in lines if "failed" in line], lines)
         self.assertEqual(data["hold_restore"]["exit"], 1, "the old attempt is still in the JSON")
+
+    def test_only_the_runs_own_session_claims_its_hold(self):
+        # Completion review: a foreign session's hook claimed a fresh hold for a dead run, and the next status undid it.
+        fake = FakeHold(applied=self.now)
+        guard.save(self.run_state(), self.path)
+        guard.hook(json.dumps({"hook_event_name": "Stop", "session_id": "someone-else"}), fake.env(World(alive=("me",))), self.path)
+        self.assertNotIn("hold_for", guard.load(self.path))
+        guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now + 60)
+        self.assertEqual(fake.restores, 0, "a hold no event of its run ever saw is left for the next run")
+
+    def test_a_claimed_run_that_crashes_is_restored_with_the_hold_it_saw(self):
+        fake = FakeHold(applied=self.now - 60)
+        state = self.run_state()
+        self.assertTrue(guard.claim_hold(state, fake.hold()))  # as the launcher's start claims it, before any hook
+        guard.save(state, self.path)
+        guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now)
+        self.assertEqual(fake.restores, 1)
+        self.assertEqual(fake.marks, [guard.stamp(self.now - 60)], "the restore names the hold it was chosen for")
 
     def test_a_quiet_live_run_restores_at_expiry_on_a_status_read(self):
         fake = FakeHold(applied=self.now - 600, expires=self.now + 100)
@@ -1531,7 +1550,7 @@ class CampaignHold(unittest.TestCase):
                 "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
                 f"open(r'{pid_file}', 'w').write(str(c.pid)); time.sleep(9)")
         began = time.monotonic()
-        result = guard.real_restore_hold([sys.executable, "-c", code])
+        result = guard.real_restore_hold("", [sys.executable, "-c", code])
         took = time.monotonic() - began
         self.assertIsNone(result["exit"])
         self.assertIn("stopped, with its process tree, after 7 s", result["output"])
@@ -1608,6 +1627,7 @@ class CampaignHoldEndToEnd(unittest.TestCase):
             with self.subTest(how):
                 self.apply()
                 self.assertEqual(self.cli("start", "--session", "me").returncode, 0)
+                self.assertIn("hold_for", json.loads(Path(self.env["RUN_GUARD_STATE"]).read_text(encoding="utf-8")), "the launcher's start claims the hold in force")
                 stale = self.cli("end", "--session", "someone-else", "--reason", "a stale launcher")
                 self.assertEqual(stale.returncode, 0, stale.stdout)
                 self.assertTrue(self.record.exists(), "another session's end restored the hold")

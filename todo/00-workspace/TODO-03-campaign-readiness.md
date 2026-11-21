@@ -66,6 +66,7 @@ title: "TODO-03 -- Campaign readiness"
 | 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [ ] |
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [ ] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
+| 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -986,6 +987,27 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 18, 19 and
 - [ ] Commit: `ci: the gate sees a finished run sooner and says what it waits on (D00 T03 §27)`
 
 **Test checkpoint:** `python scripts/run-tests.py test_ci_status` exits 0, and with the faster near-end poll removed the schedule test fails.
+
+## 28. Campaign hold as a Windows power request the run's process holds
+
+Filed 2026-11-21 by the completion review of `§24` (`docs/reviews/00-workspace/D00-T03-s24.md`). `§24` keeps the machine awake by editing the power plan's sleep, hibernate and display timeouts and the screen saver lock, then restores them from the run guard's hooks; every gap its reviews found came from that: a restore must run inside a hook's ten seconds, must not act on a hold it did not choose, and must be visible when it fails before it can mark the record. Windows has the mechanism that needs none of this, as PowerToys Awake uses: a power request (`PowerCreateRequest` with `PowerRequestSystemRequired` and `PowerRequestDisplayRequired`, or `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)`), held by a process and released by Windows the moment that process ends, crash included. The display never idles, so the screen saver never starts and its lock never engages, with no setting changed.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Hold the machine through a power request for as long as the run's launcher lives. Done when: `powercfg /requests` lists it while the run lives and not after its process ends.
+2. Retire the power-plan edits and their restore. Done when: no campaign path writes a power setting or the lock value, and the preflight checks the request instead.
+
+- [ ] Add a holder in `scripts/start-run.ps1` (the launcher the run's session lives under): a small child that calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)` and waits on its parent's process handle, so Windows releases the request when the run's window closes or crashes, within one second, with no hook, status read or scheduled task. Done when: a test starts the holder under a fake parent, reads the request in `powercfg /requests`, kills the parent, and reads no request within one second; the holder's own exit releases it too. Cheaper substitute: a scheduled task that restores settings.
+- [ ] Measure the screen saver: with the request held and the screen saver timeout at its shortest, the desktop does not lock in twice that time. Done when: the measurement is recorded here with the Windows build; if a policy (`InactivityTimeoutSecs`) can still lock the machine, the preflight names it as an owner confirmation.
+- [ ] Support a timed hold of minutes (`-Minutes`, 1 to 10080), released at the time asked while the session is live. Done when: the test holds for one minute and reads no request after it.
+- [ ] Retire `-Apply`'s power-plan and lock edits in `scripts/campaign-hold.ps1` and the automatic restore in `scripts/lib/run_guard.py` (`claim_hold`, `hold_due`, `release_hold`): `-Restore` stays, for a record an older version left, and the preflight's `Test-Hold` checks the request (and any old record still on disk, with its restore command) instead of the plan's values. Done when: the hold, preflight and guard tests pass with the edits gone, a power preference the owner changes during a run survives its end, and an old record is still restored by hand. This closes `§24`'s completion gaps 4 (a restore that failed before marking the record, unseen by the preflight), 5 (the whole hook inside ten seconds) and 7 (a desktop that refuses the live lock change), which the restore design can only narrow.
+- [ ] Commit: `campaign: the hold is a power request the run's process holds (D00 T03 §28)`
+
+**Test checkpoint:** the holder test reads the request while its parent lives and none within one second of the parent's death, and `pwsh tests/campaign_hold_test.ps1`, `pwsh tests/preflight_test.ps1` and `python scripts/run-tests.py test_run_guard` exit 0.
 
 ## Verification
 

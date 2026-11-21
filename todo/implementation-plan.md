@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 63 | Checklist items: 549
+Sections: 64 | Checklist items: 554
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -51,6 +51,7 @@ Sections: 63 | Checklist items: 549
 | [ ]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 5     |
 | [ ]    | D00 T03 §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | none        | 4     |
 | [ ]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 4     |
+| [ ]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 5     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                                                 | none        | 9     |
@@ -202,6 +203,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 101/147 verified sections, 26 ready to run now.
+Progress: 101/148 verified sections, 26 ready to run now.
 
-Checklist: 994/1197 items completed (includes Commit items).
+Checklist: 994/1202 items completed (includes Commit items).

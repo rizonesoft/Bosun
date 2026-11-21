@@ -202,7 +202,7 @@ try {
   [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
   $r = Hold @('-Status')
   Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL
-  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL ' -and @($r.Text -split "`n").Count -eq 1) "status with a failing power query is one FAIL line ($($r.Text))"
+  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL the held values can''t be read' -and $r.Text -match 'check that powercfg /q \S+ answers' -and @($r.Text -split "`n").Count -eq 1) "status with a failing power query is one FAIL line with its fix ($($r.Text))"
 
   # A restore after the owner switched to another plan writes the held plan's values and leaves the owner's plan in force
   # (round 1 of D00 T03 §24).
@@ -227,6 +227,39 @@ try {
   Check ($r.Code -eq 2 -and $r.Text -match 'already tried' -and $r.Text -match 'restore by hand: pwsh scripts/campaign-hold.ps1 -Restore' -and (AllHeld)) 'a second automatic restore is refused with the manual command, changing nothing'
   $r = Hold @('-Restore')
   Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1' -and -not (Test-Path $record)) 'the manual restore still restores after it'
+
+  # Completion review of D00 T03 §24: an automatic restore of a hold the guard did not choose is refused, changing nothing.
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $kept = [IO.File]::ReadAllText($record)
+  $r = Hold @('-Restore', '-Auto', '-ForHold', '2020-01-01T00:00:00Z')
+  Check ($r.Code -eq 3 -and $r.Text -match 'not at the 2020-01-01T00:00:00Z the run guard chose' -and (AllHeld) -and (Lock) -eq '0' -and [IO.File]::ReadAllText($record) -eq $kept) 'an automatic restore of another hold is refused, the record and the machine untouched'
+  $mark = ([datetime](Get-Content $record -Raw | ConvertFrom-Json).Applied).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $r = Hold @('-Restore', '-Auto', '-ForHold', $mark)
+  Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and -not (Test-Path $record)) 'and the hold it names is restored'
+  # A date with no time is not a time, as the run guard reads it.
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $rec = Get-Content $record -Raw | ConvertFrom-Json
+  $rec.Expires = '2030-01-01'
+  [IO.File]::WriteAllText($record, ($rec | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Status')
+  Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time') 'a date-only Expires is refused, as the run guard refuses it'
+  Remove-Item -LiteralPath $record
+  # A running plan Windows will not take back is a failed restore: the record and its originals stay.
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $env:BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE = '1'
+  try { $r = Hold @('-Restore') } finally { Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE }
+  Check ($r.Code -eq 1 -and $r.Text -match 'left the record' -and (Test-Path $record)) 'a failed /setactive keeps the record for a retry'
+  Hold @('-Restore') | Out-Null
+  # The printed restore command quotes each path literally, so a path holding $ or a backtick survives a paste.
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $r = Hold @('-Status')
+  $line = $r.Text -split "`n" | Where-Object { $_ -like 'restore: *' }
+  Check ($line -match "-Record '[^']+'" -and $line -match "-LockKey 'HKCU:") "the restore command single-quotes each path ($line)"
+  Hold @('-Restore') | Out-Null
 
   # The targets come from BOSUN_HOLD_* when no parameter names them, as the run guard runs it.
   Reset '1'

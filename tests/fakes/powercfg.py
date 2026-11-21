@@ -4,7 +4,7 @@ Answers /getactivescheme, /q <scheme> <sub> <setting>, /setacvalueindex and /set
 <value>, and /setactive <scheme> (which makes it the plan /getactivescheme reports), in powercfg's own output format. An optional "active" names the plan /getactivescheme reports. With BOSUN_FAKE_POWERCFG_FAIL set, every set
 command fails, as a locked-down policy would make it. With BOSUN_FAKE_POWERCFG_HANG set to "read" or "write", every
 query or every set command writes its process id to <state>.hang.pid and hangs for ten minutes, as a wedged powercfg
-would, so a test can prove the caller stops it.
+would, so a test can prove the caller stops it. With BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE set, /setactive fails, as a plan Windows\nwill not make the running one would.
 """
 import json
 import os
@@ -49,6 +49,9 @@ elif args[:1] in (["/setacvalueindex"], ["/setdcvalueindex"]) and len(args) == 5
         sys.exit(1)
     state["values"][key]["AC" if args[0] == "/setacvalueindex" else "DC"] = int(args[4])
     save()
+elif args[:1] == ["/setactive"] and len(args) == 2 and os.environ.get("BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE"):
+    print("An unexpected error condition has occurred.")  # a plan Windows will not make the running one
+    sys.exit(1)
 elif args[:1] == ["/setactive"] and len(args) == 2:
     # As Windows does: the plan named is the one in force, and naming the one already in force changes nothing.
     if args[1] != state.get("active", scheme):
