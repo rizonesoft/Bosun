@@ -1118,8 +1118,8 @@ def stop_tree(pid: int) -> None:
     else:
         try:
             os.killpg(pid, 9)
-        except OSError:
-            pass
+        except ProcessLookupError:  # the group has already gone: there is nothing left to stop
+            return
 
 
 def real_restore_hold(argv: list[str] | None = None, limit: float = HOLD_RESTORE_SECONDS) -> dict:
