@@ -373,8 +373,9 @@ Client: Acme Corp (EU)"))
 
   # --- a branch name holding an entry, with clean commits ---
   $refOwner = New-Checkout 'ref-owner' $remote -Deny @('fixture-client')
-  $r2 = Invoke-Push $refOwner @('HEAD:refs/heads/work-for-fixture-client')
-  Check 'a branch named with an entry is refused though its commits are clean' ($r2.Exit -ne 0 -and $r2.Text -match 'a ref being pushed: deny-list entry' -and $r2.Text -notmatch 'fixture-client' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/work-for-*')) "(exit $($r2.Exit): $($r2.Text))"
+  $namedTip = Add-Commit $refOwner 'named.txt' 'clean'
+  $r2 = Invoke-Push $refOwner @('HEAD~1:refs/heads/clean-side', 'HEAD:refs/heads/work-for-fixture-client')
+  Check 'in a multi-ref push, a branch named with an entry is refused at its own tip, its name not shown' ($r2.Exit -ne 0 -and $r2.Text -match "leak-scan: $($namedTip.Substring(0, 12)): the name of the ref pushing this tip: deny-list entry" -and $r2.Text -notmatch 'fixture-client' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/work-for-*') -and -not (git --git-dir=$remote for-each-ref 'refs/heads/clean-side')) "(exit $($r2.Exit): $($r2.Text))"
 
   # --- a newline in a file name cannot start a line of its own ---
   $blob = 'Client: Acme Corp (EU)' | git -C $owner hash-object -w --stdin
@@ -442,7 +443,7 @@ Client: Acme Corp (EU)"))
   $refToken = New-Token
   git -C $plainClone tag "release-$refToken" HEAD
   $r = Invoke-Push $plainClone @("refs/tags/release-$refToken")
-  Check 'a secret in a ref name is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'a ref being pushed: secret \(github-pat\) in its name' -and -not $r.Text.Contains($refToken) -and -not (git --git-dir=$remote tag --list "release-*")) "(exit $($r.Exit): $($r.Text))"
+  Check 'a secret in a ref name is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'the name of the ref pushing this tip: secret \(github-pat\) in its name' -and -not $r.Text.Contains($refToken) -and -not (git --git-dir=$remote tag --list "release-*")) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone tag -d "release-$refToken" | Out-Null
 
   # --- a clean tag whose name holds a no-break space ---
@@ -454,7 +455,7 @@ Client: Acme Corp (EU)"))
   # --- a non-ASCII branch name holding an entry, read as git writes it ---
   $cafeRef = New-Checkout 'cafe-ref' $remote -Deny @("caf$([char]0xE9)")
   $r = Invoke-Push $cafeRef @("HEAD:refs/heads/caf$([char]0xE9)-notes")
-  Check 'a non-ASCII branch name holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a ref being pushed: deny-list entry' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/caf*')) "(exit $($r.Exit): $($r.Text))"
+  Check 'a non-ASCII branch name holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'the name of the ref pushing this tip: deny-list entry' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/caf*')) "(exit $($r.Exit): $($r.Text))"
 
   # --- a caller's own GIT_CONFIG_COUNT entries survive the scan ---
   $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'core.bosunTestMarker'; $env:GIT_CONFIG_VALUE_0 = 'kept'
@@ -559,6 +560,30 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $stale @('topic')
   Check 'a clean topic pushed after the destination moved on is not refused for published history' ($made.Exit -eq 0 -and $moved.Exit -eq 0 -and $r.Exit -eq 0 -and (Get-Head $movedBare 'refs/heads/topic') -eq (Get-Head $stale)) "(exit $($made.Exit)/$($moved.Exit)/$($r.Exit): $($r.Text))"
   Check 'and the fetched tips leave no temporary refs behind' (-not (git -C $stale for-each-ref 'refs/bosun-leak-scan/'))
+
+  # --- two scans in one checkout: a running scan's refs are never removed by another; a stopped scan's are ---
+  # A ref named for this test's own (running) process stands in for a scan still under way, one named for a process
+  # that has ended for a scan that was killed.
+  $ended = Start-Process -FilePath $pwshExe -ArgumentList '-NoProfile', '-Command', 'exit 0' -NoNewWindow -PassThru -Wait
+  $liveRef = "refs/bosun-leak-scan/$PID-livescan/push/0"
+  $deadRef = "refs/bosun-leak-scan/$($ended.Id)-deadscan/push/0"
+  git -C $stale update-ref $liveRef HEAD; git -C $stale update-ref $deadRef HEAD
+  $null = Add-Commit $stale 'beside.txt' 'clean'
+  $r = Invoke-Push $stale @('topic')
+  Check 'a scan beside a running one leaves its refs and removes a stopped scan''s' ($r.Exit -eq 0 -and (git -C $stale for-each-ref $liveRef) -and -not (git -C $stale for-each-ref $deadRef)) "(exit $($r.Exit): $($r.Text))"
+  git -C $stale update-ref -d $liveRef
+
+  # --- a stopped scan's ref that cannot be removed refuses the push; once it can be, the next push removes it ---
+  git -C $stale update-ref $deadRef HEAD
+  $lockFile = Join-Path $stale ".git\$($deadRef.Replace('/', '\')).lock"
+  [IO.File]::WriteAllText($lockFile, '')
+  $null = Add-Commit $stale 'locked.txt' 'clean'
+  $lockedBefore = Get-Refs $movedBare
+  $r = Invoke-Push $stale @('topic')
+  Check 'a temporary ref that cannot be removed refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'could not be removed' -and (Get-Refs $movedBare) -eq $lockedBefore) "(exit $($r.Exit): $($r.Text))"
+  Remove-Item -LiteralPath $lockFile
+  $r = Invoke-Push $stale @('topic')
+  Check 'and once it can be, the next push removes it and goes through' ($r.Exit -eq 0 -and -not (git -C $stale for-each-ref 'refs/bosun-leak-scan/')) "(exit $($r.Exit): $($r.Text))"
 
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
   $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')

@@ -40,7 +40,7 @@ $failed = [Collections.Generic.List[object]]::new()
 function Say([string]$text) { [Console]::Error.WriteLine("leak-scan: $text") }
 function Stop-Scan([string]$why) {
   Say "${refusal}: $why"
-  if (Get-Command Remove-ScanRefs -ErrorAction Ignore) { Remove-ScanRefs 'refs/bosun-leak-scan/' }
+  if (-not $script:cleaning -and (Get-Command Remove-ScanRefs -ErrorAction Ignore) -and $scanRefs) { $script:cleaning = $true; $null = Remove-ScanRefs $ownRefs }
   exit 1
 }
 function Invoke-Git([string[]]$arguments) {
@@ -62,13 +62,13 @@ elseif ($null -eq $Updates) {
 }
 $locals = [Collections.Generic.List[string]]::new()
 $tags = [Collections.Generic.List[object]]::new()
-$refNames = [Collections.Generic.List[string]]::new()
+$refNames = [Collections.Generic.List[object]]::new()
 foreach ($line in $Updates) {
   # Git separates the four fields with an ASCII space; a ref name can hold other whitespace (a no-break space).
   $parts = $line.TrimEnd("`r", "`n") -split ' ', 4
   if ($parts.Count -ne 4 -or $parts[1] -notmatch '^[0-9a-f]{40}$') { Stop-Scan 'a pushed ref could not be read' }
   if ($parts[1] -eq $zero) { continue }  # a deletion publishes nothing
-  $refNames.Add($parts[2])
+  $refNames.Add([pscustomobject]@{ Name = $parts[2]; Sha = $parts[1] })
   # Every pushed object that is not itself a commit (a tag, or a file or tree under any ref, refs/archive/... included)
   # goes through the object pass below, whatever namespace it is pushed to.
   $type = "$(& git -C $repoRoot cat-file -t $parts[1] 2>$null)"
@@ -112,7 +112,9 @@ if ($LASTEXITCODE) { Stop-Scan 'the remote could not be listed, so the commits i
 # The commits pushed and the tips the destination has go to git as temporary refs, never as hashes on a command line:
 # hundreds of tags would pass Windows' 32,767-character limit and stop every push. They are named once, under
 # refs/bosun-leak-scan/, and removed when the scan ends (any left by a scan that was killed are removed first).
-$scanRefs = 'refs/bosun-leak-scan/' + [guid]::NewGuid().ToString('N')
+# Each scan's refs sit under its own <process id>-<random id>, so two pushes from one checkout never touch each
+# other's: a scan removes its own refs, and at start only those of a scan whose process has ended.
+$scanRefs = "refs/bosun-leak-scan/$PID-$([guid]::NewGuid().ToString('N'))"
 # update-ref --stdin is written through the process's own stdin with LF line ends: PowerShell's pipe to a native
 # command ends each line with CRLF on Windows, and git would read every hash with a stray carriage return.
 function Invoke-UpdateRefs([string[]]$commands) {
@@ -126,11 +128,22 @@ function Invoke-UpdateRefs([string[]]$commands) {
   $process.WaitForExit()
   $process.ExitCode
 }
-function Remove-ScanRefs([string]$prefix) {
-  $stale = @(& git -C $repoRoot for-each-ref --format='delete %(refname)' $prefix 2>$null)
-  if ($stale) { $null = Invoke-UpdateRefs $stale }
+# Removes the scan refs a filter keeps, and says whether they are gone: a listing or a deletion that fails is $false.
+function Remove-ScanRefs([scriptblock]$which) {
+  $listed = @(& git -C $repoRoot for-each-ref --format='%(refname)' 'refs/bosun-leak-scan/' 2>$null)
+  if ($LASTEXITCODE) { return $false }
+  $gone = @($listed | Where-Object { & $which $_ } | ForEach-Object { "delete $_" })
+  (-not $gone) -or -not (Invoke-UpdateRefs $gone)
 }
-Remove-ScanRefs 'refs/bosun-leak-scan/'
+$ownRefs = { param($name) $name.StartsWith("$scanRefs/", [StringComparison]::Ordinal) }
+$endedScans = {
+  param($name)
+  $owner = if ($name -match '^refs/bosun-leak-scan/(\d+)-') { [int]$Matches[1] } else { 0 }
+  -not $owner -or -not (Get-Process -Id $owner -ErrorAction Ignore)
+}
+$script:cleaning = $true
+if (-not (Remove-ScanRefs $endedScans)) { Stop-Scan 'the temporary refs a stopped scan left under refs/bosun-leak-scan/ could not be removed; remove them (git update-ref -d <ref>), then push again' }
+$script:cleaning = $false
 # A tip the destination has that this checkout lacks (the remote moved on since the last fetch) is fetched into the
 # scan's own refs, so its history counts as published and is not scanned as outgoing. A fetch that fails leaves those
 # commits counted as outgoing: the scan then checks more, never less.
@@ -367,7 +380,7 @@ foreach ($c in $outgoing) {
   if ($newPaths.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($newPaths -join "`n"))) $c $null 'a file or folder name' 'a path it adds' }
 }
 # Ref names (a lightweight tag adds no object, so its name is the only thing it publishes).
-if ($refNames.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($refNames -join "`n"))) '' $null 'a ref being pushed' 'its name' }
+foreach ($ref in $refNames) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes($ref.Name)) $ref.Sha $null 'the name of the ref pushing this tip' 'its name' }
 # Tag annotations, and the files a tag publishes without a commit.
 foreach ($tag in $tags) {
   $peels = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
@@ -384,15 +397,16 @@ foreach ($tag in $tags) {
 }
 if ($deny.Count) {
   # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
-  foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
-  # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input;
+    # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input;
   # a deletion (an all-zero local object) publishes nothing, so removing a private name is never refused for it.
   # Each name is checked where it is cut out, never collected first: PowerShell unrolls a lone byte array, and a
   # one-ref push would then be checked byte by byte.
+  # One check of every ref name, by its bytes: git's own when it gave them on standard input, else -Updates in UTF-8.
+  if (-not $stdinBytes -and $Updates) { $stdinBytes = [Text.UTF8Encoding]::new($false).GetBytes(($Updates -join "`n")) }
   if ($stdinBytes) {
     foreach ($line in (Split-Bytes $stdinBytes 10)) {
       $fields = Split-Bytes $line 32
-      if ($fields.Count -ge 4 -and [Text.Encoding]::ASCII.GetString($fields[1]) -ne $zero -and (Test-DenyBytes $fields[2])) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' }
+      if ($fields.Count -ge 4 -and [Text.Encoding]::ASCII.GetString($fields[1]) -ne $zero -and (Test-DenyBytes $fields[2])) { Add-Finding ([Text.Encoding]::ASCII.GetString($fields[1])) $null 'the name of the ref pushing this tip' 'deny-list entry (in its name)' }
     }
   }
 
@@ -432,5 +446,10 @@ if ($failed.Count) {
   Stop-Scan $(if ($history) { "$($lines.Count) finding(s) above in the scanned commits" } else { "$($lines.Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again" })
 }
 if (-not (Test-Path -LiteralPath $denyPath)) { Say "checked $($outgoing.Count) commit(s) for secrets; no deny list (.private/deny-list.txt), so private strings were not checked" }
-if (-not $history) { Remove-ScanRefs 'refs/bosun-leak-scan/' }  # a scan outside a push names no temporary refs
+# A scan outside a push names no temporary refs. One that cannot remove its own refs refuses: they would be left to
+# the next scan, and a clean result is not claimed over a step that failed.
+if (-not $history) {
+  $script:cleaning = $true
+  if (-not (Remove-ScanRefs $ownRefs)) { Stop-Scan "this scan's temporary refs under $scanRefs could not be removed; the next push removes them" }
+}
 exit 0

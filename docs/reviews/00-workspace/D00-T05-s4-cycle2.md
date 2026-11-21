@@ -178,3 +178,47 @@ RECURRING: none
 OVERALL: approve
 
 - Settled: round 5 finding 1 (P3) taken: the checklist names the unredacted in-memory report and why.
+
+## Completion review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T08:02:11Z
+- Candidate: 6db2f3f103e8ccf51144c10b09977541331a1dcf
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Seconds: 97
+- Lines: 27
+- Digest: 82f1498a92c86b5e
+
+## Part 1. Completeness
+
+1. **`missing-in-scope` | Two pushes can interfere with each other’s scan.** Each scan creates refs under its own ID, but startup, refusal and successful completion all delete refs under the shared `refs/bosun-leak-scan/` prefix. A second push from the checkout can remove the first push’s refs while the first still needs them. I verified read-only that Git returns exit 0 and a count of zero for an unmatched revision glob. The scanner can therefore skip outgoing commits and allow a push it did not fully check. The existing tests check cleanup after a single push. A regression should overlap two pushes and verify that the destination containing the planted finding stays unchanged. `scripts/leak-scan.ps1:43`, `:115`, `:133`, `:157`, `:435`. `tests/leak_scan_test.ps1:513`.
+2. **`missing-in-scope` | Cleanup failures can be reported as success.** `Remove-ScanRefs` ignores both the result of listing temporary refs and the exit code from deleting them. A locked ref can therefore survive a scan that exits 0. The normal cleanup assertions do not exercise that failure. The guard needs to report the failure, refuse the push and recover its own leftover refs on retry. `scripts/leak-scan.ps1:130`, `:131`, `:435`. `tests/leak_scan_test.ps1:561`.
+3. **`missing-in-scope` | A finding in a branch or lightweight tag name omits the offending tip.** Both detectors report only `a ref being pushed`, even though the hook received the local object ID for each update. In a multi-ref refusal the user cannot tell which tip to inspect. The existing branch and tag tests check refusal and secrecy but do not require the ID. A multi-ref test should require the affected tip’s abbreviated ID while keeping the private name out of both output streams. `scripts/leak-scan.ps1:370`, `:387`, `:395`. `tests/leak_scan_test.ps1:377`, `:445`.
+4. **`present` | Installation, persistence and undo.** Setup requires the executable `pre-push` hook, writes the checkout’s `core.hooksPath`, reads it back and prints how to restore its previous value. The README gives the pinned scanner version and installation instructions for Windows and Linux/WSL. `scripts/setup-clone.ps1:41`, `:61`, `:70`, `:71`. `README.md:102`. Regression fixtures are in `tests/setup_clone_test.ps1` and `tests/overlay_clone_test.ps1`.
+5. **`present` | Destination and outgoing-history selection for an individual push.** The hook uses the actual push address. Bare-remote tests cover clean publication, a removed intermediate secret, a finding on the second ref, an empty destination, stale tracking data, distinct fetch and push addresses, newly advertised tips and deletions. The tests read destination refs back. `scripts/hooks/pre-push:14`. `tests/leak_scan_test.ps1:82`, `:98`, `:105`, `:115`, `:127`, `:348`, `:549`, `:656`.
+6. **`present` | Secret detection and private-list settings.** The scanner reads `.private/deny-list.txt` on each run, implements its literal-entry and comment rules, and still runs Gitleaks when the list is absent. Tests cover content, paths, commit metadata, merges, tags, binary files and objects pushed without a commit. `tests/leak_scan_test.ps1:138`, `:149`, `:309`, `:389`, `:409`, `:434`, `:563`, `:650`.
+7. **`present` | Refusal and safe reporting for ordinary scan failures.** Missing tools, an unreadable deny list, Git failures and inconsistent Gitleaks reports have refusal paths. Secret-bearing paths and hostile filename characters have output tests. `sync.ps1` passes the guard’s reason through to the user. `scripts/leak-scan.ps1:235`. `scripts/sync.ps1:206`. `tests/leak_scan_test.ps1:245`, `:379`, `:571`, `:625`, `:662`. `tests/linux/leak_scan_missing_tool_test.ps1`.
+8. **`present` | Standalone history scans.** Tests require `-All` to catch a root-commit finding and `-Range` to distinguish a clean range from one containing a finding. `tests/leak_scan_test.ps1:604`.
+
+I inspected the committed range and its regression assertions. I did not run the push fixtures because they create files and update refs. The concurrent-push finding is based on the committed control flow and the read-only Git check, not an observed leak.
+
+## Part 2. Excellence
+
+**Competitor: GitHub repository push protection.** It enforces supported secret patterns at the destination across command-line pushes and GitHub authoring surfaces. Bosun’s design already identifies it as the second line of protection. `docs/specs/2026-11-20-public-core-private-overlay-design.md:61`. [GitHub push protection](https://docs.github.com/en/code-security/concepts/secret-security/push-protection)
+
+1. **`suggestion` | Reduce first-push setup.** GitHub’s repository protection requires no scanner installation on each contributor’s machine. Bosun can discover a missing scanner only when the contributor tries to push. **Target:** one setup command on Windows and WSL that verifies the hook and scanner together, with zero prerequisite surprises on the first push.
+2. **`suggestion` | Make the remedy specific to what was refused.** Bosun gives the same instruction to rewrite commits even when the only finding is in a branch or tag name and the commits are clean. **Target:** every ref-name-only refusal identifies the safe tip ID and tells the user to rename the affected ref, with no history rewrite. `scripts/leak-scan.ps1:370`, `:387`, `:432`.
+
+## Gap list
+
+1. `missing-in-scope` | Isolate overlapping pushes so one scan cannot erase another scan’s outgoing revisions.
+2. `missing-in-scope` | Detect failed temporary-ref cleanup, refuse the push and verify recovery on retry.
+3. `missing-in-scope` | Identify the affected tip in branch-name and lightweight-tag-name findings without printing the private name.
+
+COMPLETION: gaps
