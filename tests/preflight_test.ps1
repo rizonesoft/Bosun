@@ -334,7 +334,7 @@ try {
 
   # D00 T03 §25. The output read as a stream, each line stamped as it arrives while the preflight runs, so what is on
   # screen when is measured, not inferred from the final text.
-  function Stream([string]$path, [string[]]$extra) {
+  function Stream([string]$path, [string[]]$extra, [int]$deadline = 60) {
     $start = [Diagnostics.ProcessStartInfo]::new($pwsh)
     foreach ($a in @('-NoProfile', '-File', (Join-Path $repo 'scripts\campaign-preflight.ps1'), '-SearchPath', $path) + $extra) { $start.ArgumentList.Add($a) }
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false; $start.CreateNoWindow = $true
@@ -345,7 +345,7 @@ try {
       $null = $process.StandardError.ReadToEndAsync()
       # A deadline of its own: a stalled preflight is a failed test, never a test that waits for ever.
       $pending = $process.StandardOutput.ReadLineAsync()
-      while ($clock.Elapsed.TotalSeconds -lt 60) {
+      while ($clock.Elapsed.TotalSeconds -lt $deadline) {
         if (-not $pending.Wait(250)) { continue }
         if ($null -eq $pending.Result) { break }
         $seen.Add([pscustomobject]@{ At = $clock.Elapsed.TotalSeconds; Line = $pending.Result })
@@ -364,6 +364,16 @@ try {
   } finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
   $ownerAt = When $run '^FAIL no owner record'
   Check ($ownerAt -lt 5 -and $ownerAt -lt (When $run '^checking tree\.\.\.') -and (When $run '^checking tree') -lt (When $run '^checking protection')) ("in -Only protection,tree,owner the owner failure is on screen at {0:N1} s, before the slow local and remote probes start" -f $ownerAt)
+  # The completion review: the same target on the default invocation, every check, not only a chosen few.
+  $full = Stream $system @('-Acceptance', $noOwner, '-ProbeSeconds', '5') 300
+  $fullOwnerAt = When $full '^FAIL no owner record'
+  Check ($fullOwnerAt -lt 5 -and (When $full '^checking space') -lt $fullOwnerAt -and $fullOwnerAt -lt (When $full '^checking tree')) ("on a full default run the owner failure is on screen at {0:N1} s, before any probe starts" -f $fullOwnerAt)
+  # An owner record that exists but is held open by another process is said so, not taken for a missing confirmation.
+  $lockedOwner = Join-Path $work 'owner-locked.md'
+  [IO.File]::WriteAllText($lockedOwner, "- Extra usage: off 2026-11-01`n- Reboot check: passed 2026-11-01`n")
+  $holder = [IO.File]::Open($lockedOwner, 'Open', 'Read', 'None')
+  try { $r = Preflight $system @('-Only', 'owner', '-Acceptance', $lockedOwner) } finally { $holder.Dispose() }
+  Check ($r.Code -eq 1 -and $r.Text -match "the owner record at .*owner-locked\.md can't be read" -and $r.Text -match 'close whatever holds' -and $r.Text -notmatch 'the owner confirms it') 'a locked owner record is said to be unreadable, with what to do'
   $listedOrder = (& $pwsh -NoProfile -File (Join-Path $repo 'scripts/campaign-preflight.ps1') -Only nope 2>&1 | Out-String)
   Check ($listedOrder -match 'the checks are space, owner, lock, tree') 'the default order starts with the checks that start no process'
   Check ((When $run '^checking owner\.\.\.') -lt $ownerAt) 'a check is named before its own result'
@@ -405,41 +415,46 @@ try {
   }
   $r = Preflight "$(Protection 'gh-absent' '{"message":"Branch not protected","status":"404"}' 1);$system" @('-Only', 'protection')
   $fix = Fix-Of $r
-  $null = $fix.Head -match '^turn it on, then read it back, one command per line \(to undo it later: (?<undo>gh api .+)\):$'
-  $put = Run-Printed $fix.Commands[0]; $back = Run-Printed $fix.Commands[1]; $undo = Run-Printed $Matches.undo
-  Check ($fix.Commands.Count -eq 2) "an absent protection's fix is a sentence and two command lines ($($fix.Commands.Count))"
+  $put = Run-Printed $fix.Commands[0]; $back = Run-Printed $fix.Commands[1]
+  Check ($fix.Head -eq 'turn it on, then read it back, one command per line (the header help says how to undo it):' -and $fix.Commands.Count -eq 2) "an absent protection's fix is a sentence and two command lines ($($fix.Commands.Count))"
   $sent = try { $put.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
   Check ($put.Args[0] -eq "api --hostname $wantHost --method PUT $wantPath --input -" -and $sent.enforce_admins -eq $true -and $sent.allow_force_pushes -eq $false -and $sent.allow_deletions -eq $false) "an absent protection's PUT, run as printed, sends the whole body to this origin's main ($($put.Args[0]))"
-  Check ($back.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $undo.Args[0] -eq "api --hostname $wantHost --method DELETE $wantPath") 'its read-back and its undo, run as printed, name the same host, repository and branch'
+  Check ($back.Args[0] -like "api --hostname $wantHost $wantPath --jq *") 'its read-back, run as printed, names the same host, repository and branch'
   $asked = (Get-Content -LiteralPath (Join-Path $work 'gh-absent.asked') -Raw).Trim()
   Check ($asked -notmatch 'PUT|DELETE|POST') 'the preflight itself only reads the protection'
+  # The completion review: a 404 is absence only when GitHub says so with that status; the same words on another
+  # status get a diagnosis and no write.
+  $r = Preflight "$(Protection 'gh-contradicts' 'gh: Branch not protected (HTTP 403)' 1);$system" @('-Only', 'protection')
+  Check ($r.Code -eq 1 -and $r.Text -notmatch 'method PUT' -and (Fix-Of $r).Commands -contains "gh auth status --hostname $wantHost") "'Branch not protected' on a 403 is no confirmed absence: a diagnosis, no write"
   # Only admins exempt: the enforce_admins endpoint, which changes nothing else (round 1).
   $adminsOnly = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
   $r = Preflight "$(Protection 'gh-admins-only' $adminsOnly);$system" @('-Only', 'protection')
   $fix = Fix-Of $r
   $post = Run-Printed $fix.Commands[0]; $back = Run-Printed $fix.Commands[1]
   Check ($post.Args[0] -eq "api --hostname $wantHost --method POST $wantPath/enforce_admins" -and -not $post.Body -and $back.Args[0] -like "api --hostname $wantHost $wantPath/enforce_admins *") "admins alone exempt are held by the enforce_admins endpoint, with no body ($($post.Args[0]))"
-  # Force pushes allowed: a PUT that keeps each required check with the app it is pinned to, and the other rules.
-  $forced = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false }; required_linear_history = @{ enabled = $true } } | ConvertTo-Json -Depth 6 -Compress
-  $r = Preflight "$(Protection 'gh-partial' $forced);$system" @('-Only', 'protection')
-  $fix = Fix-Of $r
-  $mend = Run-Printed $fix.Commands[0]; $mendBack = Run-Printed $fix.Commands[1]
-  $kept = try { $mend.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
-  $check = @($kept.required_status_checks.checks)[0]
-  Check ($fix.Head -match '^mend it, keeping its other rules' -and $mendBack.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $r.Text -match 'partial: force pushes are allowed' -and $kept.allow_force_pushes -eq $false -and $check.context -eq 'build' -and $check.app_id -eq 42 -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's PUT keeps its required check pinned to its app and its other rules ($($mend.Body))"
-  $actors = [ordered]@{ url = 'x'; required_pull_request_reviews = @{ dismissal_restrictions = @{ teams = @(@{ slug = 'release' }) } }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
-  $r = Preflight "$(Protection 'gh-actors' $actors);$system" @('-Only', 'protection')
-  Check ((Fix-Of $r).Text -match '^its review rule names who may dismiss or bypass reviews.*settings/branches' -and (Fix-Of $r).Text -notmatch 'method PUT') 'a review rule naming who may dismiss reviews is mended by hand, never by a PUT'
-  $restricted = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 5 -Compress
-  $r = Preflight "$(Protection 'gh-restricted' $restricted);$system" @('-Only', 'protection')
-  Check ((Fix-Of $r).Text -match '^it restricts who may push.*settings/branches' -and (Fix-Of $r).Text -notmatch 'method PUT') 'a protection with push restrictions is mended by hand on the settings page, never by a PUT'
+  # Force pushes or deletion allowed: no endpoint changes only those, and a whole-rule PUT would restate the rest (an app
+  # pin, an unpinned check, rules the preflight could not read), so the mend is by hand, whatever else the rule holds.
+  foreach ($case in @(
+      @{ Name = 'gh-forced'; Rule = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; checks = @(@{ context = 'build'; app_id = 42 }, @{ context = 'lint'; app_id = $null }) }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } },
+      @{ Name = 'gh-deletable-unreadable'; Rule = [ordered]@{ url = 'x'; required_status_checks = 'not an object'; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $true } } },
+      @{ Name = 'gh-actors'; Rule = [ordered]@{ url = 'x'; required_pull_request_reviews = @{ dismissal_restrictions = @{ teams = @(@{ slug = 'release' }) } }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } },
+      @{ Name = 'gh-restricted'; Rule = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } })) {
+    $r = Preflight "$(Protection $case.Name ($case.Rule | ConvertTo-Json -Depth 6 -Compress));$system" @('-Only', 'protection')
+    $fix = Fix-Of $r
+    Check ($r.Text -match 'partial: ' -and $fix.Head -match "^on https://$([regex]::Escape($wantHost))/\S+/settings/branches, edit main's rule .*leaving its other rules as they are" -and $fix.Commands.Count -eq 0 -and $r.Text -notmatch 'method PUT') "a partial protection allowing force pushes or deletion ($($case.Name -replace '^gh-', '')) is mended by hand, never by a PUT"
+  }
   foreach ($case in @(@{ Name = 'gh-refused'; Answer = 'gh: Not Found (HTTP 404)'; Code = 1 }, @{ Name = 'gh-garbled'; Answer = 'not json'; Code = 0 })) {
     $r = Preflight "$(Protection $case.Name $case.Answer $case.Code);$system" @('-Only', 'protection')
-    Check ($r.Code -eq 1 -and (Fix-Of $r).Text -match 'gh auth status' -and $r.Text -notmatch 'method PUT') "protection that cannot be read ($($case.Name -replace '^gh-', '')) gets a diagnosis and no write"
+    Check ($r.Code -eq 1 -and (Fix-Of $r).Commands -contains "gh auth status --hostname $wantHost" -and $r.Text -notmatch 'method PUT') "protection that cannot be read ($($case.Name -replace '^gh-', '')) gets a diagnosis and no write"
   }
   $r = Preflight "$slowGh;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
   Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
   Check ($r.Text -match 'gave no answer' -and $r.Text -notmatch 'method PUT') 'a protection read that times out gets a diagnosis and no write'
+  # An origin whose host or repository GitHub would not spell so gets no command at all, and gh is asked nothing.
+  $odd = Join-Path $work 'odd-origin'
+  if (-not (Test-Path $odd)) { git init -q -b main $odd; git -C $odd remote add origin 'https://github.com/owner/re$(po).git' }
+  $r = Preflight "$(Protection 'gh-odd' (Shape));$system" @('-Only', 'protection', '-Repo', $odd)
+  Check ($r.Code -eq 1 -and $r.Text -match 'does not name a GitHub host and repository as GitHub spells them' -and -not (Test-Path -LiteralPath (Join-Path $work 'gh-odd.asked'))) 'a malformed origin gets no command, and gh is asked nothing'
   $help = Get-Content (Join-Path $repo 'scripts/campaign-preflight.ps1') -TotalCount 12 | Out-String
   Check ($help -match 'created on a branch that had none is undone with: gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection') 'the header help says how to undo protection the fix created, and only that'
 
@@ -588,26 +603,30 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
   $place = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-AdminRecord', $adminRecord, '-PendingRestartKey', $pending)
   $setupPlace = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-Record', $adminRecord)
   $r = Preflight $system (@('-Only', 'setup') + $place)
-  Check ($r.Code -eq 1 -and $r.Text -match "admin setup isn't in place" -and $r.Text -match 'NoAutoRebootWithLoggedOnUsers is absent' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'no admin setup fails with its fix'
+  Check ($r.Code -eq 1 -and $r.Text -match "admin setup isn't in place" -and $r.Text -match 'NoAutoRebootWithLoggedOnUsers is absent' -and $r.Text -match "(?m)^\s+pwsh '[^']*campaign-admin-setup\.ps1' -Apply$") 'no admin setup fails with its fix, the command on a line of its own, its path quoted'
   # D00 T03 §25: a failing run ends with one ordered list, this account's fixes, then an elevated shell's, then what only
   # the owner confirms, each fix once however many failures share it, and the command that reruns the same checks with
   # this run's options, which finds the same failure when run as printed.
   $spaced = Join-Path $work 'a checkout with spaces'
   if (-not (Test-Path $spaced)) { git init -q -b main $spaced }
   $drive = [IO.Path]::GetPathRoot($spaced)
-  $r = Preflight $system (@('-Only', 'owner,setup,space', '-Repo', $spaced, '-MinFreeGB', '1000000000', '-FreeDrives', "$drive,$drive", '-Acceptance', (Join-Path $work 'no-owner.md')) + $place)
+  $fixed = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady } | ForEach-Object Name)
+  $second = if ($fixed.Count -ge 2) { @($fixed | Where-Object { $_ -ne $drive })[0] } else { $drive }
+  $r = Preflight $system (@('-Only', 'owner,setup,space', '-Repo', $spaced, '-MinFreeGB', '1000000000', '-FreeDrives', "$drive,$drive,$second", '-Acceptance', (Join-Path $work 'no-owner.md')) + $place)
   $list = $r.Text.Substring([Math]::Max(0, $r.Text.IndexOf('check(s) failed')))
   $groups = [ordered]@{}; $current = $null
   foreach ($l in $list -split "`n") {
     if ($l -match '^  (with this account|in an elevated shell|only the owner can confirm):$') { $current = $Matches[1]; $groups[$current] = @() }
     elseif ($current -and $l -match '^    \d+\. (.+)$') { $groups[$current] += $Matches[1] }
+    elseif ($current -and $l -match '^ {9}(\S.*)$' -and @($groups[$current]).Count) { $last = @($groups[$current]).Count - 1; $all = @($groups[$current]); $all[$last] += " | $($Matches[1])"; $groups[$current] = $all }
   }
-  Check ($r.Code -eq 1 -and @($groups.Keys) -join '|' -eq 'with this account|in an elevated shell|only the owner can confirm' -and @($groups['with this account']).Count -eq 1 -and $groups['with this account'][0] -eq "free space on $drive" -and @($groups['in an elevated shell']).Count -eq 2 -and @($groups['in an elevated shell'] | Where-Object { $_ -match 'campaign-admin-setup\.ps1 -Apply' }).Count -eq 2 -and @($groups['in an elevated shell'] | Sort-Object -Unique).Count -eq 2 -and @($groups['only the owner can confirm']).Count -eq 1) "a failing run ends with each fix once, in its group, in order ($(($groups.Keys | ForEach-Object { "${_}: $($groups[$_] -join ' / ')" }) -join ' || '))"
-  $recheck = ($list -split "`n" | Where-Object { $_ -like 'then run it again: *' }) -replace '^then run it again: ', ''
-  Check ($recheck -match "-Repo '[^']*a checkout with spaces'" -and $recheck -match "-Only 'space,owner,setup'" -and $recheck -match "-MinFreeGB '1000000000'") "the recheck command carries this run's options ($recheck)"
+  Check ($r.Code -eq 1 -and @($groups.Keys) -join '|' -eq 'with this account|in an elevated shell|only the owner can confirm' -and (@($groups['with this account']) -join '|') -eq (@("free space on $drive") + @(if ($second -ne $drive) { "free space on $second" }) -join '|') -and @($groups['in an elevated shell']).Count -eq 1 -and $groups['in an elevated shell'][0] -match "^in an elevated shell: \| pwsh '[^']*campaign-admin-setup\.ps1' -Apply$" -and @($groups['only the owner can confirm']).Count -eq 1) "a failing run ends with each fix once, in its group, in order ($(($groups.Keys | ForEach-Object { "${_}: $($groups[$_] -join ' / ')" }) -join ' || '))"
+  $listLines = @($list -split "`n"); $at = [array]::IndexOf($listLines, 'then run it again:')
+  $recheck = if ($at -ge 0 -and $at + 1 -lt $listLines.Count) { $listLines[$at + 1].Trim() } else { '' }  # the line as printed, nothing stripped
+  Check ($recheck -match "-Repo '[^']*a checkout with spaces'" -and $recheck -match "-Only 'space,owner,setup'" -and $recheck -match "-MinFreeGB '1000000000'" -and $recheck -match "-FreeDrives '$([regex]::Escape("$drive,$drive,$second"))'") "the recheck command carries this run's options ($recheck)"
   Push-Location $repo
   try { $again = & $pwsh -NoProfile -Command $recheck 2>&1 | Out-String } finally { Pop-Location }  # read-only: the preflight changes nothing
-  Check ($again -match "(?m)^FAIL drive $([regex]::Escape($drive)) has .* under the .* GB the campaign needs") "run as printed, the recheck finds the same space failure on the same checkout ($(($again -split "`n" | Select-Object -First 6) -join ' | '))"
+  Check ($again -match "(?m)^FAIL drive $([regex]::Escape($drive)) has .* under the .* GB the campaign needs" -and $again -match "(?m)^FAIL drive $([regex]::Escape($second)) has ") "run as printed, the recheck finds the same space failure on the same checkout ($(($again -split "`n" | Select-Object -First 6) -join ' | '))"
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply @setupPlace | Out-Null
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   admin setup in place') 'admin setup in place passes'
@@ -639,7 +658,7 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
   $bodyKept = [IO.File]::ReadAllBytes($body)
   Remove-Item -LiteralPath $body
   $r = Preflight $system (@('-Only', 'setup') + $place)
-  Check ($r.Code -eq 1 -and $r.Text -match 'lib\\campaign\.ps1 is missing from' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'a missing task body fails with -Apply as its fix'
+  Check ($r.Code -eq 1 -and $r.Text -match 'lib\\campaign\.ps1 is missing from' -and $r.Text -match "campaign-admin-setup\.ps1' -Apply") 'a missing task body fails with -Apply as its fix'
   [IO.File]::WriteAllBytes($body, $bodyKept + [Text.Encoding]::ASCII.GetBytes("# changed`r`n"))
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match 'lib\\campaign\.ps1 in .* differs from this checkout') 'a task body that differs from this checkout fails'
@@ -647,7 +666,7 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
   $recordKept = [IO.File]::ReadAllText($adminRecord)
   Remove-Item -LiteralPath $adminRecord
   $r = Preflight $system (@('-Only', 'setup') + $place)
-  Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "records the originals as unknown" -and $r.Text -match "returns Windows' defaults") 'a missing record says the originals are lost and what -Apply and -Restore then do'
+  Check ($r.Code -eq 1 -and $r.Text -match "record at .* is missing, so the update values from before the setup are lost" -and $r.Text -match "records them as unknown" -and $r.Text -match "returns Windows' defaults") 'a missing record says the originals are lost and what -Apply and -Restore then do'
   [IO.File]::WriteAllText($adminRecord, '')
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match 'is not a readable record \(it holds nothing\)') 'an empty record fails, never read as no record'

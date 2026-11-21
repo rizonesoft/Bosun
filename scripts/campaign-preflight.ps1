@@ -304,11 +304,16 @@ function Test-Protection {
     return
   }
   $hostName, $owner, $name = $Matches[1], $Matches[2], $Matches[3]
+  # Only names GitHub allows go into a printed command, so its argument boundaries are the probe's (completion review).
+  if ($hostName -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d+)?$' -or $owner -notmatch '^[A-Za-z0-9-]+$' -or $name -notmatch '^[A-Za-z0-9._-]+$') {
+    Fail "this checkout's origin ($url) does not name a GitHub host and repository as GitHub spells them, so main's protection can't be checked" 'point origin at the GitHub repository (`git remote set-url origin <url>`), then run the preflight again'
+    return
+  }
   $endpoint = "repos/$owner/$name/branches/main/protection"
   # Each state has its own fix (D00 T03 §25): one that could not be read is diagnosed and never written over; a
   # missing one is created; a partial one is mended with the rules it already has. Each write is one copyable command,
   # its whole body on stdin, then the read-back that confirms it.
-  $unread = '`gh auth status`, and check that this account may read the repository''s settings, then run the preflight again'
+  $unread = "check that this account may read the repository's settings, one command per line:`n" + "gh auth status --hostname $hostName`ngh api --hostname $hostName $endpoint"
   # Each write and its read-back on lines of their own, the sentence that explains them apart (round 2): a line with prose
   # in it would run the write and then fail on the prose.
   $readBack = "gh api --hostname $hostName $endpoint --jq '{enforce_admins: .enforce_admins.enabled, allow_force_pushes: .allow_force_pushes.enabled, allow_deletions: .allow_deletions.enabled}'"
@@ -317,9 +322,10 @@ function Test-Protection {
   $r = Probe 'gh' @('api', '--hostname', $hostName, $endpoint) $unread $Repo @{ GH_REPO = $null; GH_HOST = $null; GH_ENTERPRISE_TOKEN = $null }
   if (-not $r) { return }
   if ($r.Code -ne 0) {
-    if ($r.Out -match 'Branch not protected') {
+    # Absence only on GitHub's own 404 that says so: any other status with those words is not a confirmed absence.
+    if ($r.Out -match 'Branch not protected' -and ($r.Out -match '\(HTTP 404\)' -or $r.Out -match '"status"\s*:\s*"404"') -and $r.Out -notmatch '\(HTTP (?!404)\d{3}\)|"status"\s*:\s*"(?!404)\d{3}"') {
       $body = '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}'
-      Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" "turn it on, then read it back, one command per line (to undo it later: gh api --hostname $hostName --method DELETE $endpoint):`n$(& $put $body)"
+      Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" "turn it on, then read it back, one command per line (the header help says how to undo it):`n$(& $put $body)"
     }
     else { Fail "main's protection can't be read (gh api: $(Tail $r.Out))" $unread }
     return
@@ -343,42 +349,20 @@ function Test-Protection {
   if ($force) { $wrong += 'force pushes are allowed' }
   if ($delete) { $wrong += 'deleting main is allowed' }
   if ($wrong) {
-    Fail "main's protection is partial: $($wrong -join '; ')" (Get-ProtectionMend $got $hostName $owner $name $put ($admins -eq $false -and -not $force -and -not $delete))
+    Fail "main's protection is partial: $($wrong -join '; ')" (Get-ProtectionMend $hostName $owner $name ($admins -eq $false -and -not $force -and -not $delete))
     return
   }
   Pass "main of $owner/$name is protected: force pushes and deletion refused, admins included"
 }
 
-# The narrowest mend of a partial protection (round 1 of D00 T03 §25). Only admins exempt: the enforce_admins endpoint,
-# which changes nothing else. Force pushes or deletion allowed: a PUT, which restates the whole rule, so it carries the
-# required checks with the app each is pinned to; a rule with anything a body cannot carry over exactly (push
-# restrictions, review dismissal or bypass actors) is mended by hand on the settings page instead.
-function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$name, [scriptblock]$put, [bool]$adminsOnly) {
+# The mend of a partial protection (D00 T03 §25). Only admins exempt: the enforce_admins endpoint, which changes nothing
+# else. Force pushes or deletion allowed: GitHub has no endpoint that changes only those, and a whole-rule PUT has to
+# restate every other rule, which twice lost one (an app pin, then rules it could not read; the completion review), so
+# that mend is made by hand on the settings page, where nothing else is restated.
+function Get-ProtectionMend([string]$hostName, [string]$owner, [string]$name, [bool]$adminsOnly) {
   $endpoint = "repos/$owner/$name/branches/main/protection"
   if ($adminsOnly) { return "hold admins to it, changing nothing else, then read it back, one command per line:`ngh api --hostname $hostName --method POST $endpoint/enforce_admins`ngh api --hostname $hostName $endpoint/enforce_admins --jq .enabled" }
-  $byHand = "on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, then run the preflight again"
-  $actors = { param($o) $o -is [Collections.IDictionary] -and (@($o['users']) + @($o['teams']) + @($o['apps']) | Where-Object { $_ }).Count -gt 0 }
-  $reviews = $got['required_pull_request_reviews']
-  if ($got['restrictions']) { return "it restricts who may push, which a PUT would have to restate: $byHand" }
-  if ($reviews -is [Collections.IDictionary] -and ((& $actors $reviews['dismissal_restrictions']) -or (& $actors $reviews['bypass_pull_request_allowances']))) { return "its review rule names who may dismiss or bypass reviews, which a PUT would have to restate: $byHand" }
-  $checks = $got['required_status_checks']
-  $keepChecks = if ($checks -is [Collections.IDictionary]) {
-    # Each check with the app it is pinned to: contexts alone would let any app satisfy it.
-    $pinned = @($checks['checks'] | Where-Object { $_ -is [Collections.IDictionary] } | ForEach-Object { [ordered]@{ context = $_['context']; app_id = $_['app_id'] } })
-    if (-not $pinned) { $pinned = @($checks['contexts'] | Where-Object { $_ } | ForEach-Object { [ordered]@{ context = $_; app_id = $null } }) }
-    [ordered]@{ strict = [bool]$checks['strict']; checks = $pinned }
-  } else { $null }
-  $keepReviews = if ($reviews -is [Collections.IDictionary]) {
-    $kept = [ordered]@{}
-    foreach ($key in 'dismiss_stale_reviews', 'require_code_owner_reviews', 'required_approving_review_count', 'require_last_push_approval') { if ($reviews.Contains($key)) { $kept[$key] = $reviews[$key] } }
-    $kept
-  } else { $null }
-  $body = [ordered]@{ required_status_checks = $keepChecks; enforce_admins = $true; required_pull_request_reviews = $keepReviews; restrictions = $null; allow_force_pushes = $false; allow_deletions = $false }
-  foreach ($key in 'required_linear_history', 'required_conversation_resolution', 'block_creations', 'lock_branch', 'allow_fork_syncing') {
-    $v = $got[$key]
-    if ($v -is [Collections.IDictionary] -and $v['enabled'] -is [bool]) { $body[$key] = $v['enabled'] }
-  }
-  "mend it, keeping its other rules, then read it back, one command per line:`n$(& $put ($body | ConvertTo-Json -Depth 6 -Compress))"
+  "on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, leaving its other rules as they are, then run the preflight again"
 }
 
 function Test-Ci {
@@ -457,7 +441,9 @@ function Test-Hold {
 $DeadlineValues = @('SetComplianceDeadline', 'ConfigureDeadlineForQualityUpdates', 'ConfigureDeadlineForFeatureUpdates')
 
 function Test-Setup {
-  $fix = "in an elevated shell: ``pwsh $(Join-Path $PSScriptRoot 'campaign-admin-setup.ps1') -Apply``"
+  # Each command on a line of its own and its path single-quoted, so it runs as printed from a path with spaces.
+  $setup = "'$((Join-Path $PSScriptRoot 'campaign-admin-setup.ps1').Replace("'", "''"))'"
+  $fix = "in an elevated shell:`npwsh $setup -Apply"
   $failedBefore = $script:failed
   $dir = $DotnetDir
   if (-not $dir) { $dir = Resolve-RunDotnet $SearchPath }
@@ -493,16 +479,18 @@ function Test-Setup {
   try { $saved = Read-Json $AdminRecord; if ($saved) { Assert-Record $saved $AdminRecord 'admin' } }
   catch {
     # A damaged record can't be trusted to undo the setup, so the originals it held are as good as lost.
-    Fail "$($_.Exception.Message); the update values from before the setup are as good as lost" "if you can, mend the record so it holds them; otherwise move it aside (``Move-Item -LiteralPath '$AdminRecord' -Destination '$AdminRecord.damaged'``), then $fix records the originals as unknown, and -Restore later returns Windows' defaults (both values absent)"
+    $quoted = $AdminRecord.Replace("'", "''")
+    Fail "$($_.Exception.Message); the update values from before the setup are as good as lost: setting up again records them as unknown, and -Restore later returns Windows' defaults (both values absent)" "if you can, mend the record so it holds them; otherwise, in an elevated shell, move it aside and set up again:`nMove-Item -LiteralPath '$quoted' -Destination '$quoted.damaged'`npwsh $setup -Apply" 'elevated'
   }
   if (-not (Test-Path -LiteralPath $AdminRecord)) {
-    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost" "$fix records the originals as unknown and keeps the hold, and -Restore later returns Windows' defaults (both values absent)" 'elevated'
+    # The same command as setup that is not in place, so the list shows it once.
+    Fail "admin setup's record at $AdminRecord is missing, so the update values from before the setup are lost: setting up again records them as unknown and keeps the hold, and -Restore later returns Windows' defaults (both values absent)" $fix 'elevated'
   } elseif ($saved) {
     $other = @(foreach ($name in 'PolicyKey', 'TaskPrefix', 'BinDir') {
         $given = Get-Variable -Name $name -ValueOnly
         if ($saved.PSObject.Properties.Name -contains $name -and $saved.$name -ne $given) { "$name $($saved.$name), not $given" }
       })
-    if ($other) { Fail "admin setup's record at $AdminRecord is for other targets ($($other -join '; '))" "run admin setup -Restore, then -Apply, in an elevated shell, or point the preflight at the recorded targets" 'elevated' }
+    if ($other) { Fail "admin setup's record at $AdminRecord is for other targets ($($other -join '; ')); or point the preflight at the recorded targets" "in an elevated shell, put them back, then set up for these:`npwsh $setup -Restore`npwsh $setup -Apply" 'elevated' }
   }
 
   # What still restarts the machine while the owner is signed in, which no setting here holds back.
@@ -532,7 +520,9 @@ function Test-Lock {
 function Test-Owner {
   $fix = "the owner confirms it, and it is recorded in $Acceptance"
   if (-not (Test-Path -LiteralPath $Acceptance)) { Fail "no owner record at $Acceptance (extra usage off, reboot check)" $fix 'owner'; return }
-  $text = [IO.File]::ReadAllText($Acceptance)
+  # A record that exists but can't be read is not one that lacks the owner's word: say what holds it.
+  try { $text = [IO.File]::ReadAllText($Acceptance) }
+  catch { Fail "the owner record at $Acceptance can't be read ($($_.Exception.Message))" "close whatever holds $Acceptance open, then run the preflight again"; return }
   $missing = @()
   if ($text -notmatch '(?m)^- Extra usage: off\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'extra usage off, with a date, in the Claude account''s settings' }
   if ($text -notmatch '(?m)^- Reboot check: passed\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'the reboot check passed, with a date' }
@@ -571,10 +561,13 @@ if ($failed) {
   # The same checks with the same options, single-quoted: a recheck of another checkout or other limits proves nothing.
   $again = foreach ($key in 'Repo', 'Only', 'ProbeSeconds', 'MinFreeGB', 'MinLoginDays', 'ReviewerModel', 'Distro', 'FreeDrives') {
     if (-not $PSBoundParameters.ContainsKey($key)) { continue }
-    $values = if ($key -eq 'Only') { @($names -join ',') } else { @($PSBoundParameters[$key]) }
-    " -$key " + (@($values | ForEach-Object { "'" + "$_".Replace("'", "''") + "'" }) -join ',')
+    # A list as one comma-joined value, which the script splits (pwsh -File passes a list so too): quoted items joined by
+    # commas would reach the script with their quotes in them (completion review).
+    $value = if ($key -eq 'Only') { $names -join ',' } else { @($PSBoundParameters[$key]) -join ',' }
+    " -$key '$($value.Replace("'", "''"))'"
   }
-  "then run it again: pwsh scripts/campaign-preflight.ps1$($again -join '')"
+  'then run it again:'
+  "    pwsh scripts/campaign-preflight.ps1$($again -join '')"  # a line of its own, copyable as it stands
   exit 1
 }
 # A subset passing proves only those checks, so it says so rather than clearing the campaign.
