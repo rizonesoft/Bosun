@@ -249,10 +249,9 @@ function Update-BosunAgentRules([string]$Repo) {
     [void]$kept.Append($line)
   }
   $without = $kept.ToString()
-  $new = if ($wanted) {
-    $lead = if ($without -and -not $without.EndsWith("`n")) { "`n" } else { '' }
-    "$without$lead$($script:BosunRulesStart)`n@.private/AGENTS.md`n$($script:BosunRulesEnd)`n"
-  } else { $without }
+  # The block goes first, each of its lines ending in its own line break, so the owner's text after it is never
+  # touched (a last line without a line break stays so) and taking the block out gives the file back byte for byte.
+  $new = if ($wanted) { "$($script:BosunRulesStart)`n@.private/AGENTS.md`n$($script:BosunRulesEnd)`n$without" } else { $without }
   if ($new -ceq $text) { return 'unchanged' }
   if (-not $new.Trim()) { Remove-Item -LiteralPath $file -Force; return 'removed' }
   # The temporary file is ignored as CLAUDE.local.md is (.gitignore: CLAUDE.local.md*), and removed if the rename fails.

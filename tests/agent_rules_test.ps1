@@ -64,7 +64,7 @@ try {
   Check 'without AGENTS.md the import goes, the owner''s own lines kept as written' ($r -eq 'removed' -and (Read-Local $one) -ceq "my own line`nmy later line`n") "(${r}: $(Read-Local $one))"
   [IO.File]::WriteAllText((Join-Path $one '.private\AGENTS.md'), "# Owner rules`n")
   $r = Update-BosunAgentRules $one
-  Check 'the import comes back after the owner''s lines' ($r -eq 'added' -and (Read-Local $one) -ceq "my own line`nmy later line`n$block") "($r)"
+  Check 'the import comes back ahead of the owner''s lines' ($r -eq 'added' -and (Read-Local $one) -ceq "${block}my own line`nmy later line`n") "($r)"
   git -C (Join-Path $one '.private') config --local --unset bosun.overlay
   $r = Update-BosunAgentRules $one
   Check 'an unmarked .private loses the import' ($r -eq 'removed' -and (Read-Local $one) -ceq "my own line`nmy later line`n") "($r)"
@@ -76,7 +76,7 @@ try {
   $startLine = $block.Split("`n")[0]
   [IO.File]::WriteAllText((Join-Path $broken 'CLAUDE.local.md'), "$startLine`n@.private/AGENTS.md`nmy instruction`n")
   $null = Update-BosunAgentRules $broken; $null = Update-BosunAgentRules $broken
-  Check 'a block missing its closing line never takes the owner''s lines with it' ((Read-Local $broken).Contains("my instruction`n") -and (Read-Local $broken).EndsWith($block)) "($(Read-Local $broken))"
+  Check 'a block missing its closing line never takes the owner''s lines with it' ((Read-Local $broken).Contains("my instruction`n") -and (Read-Local $broken).StartsWith($block)) "($(Read-Local $broken))"
   git -C (Join-Path $broken '.private') config --local --unset bosun.overlay
   $null = Update-BosunAgentRules $broken
   Check 'and once trust is withdrawn no import line is left, the owner''s line kept' ((Read-Local $broken) -ceq "my instruction`n") "($(Read-Local $broken))"
@@ -88,6 +88,17 @@ try {
   $lock = [IO.File]::Open((Join-Path $held 'CLAUDE.local.md'), 'Open', 'Read', 'Read')
   try { try { $null = Update-BosunAgentRules $held; $threw = $false } catch { $threw = $true } } finally { $lock.Dispose() }
   Check 'a failed rename refuses and leaves no temporary file' ($threw -and -not @(Get-ChildItem -LiteralPath $held -Filter 'CLAUDE.local.md.tmp*' -Force).Count -and (Read-Local $held) -ceq "my line`n")
+
+  # Byte for byte: a last line with no line break, through an import added and taken out again.
+  $exact = Join-Path $work 'exact'
+  git init -q $exact
+  New-Overlay $exact
+  [IO.File]::WriteAllText((Join-Path $exact 'CLAUDE.local.md'), 'one instruction, no final line break')
+  $before = [IO.File]::ReadAllBytes((Join-Path $exact 'CLAUDE.local.md'))
+  $null = Update-BosunAgentRules $exact
+  git -C (Join-Path $exact '.private') config --local --unset bosun.overlay
+  $null = Update-BosunAgentRules $exact
+  Check 'an import added and taken out leaves the owner''s file byte for byte as it was' ([Linq.Enumerable]::SequenceEqual([byte[]]$before, [IO.File]::ReadAllBytes((Join-Path $exact 'CLAUDE.local.md')))) "($(Read-Local $exact))"
 
   $two = Join-Path $work 'two'
   git init -q $two
