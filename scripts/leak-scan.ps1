@@ -105,12 +105,12 @@ function Get-GitBytes([string[]]$arguments) {
 function ConvertFrom-Blob([byte[]]$bytes) {
   # Text with no NUL byte is UTF-8 (a leading byte-order mark aside). Text with NUL bytes is some UTF-16 or UTF-32
   # (Windows PowerShell's Out-File and Set-Content -Encoding utf32 write those): every reading is returned, each with
-  # NULs and byte-order marks taken out, so an entry is found in whichever one holds it. With NULs taken out, the UTF-16
-  # readings also read UTF-32 text (any character below U+10000), so UTF-32 needs no reading of its own.
+  # NULs and byte-order marks taken out, so an entry is found in whichever one holds it. UTF-32 has readings of its own:
+  # the UTF-16 ones read UTF-32 text only below U+10000, not an emoji or any other supplementary character.
   # A UTF-16 byte-order mark names the encoding even when no byte is NUL (text outside Latin, such as CJK, has none).
   $marked = $bytes.Length -ge 2 -and (($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or ($bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF))
   if (-not $marked -and [Array]::IndexOf($bytes, [byte]0) -lt 0) { return [Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF) }
-  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode
+  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false)
   foreach ($encoding in $encodings) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
 }
 

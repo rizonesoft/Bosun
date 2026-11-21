@@ -8,8 +8,9 @@ if ! command -v pwsh >/dev/null 2>&1; then
     echo "leak-scan: push refused: pwsh (PowerShell 7) is needed to check the push for secrets; install it, then push again" >&2
     exit 1
 fi
-# The remote goes in the environment, not on a command line: for a push to a bare URL git gives the URL itself, and
-# one holding a credential would show in a process listing.
-BOSUN_LEAK_REMOTE=${1:-$2}
+# The address git is pushing to (its second argument, which a push URL can make differ from where the remote
+# fetches), in the environment rather than on a command line, since one holding a credential would show in a
+# process listing.
+BOSUN_LEAK_REMOTE=$2
 export BOSUN_LEAK_REMOTE
 exec pwsh -NoProfile -NonInteractive -File "$root/scripts/leak-scan.ps1"

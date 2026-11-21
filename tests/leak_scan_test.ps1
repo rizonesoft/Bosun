@@ -340,6 +340,25 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $cjk @('main')
   Check 'a UTF-16 file with a mark and no NUL byte is read as UTF-16' ($r.Exit -ne 0 -and $r.Text -match 'label.txt:1: deny-list entry') "(exit $($r.Exit): $($r.Text))"
 
+  # --- a push address that differs from the fetch address: the push destination is what is asked ---
+  $fetchFrom = New-Remote 'fetch-from'
+  $pushTo = Join-Path $work 'push-to.git'
+  git init -q --bare $pushTo
+  $split = New-Checkout 'split' $fetchFrom -Deny @($entry)
+  $null = Add-Commit $split 'already.txt' 'Client: Acme Corp (EU)'
+  git -C $split push -q --no-verify origin main 2>$null   # fixture only: the string already on the fetch remote
+  git -C $split remote set-url --push origin $pushTo
+  $r = Invoke-Push $split @('main')
+  Check 'with a separate push address, commits that address lacks are scanned' ($r.Exit -ne 0 -and $r.Text -match 'already.txt:1: deny-list entry' -and -not (git --git-dir=$pushTo for-each-ref)) "(exit $($r.Exit): $($r.Text))"
+
+  # --- UTF-32 text with a character above U+FFFF ---
+  $astral = "Orchid$([char]::ConvertFromUtf32(0x1F512))"
+  $orchid = New-Checkout 'orchid' $remote -Deny @($astral)
+  [IO.File]::WriteAllText((Join-Path $orchid 'report.txt'), "$astral`n", [Text.Encoding]::UTF32)
+  git -C $orchid add -A; git -C $orchid commit -q -m 'report'
+  $r = Invoke-Push $orchid @('main')
+  Check 'an entry with a supplementary character in a UTF-32 file is found' ($r.Exit -ne 0 -and $r.Text -match 'report.txt:1: deny-list entry') "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
