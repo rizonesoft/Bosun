@@ -92,10 +92,18 @@ if (-not $gitleaksExe) {
 # A remote given as an address (a push to a bare URL) is named for git through its environment configuration, so the
 # address, which can hold a credential, is never on a command line.
 if ($history) {
-  # Every commit of the range (or of HEAD's history, root included); nothing counts as published already.
-  $revisions = if ($All) { @('HEAD') } else { @($Range) }
+  # Every commit of the range, or with -All of every ref's history (root commits included), as CI scans the public
+  # repository (D00 T05 §6); nothing counts as published already. With -All every annotated tag goes through the tag
+  # pass below, as a pushed one does.
+  $revisions = if ($All) { @('--all') } else { @($Range) }
   $outgoing = @(Invoke-Git (@('rev-list') + $revisions))
   $known = @()
+  if ($All) {
+    foreach ($line in Invoke-Git @('for-each-ref', '--format=%(objecttype) %(objectname) %(refname)', 'refs/tags')) {
+      $kind, $sha, $name = $line -split ' ', 3
+      if ($kind -eq 'tag') { $tags.Add([pscustomobject]@{ Name = ($name -replace '^refs/tags/', ''); Object = $sha }) }
+    }
+  }
 }
 else {
 $remoteName = $Remote
@@ -325,26 +333,51 @@ if ($deny.Count -and $outgoing.Count) {
       }
     }
     # The whole commit object as published: its author and committer names and addresses as well as its message.
-    # The raw commit object, read under every encoding as a file is, and    # Git itself re-encodes by the commit's encoding header (Windows-1250, Shift-JIS or any other it knows), so its UTF-8
+    # The raw commit object, read under every encoding as a file is, and
+    # Git itself re-encodes by the commit's encoding header (Windows-1250, Shift-JIS or any other it knows), so its UTF-8
     # rendering of the message and identities is read too.
     $asGit = [Text.Encoding]::UTF8.GetString((Get-GitBytes @('log', '-1', '--encoding=UTF-8', '--format=%an%n%ae%n%cn%n%ce%n%B', $c)))
     if ((Test-Deny $asGit) -or @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'commit', $c)) | Where-Object { Test-Deny $_ }).Count) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
   }
 }
 # --- gitleaks over bytes the patch scan above cannot see ---
-# One helper for every such object: a file git calls binary (its patch shows no content), a tag's annotation, and
-# the files a tag publishes without a commit. Each finding's secret is kept from every path shown.
+# One helper for every such object: a commit's own text, a file git calls binary (its patch shows no content), the
+# paths a commit adds, a ref's name, a tag's annotation and the files a tag publishes without a commit. Each is queued
+# and all are scanned by one gitleaks run (Invoke-SecretScans), so a history of thousands of commits starts one
+# scanner, not thousands. Each finding's secret is kept from every path shown.
+$secretQueue = [Collections.Generic.List[object]]::new()
 function Find-SecretsIn([byte[]]$bytes, [string]$commit, [string]$path, [string]$place, [string]$what) {
+  $secretQueue.Add([pscustomobject]@{ Bytes = $bytes; Commit = $commit; Path = $path; Place = $place; What = $what })
+}
+# The queued objects go to gitleaks as one stream, each followed by a blank line so no line runs into the next object,
+# and each finding's line number is mapped back to the object it falls in and its own line there.
+function Invoke-SecretScans {
+  if (-not $secretQueue.Count) { return }
+  $stream = [IO.MemoryStream]::new()
+  $starts = [int[]]::new($secretQueue.Count)
+  $line = 1
+  for ($n = 0; $n -lt $secretQueue.Count; $n++) {
+    $bytes = $secretQueue[$n].Bytes
+    $starts[$n] = $line
+    $stream.Write($bytes, 0, $bytes.Length)
+    $line += [Linq.Enumerable]::Count([byte[]]$bytes, [Func[byte, bool]] { param($b) $b -eq 10 })
+    $stream.WriteByte(10); $stream.WriteByte(10)
+    $line += 2
+  }
   $start = [Diagnostics.ProcessStartInfo]::new($gitleaksExe)
   foreach ($a in 'stdin', '--no-banner', '--report-format', 'json', '--report-path', '-', '--exit-code', '3') { $start.ArgumentList.Add($a) }
   $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
   $scan = [Diagnostics.Process]::Start($start)
   $out = $scan.StandardOutput.ReadToEndAsync(); $null = $scan.StandardError.ReadToEndAsync()
-  $scan.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $scan.StandardInput.Close()
+  $stream.Position = 0; $stream.CopyTo($scan.StandardInput.BaseStream); $scan.StandardInput.Close()
   $scan.WaitForExit()
-  $hits = Read-GitleaksReport $scan.ExitCode $out.Result $what
-  if ($hits.Count) {
-    foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $commit $path "$(if ($path) { $f.StartLine } else { $place })" "secret ($($f.RuleID)) in $what" }
+  $hits = Read-GitleaksReport $scan.ExitCode $out.Result 'the commits'' other published text'
+  foreach ($f in $hits) {
+    $at = [int]$f.StartLine
+    $n = [Array]::BinarySearch($starts, $at); if ($n -lt 0) { $n = (-bnot $n) - 1 }
+    $item = $secretQueue[[Math]::Max(0, $n)]
+    if ($f.Secret) { $secrets.Add("$($f.Secret)") }
+    Add-Finding $item.Commit $item.Path "$(if ($item.Path) { $at - $starts[[Math]::Max(0, $n)] + 1 } else { $item.Place })" "secret ($($f.RuleID)) in $($item.What)"
   }
 }
 # Files whose content git leaves out of the patch, by git's own judgement (`diff-tree --numstat` gives "-" for them):
@@ -381,10 +414,18 @@ foreach ($c in $outgoing) {
 }
 # Ref names (a lightweight tag adds no object, so its name is the only thing it publishes).
 foreach ($ref in $refNames) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes($ref.Name)) $ref.Sha $null 'the name of the ref pushing this tip' 'its name' }
+# What a tag's objects are walked without: in a push, everything the destination has; in a history scan, the commit
+# the tag peels to, whose history the commit scan above already read, so only the tag chain and any tree or file a
+# tag publishes directly are left.
+function Get-TagExclusion($tag) {
+  if (-not $history) { return $notKnown }
+  $peeled = "$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
+  if ($peeled) { @('--not', $peeled) } else { @() }
+}
 # Tag annotations, and the files a tag publishes without a commit.
 foreach ($tag in $tags) {
   $peels = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
-  foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $notKnown)) {
+  foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + (Get-TagExclusion $tag))) {
     $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
     if ($type -eq 'tag') { Find-SecretsIn (Get-GitBytes @('cat-file', 'tag', $object)) $tag.Object $null 'a tag or other object being pushed' 'its annotation' }
     elseif ($type -eq 'blob' -and -not $peels) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $object)) $tag.Object $null 'a tag or other object being pushed' 'a file it publishes' }
@@ -415,7 +456,7 @@ if ($deny.Count) {
     # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
     # for a tag that does not peel to a commit, the trees, paths and files it publishes. Commits are checked above,
     # by what each adds, so only objects reached without a commit are read here.
-    $sent = Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $notKnown)
+    $sent = Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + (Get-TagExclusion $tag))
     $peelsToCommit = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
     $hit = $false
     foreach ($object in $sent) {
@@ -432,6 +473,7 @@ if ($deny.Count) {
     if ($hit) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in an annotation, or a file or path it publishes)' }
   }
 }
+Invoke-SecretScans
 if ($failed.Count) {
   $lines = foreach ($f in $failed) {
     $hidden = $f.Path -and ((Test-Deny $f.Path) -or @($secrets | Where-Object { $_ -and $f.Path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count)

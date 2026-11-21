@@ -1,0 +1,2 @@
+# Known gitleaks false positives in this repository's history, one fingerprint per line (commit:file:rule:line,
+# as gitleaks reports it), each under a comment naming why it is not a secret (D00 T05 §6). None so far.

@@ -647,6 +647,27 @@ Client: Acme Corp (EU)"))
   Check '-Range finds an entry inside the range and not the root commit''s' ($code -eq 1 -and $said -match "$($hitInRange.Substring(0, 12)): three.txt:1: deny-list entry" -and $said -notmatch 'root.txt') "(exit ${code}: $said)"
   $said = & $pwshExe -NoProfile -File $scanner -Range "$hitInRange..$tip" 2>&1 | Out-String; $code = $LASTEXITCODE
   Check '-Range passes a clean range' ($code -eq 0) "(exit ${code}: $said)"
+  # -All reads every ref, as CI scans the public repository: a branch not checked out, and an annotated tag's message.
+  $everyRef = Join-Path $work 'every-ref'
+  git init -q $everyRef
+  Copy-Item -LiteralPath (Join-Path $seed 'scripts') -Destination (Join-Path $everyRef 'scripts') -Recurse
+  git -C $everyRef add -A; git -C $everyRef commit -q -m base
+  git -C $everyRef checkout -q -b other-work
+  $sideToken = New-Token
+  $sideHit = Add-Commit $everyRef 'side.txt' "token = $sideToken"
+  git -C $everyRef checkout -q main
+  $allScanner = Join-Path $everyRef 'scripts\leak-scan.ps1'
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-All finds a secret on a branch other than the one checked out' ($code -eq 1 -and $said -match "$($sideHit.Substring(0, 12)): side.txt:1: secret \(github-pat\)" -and -not $said.Contains($sideToken)) "(exit ${code}: $said)"
+  git -C $everyRef branch -q -D other-work
+  $tagToken = New-Token
+  git -C $everyRef tag -a release-notes -m "Release, deploy with token $tagToken"
+  $tagObject = Get-Head $everyRef 'refs/tags/release-notes'
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-All finds a secret in an annotated tag''s message' ($code -eq 1 -and $said -match "$($tagObject.Substring(0, 12)): a tag or other object being pushed: secret \(github-pat\) in its annotation" -and -not $said.Contains($tagToken)) "(exit ${code}: $said)"
+  git -C $everyRef tag -d release-notes | Out-Null
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check 'and -All passes the repository once both are gone' ($code -eq 0) "(exit ${code}: $said)"
 
   # --- refusals on every failure ---
   $before = Get-Refs $remote
