@@ -1694,11 +1694,24 @@ class ChangeReviews(Harness):
         super().setUp()
         (self.repo / ".conclave/reviewers.toml").write_text(self.PIN, encoding="utf-8")
         self.changes = self.repo / "docs/reviews/changes"
+        # The dispatcher asks git whether the candidate is a commit: a launcher for the real git on the test's PATH.
+        real_git = shutil.which("git")
+        if os.name == "nt":
+            (self.bin / "git.cmd").write_text(f'@"{real_git}" %*\r\n', encoding="utf-8")
+        else:
+            os.symlink(real_git, self.bin / "git")
+        # A real commit for the candidate, and a prompt that names it (the completion review: the candidate must be a
+        # commit here and the tip the reviewer is told to inspect).
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
+                     ["add", "-A"], ["commit", "-qm", "base"]):
+            subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        self.sha = subprocess.run(["git", "-C", str(self.repo), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.prompt.write_text(f"Review the change ending at {self.sha}. Do not modify any file.\n", encoding="utf-8")
 
-    def change(self, record, say=None, **modes):
+    def change(self, record, say=None, candidate=None, **modes):
         modes = {"codex": "say", "say": say, **modes} if say else modes
         return self.dispatch("--writer", "claude", "--writer-model", "claude-opus-5-5", "--prompt", str(self.prompt),
-                             "--kind", "change", "--candidate", "c" * 40, "--record", str(record), **modes)
+                             "--kind", "change", "--candidate", candidate or self.sha, "--record", str(record), **modes)
 
     def test_a_change_review_runs_once_and_is_recorded_with_its_verdict(self):
         for name, say, verdict in (("tool-a.md", self.APPROVE, "OVERALL: approve"), ("tool-b.md", self.ATTENTION, "OVERALL: needs-attention")):
@@ -1772,6 +1785,94 @@ class ChangeReviews(Harness):
         self.assertEqual(note.read_text(encoding="utf-8"), "# A private note\n")
         self.assertTrue(os.path.islink(self.changes / "tool-i.md"), "the link was replaced by a record")
 
+    def test_the_completion_reviews_gaps_hold(self):
+        # A verdict pair at the end, each said once.
+        for name, say in (("tool-j.md", "HIGHEST: P3\nSo much prose after the severity.\nOVERALL: approve"),
+                          ("tool-k.md", "HIGHEST: P3\nOVERALL: needs-attention\nOVERALL: approve")):
+            with self.subTest(name):
+                record = self.changes / name
+                self.change(record, say)
+                self.assertFalse(record.exists() and "## Change review: astra" in record.read_text(encoding="utf-8"))
+        # The candidate is a commit here, and the one the prompt names.
+        for why, candidate, prompt in (("not a commit", "d" * 40, None), ("not in the prompt", None, "Review the change. Do not modify any file.\n")):
+            with self.subTest(why):
+                self.log.unlink(missing_ok=True)
+                if prompt:
+                    self.prompt.write_text(prompt, encoding="utf-8")
+                result, _ = self.change(self.changes / "tool-l.md", self.APPROVE, candidate=candidate)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("refused:", result.stderr)
+                self.assertEqual(self.calls(), [])
+        self.prompt.write_text(f"Review the change ending at {self.sha}. Do not modify any file.\n", encoding="utf-8")
+        # A record is required under any pin.
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--kind", "change", "--candidate", self.sha, codex="say", say=self.APPROVE)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--kind change needs --record", result.stderr)
+        self.assertEqual(self.calls(), [])
+        # One dispatcher per record: a live holder refuses a second, a dead one's claim is taken over.
+        claims = self.repo / "build/review-in-flight"
+        claims.mkdir(parents=True, exist_ok=True)
+        (claims / "change-tool-m.claim").write_text(str(os.getpid()), encoding="utf-8")
+        result, _ = self.change(self.changes / "tool-m.md", self.APPROVE)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("is reviewing", result.stderr)
+        self.assertEqual(self.calls(), [])
+        dead = subprocess.Popen([sys.executable, "-c", "pass"]); dead.wait()
+        (claims / "change-tool-m.claim").write_text(str(dead.pid), encoding="utf-8")
+        result, _ = self.change(self.changes / "tool-m.md", self.APPROVE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((claims / "change-tool-m.claim").exists(), "the claim outlived its dispatcher")
+
+    @unittest.skipUnless(os.name == "nt", "8.3 short names and case-folded paths are Windows'")
+    def test_a_change_review_is_known_by_its_folder_however_it_is_spelled(self):
+        # CI: the runner's temp folder is spelled RUNNER~1 while the dispatcher's root is the long name, and a correct
+        # record was refused as being elsewhere.
+        import ctypes
+        self.changes.mkdir(parents=True)
+        buffer = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.kernel32.GetShortPathNameW(str(self.changes), buffer, 1024)
+        spellings = [str(self.changes).upper()] + ([buffer.value] if buffer.value and buffer.value != str(self.changes) else [])
+        # Where this drive has no 8.3 names, a junction to the temporary folder spells the same folder another way.
+        alias = Path(self._tmp.name).parent / f"alias-{Path(self._tmp.name).name}"
+        if subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), self._tmp.name], capture_output=True).returncode == 0:
+            self.addCleanup(lambda: os.rmdir(alias))
+            spellings.append(str(alias / "repo/docs/reviews/changes"))
+        for n, spelled in enumerate(spellings):
+            with self.subTest(spelled):
+                record = Path(spelled) / f"tool-spelled-{n}.md"
+                result, _ = self.change(record, self.APPROVE)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("## Change review: astra", (self.changes / f"tool-spelled-{n}.md").read_text(encoding="utf-8"))
+
+    def test_a_change_review_follows_no_junction_to_another_review_folder(self):
+        sibling = self.repo / "docs/reviews/00-workspace"
+        sibling.mkdir(parents=True)
+        if os.name == "nt":
+            linked = subprocess.run(["cmd", "/c", "mklink", "/J", str(self.changes), str(sibling)], capture_output=True).returncode == 0
+        else:
+            try:
+                os.symlink(sibling, self.changes, target_is_directory=True)
+                linked = True
+            except OSError:
+                linked = False
+        if not linked:
+            self.skipTest("this machine cannot make a directory link")
+        result, _ = self.change(self.changes / "tool-n.md", self.APPROVE)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(list(sibling.iterdir()), [], "a change review wrote through a junction into a section's folder")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_change_review_runs_at_the_schedules_first_round(self):
+        (self.repo / ".conclave/reviewers.toml").write_text(SCHEDULED_PIN, encoding="utf-8")
+        record = self.changes / "tool-o.md"
+        result, _ = self.change(record, self.APPROVE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (call,) = self.calls()
+        self.assertIn("model_reasoning_effort=high", call["argv"])
+        text = record.read_text(encoding="utf-8")
+        self.assertIn("- Effort: high", text)
+        self.assertIn("- Lenses: adversarial, integration", text)
+
     def test_a_change_review_is_refused_anywhere_but_its_own_place(self):
         for record in (self.repo / "docs/reviews/tool.md", self.changes / "D00-T03-s26.md",
                        self.changes / "D00-T03-s26-cycle2.md", self.changes / "audit-d00-t03-s26.md",
@@ -1799,7 +1900,7 @@ class ChangeReviews(Harness):
         module.record(section, {**base, "review": "HIGHEST: none\nOVERALL: approve"}, "2026-11-21T00:02:00Z")  # a legacy round: no seconds
         module.record_completion(section, {**base, "seconds": 73, "review": "All present.\n\nCOMPLETION: complete"}, "2026-11-21T00:03:00Z", "b" * 40)
         self.changes.mkdir(parents=True)
-        module.record_completion(self.changes / "tool-e.md", {**base, "seconds": 12, "review": self.APPROVE}, "2026-11-21T00:04:00Z", "c" * 40, "change")
+        module.record_completion(self.changes / "tool-e.md", {**base, "seconds": 12, "review": self.APPROVE}, "2026-11-21T00:04:00Z", self.sha, "change")
         result, _ = self.dispatch("--list-rounds")
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()

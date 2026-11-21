@@ -9,6 +9,7 @@ Historical cycles retain their initiating committed policy and sealed findings.
 exit 2 means refusal; exit 0 means a returned review, not necessarily approval.
 """
 import argparse
+import atexit
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -1288,8 +1289,12 @@ def returned_pass(kind, entry):
     if kind == "change":
         # A round's verdict, exactly: one HIGHEST line naming P1, P2, P3 or none, then OVERALL last (round 1 of
         # D00 T03 §26: any HIGHEST line, `HIGHEST: unknown` included, earned approval and blocked the retry).
-        declared = [x for x in lines[:-1] if re.match(r"(?i)HIGHEST:", x)]
-        return family and len(declared) == 1 and re.fullmatch(r"(?i)HIGHEST:\s*(P[123]|none)", declared[0]) is not None \
+        # The reply ends with the pair, nothing between them, and says each once (the completion review: prose between
+        # them, or a second OVERALL line, passed).
+        declared = [x for x in lines if re.match(r"(?i)HIGHEST:", x)]
+        overall = [x for x in lines if re.match(r"(?i)OVERALL:", x)]
+        return family and len(lines) >= 2 and len(declared) == 1 and len(overall) == 1 \
+            and re.fullmatch(r"(?i)HIGHEST:\s*(P[123]|none)", lines[-2]) is not None \
             and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
     return family and bool(lines) and lines[-1] in ("COMPLETION: complete", "COMPLETION: gaps")
 
@@ -1422,6 +1427,66 @@ def list_rounds(records_dir):
     return {"records": records, **({"unreadable": unreadable} if unreadable else {})}
 
 
+def admit_change(candidate, prompt, record):
+    """Why a change review may not start, or None (the completion review of D00 T03 §26). The candidate must be a commit
+    in this checkout and the commit the prompt tells the reviewer to inspect, so the record names the work reviewed;
+    and one dispatcher at a time holds the record, by a claim file under build/review-in-flight/ made exclusively
+    (O_EXCL) and removed when this process ends, so two at once never spend two reviews on one file. A claim whose
+    process has ended is taken over."""
+    try:
+        # Found as the shell finds it (PATHEXT on Windows), so a git.cmd on PATH is run as git.exe would be; and asked
+        # with no `^`, which cmd would take for its escape character on the way to git.exe.
+        found = subprocess.run([shutil.which("git") or "git", "-C", str(ROOT), "cat-file", "-t", candidate],
+                               capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"git could not tell whether {candidate} is a commit here ({exc}); no reviewer was run"
+    if found.returncode or found.stdout.strip() != "commit":
+        return f"--candidate {candidate} is not a commit in this checkout"
+    try:
+        text = Path(prompt).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"the prompt {prompt} cannot be read ({exc})"
+    if candidate not in text:
+        return f"the prompt does not name --candidate {candidate}, so the record could name other work than was reviewed"
+    claim = IN_FLIGHT / f"change-{Path(record).stem}.claim"
+    try:
+        IN_FLIGHT.mkdir(parents=True, exist_ok=True)
+        for _ in range(2):
+            try:
+                handle = os.open(claim, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    holder = int(claim.read_text(encoding="utf-8").strip() or "0")
+                except (OSError, ValueError):
+                    holder = 0
+                if holder and holder != os.getpid() and pid_alive(holder):
+                    return f"another dispatcher (pid {holder}) is reviewing {record} now; one review per change"
+                claim.unlink(missing_ok=True)  # its process has ended: the claim holds nothing
+                continue
+            with os.fdopen(handle, "w", encoding="utf-8") as out:
+                out.write(str(os.getpid()))
+            atexit.register(lambda: claim.unlink(missing_ok=True))
+            return None
+    except OSError as exc:
+        return f"the claim on {record} cannot be made in {IN_FLIGHT} ({exc}); no reviewer was run"
+    return f"the claim on {record} could not be taken; no reviewer was run"
+
+
+def pid_alive(pid):
+    """Whether a process with this id is running now."""
+    if os.name == "nt":
+        shown = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"], capture_output=True, text=True,
+                               timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return f'"{pid}"' in shown.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def older_cycle(record):
     """The newest cycle file when `record` isn't it, or None. A repair's reviews must not land on the cycle they replace."""
     path = Path(record)
@@ -1505,18 +1570,24 @@ def main(argv=None):
     one_pass = args.kind in PASSES
     if one_pass and not (args.candidate and CANDIDATE.fullmatch(args.candidate)):
         parser.error(f"--kind {args.kind} needs --candidate, the full 40-character commit under review")
+    if args.kind == "change" and not args.record:
+        parser.error("--kind change needs --record docs/reviews/changes/<name>.md: a change review is kept, under any pin")
     if args.kind == "round" and args.candidate:
         parser.error("--candidate goes with --kind completion, plan or change; a round names its candidate in its prompt")
     # A change review lives under docs/reviews/changes/ in a file no section owns, and nothing else lives there, so a
     # section's rounds are never skipped through it; refused before any reviewer starts or any file is written.
     if args.record:
         where = Path(os.path.abspath(args.record))
-        inside = where.parent == Path(os.path.abspath(CHANGES))
-        # By what the path is, not how it is spelled (round 1): the folder itself inside the checkout, not a junction
-        # or link out of it, and the record not a link that would pour another file's text into a public record.
-        real = Path(os.path.realpath(CHANGES))
-        genuine = inside and real.is_relative_to(Path(os.path.realpath(ROOT))) and not os.path.islink(where) \
-            and Path(os.path.realpath(where)).parent == real
+        # By what the path is, never how it is spelled: an 8.3 short name or another case names the same folder (CI's
+        # runner temp folder is RUNNER~1), and a junction or link anywhere on the way names another one (round 1 and
+        # the completion review). The record's folder, by its real path, must be the checkout's own
+        # docs/reviews/changes, and the record must not itself be a link that would pour another file into the record.
+        expected = os.path.normcase(os.path.join(os.path.realpath(ROOT), "docs", "reviews", "changes"))
+        folder = os.path.normcase(os.path.realpath(where.parent))
+        named = where.parent.name.lower() == "changes" and os.path.normcase(os.path.realpath(where.parent.parent)) \
+            == os.path.normcase(os.path.join(os.path.realpath(ROOT), "docs", "reviews"))
+        inside = folder == expected or named
+        genuine = folder == expected and named and not os.path.islink(where)
         if args.kind == "change" and (not genuine or where.suffix != ".md" or SECTION_NAME.fullmatch(where.stem)):
             print(f"refused: a change review is recorded in docs/reviews/changes/<name>.md, under a name that is not "
                   f"a section's ({args.record})", file=sys.stderr)
@@ -1525,6 +1596,11 @@ def main(argv=None):
             print(f"refused: docs/reviews/changes/ holds change reviews only; a section's reviews go to its own "
                   f"findings file ({args.record})", file=sys.stderr)
             return 2
+        if args.kind == "change":
+            refusal = admit_change(args.candidate, args.prompt, where)
+            if refusal:
+                print(f"refused: {refusal}", file=sys.stderr)
+                return 2
         if args.kind == "change" and where.exists():
             # One pass, whatever the pin's schedule: a second is refused here, before any reviewer starts.
             try:
