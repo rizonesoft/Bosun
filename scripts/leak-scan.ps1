@@ -329,8 +329,14 @@ if ($deny.Count) {
   foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
   # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input;
   # a deletion (an all-zero local object) publishes nothing, so removing a private name is never refused for it.
-  $refNameBytes = if ($stdinBytes) { @(foreach ($line in (Split-Bytes $stdinBytes 10)) { $fields = Split-Bytes $line 32; if ($fields.Count -ge 4 -and [Text.Encoding]::ASCII.GetString($fields[1]) -ne $zero) { ,$fields[2] } }) } else { @() }
-  foreach ($name in $refNameBytes) { if (Test-DenyBytes $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
+  # Each name is checked where it is cut out, never collected first: PowerShell unrolls a lone byte array, and a
+  # one-ref push would then be checked byte by byte.
+  if ($stdinBytes) {
+    foreach ($line in (Split-Bytes $stdinBytes 10)) {
+      $fields = Split-Bytes $line 32
+      if ($fields.Count -ge 4 -and [Text.Encoding]::ASCII.GetString($fields[1]) -ne $zero -and (Test-DenyBytes $fields[2])) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' }
+    }
+  }
 
   foreach ($tag in $tags) {
     if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in its name)'; continue }
