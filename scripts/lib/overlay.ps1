@@ -218,18 +218,3 @@ function Get-OverlayCloneFault([string]$folder) {
   }
   $null
 }
-
-# --- the overlay's agent rules (D00 T05 §5) ---
-# The owner-only rules, .private/AGENTS.md, as text, or $null when they are not to be trusted. They are trusted only
-# from the overlay's own clone (Get-OverlayCloneFault), marked by setup (bosun.overlay = true in its own config), and
-# only from a file of its own inside it: a link to a file elsewhere is refused. Nothing is written: Claude Code reads
-# them at every session start through scripts/overlay-rules-hook.ps1, and the other agents follow AGENTS.md's rule.
-function Get-BosunOverlayRules([string]$Repo) {
-  $private = Join-Path $Repo '.private'
-  if (-not (Test-Path -LiteralPath $private -PathType Container) -or (Get-OverlayCloneFault $private)) { return $null }
-  if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { return $null }
-  $file = Get-Item -LiteralPath (Join-Path $private 'AGENTS.md') -Force -ErrorAction Ignore
-  if (-not $file -or $file.PSIsContainer -or $file.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { return $null }
-  # Read as stored (a byte-order mark tells UTF-8 or UTF-16 apart; without one it is UTF-8).
-  [IO.File]::ReadAllText($file.FullName)
-}

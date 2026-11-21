@@ -41,7 +41,7 @@ class HookInterpreter(unittest.TestCase):
                 with self.subTest(command=command, interpreter=interpreter):
                     done = self.run_with_only(interpreter, command)
                     self.assertEqual(done.returncode, 0, done.stderr)
-                    self.assertRegex(done.stdout, r"ran: project/scripts/(run-guard|tool-guard|dispatch_hook)\.py")
+                    self.assertRegex(done.stdout, r"ran: project/scripts/(run-guard|tool-guard|dispatch_hook|overlay_rules_hook)\.py")
 
     def test_the_deny_list_hook_sees_every_shell_and_connector_tool(self):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
