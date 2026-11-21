@@ -1,0 +1,95 @@
+{
+  "ref": "D00 T06 \u00a71",
+  "title": "Open findings, part 1 of 6",
+  "implementation_sha": "1917ebdacbc730e732b00e32df77c511d9fd1684",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T06-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T06-s1.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T06-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/findings-ledger.py --base b8c4e0b3 --lines 5-40 -> all 35 entries settled",
+    "python -m unittest scripts.tests.test_findings_ledger -> 8 tests OK",
+    "python -m unittest scripts.tests.test_review_dispatch -> 114 tests OK (skipped=3)",
+    "python scripts/todo-graph.py validate -> valid: 147 sections",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44934228576 -> green at 1917ebd",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44934228553 -> green at 1917ebd"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T06-s1.md",
+    "verdict": "completed",
+    "candidate": "81f2c405e70d2c402ebba13609fdbad46bd007f3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T06-s1.md",
+    "candidate": "9cc4997d0327d745242a66d486cb66da6e66e978",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "9cc4997d0327d745242a66d486cb66da6e66e978",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

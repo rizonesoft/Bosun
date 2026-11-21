@@ -31,7 +31,7 @@ depends_on: ["private-overlay"]
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Open findings, part 1 of 6 | -- | [ ] |
+| 1 | §1 | Open findings, part 1 of 6 | -- | [x] |
 | 2 | §2 | Open findings, part 2 of 6 | -- | [ ] |
 | 3 | §3 | Open findings, part 3 of 6 | -- | [ ] |
 | 4 | §4 | Open findings, part 4 of 6 | -- | [ ] |
@@ -61,11 +61,14 @@ depends_on: ["private-overlay"]
 - [x] Triage the open findings on lines 25 to 29 of `todo/findings.md` (as of `b8c4e0b3`): check each against the code, then schedule it through `add-todo` into a new or existing open section, fix it in this section with a test when it is a small defect, or strike it with its reason (the commit that already fixed it, the section that superseded it, or a declined suggestion with why). Done when: no finding on those lines is left unstruck, and each struck one names a `DNN TNN §N`, a commit or a reason. Cheaper substitute: striking a finding as declined without checking the code.
 - [x] Triage the open findings on lines 30 to 35 of `todo/findings.md` (as of `b8c4e0b3`): check each against the code, then schedule it through `add-todo` into a new or existing open section, fix it in this section with a test when it is a small defect, or strike it with its reason (the commit that already fixed it, the section that superseded it, or a declined suggestion with why). Done when: no finding on those lines is left unstruck, and each struck one names a `DNN TNN §N`, a commit or a reason. Cheaper substitute: striking a finding as declined without checking the code.
 - [x] Triage the open findings on lines 36 to 40 of `todo/findings.md` (as of `b8c4e0b3`): check each against the code, then schedule it through `add-todo` into a new or existing open section, fix it in this section with a test when it is a small defect, or strike it with its reason (the commit that already fixed it, the section that superseded it, or a declined suggestion with why). Done when: no finding on those lines is left unstruck, and each struck one names a `DNN TNN §N`, a commit or a reason. Cheaper substitute: striking a finding as declined without checking the code.
-- [ ] Commit: `todo: settle findings lines 5 to 40 (D00 T06 §1)`
+- [x] Commit: `todo: settle findings lines 5 to 40 (D00 T06 §1)`
 
 **Evidence 2026-11-21:** the 35 entries open on lines 5 to 40 were checked against the code at `4d9b6e6` (classification in `docs/reviews/00-workspace/D00-T06-s1.md`): 32 still-open suggestions scheduled into `D00 T03 §24` to `§27` and the new `TODO-07-kit-follow-ups.md` (`D00 T07 §1` to `§10`), each section's text read back to name its findings; line 17 (a defect) fixed in `d5baf06` with `test_a_prompt_that_is_not_utf8_is_refused_by_name`, which failed before (a `UnicodeDecodeError` traceback) and passes after; line 40 already done in `1e34f22` (`D00 T03 §22`); line 5 declined. `python scripts/findings-ledger.py --base b8c4e0b3 --lines 5-40` -> all 35 settled (25 s); pointing line 12 at `D00 T03 §24` instead -> exit 1, base line 12 named.
 
 **Test checkpoint:** `python scripts/findings-ledger.py --base b8c4e0b3 --lines 5-40` exits 0 (every entry open on those lines at `b8c4e0b3` is in the file once, struck, with a disposition that resolves), and `python scripts/todo-graph.py validate` exits 0. **Corrected 2026-11-21 (plan review of §1):** it checked physical lines for a strike marker, which a deleted or ownerless entry passes.
+
+> **Verified:** 2026-11-21 | §1 | 1917ebdacbc730e732b00e32df77c511d9fd1684
+> **Review:** `docs/reviews/d00-t06-s1.json`
 
 ## 2. Open findings, part 2 of 6
 
