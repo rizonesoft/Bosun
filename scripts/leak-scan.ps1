@@ -206,6 +206,8 @@ function Find-SecretsIn([byte[]]$bytes, [string]$commit, [string]$path, [string]
 # Files whose content git leaves out of the patch, by git's own judgement (`diff-tree --numstat` gives "-" for them):
 # its content test and attributes such as `*.png binary` alike. Those are piped to gitleaks whole.
 foreach ($c in $outgoing) {
+  # The commit object itself (its message, author and committer): a credential pasted into a message is in no patch.
+  Find-SecretsIn (Get-GitBytes @('cat-file', 'commit', $c)) $c $null 'commit message or author' 'the commit itself'
   $parent = & git -C $repoRoot rev-parse --verify --quiet "$c^1" 2>$null
   $base = if ($parent) { @("$parent", $c) } else { @('--root', $c) }
   $numstat = [Text.Encoding]::UTF8.GetString((Get-GitBytes (@('diff-tree', '-z', '-r', '-M', '--numstat', '--no-commit-id') + $base))) -split "`0"

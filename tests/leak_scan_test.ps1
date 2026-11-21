@@ -426,6 +426,13 @@ Client: Acme Corp (EU)"))
   Check 'a text file marked binary by an attribute is still scanned for secrets' ($r.Exit -ne 0 -and $r.Text -match 'preview.png:\d+: secret \(github-pat\) in a file git does not diff' -and -not $r.Text.Contains($pngToken)) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone reset -q --hard origin/main
 
+  # --- a secret pasted into a commit message ---
+  $msgToken = New-Token
+  git -C $plainClone commit -q --allow-empty -m "token = $msgToken"
+  $r = Invoke-Push $plainClone @('main')
+  Check 'a secret in a commit message is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: secret \(github-pat\) in the commit itself' -and -not $r.Text.Contains($msgToken)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone reset -q --hard origin/main
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
