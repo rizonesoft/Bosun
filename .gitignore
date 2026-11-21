@@ -6,3 +6,4 @@ obj/
 *.user
 .private/
 .private-clone-*/
+CLAUDE.local.md

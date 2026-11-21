@@ -151,4 +151,9 @@ if ($item) {
   }
 }
 
+# The overlay's agent rules follow .private as it now is (D00 T05 §5).
+$rules = Update-BosunAgentRules $Repo
+if ($rules -eq 'added') { 'overlay: agent rules: CLAUDE.local.md now imports .private/AGENTS.md' }
+elseif ($rules -eq 'removed') { 'overlay: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
+
 exit 0

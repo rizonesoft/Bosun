@@ -218,3 +218,33 @@ function Get-OverlayCloneFault([string]$folder) {
   }
   $null
 }
+
+# --- the overlay's agent rules (D00 T05 §5) ---
+# Claude Code reads the overlay's rules through an import kept in the checkout's ignored CLAUDE.local.md, between two
+# marker lines, only while .private is the overlay's own clone (Get-OverlayCloneFault), marked by setup and holding
+# AGENTS.md: an unrelated folder at .private is never trusted. Setup, scripts/hooks/post-merge and scripts/sync.ps1 call
+# this after their work, so the import follows the overlay as it gains or loses its rules. Any other text in the file
+# is kept byte for byte, a file left empty is removed, and a write is a temporary file renamed over the old one.
+# Returns what it did: 'added', 'removed' or 'unchanged'.
+$script:BosunRulesStart = '<!-- bosun-overlay-rules: written by scripts/setup-clone.ps1; do not edit between these lines -->'
+$script:BosunRulesEnd = '<!-- /bosun-overlay-rules -->'
+function Update-BosunAgentRules([string]$Repo) {
+  $private = Join-Path $Repo '.private'
+  $wanted = (Test-Path -LiteralPath (Join-Path $private 'AGENTS.md') -PathType Leaf) -and -not (Get-OverlayCloneFault $private) -and
+    ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true')
+  $file = Join-Path $Repo 'CLAUDE.local.md'
+  $text = if (Test-Path -LiteralPath $file -PathType Leaf) { [IO.File]::ReadAllText($file) } else { '' }
+  # The managed block, with the line break that ends it; the file's own line breaks are kept around it.
+  $pattern = '(?m)^' + [regex]::Escape($script:BosunRulesStart) + '\r?\n[\s\S]*?^' + [regex]::Escape($script:BosunRulesEnd) + '(\r?\n|$)'
+  $without = [regex]::Replace($text, $pattern, '')
+  $new = if ($wanted) {
+    $lead = if ($without -and -not $without.EndsWith("`n")) { "`n" } else { '' }
+    "$without$lead$($script:BosunRulesStart)`n@.private/AGENTS.md`n$($script:BosunRulesEnd)`n"
+  } else { $without }
+  if ($new -ceq $text) { return 'unchanged' }
+  if (-not $new.Trim()) { Remove-Item -LiteralPath $file -Force; return 'removed' }
+  $temp = "$file.tmp-$PID"
+  [IO.File]::WriteAllText($temp, $new, [Text.UTF8Encoding]::new($false))
+  Move-Item -LiteralPath $temp -Destination $file -Force
+  if ($wanted) { 'added' } else { 'removed' }
+}

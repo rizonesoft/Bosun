@@ -232,6 +232,10 @@ if ($failed) {
 }
 elseif ($done) { "sync: $($done -join '; ')" }
 if ($undo) { "sync: $undo" }
+# The overlay's agent rules follow .private as this run left it (D00 T05 §5).
+$rules = Update-BosunAgentRules $publicRoot
+if ($rules -eq 'added') { 'sync: agent rules: CLAUDE.local.md now imports .private/AGENTS.md' }
+elseif ($rules -eq 'removed') { 'sync: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
 $states = Get-States
 Write-States $states
 exit $(if ($failed -or @($states | Where-Object { -not $_.Ok }).Count) { 1 } else { 0 })

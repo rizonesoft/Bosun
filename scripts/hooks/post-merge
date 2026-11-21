@@ -6,6 +6,17 @@
 # post-merge hook: scripts/sync.ps1 updates both then.
 
 root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# Git gives a hook the public repository's own variables, and `git -C` does not override them: without this, the
+# commands below would read and pull the public repository instead of the overlay.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# However the hook ends, the checkout's CLAUDE.local.md is brought in line with the overlay as it now is: it imports
+# .private/AGENTS.md only while .private is the marked overlay holding it (D00 T05 §5). Without pwsh it is left as is.
+update_rules() {
+    if command -v pwsh >/dev/null 2>&1; then
+        pwsh -NoProfile -NonInteractive -File "$root/scripts/update-agent-rules.ps1" -Repo "$root" 2>/dev/null
+    fi
+}
+trap update_rules EXIT
 overlay="$root/.private"
 [ -e "$overlay/.git" ] || exit 0
 
@@ -25,10 +36,6 @@ if [ -h "$overlay" ] || [ -h "$overlay/.git" ] ||
     say "not pulled: .private, or its .git, is a link to another folder"
     exit 0
 fi
-
-# Git gives a hook the public repository's own variables, and `git -C` does not override them: without this, the
-# commands below would read and pull the public repository instead of the overlay.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
 
 
 # The mark is read from .private's own config only, never a user or system one that would mark every checkout.
