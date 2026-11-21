@@ -1,0 +1,96 @@
+{
+  "ref": "D00 T03 \u00a724",
+  "title": "Campaign hold restores itself and shows its state",
+  "implementation_sha": "8aa2606bb239ceaf1f1797ce8a52bf0b6476438a",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s24.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s24.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s24.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/campaign_hold_test.ps1 -> all passed",
+    "pwsh tests/preflight_test.ps1 -> all passed (138 checks)",
+    "python -m unittest scripts.tests.test_run_guard -> Ran 125 tests, OK (CampaignHoldEndToEnd: the real end and halt restore the fixture in under 5 s)",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44942621998 -> green at 8aa2606",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44942622011 -> green at 8aa2606"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s24.md",
+    "verdict": "filed",
+    "candidate": "f9dcc475693f08623c9419dbe57a68f7358195f3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D00 T03 \u00a728"
+    ]
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s24.md",
+    "candidate": "a8575f57f07cfc462176bf9f479ced80ab23bd74",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "a8575f57f07cfc462176bf9f479ced80ab23bd74",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

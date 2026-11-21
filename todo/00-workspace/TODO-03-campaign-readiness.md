@@ -62,7 +62,7 @@ title: "TODO-03 -- Campaign readiness"
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
 | 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
 | 23 | §23 | Token and issue day stored together | -- | [x] |
-| 24 | §24 | Campaign hold restores itself and shows its state | -- | [ ] |
+| 24 | §24 | Campaign hold restores itself and shows its state | -- | [x] |
 | 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [ ] |
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [ ] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
@@ -921,11 +921,14 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 6 and 7, r
 - [x] Say it in `python scripts/run-guard.py status` and `status --json`: a hold shows `hold: applied <age> ago, restored at the first hook event or status read after the run ends or after <expiry>` (a closed session cannot act at the deadline itself), and a failed automatic restore shows its result and the manual command; `--json` carries `hold` (`applied`, `expires`, `restore_tried`) and `hold_restore`. Done when: the status tests read those lines and keys with a hold, a failed restore, and no hold.
 - [x] Refuse an expired hold in `Test-Hold` in `scripts/campaign-preflight.ps1`, using the same expiry the guard reads, with the fix `pwsh scripts/campaign-hold.ps1 -Restore` then `-Apply`. Done when: `tests/preflight_test.ps1` with an expired record whose live values still match fails with that fix, and an unexpired one passes.
 - [x] Say it in the script's header help: `-Hours`, `-Status`, `-Auto`, the `BOSUN_HOLD_*` variables, and when the guard restores. Done when: the header names each.
-- [ ] Commit: `campaign: the hold restores itself when the run ends and shows its state (D00 T03 §24)`
+- [x] Commit: `campaign: the hold restores itself when the run ends and shows its state (D00 T03 §24)`
 
 **Evidence 2026-11-21:** `pwsh tests/campaign_hold_test.ps1` -> all passed (the life fields, a repeat apply with other hours kept whole, `-Hours 0` and `169` refused with nothing written, a malformed `Expires` refused by name, the old three-field record read with its write time, `-Status` after a drift and a plan switch, the printed command run as printed, the `FAIL` lines, `-Auto` marked before its first change and refused a second time, the `BOSUN_HOLD_*` targets); `pwsh tests/preflight_test.ps1` -> 137 checks passed, an expired hold with matching values failing with restore then apply; `python -m unittest scripts.tests.test_run_guard` -> all passed, with `CampaignHold` (each hook path restores once, Antigravity, a hold applied after a run ended, expiry on a quiet live run at its second and not before, another session's end, a failed restore tried once and kept across a new run, status lines and keys, a 9 s restore stopped at 7 s with its child) and `CampaignHoldEndToEnd` (the real guard's `end` and `halt` restore the fixture's six values, the lock and the record in under 5 s, and another session's `end` leaves it). Mutations caught: `release_hold` removed from `end` fails the end-to-end test; removed from `handle_event` fails four hook tests.
 
 **Test checkpoint:** `pwsh tests/campaign_hold_test.ps1`, `pwsh tests/preflight_test.ps1` and `python scripts/run-tests.py test_run_guard` exit 0, and with `release_hold`'s call in `end` removed the end-to-end test fails.
+
+> **Verified:** 2026-11-21 | §24 | 8aa2606bb239ceaf1f1797ce8a52bf0b6476438a
+> **Review:** `docs/reviews/d00-t03-s24.json`
 
 ## 25. Preflight shows progress, times its checks and ends with one fix list
 

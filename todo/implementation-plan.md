@@ -47,7 +47,7 @@ Sections: 64 | Checklist items: 554
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                                                   | none        | 7     |
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one                                 | none        | 9     |
 | [x]    | D00 T03 §23 | Token and issue day stored together                                                    | none        | 7     |
-| [ ]    | D00 T03 §24 | Campaign hold restores itself and shows its state                                      | none        | 10    |
+| [x]    | D00 T03 §24 | Campaign hold restores itself and shows its state                                      | none        | 10    |
 | [ ]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 5     |
 | [ ]    | D00 T03 §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | none        | 4     |
 | [ ]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 4     |
@@ -203,6 +203,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 101/148 verified sections, 26 ready to run now.
+Progress: 102/148 verified sections, 26 ready to run now.
 
-Checklist: 994/1202 items completed (includes Commit items).
+Checklist: 995/1202 items completed (includes Commit items).
