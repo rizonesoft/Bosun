@@ -61,7 +61,7 @@ title: "TODO-03 -- Campaign readiness"
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
 | 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
-| 23 | §23 | Token and issue day stored together | -- | [ ] |
+| 23 | §23 | Token and issue day stored together | -- | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -879,11 +879,14 @@ Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-w
 - [x] Cover the three ways a day is set, each with distinct old and new values seeded and the record held open: a pasted token with a known day, a vault import with a known day, and a vault import whose day cannot be read (which removes the old record). Done when: each exits 1 with its stated reason, and the preflight then distrusts the day for the new token. **Corrected 2026-11-21:** plan review gap 4; a pasted token's day is today when none is given, so only a vault import can have an unknown day.
 - [x] Remove `Save-Issued`'s temporary file (`<record>.<pid>.tmp`) when its write or rename fails. Done when: the held-record tests find no temporary file left in the record's folder. **Corrected 2026-11-21:** plan review gap 5.
 - [x] Migrate the owner's existing record, written before the fingerprint, with `pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <its own recorded day>`. Done when: `pwsh scripts/campaign-preflight.ps1 -Only claude` passes on this machine, the token never printed.
-- [ ] Commit: `campaign: the token and its issue day are stored together`
+- [x] Commit: `campaign: the token and its issue day are stored together`
 
 > **Evidence 2026-11-21:** the owner's record, written before fingerprints, was migrated with `-RecordOnly -IssuedOn` and its own day (2026-11-10, kept); `pwsh scripts/campaign-preflight.ps1 -Only claude` then passed here, the token never printed.
 
 **Test checkpoint:** `pwsh tests/start_run_test.ps1` and `pwsh tests/preflight_test.ps1` exit 0, and fail when the preflight trusts a record whose fingerprint is another token's.
+
+> **Verified:** 2026-11-21 | §23 | 204219c557da95a41610664171a42cbcdb9db617
+> **Review:** `docs/reviews/d00-t03-s23.json`
 
 ## Verification
 

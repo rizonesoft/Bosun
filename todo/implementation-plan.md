@@ -46,7 +46,7 @@ Sections: 49 | Checklist items: 485
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
-| [ ]    | D00 T03 §23 | Token and issue day stored together                             | none        | 7     |
+| [x]    | D00 T03 §23 | Token and issue day stored together                             | none        | 7     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
@@ -188,6 +188,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 98/133 verified sections, 10 ready to run now.
+Progress: 99/133 verified sections, 9 ready to run now.
 
-Checklist: 961/1133 items completed (includes Commit items).
+Checklist: 962/1133 items completed (includes Commit items).

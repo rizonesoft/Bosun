@@ -1,0 +1,95 @@
+{
+  "ref": "D00 T03 \u00a723",
+  "title": "Token and issue day stored together",
+  "implementation_sha": "204219c557da95a41610664171a42cbcdb9db617",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s23.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s23.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s23.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh tests/start_run_test.ps1 -> 71 checks, all passed, exit 0",
+    "pwsh tests/preflight_test.ps1 -> 135 checks, all passed",
+    "pwsh scripts/campaign-preflight.ps1 -Only claude -> passed on this machine after the owner record migration",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44912277569 -> green at 204219c",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44912277553 -> green at 204219c"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s23.md",
+    "verdict": "completed",
+    "candidate": "958cd5e9c60dd3f021b2aab797a6737456a5f3ca",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 returned only P3 findings; both were taken in 958cd5e (the failure checks name the record or key path, the comment on a failed record write matches the behaviour), and nothing was left open.",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s23.md",
+    "candidate": "09fbb2b4781889352823747475c7ee41478eeee7",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "09fbb2b4781889352823747475c7ee41478eeee7",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
