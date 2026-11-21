@@ -64,7 +64,7 @@ title: "TODO-03 -- Campaign readiness"
 | 23 | §23 | Token and issue day stored together | -- | [x] |
 | 24 | §24 | Campaign hold restores itself and shows its state | -- | [x] |
 | 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [x] |
-| 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [ ] |
+| 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [x] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [ ] |
 
@@ -984,7 +984,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 10, 11 and
 - [x] Record a change review only under `docs/reviews/changes/`, under a name that is not a section's (`DNN-TNN-sN`, a `-cycleN` repair file or an `audit-` file), refused before any reviewer starts or any file is written. Done when: the test is refused for an ordinary `.md` outside `docs/reviews/changes/` and for a section name and a repair-cycle name inside it, each leaving no file and no reviewer call.
 - [x] Make the readers know it: `--list-rounds` lists a change record in plain and `--json` output, and `python scripts/todo-graph.py stamp` refuses a change record as a section's plan, round or completion evidence. Done when: the listing test reads the change record in both outputs, and a stamp test naming a change file in `--plan` and in `--review` is refused. Cheaper substitute: a change record nothing lists.
 - [x] Point `.claude/skills/independent-review/SKILL.md` and its mirrors in `.agents/skills/` and `.codex/skills/` at `--kind change` for work outside a section. Done when: the three copies match and name the command and the `docs/reviews/changes/` place. Cheaper substitute: telling the skill to skip review for such changes.
-- [ ] Commit: `review-dispatch: round times, settled sources and reviews outside a section (D00 T03 §26)`
+- [x] Commit: `review-dispatch: round times, settled sources and reviews outside a section (D00 T03 §26)`
 
 **Corrected 2026-11-22 (round 2):** the change item said `--candidate` took a commit or a range; it takes the tip's full SHA, which the dispatcher requires, as the skill says.
 
@@ -993,6 +993,9 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 10, 11 and
 **Evidence 2026-11-22 (completion review and CI):** `b04726a` closes the completion review's six gaps (the verdict pair at the end, each once; the record's folder by its real path, a junction to another review folder refused; the candidate a commit here and named in the prompt; one dispatcher per record by an exclusive claim; `--record` under any pin; the scheduled first round's effort and lenses read back) and CI's red plan run 44958958652 (a record spelled through the runner's RUNNER~1 temp folder was refused; the folder is now compared by its real, case-folded path). `python -m unittest scripts.tests.test_review_dispatch` -> Ran 126 tests, OK (skipped=3).
 
 **Test checkpoint:** `python scripts/run-tests.py test_review_dispatch test_todo_graph` exits 0, and with the destination check removed from `--kind change` the refusal tests fail.
+
+> **Verified:** 2026-11-22 | §26 | cd85267c1c536b8f9dc9ece18cb8caedddc2e878
+> **Review:** `docs/reviews/d00-t03-s26.json`
 
 ## 27. CI gate sees a finished run sooner and says what it is waiting on
 
