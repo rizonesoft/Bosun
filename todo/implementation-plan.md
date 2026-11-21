@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 64 | Checklist items: 554
+Sections: 64 | Checklist items: 555
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -48,7 +48,7 @@ Sections: 64 | Checklist items: 554
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one                                 | none        | 9     |
 | [x]    | D00 T03 §23 | Token and issue day stored together                                                    | none        | 7     |
 | [x]    | D00 T03 §24 | Campaign hold restores itself and shows its state                                      | none        | 10    |
-| [ ]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 5     |
+| [ ]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 6     |
 | [ ]    | D00 T03 §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | none        | 4     |
 | [ ]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 4     |
 | [ ]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 5     |
@@ -205,4 +205,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 102/148 verified sections, 26 ready to run now.
 
-Checklist: 995/1202 items completed (includes Commit items).
+Checklist: 995/1203 items completed (includes Commit items).
