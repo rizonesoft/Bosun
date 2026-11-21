@@ -932,6 +932,8 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 6 and 7, r
 
 ## 25. Preflight shows progress, times its checks and ends with one fix list
 
+> **Started:** 2026-11-21T20:26:50Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 8, 9, 29, 30 and 31, raised by the completion reviews of `§10`, `§17` and `§18`). `scripts/campaign-preflight.ps1` prints each result after its check finishes, with no name while a slow probe runs (the branch-protection call can sit silent for two minutes), no durations, the protection fix as prose without its JSON body, a success line that carries the undo command, and a failing run that ends with only a count (`$failed check(s) failed`).
 
 **Corrected 2026-11-21 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s25.md` returned seven gaps (4 P1, 3 P2), planned in below: a protection fix that never writes over a state it could not read, and one that keeps the rules a partial protection already has; the printed commands proved by running them against a recording `gh`; the five-second target defined for failures that need no external process, and proved on a stream stamped as it arrives; each result timed by its own check; the undo checked in the help; each fix once, with counts; the recheck command carrying this run's options.
