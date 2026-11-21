@@ -491,6 +491,24 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $cafe2 @('refs/tags/release-1252')
   Check 'an entry in a Windows-1252 tag annotation is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list release-1252)) "(exit $($r.Exit): $($r.Text))"
 
+  # --- a destination with 900 tags on distinct commits: one clean push still goes through ---
+  $tagged = New-Checkout 'many-tags' (New-Remote 'many-tags-remote')
+  $stream = [Text.StringBuilder]::new()
+  for ($n = 1; $n -le 900; $n++) {
+    [void]$stream.Append("commit refs/tags/bulk-$n`ncommitter T <t@example.invalid> $(1700000000 + $n) +0000`ndata 4`nb$('{0:d3}' -f ($n % 1000))`n$(if ($n -eq 1) { "from refs/heads/main`n" } else { "from refs/tags/bulk-$($n - 1)`n" })`n")
+  }
+  # Written with LF line ends and fed as a file: PowerShell's pipe would end each line with CRLF, which fast-import refuses.
+  $streamFile = Join-Path $work 'bulk-tags.fi'
+  [IO.File]::WriteAllText($streamFile, $stream.ToString(), [Text.UTF8Encoding]::new($false))
+  Start-Process -FilePath $gitExe -ArgumentList '-C', "`"$tagged`"", 'fast-import', '--quiet' -RedirectStandardInput $streamFile -NoNewWindow -Wait
+  git -C $tagged push -q --no-verify origin 'refs/tags/*:refs/tags/*' 2>$null   # fixture only: the destination's own tags
+  $bulk = @(git --git-dir="$(Join-Path $work 'many-tags-remote.git')" tag --list 'bulk-*')
+  Check 'the destination holds the 900 tags the case needs' ($bulk.Count -eq 900) "($($bulk.Count) tags)"
+  $null = Add-Commit $tagged 'one-more.txt' 'clean'
+  $r = Invoke-Push $tagged @('main')
+  Check 'a clean push to a destination with 900 tags goes through' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+  Check 'and the scan leaves no temporary refs behind' (-not (git -C $tagged for-each-ref 'refs/bosun-leak-scan/'))
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

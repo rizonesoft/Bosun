@@ -28,7 +28,11 @@ $repoRoot = Split-Path $PSScriptRoot
 $zero = '0' * 40
 $failed = [Collections.Generic.List[object]]::new()
 function Say([string]$text) { [Console]::Error.WriteLine("leak-scan: $text") }
-function Stop-Scan([string]$why) { Say "push refused: $why"; exit 1 }
+function Stop-Scan([string]$why) {
+  Say "push refused: $why"
+  if (Get-Command Remove-ScanRefs -ErrorAction Ignore) { Remove-ScanRefs 'refs/bosun-leak-scan/' }
+  exit 1
+}
 function Invoke-Git([string[]]$arguments) {
   $out = & git -C $repoRoot @arguments 2>$null
   if ($LASTEXITCODE) { Stop-Scan "git $($arguments[0]) failed, so the outgoing commits could not be read" }
@@ -83,7 +87,34 @@ $listed = & git -C $repoRoot ls-remote $remoteName 2>$null
 if ($LASTEXITCODE) { Stop-Scan 'the remote could not be listed, so the commits it lacks are not known' }
 $known = @($listed | ForEach-Object { ("$_" -split '\s+')[0] } | Where-Object { $_ -match '^[0-9a-f]{40}$' } | Sort-Object -Unique |
   Where-Object { & git -C $repoRoot cat-file -e "$_^{commit}" 2>$null; -not $LASTEXITCODE })
-$range = @($locals) + $(if ($known) { @('--not') + $known } else { @() })
+# The commits pushed and the tips the destination has go to git as temporary refs, never as hashes on a command line:
+# hundreds of tags would pass Windows' 32,767-character limit and stop every push. They are named once, under
+# refs/bosun-leak-scan/, and removed when the scan ends (any left by a scan that was killed are removed first).
+$scanRefs = 'refs/bosun-leak-scan/' + [guid]::NewGuid().ToString('N')
+# update-ref --stdin is written through the process's own stdin with LF line ends: PowerShell's pipe to a native
+# command ends each line with CRLF on Windows, and git would read every hash with a stray carriage return.
+function Invoke-UpdateRefs([string[]]$commands) {
+  $start = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in '-C', $repoRoot, 'update-ref', '--stdin') { $start.ArgumentList.Add($a) }
+  $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
+  $process = [Diagnostics.Process]::Start($start)
+  $null = $process.StandardOutput.ReadToEndAsync(); $null = $process.StandardError.ReadToEndAsync()
+  $bytes = [Text.UTF8Encoding]::new($false).GetBytes((($commands -join "`n") + "`n"))
+  $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $process.StandardInput.Close()
+  $process.WaitForExit()
+  $process.ExitCode
+}
+function Remove-ScanRefs([string]$prefix) {
+  $stale = @(& git -C $repoRoot for-each-ref --format='delete %(refname)' $prefix 2>$null)
+  if ($stale) { $null = Invoke-UpdateRefs $stale }
+}
+Remove-ScanRefs 'refs/bosun-leak-scan/'
+$create = @(for ($n = 0; $n -lt $locals.Count; $n++) { "create $scanRefs/push/$n $($locals[$n])" }) + @(for ($n = 0; $n -lt $known.Count; $n++) { "create $scanRefs/known/$n $($known[$n])" })
+if ($create) {
+  if (Invoke-UpdateRefs $create) { Stop-Scan 'the commits to scan could not be named for git' }
+}
+$notKnown = if ($known) { @('--not', "--glob=$scanRefs/known/*") } else { @() }
+$range = @("--glob=$scanRefs/push/*") + $notKnown
 $outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $range)) } else { @() }
 
 # --- the private deny list, read first so no finding of either pass prints a path holding an entry ---
@@ -157,7 +188,13 @@ if ($deny.Count -and $outgoing.Count) {
     # read as NUL-separated raw records: ":<mode> <mode> <old> <new> <status>", then one path, or two for a rename.
     $parent = & git -C $repoRoot rev-parse --verify --quiet "$c^1" 2>$null
     $tree = if ($parent) { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', "$parent", $c) } else { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', '--root', $c) }
-    $tokens = [Text.Encoding]::UTF8.GetString((Get-GitBytes $tree)) -split "`0"
+    $treeBytes = Get-GitBytes $tree
+    $tokens = [Text.Encoding]::UTF8.GetString($treeBytes) -split "`0"
+    # A path git stores as other bytes than UTF-8 (a legacy archive's name, on Linux or WSL) is read under every encoding
+    # too, so a name holding an entry is found whatever its bytes.
+    foreach ($encoding in Get-Encodings) {
+      if (Test-Deny (ConvertTo-Reading $encoding $treeBytes)) { Add-Finding $c 'a path' '' 'deny-list entry (in a file name)'; break }
+    }
     for ($i = 0; $i -lt $tokens.Count; $i++) {
       if (-not $tokens[$i].StartsWith(':')) { continue }
       $fields = $tokens[$i].Substring(1) -split ' '
@@ -250,7 +287,7 @@ if ($refNames.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($refNames
 # Tag annotations, and the files a tag publishes without a commit.
 foreach ($tag in $tags) {
   $peels = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
-  foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $(if ($known) { @('--not') + $known } else { @() }))) {
+  foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $notKnown)) {
     $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
     if ($type -eq 'tag') { Find-SecretsIn (Get-GitBytes @('cat-file', 'tag', $object)) $tag.Object $null 'a tag or other object being pushed' 'its annotation' }
     elseif ($type -eq 'blob' -and -not $peels) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $object)) $tag.Object $null 'a tag or other object being pushed' 'a file it publishes' }
@@ -270,7 +307,7 @@ if ($deny.Count) {
     # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
     # for a tag that does not peel to a commit, the trees, paths and files it publishes. Commits are checked above,
     # by what each adds, so only objects reached without a commit are read here.
-    $sent = Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $(if ($known) { @('--not') + $known } else { @() }))
+    $sent = Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $notKnown)
     $peelsToCommit = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
     $hit = $false
     foreach ($object in $sent) {
@@ -301,4 +338,5 @@ if ($failed.Count) {
   Stop-Scan "$($lines.Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again"
 }
 if (-not (Test-Path -LiteralPath $denyPath)) { Say "checked $($outgoing.Count) commit(s) for secrets; no deny list (.private/deny-list.txt), so private strings were not checked" }
+Remove-ScanRefs 'refs/bosun-leak-scan/'
 exit 0
