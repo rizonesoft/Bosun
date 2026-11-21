@@ -38,7 +38,7 @@ title: "TODO-05 -- Public core and private overlay"
 | 2 | §2 | Overlay clone in setup and pull after merge | §1 | [x] |
 | 3 | §3 | One sync command for both repositories | §2 | [x] |
 | 4 | §4 | Pre-push leak guard with gitleaks and the private deny list | §1 | [x] |
-| 5 | §5 | Agent rules split into public and overlay halves | §1 | [ ] |
+| 5 | §5 | Agent rules split into public and overlay halves | §1 | [x] |
 | 6 | §6 | Full-history secret scan in CI | §4 | [ ] |
 | 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [ ] |
 | 8 | §8 | Machine paths and personal names scrubbed from public files | §4, §7 | [ ] |
@@ -197,13 +197,16 @@ Agents need the owner's rules on the owner's machine and must not see them anywh
 - [x] Prove each agent follows the overlay's rules through its normal entry point, once, in a scratch checkout whose overlay `AGENTS.md` holds a harmless canary rule (answer one fixed word to one fixed question): `claude -p`, `codex exec` in its read-only sandbox, and `agy`. Done when: the three answers with the canary, and the three without it (overlay unmarked, then absent), are recorded under this section with each tool's version. **Corrected 2026-11-21:** plan review gaps 1 and 4; the read-back in the owner's own checkout, once its rules exist, belongs to `D00 T05 §7`.
 - [x] Add `tests/agent_rules_test.ps1` for the cases above, asserting also that tracked `CLAUDE.md` and `AGENTS.md` hold the pointer and no `op://` reference and no machine path (an absolute drive path such as `C:\Users\...`, or `/home/<name>`, `/mnt/<drive>/Users/...`). Done when: it passes, and fails when an `op://` line or a `C:\Users\` path is added to `AGENTS.md`, when the pointer line is removed, or when the hook stops checking the mark. **Corrected 2026-11-21:** `AGENTS.md` still names the 1Password Conclave vault, which `D00 T05 §7` moves to the overlay with its own Done when, so this test takes the vault-name check over in `§7`; plan review gap 5.
 - [x] Run `tests/agent_rules_test.ps1` in the Windows scripts job of `.github/workflows/build.yml`. Done when: `pwsh scripts/check-all.ps1 -List` shows `test:agent_rules` and the candidate's CI run shows the step passed. **Corrected 2026-11-21:** check-all discovers `tests/*_test.ps1` by name (`scripts/check-all.ps1:77`), so only CI needs a step.
-- [ ] Commit: `overlay: agent rules load the overlay's half when present`
+- [x] Commit: `overlay: agent rules load the overlay's half when present`
 
 > **Finding 2026-11-21 (Claude Code 2.1.330):** a missing `@` import is silent: in a trusted scratch checkout, `CLAUDE.md` importing an absent `.private/AGENTS.md` exits 0 with nothing on standard error, and the import loads once the file exists (Sonnet named both the `CLAUDE.md` canary and the imported one; Haiku named neither, so the proofs use Sonnet). A plain import would still trust any folder at `.private`, so the setup-kept block in `CLAUDE.local.md` is used, as planned.
 > **Proof 2026-11-21 (the managed import, since replaced):** a scratch checkout with this `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `CODEX.md`, and an overlay whose `AGENTS.md` sets a canary word, asked "What is the canary word?": marked overlay, `claude -p` (Sonnet), `codex exec --sandbox read-only` and `agy -p` each answered `HERON`; unmarked, and then absent, each answered `NONE`. Versions: Claude Code 2.1.330, codex-cli 0.169.0, agy 1.5.14.
 > **Proof 2026-11-21 (the SessionStart hook):** the same scratch checkout, with only the overlay rules hook in its .claude/settings.json: marked overlay, claude -p (Sonnet), codex exec --sandbox read-only and gy -p each answered HERON; unmarked, and then absent, each answered NONE; no file was written beside the copied ones. Versions: Claude Code 2.1.330, codex-cli 0.169.0, agy 1.5.14.
 
 **Test checkpoint:** `pwsh tests/agent_rules_test.ps1` exits 0, and fails when an `op://` line, a machine path or a removed pointer is in `AGENTS.md`, or when the hook stops checking the mark.
+
+> **Verified:** 2026-11-21 | §5 | b2808764fb09581f88be2003a581244d6a3089ec
+> **Review:** `docs/reviews/d00-t05-s5.json`
 
 ## 6. Full-history secret scan in CI
 
