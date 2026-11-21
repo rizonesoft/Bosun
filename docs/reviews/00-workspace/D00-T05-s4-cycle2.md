@@ -150,3 +150,31 @@ OVERALL: needs-attention
 - Settled: the owner closed this section's review loop on 2026-11-21 after 33 rounds and this cycle's four: further text encodings beyond those read (UTF-8, Windows 1250 to 1258, 874, 932, 936, 949, 950, KOI8-R and KOI8-U, UTF-16 and UTF-32 both ways) are P3, and a new one is filed work.
 - Settled: the owner's same decision: environment and repository shapes beyond those tested (host PATH layouts, inherited git variables, a destination's unusual ref states) are P3 unless a real push in this project's ordinary use leaks or is wrongly refused.
 - Settled: the owner's same decision: Unicode case rules beyond NFKC with invariant upper case (full case folding such as the German sharp s, the Turkish dotless i) are P3.
+
+## Round 5: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T07:58:44Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: source-defect
+- Seconds: 39
+- Lines: 9
+- Digest: ab52982587d2b20f
+
+## source-defect
+
+**Verdict: advisory**
+
+1. **P3** The checked section contract specifies `gitleaks git --redact`, but the scanner deliberately requests an unredacted in-memory report so it can suppress filenames containing a detected secret. Compare the invocation at `scripts/leak-scan.ps1:253` with `todo/00-workspace/TODO-05-private-overlay.md:154`. The checklist should describe the implemented redaction boundary so a future maintainer can preserve the filename protection.
+
+HIGHEST: P3  
+RECURRING: none  
+OVERALL: approve
+
+- Settled: round 5 finding 1 (P3) taken: the checklist names the unredacted in-memory report and why.
