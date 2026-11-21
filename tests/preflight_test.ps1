@@ -380,7 +380,7 @@ try {
   try { $asking = Stream "$slowGh;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '3') }
   finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
   $askAt = When $asking $askPattern; $endAt = When $asking 'gave no answer within 3 seconds'
-  Check ($askAt -lt $endAt - 2) ("the protection read names its host, repository and limit {0:N1} s before it ends" -f ($endAt - $askAt))
+  Check ($askAt -lt 999 -and $endAt -lt 999 -and $askAt -lt $endAt - 2) ("the protection read names its host, repository and limit {0:N1} s before it ends" -f ($endAt - $askAt))
 
   # Each protection state's fix, run as printed against a recording gh: the body it sends, the read-back's target.
   $wantHost, $wantPath = $Matches[1], "repos/$($Matches[2])/$($Matches[3])/branches/main/protection"
@@ -602,7 +602,7 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
     if ($l -match '^  (with this account|in an elevated shell|only the owner can confirm):$') { $current = $Matches[1]; $groups[$current] = @() }
     elseif ($current -and $l -match '^    \d+\. (.+)$') { $groups[$current] += $Matches[1] }
   }
-  Check ($r.Code -eq 1 -and @($groups.Keys) -join '|' -eq 'with this account|in an elevated shell|only the owner can confirm' -and @($groups['with this account']).Count -eq 1 -and $groups['with this account'][0] -eq "free space on $drive" -and @($groups['in an elevated shell'] | Where-Object { $_ -match 'campaign-admin-setup\.ps1' }).Count -eq @($groups['in an elevated shell']).Count -and @($groups['only the owner can confirm']).Count -eq 1) "a failing run ends with each fix once, in its group, in order ($(($groups.Keys | ForEach-Object { "${_}: $($groups[$_] -join ' / ')" }) -join ' || '))"
+  Check ($r.Code -eq 1 -and @($groups.Keys) -join '|' -eq 'with this account|in an elevated shell|only the owner can confirm' -and @($groups['with this account']).Count -eq 1 -and $groups['with this account'][0] -eq "free space on $drive" -and @($groups['in an elevated shell']).Count -eq 2 -and @($groups['in an elevated shell'] | Where-Object { $_ -match 'campaign-admin-setup\.ps1 -Apply' }).Count -eq 2 -and @($groups['in an elevated shell'] | Sort-Object -Unique).Count -eq 2 -and @($groups['only the owner can confirm']).Count -eq 1) "a failing run ends with each fix once, in its group, in order ($(($groups.Keys | ForEach-Object { "${_}: $($groups[$_] -join ' / ')" }) -join ' || '))"
   $recheck = ($list -split "`n" | Where-Object { $_ -like 'then run it again: *' }) -replace '^then run it again: ', ''
   Check ($recheck -match "-Repo '[^']*a checkout with spaces'" -and $recheck -match "-Only 'space,owner,setup'" -and $recheck -match "-MinFreeGB '1000000000'") "the recheck command carries this run's options ($recheck)"
   Push-Location $repo
