@@ -860,19 +860,26 @@ Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed t
 
 Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-workspace/D00-T05-s7.md`). `scripts/store-claude-token.ps1` writes the token to the user variable before it writes the day it was made to `%LOCALAPPDATA%\Bosun\claude-token.json`, so a record that cannot be written (held open, a full disk) leaves a new token beside the old token's day. And when the new day is unknown, a failed removal of the old record is ignored and the import reports success. `scripts/campaign-preflight.ps1` then judges the token's expiry by the wrong day.
 
+**Corrected 2026-11-21 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s23.md` found that writing the day first only reverses the mismatch (an import stopped between the two writes leaves the old token with the new day, and a preflight can read that pair), and that a rollback cannot cover a record created or deleted. The day is therefore tied to its token instead of ordered around it: the record holds a fingerprint of the token it describes, and the preflight trusts the day only for that token.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Store the token and its day as one step. Done when: a record that cannot be written or removed leaves the token as it was and says so.
+1. Tie the day to its token. Done when: a record written for one token is never read as the day of another, whatever order the two writes are in or where an import stops.
+2. Make the importer's own failures plain. Done when: a token or record that cannot be stored exits 1 naming which store needs repair, and never prints the token.
 
-- [ ] Write the day's record (or remove it, for an unknown day) before the token, and when that fails change nothing and exit 1 with the reason. Done when: `tests/start_run_test.ps1`, with the record held open without sharing, shows a vault import and a pasted token each exit 1, the stored token and the record unchanged, for a known day and for an unknown one. Cheaper substitute: a warning after the token is already replaced.
-- [ ] Restore the old record when the token itself cannot be stored after the record was written. Done when: the test, with the key unwritable, reads the old record back unchanged.
+- [ ] Record with the day a fingerprint of the token it belongs to (`token`: the first 16 hex digits of the token's SHA-256, which says nothing of the token) in `scripts/store-claude-token.ps1`, for a vault import, a pasted token and `-RecordOnly` (the fingerprint of the token then stored). Done when: `tests/start_run_test.ps1` reads back a record whose `token` matches the stored token's fingerprint after each of the three. Cheaper substitute: storing the token's last characters, which leaks part of it.
+- [ ] Trust the day in `scripts/campaign-preflight.ps1` only when the record's `token` is the fingerprint of the token the preflight read; a missing, different or absent fingerprint is "the day is not recorded for this token", with the same `-RecordOnly -IssuedOn` remedy. Done when: `tests/preflight_test.ps1`, with a still-valid old token and a record written for a newer one (inside and outside the minimum-days threshold) refuses it, and passes once the record is for that token.
+- [ ] Read the token back exactly (case-sensitive, the same string) before reporting success, and on any failure say which store needs repair, never "nothing changed" once a store was written: the token not stored (the record left as it was), or the token stored but its day not recorded (with the `-RecordOnly -IssuedOn` remedy, the stored day now distrusted by the preflight). Done when: tests with the key unwritable and with the record held open without sharing each exit 1 with that store named, the token in neither output stream. **Corrected 2026-11-21:** plan review gap 3.
+- [ ] Cover the three ways a day is set, each with distinct old and new values seeded and the record held open: a pasted token with a known day, a vault import with a known day, and a vault import whose day cannot be read (which removes the old record). Done when: each exits 1 with its stated reason, and the preflight then distrusts the day for the new token. **Corrected 2026-11-21:** plan review gap 4; a pasted token's day is today when none is given, so only a vault import can have an unknown day.
+- [ ] Remove `Save-Issued`'s temporary file (`<record>.<pid>.tmp`) when its write or rename fails. Done when: the held-record tests find no temporary file left in the record's folder. **Corrected 2026-11-21:** plan review gap 5.
+- [ ] Migrate the owner's existing record, written before the fingerprint, with `pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <its own recorded day>`. Done when: `pwsh scripts/campaign-preflight.ps1 -Only claude` passes on this machine, the token never printed.
 - [ ] Commit: `campaign: the token and its issue day are stored together`
 
-**Test checkpoint:** `pwsh tests/start_run_test.ps1` exits 0, and fails when the record is written after the token again.
+**Test checkpoint:** `pwsh tests/start_run_test.ps1` and `pwsh tests/preflight_test.ps1` exit 0, and fail when the preflight trusts a record whose fingerprint is another token's.
 
 ## Verification
 
