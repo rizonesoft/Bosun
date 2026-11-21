@@ -391,6 +391,11 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $true
       try { $said = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-01-15 -Key $vaultKey -Record $record) -join "`n"; $code = $LASTEXITCODE } finally { Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $false }
       Check ($code -eq 1 -and $said -match 'still stands and is still trusted' -and $said -match 'before starting a campaign' -and (Get-Content $record -Raw) -eq $before) "a failed -RecordOnly correction on a read-only record says the old day still stands for this token ($said)"
+      # A relative -Record is one path for the write and the rename, after Set-Location too.
+      $relative = Join-Path $work 'relative-place'
+      New-Item -ItemType Directory -Path (Join-Path $relative 'inner') -Force | Out-Null
+      $said = ('tok-relative' | & $pwsh -NoProfile -Command "Set-Location -LiteralPath '$relative\inner'; & '$kitStore' -Key '$vaultKey' -Record '.\day.json' -IssuedOn 2026-04-08; exit `$LASTEXITCODE") -join "`n"; $code = $LASTEXITCODE
+      Check ($code -eq 0 -and (Test-Path -LiteralPath (Join-Path $relative 'inner\day.json')) -and ((Get-Content (Join-Path $relative 'inner\day.json') -Raw | ConvertFrom-Json).token -eq (Get-TokenFingerprint 'tok-relative'))) "a relative -Record after Set-Location is written where PowerShell is, whole ($said)"
       # A -Record that names a folder is refused, never reported saved inside it.
       $folder = Join-Path $work 'record-is-a-folder'
       New-Item -ItemType Directory -Path $folder | Out-Null

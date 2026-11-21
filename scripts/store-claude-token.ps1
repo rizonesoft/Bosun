@@ -4,8 +4,8 @@
 # token is read without echo and never printed.
 #
 # A setup token lasts one year from the day it was made (https://code.claude.com/docs/en/authentication), and nothing
-# reports when, so this also records that day in %LOCALAPPDATA%\Bosun\claude-token.json (the date only, never the token)
-# for the preflight to check.
+# reports when, so this also records that day in %LOCALAPPDATA%\Bosun\claude-token.json for the preflight to check: the
+# date and a fingerprint of the token it belongs to (scripts/lib/token-record.ps1), never the token itself.
 #
 #   pwsh scripts/store-claude-token.ps1                          paste the token made today when asked
 #   pwsh scripts/store-claude-token.ps1 -FromVault               read it from the 1Password item the overlay names instead,
@@ -30,6 +30,9 @@ param(
   [string]$Record = (Join-Path $env:LOCALAPPDATA 'Bosun\claude-token.json')
 )
 $ErrorActionPreference = 'Stop'
+# One absolute path for the record: PowerShell resolves a relative path against its own location, .NET against the
+# process folder, and the two differ after Set-Location, so the write and the rename would look in different places.
+$Record = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Record)
 
 # The day is tied to the token it belongs to (D00 T03 §23): the record holds the first 16 hex digits of the token's
 # SHA-256, which say nothing of the token, and scripts/campaign-preflight.ps1 trusts the day only for the token whose
