@@ -327,8 +327,9 @@ foreach ($tag in $tags) {
 if ($deny.Count) {
   # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
   foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
-  # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input.
-  $refNameBytes = if ($stdinBytes) { @(foreach ($line in (Split-Bytes $stdinBytes 10)) { $fields = Split-Bytes $line 32; if ($fields.Count -ge 4) { ,$fields[2] } }) } else { @() }
+  # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input;
+  # a deletion (an all-zero local object) publishes nothing, so removing a private name is never refused for it.
+  $refNameBytes = if ($stdinBytes) { @(foreach ($line in (Split-Bytes $stdinBytes 10)) { $fields = Split-Bytes $line 32; if ($fields.Count -ge 4 -and [Text.Encoding]::ASCII.GetString($fields[1]) -ne $zero) { ,$fields[2] } }) } else { @() }
   foreach ($name in $refNameBytes) { if (Test-DenyBytes $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
 
   foreach ($tag in $tags) {

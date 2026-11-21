@@ -517,6 +517,12 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $cleanup @('main')
   Check 'deleting a file named with an entry pushes' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
 
+  # --- deleting a privately named branch in the same push as a clean update ---
+  git -C $cleanup push -q --no-verify origin 'HEAD:refs/heads/old-client-demo' 2>$null   # fixture only: the name already on the remote
+  $null = Add-Commit $cleanup 'clean-update.txt' 'clean'
+  $r = Invoke-Push $cleanup @('--atomic', 'main', ':refs/heads/old-client-demo')
+  Check 'deleting a privately named branch beside a clean update pushes both' ($r.Exit -eq 0 -and -not (git --git-dir=$remote for-each-ref 'refs/heads/old-client-demo')) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
