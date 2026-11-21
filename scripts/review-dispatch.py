@@ -344,9 +344,17 @@ def check_sequence(schedule, kind, found, writer, writer_model):
         return
     if not isinstance(writer_model, str) or not MODEL.fullmatch(writer_model):
         raise Refused("current policy requires --writer-model with the exact model version")
-    entries = [*found["plans"], *found["rounds"], *found["completions"]]
+    entries = [*found["plans"], *found["rounds"], *found["completions"], *found.get("changes", [])]
     if any(e.get("writer") != writer or e.get("writer_model") != writer_model for e in entries):
         raise Refused("preserve the existing writer and exact writer model")
+    if kind == "change":
+        if found["plans"] or found["rounds"] or found["completions"]:
+            raise Refused("a change review's file holds a section's reviews; a change goes to a file of its own")
+        if any(returned_pass("change", e) for e in found.get("changes", [])):
+            raise Refused("this change review has already returned; it is one pass")
+        return
+    if found.get("changes"):
+        raise Refused("this file holds a change review; a section's reviews go to the section's own findings file")
     plans = [e for e in found["plans"] if returned_pass("plan", e)]
     rounds = [e for e in found["rounds"] if returned_review(e)]
     completions = [e for e in found["completions"] if returned_pass("completion", e)]
@@ -378,7 +386,7 @@ def record_policy(pin, found, root=ROOT):
     """Bind a cycle to a committed pin, using the original plan candidate for old records."""
     if found is None:
         raise Refused("malformed findings cannot establish review lineage")
-    entries = [*found["plans"], *found["rounds"], *found["completions"]]
+    entries = [*found["plans"], *found["rounds"], *found["completions"], *found.get("changes", [])]
     if not entries:
         return pin, None
     policies = {e.get("policy") for e in entries if e.get("policy")}
@@ -453,6 +461,9 @@ def scheduled(schedule, kind, rounds, surface):
     skipping `design` when the section has no surface. After a low-effort round that declared `HIGHEST: P1`, the next
     round is the `escalation` step instead. scripts/lib/todo_graph.py `stamp` replays this to check every recorded
     pass, so it is the one copy of the schedule rule."""
+    if kind == "change":  # a change outside every section is reviewed as a section's first round would be
+        step = schedule["rounds"][0]
+        return {"position": None, "effort": step.get("effort"), "lenses": list(step["lenses"]), "escalated": False}
     if kind in ("plan", "completion"):
         step = schedule[kind]
         return {"position": None, "effort": step.get("effort"), "lenses": list(step.get("lenses", [])),
@@ -521,13 +532,15 @@ def section_findings(record):
     return sorted(files, key=lambda p: int(SECTION_STEM.fullmatch(p.stem)[2] or 1))
 
 
-def settled_items(record):
+def settled_items(record, with_sources=False):
     """The settled lines the writer wrote in the section's findings files, each once, in the order first written.
     Another cycle's file that exists but cannot be read, or whose recorded reviews cannot be told apart from the
     writer's lines, is refused (`Refused`) rather than skipped, as Recto does, since skipping it would drop its settled
     items unseen. `record` itself is left to the paths that write it: a returned review is then refused a place in it
     (`Unrecorded`, exit 2) and reaches stdout only, so no recorded pass ever ran without its settled items."""
     items, seen = [], set()  # every decision is carried: Recto's cap of 200 dropped later ones unseen
+    # With `with_sources`, each item comes with where it was first written, `<repository-relative file>:<line>`, so a
+    # stale decision is one navigation away (D00 T03 §26).
     own = Path(record)
     for path in section_findings(record):
         # Read directly, not after Path.exists(): exists() answers False for a file it may not inspect, which would
@@ -552,8 +565,14 @@ def settled_items(record):
             line = canonical(line).strip()
             if n not in inside and SETTLED.match(line) and line not in seen:
                 seen.add(line)
-                items.append(line)
+                items.append((line, f"{shown_path(path)}:{n + 1}") if with_sources else line)
     return items
+
+
+def shown_path(path):
+    """A path as the reviewer, working at the repository root, opens it: repository-relative where it can be."""
+    where = Path(os.path.abspath(path))
+    return where.relative_to(ROOT).as_posix() if where.is_relative_to(ROOT) else where.as_posix()
 
 
 def settled_block(items):
@@ -563,8 +582,9 @@ def settled_block(items):
     return ("\n\n## Settled items (from the section's findings files, appended by scripts/review-dispatch.py)\n\n"
             "The writer has already filed each item below to a named section, or decided not to take it, with the "
             "reason given. Do not raise one again unless you bring new evidence that its reason is wrong; a finding "
-            "that repeats one counts toward neither this pass's verdict nor its HIGHEST line.\n\n"
-            + "\n".join(items) + "\n")
+            "that repeats one counts toward neither this pass's verdict nor its HIGHEST line. Each names where it was "
+            "written.\n\n"
+            + "\n".join(f"{item[0]} (`{item[1]}`)" if isinstance(item, tuple) else item for item in items) + "\n")
 
 
 def elapsed_seconds(start, end):
@@ -1098,12 +1118,19 @@ ROUND_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt revie
 # and the Candidate commit it reviewed; the writer's notes after it (its `- Filed:` lines) run to the next `## ` line.
 COMPLETION_HEADING = re.compile(r"^## Completion review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 PLAN_HEADING = re.compile(r"^## Plan review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
+# A change outside every TODO section (D00 T03 §26): one pass, recorded under docs/reviews/changes/ only.
+CHANGE_HEADING = re.compile(r"^## Change review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 COMPLETION_LINE = re.compile(r"^- (Writer|Writer model|Policy|Execution|Attempt reviewer|Attempt model|Attempt cli|Run|Candidate|Effort|Lenses|Seconds|Lines|Digest|Skipped): (\S.*)$")
 # The one-pass reviews, by --kind: the heading each is recorded under and the key read_findings lists them under.
 PASSES = {"completion": ("## Completion review", COMPLETION_HEADING, "completions"),
-          "plan": ("## Plan review", PLAN_HEADING, "plans")}
+          "plan": ("## Plan review", PLAN_HEADING, "plans"),
+          "change": ("## Change review", CHANGE_HEADING, "changes")}
 RESERVED = ("## Round", *(prefix for prefix, _, _ in PASSES.values()))
-RESERVED_NAMES = "headings starting `## Round`, `## Completion review` or `## Plan review` are reserved for --record"
+RESERVED_NAMES = ("headings starting `## Round`, `## Completion review`, `## Plan review` or `## Change review` are "
+                  "reserved for --record")
+# Where a change review is recorded, and the names that belong to a section's own reviews and are never a change's.
+CHANGES = ROOT / "docs" / "reviews" / "changes"
+SECTION_NAME = re.compile(r"(?i)(?:audit-)?d\d+-t\d+-s\d+(?:-cycle\d+)?")
 CANDIDATE = re.compile(r"[0-9a-f]{40}")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
 COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
@@ -1140,7 +1167,7 @@ def _read_findings(text):
     schedule gave the pass, and Seconds, when present, its measured duration (records before it have none). `bodies`
     lists each recorded review's line range, so `settled_items` reads only the writer's own lines. Anything else makes
     the file unreadable rather than losing a field."""
-    found = {"rounds": [], "completions": [], "plans": [], "bodies": []}
+    found = {"rounds": [], "completions": [], "plans": [], "changes": [], "bodies": []}
     raw = raw_lines(text)
     lines = [canonical(line) for line in raw]
     i = 0
@@ -1258,6 +1285,9 @@ def returned_pass(kind, entry):
     if kind == "plan":
         return family and len(lines) >= 2 and lines[-2] in ("PLAN: complete", "PLAN: gaps") \
             and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
+    if kind == "change":  # a round's verdict: a HIGHEST line, then OVERALL last
+        return family and len(lines) >= 2 and any(x.startswith("HIGHEST: ") for x in lines[:-1]) \
+            and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
     return family and bool(lines) and lines[-1] in ("COMPLETION: complete", "COMPLETION: gaps")
 
 
@@ -1329,7 +1359,7 @@ def metadata(result):
             lines.append(f"- {key.replace('_', ' ').capitalize()}: {result[key]}")
     if result.get("lenses"):
         lines.append(f"- Lenses: {', '.join(result['lenses'])}")
-    if result.get("seconds"):
+    if result.get("seconds") is not None:  # a measured zero is a measurement, never "unmeasured" (D00 T03 §26)
         lines.append(f"- Seconds: {result['seconds']}")
     return lines + [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
 
@@ -1381,10 +1411,11 @@ def list_rounds(records_dir):
             found = None
         if found is None:
             unreadable.append(shown(path))
-        elif found["rounds"] or found["completions"] or found["plans"]:
+        elif found["rounds"] or found["completions"] or found["plans"] or found["changes"]:
             records.append({"path": shown(path), "rounds": found["rounds"],
                             **({"completions": found["completions"]} if found["completions"] else {}),
-                            **({"plans": found["plans"]} if found["plans"] else {})})
+                            **({"plans": found["plans"]} if found["plans"] else {}),
+                            **({"changes": found["changes"]} if found["changes"] else {})})
     return {"records": records, **({"unreadable": unreadable} if unreadable else {})}
 
 
@@ -1406,11 +1437,13 @@ def main(argv=None):
     parser.add_argument("--writer-model", help="Exact authoring model version, required for new-policy cycles")
     parser.add_argument("--prompt", help="File holding the review prompt")
     parser.add_argument("--record", help="Findings file to append this round (or completion review) to")
-    parser.add_argument("--kind", choices=("round", "completion", "plan"), default="round",
+    parser.add_argument("--kind", choices=("round", "completion", "plan", "change"), default="round",
                         help="round (default): one review round; completion: the one-pass completion and excellence "
                              "review, recorded as a ## Completion review section and not counted as a round; plan: "
-                             "the one-pass plan review before the build, recorded as a ## Plan review section")
-    parser.add_argument("--candidate", help="With --kind completion or plan: the full 40-character commit under "
+                             "the one-pass plan review before the build, recorded as a ## Plan review section; change: "
+                             "one review of work outside every TODO section, recorded as a ## Change review section "
+                             "in a file of its own under docs/reviews/changes/")
+    parser.add_argument("--candidate", help="With --kind completion, plan or change: the full 40-character commit under "
                                             "review (for a plan review, the commit holding the section as reviewed)")
     parser.add_argument("--surface", action="store_true",
                         help="The section has Surface: yes, so the schedule's rotation includes the design lens")
@@ -1443,16 +1476,21 @@ def main(argv=None):
         if args.json:
             print(json.dumps(listing, indent=2))
         else:
+            # Each pass's measured duration on its own line, so tuning the schedule needs no JSON (D00 T03 §26).
+            def took(e):
+                return f"{e['seconds']} s" if "seconds" in e else "unmeasured"
+
+            def who(e):
+                return f"{e['reviewer']} ({e['model']} via {e['cli']})" if e["reviewer"] else "no review"
             for entry in listing["records"]:
                 for p in entry.get("plans", []):
-                    who = f"{p['reviewer']} ({p['model']} via {p['cli']})" if p["reviewer"] else "no review"
-                    print(f"{entry['path']}  Plan review: {who}, candidate {p['candidate']}, {p['run']}")
+                    print(f"{entry['path']}  Plan review: {who(p)}, candidate {p['candidate']}, {p['run']}, {took(p)}")
                 for c in entry.get("completions", []):
-                    who = f"{c['reviewer']} ({c['model']} via {c['cli']})" if c["reviewer"] else "no review"
-                    print(f"{entry['path']}  Completion review: {who}, candidate {c['candidate']}, {c['run']}")
+                    print(f"{entry['path']}  Completion review: {who(c)}, candidate {c['candidate']}, {c['run']}, {took(c)}")
+                for c in entry.get("changes", []):
+                    print(f"{entry['path']}  Change review: {who(c)}, candidate {c['candidate']}, {c['run']}, {took(c)}")
                 for r in entry["rounds"]:
-                    who = f"{r['reviewer']} ({r['model']} via {r['cli']})" if r["reviewer"] else "no review"
-                    print(f"{entry['path']}  Round {r['number']}: {who}, writer {r['writer']}, {r['run']}")
+                    print(f"{entry['path']}  Round {r['number']}: {who(r)}, writer {r['writer']}, {r['run']}, {took(r)}")
             for path in listing.get("unreadable", []):
                 print(f"{path}  unreadable: a round heading or line is not in the record format")
         return 0
@@ -1465,7 +1503,31 @@ def main(argv=None):
     if one_pass and not (args.candidate and CANDIDATE.fullmatch(args.candidate)):
         parser.error(f"--kind {args.kind} needs --candidate, the full 40-character commit under review")
     if args.kind == "round" and args.candidate:
-        parser.error("--candidate goes with --kind completion or plan; a round names its candidate in its prompt")
+        parser.error("--candidate goes with --kind completion, plan or change; a round names its candidate in its prompt")
+    # A change review lives under docs/reviews/changes/ in a file no section owns, and nothing else lives there, so a
+    # section's rounds are never skipped through it; refused before any reviewer starts or any file is written.
+    if args.record:
+        where = Path(os.path.abspath(args.record))
+        inside = where.parent == Path(os.path.abspath(CHANGES))
+        if args.kind == "change" and (not inside or where.suffix != ".md" or SECTION_NAME.fullmatch(where.stem)):
+            print(f"refused: a change review is recorded in docs/reviews/changes/<name>.md, under a name that is not "
+                  f"a section's ({args.record})", file=sys.stderr)
+            return 2
+        if args.kind != "change" and inside:
+            print(f"refused: docs/reviews/changes/ holds change reviews only; a section's reviews go to its own "
+                  f"findings file ({args.record})", file=sys.stderr)
+            return 2
+        if args.kind == "change" and where.exists():
+            # One pass, whatever the pin's schedule: a second is refused here, before any reviewer starts.
+            try:
+                held = read_findings(where.read_bytes().decode("utf-8"))
+            except (OSError, UnicodeDecodeError):
+                held = None
+            if held is None or any(returned_pass("change", e) for e in held["changes"]) or held["rounds"] \
+                    or held["plans"] or held["completions"]:
+                print(f"refused: {args.record} already holds a returned change review, or cannot be read back as "
+                      f"one; a change review is one pass, so start a new file for a new change", file=sys.stderr)
+                return 2
     try:
         pin = load_pin(args.pin)
         policy_sha = None
@@ -1508,7 +1570,7 @@ def main(argv=None):
             if not MODEL.fullmatch(args.writer_model):
                 raise Refused("invalid exact writer model")
         # Read before any attempt is counted, so a findings file that hides its settled items refuses without a run.
-        settled = settled_items(args.record) if args.record else []
+        settled = settled_items(args.record, with_sources=True) if args.record else []
         key = entry = None
         if args.record:
             position = args.kind

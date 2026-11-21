@@ -1683,6 +1683,89 @@ class RepairCycles(unittest.TestCase):
         self.assertEqual(module.older_cycle(first), second.name)
 
 
+class ChangeReviews(Harness):
+    """D00 T03 §26: work outside every TODO section is reviewed once, recorded only under docs/reviews/changes/."""
+
+    PIN = MultiCli.PIN
+    APPROVE = "1. P3 a name could be clearer.\n\nHIGHEST: P3\nOVERALL: approve"
+    ATTENTION = "1. P2 calc.py:2 subtracts.\n\nHIGHEST: P2\nOVERALL: needs-attention"
+
+    def setUp(self):
+        super().setUp()
+        (self.repo / ".conclave/reviewers.toml").write_text(self.PIN, encoding="utf-8")
+        self.changes = self.repo / "docs/reviews/changes"
+
+    def change(self, record, say=None, **modes):
+        modes = {"codex": "say", "say": say, **modes} if say else modes
+        return self.dispatch("--writer", "claude", "--writer-model", "claude-opus-5-5", "--prompt", str(self.prompt),
+                             "--kind", "change", "--candidate", "c" * 40, "--record", str(record), **modes)
+
+    def test_a_change_review_runs_once_and_is_recorded_with_its_verdict(self):
+        for name, say, verdict in (("tool-a.md", self.APPROVE, "OVERALL: approve"), ("tool-b.md", self.ATTENTION, "OVERALL: needs-attention")):
+            with self.subTest(verdict):
+                record = self.changes / name
+                result, _ = self.change(record, say)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                text = record.read_text(encoding="utf-8")
+                self.assertIn("## Change review: astra", text)
+                self.assertIn(verdict, text)
+        calls = len(self.calls())
+        again, _ = self.change(self.changes / "tool-a.md", self.APPROVE)
+        self.assertEqual(again.returncode, 2)
+        self.assertIn("already holds a returned change review", again.stderr)
+        self.assertEqual(len(self.calls()), calls, "a second change review started a reviewer")
+
+    def test_an_empty_reply_leaves_the_pass_open_for_a_retry(self):
+        record = self.changes / "tool-c.md"
+        result, _ = self.change(record, codex="empty")
+        self.assertFalse(record.exists() and "## Change review: astra" in record.read_text(encoding="utf-8"))
+        self.elapse()
+        result, _ = self.change(record, self.APPROVE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Change review: astra", record.read_text(encoding="utf-8"))
+
+    def test_a_change_review_is_refused_anywhere_but_its_own_place(self):
+        for record in (self.repo / "docs/reviews/tool.md", self.changes / "D00-T03-s26.md",
+                       self.changes / "D00-T03-s26-cycle2.md", self.changes / "audit-d00-t03-s26.md",
+                       self.repo / "docs/reviews/00-workspace/D00-T03-s26.md"):
+            with self.subTest(record.name):
+                self.log.unlink(missing_ok=True)
+                result, _ = self.change(record, self.APPROVE)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("a change review is recorded in docs/reviews/changes/<name>.md", result.stderr)
+                self.assertFalse(record.exists(), "a refused change review wrote a file")
+                self.assertEqual(self.calls(), [], "a refused change review started a reviewer")
+        # Nor does a section's pass land among the change reviews.
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(self.changes / "tool-d.md"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("holds change reviews only", result.stderr)
+
+    def test_the_listing_shows_every_kinds_duration_and_the_change_reviews(self):
+        module = self.module()
+        folder = self.repo / "docs/reviews/00-workspace"
+        folder.mkdir(parents=True)
+        section = folder / "D00-T01-s1.md"
+        base = {"writer": "claude", "reviewer": "astra", "cli": "codex", "model": "gpt-6.2-astra", "effort": "medium", "failover": []}
+        module.record_completion(section, {**base, "seconds": 41, "review": "Fine.\n\nPLAN: complete\n\nOVERALL: approve"}, "2026-11-21T00:00:00Z", "a" * 40, "plan")
+        module.record(section, {**base, "seconds": 0, "review": "1. P3 x.\n\nHIGHEST: P3\nOVERALL: approve"}, "2026-11-21T00:01:00Z")
+        module.record(section, {**base, "review": "HIGHEST: none\nOVERALL: approve"}, "2026-11-21T00:02:00Z")  # a legacy round: no seconds
+        module.record_completion(section, {**base, "seconds": 73, "review": "All present.\n\nCOMPLETION: complete"}, "2026-11-21T00:03:00Z", "b" * 40)
+        self.changes.mkdir(parents=True)
+        module.record_completion(self.changes / "tool-e.md", {**base, "seconds": 12, "review": self.APPROVE}, "2026-11-21T00:04:00Z", "c" * 40, "change")
+        result, _ = self.dispatch("--list-rounds")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.splitlines()
+        want = {"Plan review": ", 41 s", "Round 1": ", 0 s", "Round 2": ", unmeasured", "Completion review": ", 73 s", "Change review": ", 12 s"}
+        for label, ending in want.items():
+            hit = [line for line in lines if f"  {label}:" in line]
+            self.assertTrue(hit and hit[0].endswith(ending), f"{label}: {hit}")
+        listed, _ = self.dispatch("--list-rounds", "--json")
+        data = json.loads(listed.stdout)
+        change = [r for r in data["records"] if r["path"].endswith("changes/tool-e.md")]
+        self.assertEqual(len(change), 1)
+        self.assertEqual(change[0]["changes"][0]["seconds"], 12)
+
+
 class Settled(Harness):
     """D00 T01 §2: the writer's settled lines reach every pass's reviewer, and each pass records its duration."""
 
@@ -1736,6 +1819,20 @@ class Settled(Harness):
                     self.assertNotIn("the reviewer's own words", prompt, "a line inside a recorded review is not settled")
                     self.assertLess(prompt.index(self.SETTLED_LINE), prompt.index("carried from this cycle too"),
                                     "the first cycle's items come first")
+
+    def test_each_settled_item_names_where_it_was_first_written(self):
+        # D00 T03 §26: the item once, with the repository-relative file and one-based line where it was first written.
+        first = self.folder / "D00-T01-s2.md"
+        self.seed(first, "- Settled: written in both files")
+        record = self.folder / "D00-T01-s2-cycle2.md"
+        record.write_text("# Cycle 2\n\n- Settled: written in both files\n- Settled: only in cycle two\n", encoding="utf-8")
+        base_line = first.read_text(encoding="utf-8").split("\n").index("- Settled: written in both files") + 1
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prompt = self.received(self.calls()[0])
+        self.assertEqual(prompt.count("- Settled: written in both files"), 1)
+        self.assertIn(f"- Settled: written in both files (`docs/reviews/00-workspace/D00-T01-s2.md:{base_line}`)", prompt)
+        self.assertIn("- Settled: only in cycle two (`docs/reviews/00-workspace/D00-T01-s2-cycle2.md:4`)", prompt)
 
     def test_no_settled_lines_leave_the_prompt_as_written(self):
         record = self.folder / "D00-T01-s2.md"

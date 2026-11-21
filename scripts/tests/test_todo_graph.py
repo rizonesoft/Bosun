@@ -1,4 +1,5 @@
 """Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
+import importlib.util
 import json
 import pathlib
 import re
@@ -2298,6 +2299,28 @@ class Stamp(Tree):
         data["plan"]["report"] = other
         receipt.write_text(json.dumps(data), encoding="utf-8")
         self.refuses(f"--plan must be the section's own findings file {self.PLAN}, not {other}")
+
+    def test_a_change_review_is_no_sections_evidence(self):
+        # D00 T03 §26: a change outside every section is reviewed once, under docs/reviews/changes/; it never stands
+        # in for a section's plan review or a round.
+        spec = importlib.util.spec_from_file_location("dispatch_for_stamp", pathlib.Path(__file__).resolve().parents[1] / "review-dispatch.py")
+        dispatch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(dispatch)
+        change = "docs/reviews/changes/tool-tweak.md"
+        target = self.root / change
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Change review\n", encoding="utf-8")
+        result = {"writer": "claude", "reviewer": "astra", "cli": "codex", "model": "gpt-6.2-astra", "effort": "medium",
+                  "failover": [], "lenses": ["adversarial"], "writer_model": "claude-opus-5-5",
+                  "review": "1. Fine.\n\nHIGHEST: none\nOVERALL: approve"}
+        dispatch.record_completion(target, result, "2026-11-21T00:00:00Z", self.sha, "change")
+        self.assertIn("## Change review: astra", target.read_text(encoding="utf-8"))
+        self.tick_work()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-24", plan=change)
+        self.assertIn(f"--plan must be the section's own findings file {self.PLAN}, not {change}", str(ctx.exception))
+        with self.assertRaises(tg.Refused):
+            self.stamp("D00 T01 §1", self.sha, [{"round": 1, "report": change, "verdict": "clean"}], ["true -> ok"], "2026-10-24")
 
     def test_a_plan_review_after_the_build_began_refuses(self):
         later = self.commit("the build")
