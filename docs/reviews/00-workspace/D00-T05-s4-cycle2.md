@@ -145,3 +145,8 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+- Settled: round 4 finding 1 fixed in c10945b (tips the checkout lacks are fetched before the scan).
+- Settled: the owner closed this section's review loop on 2026-11-21 after 33 rounds and this cycle's four: further text encodings beyond those read (UTF-8, Windows 1250 to 1258, 874, 932, 936, 949, 950, KOI8-R and KOI8-U, UTF-16 and UTF-32 both ways) are P3, and a new one is filed work.
+- Settled: the owner's same decision: environment and repository shapes beyond those tested (host PATH layouts, inherited git variables, a destination's unusual ref states) are P3 unless a real push in this project's ordinary use leaks or is wrongly refused.
+- Settled: the owner's same decision: Unicode case rules beyond NFKC with invariant upper case (full case folding such as the German sharp s, the Turkish dotless i) are P3.
