@@ -723,7 +723,10 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
     section's settled lines (see `settled_items`), appended after the lenses. `seconds` is the reviewer's measured run."""
     if writer not in pin["routes"]:
         raise Refused(f"the reviewer pin has no route for writer {writer!r}")
-    prompt = Path(prompt_path).read_text(encoding="utf-8")
+    try:
+        prompt = Path(prompt_path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise Refused(f"the review prompt {Path(prompt_path).name} is not UTF-8 (byte {exc.start}); save it as UTF-8") from None
     if not prompt.strip():
         raise Refused("the review prompt is empty")
     if "\0" in prompt:

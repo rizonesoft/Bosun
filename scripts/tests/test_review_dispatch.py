@@ -363,6 +363,16 @@ class Dispatch(Harness):
                 self.assertIn("invalid choice" if writer == "codex" else f"the reviewer pin has no route for writer {writer!r}", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_a_prompt_that_is_not_utf8_is_refused_by_name(self):
+        # A prompt saved in a legacy code page ended the dispatcher in a traceback (D00 T06 §1, findings line 17).
+        latin = self.repo / "latin-prompt.md"
+        latin.write_bytes("Review the café change.\n".encode("latin-1"))
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(latin))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("latin-prompt.md is not UTF-8", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_rounds_are_numbered_and_appended(self):
         record = self.repo / "docs/reviews/round.md"
         record.parent.mkdir(parents=True)
