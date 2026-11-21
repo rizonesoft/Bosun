@@ -155,13 +155,15 @@ if ($deny.Count -and $outgoing.Count) {
       # parent's version did, so an edit around an entry already published, or a cleanup removing one, is not refused.
       $newReadings = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))
       # No prior blob for an added file, or for one that replaces a submodule entry (whose old object is a commit).
-      $oldReadings = if ($fields[2] -match '^0+$' -or $fields[0] -eq '160000') { @() } else { @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2]))) }
-      $had = @{}
-      foreach ($reading in $oldReadings) {
-        foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
-      }
+      $oldReadings = @(if ($fields[2] -match '^0+$' -or $fields[0] -eq '160000') { } else { ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2])) })
+      # Each reading of the new file is compared with the same reading of the old one (the same decoding), never with
+      # their sum, which counts one line once per reading that shows it.
       $reported = $false
-      foreach ($reading in $newReadings) {
+      for ($k = 0; $k -lt $newReadings.Count; $k++) {
+        $reading = $newReadings[$k]
+        $had = @{}
+        $oldReading = if ($oldReadings.Count -eq $newReadings.Count) { $oldReadings[$k] } elseif ($oldReadings.Count) { $oldReadings[0] } else { '' }
+        foreach ($text in ($oldReading.ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
         $seen = @{}
         $number = 0
         foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) {
@@ -173,8 +175,9 @@ if ($deny.Count -and $outgoing.Count) {
         if ($reported) { break }
       }
     }
-    $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"
-    if (Test-Deny $message) { Add-Finding $c $null 'commit message' 'deny-list entry' }
+    # The whole commit object as published: its author and committer names and addresses as well as its message.
+    $message = (Invoke-Git @('cat-file', 'commit', $c)) -join "`n"
+    if (Test-Deny $message) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
   }
 }
 # --- gitleaks over files a tag publishes without a commit (a tag on a file or a tree) ---

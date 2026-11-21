@@ -153,7 +153,7 @@ try {
   git -C $owner reset -q --hard origin/main
   $null = Add-Commit $owner 'plain.txt' 'plain' 'Weekly work for acme corp (EU)'
   $r = Invoke-Push $owner @('main')
-  Check 'a deny-list string in a commit message is refused' ($r.Exit -ne 0 -and $r.Text -match 'commit message: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  Check 'a deny-list string in a commit message is refused' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
   git -C $owner checkout -q -b side
   $null = Add-Commit $owner 'side.txt' 'side'
@@ -313,6 +313,24 @@ Client: Acme Corp (EU)"))
   $null = Add-Commit $owner 'by-address.txt' "token = $(New-Token)"
   $r = [pscustomobject]@{ Text = (git -C $owner push $remote main 2>&1 | Out-String); Exit = $LASTEXITCODE }
   Check 'a push to a bare address is scanned and refused' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\)') "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+
+  # --- a second UTF-16 line with an entry, and an author holding one ---
+  $before = Get-Refs $remote
+  [IO.File]::WriteAllBytes((Join-Path $owner 'list16.txt'), [Text.Encoding]::Unicode.GetBytes("Client: Acme Corp (EU)`n"))
+  git -C $owner add -A; git -C $owner commit -q -m 'list16'
+  git -C $owner push -q --no-verify origin main 2>$null   # fixture only: the first occurrence already published
+  $before = Get-Refs $remote
+  [IO.File]::WriteAllBytes((Join-Path $owner 'list16.txt'), [Text.Encoding]::Unicode.GetBytes("Client: Acme Corp (EU)`nClient: Acme Corp (EU)`n"))
+  git -C $owner add -A; git -C $owner commit -q -m 'list16 again'
+  $r = Invoke-Push $owner @('main')
+  Check 'a second occurrence added to a UTF-16 file is refused' ($r.Exit -ne 0 -and $r.Text -match 'list16.txt:2: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+  Set-Content -LiteralPath (Join-Path $owner 'authored.txt') -Value 'clean'
+  git -C $owner add -A
+  git -C $owner -c user.name='Someone' -c user.email='someone@acme corp (eu).example' commit -q -m 'clean change'
+  $r = Invoke-Push $owner @('main')
+  Check 'an author address holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
 
   # --- blank and # lines ignored ---
