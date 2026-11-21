@@ -203,19 +203,27 @@ function Find-SecretsIn([byte[]]$bytes, [string]$commit, [string]$path, [string]
     foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $commit $path "$(if ($path) { $f.StartLine } else { $place })" "secret ($($f.RuleID)) in $what" }
   }
 }
-# Binary files the outgoing commits add or change (git's own test: a NUL byte in the first 8000).
+# Files whose content git leaves out of the patch, by git's own judgement (`diff-tree --numstat` gives "-" for them):
+# its content test and attributes such as `*.png binary` alike. Those are piped to gitleaks whole.
 foreach ($c in $outgoing) {
   $parent = & git -C $repoRoot rev-parse --verify --quiet "$c^1" 2>$null
-  $tree = if ($parent) { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', "$parent", $c) } else { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', '--root', $c) }
+  $base = if ($parent) { @("$parent", $c) } else { @('--root', $c) }
+  $numstat = [Text.Encoding]::UTF8.GetString((Get-GitBytes (@('diff-tree', '-z', '-r', '-M', '--numstat', '--no-commit-id') + $base))) -split "`0"
+  $unshown = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  for ($n = 0; $n -lt $numstat.Count; $n++) {
+    if ($numstat[$n] -notmatch '^(\S+)\t(\S+)\t(.*)$') { continue }
+    $dash = $Matches[1] -eq '-'
+    $name = if ($Matches[3] -eq '') { $n += 2; $numstat[$n] } else { $Matches[3] }
+    if ($dash) { [void]$unshown.Add($name) }
+  }
+  $tree = @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id') + $base
   $tokens = [Text.Encoding]::UTF8.GetString((Get-GitBytes $tree)) -split "`0"
   for ($i = 0; $i -lt $tokens.Count; $i++) {
     if (-not $tokens[$i].StartsWith(':')) { continue }
     $fields = $tokens[$i].Substring(1) -split ' '
     $path = if ($fields[4] -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
     if ($fields[4] -match '^D' -or $fields[1] -eq '160000') { continue }
-    $bytes = Get-GitBytes @('cat-file', 'blob', $fields[3])
-    $head = [Math]::Min(8000, $bytes.Length)
-    if ($head -and [Array]::IndexOf($bytes, [byte]0, 0, $head) -ge 0) { Find-SecretsIn $bytes $c $path '' 'a binary file' }
+    if ($unshown.Contains($path)) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $fields[3])) $c $path '' 'a file git does not diff' }
   }
 }
 # Tag annotations, and the files a tag publishes without a commit.

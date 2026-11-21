@@ -407,13 +407,24 @@ Client: Acme Corp (EU)"))
   [IO.File]::WriteAllBytes((Join-Path $plainClone 'blob.bin'), [byte[]](@(0, 1, 2, 0) + [Text.Encoding]::ASCII.GetBytes("`ntoken = $binToken`n")))
   git -C $plainClone add -A; git -C $plainClone commit -q -m 'binary'
   $r = Invoke-Push $plainClone @('main')
-  Check 'a secret in a file git calls binary is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'blob.bin:\d+: secret \(github-pat\) in a binary file' -and -not $r.Text.Contains($binToken)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a secret in a file git calls binary is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'blob.bin:\d+: secret \(github-pat\) in a file git does not diff' -and -not $r.Text.Contains($binToken)) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone reset -q --hard origin/main
   $tagToken = New-Token
   git -C $plainClone tag -a release-notes-2 -m "release token = $tagToken"
   $r = Invoke-Push $plainClone @('refs/tags/release-notes-2')
   Check 'a secret in a tag annotation on a published commit is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\) in its annotation' -and -not $r.Text.Contains($tagToken) -and -not (git --git-dir=$remote tag --list release-notes-2)) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone tag -d release-notes-2 | Out-Null
+
+  # --- a text file git does not diff because of an attribute (*.png binary) ---
+  Set-Content -LiteralPath (Join-Path $plainClone '.gitattributes') -Value '*.png binary'
+  git -C $plainClone add -A; git -C $plainClone commit -q -m 'attributes'
+  $null = Invoke-Push $plainClone @('main')
+  $pngToken = New-Token
+  Set-Content -LiteralPath (Join-Path $plainClone 'preview.png') -Value "HTTP/1.1 403 Forbidden`ntoken = $pngToken"
+  git -C $plainClone add -A; git -C $plainClone commit -q -m 'preview'
+  $r = Invoke-Push $plainClone @('main')
+  Check 'a text file marked binary by an attribute is still scanned for secrets' ($r.Exit -ne 0 -and $r.Text -match 'preview.png:\d+: secret \(github-pat\) in a file git does not diff' -and -not $r.Text.Contains($pngToken)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone reset -q --hard origin/main
 
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
