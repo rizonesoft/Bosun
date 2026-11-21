@@ -1,0 +1,110 @@
+{
+  "ref": "D00 T05 \u00a78",
+  "title": "Machine paths and personal names scrubbed from public files",
+  "implementation_sha": "d17407e5e49c8e756ccbb8b88f0e9405eaeb4765",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/machine_path_test.ps1 -> 27 checks, all passed",
+    "pwsh tests/leak_scan_test.ps1 -> 108 checks, all passed",
+    "pwsh scripts/machine-path-check.ps1 -> clean (570 files of HEAD, history excluded)",
+    "pwsh scripts/leak-scan.ps1 -All in a fresh clone with no overlay -> 1275 commits, exit 0",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44928547202 -> green at d17407e",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44928547131 -> green at d17407e"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+    "verdict": "completed",
+    "candidate": "92108b690614d7d58f83a1acaf1cbb12619aedee",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T05-s8.md",
+    "candidate": "8d4655609b93bf76363a23643769a2b758efdde8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "8d4655609b93bf76363a23643769a2b758efdde8",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

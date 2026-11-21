@@ -2,7 +2,7 @@
 schema_version: 1
 id: private-overlay
 domain: 00-workspace
-status: active
+status: done
 title: "TODO-05 -- Public core and private overlay"
 ---
 
@@ -41,7 +41,7 @@ title: "TODO-05 -- Public core and private overlay"
 | 5 | §5 | Agent rules split into public and overlay halves | §1 | [x] |
 | 6 | §6 | Full-history secret scan in CI | §4 | [x] |
 | 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [x] |
-| 8 | §8 | Machine paths and personal names scrubbed from public files | §4, §7 | [ ] |
+| 8 | §8 | Machine paths and personal names scrubbed from public files | §4, §7 | [x] |
 
 ## 1. Overlay folder, config lookup and the rule that admits it
 
@@ -303,13 +303,16 @@ Published history keeps these paths (it is history, as the design says), so the 
 - [x] Keep the owner's machine paths out of every future push: add the profile name and the literal forms of the owner's checkout folder and scratch drives to `.private/deny-list.txt` (none is in a commit's author or committer identity, measured 2026-11-21), confirm `.private` is still the overlay's own clone pushing to `rizonetech/Bosun-private` (as `D00 T05 §7` did), push it and read the list back from the pushed private ref. Done when: in a disposable bare remote using that pushed copy, a push adding each form (a profile-free checkout path and a scratch path included) is refused with the remote ref unchanged, and a clean push advances it, recorded as counts. **Corrected 2026-11-21:** plan review gaps 5 and 7.
 - [x] Scan the full public history for secrets in a clone with no overlay: `pwsh scripts/leak-scan.ps1 -All` there. Done when: it exits 0, or each finding is a recorded false positive in `.gitleaksignore`. **Corrected 2026-11-21:** plan review gap 1; in the owner's checkout the deny list rightly finds these paths in published history, which stays as written.
 - [x] Record the results in `D99 T01 §4`: its gitleaks, path and mockup items, each with this section's evidence, and correct its path item's criterion to this section's live-file check (its `git grep` searched preserved history under `docs/`). Done when: those three items read with their evidence and `python scripts/todo-graph.py validate` passes. **Corrected 2026-11-21:** plan review gap 8.
-- [ ] Commit: `overlay: scrub machine paths and personal names from the public tree`
+- [x] Commit: `overlay: scrub machine paths and personal names from the public tree`
 
 > **Evidence 2026-11-21 (counts and pass or fail only):** 37 live files held an owner machine path; two consistent rewrites (the checkout folder after a drive to `src`, a drive-root checkout under `src`, the scratch folder to `work`, the profile name to `dev`, inputs and expected values together) left `scripts/machine-path-check.ps1` clean over 797 tracked files, with no stamped section changed and only comments changed under `src/`. `docs/images/panel-overview.png`, the one image the README shows, was looked at: it shows no machine path and no profile name, and the sibling project names in it are already public in this repository, so it was not regenerated. The checkout-folder forms are refused at push by `scripts/leak-scan.ps1` running the check on each commit pushed (round 1 moved it from the hook's working-tree run) (they cannot go on the deny list: reviewers' findings link files by absolute path, and the deny pass reads every pushed line).
 
 > **Evidence 2026-11-21, continued:** `.private` confirmed as the overlay's own clone pushing to `rizonetech/Bosun-private`; the deny list gained the profile name and the literal scratch-drive and drive-root-checkout forms (11 entries in all), pushed and read back from a fresh clone of the overlay; with that copy, 11 of 11 pushes holding an entry (in the commit message, which the machine-path check does not read) were refused without the guard showing it, the remote unchanged each time, and a clean push advanced it (pass). `pwsh scripts/leak-scan.ps1 -All` in a fresh clone of the public repository with no overlay: 1,275 commits, exit 0 (pass). `D99 T01 §4`'s path, mockup and gitleaks items now carry this evidence.
 
 **Test checkpoint:** `pwsh tests/machine_path_test.ps1` exits 0, `pwsh scripts/machine-path-check.ps1` exits 0 on this checkout, and `pwsh scripts/leak-scan.ps1 -All` exits 0 in a clone with no overlay.
+
+> **Verified:** 2026-11-21 | §8 | d17407e5e49c8e756ccbb8b88f0e9405eaeb4765
+> **Review:** `docs/reviews/d00-t05-s8.json`
 
 ## Verification
 

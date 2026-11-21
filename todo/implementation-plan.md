@@ -54,7 +54,7 @@ Sections: 49 | Checklist items: 489
 | [x]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 9     |
 | [x]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 6     |
 | [x]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 11    |
-| [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 11    |
+| [x]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 11    |
 | [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                      | none        | 8     |
 | [ ]    | D00 T06 §2  | Open findings, part 2 of 6                                      | none        | 8     |
 | [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                      | none        | 8     |
@@ -188,6 +188,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 99/133 verified sections, 9 ready to run now.
+Progress: 100/133 verified sections, 14 ready to run now.
 
-Checklist: 975/1137 items completed (includes Commit items).
+Checklist: 976/1137 items completed (includes Commit items).
