@@ -35,17 +35,21 @@ try {
   git -C $repo checkout -q -b side; Save 'side.txt' "side`n"; git -C $repo add -A; git -C $repo commit -q -m side
   git -C $repo checkout -q main; Save 'main.txt' "main`n"; git -C $repo add -A; git -C $repo commit -q -m main
   git -C $repo merge -q --no-commit --no-ff side 2>$null
+  if ($LASTEXITCODE) { throw 'the fixture merge could not start, so the merge-resolution case would not be a merge' }
   Save 'resolved.txt' "token = $token`n"; git -C $repo add -A; git -C $repo commit -q -m 'merge side'
   $merged = "$(git -C $repo rev-parse HEAD)"
+  Check 'the resolution commit is a merge, with two parents' (@((git -C $repo rev-list --parents -n 1 $merged) -split ' ').Count -eq 3)
   git -C $repo rm -q resolved.txt; git -C $repo commit -q -m 'tidy'
   Check 'the scratch history holds the token behind its tip only' (-not (Test-Path -LiteralPath (Join-Path $repo 'config.txt')) -and -not (Test-Path -LiteralPath (Join-Path $repo 'resolved.txt')))
 
   $said = & (Get-Process -Id $PID).Path -NoProfile -File (Join-Path $repo 'scripts/leak-scan.ps1') -All 2>&1 | Out-String; $code = $LASTEXITCODE
-  "--- the scan's own output, as CI shows it ---"; $said.TrimEnd()
+  # The output is checked for the token before it is shown, so a redaction that fails never puts the token in the log.
+  $leaked = $said.Contains($token) -or $said.Contains($token.Substring(4, 12))
+  if ($leaked) { "the scan's output is withheld: it holds the synthetic token" } else { "--- the scan's own output, as CI shows it ---"; $said.TrimEnd() }
   Check 'the history scan exits 1' ($code -eq 1) "(exit $code)"
-  Check 'it names the commit that added the token, and its file' ($said -match "$($introduced.Substring(0, 12)): config\.txt:1: secret \(github-pat\)")
+  Check 'it names the commit that added the token, and its file' (-not $leaked -and $said -match "$($introduced.Substring(0, 12)): config\.txt:1: secret \(github-pat\)")
   Check 'it names the merge whose resolution added the token, and its file' ($said -match "$($merged.Substring(0, 12)): resolved\.txt:1: secret \(github-pat\)")
-  Check 'and nothing of the token is in its output' (-not $said.Contains($token) -and -not $said.Contains($token.Substring(4, 12)))
+  Check 'and nothing of the token is in its output' (-not $leaked)
 } finally {
   foreach ($name in $changed) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
   Remove-Item -LiteralPath $work -Recurse -Force
