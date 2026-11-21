@@ -858,6 +858,8 @@ Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed t
 
 ## 23. Token and issue day stored together
 
+> **Started:** 2026-11-21T13:22:29Z
+
 Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-workspace/D00-T05-s7.md`). `scripts/store-claude-token.ps1` writes the token to the user variable before it writes the day it was made to `%LOCALAPPDATA%\Bosun\claude-token.json`, so a record that cannot be written (held open, a full disk) leaves a new token beside the old token's day. And when the new day is unknown, a failed removal of the old record is ignored and the import reports success. `scripts/campaign-preflight.ps1` then judges the token's expiry by the wrong day.
 
 **Corrected 2026-11-21 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s23.md` found that writing the day first only reverses the mismatch (an import stopped between the two writes leaves the old token with the new day, and a preflight can read that pair), and that a rollback cannot cover a record created or deleted. The day is therefore tied to its token instead of ordered around it: the record holds a fingerprint of the token it describes, and the preflight trusts the day only for that token.
