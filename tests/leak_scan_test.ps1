@@ -440,6 +440,12 @@ Client: Acme Corp (EU)"))
   Check 'a secret in a ref name is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'a ref being pushed: secret \(github-pat\) in its name' -and -not $r.Text.Contains($refToken) -and -not (git --git-dir=$remote tag --list "release-*")) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone tag -d "release-$refToken" | Out-Null
 
+  # --- a clean tag whose name holds a no-break space ---
+  $nbspTag = "release$([char]0xA0)candidate"
+  git -C $plainClone tag $nbspTag HEAD
+  $r = Invoke-Push $plainClone @("refs/tags/$nbspTag")
+  Check 'a clean tag named with a no-break space pushes' ($r.Exit -eq 0 -and (git --git-dir=$remote tag --list "release*candidate")) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

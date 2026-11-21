@@ -46,7 +46,8 @@ $locals = [Collections.Generic.List[string]]::new()
 $tags = [Collections.Generic.List[object]]::new()
 $refNames = [Collections.Generic.List[string]]::new()
 foreach ($line in $Updates) {
-  $parts = $line.Trim() -split '\s+'
+  # Git separates the four fields with an ASCII space; a ref name can hold other whitespace (a no-break space).
+  $parts = $line.TrimEnd("`r", "`n") -split ' ', 4
   if ($parts.Count -ne 4 -or $parts[1] -notmatch '^[0-9a-f]{40}$') { Stop-Scan 'a pushed ref could not be read' }
   if ($parts[1] -eq $zero) { continue }  # a deletion publishes nothing
   $refNames.Add($parts[2])
