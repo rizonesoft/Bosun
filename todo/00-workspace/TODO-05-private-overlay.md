@@ -278,24 +278,28 @@ Evidence from the private files stays private: this public section records only 
 
 The last private details in the public tree are machine paths and a personal name. Live files cite repository-relative paths or placeholders; stamped sections, phase-run records and review receipts are history and stay as written.
 
+> **Corrected 2026-11-21:** a "machine path" here is one that shows the owner's own machine: the Windows user-profile name, the checkout root (`<drive>:\GitHub\...`, `/mnt/<drive>/GitHub/...`), the scratch drives and the WSL home. Generic sample paths in tests (`C:\Windows\...`, `C:\work\...`, a fixture's own made-up folder) stay: the app handles Windows paths, and its tests need real-looking ones. Measured 2026-11-21 against that definition: 22 tracked files outside `docs/reviews/` and `docs/phase-runs/`, of 70 holding any drive path.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Replace machine paths in live files. Done when: `git grep -lE "[A-Z]:\\\\(GitHub|scratch|Bin)" -- AGENTS.md README.md scripts src tests docs/specs` prints only lines inside dated history notes.
-2. Prove the tree is clean with the guard. Done when: `scripts/leak-scan.ps1` over the full history reports no `gitleaks` finding and the deny-list pass over live files is clean.
+1. Replace the owner's machine paths in live files. Done when: the check below finds none in a live file.
+2. Keep them out, and prove the tree is clean with the guard. Done when: the owner's user-profile name is on the deny list, `scripts/leak-scan.ps1 -All` passes, and the deny-list pass over live files is clean.
 
-- [ ] Replace machine paths in code comments in `scripts/lib/build-cache.ps1` and `scripts/lib/plugin-install.ps1` with descriptions that name no drive or folder. Done when: neither file matches a drive-letter path. Cheaper substitute: deleting the comments and losing the reason they record.
-- [ ] Replace machine paths in tests (`scripts/tests/test_dispatch_hook.py`, `tests/build_cache_test.ps1`, `tests/test_core.cpp`) with paths built from the test's temporary folder. Done when: each test passes and none names a real drive folder.
-- [ ] Replace the personal name in `tests/Bosun.Panel.Tests/Controls/QueueVisualTests.cs` with a sample name. Done when: the test passes and the name is gone from tracked files outside `docs/reviews/`.
-- [ ] Replace machine paths in open (unstamped) sections of `todo/`, in `docs/specs/` and in `docs/acceptance/preflight.md` with repository names, leaving stamped sections and `docs/phase-runs/` as written. Done when: `python scripts/todo-graph.py validate` passes and no open section names a drive path.
-- [ ] Review sibling repository names in `design/mockups/control-panel.html` and `docs/images/` and replace private client and project names with samples (`D99 T01 §4`). Done when: the deny-list pass over those files is clean.
-- [ ] Run `scripts/leak-scan.ps1` over the full history and record the result in `D99 T01 §4`'s gitleaks item. Done when: no finding remains, or each is a recorded false positive in `.gitleaksignore`.
+- [ ] Replace the owner's machine paths in code and comments (`scripts/lib/build-cache.ps1`, `scripts/lib/plugin-install.ps1`, `scripts/lib/overlay.ps1`, `src/core.hpp`) with descriptions or repository-relative paths that name no drive or user folder. Done when: none of them matches the check. Cheaper substitute: deleting the comments and losing the reason they record.
+- [ ] Replace them in tests and test fixtures (`scripts/tests/test_dispatch_hook.py`, `scripts/tests/test_todo_graph.py`, the two `scripts/tests/fixtures/review-failures/` files, `tests/build_cache_test.ps1`, `tests/setup_lsp_test.ps1`, `tests/test_bosun_log.py`, `tests/test_core.cpp`) with paths built from the test's temporary folder or generic samples. Done when: each affected suite passes and none matches the check.
+- [ ] Replace the personal name in `tests/Bosun.Panel.Tests/Controls/QueueVisualTests.cs` with a sample name. Done when: the panel tests pass and the name is gone from tracked files outside `docs/reviews/` and `docs/phase-runs/`.
+- [ ] Replace them in open (unstamped) sections of `todo/`, in `docs/specs/` and in `docs/acceptance/preflight.md` with repository-relative names, leaving stamped sections and `docs/phase-runs/` as written. Done when: `python scripts/todo-graph.py validate` passes and no open section matches the check.
+- [ ] Review sibling repository names in `design/mockups/control-panel.html` and `docs/images/` and replace private client and project names, and the owner's machine paths, with samples (`D99 T01 §4`). Done when: the deny-list pass and the check over those files are clean.
+- [ ] Check every live public file for the owner's machine paths: the checkout-root, scratch-drive and WSL-home patterns, plus the owner's user-profile name read at run time from the environment, never written into a public file. Done when: it finds none outside stamped sections' text, `docs/reviews/` and `docs/phase-runs/`, recorded as a count.
+- [ ] Add the owner's Windows user-profile name to `.private/deny-list.txt` (it is in no commit's author or committer identity, measured 2026-11-21) and push the overlay, so a path holding it is refused at the next push. Done when: a scratch push adding a line with it is refused and a clean push goes through, recorded as pass or fail.
+- [ ] Run `scripts/leak-scan.ps1 -All` over the full history and record the result in `D99 T01 §4`'s gitleaks item. Done when: no finding remains, or each is a recorded false positive in `.gitleaksignore`.
 - [ ] Commit: `overlay: scrub machine paths and personal names from the public tree`
 
-**Test checkpoint:** `pwsh scripts/leak-scan.ps1 -All` exits 0 on the owner's checkout with the overlay present. **Corrected 2026-11-21:** was `-Range <root>..HEAD`, which leaves the root commit out (`D00 T05 §4` repair cycle 1 plan review gap 6).
+**Test checkpoint:** `pwsh scripts/leak-scan.ps1 -All` exits 0 on the owner's checkout with the overlay present, and the live-file check finds no owner machine path. **Corrected 2026-11-21:** was `-Range <root>..HEAD`, which leaves the root commit out (`D00 T05 §4` repair cycle 1 plan review gap 6).
 
 ## Verification
 
