@@ -594,18 +594,31 @@ Client: Acme Corp (EU)"))
   # Built at run time, so this file holds no such path itself (scripts/machine-path-check.ps1 reads it too).
   $null = Add-Commit $machine 'notes\where.txt' "built in D:\$('Git' + 'Hub')\tool`n"
   $r = Invoke-Push $machine @('main')
-  Check 'a checkout path with no profile name in a tracked file refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and $r.Text -match 'machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
+  Check 'a checkout path with no profile name in a tracked file refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'notes/where\.txt:1: machine path' -and $r.Text -match 'machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
   git -C $machine reset -q --hard origin/main
   # A file named with a deny-list entry and holding a machine path: refused, its name shown as "a path".
   $machineDeny = New-Checkout 'machine-deny' (New-Remote 'machine-deny-remote') -Deny @('sample-client')
   $null = Add-Commit $machineDeny 'notes\sample-client.md' "kept in D:\$('Bos' + 'un') once`n"
   $r = Invoke-Push $machineDeny @('main')
-  Check 'a machine-path finding in a deny-listed file name shows it as a path' ($r.Exit -ne 0 -and $r.Text -match 'machine-path-check: a path: line 1' -and $r.Text -notmatch '(?i)sample-client') "(exit $($r.Exit): $($r.Text))"
+  Check 'a machine-path finding in a deny-listed file name shows it as a path' ($r.Exit -ne 0 -and $r.Text -match 'leak-scan: a path:1: machine path' -and $r.Text -notmatch '(?i)sample-client') "(exit $($r.Exit): $($r.Text))"
+  # A file named with a secret and holding a machine path: the name is hidden like every finding's.
+  $machineToken = New-Token
+  $machineSecret = New-Checkout 'machine-secret' (New-Remote 'machine-secret-remote')
+  $null = Add-Commit $machineSecret "notes\token-$machineToken.txt" "kept in D:\$('Bos' + 'un') once`n"
+  $r = Invoke-Push $machineSecret @('main')
+  Check 'a machine-path finding in a file named with a secret hides the name' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: machine path' -and -not $r.Text.Contains($machineToken)) "(exit $($r.Exit): $($r.Text))"
+  # A checkout path in a commit message is refused as well: the message is published too.
+  $machineMessage = New-Checkout 'machine-message' (New-Remote 'machine-message-remote')
+  $machineMessageBare = Join-Path $work 'machine-message-remote.git'
+  $before = Get-Refs $machineMessageBare
+  $null = Add-Commit $machineMessage 'clean.txt' 'clean' "built in D:\$('Git' + 'Hub')\tool"
+  $r = Invoke-Push $machineMessage @('main')
+  Check 'a checkout path in a commit message is refused' ($r.Exit -ne 0 -and $r.Text -match 'the message of commit [0-9a-f]{12}: machine path' -and (Get-Refs $machineMessageBare) -eq $before) "(exit $($r.Exit): $($r.Text))"
   # Added in one commit and removed in the next, then pushed together: every outgoing commit is read, not the tip.
   $null = Add-Commit $machine 'notes\where.txt' "built in D:\$('Git' + 'Hub')\tool`n"
   git -C $machine rm -q 'notes/where.txt'; git -C $machine commit -q -m 'remove the note'
   $r = Invoke-Push $machine @('main')
-  Check 'a machine path added and removed again before the push is still refused' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
+  Check 'a machine path added and removed again before the push is still refused' ($r.Exit -ne 0 -and $r.Text -match 'notes/where\.txt:1: machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
   git -C $machine reset -q --hard origin/main
 
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---

@@ -219,3 +219,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - D00 T05 §7 completion review (2026-11-21), excellence: an optional process-scoped launch through `op run` with a secret reference, so a campaign start writes no persistent token and inherits none into unrelated shells, and a changed vault value takes effect at the next start with no re-import (target: zero persistent token writes for an owner who chooses it).
 
 - D00 T03 §23 completion review (2026-11-21), excellence: keep the token's issue day as a field of its 1Password recovery item and read both in one `op item get` (target: one vault call per import, limited to those two fields, and one place to update the pair at renewal).
+
+- D00 T05 §8 completion review (2026-11-21), excellence: a machine-path finding names the commit that introduced it (abbreviated), as gitleaks does, so a path added and removed before a push is found in the commit to repair (target: the two-commit test names the first commit).

@@ -21,19 +21,19 @@
 param(
   [string]$Repo = (Split-Path $PSScriptRoot),
   [string]$Commit = 'HEAD',
-  # A push's commits, one per line in a file (scripts/leak-scan.ps1 writes it): only the files each of them adds or
-  # changes are read, which is everything the push introduces, so a path added in one commit and removed in the next is
+  # A push's commits and annotated tags, one per line in a file (scripts/leak-scan.ps1 writes it): each one's own text
+  # (a message, an annotation) and the files each commit adds or changes are read, which is everything the push introduces, so a path added in one commit and removed in the next is
   # still found. The file keeps a long list off the command line.
   [string]$CommitsFile
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
 $forms = @(
-  # A drive letter stands alone (the "s:" of "https://" is no drive), and a folder name ends at a separator, a quote or
-  # the end, never at a dot (github.com is a site).
-  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+GitHub(?![\w.-])', '(?<![\w.-])/mnt/[a-z]/GitHub(?![\w.-])', '(?<![A-Za-z0-9])[A-Za-z]%3[Aa][\\/]+GitHub(?![\w.-])',
-  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(Bosun|DevMode)(?![\w.-])', '(?<![\w.-])/mnt/[a-z]/(Bosun|DevMode)(?![\w.-])',
-  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+scratch(?![\w.-])', '(?<![\w.-])/mnt/[a-z]/scratch(?![\w.-])'
+  # A drive letter stands alone (the "s:" of "https://" is no drive), and a folder name ends at a separator, a quote,
+  # a sentence's full stop or the end, never at a dot that a name goes on after (github.com is a site).
+  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+GitHub(?![\w-]|\.\w)', '(?<![\w.-])/mnt/[a-z]/GitHub(?![\w-]|\.\w)', '(?<![A-Za-z0-9])[A-Za-z]%3[Aa][\\/]+GitHub(?![\w-]|\.\w)',
+  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(Bosun|DevMode)(?![\w-]|\.\w)', '(?<![\w.-])/mnt/[a-z]/(Bosun|DevMode)(?![\w-]|\.\w)',
+  '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+scratch(?![\w-]|\.\w)', '(?<![\w.-])/mnt/[a-z]/scratch(?![\w-]|\.\w)'
 )
 # A setting that is not there (a contributor's checkout) leaves the name unchecked; a config that cannot be read is an
 # incomplete check, never a quiet one.
@@ -68,7 +68,7 @@ function Read-Records([byte[]]$bytes) {
 $seen = [Collections.Generic.HashSet[string]]::new()
 $entries = [Collections.Generic.List[object]]::new()
 function Add-Entry([string]$path, [string]$sha, [string]$type) {
-  if ($type -ne 'blob' -or $sha -match '^0+$') { return }  # a submodule's commit, or a file the commit removes
+  if ($type -notin 'blob', 'object' -or $sha -match '^0+$') { return }  # a submodule's commit, or a file the commit removes
   if ($path -like 'docs/reviews/*' -or $path -like 'docs/phase-runs/*') { return }
   if ($seen.Add("$sha $path")) { $entries.Add([pscustomobject]@{ Path = $path; Sha = $sha }) }
 }
@@ -76,6 +76,11 @@ if ($CommitsFile) {
   $commits = @(try { [IO.File]::ReadAllLines($CommitsFile) | ForEach-Object { $_.Trim() } | Where-Object { $_ } } catch { "machine-path-check: incomplete: the list of commits could not be read"; exit 2 })
   $label = "the $($commits.Count) commit(s) pushed"
   foreach ($c in $commits) {
+    # The object's own text is published too: a commit's message, an annotated tag's annotation.
+    $kind = [Text.Encoding]::ASCII.GetString((Invoke-GitBytes @('cat-file', '-t', $c)).Bytes).Trim()
+    if ($kind -eq 'tag') { Add-Entry "the annotation of tag $($c.Substring(0, [Math]::Min(12, $c.Length)))" $c 'object'; continue }
+    if ($kind -ne 'commit') { "machine-path-check: incomplete: $c is not a commit or tag"; exit 2 }
+    Add-Entry "the message of commit $($c.Substring(0, [Math]::Min(12, $c.Length)))" $c 'object'
     $diff = Invoke-GitBytes @('diff-tree', '-r', '-z', '--no-commit-id', '--root', '-m', '--first-parent', '--diff-filter=AMRCT', $c)
     if ($diff.Code) { "machine-path-check: incomplete: git could not read the changes of $c"; exit 2 }
     $records = @(Read-Records $diff.Bytes)
@@ -107,7 +112,7 @@ if ($entries.Count) {
     # Each object comes back as "<sha> blob <size>\n<content>\n".
     $eol = [Array]::IndexOf($bytes, [byte]10, $at)
     $header = if ($eol -ge 0) { [Text.Encoding]::ASCII.GetString($bytes, $at, $eol - $at) -split ' ' } else { @() }
-    if ($header.Count -lt 3 -or $header[1] -ne 'blob') { "machine-path-check: incomplete: $shown could not be read"; exit 2 }
+    if ($header.Count -lt 3 -or $header[1] -notin 'blob', 'commit', 'tag') { "machine-path-check: incomplete: $shown could not be read"; exit 2 }
     $size = [int]$header[2]
     $text = [Text.Encoding]::UTF8.GetString($bytes, $eol + 1, $size).Replace([string][char]0, '')
     $at = $eol + 1 + $size + 1

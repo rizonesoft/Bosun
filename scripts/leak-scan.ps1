@@ -204,22 +204,6 @@ function Test-Deny([string]$value) {
   $false
 }
 
-# The owner's machine paths (D00 T05 §8): every file each outgoing commit adds or changes is checked as git publishes
-# it, its blob, by scripts/machine-path-check.ps1, so a path added in one commit and removed in the next, fixed only in
-# the working tree, or kept in a symbolic link's target, is still refused. Its lines name files and line numbers, never
-# the path. The commits go to it in a file, since a first push can name thousands.
-if (-not $history -and $outgoing.Count) {
-  $list = Join-Path ([IO.Path]::GetTempPath()) "bosun-machine-paths-$PID-$([guid]::NewGuid().ToString('N')).txt"
-  try {
-    [IO.File]::WriteAllLines($list, [string[]]$outgoing)
-    $said = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'machine-path-check.ps1') -Repo $repoRoot -CommitsFile $list 2>&1)
-    $code = $LASTEXITCODE
-  } finally { Remove-Item -LiteralPath $list -ErrorAction Ignore }
-  # A file the check names is shown as "a path" when its name holds a deny-list entry, as every finding here is.
-  $said = @($said | ForEach-Object { $line = "$_"; if ($line -match '^(machine-path-check: )(.+?)(: (its name|line .*))$' -and (Test-Deny $Matches[2])) { "$($Matches[1])a path$($Matches[3])" } else { $line } })
-  if ($code -eq 1) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'a pushed commit shows a machine path (above); replace it with a repository-relative path or a sample in that commit, then push again' }
-  if ($code -ne 0) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'the pushed commits could not be checked for machine paths' }
-}
 
 # Git's raw bytes, never its display: a path or file content reaches the checks exactly as it will be published,
 # with no quoting of names and no "binary" verdict standing in for the content.
@@ -287,6 +271,30 @@ function Read-GitleaksReport([int]$code, [string]$text, [string]$what) {
 # known, so no path shown anywhere holds any of them or a deny-list entry.
 $secrets = [Collections.Generic.List[string]]::new()
 function Add-Finding([string]$commit, [string]$path, [string]$place, [string]$what, [string]$fingerprint = '') { $failed.Add([pscustomobject]@{ Commit = $commit; Path = $path; Place = $place; What = $what; Fingerprint = $fingerprint }) }
+# The owner's machine paths (D00 T05 §8): every file each outgoing commit adds or changes is checked as git publishes
+# it, its blob, by scripts/machine-path-check.ps1, so a path added in one commit and removed in the next, fixed only in
+# the working tree, or kept in a symbolic link's target, is still refused. Its lines name files and line numbers, never
+# the path. The commits go to it in a file, since a first push can name thousands.
+$tagObjects = @($tags | ForEach-Object { $_.Object } | Where-Object { "$(& git -C $repoRoot cat-file -t $_ 2>$null)" -eq 'tag' })
+if (-not $history -and ($outgoing.Count -or $tagObjects.Count)) {
+  $list = Join-Path ([IO.Path]::GetTempPath()) "bosun-machine-paths-$PID-$([guid]::NewGuid().ToString('N')).txt"
+  try {
+    [IO.File]::WriteAllLines($list, [string[]](@($outgoing) + $tagObjects))
+    $said = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'machine-path-check.ps1') -Repo $repoRoot -CommitsFile $list 2>&1)
+    $code = $LASTEXITCODE
+  } finally { Remove-Item -LiteralPath $list -ErrorAction Ignore }
+  if ($code -ne 0 -and $code -ne 1) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'the pushed commits could not be checked for machine paths' }
+  # Each finding joins this scan's own, so the one renderer at the end hides any name holding a secret or a deny-list
+  # entry and escapes control characters, as it does for every finding, and the push is refused there.
+  foreach ($line in $said) {
+    if ("$line" -match '^machine-path-check: (.+?): (its name|line .*)$') {
+      $named, $where = $Matches[1], $Matches[2]
+      if ($named -eq 'a path') { Add-Finding '' $null 'a path' "machine path ($where)" }
+      elseif ($named -match '^the (message of commit|annotation of tag) ') { Add-Finding '' $null $named "machine path ($where)" }
+      else { Add-Finding '' $named ($where -replace '^line ', '') 'machine path' }
+    }
+  }
+}
 # Known false positives: one fingerprint per line of .gitleaksignore (# lines are comments). gitleaks applies them to
 # the patch scan itself; the objects scanned as one stream below are matched here, by the same commit:file:rule:line
 # form, the file being the object's path or, for an object with none, what it is (its place).

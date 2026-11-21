@@ -47,6 +47,7 @@ try {
   $forms = [ordered]@{
     'a Windows checkout folder' = "see D:\$gh\tool\readme"
     'the checkout folder alone' = "cd D:\$gh"
+    'the checkout folder ending a sentence' = "Everything lives in D:\$gh."
     'a forward-slash checkout folder' = "see D:/$gh/tool"
     'a WSL checkout folder' = "cd /mnt/d/$gh/tool"
     'the WSL checkout folder alone' = "cd /mnt/d/$gh"
@@ -121,6 +122,19 @@ try {
   [IO.File]::WriteAllLines($list, [string[]]@($removed))
   $r = Invoke-Check $pushed $profileName @('-CommitsFile', $list)
   Check 'and the removing commit alone adds nothing to find' ($r.Code -eq 0) "($($r.Code): $($r.Said))"
+
+  # A message and an annotation are published too, when the list names their commit or tag.
+  $messaged = New-Repo @{ 'base.txt' = 'clean' }
+  [IO.File]::WriteAllText((Join-Path $messaged 'other.txt'), 'clean'); git -C $messaged add -A; git -C $messaged commit -q -m "built in D:\$gh\tool"
+  $withMessage = "$(git -C $messaged rev-parse HEAD)"
+  git -C $messaged tag -a tagged -m "released from /mnt/d/$gh/tool"
+  $tagObject = "$(git -C $messaged rev-parse refs/tags/tagged)"
+  [IO.File]::WriteAllLines($list, [string[]]@($withMessage))
+  $r = Invoke-Check $messaged $profileName @('-CommitsFile', $list)
+  Check 'a checkout path in a listed commit''s message is found' ($r.Code -eq 1 -and $r.Said -match "the message of commit $($withMessage.Substring(0, 12)): line \d+") "($($r.Code): $($r.Said))"
+  [IO.File]::WriteAllLines($list, [string[]]@($tagObject))
+  $r = Invoke-Check $messaged $profileName @('-CommitsFile', $list)
+  Check 'a checkout path in a listed tag''s annotation is found' ($r.Code -eq 1 -and $r.Said -match "the annotation of tag $($tagObject.Substring(0, 12)): line") "($($r.Code): $($r.Said))"
 
   # An overlay config that cannot be read is an incomplete check; a config without the key keeps contributor behaviour.
   $configured = New-Repo @{ 'a.txt' = 'clean' }
