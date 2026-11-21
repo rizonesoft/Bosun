@@ -63,7 +63,7 @@ title: "TODO-03 -- Campaign readiness"
 | 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
 | 23 | §23 | Token and issue day stored together | -- | [x] |
 | 24 | §24 | Campaign hold restores itself and shows its state | -- | [x] |
-| 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [ ] |
+| 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [x] |
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [ ] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [ ] |
@@ -952,11 +952,14 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 8, 9, 29, 
 - [x] Give each protection state its own fix: protection that cannot be read (no `gh`, a timeout, a refusal) gets the diagnostic (`gh auth status`, the account's access) and never a write; confirmed absence gets one copyable `PUT` with its whole JSON body on stdin, then the read-back; confirmed partial protection gets a `PUT` whose body keeps the rules GitHub returned (required status checks and pull request reviews as they are), or, when it holds push restrictions a body cannot carry over, the settings page to change it by hand. Done when: the test runs each printed command, as printed, against a recording `gh` and reads the `PUT`'s stdin body (admins enforced, force pushes and deletion off, an existing required status check kept) and the read-back's host, repository and branch equal to the origin's; an unreadable state prints no `PUT`; and the preflight itself issues only the read. Cheaper substitute: naming the endpoint in prose. (findings base line 29)
 - [x] Keep the protection success to one short result line, and put its undo in the script's header help: `gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection` removes protection the preflight's fix created on a branch that had none. Done when: the test of a protected repository reads one result line and no undo in the output, and the header help's undo, run against a recording `gh`, names the same host, repository and branch. (findings base line 31)
 - [x] End a failing run with one ordered list: the fixes this account can make, then the elevated steps, then what only the owner can confirm, each fix once however many failures share it, then the one command that runs the same checks again with the options this run was given (`-Repo`, `-Only`, and every limit not at its default, single-quoted). Done when: a test with one failure of each kind and two setup failures sharing one elevated fix reads each fix once in its group, the exact count per group, and a recheck command that, run as printed against a checkout path with spaces and a nondefault threshold, finds the same failure. Cheaper substitute: repeating each check's inline fix. (findings base line 9)
-- [ ] Commit: `preflight: progress, timings and one fix list (D00 T03 §25)`
+- [x] Commit: `preflight: progress, timings and one fix list (D00 T03 §25)`
 
 **Evidence 2026-11-21:** `pwsh tests/preflight_test.ps1` -> 155 checks passed, read as a stream stamped as it arrives: in `-Only protection,tree,owner` the owner failure is on screen within five seconds beside a slow `git` and `gh`; a check is named before its result; an instant check after a slow one has its own duration (tree 3 s, then hold under 1 s); the protection read names its host, repository and limit seconds before it ends; each protection state's fix, run as printed against a recording `gh`: an absent one's `PUT` sends the whole body to this origin's main, its read-back and undo name the same target, a partial one's mend keeps its required status check and linear history, push restrictions go to the settings page, and an unreadable, garbled or timed-out read gets a diagnosis and no write; the preflight itself only reads; a failing run's list has each fix once in its group and a recheck command that, run as printed on a checkout path with spaces, finds the same failure. Mutations caught: a clock for the whole run, the start line after the check, a write fix for an unread state. `-FreeDrives` is split on commas, as `-Only` is, since `pwsh -File` passes a list as one string.
 
 **Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and with each check's clock replaced by one for the whole run the duration test fails, and with the start line printed after the check the streaming test fails.
+
+> **Verified:** 2026-11-21 | §25 | 54cda884b10bd6061be9f95196882a8f7e6999c5
+> **Review:** `docs/reviews/d00-t03-s25.json`
 
 ## 26. Review dispatcher shows round times and settled sources, and takes non-section reviews
 

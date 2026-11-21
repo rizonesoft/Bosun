@@ -1,0 +1,93 @@
+{
+  "ref": "D00 T03 \u00a725",
+  "title": "Preflight shows progress, times its checks and ends with one fix list",
+  "implementation_sha": "54cda884b10bd6061be9f95196882a8f7e6999c5",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s25.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s25.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s25.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "pwsh tests/preflight_test.ps1 -> 163 checks passed (streamed and stamped; printed commands run as printed against a recording gh)",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44952877300 -> green at 54cda88",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44952877228 -> green at 54cda88"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s25.md",
+    "verdict": "completed",
+    "candidate": "c57b7869c9ac92f1f470929bb333083477551b87",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "round 3 returned only P3 findings (two test assertions that could pass without comparing what they name); both were fixed in c57b786, and the completion review then ran on the final candidate",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s25.md",
+    "candidate": "26829cc56fb7016760314c28d2d5b066e1f3a1dd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "26829cc56fb7016760314c28d2d5b066e1f3a1dd",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
