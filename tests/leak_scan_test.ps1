@@ -366,6 +366,21 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $ansi @('main')
   Check 'an entry in a Windows-1252 file is found at its line' ($r.Exit -ne 0 -and $r.Text -match 'people.csv:2: deny-list entry') "(exit $($r.Exit): $($r.Text))"
 
+  # --- a branch name holding an entry, with clean commits ---
+  $refOwner = New-Checkout 'ref-owner' $remote -Deny @('fixture-client')
+  $r2 = Invoke-Push $refOwner @('HEAD:refs/heads/work-for-fixture-client')
+  Check 'a branch named with an entry is refused though its commits are clean' ($r2.Exit -ne 0 -and $r2.Text -match 'a ref being pushed: deny-list entry' -and $r2.Text -notmatch 'fixture-client' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/work-for-*')) "(exit $($r2.Exit): $($r2.Text))"
+
+  # --- a newline in a file name cannot start a line of its own ---
+  $blob = 'Client: Acme Corp (EU)' | git -C $owner hash-object -w --stdin
+  git -C $owner update-index --add --cacheinfo "100644,$blob,odd`nFAKE STATUS.txt" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    git -C $owner commit -q -m 'odd name'
+    $r = Invoke-Push $owner @('main')
+    Check 'a newline in a reported path is shown escaped, not as a line' ($r.Exit -ne 0 -and $r.Text -match 'odd\\x0aFAKE STATUS.txt:1: deny-list entry' -and $r.Text -notmatch '(?m)^FAKE STATUS') "(exit $($r.Exit): $($r.Text))"
+    git -C $owner reset -q --hard origin/main
+  } else { 'note a newline in a file name: git here refuses such a path in the index, so that case runs only where git accepts one' }
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

@@ -44,10 +44,12 @@ if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) {
 if ($null -eq $Updates) { $Updates = @([Console]::In.ReadToEnd() -split "`r?`n" | Where-Object { $_.Trim() }) }
 $locals = [Collections.Generic.List[string]]::new()
 $tags = [Collections.Generic.List[object]]::new()
+$refNames = [Collections.Generic.List[string]]::new()
 foreach ($line in $Updates) {
   $parts = $line.Trim() -split '\s+'
   if ($parts.Count -ne 4 -or $parts[1] -notmatch '^[0-9a-f]{40}$') { Stop-Scan 'a pushed ref could not be read' }
   if ($parts[1] -eq $zero) { continue }  # a deletion publishes nothing
+  $refNames.Add($parts[2])
   if ($parts[2] -like 'refs/tags/*') { $tags.Add([pscustomobject]@{ Name = $parts[2].Substring(10); Object = $parts[1] }) }
   # A tag can point at a file or a tree, not only a commit: only what peels to a commit has commits to scan.
   $commit = "$(& git -C $repoRoot rev-parse --verify --quiet "$($parts[1])^{commit}" 2>$null)"
@@ -200,6 +202,8 @@ foreach ($tag in $tags) {
   }
 }
 if ($deny.Count) {
+  # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
+  foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
   foreach ($tag in $tags) {
     if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (in its name)'; continue }
     # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
@@ -224,9 +228,11 @@ if ($deny.Count) {
 if ($failed.Count) {
   $lines = foreach ($f in $failed) {
     $hidden = $f.Path -and ((Test-Deny $f.Path) -or @($secrets | Where-Object { $_ -and $f.Path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count)
-    $where = if (-not $f.Path) { $f.Place } elseif ($hidden) { 'a path' } else { $f.Path }
+    # Control characters (a newline is legal in a file name) are shown escaped, so a name cannot start a line of its own.
+    $where = if (-not $f.Path) { $f.Place } elseif ($hidden) { 'a path' } else { [regex]::Replace($f.Path, '[\x00-\x1F\x7F]', { param($m) '\x{0:x2}' -f [int][char]$m.Value }) }
     if ($f.Path -and $f.Place) { $where = "${where}:$($f.Place)" }
-    "$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): ${where}: $($f.What)"
+    $lead = if ($f.Commit) { "$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): " } else { '' }
+    "${lead}${where}: $($f.What)"
   }
   $lines = @($lines | Select-Object -Unique)
   foreach ($line in $lines) { Say $line }
