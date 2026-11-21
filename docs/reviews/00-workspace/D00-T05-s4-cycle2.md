@@ -222,3 +222,6 @@ I inspected the committed range and its regression assertions. I did not run the
 3. `missing-in-scope` | Identify the affected tip in branch-name and lightweight-tag-name findings without printing the private name.
 
 COMPLETION: gaps
+
+- Settled: completion gaps 1 to 3 fixed in a583abc (scans keep to their own refs, a failed cleanup refuses and is recovered on the next push, a ref-name finding names its tip).
+- Not taken: excellence suggestions 1 and 2, recorded in todo/findings.md.

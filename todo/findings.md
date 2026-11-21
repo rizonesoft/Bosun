@@ -209,3 +209,6 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - `scripts/setup-clone.ps1` (overlay): one documented operation that turns off overlay updates and keeps every local branch, stash and ignored owner file, with one operation to bring it back, as `git submodule deinit` does for a submodule (D00 T05 §2 completion review, 2026-11-20).
 - `scripts/sync.ps1`: an optional preview listing each repository's local and upstream short commit IDs and up to five pending commits, keeping the default two-line check, as `git submodule summary` shows what changed (D00 T05 §3 completion review, 2026-11-21).
 - `scripts/sync.ps1`: one receipt per changed repository naming the destination branch and the before and after short IDs, never a URL or a remote's message, as `git push` output does (D00 T05 §3 completion review, 2026-11-21).
+
+- D00 T05 §4 completion review (2026-11-21), excellence: one setup command on Windows and WSL that checks the pre-push hook and gitleaks together, so a first push never meets a missing tool (target: zero prerequisite surprises). File when \scripts/setup-clone.ps1\ is next changed.
+- D00 T05 §4 completion review (2026-11-21), excellence: a refusal whose only findings are in ref names tells the owner to rename the ref, not to rewrite history (\scripts/leak-scan.ps1\ final message).
