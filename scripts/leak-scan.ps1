@@ -78,7 +78,19 @@ foreach ($line in $Updates) {
   if ($commit) { $locals.Add($commit) }
 }
 if (-not $history -and -not $locals.Count -and -not $tags.Count) { exit 0 }  # only deletions: nothing is published
-# The one gitleaks both scans below run, resolved once from PATH, so each uses the same tool; needed only once there is
+
+# The owner's machine paths (D00 T05 §8): every commit pushed is checked as git publishes it, its blobs, by
+# scripts/machine-path-check.ps1, so a path fixed only in the working tree, or kept in a symbolic link's target, is
+# still refused. Its lines name files and line numbers, never the path.
+if (-not $history) {
+  $pathCheck = Join-Path $PSScriptRoot 'machine-path-check.ps1'
+  foreach ($tip in @($locals | Sort-Object -Unique)) {
+    $said = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $pathCheck -Repo $repoRoot -Commit $tip 2>&1)
+    $code = $LASTEXITCODE
+    if ($code -eq 1) { foreach ($line in $said) { Say "$line" }; Stop-Scan "a pushed commit ($("$tip".Substring(0, 12))) shows a machine path (above); replace it with a repository-relative path or a sample, then push again" }
+    if ($code -ne 0) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'the pushed commits could not be checked for machine paths' }
+  }
+}# The one gitleaks both scans below run, resolved once from PATH, so each uses the same tool; needed only once there is
 # something to scan, so a push of deletions alone goes through without it.
 $gitleaksExe = (Get-Command gitleaks -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
 if (-not $gitleaksExe) {

@@ -1,6 +1,6 @@
 # Bosun Panel: control panel design
 
-Status: brainstorm result, 2026-11-07. Renamed from DevMode to Bosun the same day, and moved from `R:\GitHub` to `D:\GitHub`. Interface contract: [design/SPEC.md](../../design/SPEC.md). Mockup: [design/mockups/control-panel.html](../../design/mockups/control-panel.html). Execution plan: [todo/implementation-plan.md](../../todo/implementation-plan.md).
+Status: brainstorm result, 2026-11-07. Renamed from DevMode to Bosun the same day, and moved to another checkouts folder on the owner's machine. Interface contract: [design/SPEC.md](../../design/SPEC.md). Mockup: [design/mockups/control-panel.html](../../design/mockups/control-panel.html). Execution plan: [todo/implementation-plan.md](../../todo/implementation-plan.md).
 
 ## What changed on 2026-11-10?
 
@@ -125,7 +125,7 @@ Surface sections must be able to run unattended, so they do not need a visible d
 
 ## How are repos found and runs opened?
 
-The owner asked for both on 2026-11-07. Settings holds a list of project folders on either side. On this machine those are `D:\GitHub` on Windows and `~/www` and `~/projects` in WSL. Bosun lists new repos it finds there and adds them when told. These paths are the owner's settings, kept in `panel.json`, never in the code. The Unattended run page has a Commands card for each repo, with Copy and Open in terminal, using PowerShell on Windows and Bash in WSL.
+The owner asked for both on 2026-11-07. Settings holds a list of project folders on either side. On this machine those are `<checkouts>` on Windows and `~/www` and `~/projects` in WSL. Bosun lists new repos it finds there and adds them when told. These paths are the owner's settings, kept in `panel.json`, never in the code. The Unattended run page has a Commands card for each repo, with Copy and Open in terminal, using PowerShell on Windows and Bash in WSL.
 
 ## How does the unattended campaign run?
 

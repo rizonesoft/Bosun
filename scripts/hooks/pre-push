@@ -13,11 +13,4 @@ fi
 # process listing.
 BOSUN_LEAK_REMOTE=$2
 export BOSUN_LEAK_REMOTE
-# The live files first (D00 T05 §8): no tracked file outside history may show the owner's machine (a checkout or
-# scratch folder, the profile name), in any spelling. It reads the working tree's tracked files, so a path left there
-# is refused before it is ever pushed.
-if ! pwsh -NoProfile -NonInteractive -File "$root/scripts/machine-path-check.ps1" -Repo "$root" >&2; then
-    echo "leak-scan: push refused: a tracked file shows a machine path (above); replace it with a repository-relative path or a sample, then push again" >&2
-    exit 1
-fi
 exec pwsh -NoProfile -NonInteractive -File "$root/scripts/leak-scan.ps1"

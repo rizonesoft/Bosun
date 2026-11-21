@@ -14,7 +14,7 @@ title: "TODO-01 -- Finish the agent kit"
 
 > **Current state:** Measured 2026-11-07. Steward's guard, dispatcher, graph and prompts were copied in on 2026-11-07 and the SDK kit seeded the rest. Recto's review-in-flight marks, settled items and dispatch hook, and Isotone's gates, are not yet ported. The private repo `rizonetech/Bosun` exists, `origin` is set, and `build.yml`, `plan.yml` and Dependabot run on `main`.
 
-**Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
+**Corrected 2026-11-10:** every sibling repo is under `<checkouts>` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
 
 **Corrected 2026-11-12:** `§10` (kit updates from the three sample repos) and `§11` (removal of the samples folder) are withdrawn, unbuilt, on the owner's decision of 2026-11-12: Bosun and the Conclave-SDK kits stay separate, so Bosun imports nothing further from the SDK or its retired sibling repos. The owner removed `samples/` himself and it stays gone. The numbers 10 and 11 are not reused.
 

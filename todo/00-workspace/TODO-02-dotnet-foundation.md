@@ -12,7 +12,7 @@ title: "TODO-02 -- The .NET foundation"
 
 > **Current state:** Measured 2026-11-07. No .NET code exists. SDK `11.0.100-rc.2.26504.105` and the matching WPF runtime are installed. C++ sources sit directly in `src/`.
 
-**Corrected 2026-11-10:** every sibling repo is under `R:\GitHub` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
+**Corrected 2026-11-10:** every sibling repo is under `<checkouts>` again, since the `D:` volume was retired; paths in open sections are updated, and stamped sections keep theirs as history.
 
 ## Inputs
 

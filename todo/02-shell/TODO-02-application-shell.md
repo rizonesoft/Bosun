@@ -19,7 +19,7 @@ title: "TODO-02 -- The application shell"
 - `design/SPEC.md` §1, §15, §17.
 - `D:\Steward\src\Steward.Console`.
 
-**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `R:\GitHub` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `R:\GitHub`, now reads `D:\<repo>`.
+**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `<checkouts>` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `<checkouts>`, now reads `D:\<repo>`.
 - -> XREF: D02 T01 §4 -- consumes this file
 - -> XREF: D02 T01 §4 -- consumed by this file
 - -> XREF: D00 T02 §1 -- consumed by this file

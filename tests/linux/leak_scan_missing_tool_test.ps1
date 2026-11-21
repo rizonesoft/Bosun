@@ -38,6 +38,8 @@ try {
   Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/leak-scan.ps1') -Destination (Join-Path $seed 'scripts/leak-scan.ps1')
   Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/hooks/pre-push') -Destination (Join-Path $seed 'scripts/hooks/pre-push')
   Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/machine-path-check.ps1') -Destination (Join-Path $seed 'scripts/machine-path-check.ps1')
+  New-Item -ItemType Directory -Path (Join-Path $seed 'scripts/lib') -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/lib/overlay.ps1') -Destination (Join-Path $seed 'scripts/lib/overlay.ps1')
   Set-Content -LiteralPath (Join-Path $seed 'notes.txt') -Value 'notes'
   git -C $seed add -A; git -C $seed update-index --chmod=+x scripts/hooks/pre-push; git -C $seed commit -q -m seed
   $bare = Join-Path $work 'remote.git'

@@ -18,7 +18,7 @@ title: "TODO-01 -- Brand and theme"
 - `D:\Office\scripts\build-icons.py`, `D:\Recto\design\tools\build_resources.py:505`, `D:\Isotone\docs\design\app-icons.md`.
 - `D:\Steward\src\Steward.Console\Theme\Controls.xaml`.
 
-**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `R:\GitHub` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `R:\GitHub`, now reads `D:\<repo>`.
+**Corrected 2026-11-13:** the sibling repos are at `D:\<repo>` (`D:\Steward`, `D:\Office`, `D:\Recto`, `D:\Resolute`, `D:\Isotone`); `<checkouts>` holds only CarbonCD and IsotoneStack, so every sibling-repo path this file named, given under `<checkouts>`, now reads `D:\<repo>`.
 - -> XREF: D00 T02 §2 -- consumed by this file
 - -> XREF: D02 T02 §9 -- consumed by this file
 - -> XREF: D02 T02 §1 -- consumes this file
