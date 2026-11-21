@@ -437,6 +437,10 @@ Check ($r.Code -eq 1 -and $r.Text -match 'the hold expired at' -and $r.Text -mat
 [IO.File]::WriteAllText($holdRecord, $holdText)
 $r = Preflight $system $holdArgs
 Check ($r.Code -eq 0) 'and the same hold unexpired passes'
+# The preflight reads the hold where the hold script and the run guard do: BOSUN_HOLD_* first (round 2 of D00 T03 §24).
+$env:BOSUN_HOLD_RECORD = $holdRecord; $env:BOSUN_HOLD_POWERCFG = $powercfg; $env:BOSUN_HOLD_LOCKKEY = $lockKey
+try { $r = Preflight $system @('-Only', 'hold') } finally { Remove-Item Env:BOSUN_HOLD_RECORD, Env:BOSUN_HOLD_POWERCFG, Env:BOSUN_HOLD_LOCKKEY -ErrorAction Ignore }
+Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* variables name the hold the preflight checks ($(($r.Text -split "`n") -match 'hold' | Select-Object -First 1))"
   & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 600
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'the hold drifted: VIDEOIDLE AC is 600') 'a held value that drifted fails with its fix'

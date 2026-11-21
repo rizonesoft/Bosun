@@ -25,9 +25,10 @@ param(
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$TokenRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\claude-token.json'),
   [string[]]$FreeDrives = @(),
-  [string]$HoldRecord = (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json'),
-  [string]$PowerCfg = (Join-Path $env:SystemRoot 'System32\powercfg.exe'),
-  [string]$LockKey = 'HKCU:\Control Panel\Desktop',
+  # The hold's targets as scripts/campaign-hold.ps1 and the run guard read them, BOSUN_HOLD_* first (D00 T03 §24).
+  [string]$HoldRecord = ($env:BOSUN_HOLD_RECORD ? $env:BOSUN_HOLD_RECORD : (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json')),
+  [string]$PowerCfg = ($env:BOSUN_HOLD_POWERCFG ? $env:BOSUN_HOLD_POWERCFG : (Join-Path $env:SystemRoot 'System32\powercfg.exe')),
+  [string]$LockKey = ($env:BOSUN_HOLD_LOCKKEY ? $env:BOSUN_HOLD_LOCKKEY : 'HKCU:\Control Panel\Desktop'),
   [string]$PolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU',
   [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
   [string]$DotnetDir = '',

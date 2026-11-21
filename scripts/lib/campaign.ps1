@@ -132,7 +132,8 @@ function Assert-Record($saved, [string]$path, [string]$kind) {
     if (-not (& $has $saved 'Scheme') -or "$($saved.Scheme)" -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { $why = 'Scheme is not a power plan GUID' }
     elseif (-not (& $has $saved 'Power') -or @($saved.Power).Count -ne $HoldPower.Count) { $why = "Power does not hold the $($HoldPower.Count) held settings" }
     elseif (-not (& $has $saved 'Lock') -or ($null -ne $saved.Lock -and $saved.Lock -isnot [string])) { $why = 'Lock is missing, or neither absent nor a string' }
-    elseif ($bad = @('Applied', 'Expires', 'RestoreTried') | Where-Object { (& $has $saved $_) -and $null -ne $saved.$_ -and $null -eq (ConvertTo-HoldTime $saved.$_) } | Select-Object -First 1) { $why = "$bad is not a time" }
+    # Applied and Expires, when present, are times (an absent one marks a record from before them); RestoreTried may be null.
+    elseif ($bad = @('Applied', 'Expires', 'RestoreTried') | Where-Object { (& $has $saved $_) -and ($null -ne $saved.$_ -or $_ -ne 'RestoreTried') -and $null -eq (ConvertTo-HoldTime $saved.$_) } | Select-Object -First 1) { $why = "$bad is not a time" }
     else {
       for ($i = 0; $i -lt $HoldPower.Count -and -not $why; $i++) {
         $e = @($saved.Power)[$i]

@@ -78,7 +78,7 @@ if ($Status) {
   $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme  # first: a failed query is the one FAIL line, nothing before it
   $life = Get-HoldLife $saved $Record
   $age = [datetime]::UtcNow - $life.Applied
-  "hold applied $($life.Applied.ToString('u')) ($([int]$age.TotalHours) h $($age.Minutes) min ago), $(if ($life.Expires) { "expires $($life.Expires.ToString('u'))" } else { 'no expiry (recorded before expiries were): it goes back when its run ends' })"
+  "hold applied $($life.Applied.ToString('u')) ($([math]::Floor($age.TotalHours)) h $($age.Minutes) min ago), $(if ($life.Expires) { "expires $($life.Expires.ToString('u'))" } else { 'no expiry (recorded before expiries were): it goes back when its run ends' })"
   "scheme $($saved.Scheme)"
   for ($i = 0; $i -lt $saved.Power.Count; $i++) {
     foreach ($line in 'AC', 'DC') { "  $($saved.Power[$i].Sub) $($saved.Power[$i].Setting) $line`: now $($now.Power[$i].$line), before $($saved.Power[$i].$line)" }

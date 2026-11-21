@@ -153,6 +153,17 @@ try {
   [IO.File]::WriteAllText($record, $broken)
   $r = Hold @('-Restore')
   Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time' -and [IO.File]::ReadAllText($record) -eq $broken) 'a malformed Expires is refused by name, and the record is left'
+  # A present but null Expires is not a record from before expiries: refused, as the run guard refuses it (round 2).
+  $rec.Expires = $null
+  $nulled = $rec | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($record, $nulled)
+  $r = Hold @('-Status')
+  Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time') 'a null Expires is refused by name'
+  # -Status counts whole hours down, as the run guard's status does (round 2): 45 minutes is 0 h 45 min.
+  $rec.Applied = [datetime]::UtcNow.AddMinutes(-45).ToString('o'); $rec.Expires = [datetime]::UtcNow.AddHours(1).ToString('o')
+  [IO.File]::WriteAllText($record, ($rec | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Status')
+  Check ($r.Code -eq 0 -and $r.Text -match '\(0 h 4[45] min ago\)') "a hold 45 minutes old reads 0 h ($(($r.Text -split "`n")[0]))"
   # A record from before these fields began when its file was written, and has no expiry: it may hold a campaign still
   # running, and a day from its write time restored a live campaign's hold on 2026-11-21.
   $rec.PSObject.Properties.Remove('Applied'); $rec.PSObject.Properties.Remove('Expires')
