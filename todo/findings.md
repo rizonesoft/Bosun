@@ -221,3 +221,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 - D00 T03 §23 completion review (2026-11-21), excellence: keep the token's issue day as a field of its 1Password recovery item and read both in one `op item get` (target: one vault call per import, limited to those two fields, and one place to update the pair at renewal).
 
 - D00 T05 §8 completion review (2026-11-21), excellence: a machine-path finding names the commit that introduced it (abbreviated), as gitleaks does, so a path added and removed before a push is found in the commit to repair (target: the two-commit test names the first commit).
+- `todo/findings.md`: make each scheduled disposition's section reference a link to its owning checklist in rendered Markdown, one click from finding to owner, as GitHub sub-issues are (D00 T06 §1 completion review, 2026-11-21).
+- `scripts/findings-ledger.py`: report the four disposition counts and group the scheduled findings by their owning sections in the success line, so a reviewer sees the split without recounting the ledger (D00 T06 §1 completion review, 2026-11-21).

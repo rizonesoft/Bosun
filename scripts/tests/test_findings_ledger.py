@@ -169,6 +169,12 @@ class FindingsLedgerTest(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = ledger.check(self.base, 8, 5, root=self.root, resolver=fake_resolve)
         self.assertEqual(code, 2, out.getvalue())
+        # The completion review of D00 T06 §1: a range past the file's end checked nothing and passed.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ledger.check(self.base, 500, 540, root=self.root, resolver=fake_resolve)
+        self.assertEqual(code, 2, out.getvalue())
+        self.assertIn("runs past the end", out.getvalue())
 
     def test_an_unreadable_base_is_incomplete(self):
         out = io.StringIO()

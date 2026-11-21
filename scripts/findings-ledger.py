@@ -109,6 +109,9 @@ def check(base, first, last, root=ROOT, resolver=resolve):
         print("findings-ledger: cannot read %s at %s" % (FINDINGS, base))
         return 2
     then = shown.stdout.splitlines()
+    if last > len(then):
+        print("findings-ledger: the range %d-%d runs past the end of %s at %s (%d lines)" % (first, last, FINDINGS, base, len(then)))
+        return 2
     open_entries = [(n, then[n - 1][2:]) for n in range(first, min(last, len(then)) + 1)
                     if then[n - 1].startswith("- ") and not then[n - 1].startswith("- ~~")]
     now = (root / FINDINGS).read_text(encoding="utf-8").splitlines()
