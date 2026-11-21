@@ -254,6 +254,11 @@ foreach ($tag in $tags) {
     $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
     if ($type -eq 'tag') { Find-SecretsIn (Get-GitBytes @('cat-file', 'tag', $object)) $tag.Object $null 'a tag or other object being pushed' 'its annotation' }
     elseif ($type -eq 'blob' -and -not $peels) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $object)) $tag.Object $null 'a tag or other object being pushed' 'a file it publishes' }
+    elseif ($type -eq 'tree' -and -not $peels) {
+      # The tree's names, whole paths, are published too: the deny pass checks them below, and gitleaks here.
+      $names = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-r', '-t', '-z', '--full-tree', $object))) -split "`0") | Where-Object { $_ } | ForEach-Object { $_ -replace '^[^\t]*\t', '' })
+      if ($names) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($names -join "`n"))) $tag.Object $null 'a tag or other object being pushed' 'a path it publishes' }
+    }
   }
 }
 if ($deny.Count) {

@@ -473,6 +473,17 @@ Client: Acme Corp (EU)"))
   git -C $plainClone reset -q --hard origin/main
   Remove-Item -LiteralPath $tokenDir -Recurse -Force
 
+  # --- a secret only in a file name inside a tagged tree ---
+  $treeToken = New-Token
+  $emptyBlob = '' | git -C $plainClone hash-object -w --stdin
+  git -C $plainClone update-index --add --cacheinfo "100644,$emptyBlob,keys-$treeToken.txt"
+  $treeId = git -C $plainClone write-tree
+  git -C $plainClone tag snapshot $treeId
+  git -C $plainClone reset -q --hard HEAD
+  $r = Invoke-Push $plainClone @('refs/tags/snapshot')
+  Check 'a secret only in a file name inside a tagged tree is refused' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\) in a path it publishes' -and -not $r.Text.Contains($treeToken) -and -not (git --git-dir=$remote tag --list snapshot)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone tag -d snapshot | Out-Null
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
