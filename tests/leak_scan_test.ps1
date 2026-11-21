@@ -484,6 +484,13 @@ Client: Acme Corp (EU)"))
   Check 'a secret only in a file name inside a tagged tree is refused' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\) in a path it publishes' -and -not $r.Text.Contains($treeToken) -and -not (git --git-dir=$remote tag --list snapshot)) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone tag -d snapshot | Out-Null
 
+  # --- a Windows-1252 tag annotation ---
+  $notes = Join-Path $work 'cp1252-notes.txt'
+  [IO.File]::WriteAllBytes($notes, [Text.Encoding]::GetEncoding(1252).GetBytes("Release for Caf$([char]0xE9) Central"))
+  git -C $cafe2 tag -a release-1252 -F $notes HEAD
+  $r = Invoke-Push $cafe2 @('refs/tags/release-1252')
+  Check 'an entry in a Windows-1252 tag annotation is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list release-1252)) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

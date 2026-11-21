@@ -275,7 +275,8 @@ if ($deny.Count) {
     $hit = $false
     foreach ($object in $sent) {
       $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
-      if ($type -eq 'tag') { $hit = Test-Deny ((Invoke-Git @('cat-file', '-p', $object)) -join "`n") }
+      # The raw tag object under every encoding, as a commit's is: an annotation can be saved in Windows-1252.
+      if ($type -eq 'tag') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'tag', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
       elseif (-not $peelsToCommit -and $type -eq 'tree') {
         # Every path under the tree, whole (an entry can hold a separator), read as raw NUL-separated records.
         $hit = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-r', '-t', '-z', '--full-tree', $object))) -split "`0") | Where-Object { $_ -and (Test-Deny ($_ -replace '^[^\t]*\t', '')) }).Count -gt 0
