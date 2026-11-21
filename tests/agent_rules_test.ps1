@@ -15,7 +15,7 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
 # --- the tracked rule files ---
 $agents = [IO.File]::ReadAllText((Join-Path $repoRoot 'AGENTS.md'))
 $claude = [IO.File]::ReadAllText((Join-Path $repoRoot 'CLAUDE.md'))
-Check 'AGENTS.md points every agent at .private/AGENTS.md, behind the overlay mark' ($agents -match '\.private/AGENTS\.md' -and $agents -match 'bosun\.overlay')
+Check 'AGENTS.md points every agent at .private/AGENTS.md, behind the overlay mark on a real folder' ($agents -match '\.private/AGENTS\.md' -and $agents -match 'bosun\.overlay' -and $agents -match 'not a link or junction')
 foreach ($file in 'GEMINI.md', 'CODEX.md') {
   $text = [IO.File]::ReadAllText((Join-Path $repoRoot $file))
   Check "$file leaves the pointer to AGENTS.md" ($text -notmatch '\.private/AGENTS\.md')
@@ -69,6 +69,23 @@ try {
   $r = Update-BosunAgentRules $one
   Check 'an unmarked .private loses the import' ($r -eq 'removed' -and (Read-Local $one) -ceq "my own line`nmy later line`n") "($r)"
 
+  # A block whose closing line was lost: the owner's lines after it survive every later run.
+  $broken = Join-Path $work 'broken'
+  git init -q $broken
+  New-Overlay $broken
+  $startLine = $block.Split("`n")[0]
+  [IO.File]::WriteAllText((Join-Path $broken 'CLAUDE.local.md'), "$startLine`n@.private/AGENTS.md`nmy instruction`n")
+  $null = Update-BosunAgentRules $broken; $null = Update-BosunAgentRules $broken
+  Check 'a block missing its closing line never takes the owner''s lines with it' ((Read-Local $broken).Contains("my instruction`n") -and (Read-Local $broken).EndsWith($block)) "($(Read-Local $broken))"
+  # A rename that fails (the file held open without delete sharing) leaves no temporary copy to be committed.
+  $held = Join-Path $work 'held'
+  git init -q $held
+  New-Overlay $held
+  [IO.File]::WriteAllText((Join-Path $held 'CLAUDE.local.md'), "my line`n")
+  $lock = [IO.File]::Open((Join-Path $held 'CLAUDE.local.md'), 'Open', 'Read', 'Read')
+  try { try { $null = Update-BosunAgentRules $held; $threw = $false } catch { $threw = $true } } finally { $lock.Dispose() }
+  Check 'a failed rename refuses and leaves no temporary file' ($threw -and -not @(Get-ChildItem -LiteralPath $held -Filter 'CLAUDE.local.md.tmp*' -Force).Count -and (Read-Local $held) -ceq "my line`n")
+
   $two = Join-Path $work 'two'
   git init -q $two
   New-Item -ItemType Directory -Path (Join-Path $two '.private') | Out-Null
@@ -109,6 +126,12 @@ try {
   try { $said = & $sh scripts/hooks/post-merge 2>&1 | Out-String } finally { Pop-Location }
   Check 'and puts it back when the overlay gains AGENTS.md' ((Read-Local $checkout) -ceq $block) "($said)"
 
+  # Setup's own undo, then sync: nothing is synced (the overlay is unmarked), but the import still goes.
+  git -C (Join-Path $checkout '.private') config --local --unset bosun.overlay
+  $said = & $pwshExe -NoProfile -File (Join-Path $checkout 'scripts\sync.ps1') 2>&1 | Out-String
+  Check 'sync takes the import out once the overlay is unmarked, though it syncs nothing' ($null -eq (Read-Local $checkout) -and $said -match 'taken out of CLAUDE.local.md') "($said)"
+  git -C (Join-Path $checkout '.private') config --local bosun.overlay true
+  $null = Update-BosunAgentRules $checkout
   Remove-Item -LiteralPath (Join-Path $checkout '.private') -Recurse -Force
   $said = & $pwshExe -NoProfile -File (Join-Path $checkout 'scripts\sync.ps1') 2>&1 | Out-String
   Check 'sync takes the import out once .private is gone' ($null -eq (Read-Local $checkout) -and $said -match 'taken out of CLAUDE.local.md') "($said)"

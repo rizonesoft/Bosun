@@ -235,7 +235,10 @@ function Update-BosunAgentRules([string]$Repo) {
   $file = Join-Path $Repo 'CLAUDE.local.md'
   $text = if (Test-Path -LiteralPath $file -PathType Leaf) { [IO.File]::ReadAllText($file) } else { '' }
   # The managed block, with the line break that ends it; the file's own line breaks are kept around it.
-  $pattern = '(?m)^' + [regex]::Escape($script:BosunRulesStart) + '\r?\n[\s\S]*?^' + [regex]::Escape($script:BosunRulesEnd) + '(\r?\n|$)'
+  # The block holds no second opening marker, so a block whose closing line was lost never reaches over the owner's
+  # lines to a later block's end: the broken opening line is left as written, and a whole block is added after it.
+  $start = [regex]::Escape($script:BosunRulesStart)
+  $pattern = '(?m)^' + $start + '\r?\n(?:(?!' + $start + ')[\s\S])*?^' + [regex]::Escape($script:BosunRulesEnd) + '(\r?\n|$)'
   $without = [regex]::Replace($text, $pattern, '')
   $new = if ($wanted) {
     $lead = if ($without -and -not $without.EndsWith("`n")) { "`n" } else { '' }
@@ -243,8 +246,13 @@ function Update-BosunAgentRules([string]$Repo) {
   } else { $without }
   if ($new -ceq $text) { return 'unchanged' }
   if (-not $new.Trim()) { Remove-Item -LiteralPath $file -Force; return 'removed' }
+  # The temporary file is ignored as CLAUDE.local.md is (.gitignore: CLAUDE.local.md*), and removed if the rename fails.
   $temp = "$file.tmp-$PID"
-  [IO.File]::WriteAllText($temp, $new, [Text.UTF8Encoding]::new($false))
-  Move-Item -LiteralPath $temp -Destination $file -Force
+  try {
+    [IO.File]::WriteAllText($temp, $new, [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temp -Destination $file -Force
+  } finally {
+    if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction Ignore }
+  }
   if ($wanted) { 'added' } else { 'removed' }
 }

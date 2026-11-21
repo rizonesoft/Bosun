@@ -163,6 +163,10 @@ if ($Check) {
 # All or nothing: one repository in a state this run does not act on means neither is changed.
 $blocked = @($states | Where-Object { -not $_.Ok -and $_.Action -eq 'none' })
 if ($blocked) {
+  # Nothing is synced, but the agent rules still follow .private as it is: an overlay unmarked or removed loses
+  # its import here too (D00 T05 §5).
+  $rules = Update-BosunAgentRules $publicRoot
+  if ($rules -eq 'removed') { 'sync: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
   Write-States $states
   foreach ($s in $blocked) { "sync: nothing was changed, because $($s.Label) is $($s.Text)" }
   exit 1
