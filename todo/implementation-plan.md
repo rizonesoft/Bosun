@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 42 | Checklist items: 419
+Sections: 42 | Checklist items: 424
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -49,7 +49,7 @@ Sections: 42 | Checklist items: 419
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
-| [ ]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 12    |
+| [ ]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 17    |
 | [ ]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 7     |
 | [ ]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 5     |
 | [ ]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 8     |
@@ -183,4 +183,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 94/126 verified sections, 10 ready to run now.
 
-Checklist: 922/1067 items completed (includes Commit items).
+Checklist: 922/1072 items completed (includes Commit items).
