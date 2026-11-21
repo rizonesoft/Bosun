@@ -103,14 +103,11 @@ function Get-GitBytes([string[]]$arguments) {
 # Text as it is stored: UTF-8 (the default), or UTF-16 when it carries a byte-order mark or NUL bytes, as a report
 # saved by Windows PowerShell 5.1 does.
 function ConvertFrom-Blob([byte[]]$bytes) {
-  # Text with no NUL byte is UTF-8 (a leading byte-order mark aside). Text with NUL bytes is some UTF-16 or UTF-32
-  # (Windows PowerShell's Out-File and Set-Content -Encoding utf32 write those): every reading is returned, each with
-  # NULs and byte-order marks taken out, so an entry is found in whichever one holds it. UTF-32 has readings of its own:
-  # the UTF-16 ones read UTF-32 text only below U+10000, not an emoji or any other supplementary character.
-  # A UTF-16 byte-order mark names the encoding even when no byte is NUL (text outside Latin, such as CJK, has none).
-  $marked = $bytes.Length -ge 2 -and (($bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or ($bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF))
-  if (-not $marked -and [Array]::IndexOf($bytes, [byte]0) -lt 0) { return [Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF) }
-  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false)
+  # No guessing which encoding a file is in: every common one is read (UTF-8, Windows-1252 for files saved as "ANSI"
+  # on Windows, UTF-16 and UTF-32 in both byte orders), each with NULs and byte-order marks taken out, and an entry
+  # found in any reading counts. Encoding by encoding, the guesses kept missing a case (rounds 1, 3, 7, 12 to 14 of
+  # D00 T05 §4); six readings of a pushed file cost microseconds.
+  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(1252), [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false)
   foreach ($encoding in $encodings) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
 }
 

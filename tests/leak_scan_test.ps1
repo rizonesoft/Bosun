@@ -359,6 +359,13 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $orchid @('main')
   Check 'an entry with a supplementary character in a UTF-32 file is found' ($r.Exit -ne 0 -and $r.Text -match 'report.txt:1: deny-list entry') "(exit $($r.Exit): $($r.Text))"
 
+  # --- a Windows-1252 ("ANSI") file, no NUL and no mark ---
+  $ansi = New-Checkout 'ansi' $remote -Deny @("Ren$([char]0xE9)e")
+  [IO.File]::WriteAllBytes((Join-Path $ansi 'people.csv'), [Text.Encoding]::GetEncoding(1252).GetBytes("name`nRen$([char]0xE9)e Martin`n"))
+  git -C $ansi add -A; git -C $ansi commit -q -m 'people'
+  $r = Invoke-Push $ansi @('main')
+  Check 'an entry in a Windows-1252 file is found at its line' ($r.Exit -ne 0 -and $r.Text -match 'people.csv:2: deny-list entry') "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

@@ -117,7 +117,7 @@ jobs:
         run: pwsh tests\overlay_clone_test.ps1
       - name: Sync test
         run: pwsh tests\sync_test.ps1
-      # The leak guard's test needs gitleaks, pinned and checked against the release's own checksums.
+      # The leak guard's test needs gitleaks 8.30.1, its archive pinned by SHA-256 (from that release's checksums.txt).
       - name: Install gitleaks 8.30.1
         shell: pwsh
         run: |
@@ -125,8 +125,8 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP 'gitleaks'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
           Invoke-WebRequest "$base/gitleaks_8.30.1_windows_x64.zip" -OutFile "$dir/gitleaks.zip"
-          Invoke-WebRequest "$base/gitleaks_8.30.1_checksums.txt" -OutFile "$dir/checksums.txt"
-          $want = ((Get-Content "$dir/checksums.txt" | Where-Object { $_ -match 'gitleaks_8\.30\.1_windows_x64\.zip$' }) -split '\s+')[0]
+          # The archive's digest is pinned here, not read from the same release, so a replaced release fails the step.
+          $want = 'd29144deff3a68aa93ced33dddf84b7fdc26070add4aa0f4513094c8332afc4e'
           $have = (Get-FileHash "$dir/gitleaks.zip" -Algorithm SHA256).Hash
           if (-not $want -or $have -ne $want.ToUpperInvariant()) { throw "gitleaks archive checksum mismatch ($have, expected $want)" }
           Expand-Archive "$dir/gitleaks.zip" -DestinationPath $dir -Force
