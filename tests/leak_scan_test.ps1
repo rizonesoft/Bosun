@@ -546,6 +546,20 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $regional @('main')
   Check 'an entry in a Windows-1250 file is found at its line' ($r.Exit -ne 0 -and $r.Text -match 'export.csv:2: deny-list entry' -and (Get-Refs $regionalBare) -eq $regionalBefore) "(exit $($r.Exit): $($r.Text))"
 
+  # --- the destination moved on since the last fetch: its history is still published, not outgoing ---
+  $movedBare = New-Remote 'moved-remote'
+  $writer = New-Checkout 'moved-writer' $movedBare
+  $null = Add-Commit $writer 'history.txt' "written for $entry"
+  $made = Invoke-Push $writer @('main')   # no deny list in this checkout: the entry is published history
+  $stale = New-Checkout 'moved-stale' $movedBare -Deny @($entry)
+  $null = Add-Commit $writer 'later.txt' 'later'
+  $moved = Invoke-Push $writer @('main')
+  git -C $stale checkout -q -b topic
+  $null = Add-Commit $stale 'topic.txt' 'clean'
+  $r = Invoke-Push $stale @('topic')
+  Check 'a clean topic pushed after the destination moved on is not refused for published history' ($made.Exit -eq 0 -and $moved.Exit -eq 0 -and $r.Exit -eq 0 -and (Get-Head $movedBare 'refs/heads/topic') -eq (Get-Head $stale)) "(exit $($made.Exit)/$($moved.Exit)/$($r.Exit): $($r.Text))"
+  Check 'and the fetched tips leave no temporary refs behind' (-not (git -C $stale for-each-ref 'refs/bosun-leak-scan/'))
+
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
   $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')
   $spacedBare = Join-Path $work 'spaced-remote.git'

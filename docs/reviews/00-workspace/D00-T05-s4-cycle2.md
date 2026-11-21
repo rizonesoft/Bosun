@@ -119,3 +119,29 @@ Both reproductions were traced from the diff. The tests were not executed.
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 4: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T07:32:58Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: integration
+- Seconds: 45
+- Lines: 9
+- Digest: 4747114df97fb0e8
+
+## integration
+
+**Verdict: needs-attention**
+
+1. **P2** `scripts/leak-scan.ps1:113` can reject a clean topic branch when `origin/main` advances after the last fetch. The scanner drops an advertised remote tip if its commit object is absent locally. When `main` is the remote’s only ref, that leaves no history to exclude, so the scanner checks already-published ancestors as outgoing commits. To reproduce, start with a clone of a single-branch remote, add a historical author name to `.private/deny-list.txt`, then advance remote `main` from another clone. From the first clone, push a new topic branch containing one clean commit without fetching first. The hook flags the historical author even though the destination already holds that commit. This reproduction was traced through the revision selection and commit scan, without executing a push.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention

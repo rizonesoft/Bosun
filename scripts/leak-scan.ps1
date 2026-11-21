@@ -109,8 +109,6 @@ if (-not ((& git -C $repoRoot remote 2>$null) -contains $Remote)) {
 }
 $listed = & git -C $repoRoot ls-remote $remoteName 2>$null
 if ($LASTEXITCODE) { Stop-Scan 'the remote could not be listed, so the commits it lacks are not known' }
-$known = @($listed | ForEach-Object { ("$_" -split '\s+')[0] } | Where-Object { $_ -match '^[0-9a-f]{40}$' } | Sort-Object -Unique |
-  Where-Object { & git -C $repoRoot cat-file -e "$_^{commit}" 2>$null; -not $LASTEXITCODE })
 # The commits pushed and the tips the destination has go to git as temporary refs, never as hashes on a command line:
 # hundreds of tags would pass Windows' 32,767-character limit and stop every push. They are named once, under
 # refs/bosun-leak-scan/, and removed when the scan ends (any left by a scan that was killed are removed first).
@@ -133,6 +131,24 @@ function Remove-ScanRefs([string]$prefix) {
   if ($stale) { $null = Invoke-UpdateRefs $stale }
 }
 Remove-ScanRefs 'refs/bosun-leak-scan/'
+# A tip the destination has that this checkout lacks (the remote moved on since the last fetch) is fetched into the
+# scan's own refs, so its history counts as published and is not scanned as outgoing. A fetch that fails leaves those
+# commits counted as outgoing: the scan then checks more, never less.
+function Test-Commit([string]$sha) { & git -C $repoRoot cat-file -e "$sha^{commit}" 2>$null; -not $LASTEXITCODE }
+$tips = @($listed | ForEach-Object { $fields = "$_" -split "`t", 2; if ($fields.Count -eq 2 -and $fields[0] -match '^[0-9a-f]{40}$' -and -not $fields[1].EndsWith('^{}')) { [pscustomobject]@{ Sha = $fields[0]; Name = $fields[1] } } })
+$missing = @($tips | Where-Object { -not (Test-Commit $_.Sha) })
+if ($missing) {
+  $start = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in '-C', $repoRoot, 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--stdin', $remoteName) { $start.ArgumentList.Add($a) }
+  $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
+  $process = [Diagnostics.Process]::Start($start)
+  $null = $process.StandardOutput.ReadToEndAsync(); $null = $process.StandardError.ReadToEndAsync()
+  $specs = for ($n = 0; $n -lt $missing.Count; $n++) { "+$($missing[$n].Name):$scanRefs/fetched/$n" }
+  $bytes = [Text.UTF8Encoding]::new($false).GetBytes((($specs -join "`n") + "`n"))
+  $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $process.StandardInput.Close()
+  $process.WaitForExit()
+}
+$known = @($tips | ForEach-Object Sha | Sort-Object -Unique | Where-Object { Test-Commit $_ })
 $create = @(for ($n = 0; $n -lt $locals.Count; $n++) { "create $scanRefs/push/$n $($locals[$n])" }) + @(for ($n = 0; $n -lt $known.Count; $n++) { "create $scanRefs/known/$n $($known[$n])" })
 if ($create) {
   if (Invoke-UpdateRefs $create) { Stop-Scan 'the commits to scan could not be named for git' }
