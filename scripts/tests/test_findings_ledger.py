@@ -139,6 +139,13 @@ class FindingsLedgerTest(unittest.TestCase):
                     code = ledger.check(self.base, 9, 9, root=self.root, resolver=fake_resolve)
                 self.assertEqual(code, 0 if ok else 1, out.getvalue())
         self.assertEqual(ledger.finding_file("- Nothing names a file here at all."), "")
+        # A finding with no file is owned by a section citing its base line: exactly that number, not a longer one.
+        pathless = "Nothing names a file here at all."
+        for body, ok in (("Covers findings base line 19.", True), ("Covers findings base line 190.", False)):
+            with self.subTest(body):
+                OPEN["D09 T01 §5"] = (0, body)
+                self.assertEqual(ledger.problem(pathless, " Scheduled: D09 T01 §5.", self.root, fake_resolve, 19) is None, ok)
+        OPEN.pop("D09 T01 §5")
         OPEN.pop("D09 T01 §4")
 
     def test_an_invalid_plan_is_incomplete_not_a_traceback(self):

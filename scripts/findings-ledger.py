@@ -69,7 +69,7 @@ def problem(entry, disposition, root, resolver=resolve, line=0):
         key = finding_file(entry)
         if key and key not in body.replace("\\", "/"):
             return "%s does not name %s, so it does not visibly own this finding" % (refs[0], key)
-        if not key and "findings base line %d" % line not in body:
+        if not key and not re.search(r"findings base line %d(?!\d)" % line, body):
             return "the finding names no file, and %s does not cite `findings base line %d`" % (refs[0], line)
     elif kind == "Fixed":
         if not shas or not is_commit(shas[0], root):
