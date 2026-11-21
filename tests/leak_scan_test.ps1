@@ -150,12 +150,13 @@ try {
   $before = Get-Refs $remote
   git -C $owner mv notes.txt "acme corp (eu) notes.txt"
   git -C $owner commit -q -m 'rename'
+  $renamed = Get-Head $owner
   $r = Invoke-Push $owner @('main')
-  Check 'a path renamed to a deny-list string is refused and the path not shown' ($r.Exit -ne 0 -and $r.Text -match 'a path' -and $r.Text -notmatch '(?i)acme' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  Check 'a path renamed to a deny-list string is refused at its commit and the path not shown' ($r.Exit -ne 0 -and $r.Text -match "leak-scan: $($renamed.Substring(0, 12)): a path: deny-list entry" -and $r.Text -notmatch '(?i)acme' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
-  $null = Add-Commit $owner 'plain.txt' 'plain' 'Weekly work for acme corp (EU)'
+  $messaged = Add-Commit $owner 'plain.txt' 'plain' 'Weekly work for acme corp (EU)'
   $r = Invoke-Push $owner @('main')
-  Check 'a deny-list string in a commit message is refused' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  Check 'a deny-list string in a commit message is refused at its commit, the string not shown' ($r.Exit -ne 0 -and $r.Text -match "leak-scan: $($messaged.Substring(0, 12)): commit message or author: deny-list entry" -and $r.Text -notmatch '(?i)acme' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
   git -C $owner checkout -q -b side
   $null = Add-Commit $owner 'side.txt' 'side'
@@ -164,13 +165,15 @@ try {
   git -C $owner merge -q --no-commit --no-ff side 2>$null
   [IO.File]::WriteAllText((Join-Path $owner 'merge.txt'), "resolved for Acme Corp (EU)`ntoken = $(New-Token)`n", [Text.UTF8Encoding]::new($false))
   git -C $owner add -A; git -C $owner commit -q -m 'merge side'
+  $merged = Get-Head $owner
   $r = Invoke-Push $owner @('main')
-  Check 'a deny-list string only in a merge resolution is refused' ($r.Exit -ne 0 -and $r.Text -match 'merge.txt:1: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  Check 'a deny-list string only in a merge resolution is refused at the merge, the string not shown' ($r.Exit -ne 0 -and $r.Text -match "leak-scan: $($merged.Substring(0, 12)): merge.txt:1: deny-list entry" -and $r.Text -notmatch '(?i)acme' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   Check 'and a secret only in a merge resolution is refused' ($r.Text -match 'merge.txt:2: secret \(github-pat\)') "($($r.Text))"
   git -C $owner reset -q --hard origin/main; git -C $owner branch -q -D side
   git -C $owner tag -a v-private -m 'Release for Acme Corp (EU)'
+  $tagObject = Get-Head $owner 'refs/tags/v-private'
   $r = Invoke-Push $owner @('refs/tags/v-private')
-  Check 'a tag annotation holding a deny-list string is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-private)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a tag annotation holding a deny-list string is refused at its tag object, the string not shown' ($r.Exit -ne 0 -and $r.Text -match "leak-scan: $($tagObject.Substring(0, 12)): a tag or other object being pushed: deny-list entry" -and $r.Text -notmatch '(?i)acme' -and -not (git --git-dir=$remote tag --list v-private)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d v-private | Out-Null
 
   # --- the deny pass reads what is published, not git's display of it ---
@@ -530,6 +533,68 @@ Client: Acme Corp (EU)"))
   Check 'blank and # lines in the deny list match nothing' ($r.Exit -eq 0 -and (Get-Head $remote 'refs/heads/main') -eq $fine) "(exit $($r.Exit): $($r.Text))"
   git -C $owner pull -q --ff-only 2>$null
 
+  # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
+  $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')
+  $spacedBare = Join-Path $work 'spaced-remote.git'
+  $spacedBefore = Get-Refs $spacedBare
+  $null = Add-Commit $spaced 'build.ps1' "Write-Host 'x'`n# internal codename`n"
+  $r = Invoke-Push $spaced @('main')
+  Check 'an indented # line in the deny list is an entry, matched without its surrounding spaces' ($r.Exit -ne 0 -and $r.Text -match 'build.ps1:2: deny-list entry' -and $r.Text -notmatch '(?i)codename' -and (Get-Refs $spacedBare) -eq $spacedBefore) "(exit $($r.Exit): $($r.Text))"
+
+  # --- every gitleaks result is judged by one rule: a stand-in gitleaks gives each inconsistent answer ---
+  # The stand-in is a batch file first on PATH that reads its input, prints the report named for its mode (git or
+  # stdin) and exits with that mode's code; the mode not under test answers clean ([] and exit 0).
+  $standIn = Join-Path $work 'stand-in'
+  New-Item -ItemType Directory -Path $standIn | Out-Null
+  [IO.File]::WriteAllText((Join-Path $standIn 'gitleaks.cmd'), "@echo off`r`nmore >nul`r`nif `"%1`"==`"git`" (type `"%BOSUN_STANDIN_GIT_REPORT%`" & exit /b %BOSUN_STANDIN_GIT_CODE%)`r`ntype `"%BOSUN_STANDIN_STDIN_REPORT%`"`r`nexit /b %BOSUN_STANDIN_STDIN_CODE%`r`n")
+  $reports = @{ empty = ''; none = '[]'; one = '[{"RuleID":"stand-in","Commit":"","File":"x","StartLine":1}]' }
+  foreach ($k in @($reports.Keys)) { $f = Join-Path $standIn "$k.json"; [IO.File]::WriteAllText($f, $reports[$k]); $reports[$k] = $f }
+  $judged = New-Checkout 'judged' (New-Remote 'judged-remote')
+  $judgedBare = Join-Path $work 'judged-remote.git'
+  $null = Add-Commit $judged 'judged.txt' 'clean'
+  $judgedBefore = Get-Refs $judgedBare
+  $cases = @(
+    @{ Name = 'exit 0 with no report'; Code = 0; Report = 'empty'; Says = 'report for .* could not be read' },
+    @{ Name = 'exit 3 with an empty report'; Code = 3; Report = 'none'; Says = 'reported a finding in .* that its report does not hold' },
+    @{ Name = 'exit 0 with an entry'; Code = 0; Report = 'one'; Says = 'reported .* clean, but its report holds findings' }
+  )
+  foreach ($scan in 'git', 'stdin') {
+    foreach ($case in $cases) {
+      $env:BOSUN_STANDIN_GIT_CODE = '0'; $env:BOSUN_STANDIN_GIT_REPORT = $reports.none
+      $env:BOSUN_STANDIN_STDIN_CODE = '0'; $env:BOSUN_STANDIN_STDIN_REPORT = $reports.none
+      Set-Item -LiteralPath "Env:BOSUN_STANDIN_$($scan.ToUpperInvariant())_CODE" -Value "$($case.Code)"
+      Set-Item -LiteralPath "Env:BOSUN_STANDIN_$($scan.ToUpperInvariant())_REPORT" -Value $reports[$case.Report]
+      $env:PATH = "$standIn;$withTools"
+      try { $r = Invoke-Push $judged @('main') } finally { $env:PATH = $withTools }
+      $label = if ($scan -eq 'git') { 'the commit scan' } else { 'an object scan' }
+      Check "gitleaks answering $($case.Name) on $label is refused" ($r.Exit -ne 0 -and $r.Text -match $case.Says -and (Get-Refs $judgedBare) -eq $judgedBefore) "(exit $($r.Exit): $($r.Text))"
+    }
+  }
+  foreach ($name in 'GIT_CODE', 'GIT_REPORT', 'STDIN_CODE', 'STDIN_REPORT') { Remove-Item -LiteralPath "Env:BOSUN_STANDIN_$name" -ErrorAction Ignore }
+  $r = Invoke-Push $judged @('main')
+  Check 'and the real gitleaks passes that clean push' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+
+  # --- scans outside a push: -All reaches the root commit, -Range only its commits ---
+  $history = Join-Path $work 'history'
+  git init -q $history
+  Copy-Item -LiteralPath (Join-Path $seed 'scripts') -Destination (Join-Path $history 'scripts') -Recurse
+  New-Item -ItemType Directory -Path (Join-Path $history '.private') | Out-Null
+  [IO.File]::WriteAllText((Join-Path $history '.private\deny-list.txt'), "$entry`n", [Text.UTF8Encoding]::new($false))
+  Set-Content -LiteralPath (Join-Path $history '.gitignore') -Value '.private/'
+  [IO.File]::WriteAllText((Join-Path $history 'root.txt'), "made for $entry`n", [Text.UTF8Encoding]::new($false))
+  git -C $history add -A; git -C $history commit -q -m root
+  $rootCommit = Get-Head $history
+  $afterRoot = Add-Commit $history 'two.txt' 'clean'
+  $hitInRange = Add-Commit $history 'three.txt' "again $entry"
+  $tip = Add-Commit $history 'four.txt' 'clean'
+  $scanner = Join-Path $history 'scripts\leak-scan.ps1'
+  $said = & $pwshExe -NoProfile -File $scanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-All finds an entry in the root commit' ($code -eq 1 -and $said -match "$($rootCommit.Substring(0, 12)): root.txt:1: deny-list entry" -and $said -match 'scan failed') "(exit ${code}: $said)"
+  $said = & $pwshExe -NoProfile -File $scanner -Range "$afterRoot..$tip" 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-Range finds an entry inside the range and not the root commit''s' ($code -eq 1 -and $said -match "$($hitInRange.Substring(0, 12)): three.txt:1: deny-list entry" -and $said -notmatch 'root.txt') "(exit ${code}: $said)"
+  $said = & $pwshExe -NoProfile -File $scanner -Range "$hitInRange..$tip" 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-Range passes a clean range' ($code -eq 0) "(exit ${code}: $said)"
+
   # --- refusals on every failure ---
   $before = Get-Refs $remote
   $null = Add-Commit $owner 'harmless.txt' 'harmless'
@@ -558,7 +623,8 @@ Client: Acme Corp (EU)"))
   Check 'without a deny list a secret is still refused' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\)') "(exit $($r.Exit): $($r.Text))"
 
   # --- a deletion publishes nothing ---
-  git -C $owner push -q origin "HEAD:refs/heads/to-delete" 2>$null
+  $made = Invoke-Push $owner @('HEAD:refs/heads/to-delete')
+  Check 'the branch to delete is created first' ($made.Exit -eq 0 -and (Get-Head $remote 'refs/heads/to-delete') -eq (Get-Head $owner)) "(exit $($made.Exit): $($made.Text))"
   $r = Invoke-Push $owner @(':refs/heads/to-delete')
   Check 'a deletion push goes through' ($r.Exit -eq 0 -and -not (Get-Head $remote 'refs/heads/to-delete')) "(exit $($r.Exit): $($r.Text))"
 

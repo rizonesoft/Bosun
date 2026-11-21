@@ -3,12 +3,15 @@
 #
 #   pwsh scripts/leak-scan.ps1 -Remote <name or URL>          the pre-push ref lines on standard input
 #   pwsh scripts/leak-scan.ps1 -Remote <name or URL> -Updates '<local ref> <local sha> <remote ref> <remote sha>', ...
+#   pwsh scripts/leak-scan.ps1 -Range <revision range>        the commits git rev-list gives for the range
+#   pwsh scripts/leak-scan.ps1 -All                           every commit reachable from HEAD, root included
 #
 # The outgoing commits come from the destination itself: `git ls-remote` gives its current tips, and every commit
 # being pushed that is not reachable from one of them is outgoing (a local tracking ref is never trusted). They are
 # scanned twice:
 #   - by gitleaks (8.30.1, pinned in the README), merges diffed against their first parent so a resolution is covered;
-#   - against .private/deny-list.txt (the private overlay): every non-empty line not starting with # is a string,
+#   - against .private/deny-list.txt (the private overlay): a line whose first character is # is a comment, a line of
+#     only whitespace is blank, and every other line is a string (its surrounding whitespace removed),
 #     matched literally and case-insensitively against the lines the commits add, the paths they add or rename to,
 #     their messages, and the names and annotations of tags being pushed.
 # A finding prints the commit, the place and the rule, never the matched text, the deny-list entry or a path that
@@ -19,17 +22,24 @@ param(
   # The remote by name or address; the hook passes it in BOSUN_LEAK_REMOTE, so an address with a credential in it
   # never reaches a process command line.
   [string]$Remote = $env:BOSUN_LEAK_REMOTE,
-  [string[]]$Updates
+  [string[]]$Updates,
+  # A scan outside a push (D00 T05 §7 and §8): the commits of a revision range, or every commit reachable from HEAD.
+  # Neither reads standard input or lists a remote.
+  [string]$Range,
+  [switch]$All
 )
 $ErrorActionPreference = 'Stop'
-if (-not $Remote) { [Console]::Error.WriteLine('leak-scan: push refused: no remote was given to check against'); exit 1 }
+$history = [bool]($All -or $Range)
+$refusal = if ($history) { 'scan failed' } else { 'push refused' }
+if ($All -and $Range) { [Console]::Error.WriteLine('leak-scan: scan failed: give -Range or -All, not both'); exit 1 }
+if (-not $history -and -not $Remote) { [Console]::Error.WriteLine('leak-scan: push refused: no remote was given to check against'); exit 1 }
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $repoRoot = Split-Path $PSScriptRoot
 $zero = '0' * 40
 $failed = [Collections.Generic.List[object]]::new()
 function Say([string]$text) { [Console]::Error.WriteLine("leak-scan: $text") }
 function Stop-Scan([string]$why) {
-  Say "push refused: $why"
+  Say "${refusal}: $why"
   if (Get-Command Remove-ScanRefs -ErrorAction Ignore) { Remove-ScanRefs 'refs/bosun-leak-scan/' }
   exit 1
 }
@@ -39,15 +49,18 @@ function Invoke-Git([string[]]$arguments) {
   @($out | ForEach-Object { "$_" })
 }
 
-if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) {
+# The one gitleaks both scans below run, resolved once from PATH, so each uses the same tool.
+$gitleaksExe = (Get-Command gitleaks -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+if (-not $gitleaksExe) {
   $remedy = if ($IsWindows) { 'winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user' }
             else { 'download gitleaks_8.30.1_linux_x64.tar.gz from https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1, check it against gitleaks_8.30.1_checksums.txt, and put gitleaks on PATH' }
-  Stop-Scan "gitleaks is not installed, so the push cannot be checked for secrets: $remedy"
+  Stop-Scan "gitleaks is not installed, so the commits cannot be checked for secrets: $remedy"
 }
 
 # Git writes the ref lines in UTF-8; they are read as bytes, never through the console's code page (437 here), so a
 # name like café reaches the checks as git publishes it.
-if ($null -eq $Updates) {
+if ($history) { $Updates = @() }
+elseif ($null -eq $Updates) {
   $stdin = [IO.MemoryStream]::new()
   [Console]::OpenStandardInput().CopyTo($stdin)
   $stdinBytes = $stdin.ToArray()
@@ -71,11 +84,18 @@ foreach ($line in $Updates) {
   $commit = "$(& git -C $repoRoot rev-parse --verify --quiet "$($parts[1])^{commit}" 2>$null)"
   if ($commit) { $locals.Add($commit) }
 }
-if (-not $locals.Count -and -not $tags.Count) { exit 0 }
+if (-not $history -and -not $locals.Count -and -not $tags.Count) { exit 0 }
 
 # What the destination already has, asked of the destination.
 # A remote given as an address (a push to a bare URL) is named for git through its environment configuration, so the
 # address, which can hold a credential, is never on a command line.
+if ($history) {
+  # Every commit of the range (or of HEAD's history, root included); nothing counts as published already.
+  $revisions = if ($All) { @('HEAD') } else { @($Range) }
+  $outgoing = @(Invoke-Git (@('rev-list') + $revisions))
+  $known = @()
+}
+else {
 $remoteName = $Remote
 if (-not ((& git -C $repoRoot remote 2>$null) -contains $Remote)) {
   # Appended after any entries the caller passed this way (a credential helper, say), never over them.
@@ -116,8 +136,9 @@ if ($create) {
   if (Invoke-UpdateRefs $create) { Stop-Scan 'the commits to scan could not be named for git' }
 }
 $notKnown = if ($known) { @('--not', "--glob=$scanRefs/known/*") } else { @() }
-$range = @("--glob=$scanRefs/push/*") + $notKnown
-$outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $range)) } else { @() }
+$revisions = @("--glob=$scanRefs/push/*") + $notKnown
+$outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $revisions)) } else { @() }
+}
 
 # --- the private deny list, read first so no finding of either pass prints a path holding an entry ---
 $denyPath = Join-Path $repoRoot '.private' 'deny-list.txt'
@@ -125,7 +146,9 @@ $deny = @()
 if (Test-Path -LiteralPath $denyPath) {
   try { $text = [IO.File]::ReadAllText($denyPath, [Text.UTF8Encoding]::new($false, $true)) }
   catch { Stop-Scan 'the deny list (.private/deny-list.txt) exists but could not be read' }
-  $deny = @($text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.ToLowerInvariant() })
+  # A comment is a line whose first character is #, tested on the line as written, so an indented `  # name` is an
+  # entry. An entry's surrounding whitespace is removed, so a stray space never narrows a match.
+  $deny = @($text -split "`r?`n" | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
 }
 function Test-Deny([string]$value) {
   if (-not $value) { return $false }
@@ -179,21 +202,30 @@ function Test-DenyBytes([byte[]]$name) {
   $false
 }
 
+# Every gitleaks result is judged by one rule (each run has --exit-code 3 and its JSON report on standard output):
+# exit 0 with an empty array is clean, exit 3 with one or more entries is a finding, and anything else (another exit, a
+# report that is not a JSON array, exit 3 with no entry, exit 0 with one) refuses: that answer cannot be trusted.
+function Read-GitleaksReport([int]$code, [string]$text, [string]$what) {
+  if ($code -ne 0 -and $code -ne 3) { Stop-Scan "gitleaks could not scan $what (exit $code)" }
+  try { $parsed = ConvertFrom-Json -InputObject "$text" -NoEnumerate -ErrorAction Stop } catch { $parsed = $null }
+  if ($parsed -isnot [array]) { Stop-Scan "the gitleaks report for $what could not be read" }
+  if ($code -eq 3 -and -not $parsed.Count) { Stop-Scan "gitleaks reported a finding in $what that its report does not hold" }
+  if ($code -eq 0 -and $parsed.Count) { Stop-Scan "gitleaks reported $what clean, but its report holds findings" }
+  ,$parsed
+}
+
 # --- gitleaks over the outgoing commits ---
 # Findings are kept as parts (commit, path, place, what) and printed only at the end, once every secret matched is
 # known, so no path shown anywhere holds any of them or a deny-list entry.
 $secrets = [Collections.Generic.List[string]]::new()
 function Add-Finding([string]$commit, [string]$path, [string]$place, [string]$what) { $failed.Add([pscustomobject]@{ Commit = $commit; Path = $path; Place = $place; What = $what }) }
 if ($outgoing.Count) {
-  $logOpts = (@('--diff-merges=first-parent') + $range) -join ' '
+  $logOpts = (@('--diff-merges=first-parent') + $revisions) -join ' '
   # The report comes back on standard output, never a file: it is not redacted, so each matched secret can be kept
   # from every path shown, and an unredacted copy never rests on disk.
-  $json = & gitleaks git $repoRoot --log-opts $logOpts --no-banner --report-format json --report-path - --exit-code 3 2>$null
+  $json = & $gitleaksExe git $repoRoot --log-opts $logOpts --no-banner --report-format json --report-path - --exit-code 3 2>$null
   $code = $LASTEXITCODE
-  if ($code -ne 0 -and $code -ne 3) { Stop-Scan "gitleaks could not scan the outgoing commits (exit $code)" }
-  try { $findings = @(($json -join "`n") | ConvertFrom-Json -ErrorAction Stop) }
-  catch { Stop-Scan 'the gitleaks report could not be read' }
-  if ($code -eq 3 -and -not $findings.Count) { Stop-Scan 'gitleaks reported a finding its report does not hold' }
+  $findings = Read-GitleaksReport $code ($json -join "`n") 'the outgoing commits'
   foreach ($f in $findings) {
     if ($f.Secret) { $secrets.Add("$($f.Secret)") }
     if ($f.Match) { $secrets.Add("$($f.Match)") }
@@ -263,16 +295,15 @@ if ($deny.Count -and $outgoing.Count) {
 # One helper for every such object: a file git calls binary (its patch shows no content), a tag's annotation, and
 # the files a tag publishes without a commit. Each finding's secret is kept from every path shown.
 function Find-SecretsIn([byte[]]$bytes, [string]$commit, [string]$path, [string]$place, [string]$what) {
-  $start = [Diagnostics.ProcessStartInfo]::new('gitleaks')
+  $start = [Diagnostics.ProcessStartInfo]::new($gitleaksExe)
   foreach ($a in 'stdin', '--no-banner', '--report-format', 'json', '--report-path', '-', '--exit-code', '3') { $start.ArgumentList.Add($a) }
   $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
   $scan = [Diagnostics.Process]::Start($start)
   $out = $scan.StandardOutput.ReadToEndAsync(); $null = $scan.StandardError.ReadToEndAsync()
   $scan.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $scan.StandardInput.Close()
   $scan.WaitForExit()
-  if ($scan.ExitCode -ne 0 -and $scan.ExitCode -ne 3) { Stop-Scan "gitleaks could not scan $what (exit $($scan.ExitCode))" }
-  if ($scan.ExitCode -eq 3) {
-    try { $hits = @($out.Result | ConvertFrom-Json -ErrorAction Stop) } catch { Stop-Scan 'the gitleaks report could not be read' }
+  $hits = Read-GitleaksReport $scan.ExitCode $out.Result $what
+  if ($hits.Count) {
     foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $commit $path "$(if ($path) { $f.StartLine } else { $place })" "secret ($($f.RuleID)) in $what" }
   }
 }
@@ -371,8 +402,8 @@ if ($failed.Count) {
   }
   $lines = @($lines | Select-Object -Unique)
   foreach ($line in $lines) { Say $line }
-  Stop-Scan "$($lines.Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again"
+  Stop-Scan $(if ($history) { "$($lines.Count) finding(s) above in the scanned commits" } else { "$($lines.Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again" })
 }
 if (-not (Test-Path -LiteralPath $denyPath)) { Say "checked $($outgoing.Count) commit(s) for secrets; no deny list (.private/deny-list.txt), so private strings were not checked" }
-Remove-ScanRefs 'refs/bosun-leak-scan/'
+if (-not $history) { Remove-ScanRefs 'refs/bosun-leak-scan/' }  # a scan outside a push names no temporary refs
 exit 0
