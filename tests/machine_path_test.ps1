@@ -127,7 +127,7 @@ try {
   New-Item -ItemType Directory -Path (Join-Path $configured '.private') | Out-Null
   [IO.File]::WriteAllText((Join-Path $configured '.private\config.toml'), "profile_name = `"one`"`nprofile_name = `"two`"`n")
   $r = Invoke-Check $configured ''
-  Check 'an overlay config that cannot be read makes the check incomplete' ($r.Code -eq 2 -and $r.Said -match 'profile_name could not be read') "($($r.Code): $($r.Said))"
+  Check 'an overlay config that cannot be read makes the check incomplete, naming it by its place in the checkout' ($r.Code -eq 2 -and $r.Said -match 'profile_name could not be read' -and $r.Said -match '\.private/config\.toml' -and -not $r.Said.Contains($work)) "($($r.Code): $($r.Said))"
   [IO.File]::WriteAllText((Join-Path $configured '.private\config.toml'), "vault_item = `"op://x/y/z`"`n")
   $r = Invoke-Check $configured ''
   Check 'and one without the key checks the path forms and says the name was not' ($r.Code -eq 0 -and $r.Said -match 'no profile_name is set up') "($($r.Code): $($r.Said))"

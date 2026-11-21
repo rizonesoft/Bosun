@@ -38,7 +38,12 @@ $forms = @(
 # A setting that is not there (a contributor's checkout) leaves the name unchecked; a config that cannot be read is an
 # incomplete check, never a quiet one.
 try { $profileName = "$((Get-BosunOverlayValue -Key profile_name -Root $Repo).Value)".Trim() }
-catch { "machine-path-check: incomplete: the overlay's profile_name could not be read ($($_.Exception.Message))"; exit 2 }
+catch {
+  # The reader names the file by its full path, which shows where the checkout is: it is named by its place in the
+  # checkout instead.
+  $why = "$($_.Exception.Message)".Replace([IO.Path]::GetFullPath((Join-Path $Repo '.private/config.toml')), '.private/config.toml')
+  "machine-path-check: incomplete: the overlay's profile_name could not be read ($why)"; exit 2
+}
 if ($profileName) { $name = [regex]::Escape($profileName); $forms += "\b$name\b", "/home/$name\b" }
 $pattern = [regex]::new('(?i)' + ($forms -join '|'))
 
