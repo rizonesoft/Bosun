@@ -280,6 +280,19 @@ Client: Acme Corp (EU)"))
   Check 'a tag on a file holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list file-v2)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d file-v2 | Out-Null
 
+  # --- a tag on a tree, and a long chain of tags ---
+  $null = Add-Commit $owner 'pack\inner\client.txt' 'Client: Acme Corp (EU)'
+  git -C $owner tag -a tree-v1 -m 'release' 'HEAD:pack'
+  git -C $owner reset -q --hard origin/main
+  $r = Invoke-Push $owner @('refs/tags/tree-v1')
+  Check 'a tag on a tree publishing a file with an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list tree-v1)) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner tag -d tree-v1 | Out-Null
+  git -C $owner tag -a chain-0 -m 'Release for Acme Corp (EU)'
+  foreach ($n in 1..55) { git -C $owner tag -a "chain-$n" -m 'clean' "chain-$($n - 1)" }
+  $r = Invoke-Push $owner @('refs/tags/chain-55')
+  Check 'an entry at the bottom of a 56-tag chain is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list chain-55)) "(exit $($r.Exit): $($r.Text))"
+  foreach ($n in 0..55) { git -C $owner tag -d "chain-$n" | Out-Null }
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

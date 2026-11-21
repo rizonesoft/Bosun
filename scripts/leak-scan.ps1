@@ -169,22 +169,26 @@ if ($deny.Count -and $outgoing.Count) {
 }
 if ($deny.Count) {
   foreach ($tag in $tags) {
-    # A tag can point at another tag, which is published with it: every annotation down the chain is checked.
-    $object = $tag.Object; $hit = Test-Deny $tag.Name; $depth = 0
-    while (-not $hit -and $depth -lt 50 -and ((Invoke-Git @('cat-file', '-t', $object)) -join '') -eq 'tag') {
-      $body = (Invoke-Git @('cat-file', '-p', $object)) -join "`n"
-      $hit = Test-Deny $body
-      $object = (($body -split "`n" | Where-Object { $_ -match '^object [0-9a-f]{40}$' } | Select-Object -First 1) -replace '^object ', '')
-      $depth++
+    if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (in its name)'; continue }
+    # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
+    # for a tag that does not peel to a commit, the trees, paths and files it publishes. Commits are checked above,
+    # by what each adds, so only objects reached without a commit are read here.
+    $sent = Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $(if ($known) { @('--not') + $known } else { @() }))
+    $peelsToCommit = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
+    $hit = $false
+    foreach ($object in $sent) {
+      $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
+      if ($type -eq 'tag') { $hit = Test-Deny ((Invoke-Git @('cat-file', '-p', $object)) -join "`n") }
+      elseif (-not $peelsToCommit -and $type -eq 'tree') {
+        # Tree entries are read as raw NUL-separated records, so a name is checked as it is stored.
+        $hit = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-z', $object))) -split "`0") | Where-Object { $_ -and (Test-Deny ($_ -replace '^[^\t]*\t', '')) }).Count -gt 0
+      }
+      elseif (-not $peelsToCommit -and $type -eq 'blob') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
+      if ($hit) { break }
     }
-    # A tag on a file publishes that file: its content is checked too.
-    if (-not $hit -and $object -and ((Invoke-Git @('cat-file', '-t', $object)) -join '') -eq 'blob') {
-      $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0
-    }
-    if ($hit) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (its name or an annotation it carries)' }
+    if ($hit) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (in an annotation, or a file or path it publishes)' }
   }
 }
-
 if ($failed.Count) {
   $lines = foreach ($f in $failed) {
     $hidden = $f.Path -and ((Test-Deny $f.Path) -or @($secrets | Where-Object { $_ -and $f.Path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count)
