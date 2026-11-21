@@ -234,12 +234,21 @@ function Update-BosunAgentRules([string]$Repo) {
     ("$(git -C $private config --local --get bosun.overlay 2>$null)" -eq 'true')
   $file = Join-Path $Repo 'CLAUDE.local.md'
   $text = if (Test-Path -LiteralPath $file -PathType Leaf) { [IO.File]::ReadAllText($file) } else { '' }
-  # The managed block, with the line break that ends it; the file's own line breaks are kept around it.
-  # The block holds no second opening marker, so a block whose closing line was lost never reaches over the owner's
-  # lines to a later block's end: the broken opening line is left as written, and a whole block is added after it.
-  $start = [regex]::Escape($script:BosunRulesStart)
-  $pattern = '(?m)^' + $start + '\r?\n(?:(?!' + $start + ')[\s\S])*?^' + [regex]::Escape($script:BosunRulesEnd) + '(\r?\n|$)'
-  $without = [regex]::Replace($text, $pattern, '')
+  # What this function wrote is taken out line by line, never by a span between markers: every marker line, and the
+  # import line that follows an opening marker. A block whose closing line was lost therefore loses its import too,
+  # and every other line, the owner's own, is kept as written, line breaks included.
+  $kept = [Text.StringBuilder]::new()
+  $afterStart = $false
+  foreach ($line in [regex]::Split($text, '(?<=\n)')) {
+    if (-not $line) { continue }
+    $bare = $line.TrimEnd("`r", "`n")
+    if ($bare -ceq $script:BosunRulesStart) { $afterStart = $true; continue }
+    if ($bare -ceq $script:BosunRulesEnd) { $afterStart = $false; continue }
+    if ($afterStart -and $bare -ceq '@.private/AGENTS.md') { $afterStart = $false; continue }
+    $afterStart = $false
+    [void]$kept.Append($line)
+  }
+  $without = $kept.ToString()
   $new = if ($wanted) {
     $lead = if ($without -and -not $without.EndsWith("`n")) { "`n" } else { '' }
     "$without$lead$($script:BosunRulesStart)`n@.private/AGENTS.md`n$($script:BosunRulesEnd)`n"

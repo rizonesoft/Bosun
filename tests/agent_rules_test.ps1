@@ -18,7 +18,7 @@ $claude = [IO.File]::ReadAllText((Join-Path $repoRoot 'CLAUDE.md'))
 Check 'AGENTS.md points every agent at .private/AGENTS.md, behind the overlay mark on a real folder' ($agents -match '\.private/AGENTS\.md' -and $agents -match 'bosun\.overlay' -and $agents -match 'not a link or junction')
 foreach ($file in 'GEMINI.md', 'CODEX.md') {
   $text = [IO.File]::ReadAllText((Join-Path $repoRoot $file))
-  Check "$file leaves the pointer to AGENTS.md" ($text -notmatch '\.private/AGENTS\.md')
+  Check "$file defers to AGENTS.md and leaves the pointer to it" ($text -match '\(\./AGENTS\.md\)|`AGENTS\.md`|\bAGENTS\.md\b' -and $text -notmatch '\.private/AGENTS\.md')
 }
 # A machine path: a drive-rooted folder (C:\Users\..., D:/...), or a home folder on Linux or under WSL's /mnt.
 $machinePath = '(?i)\b[A-Z]:[\\/][^\s`)]|/home/[a-z_][a-z0-9_-]*/|/mnt/[a-z]/users/'
@@ -77,6 +77,9 @@ try {
   [IO.File]::WriteAllText((Join-Path $broken 'CLAUDE.local.md'), "$startLine`n@.private/AGENTS.md`nmy instruction`n")
   $null = Update-BosunAgentRules $broken; $null = Update-BosunAgentRules $broken
   Check 'a block missing its closing line never takes the owner''s lines with it' ((Read-Local $broken).Contains("my instruction`n") -and (Read-Local $broken).EndsWith($block)) "($(Read-Local $broken))"
+  git -C (Join-Path $broken '.private') config --local --unset bosun.overlay
+  $null = Update-BosunAgentRules $broken
+  Check 'and once trust is withdrawn no import line is left, the owner''s line kept' ((Read-Local $broken) -ceq "my instruction`n") "($(Read-Local $broken))"
   # A rename that fails (the file held open without delete sharing) leaves no temporary copy to be committed.
   $held = Join-Path $work 'held'
   git init -q $held
