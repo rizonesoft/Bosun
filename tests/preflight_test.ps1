@@ -340,11 +340,20 @@ try {
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false; $start.CreateNoWindow = $true
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $process = [Diagnostics.Process]::Start($start)
-    $null = $process.StandardError.ReadToEndAsync()
     $seen = [Collections.Generic.List[object]]::new()
-    while ($null -ne ($line = $process.StandardOutput.ReadLine())) { $seen.Add([pscustomobject]@{ At = $clock.Elapsed.TotalSeconds; Line = $line }) }
-    $process.WaitForExit()
-    [pscustomobject]@{ Code = $process.ExitCode; Lines = $seen }
+    try {
+      $null = $process.StandardError.ReadToEndAsync()
+      # A deadline of its own: a stalled preflight is a failed test, never a test that waits for ever.
+      $pending = $process.StandardOutput.ReadLineAsync()
+      while ($clock.Elapsed.TotalSeconds -lt 60) {
+        if (-not $pending.Wait(250)) { continue }
+        if ($null -eq $pending.Result) { break }
+        $seen.Add([pscustomobject]@{ At = $clock.Elapsed.TotalSeconds; Line = $pending.Result })
+        $pending = $process.StandardOutput.ReadLineAsync()
+      }
+      $done = $process.WaitForExit(5000)
+      [pscustomobject]@{ Code = $(if ($done) { $process.ExitCode } else { -1 }); Lines = $seen }
+    } finally { if (-not $process.HasExited) { & taskkill /T /F /PID $process.Id 2>&1 | Out-Null } }
   }
   function When($run, [string]$pattern) { $hit = $run.Lines | Where-Object { $_.Line -match $pattern } | Select-Object -First 1; if ($hit) { $hit.At } else { 999 } }
   $slowGit = Tool 'git-slow' 'git' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
@@ -377,7 +386,8 @@ try {
   $wantHost, $wantPath = $Matches[1], "repos/$($Matches[2])/$($Matches[3])/branches/main/protection"
   $recorder = Join-Path $work 'gh-recorder'
   New-Item -ItemType Directory -Force $recorder | Out-Null
-  Set-Content (Join-Path $recorder 'gh.cmd') "@echo off`r`necho %*>>`"$recorder\args.txt`"`r`nfindstr `"^`" >>`"$recorder\stdin.txt`"`r`necho {}" -Encoding ascii
+  # Stdin is read only for a call that sends a body (--input -): a read would otherwise wait on an open console.
+  Set-Content (Join-Path $recorder 'gh.cmd') "@echo off`r`necho %*>>`"$recorder\args.txt`"`r`necho %* | findstr /c:`"--input -`" >nul && findstr `"^`" >>`"$recorder\stdin.txt`"`r`necho {}" -Encoding ascii
   function Run-Printed([string]$command) {
     Remove-Item -LiteralPath "$recorder\args.txt", "$recorder\stdin.txt" -ErrorAction Ignore
     $env:Path = "$recorder;$env:Path"
@@ -394,14 +404,24 @@ try {
   Check ($back.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $undo.Args[0] -eq "api --hostname $wantHost --method DELETE $wantPath") 'its read-back and its undo, run as printed, name the same host, repository and branch'
   $asked = (Get-Content -LiteralPath (Join-Path $work 'gh-absent.asked') -Raw).Trim()
   Check ($asked -notmatch 'PUT|DELETE|POST') 'the preflight itself only reads the protection'
-  $partial = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build') }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false }; required_linear_history = @{ enabled = $true } } | ConvertTo-Json -Depth 5 -Compress
-  $r = Preflight "$(Protection 'gh-partial' $partial);$system" @('-Only', 'protection')
-  $fix = Fix-Of $r
-  $null = $fix -match '^mend it, keeping its other rules: (?<put>.+?); then read it back: (?<back>.+)$'
+  # Only admins exempt: the enforce_admins endpoint, which changes nothing else (round 1).
+  $adminsOnly = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
+  $r = Preflight "$(Protection 'gh-admins-only' $adminsOnly);$system" @('-Only', 'protection')
+  $null = (Fix-Of $r) -match '^hold admins to it, changing nothing else: (?<post>.+?); then read it back: (?<back>.+)$'
+  $post = Run-Printed $Matches.post; $back = Run-Printed $Matches.back
+  Check ($post.Args[0] -eq "api --hostname $wantHost --method POST $wantPath/enforce_admins" -and -not $post.Body -and $back.Args[0] -like "api --hostname $wantHost $wantPath/enforce_admins *") "admins alone exempt are held by the enforce_admins endpoint, with no body ($($post.Args[0]))"
+  # Force pushes allowed: a PUT that keeps each required check with the app it is pinned to, and the other rules.
+  $forced = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build'); checks = @(@{ context = 'build'; app_id = 42 }) }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false }; required_linear_history = @{ enabled = $true } } | ConvertTo-Json -Depth 6 -Compress
+  $r = Preflight "$(Protection 'gh-partial' $forced);$system" @('-Only', 'protection')
+  $null = (Fix-Of $r) -match '^mend it, keeping its other rules: (?<put>.+?); then read it back: (?<back>.+)$'
   $mend = Run-Printed $Matches.put
   $kept = try { $mend.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
-  Check ($r.Text -match 'partial: admins are not held' -and $kept.enforce_admins -eq $true -and @($kept.required_status_checks.contexts) -contains 'build' -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's mend keeps its required status check and its other rules ($($mend.Body))"
-  $restricted = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 5 -Compress
+  $check = @($kept.required_status_checks.checks)[0]
+  Check ($r.Text -match 'partial: force pushes are allowed' -and $kept.allow_force_pushes -eq $false -and $check.context -eq 'build' -and $check.app_id -eq 42 -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's PUT keeps its required check pinned to its app and its other rules ($($mend.Body))"
+  $actors = [ordered]@{ url = 'x'; required_pull_request_reviews = @{ dismissal_restrictions = @{ teams = @(@{ slug = 'release' }) } }; enforce_admins = @{ enabled = $true }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 6 -Compress
+  $r = Preflight "$(Protection 'gh-actors' $actors);$system" @('-Only', 'protection')
+  Check ((Fix-Of $r) -match '^its review rule names who may dismiss or bypass reviews.*settings/branches' -and (Fix-Of $r) -notmatch 'method PUT') 'a review rule naming who may dismiss reviews is mended by hand, never by a PUT'
+  $restricted = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $true }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 5 -Compress
   $r = Preflight "$(Protection 'gh-restricted' $restricted);$system" @('-Only', 'protection')
   Check ((Fix-Of $r) -match '^it restricts who may push.*settings/branches' -and (Fix-Of $r) -notmatch 'method PUT') 'a protection with push restrictions is mended by hand on the settings page, never by a PUT'
   foreach ($case in @(@{ Name = 'gh-refused'; Answer = 'gh: Not Found (HTTP 404)'; Code = 1 }, @{ Name = 'gh-garbled'; Answer = 'not json'; Code = 0 })) {
@@ -412,7 +432,7 @@ try {
   Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
   Check ($r.Text -match 'gave no answer' -and $r.Text -notmatch 'method PUT') 'a protection read that times out gets a diagnosis and no write'
   $help = Get-Content (Join-Path $repo 'scripts/campaign-preflight.ps1') -TotalCount 12 | Out-String
-  Check ($help -match 'gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection') 'the header help says how to undo protection the fix created'
+  Check ($help -match 'created on a branch that had none is undone with: gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection') 'the header help says how to undo protection the fix created, and only that'
 
   # A probe that hangs is stopped at its limit, with its whole tree.
   $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"

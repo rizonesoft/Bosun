@@ -4,7 +4,7 @@
 # machine come first; a failing run ends with one ordered fix list (this account, then an elevated shell, then what
 # only the owner confirms) and the command that runs the checks again (D00 T03 §25).
 #
-# Branch protection, once on, is undone with: gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection
+# Protection the preflight's fix created on a branch that had none is undone with: gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection
 #
 #   pwsh scripts/campaign-preflight.ps1                  every check
 #   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below); it says it is one
@@ -338,21 +338,31 @@ function Test-Protection {
   if ($force) { $wrong += 'force pushes are allowed' }
   if ($delete) { $wrong += 'deleting main is allowed' }
   if ($wrong) {
-    Fail "main's protection is partial: $($wrong -join '; ')" (Get-ProtectionMend $got $hostName $owner $name $put)
+    Fail "main's protection is partial: $($wrong -join '; ')" (Get-ProtectionMend $got $hostName $owner $name $put ($admins -eq $false -and -not $force -and -not $delete))
     return
   }
   Pass "main of $owner/$name is protected: force pushes and deletion refused, admins included"
 }
 
-# The PUT that mends a partial protection and keeps every rule GitHub returned, or, when it holds push restrictions a
-# body cannot carry over, the settings page to change it by hand.
-function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$name, [scriptblock]$put) {
-  if ($got['restrictions']) { return "it restricts who may push, which a PUT would have to restate: on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, then run the preflight again" }
+# The narrowest mend of a partial protection (round 1 of D00 T03 §25). Only admins exempt: the enforce_admins endpoint,
+# which changes nothing else. Force pushes or deletion allowed: a PUT, which restates the whole rule, so it carries the
+# required checks with the app each is pinned to; a rule with anything a body cannot carry over exactly (push
+# restrictions, review dismissal or bypass actors) is mended by hand on the settings page instead.
+function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$name, [scriptblock]$put, [bool]$adminsOnly) {
+  $endpoint = "repos/$owner/$name/branches/main/protection"
+  if ($adminsOnly) { return "hold admins to it, changing nothing else: gh api --hostname $hostName --method POST $endpoint/enforce_admins; then read it back: gh api --hostname $hostName $endpoint/enforce_admins --jq .enabled" }
+  $byHand = "on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, then run the preflight again"
+  $actors = { param($o) $o -is [Collections.IDictionary] -and (@($o['users']) + @($o['teams']) + @($o['apps']) | Where-Object { $_ }).Count -gt 0 }
+  $reviews = $got['required_pull_request_reviews']
+  if ($got['restrictions']) { return "it restricts who may push, which a PUT would have to restate: $byHand" }
+  if ($reviews -is [Collections.IDictionary] -and ((& $actors $reviews['dismissal_restrictions']) -or (& $actors $reviews['bypass_pull_request_allowances']))) { return "its review rule names who may dismiss or bypass reviews, which a PUT would have to restate: $byHand" }
   $checks = $got['required_status_checks']
   $keepChecks = if ($checks -is [Collections.IDictionary]) {
-    [ordered]@{ strict = [bool]$checks['strict']; contexts = @($checks['contexts'] | Where-Object { $_ }) }
+    # Each check with the app it is pinned to: contexts alone would let any app satisfy it.
+    $pinned = @($checks['checks'] | Where-Object { $_ -is [Collections.IDictionary] } | ForEach-Object { [ordered]@{ context = $_['context']; app_id = $_['app_id'] } })
+    if (-not $pinned) { $pinned = @($checks['contexts'] | Where-Object { $_ } | ForEach-Object { [ordered]@{ context = $_; app_id = $null } }) }
+    [ordered]@{ strict = [bool]$checks['strict']; checks = $pinned }
   } else { $null }
-  $reviews = $got['required_pull_request_reviews']
   $keepReviews = if ($reviews -is [Collections.IDictionary]) {
     $kept = [ordered]@{}
     foreach ($key in 'dismiss_stale_reviews', 'require_code_owner_reviews', 'required_approving_review_count', 'require_last_push_approval') { if ($reviews.Contains($key)) { $kept[$key] = $reviews[$key] } }
@@ -363,7 +373,7 @@ function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$na
     $v = $got[$key]
     if ($v -is [Collections.IDictionary] -and $v['enabled'] -is [bool]) { $body[$key] = $v['enabled'] }
   }
-  "mend it, keeping its other rules: $(& $put ($body | ConvertTo-Json -Depth 5 -Compress))"
+  "mend it, keeping its other rules: $(& $put ($body | ConvertTo-Json -Depth 6 -Compress))"
 }
 
 function Test-Ci {
