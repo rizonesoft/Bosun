@@ -39,7 +39,8 @@
 #
 # The session signs in with the long-lived token in the user variable CLAUDE_CODE_OAUTH_TOKEN (see
 # scripts/store-claude-token.ps1). A window opened before the token was stored doesn't have it yet, so it is read from
-# the user's own variables here; when none is stored at all, it is imported once from the 1Password Conclave vault.
+# the user's own variables here; when none is stored at all, it is imported once from the 1Password item the private
+# overlay names (`vault_item` in `.private/config.toml`, or `BOSUN_VAULT_ITEM`).
 # Without either, the session uses the claude.ai sign-in, and the start goes ahead. The token is never printed.
 param(
   [switch]$InstallShortcut,

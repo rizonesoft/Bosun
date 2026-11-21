@@ -8,19 +8,21 @@
 # for the preflight to check.
 #
 #   pwsh scripts/store-claude-token.ps1                          paste the token made today when asked
-#   pwsh scripts/store-claude-token.ps1 -FromVault               read it from the 1Password Conclave vault instead,
+#   pwsh scripts/store-claude-token.ps1 -FromVault               read it from the 1Password item the overlay names instead,
 #                                                                made on the day the vault item was created
 #   pwsh scripts/store-claude-token.ps1 -IssuedOn 2026-11-01     a token made on an earlier day
 #   pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <day>   record the day for a token already stored
 #   pwsh scripts/store-claude-token.ps1 -Remove                  take both out; sessions go back to the claude.ai sign-in
 #
-# The 1Password Conclave vault holds the recovery copy ("Claude Code OAuth token (1 year, setup-token)"): this variable
+# The 1Password item the private overlay names (vault_item, or BOSUN_VAULT_ITEM) holds the recovery copy: this variable
 # is not a recovery source. -FromVault is a one-time import through the `op` CLI; nothing reads the vault after that.
 param(
   [switch]$Remove,
   [switch]$RecordOnly,
   [switch]$FromVault,
-  [string]$VaultItem = 'op://Conclave/pm5vqgypmvjok23xwlaacbwlji/credential',
+  # The 1Password item (op://<vault>/<item>/<field>); without it, BOSUN_VAULT_ITEM, then vault_item in the private
+  # overlay's .private/config.toml, through Get-BosunOverlayValue (D00 T05 §7).
+  [string]$VaultItem = '',
   [string]$Op = 'op',
   [string]$IssuedOn = '',
   [string]$Key = 'HKCU:\Environment',
@@ -77,10 +79,19 @@ if ($RecordOnly) {
 
 # The token comes from the vault when asked, arrives on stdin when piped (as the tests do), or is asked for without echo.
 $plain = if ($FromVault) {
+  # The item comes from -VaultItem, else BOSUN_VAULT_ITEM, else the overlay's vault_item; it is settled before any
+  # `op` call, so a checkout with none set up says what to set and reads nothing.
+  if (-not $VaultItem) {
+    . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
+    try { $lookup = Get-BosunOverlayValue -Key vault_item }
+    catch { "the vault item could not be read from .private/config.toml ($($_.Exception.Message)); fix vault_item there or set BOSUN_VAULT_ITEM; nothing changed"; exit 1 }
+    if (-not $lookup.Value) { "no vault item is set up for -FromVault: $($lookup.Message); nothing changed"; exit 1 }
+    $VaultItem = $lookup.Value
+  }
   $tool = (Get-Command $Op -ErrorAction Ignore | Select-Object -First 1).Source
   if (-not $tool) { "the 1Password CLI ($Op) is not on PATH, so the vault can't be read: install it and sign in, or paste the token instead; nothing changed"; exit 1 }
   $read = & $tool read $VaultItem 2>$null
-  if ($LASTEXITCODE -or -not "$read".Trim()) { "``op read`` could not read the token from the vault (exit $LASTEXITCODE): check ``op whoami`` and that the item is in the Conclave vault; nothing changed"; exit 1 }
+  if ($LASTEXITCODE -or -not "$read".Trim()) { "``op read`` could not read the token from the vault (exit $LASTEXITCODE): check ``op whoami`` and that the vault item is the one set up; nothing changed"; exit 1 }
   if (-not $dayGiven) {
     # A token from the vault was not made today: its day is the day the vault item was created, and when that can't
     # be read no day is recorded, so the preflight asks for one instead of trusting an invented year.

@@ -277,8 +277,56 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
     & $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $fake 'op.cmd') -VaultItem 'op://Vault/item/credential' -Key $vaultKey -Record $record -IssuedOn 2026-11-10 | Out-Null
     $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $fake 'op.cmd') -VaultItem 'op://Vault/other/credential' -Key $vaultKey -Record $record) -join "`n"
     Check ($LASTEXITCODE -eq 1 -and $out -match 'could not read the token from the vault' -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-from-vault') 'a vault that can''t be read changes nothing and says so'
-    $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $work 'no-op.exe') -Key $vaultKey -Record $record) -join "`n"
+    # The missing CLI is given an explicit item, so it is told apart from a missing setting (D00 T05 §7).
+    $out = (& $pwsh -NoProfile -File $store -FromVault -Op (Join-Path $work 'no-op.exe') -VaultItem 'op://Vault/item/credential' -Key $vaultKey -Record $record) -join "`n"
     Check ($LASTEXITCODE -eq 1 -and $out -match 'is not on PATH') 'a missing 1Password CLI is named'
+
+    # Where the vault item comes from (D00 T05 §7): -VaultItem, else BOSUN_VAULT_ITEM, else the overlay's vault_item,
+    # in a scratch checkout holding copies of the script and its library, so this checkout's own overlay is never read.
+    # A logging stand-in `op` records every call, so both of the importer's calls are checked for the item they name.
+    $kit = Join-Path $work 'vault-kit'
+    New-Item -ItemType Directory -Path (Join-Path $kit 'scripts\lib'), (Join-Path $kit '.private') -Force | Out-Null
+    Copy-Item -LiteralPath $store -Destination (Join-Path $kit 'scripts\store-claude-token.ps1')
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts\lib\overlay.ps1') -Destination (Join-Path $kit 'scripts\lib\overlay.ps1')
+    $kitStore = Join-Path $kit 'scripts\store-claude-token.ps1'
+    $config = Join-Path $kit '.private\config.toml'
+    $opLog = Join-Path $work 'op-calls.txt'
+    Set-Content (Join-Path $fake 'op-log.cmd') "@echo off`r`necho %*>>`"$opLog`"`r`nif `"%1`"==`"read`" (echo tok-%2& exit /b 0)`r`nif `"%1 %2`"==`"item get`" (echo {`"created_at`":`"2026-04-02T10:00:00Z`"}& exit /b 0)`r`nexit /b 1" -Encoding ascii
+    $opLogged = Join-Path $fake 'op-log.cmd'
+    $savedItem = $env:BOSUN_VAULT_ITEM
+    function Invoke-Import([string[]]$more) {
+      Remove-Item -LiteralPath $opLog -ErrorAction Ignore
+      $said = (& $pwsh -NoProfile -File $kitStore -FromVault -Op $opLogged -Key $vaultKey -Record $record @more) -join "`n"
+      [pscustomobject]@{ Exit = $LASTEXITCODE; Said = $said; Calls = @(if (Test-Path $opLog) { Get-Content $opLog }) }
+    }
+    try {
+      Set-Content -LiteralPath $config -Value 'vault_item = "op://FileVault/fileitem/credential"'
+      $env:BOSUN_VAULT_ITEM = 'op://EnvVault/envitem/credential'
+      $r = Invoke-Import @('-VaultItem', 'op://ArgVault/argitem/credential')
+      Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://ArgVault/argitem/credential' -and $r.Calls -contains 'item get argitem --vault ArgVault --format json') 'an explicit -VaultItem wins over the variable and the overlay, for both op calls'
+      $r = Invoke-Import @()
+      Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://EnvVault/envitem/credential' -and $r.Calls -contains 'item get envitem --vault EnvVault --format json') 'BOSUN_VAULT_ITEM wins over the overlay, for both op calls'
+      Remove-Item -LiteralPath Env:BOSUN_VAULT_ITEM
+      $r = Invoke-Import @()
+      Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://FileVault/fileitem/credential' -and $r.Calls -contains 'item get fileitem --vault FileVault --format json') 'without either, the overlay''s vault_item is read, for both op calls'
+      Check ((Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-op://FileVault/fileitem/credential' -and (Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-04-02') 'and the token and its day read back from the key and the record'
+      $beforeToken = (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN'); $beforeDay = Get-Content $record -Raw
+      Remove-Item -LiteralPath $config
+      $r = Invoke-Import @()
+      Check ($r.Exit -eq 1 -and $r.Said -match 'BOSUN_VAULT_ITEM' -and $r.Said -match 'vault_item' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken -and (Get-Content $record -Raw) -eq $beforeDay) 'with no item set up anywhere it exits 1 naming both, calls no op and changes nothing'
+      Set-Content -LiteralPath $config -Value 'vault_item = "unterminated'
+      $r = Invoke-Import @()
+      Check ($r.Exit -eq 1 -and $r.Said -match 'could not be read from .private/config.toml' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken) 'a malformed overlay config is refused the same way'
+      # The other modes never read the setting: they work with the malformed config still there.
+      $out = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-04-01 -Key $vaultKey -Record $record) -join "`n"
+      Check ($LASTEXITCODE -eq 0 -and (Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-04-01') '-RecordOnly never reads the vault setting'
+      $out = ('tok-pasted' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-01) -join "`n"
+      Check ($LASTEXITCODE -eq 0 -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-pasted') 'a pasted token never reads the vault setting'
+      $out = (& $pwsh -NoProfile -File $kitStore -Remove -Key $vaultKey -Record $record) -join "`n"
+      Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $record)) '-Remove never reads the vault setting'
+    } finally {
+      if ($null -eq $savedItem) { Remove-Item -LiteralPath Env:BOSUN_VAULT_ITEM -ErrorAction Ignore } else { $env:BOSUN_VAULT_ITEM = $savedItem }
+    }
   } finally {
     Remove-Item -LiteralPath $vaultKey -Recurse -Force -ErrorAction Ignore
   }

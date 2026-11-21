@@ -48,7 +48,7 @@ Measured 2026-11-20. Bosun is already close to public-clean.
 | Machine paths | 26 files, mostly docs and comments | repo names or placeholders |
 | Personal name | `QueueVisualTests.cs` fixture | sample name |
 | Reviewer setup | `.conclave/reviewers.toml` | stays public if generic |
-| `.remember/` | untracked | moves to `.private/` |
+| `.remember/` | untracked | stays where its plugin writes it, ignored by its own `.gitignore` (`*`); moving it would break the plugin (corrected 2026-11-21, `D00 T05 §7`) |
 
 Paths inside stamped sections, phase-run records and `docs/reviews/` receipts are history and stay as written.
 

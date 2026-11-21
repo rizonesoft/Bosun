@@ -30,6 +30,16 @@ foreach ($pair in @(@('AGENTS.md', $agents), @('CLAUDE.md', $claude))) {
   $hit = [regex]::Match($pair[1], $machinePath)
   Check "$($pair[0]) holds no machine path" (-not $hit.Success) "(at: $($hit.Value))"
 }
+# The vault and account names are private strings: where this checkout has its overlay, the rule files hold none of
+# the deny list's entries (read from it, never written here; D00 T05 §7). Counts only are shown.
+$denyFile = Join-Path $repoRoot '.private\deny-list.txt'
+if (Test-Path -LiteralPath $denyFile -PathType Leaf) {
+  $entries = @([IO.File]::ReadAllLines($denyFile) | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  foreach ($pair in @(@('AGENTS.md', $agents), @('CLAUDE.md', $claude))) {
+    $found = @($entries | Where-Object { $pair[1].IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
+    Check "$($pair[0]) holds none of the overlay's $($entries.Count) deny-list entries" ($entries.Count -gt 0 -and $found -eq 0) "($found found)"
+  }
+} else { 'note: no .private/deny-list.txt in this checkout, so the rule files are not checked against it' }
 $settings = Get-Content -LiteralPath (Join-Path $repoRoot '.claude\settings.json') -Raw | ConvertFrom-Json
 $starts = @($settings.hooks.SessionStart | ForEach-Object { $_.hooks } | ForEach-Object { $_.command })
 Check 'Claude Code runs the overlay rules hook at every session start' (@($starts | Where-Object { $_ -match 'scripts/overlay_rules_hook\.py' }).Count -eq 1) "($($starts -join ' | '))"
