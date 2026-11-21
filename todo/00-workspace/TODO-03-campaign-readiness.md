@@ -62,6 +62,10 @@ title: "TODO-03 -- Campaign readiness"
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
 | 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
 | 23 | §23 | Token and issue day stored together | -- | [x] |
+| 24 | §24 | Campaign hold restores itself and shows its state | -- | [ ] |
+| 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [ ] |
+| 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [ ] |
+| 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -887,6 +891,88 @@ Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-w
 
 > **Verified:** 2026-11-21 | §23 | 204219c557da95a41610664171a42cbcdb9db617
 > **Review:** `docs/reviews/d00-t03-s23.json`
+
+## 24. Campaign hold restores itself and shows its state
+
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 6 and 7, raised by the completion reviews of `§10` and `§18`). `scripts/campaign-hold.ps1` has only `-Apply` and `-Restore` (`scripts/campaign-hold.ps1:14`): a hold applied for a run stays on after the run ends until someone remembers to restore it, and nothing shows how old a hold is or how to undo it. Inside the owner's rule that nothing restarts a run, the run's own guard can still put the machine back when the run ends.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Give the hold a status and an expiry. Done when: `-Status` reads the hold record back, in `tests/campaign_hold_test.ps1`.
+2. Restore it when the run ends. Done when: the run guard restores a held machine once, in `scripts/tests/test_run_guard.py`.
+
+- [ ] Add `-Status` to `scripts/campaign-hold.ps1`: with a hold record, print when it was applied and its age, each value held (its value now and the value to restore), the expiry, and the exact restore command; without one, print `no hold` and exit 0. Done when: `tests/campaign_hold_test.ps1` applies a hold on its fake registry, reads `-Status` back with all four parts, and reads `no hold` after `-Restore`. Cheaper substitute: printing the record file's raw JSON. (findings base line 7)
+- [ ] Record an expiry in the hold record `-Apply` writes (temporary file, then replace): `expires_utc`, by default 24 hours after it was applied, settable with `-Hours`. Done when: the test reads the written record back with the expiry it asked for, and a record without one (written before this) is read as expiring 24 hours after it was applied. (findings base line 6)
+- [ ] Restore the hold when the run ends: in `scripts/lib/run_guard.py`, when status reads ended, complete, stopped or halted, or the hold's expiry has passed, run `campaign-hold.ps1 -Restore` once and record the result in the run state, so it is never run twice and a failed restore is reported in `status`, not retried in a loop. Done when: `scripts/tests/test_run_guard.py` with a fake hold script sees one restore after a run ends, one after an expiry, none while the run is active, and a failing restore named in status. Cheaper substitute: telling the operator to run `-Restore`. (findings base line 6)
+- [ ] Say it in the script's header help and in `python scripts/run-guard.py status`: a held machine shows `hold: applied <age> ago, restores when the run ends or at <expiry>`. Done when: the status test reads that line with a hold and no such line without one.
+- [ ] Commit: `campaign: the hold restores itself when the run ends and shows its state (D00 T03 §24)`
+
+**Test checkpoint:** `pwsh tests/campaign_hold_test.ps1` and `python scripts/run-tests.py test_run_guard` exit 0, and with the run-end restore removed the test of a run that ends with a hold fails.
+
+## 25. Preflight shows progress, times its checks and ends with one fix list
+
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 8, 9, 29, 30 and 31, raised by the completion reviews of `§10`, `§17` and `§18`). `scripts/campaign-preflight.ps1` prints each result after its check finishes, with no name while a slow probe runs (the branch-protection call can sit silent for two minutes), no durations, the protection fix as prose without its JSON body, a success line that carries the undo command, and a failing run that ends with only a count (`$failed check(s) failed`).
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Say each check as it starts and time it. Done when: the output order is proven in `tests/preflight_test.ps1`.
+2. End a failing run with one ordered fix list and the recheck command. Done when: a run with several failures ends with that list.
+
+- [ ] Print `checking <name>...` before each check in `scripts/campaign-preflight.ps1` and each result with its elapsed seconds; before the branch-protection request, name the repository asked and the time limit (`asking <owner/repo> for branch protection, up to <N> s`). Done when: `tests/preflight_test.ps1` with a fake slow probe reads the check's name before its result and an elapsed time on the result. Cheaper substitute: timing only the whole run. (findings base lines 8 and 30)
+- [ ] Give the protection fix as one copyable `gh api` command with its full JSON body, then the read-back command that confirms it. Done when: the test of a repository without protection reads both commands, and the JSON body parses. Cheaper substitute: naming the endpoint in prose. (findings base line 29)
+- [ ] Keep the protection success to one short line, and move its undo command to the script's header help. Done when: the test of a protected repository reads one line and no undo command in the default output. (findings base line 31)
+- [ ] End a failing run with one ordered list: the fixes this account can make, then the elevated steps, then what only the owner can confirm, each once, then the one command that runs the preflight again. Done when: a test with one failure of each kind reads the three groups in that order and the recheck command last. Cheaper substitute: repeating each check's inline fix. (findings base line 9)
+- [ ] Commit: `preflight: progress, timings and one fix list (D00 T03 §25)`
+
+**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and with the start line removed the test that reads a check's name before its result fails.
+
+## 26. Review dispatcher shows round times and settled sources, and takes non-section reviews
+
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 10, 11 and 13, raised by the completion review of `D00 T01 §2`). `scripts/review-dispatch.py --list-rounds` shows each pass's `seconds` only under `--json`; the settled items carried into a prompt do not say which file and line they came from; and a review of a change that belongs to no TODO section is refused ("exactly one returned plan review is required before rounds"), although the `independent-review` skill sends every nontrivial change to the dispatcher.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Show what the records already hold. Done when: plain `--list-rounds` and the settled block are read back in `scripts/tests/test_review_dispatch.py`.
+2. Give a change outside every section a review path. Done when: a one-pass review with no section runs and is recorded.
+
+- [ ] Show each pass's `seconds` in plain `--list-rounds` output in `scripts/review-dispatch.py`, with `unmeasured` for records written before seconds were kept. Done when: the test lists a measured and an older record and reads both. (findings base line 10)
+- [ ] Name the source of each carried settled item in the prompt block, as `<findings file>:<line>`. Done when: the test of a findings file with two settled lines reads both sources in the prompt the fake reviewer receives. (findings base line 13)
+- [ ] Add a one-pass `--kind change` review for work outside every TODO section: it needs no plan review and no section, records to the findings file named, and is refused for a findings file that belongs to a section, so a section's rounds cannot be bypassed through it. Then point `.claude/skills/independent-review/SKILL.md` and its mirrors in `.agents/skills/` and `.codex/skills/` at it. Done when: the test runs a change review with no section and reads its record, and the refusal for a section's findings file; the three skill copies match. Cheaper substitute: telling the skill to skip review for such changes. (findings base line 11)
+- [ ] Commit: `review-dispatch: round times, settled sources and reviews outside a section (D00 T03 §26)`
+
+**Test checkpoint:** `python scripts/run-tests.py test_review_dispatch` exits 0, and with the section check removed from `--kind change` the test of a section's findings file fails.
+
+## 27. CI gate sees a finished run sooner and says what it is waiting on
+
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 18, 19 and 20, raised by the completion review of `§13`). `scripts/ci_status.py` polls every 60 seconds (`POLL_SECONDS`), so a section waits on average half a minute after its CI has finished; its `waiting:` line names each workflow's verdict but not the run's URL or its current job; and a confirmed refusal, an unanswered start and a successful start all print under `no run was started:`.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Poll faster while a run is near its end, within the API budget. Done when: the polling schedule is proven by the fake clock in `scripts/tests/test_ci_status.py`.
+2. Say what is running and word each start outcome apart. Done when: golden-output tests read each wording.
+
+- [ ] Measure first: record, for the last ten gated commits in the run files, how long after each workflow finished the gate printed `proceed`. Then poll every 15 seconds once a run has been in progress longer than its median duration (from `gh run list` history), every 60 seconds before that, backing off to 120 seconds after an API error, with the calls made per gate counted in the JSON. Done when: the fake-clock test reads that schedule and the count, and the run file records the measured delay before and after on one real gate. Cheaper substitute: polling every 5 seconds throughout. (findings base line 18)
+- [ ] Show each running workflow's run URL and current job (or step) in the `waiting:` line on stderr, keeping one JSON object on stdout. Done when: the test with a fake run in progress reads the URL and job name on stderr and one object on stdout. (findings base line 19)
+- [ ] Word the three start outcomes apart in the text output: `start refused: <why>`, `start not answered: <what to check>`, `started <workflow>: <url>`. Done when: golden-output tests for each alone and for a mixed result read each wording once. (findings base line 20)
+- [ ] Commit: `ci: the gate sees a finished run sooner and says what it waits on (D00 T03 §27)`
+
+**Test checkpoint:** `python scripts/run-tests.py test_ci_status` exits 0, and with the faster near-end poll removed the schedule test fails.
 
 ## Verification
 

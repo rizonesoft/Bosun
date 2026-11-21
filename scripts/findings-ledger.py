@@ -13,7 +13,6 @@ file exactly once, struck (`- ~~<its text>~~`), and followed by a disposition th
 Exit 0 when the range is settled, 1 with each unsettled entry named (by its base line), 2 when it cannot check.
 """
 import argparse
-import json
 import re
 import subprocess
 import sys
@@ -36,16 +35,22 @@ def is_commit(sha, root):
     return git("merge-base", "--is-ancestor", sha, "HEAD", root=root).returncode == 0
 
 
-def resolve(ref, root):
-    """(exit code, section body) from the graph's own front door."""
-    run = subprocess.run([sys.executable, str(root / "scripts" / "todo-graph.py"), "resolve", ref],
-                         capture_output=True, text=True, encoding="utf-8", cwd=root)
-    try:
-        body = json.loads(run.stdout).get("body", "")
-    except ValueError:
-        body = run.stdout
-    return run.returncode, body
+_GRAPHS = {}
 
+
+def resolve(ref, root):
+    """(exit code, section body) as `todo-graph.py resolve` gives them, from one graph load per root: the graph takes
+    many seconds to load, and a range names a dozen sections."""
+    if root not in _GRAPHS:
+        sys.path.insert(0, str(Path(root) / "scripts" / "lib"))
+        import todo_graph
+        _GRAPHS[root] = (todo_graph, todo_graph.graph(Path(root)))
+    todo_graph, rows = _GRAPHS[root]
+    found, code = todo_graph.extract_ref(ref, rows)
+    if code:
+        return code, ""
+    row = rows[found]
+    return todo_graph.disposition(row, rows), row.body
 
 def problem(entry, disposition, root, resolver=resolve):
     """Why a struck entry's disposition does not settle it, or None."""

@@ -9,6 +9,7 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
 | 00 | 00-workspace/TODO-05-private-overlay.md | Public core and the private overlay that holds owner specifics |
 | 00 | 00-workspace/TODO-06-findings-triage.md | Every open finding scheduled, fixed or closed with its reason |
+| 00 | 00-workspace/TODO-07-kit-follow-ups.md | Speed, progress and logs for the kit's gates, hooks, tests and build tools |
 | 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, tray, one desktop owner for the smoke, real-input smoke opt-in and nightly |
 | 03 | 03-monitor/TODO-02-instances-queue.md | Every dev instance on both sides, and the queue |
 | 05 | 05-machine/TODO-02-optimise-page.md | Preview, apply, verify and undo machine changes |

@@ -8,59 +8,73 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 49 | Checklist items: 490
+Sections: 63 | Checklist items: 544
 
-| Status | Reference   | Deliverable                                                     | Needs       | Items |
-| ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
-| [x]    | D00 T01 §1  | Review-in-flight marks for the guard                            | none        | 6     |
-| [x]    | D00 T01 §2  | Settled items in review prompts                                 | none        | 10    |
-| [x]    | D00 T01 §3  | Dispatch hook for background reviews                            | none        | 11    |
-| [x]    | D00 T01 §12 | Build and dev tool stack measured and tuned                     | none        | 18    |
-| [x]    | D00 T03 §1  | CI status that proves the commit                                | none        | 27    |
-| [x]    | D00 T03 §2  | One section disposition across graph, guard and skills          | none        | 13    |
-| [x]    | D00 T03 §3  | Review repair cycles and parking                                | none        | 18    |
-| [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                         | none        | 13    |
-| [x]    | D00 T03 §5  | Usage limits wait and resume                                    | none        | 8     |
-| [x]    | D00 T03 §6  | Run end states and wake checks                                  | none        | 9     |
-| [x]    | D00 T03 §7  | Owned session recovery                                          | none        | 7     |
-| [x]    | D00 T03 §8  | Campaign permissions                                            | none        | 8     |
-| [x]    | D00 T03 §9  | Named core tests and CMake resolution                           | none        | 7     |
-| [x]    | D00 T03 §11 | One global heartbeat                                            | none        | 16    |
-| [x]    | D00 T03 §12 | Review caps of 33                                               | none        | 10    |
-| [x]    | D00 T03 §13 | CI gate recovery that names its commit                          | none        | 11    |
-| [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                      | none        | 14    |
-| [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                   | none        | 6     |
-| [x]    | D00 T03 §10 | Preflight and machine hold                                      | attended    | 18    |
-| [x]    | D00 T01 §4  | Pre-commit hook and clone setup                                 | none        | 13    |
-| [x]    | D00 T01 §6  | Gates: native build checks and check-all                        | none        | 10    |
-| [x]    | D00 T01 §7  | Private GitHub repo and CI                                      | none        | 8     |
-| [x]    | D00 T01 §13 | Weakening scan over a diff                                      | none        | 8     |
-| [x]    | D00 T02 §1  | Solution, props and empty projects                              | none        | 11    |
-| [x]    | D00 T02 §2  | Add .NET to the gates                                           | none        | 4     |
-| [x]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                         | none        | 4     |
-| [x]    | D00 T02 §4  | .NET build defaults measured for memory and speed               | none        | 10    |
-| [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier          | third-party | 3     |
-| [x]    | D00 T03 §17 | Branch protection on main, read back                            | none        | 5     |
-| [x]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review | none        | 11    |
-| [x]    | D00 T03 §19 | Run guard holds an Antigravity run                              | none        | 10    |
-| [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
-| [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
-| [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
-| [x]    | D00 T03 §23 | Token and issue day stored together                             | none        | 7     |
-| [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 8     |
-| [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 11    |
-| [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
-| [x]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 17    |
-| [x]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 9     |
-| [x]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 6     |
-| [x]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 11    |
-| [x]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 11    |
-| [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                      | none        | 9     |
-| [ ]    | D00 T06 §2  | Open findings, part 2 of 6                                      | none        | 8     |
-| [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                      | none        | 8     |
-| [ ]    | D00 T06 §4  | Open findings, part 4 of 6                                      | none        | 8     |
-| [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                      | none        | 8     |
-| [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                      | none        | 8     |
+| Status | Reference   | Deliverable                                                                            | Needs       | Items |
+| ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
+| [x]    | D00 T01 §1  | Review-in-flight marks for the guard                                                   | none        | 6     |
+| [x]    | D00 T01 §2  | Settled items in review prompts                                                        | none        | 10    |
+| [x]    | D00 T01 §3  | Dispatch hook for background reviews                                                   | none        | 11    |
+| [x]    | D00 T01 §12 | Build and dev tool stack measured and tuned                                            | none        | 18    |
+| [x]    | D00 T03 §1  | CI status that proves the commit                                                       | none        | 27    |
+| [x]    | D00 T03 §2  | One section disposition across graph, guard and skills                                 | none        | 13    |
+| [x]    | D00 T03 §3  | Review repair cycles and parking                                                       | none        | 18    |
+| [x]    | D00 T03 §4  | Reviewer attempt limits and diagnostics                                                | none        | 13    |
+| [x]    | D00 T03 §5  | Usage limits wait and resume                                                           | none        | 8     |
+| [x]    | D00 T03 §6  | Run end states and wake checks                                                         | none        | 9     |
+| [x]    | D00 T03 §7  | Owned session recovery                                                                 | none        | 7     |
+| [x]    | D00 T03 §8  | Campaign permissions                                                                   | none        | 8     |
+| [x]    | D00 T03 §9  | Named core tests and CMake resolution                                                  | none        | 7     |
+| [x]    | D00 T03 §11 | One global heartbeat                                                                   | none        | 16    |
+| [x]    | D00 T03 §12 | Review caps of 33                                                                      | none        | 10    |
+| [x]    | D00 T03 §13 | CI gate recovery that names its commit                                                 | none        | 11    |
+| [x]    | D00 T03 §14 | Stamp filed leftovers from the third cycle                                             | none        | 14    |
+| [x]    | D00 T03 §15 | One completion pass, as Steward and Recto run                                          | none        | 6     |
+| [x]    | D00 T03 §10 | Preflight and machine hold                                                             | attended    | 18    |
+| [x]    | D00 T01 §4  | Pre-commit hook and clone setup                                                        | none        | 13    |
+| [x]    | D00 T01 §6  | Gates: native build checks and check-all                                               | none        | 10    |
+| [x]    | D00 T01 §7  | Private GitHub repo and CI                                                             | none        | 8     |
+| [x]    | D00 T01 §13 | Weakening scan over a diff                                                             | none        | 8     |
+| [x]    | D00 T02 §1  | Solution, props and empty projects                                                     | none        | 11    |
+| [x]    | D00 T02 §2  | Add .NET to the gates                                                                  | none        | 4     |
+| [x]    | D00 T02 §3  | Move the SDK pin to the .NET 11 release                                                | none        | 4     |
+| [x]    | D00 T02 §4  | .NET build defaults measured for memory and speed                                      | none        | 10    |
+| [ ]    | D00 T03 §16 | Captured rate-limit output for the reviewer classifier                                 | third-party | 3     |
+| [x]    | D00 T03 §17 | Branch protection on main, read back                                                   | none        | 5     |
+| [x]    | D00 T03 §18 | Campaign setup hardening from the preflight's completion review                        | none        | 11    |
+| [x]    | D00 T03 §19 | Run guard holds an Antigravity run                                                     | none        | 10    |
+| [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts                                   | none        | 9     |
+| [x]    | D00 T03 §21 | Run guard waits on a long local gate                                                   | none        | 7     |
+| [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one                                 | none        | 9     |
+| [x]    | D00 T03 §23 | Token and issue day stored together                                                    | none        | 7     |
+| [ ]    | D00 T03 §24 | Campaign hold restores itself and shows its state                                      | none        | 5     |
+| [ ]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 5     |
+| [ ]    | D00 T03 §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | none        | 4     |
+| [ ]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 4     |
+| [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
+| [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
+| [x]    | D00 T05 §3  | One sync command for both repositories                                                 | none        | 9     |
+| [x]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list                            | none        | 17    |
+| [x]    | D00 T05 §5  | Agent rules split into public and overlay halves                                       | none        | 9     |
+| [x]    | D00 T05 §6  | Full-history secret scan in CI                                                         | none        | 6     |
+| [x]    | D00 T05 §7  | Owner values moved into the overlay                                                    | none        | 11    |
+| [x]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files                            | none        | 11    |
+| [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                                             | none        | 9     |
+| [ ]    | D00 T06 §2  | Open findings, part 2 of 6                                                             | none        | 8     |
+| [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 8     |
+| [ ]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
+| [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 8     |
+| [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 8     |
+| [ ]    | D00 T07 §1  | Graph loads once per command                                                           | none        | 4     |
+| [ ]    | D00 T07 §2  | Pyright clean over the scripts                                                         | none        | 5     |
+| [ ]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 3     |
+| [ ]    | D00 T07 §4  | check-all keeps a log and says its waits and SDK                                       | none        | 4     |
+| [ ]    | D00 T07 §5  | Weakening scan reads blobs in one batch and shows lines                                | none        | 3     |
+| [ ]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 3     |
+| [ ]    | D00 T07 §7  | Build measurement compares against a baseline                                          | none        | 5     |
+| [ ]    | D00 T07 §8  | Build script stops configuring on every run                                            | none        | 3     |
+| [ ]    | D00 T07 §9  | One documented .NET test command with progress                                         | none        | 3     |
+| [ ]    | D00 T07 §10 | Plan workflow checks first and states its policy                                       | none        | 3     |
 
 ### Phase 1: Core data contract
 
@@ -188,6 +202,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 100/133 verified sections, 14 ready to run now.
+Progress: 100/147 verified sections, 27 ready to run now.
 
-Checklist: 976/1138 items completed (includes Commit items).
+Checklist: 984/1192 items completed (includes Commit items).
