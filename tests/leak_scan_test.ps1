@@ -244,6 +244,26 @@ Client: Acme Corp (EU)"))
   Check 'a secret in a file name is refused and its path hidden' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: secret' -and -not $r.Text.Contains($nameToken) -and -not $r.Text.Contains($nameToken.Substring(4, 12))) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
 
+  # --- every secret found is kept from every path shown ---
+  $firstToken = New-Token; $secondToken = New-Token
+  $null = Add-Commit $owner "notes-$firstToken.txt" "a = $firstToken`nb = $secondToken`n"
+  $r = Invoke-Push $owner @('main')
+  Check 'with two secrets in one file, neither is shown through its path' ($r.Exit -ne 0 -and -not $r.Text.Contains($firstToken) -and -not $r.Text.Contains($secondToken) -and -not $r.Text.Contains($firstToken.Substring(4, 12))) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+
+  # --- an embedded checkout replaced by a clean file of the same name ---
+  $linkDir = Join-Path $owner 'vendor-tool'
+  git init -q $linkDir
+  Set-Content -LiteralPath (Join-Path $linkDir 'x.txt') -Value 'x'
+  git -C $linkDir add -A; git -C $linkDir commit -q -m x
+  git -C $owner add -A 2>$null; git -C $owner commit -q -m 'add a gitlink'
+  $null = Invoke-Push $owner @('main')
+  git -C $owner rm -q --cached vendor-tool
+  Remove-Item -LiteralPath $linkDir -Recurse -Force
+  $null = Add-Commit $owner 'vendor-tool' 'now a plain file'
+  $r = Invoke-Push $owner @('main')
+  Check 'a submodule entry replaced by a clean file pushes' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

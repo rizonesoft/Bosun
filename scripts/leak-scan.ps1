@@ -23,7 +23,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $repoRoot = Split-Path $PSScriptRoot
 $zero = '0' * 40
-$failed = [Collections.Generic.List[string]]::new()
+$failed = [Collections.Generic.List[object]]::new()
 function Say([string]$text) { [Console]::Error.WriteLine("leak-scan: $text") }
 function Stop-Scan([string]$why) { Say "push refused: $why"; exit 1 }
 function Invoke-Git([string[]]$arguments) {
@@ -73,7 +73,6 @@ function Test-Deny([string]$value) {
   foreach ($entry in $deny) { if ($lower.Contains($entry, [StringComparison]::Ordinal)) { return $true } }
   $false
 }
-function Show-Path([string]$path) { if (Test-Deny $path) { 'a path' } else { $path } }
 
 # Git's raw bytes, never its display: a path or file content reaches the checks exactly as it will be published,
 # with no quoting of names and no "binary" verdict standing in for the content.
@@ -102,28 +101,26 @@ function ConvertFrom-Blob([byte[]]$bytes) {
 }
 
 # --- gitleaks over the outgoing commits ---
+# Findings are kept as parts (commit, path, place, what) and printed only at the end, once every secret matched is
+# known, so no path shown anywhere holds any of them or a deny-list entry.
+$secrets = [Collections.Generic.List[string]]::new()
+function Add-Finding([string]$commit, [string]$path, [string]$place, [string]$what) { $failed.Add([pscustomobject]@{ Commit = $commit; Path = $path; Place = $place; What = $what }) }
 if ($outgoing.Count) {
-  # The scratch folder the repository names (BOSUN_SCRATCH), else the system temp folder.
-  $scratchDir = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-  $report = Join-Path $scratchDir ("bosun-leak-scan-" + [guid]::NewGuid().ToString('N') + '.json')
-  try {
-    $logOpts = (@('--diff-merges=first-parent') + $range) -join ' '
-    # Not redacted: the report stays local (removed below) so each matched secret can be compared with its path, and no
-    # path holding one is ever printed. Only commit, path, line and rule are shown.
-    & gitleaks git $repoRoot --log-opts $logOpts --no-banner --report-format json --report-path $report --exit-code 3 *> $null
-    $code = $LASTEXITCODE
-    if ($code -ne 0 -and $code -ne 3) { Stop-Scan "gitleaks could not scan the outgoing commits (exit $code)" }
-    try { $findings = @(Get-Content -LiteralPath $report -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
-    catch { Stop-Scan 'the gitleaks report could not be read' }
-    if ($code -eq 3 -and -not $findings.Count) { Stop-Scan 'gitleaks reported a finding its report does not hold' }
-    foreach ($f in $findings) {
-      $file = "$($f.File)"
-      $shown = if ($f.Secret -and $file.Contains("$($f.Secret)", [StringComparison]::OrdinalIgnoreCase)) { 'a path' } else { Show-Path $file }
-      $failed.Add("$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): ${shown}:$($f.StartLine): secret ($($f.RuleID))")
-    }
-  } finally { Remove-Item -LiteralPath $report -ErrorAction Ignore }
+  $logOpts = (@('--diff-merges=first-parent') + $range) -join ' '
+  # The report comes back on standard output, never a file: it is not redacted, so each matched secret can be kept
+  # from every path shown, and an unredacted copy never rests on disk.
+  $json = & gitleaks git $repoRoot --log-opts $logOpts --no-banner --report-format json --report-path - --exit-code 3 2>$null
+  $code = $LASTEXITCODE
+  if ($code -ne 0 -and $code -ne 3) { Stop-Scan "gitleaks could not scan the outgoing commits (exit $code)" }
+  try { $findings = @(($json -join "`n") | ConvertFrom-Json -ErrorAction Stop) }
+  catch { Stop-Scan 'the gitleaks report could not be read' }
+  if ($code -eq 3 -and -not $findings.Count) { Stop-Scan 'gitleaks reported a finding its report does not hold' }
+  foreach ($f in $findings) {
+    if ($f.Secret) { $secrets.Add("$($f.Secret)") }
+    if ($f.Match) { $secrets.Add("$($f.Match)") }
+    Add-Finding "$($f.Commit)" "$($f.File)" "$($f.StartLine)" "secret ($($f.RuleID))"
+  }
 }
-
 # --- the deny list over what the outgoing commits publish ---
 if ($deny.Count -and $outgoing.Count) {
   foreach ($c in $outgoing) {
@@ -140,12 +137,13 @@ if ($deny.Count -and $outgoing.Count) {
       $path = if ($status -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
       if ($status -match '^D') { continue }
       # The path is published even for a submodule entry (an embedded checkout added by mistake), so it is checked first.
-      if (Test-Deny $path) { $failed.Add("${short}: a path: deny-list entry (in a file name)"); continue }
+      if (Test-Deny $path) { Add-Finding $c $path '' 'deny-list entry (in a file name)'; continue }
       if ($fields[1] -eq '160000') { continue }
       # What the commit adds: a line holding an entry counts only when the new file has more of that line than the
       # parent's version did, so an edit around an entry already published, or a cleanup removing one, is not refused.
       $newReadings = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))
-      $oldReadings = if ($fields[2] -match '^0+$') { @() } else { @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2]))) }
+      # No prior blob for an added file, or for one that replaces a submodule entry (whose old object is a commit).
+      $oldReadings = if ($fields[2] -match '^0+$' -or $fields[0] -eq '160000') { @() } else { @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2]))) }
       $had = @{}
       foreach ($reading in $oldReadings) {
         foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
@@ -158,13 +156,13 @@ if ($deny.Count -and $outgoing.Count) {
           $number++
           if (-not (Test-Deny $text)) { continue }
           $seen[$text] = 1 + [int]$seen[$text]
-          if ($seen[$text] -gt [int]$had[$text]) { $failed.Add("${short}: ${path}:${number}: deny-list entry"); $reported = $true; break }
+          if ($seen[$text] -gt [int]$had[$text]) { Add-Finding $c $path "$number" 'deny-list entry'; $reported = $true; break }
         }
         if ($reported) { break }
       }
     }
     $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"
-    if (Test-Deny $message) { $failed.Add("${short}: commit message: deny-list entry") }
+    if (Test-Deny $message) { Add-Finding $c $null 'commit message' 'deny-list entry' }
   }
 }
 if ($deny.Count) {
@@ -177,13 +175,20 @@ if ($deny.Count) {
       $object = (($body -split "`n" | Where-Object { $_ -match '^object [0-9a-f]{40}$' } | Select-Object -First 1) -replace '^object ', '')
       $depth++
     }
-    if ($hit) { $failed.Add("$($tag.Object.Substring(0, 12)): a tag being pushed: deny-list entry (its name or an annotation it carries)") }
+    if ($hit) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (its name or an annotation it carries)' }
   }
 }
 
 if ($failed.Count) {
-  foreach ($f in $failed | Select-Object -Unique) { Say $f }
-  Stop-Scan "$(@($failed | Select-Object -Unique).Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again"
+  $lines = foreach ($f in $failed) {
+    $hidden = $f.Path -and ((Test-Deny $f.Path) -or @($secrets | Where-Object { $_ -and $f.Path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count)
+    $where = if (-not $f.Path) { $f.Place } elseif ($hidden) { 'a path' } else { $f.Path }
+    if ($f.Path -and $f.Place) { $where = "${where}:$($f.Place)" }
+    "$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): ${where}: $($f.What)"
+  }
+  $lines = @($lines | Select-Object -Unique)
+  foreach ($line in $lines) { Say $line }
+  Stop-Scan "$($lines.Count) finding(s) above; nothing was pushed. Remove them from the commits (rewrite before pushing), then push again"
 }
 if (-not (Test-Path -LiteralPath $denyPath)) { Say "checked $($outgoing.Count) commit(s) for secrets; no deny list (.private/deny-list.txt), so private strings were not checked" }
 exit 0
