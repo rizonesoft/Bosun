@@ -37,13 +37,24 @@ $ErrorActionPreference = 'Stop'
 # that could not be written, is never read as this token's day, whatever order the writes are in.
 . (Join-Path $PSScriptRoot 'lib/token-record.ps1')
 
+# What a failed record write leaves the preflight trusting: the previous day, when the record already on disk belongs
+# to this same token (a correction with -RecordOnly, or the same token imported again), or no day at all otherwise.
+# The record is read once, before anything is written: when it cannot be read (a file held open without sharing), the
+# note says the old day may still stand, since this script cannot tell whose it is.
+$script:priorFingerprint = if (Test-Path -LiteralPath $Record -PathType Leaf) { try { "$((Get-Content -LiteralPath $Record -Raw -ErrorAction Stop | ConvertFrom-Json).token)" } catch { $null } } else { '' }
+function Get-FailedDayNote([string]$fingerprint) {
+  if ($null -eq $script:priorFingerprint) { 'the day recorded before could not be read, so if it was for this token it may still stand and be trusted: correct it before starting a campaign' }
+  elseif ($script:priorFingerprint -and $script:priorFingerprint -ceq $fingerprint) { 'the day recorded before for this token still stands and is still trusted, so correct it before starting a campaign' }
+  else { 'the preflight will not trust a day for it' }
+}
 # Written to a temporary file and renamed over the record; the temporary file goes again if either step fails.
 function Save-Issued([string]$day, [string]$fingerprint) {
   New-Item -ItemType Directory -Force (Split-Path $Record) | Out-Null
   $tmp = "$Record.$PID.tmp"
   try {
     Set-Content -LiteralPath $tmp -Value (@{ issued = $day; token = $fingerprint } | ConvertTo-Json -Compress) -Encoding utf8
-    Move-Item -LiteralPath $tmp -Destination $Record -Force
+    # File.Move replaces a file and refuses a folder (Move-Item would move the file into one and report success).
+    [IO.File]::Move($tmp, $Record, $true)
   } finally {
     if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction Ignore }
   }
@@ -83,8 +94,9 @@ if ($RecordOnly) {
     "no $Name is stored in $Key to record a day for; nothing changed"
     exit 2
   }
-  try { Save-Issued $IssuedOn (Get-TokenFingerprint (Get-Item -LiteralPath $Key).GetValue($Name, $null)) }
-  catch { "the day could not be recorded at $Record ($($_.Exception.Message)); the stored token is unchanged, and its day stays unrecorded"; exit 1 }
+  $storedFingerprint = Get-TokenFingerprint (Get-Item -LiteralPath $Key).GetValue($Name, $null)
+  try { Save-Issued $IssuedOn $storedFingerprint }
+  catch { "the day could not be recorded at $Record ($($_.Exception.Message)); the stored token is unchanged, and $(Get-FailedDayNote $storedFingerprint)"; exit 1 }
   "recorded that the stored token was made on $IssuedOn; it lasts until $($day.AddYears(1).ToString('yyyy-MM-dd'))"
   exit 0
 }
@@ -145,10 +157,10 @@ $plain = $null
 if ($dayUnknown) {
   # The record on disk belongs to the token this one replaced, so it goes too.
   Remove-Item -LiteralPath $Record -ErrorAction Ignore
-  if (Test-Path -LiteralPath $Record) { "stored $Name ($($back.Length) characters); the vault didn't say when it was made, and the old token's day at $Record could not be removed, so the preflight will not trust it for this token: close what holds it, then run $remedy"; exit 1 }
+  if (Test-Path -LiteralPath $Record) { "stored $Name ($($back.Length) characters); the vault didn't say when it was made, and the day at $Record could not be removed, so $(Get-FailedDayNote $fingerprint): close what holds it, then run $remedy"; exit 1 }
   "stored $Name ($($back.Length) characters), but the vault didn't say when it was made, so no day is recorded: run $remedy"
   exit 0
 }
 try { Save-Issued $IssuedOn $fingerprint }
-catch { "stored $Name ($($back.Length) characters), but its day could not be recorded at $Record ($($_.Exception.Message)), so the preflight will not trust a day for it: close what holds it, then run $remedy"; exit 1 }
+catch { "stored $Name ($($back.Length) characters), but its day could not be recorded at $Record ($($_.Exception.Message)); $(Get-FailedDayNote $fingerprint): close what holds it, then run $remedy"; exit 1 }
 "stored $Name ($($back.Length) characters), made on $IssuedOn and lasting until $($day.AddYears(1).ToString('yyyy-MM-dd')); the next run's session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"

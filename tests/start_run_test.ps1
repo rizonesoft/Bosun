@@ -382,6 +382,20 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       try { $said = ('tok-after-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-06) -join "`n"; $code = $LASTEXITCODE }
       finally { Set-KeyRule $false }
       Check ($code -eq 1 -and $said -match 'could not be stored' -and (Get-Stored) -ceq 'tok-before-lock' -and (Get-Content $record -Raw) -eq $before -and -not $said.Contains('tok-after-lock')) "a token the key will not take exits 1 naming the key, the old token and its record kept ($said)"
+
+      # A correction that cannot be written leaves the old day for this same token in force, and says so plainly.
+      $hold = [IO.File]::Open($record, 'Open', 'Read', 'None')
+      try { $said = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-01-15 -Key $vaultKey -Record $record) -join "`n"; $code = $LASTEXITCODE } finally { $hold.Dispose() }
+      Check ($code -eq 1 -and $said -match 'may still stand' -and $said -match 'before starting a campaign' -and (Get-Content $record -Raw) -eq $before) "a failed -RecordOnly correction on a record it cannot read says the old day may still stand ($said)"
+      # Readable but not writable (read-only): the record is known to be this token's, so the old day surely stands.
+      Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $true
+      try { $said = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-01-15 -Key $vaultKey -Record $record) -join "`n"; $code = $LASTEXITCODE } finally { Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $false }
+      Check ($code -eq 1 -and $said -match 'still stands and is still trusted' -and $said -match 'before starting a campaign' -and (Get-Content $record -Raw) -eq $before) "a failed -RecordOnly correction on a read-only record says the old day still stands for this token ($said)"
+      # A -Record that names a folder is refused, never reported saved inside it.
+      $folder = Join-Path $work 'record-is-a-folder'
+      New-Item -ItemType Directory -Path $folder | Out-Null
+      $said = ('tok-to-folder' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $folder -IssuedOn 2026-04-07) -join "`n"; $code = $LASTEXITCODE
+      Check ($code -eq 1 -and $said -match 'could not be recorded' -and @(Get-ChildItem -LiteralPath $folder -Force).Count -eq 0) "a -Record that names a folder is refused and nothing is left in it ($said)"
     } finally {
       if ($null -eq $savedItem) { Remove-Item -LiteralPath Env:BOSUN_VAULT_ITEM -ErrorAction Ignore } else { $env:BOSUN_VAULT_ITEM = $savedItem }
     }
