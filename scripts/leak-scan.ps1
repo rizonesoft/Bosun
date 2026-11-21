@@ -95,7 +95,8 @@ function ConvertFrom-Blob([byte[]]$bytes) {
   if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { return [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2) }
   if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { return [Text.Encoding]::BigEndianUnicode.GetString($bytes, 2, $bytes.Length - 2) }
   $utf8 = [Text.Encoding]::UTF8.GetString($bytes)
-  if ([Array]::IndexOf($bytes, [byte]0) -ge 0) { return $utf8 + "`n" + [Text.Encoding]::Unicode.GetString($bytes) + "`n" + [Text.Encoding]::BigEndianUnicode.GetString($bytes) }
+  # No byte-order mark but NUL bytes: each reading is returned on its own, so a line is counted within the one that holds it.
+  if ([Array]::IndexOf($bytes, [byte]0) -ge 0) { return @($utf8, [Text.Encoding]::Unicode.GetString($bytes), [Text.Encoding]::BigEndianUnicode.GetString($bytes)) }
   $utf8
 }
 
@@ -132,13 +133,15 @@ if ($deny.Count -and $outgoing.Count) {
       $path = if ($status -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
       if ($status -match '^D' -or $fields[1] -eq '160000') { continue }
       if (Test-Deny $path) { $failed.Add("${short}: a path: deny-list entry (in a file name)"); continue }
-      $content = ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3]))
-      $lower = $content.ToLowerInvariant()
-      $at = -1
-      foreach ($entry in $deny) { $found = $lower.IndexOf($entry, [StringComparison]::Ordinal); if ($found -ge 0 -and ($at -lt 0 -or $found -lt $at)) { $at = $found } }
-      if ($at -ge 0) {
-        $line = ([regex]::Matches($lower.Substring(0, $at), "`n")).Count + 1
-        $failed.Add("${short}: ${path}:${line}: deny-list entry")
+      foreach ($content in @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))) {
+        $lower = $content.ToLowerInvariant()
+        $at = -1
+        foreach ($entry in $deny) { $found = $lower.IndexOf($entry, [StringComparison]::Ordinal); if ($found -ge 0 -and ($at -lt 0 -or $found -lt $at)) { $at = $found } }
+        if ($at -ge 0) {
+          $line = ([regex]::Matches($lower.Substring(0, $at), "`n")).Count + 1
+          $failed.Add("${short}: ${path}:${line}: deny-list entry")
+          break
+        }
       }
     }
     $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"

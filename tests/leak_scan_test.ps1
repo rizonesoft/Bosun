@@ -107,7 +107,7 @@ try {
   $null = Add-Commit $owner 'second.txt' "token = $(New-Token)"
   git -C $owner checkout -q main
   $r = Invoke-Push $owner @('main', 'second')
-  Check 'a multi-ref push with the hit on its second ref is refused, every ref unchanged' ($r.Exit -ne 0 -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  Check 'a multi-ref push with the hit on its second ref is refused, every ref unchanged' ($r.Exit -ne 0 -and $r.Text -match 'second.txt:1: secret \(github-pat\)' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner branch -q -D second; git -C $owner reset -q --hard origin/main
 
   # --- a first push to an empty remote, the hit in the root commit ---
@@ -187,6 +187,13 @@ try {
   $r = Invoke-Push $owner @('main')
   Check 'an entry in a UTF-16 file git calls binary is found, at its line' ($r.Exit -ne 0 -and $r.Text -match 'report.txt:2: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
+  $plain16 = Join-Path $owner 'plain16.txt'
+  [IO.File]::WriteAllBytes($plain16, [Text.Encoding]::Unicode.GetBytes("Status
+Client: Acme Corp (EU)"))
+  git -C $owner add -A; git -C $owner commit -q -m 'plain16'
+  $r16 = Invoke-Push $owner @('main')
+  Check 'an entry in UTF-16 without a byte-order mark is found at its own line' ($r16.Exit -ne 0 -and $r16.Text -match 'plain16.txt:2: deny-list entry') "(exit $($r16.Exit): $($r16.Text))"
+  git -C $owner reset -q --hard origin/main
   $null = Add-Commit $owner 'Acme Corp (EU) keys.txt' "token = $(New-Token)"
   $r = Invoke-Push $owner @('main')
   Check 'a secret in a file named with an entry is reported with the path hidden' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: secret' -and $r.Text -notmatch '(?i)acme') "(exit $($r.Exit): $($r.Text))"
@@ -222,7 +229,7 @@ try {
   # --- a deletion publishes nothing ---
   git -C $owner push -q origin "HEAD:refs/heads/to-delete" 2>$null
   $r = Invoke-Push $owner @(':refs/heads/to-delete')
-  Check 'a deletion push goes through without a scan' ($r.Exit -eq 0 -and -not (Get-Head $remote 'refs/heads/to-delete')) "(exit $($r.Exit): $($r.Text))"
+  Check 'a deletion push goes through' ($r.Exit -eq 0 -and -not (Get-Head $remote 'refs/heads/to-delete')) "(exit $($r.Exit): $($r.Text))"
 
   # --- a guarded sync shows the guard's reason ---
   $syncer = New-Checkout 'syncer' $remote
