@@ -181,8 +181,12 @@ function Test-Claude {
     'oauth_token' {
       # A setup token lasts a year from the day it was made, which nothing reports, so the store script records the day.
       $issued = $null
-      try { $issued = [datetime]::ParseExact([string](Get-Content -LiteralPath $TokenRecord -Raw | ConvertFrom-Json).issued, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch { $issued = $null }
-      if (-not $issued) { Fail "the stored token's issue day isn't recorded at $TokenRecord, so its year can't be checked" '`pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>`, then run the preflight again'; return }
+      # The day counts only for the token it was recorded for (its fingerprint, scripts/lib/token-record.ps1): a record left
+      # from another token, or one written before fingerprints, is no day for this one (D00 T03 §23).
+      . (Join-Path $PSScriptRoot 'lib/token-record.ps1')
+      $recorded = try { Get-Content -LiteralPath $TokenRecord -Raw | ConvertFrom-Json } catch { $null }
+      try { if ($recorded -and "$($recorded.token)" -ceq (Get-TokenFingerprint "$token")) { $issued = [datetime]::ParseExact([string]$recorded.issued, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } } catch { $issued = $null }
+      if (-not $issued) { Fail "the stored token's issue day isn't recorded for it at $TokenRecord (none, or one for another token), so its year can't be checked" '`pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>`, then run the preflight again'; return }
       $ends = $issued.AddYears(1)
       $days = [math]::Floor(($ends - [datetime]::UtcNow.Date).TotalDays)
       if ($days -lt $MinLoginDays) { Fail "the stored token, made on $($issued.ToString('yyyy-MM-dd')), ends on $($ends.ToString('yyyy-MM-dd')), in $days days, sooner than the $MinLoginDays a campaign may need" $long; return }

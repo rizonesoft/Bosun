@@ -31,11 +31,22 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-function Save-Issued([string]$day) {
+# The day is tied to the token it belongs to (D00 T03 §23): the record holds the first 16 hex digits of the token's
+# SHA-256, which say nothing of the token, and scripts/campaign-preflight.ps1 trusts the day only for the token whose
+# fingerprint it is. So a record left from another token, by an import stopped between its two writes or a record
+# that could not be written, is never read as this token's day, whatever order the writes are in.
+. (Join-Path $PSScriptRoot 'lib/token-record.ps1')
+
+# Written to a temporary file and renamed over the record; the temporary file goes again if either step fails.
+function Save-Issued([string]$day, [string]$fingerprint) {
   New-Item -ItemType Directory -Force (Split-Path $Record) | Out-Null
   $tmp = "$Record.$PID.tmp"
-  Set-Content -LiteralPath $tmp -Value (@{ issued = $day } | ConvertTo-Json -Compress) -Encoding utf8
-  Move-Item -LiteralPath $tmp -Destination $Record -Force
+  try {
+    Set-Content -LiteralPath $tmp -Value (@{ issued = $day; token = $fingerprint } | ConvertTo-Json -Compress) -Encoding utf8
+    Move-Item -LiteralPath $tmp -Destination $Record -Force
+  } finally {
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force -ErrorAction Ignore }
+  }
 }
 
 if ($Remove) {
@@ -72,7 +83,8 @@ if ($RecordOnly) {
     "no $Name is stored in $Key to record a day for; nothing changed"
     exit 2
   }
-  Save-Issued $IssuedOn
+  try { Save-Issued $IssuedOn (Get-TokenFingerprint (Get-Item -LiteralPath $Key).GetValue($Name, $null)) }
+  catch { "the day could not be recorded at $Record ($($_.Exception.Message)); the stored token is unchanged, and its day stays unrecorded"; exit 1 }
   "recorded that the stored token was made on $IssuedOn; it lasts until $($day.AddYears(1).ToString('yyyy-MM-dd'))"
   exit 0
 }
@@ -118,16 +130,25 @@ $plain = "$plain".Trim()
 if (-not $plain) { 'no token given, nothing changed'; exit 2 }
 if ($plain -match '\s') { 'that has spaces or line breaks inside it, so it is not one token; nothing changed'; exit 2 }
 
-if (-not (Test-Path -LiteralPath $Key)) { New-Item -Path $Key -Force | Out-Null }
-Set-ItemProperty -LiteralPath $Key -Name $Name -Value $plain -Type String
-$back = (Get-Item -LiteralPath $Key).GetValue($Name, $null)
+# Each failure names the store to repair. Once the token is stored, nothing claims "nothing changed": a day that
+# could not be recorded for it is distrusted by the preflight (its fingerprint is another token's, or there is none).
+$remedy = "``pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>``"
+try {
+  if (-not (Test-Path -LiteralPath $Key)) { New-Item -Path $Key -Force | Out-Null }
+  Set-ItemProperty -LiteralPath $Key -Name $Name -Value $plain -Type String
+  $back = (Get-Item -LiteralPath $Key).GetValue($Name, $null)
+} catch { $back = $null }
+# Read back exactly, the same string: anything else is not the token given.
+if (-not ($back -is [string] -and $back -ceq $plain)) { $plain = $null; "the token could not be stored in $Key ($Name reads back differently or not at all); the recorded day was left as it was"; exit 1 }
+$fingerprint = Get-TokenFingerprint $plain
 $plain = $null
-if (-not $back) { "could not read $Name back from $Key"; exit 1 }
 if ($dayUnknown) {
   # The record on disk belongs to the token this one replaced, so it goes too.
   Remove-Item -LiteralPath $Record -ErrorAction Ignore
-  "stored $Name ($($back.Length) characters), but the vault didn't say when it was made, so no day is recorded: run ``pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>``"
+  if (Test-Path -LiteralPath $Record) { "stored $Name ($($back.Length) characters); the vault didn't say when it was made, and the old token's day at $Record could not be removed, so the preflight will not trust it for this token: close what holds it, then run $remedy"; exit 1 }
+  "stored $Name ($($back.Length) characters), but the vault didn't say when it was made, so no day is recorded: run $remedy"
   exit 0
 }
-Save-Issued $IssuedOn
+try { Save-Issued $IssuedOn $fingerprint }
+catch { "stored $Name ($($back.Length) characters), but its day could not be recorded at $Record ($($_.Exception.Message)), so the preflight will not trust a day for it: close what holds it, then run $remedy"; exit 1 }
 "stored $Name ($($back.Length) characters), made on $IssuedOn and lasting until $($day.AddYears(1).ToString('yyyy-MM-dd')); the next run's session uses it. Run ``pwsh scripts/campaign-preflight.ps1 -Only claude`` to prove it works"

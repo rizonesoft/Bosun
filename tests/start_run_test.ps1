@@ -295,6 +295,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
     New-Item -ItemType Directory -Path (Join-Path $kit 'scripts\lib'), (Join-Path $kit '.private') -Force | Out-Null
     Copy-Item -LiteralPath $store -Destination (Join-Path $kit 'scripts\store-claude-token.ps1')
     Copy-Item -LiteralPath (Join-Path $repo 'scripts\lib\overlay.ps1') -Destination (Join-Path $kit 'scripts\lib\overlay.ps1')
+    Copy-Item -LiteralPath (Join-Path $repo 'scripts\lib\token-record.ps1') -Destination (Join-Path $kit 'scripts\lib\token-record.ps1')
     $kitStore = Join-Path $kit 'scripts\store-claude-token.ps1'
     $config = Join-Path $kit '.private\config.toml'
     $opLog = Join-Path $work 'op-calls.txt'
@@ -336,6 +337,51 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Check ($LASTEXITCODE -eq 0 -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq 'tok-pasted') 'a pasted token never reads the vault setting'
       $out = (& $pwsh -NoProfile -File $kitStore -Remove -Key $vaultKey -Record $record) -join "`n"
       Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $record)) '-Remove never reads the vault setting'
+
+      # The day is tied to its token (D00 T03 §23): every record names the fingerprint of the token stored with it.
+      . (Join-Path $repo 'scripts\lib\token-record.ps1')
+      Set-Content -LiteralPath $config -Value 'vault_item = "op://FileVault/fileitem/credential"'
+      function Get-RecordFingerprint { "$((Get-Content $record -Raw | ConvertFrom-Json).token)" }
+      function Get-Stored { (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') }
+      $null = Invoke-Import @()
+      Check ((Get-RecordFingerprint) -eq (Get-TokenFingerprint (Get-Stored)) -and (Get-Content $record -Raw) -notmatch 'tok-') 'a vault import records the fingerprint of the token it stored, never the token'
+      'tok-pasted-two' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-01 | Out-Null
+      Check ((Get-RecordFingerprint) -eq (Get-TokenFingerprint 'tok-pasted-two')) 'a pasted token records its fingerprint'
+      & $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-04-03 -Key $vaultKey -Record $record | Out-Null
+      Check ((Get-RecordFingerprint) -eq (Get-TokenFingerprint 'tok-pasted-two') -and (Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-04-03') '-RecordOnly records the day for the token stored now'
+
+      # A record that cannot be written (held open without sharing): the store to repair is named, the record is left
+      # as it was, so the preflight distrusts it for the new token, and no temporary file is left behind.
+      $nodateOp = Join-Path $fake 'op-nodate.cmd'
+      Set-Content $nodateOp "@echo off`r`nif `"%1`"==`"read`" (echo tok-vault-nodate& exit /b 0)`r`nexit /b 1" -Encoding ascii
+      $cases = @(
+        @{ Name = 'a pasted token with a known day'; Run = { 'tok-pasted-three' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-05 }; Says = 'its day could not be recorded'; Token = 'tok-pasted-three' },
+        @{ Name = 'a vault import with a known day'; Run = { & $pwsh -NoProfile -File $kitStore -FromVault -Op $opLogged -Key $vaultKey -Record $record }; Says = 'its day could not be recorded'; Token = 'tok-op://FileVault/fileitem/credential' },
+        @{ Name = 'a vault import whose day cannot be read'; Run = { & $pwsh -NoProfile -File $kitStore -FromVault -Op $nodateOp -Key $vaultKey -Record $record }; Says = 'could not be removed'; Token = 'tok-vault-nodate' }
+      )
+      foreach ($case in $cases) {
+        'tok-old-seed' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-03-01 | Out-Null
+        $before = Get-Content $record -Raw
+        $hold = [IO.File]::Open($record, 'Open', 'Read', 'None')
+        try { $said = (& $case.Run) -join "`n"; $code = $LASTEXITCODE } finally { $hold.Dispose() }
+        $left = @(Get-ChildItem -LiteralPath (Split-Path $record) -Filter '*.tmp' -Force).Count
+        Check ($code -eq 1 -and $said -match $case.Says -and $said -match '-RecordOnly -IssuedOn' -and (Get-Stored) -ceq $case.Token -and (Get-Content $record -Raw) -eq $before -and (Get-RecordFingerprint) -ne (Get-TokenFingerprint (Get-Stored)) -and -not $said.Contains($case.Token) -and $left -eq 0) "$($case.Name), its record held open, exits 1 naming the record, the old record kept and distrusted, no temporary file left ($said)"
+      }
+
+      # A key the token cannot be written to: the token store is named, and the record is left as it was.
+      'tok-before-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-03-02 | Out-Null
+      $before = Get-Content $record -Raw
+      # The rule is set on the test's own key through the registry API (Set-Acl does not find HKCU keys by this path).
+      $sub = $vaultKey -replace '^HKCU:\\', ''
+      $deny = [Security.AccessControl.RegistryAccessRule]::new([Security.Principal.WindowsIdentity]::GetCurrent().User, 'SetValue', 'Deny')
+      function Set-KeyRule([bool]$add) {
+        $handle = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [Security.AccessControl.RegistryRights]::ChangePermissions -bor [Security.AccessControl.RegistryRights]::ReadPermissions)
+        try { $acl = $handle.GetAccessControl(); if ($add) { $acl.AddAccessRule($deny) } else { [void]$acl.RemoveAccessRule($deny) }; $handle.SetAccessControl($acl) } finally { $handle.Dispose() }
+      }
+      Set-KeyRule $true
+      try { $said = ('tok-after-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-06) -join "`n"; $code = $LASTEXITCODE }
+      finally { Set-KeyRule $false }
+      Check ($code -eq 1 -and $said -match 'could not be stored' -and (Get-Stored) -ceq 'tok-before-lock' -and (Get-Content $record -Raw) -eq $before -and -not $said.Contains('tok-after-lock')) "a token the key will not take exits 1 naming the key, the old token and its record kept ($said)"
     } finally {
       if ($null -eq $savedItem) { Remove-Item -LiteralPath Env:BOSUN_VAULT_ITEM -ErrorAction Ignore } else { $env:BOSUN_VAULT_ITEM = $savedItem }
     }

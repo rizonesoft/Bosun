@@ -217,6 +217,22 @@ try {
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -RecordOnly -IssuedOn ([datetime]::UtcNow.ToString('yyyy-MM-dd')) | Out-Null
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 0) '-RecordOnly records the day for a token already stored'
+  # The day belongs to the token it was recorded for (D00 T03 §23): a record written for another token is no day for
+  # this one, whether that day would pass or fail, and one written before fingerprints counts as none.
+  . (Join-Path $repo 'scripts\lib\token-record.ps1')
+  $stored = (Get-Item $claudeKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN')
+  $other = Get-TokenFingerprint 'tok-another-456'
+  foreach ($day in [datetime]::UtcNow.ToString('yyyy-MM-dd'), [datetime]::UtcNow.AddDays(-350).ToString('yyyy-MM-dd')) {
+    Set-Content -LiteralPath $tokenRecord -Value (@{ issued = $day; token = $other } | ConvertTo-Json -Compress)
+    $r = Preflight "$d;$system" $claude
+    Check ($r.Code -eq 1 -and $r.Text -match 'for another token' -and $r.Text -match '-RecordOnly -IssuedOn' -and $r.Text -notmatch $stored) "a record for another token, made on $day, is no day for the stored one"
+  }
+  Set-Content -LiteralPath $tokenRecord -Value (@{ issued = [datetime]::UtcNow.ToString('yyyy-MM-dd') } | ConvertTo-Json -Compress)
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match "isn't recorded for it") 'a record written before fingerprints is no day either'
+  Set-Content -LiteralPath $tokenRecord -Value (@{ issued = [datetime]::UtcNow.ToString('yyyy-MM-dd'); token = (Get-TokenFingerprint $stored) } | ConvertTo-Json -Compress)
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 0) 'and the same day recorded for the stored token passes'
   # Removal reports a part it couldn't do: the token goes, and a locked issue record is named, not claimed removed.
   $held = [IO.File]::Open($tokenRecord, 'Open', 'Read', 'None')
   try { $out = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\store-claude-token.ps1') -Key $claudeKey -Record $tokenRecord -Remove; $code = $LASTEXITCODE } finally { $held.Dispose() }
