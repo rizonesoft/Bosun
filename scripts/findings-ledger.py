@@ -141,7 +141,13 @@ def main(argv=None):
     m = re.fullmatch(r"(\d+)-(\d+)", args.lines)
     if not m:
         parser.error("--lines takes first-last, for example 5-40")
-    return check(args.base, int(m.group(1)), int(m.group(2)))
+    sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+    from todo_graph import Refused
+    try:
+        return check(args.base, int(m.group(1)), int(m.group(2)))
+    except (Refused, OSError, ValueError) as exc:  # an invalid plan or an unreadable file: incomplete, as todo-graph.py has it
+        print("findings-ledger: cannot check: %s" % exc)
+        return 2
 
 
 if __name__ == "__main__":

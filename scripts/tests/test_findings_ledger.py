@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -15,6 +16,8 @@ SPEC = importlib.util.spec_from_file_location("findings_ledger", ROOT / "scripts
 assert SPEC is not None and SPEC.loader is not None
 ledger = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ledger)
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from todo_graph import Refused as ledger_refused  # noqa: E402
 
 BASE = """# Findings
 
@@ -137,6 +140,22 @@ class FindingsLedgerTest(unittest.TestCase):
                 self.assertEqual(code, 0 if ok else 1, out.getvalue())
         self.assertEqual(ledger.finding_file("- Nothing names a file here at all."), "")
         OPEN.pop("D09 T01 §4")
+
+    def test_an_invalid_plan_is_incomplete_not_a_traceback(self):
+        # Round 2 of D00 T06 §1: a graph refusal escaped as a traceback with exit 1, the code for an unsettled finding.
+        def refusing(ref, root):
+            raise ledger_refused("TODO refused: unknown dependency D09 T09 §9")
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        original = ledger.check
+        ledger.check = lambda base, first, last: original(self.base, first, last, root=self.root, resolver=refusing)
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = ledger.main(["--base", self.base, "--lines", "5-8"])
+        finally:
+            ledger.check = original
+        self.assertEqual(code, 2, out.getvalue())
+        self.assertIn("cannot check: TODO refused", out.getvalue())
 
     def test_a_reversed_range_is_refused(self):
         out = io.StringIO()
