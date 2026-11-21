@@ -167,6 +167,26 @@ try {
   Check 'a tag annotation holding a deny-list string is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-private)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d v-private | Out-Null
 
+  # --- the deny pass reads what is published, not git's display of it ---
+  $before = Get-Refs $remote
+  $null = Add-Commit $owner 'docs\patch-notes.md' "Example:`n`n--- a/old.md`n+++ b/Acme Corp (EU).md`n@@ -1 +1 @@`n"
+  $r = Invoke-Push $owner @('main')
+  Check 'an entry inside a pasted diff header in a file is still found' ($r.Exit -ne 0 -and $r.Text -match 'docs/patch-notes.md:4: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+  $cafe = New-Checkout 'cafe' $remote -Deny @('Café')
+  $null = Add-Commit $cafe 'docs\Café.md' 'clean content'
+  $r = Invoke-Push $cafe @('main')
+  Check 'a non-ASCII path holding an entry is found (git would quote it in its display)' ($r.Exit -ne 0 -and $r.Text -match 'a path: deny-list entry' -and $r.Text -notmatch '(?i)caf') "(exit $($r.Exit): $($r.Text))"
+  $utf16 = Join-Path $owner 'report.txt'
+  [IO.File]::WriteAllText($utf16, "Status report`r`nClient: Acme Corp (EU)`r`n", [Text.Encoding]::Unicode)
+  git -C $owner add -A; git -C $owner commit -q -m 'report'
+  $r = Invoke-Push $owner @('main')
+  Check 'an entry in a UTF-16 file git calls binary is found, at its line' ($r.Exit -ne 0 -and $r.Text -match 'report.txt:2: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+  $null = Add-Commit $owner 'Acme Corp (EU) keys.txt' "token = $(New-Token)"
+  $r = Invoke-Push $owner @('main')
+  Check 'a secret in a file named with an entry is reported with the path hidden' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: secret' -and $r.Text -notmatch '(?i)acme') "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

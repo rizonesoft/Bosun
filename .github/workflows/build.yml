@@ -132,7 +132,8 @@ jobs:
           Expand-Archive "$dir/gitleaks.zip" -DestinationPath $dir -Force
           Add-Content -LiteralPath $env:GITHUB_PATH -Value $dir
       - name: Leak guard test
-        run: pwsh tests\leak_scan_test.ps1      - name: Campaign admin setup test
+        run: pwsh tests\leak_scan_test.ps1
+      - name: Campaign admin setup test
         run: pwsh tests\campaign_admin_test.ps1
       - name: Campaign hold test
         run: pwsh tests\campaign_hold_test.ps1

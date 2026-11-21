@@ -59,6 +59,46 @@ $known = @($listed | ForEach-Object { ("$_" -split '\s+')[0] } | Where-Object { 
 $range = @($locals) + $(if ($known) { @('--not') + $known } else { @() })
 $outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $range)) } else { @() }
 
+# --- the private deny list, read first so no finding of either pass prints a path holding an entry ---
+$denyPath = Join-Path $repoRoot '.private' 'deny-list.txt'
+$deny = @()
+if (Test-Path -LiteralPath $denyPath) {
+  try { $text = [IO.File]::ReadAllText($denyPath, [Text.UTF8Encoding]::new($false, $true)) }
+  catch { Stop-Scan 'the deny list (.private/deny-list.txt) exists but could not be read' }
+  $deny = @($text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.ToLowerInvariant() })
+}
+function Test-Deny([string]$value) {
+  if (-not $value) { return $false }
+  $lower = $value.ToLowerInvariant()
+  foreach ($entry in $deny) { if ($lower.Contains($entry, [StringComparison]::Ordinal)) { return $true } }
+  $false
+}
+function Show-Path([string]$path) { if (Test-Deny $path) { 'a path' } else { $path } }
+
+# Git's raw bytes, never its display: a path or file content reaches the checks exactly as it will be published,
+# with no quoting of names and no "binary" verdict standing in for the content.
+function Get-GitBytes([string[]]$arguments) {
+  $start = [Diagnostics.ProcessStartInfo]::new('git')
+  foreach ($a in @('-C', $repoRoot) + $arguments) { $start.ArgumentList.Add($a) }
+  $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
+  $process = [Diagnostics.Process]::Start($start)
+  $buffer = [IO.MemoryStream]::new()
+  $errors = $process.StandardError.ReadToEndAsync()
+  $process.StandardOutput.BaseStream.CopyTo($buffer)
+  $process.WaitForExit(); $null = $errors.Result
+  if ($process.ExitCode) { Stop-Scan "git $($arguments[0]) failed, so the outgoing commits could not be read" }
+  $buffer.ToArray()
+}
+# Text as it is stored: UTF-8 (the default), or UTF-16 when it carries a byte-order mark or NUL bytes, as a report
+# saved by Windows PowerShell 5.1 does.
+function ConvertFrom-Blob([byte[]]$bytes) {
+  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { return [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2) }
+  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { return [Text.Encoding]::BigEndianUnicode.GetString($bytes, 2, $bytes.Length - 2) }
+  $utf8 = [Text.Encoding]::UTF8.GetString($bytes)
+  if ([Array]::IndexOf($bytes, [byte]0) -ge 0) { return $utf8 + "`n" + [Text.Encoding]::Unicode.GetString($bytes) + "`n" + [Text.Encoding]::BigEndianUnicode.GetString($bytes) }
+  $utf8
+}
+
 # --- gitleaks over the outgoing commits ---
 if ($outgoing.Count) {
   $report = Join-Path ([IO.Path]::GetTempPath()) ("bosun-leak-scan-" + [guid]::NewGuid().ToString('N') + '.json')
@@ -70,49 +110,37 @@ if ($outgoing.Count) {
     try { $findings = @(Get-Content -LiteralPath $report -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
     catch { Stop-Scan 'the gitleaks report could not be read' }
     if ($code -eq 3 -and -not $findings.Count) { Stop-Scan 'gitleaks reported a finding its report does not hold' }
-    foreach ($f in $findings) { $failed.Add("$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): $($f.File):$($f.StartLine): secret ($($f.RuleID))") }
+    foreach ($f in $findings) { $failed.Add("$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): $(Show-Path "$($f.File)"):$($f.StartLine): secret ($($f.RuleID))") }
   } finally { Remove-Item -LiteralPath $report -ErrorAction Ignore }
 }
 
-# --- the private deny list ---
-$denyPath = Join-Path $repoRoot '.private' 'deny-list.txt'
-$deny = @()
-if (Test-Path -LiteralPath $denyPath) {
-  try { $text = [IO.File]::ReadAllText($denyPath, [Text.UTF8Encoding]::new($false, $true)) }
-  catch { Stop-Scan 'the deny list (.private/deny-list.txt) exists but could not be read' }
-  $deny = @($text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { $_.ToLowerInvariant() })
-}
-function Test-Deny([string]$value) {
-  if (-not $value) { return $false }
-  $lower = $value.ToLowerInvariant()
-  foreach ($entry in $deny) { if ($lower.Contains($entry)) { return $true } }
-  $false
-}
-function Show-Path([string]$path) { if (Test-Deny $path) { 'a path' } else { $path } }
+# --- the deny list over what the outgoing commits publish ---
 if ($deny.Count -and $outgoing.Count) {
-  # Added lines, with their new line numbers, and the paths they land in.
-  $commit = $null; $path = $null; $lineNo = 0
-  foreach ($line in Invoke-Git (@('log', '-p', '-U0', '--no-color', '--no-ext-diff', '--diff-merges=first-parent', '--format=commit %H') + $range)) {
-    if ($line -match '^commit ([0-9a-f]{40})$') { $commit = $Matches[1]; $path = $null; continue }
-    if ($line.StartsWith('+++ ')) { $path = if ($line -eq '+++ /dev/null') { $null } else { $line.Substring(4) -replace '^b/', '' }; continue }
-    if ($line -match '^@@ -\S+ \+(\d+)') { $lineNo = [int]$Matches[1]; continue }
-    if ($line.StartsWith('+') -and $path) {
-      if (Test-Deny $line.Substring(1)) { $failed.Add("$($commit.Substring(0, 12)): $(Show-Path $path):${lineNo}: deny-list entry") }
-      $lineNo++
-    }
-  }
-  # Paths added or renamed to, and commit messages.
-  $commit = $null
-  foreach ($line in Invoke-Git (@('log', '--no-color', '--diff-merges=first-parent', '--name-status', '--format=commit %H') + $range)) {
-    if ($line -match '^commit ([0-9a-f]{40})$') { $commit = $Matches[1]; continue }
-    $fields = $line -split "`t"
-    if ($fields.Count -ge 2 -and $fields[0] -match '^[ACR]') {
-      if (Test-Deny $fields[-1]) { $failed.Add("$($commit.Substring(0, 12)): a path: deny-list entry (in a file name)") }
-    }
-  }
   foreach ($c in $outgoing) {
+    $short = $c.Substring(0, 12)
+    # Every file the commit adds, changes or renames to, against its first parent (so a merge resolution is covered),
+    # read as NUL-separated raw records: ":<mode> <mode> <old> <new> <status>", then one path, or two for a rename.
+    $parent = & git -C $repoRoot rev-parse --verify --quiet "$c^1" 2>$null
+    $tree = if ($parent) { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', "$parent", $c) } else { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', '--root', $c) }
+    $tokens = [Text.Encoding]::UTF8.GetString((Get-GitBytes $tree)) -split "`0"
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+      if (-not $tokens[$i].StartsWith(':')) { continue }
+      $fields = $tokens[$i].Substring(1) -split ' '
+      $status = $fields[4]
+      $path = if ($status -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
+      if ($status -match '^D' -or $fields[1] -eq '160000') { continue }
+      if (Test-Deny $path) { $failed.Add("${short}: a path: deny-list entry (in a file name)"); continue }
+      $content = ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3]))
+      $lower = $content.ToLowerInvariant()
+      $at = -1
+      foreach ($entry in $deny) { $found = $lower.IndexOf($entry, [StringComparison]::Ordinal); if ($found -ge 0 -and ($at -lt 0 -or $found -lt $at)) { $at = $found } }
+      if ($at -ge 0) {
+        $line = ([regex]::Matches($lower.Substring(0, $at), "`n")).Count + 1
+        $failed.Add("${short}: ${path}:${line}: deny-list entry")
+      }
+    }
     $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"
-    if (Test-Deny $message) { $failed.Add("$($c.Substring(0, 12)): commit message: deny-list entry") }
+    if (Test-Deny $message) { $failed.Add("${short}: commit message: deny-list entry") }
   }
 }
 if ($deny.Count) {
