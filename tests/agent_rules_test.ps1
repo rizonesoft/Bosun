@@ -125,11 +125,18 @@ try {
   Push-Location -LiteralPath $checkout
   try { $said = & $sh scripts/hooks/post-merge 2>&1 | Out-String } finally { Pop-Location }
   Check 'and puts it back when the overlay gains AGENTS.md' ((Read-Local $checkout) -ceq $block) "($said)"
+  # The hook cannot replace a CLAUDE.local.md held open without delete sharing: it says so, and still exits 0.
+  Remove-Item -LiteralPath (Join-Path $checkout '.private\AGENTS.md')
+  $lock = [IO.File]::Open((Join-Path $checkout 'CLAUDE.local.md'), 'Open', 'Read', 'Read')
+  Push-Location -LiteralPath $checkout
+  try { $said = & $sh scripts/hooks/post-merge 2>&1 | Out-String; $hookExit = $LASTEXITCODE } finally { Pop-Location; $lock.Dispose() }
+  Check 'a rules update the hook cannot write is reported, the hook still exiting 0' ($hookExit -eq 0 -and $said -match 'CLAUDE.local.md could not be updated' -and (Read-Local $checkout) -ceq $block) "(exit ${hookExit}: $said)"
+  [IO.File]::WriteAllText((Join-Path $checkout '.private\AGENTS.md'), "# Owner rules`n")
 
   # Setup's own undo, then sync: nothing is synced (the overlay is unmarked), but the import still goes.
   git -C (Join-Path $checkout '.private') config --local --unset bosun.overlay
   $said = & $pwshExe -NoProfile -File (Join-Path $checkout 'scripts\sync.ps1') 2>&1 | Out-String
-  Check 'sync takes the import out once the overlay is unmarked, though it syncs nothing' ($null -eq (Read-Local $checkout) -and $said -match 'taken out of CLAUDE.local.md') "($said)"
+  Check 'sync takes the import out once the overlay is unmarked, though it syncs nothing' ($null -eq (Read-Local $checkout) -and $said -match 'taken out of CLAUDE.local.md' -and $said -match 'nothing was synced' -and $said -notmatch 'nothing was changed') "($said)"
   git -C (Join-Path $checkout '.private') config --local bosun.overlay true
   $null = Update-BosunAgentRules $checkout
   Remove-Item -LiteralPath (Join-Path $checkout '.private') -Recurse -Force

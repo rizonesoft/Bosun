@@ -168,7 +168,7 @@ if ($blocked) {
   $rules = Update-BosunAgentRules $publicRoot
   if ($rules -eq 'removed') { 'sync: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
   Write-States $states
-  foreach ($s in $blocked) { "sync: nothing was changed, because $($s.Label) is $($s.Text)" }
+  foreach ($s in $blocked) { "sync: $(if ($rules -eq 'removed') { 'nothing was synced' } else { 'nothing was changed' }), because $($s.Label) is $($s.Text)" }
   exit 1
 }
 

@@ -13,7 +13,9 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OB
 # .private/AGENTS.md only while .private is the marked overlay holding it (D00 T05 §5). Without pwsh it is left as is.
 update_rules() {
     if command -v pwsh >/dev/null 2>&1; then
-        pwsh -NoProfile -NonInteractive -File "$root/scripts/update-agent-rules.ps1" -Repo "$root" 2>/dev/null
+        # Its one line, a failure's included, is shown. A command inside the EXIT trap does not change the hook's
+        # status, so the merge itself never fails here.
+        pwsh -NoProfile -NonInteractive -File "$root/scripts/update-agent-rules.ps1" -Repo "$root" 2>&1
     fi
 }
 trap update_rules EXIT

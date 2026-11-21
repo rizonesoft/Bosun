@@ -7,6 +7,8 @@
 param([string]$Repo = (Split-Path $PSScriptRoot))
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
-$result = Update-BosunAgentRules $Repo
+# A file that cannot be written (held open by an editor, say) is said, with the step to take, and exits 1.
+try { $result = Update-BosunAgentRules $Repo }
+catch { "overlay: agent rules: CLAUDE.local.md could not be updated ($($_.Exception.Message)); close what holds it, then run: pwsh scripts/update-agent-rules.ps1"; exit 1 }
 if ($result -eq 'added') { 'overlay: agent rules: CLAUDE.local.md now imports .private/AGENTS.md' }
 elseif ($result -eq 'removed') { 'overlay: agent rules: the import of .private/AGENTS.md was taken out of CLAUDE.local.md' }
