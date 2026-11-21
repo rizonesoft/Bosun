@@ -668,6 +668,37 @@ Client: Acme Corp (EU)"))
   git -C $everyRef tag -d release-notes | Out-Null
   $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
   Check 'and -All passes the repository once both are gone' ($code -eq 0) "(exit ${code}: $said)"
+  # Every ref's name, and a file a lightweight tag points at directly, are read too.
+  $nameToken = New-Token
+  git -C $everyRef tag "deploy-$nameToken"
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-All finds a secret in a lightweight tag''s name, not printing it' ($code -eq 1 -and $said -match 'the name of the ref pushing this tip: secret \(github-pat\) in its name' -and -not $said.Contains($nameToken)) "(exit ${code}: $said)"
+  git -C $everyRef tag -d "deploy-$nameToken" | Out-Null
+  $blobToken = New-Token
+  $blob = ("token = $blobToken" | git -C $everyRef hash-object -w --stdin)
+  git -C $everyRef tag loose-file $blob
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check '-All finds a secret in a file a lightweight tag points at directly' ($code -eq 1 -and $said -match "$($blob.Substring(0, 12)): a tag or other object being pushed: secret \(github-pat\) in a file it publishes" -and -not $said.Contains($blobToken)) "(exit ${code}: $said)"
+  git -C $everyRef tag -d loose-file | Out-Null
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check 'and passes again once that tag is gone' ($code -eq 0) "(exit ${code}: $said)"
+  # A known false positive outside the patches (a file git calls binary) is ignored by its printed fingerprint, only
+  # that one: the same rule in another file is still found, and with the entry removed the first is found again.
+  [IO.File]::WriteAllBytes((Join-Path $everyRef 'first.bin'), [byte[]](@(0) + [Text.Encoding]::ASCII.GetBytes("token = $(New-Token)") + @(0)))
+  git -C $everyRef add -A; git -C $everyRef commit -q -m 'first binary'
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String
+  $fingerprint = ([regex]::Match($said, 'first\.bin:\d+: secret \(github-pat\) in a file git does not diff \(\.gitleaksignore fingerprint: ([^)]+)\)')).Groups[1].Value
+  Check 'a finding in a file git calls binary prints its .gitleaksignore fingerprint' ($fingerprint -match '^[0-9a-f]{40}:first\.bin:github-pat:\d+$') "($said)"
+  [IO.File]::WriteAllText((Join-Path $everyRef '.gitleaksignore'), "# test fixture: a known false positive`n$fingerprint`n")
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check 'that fingerprint in .gitleaksignore ignores exactly that finding' ($code -eq 0) "(exit ${code}: $said)"
+  [IO.File]::WriteAllBytes((Join-Path $everyRef 'second.bin'), [byte[]](@(0) + [Text.Encoding]::ASCII.GetBytes("token = $(New-Token)") + @(0)))
+  git -C $everyRef add second.bin; git -C $everyRef commit -q -m 'second binary'
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check 'the same rule in another file is still found' ($code -eq 1 -and $said -match 'second\.bin' -and $said -notmatch 'first\.bin') "(exit ${code}: $said)"
+  Remove-Item -LiteralPath (Join-Path $everyRef '.gitleaksignore')
+  $said = & $pwshExe -NoProfile -File $allScanner -All 2>&1 | Out-String; $code = $LASTEXITCODE
+  Check 'and with the entry removed the first is found again' ($code -eq 1 -and $said -match 'first\.bin') "(exit ${code}: $said)"
 
   # --- refusals on every failure ---
   $before = Get-Refs $remote

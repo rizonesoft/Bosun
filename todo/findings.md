@@ -212,3 +212,6 @@ Unscheduled defects noticed while working on another section. Record each entry 
 
 - D00 T05 §4 completion review (2026-11-21), excellence: one setup command on Windows and WSL that checks the pre-push hook and gitleaks together, so a first push never meets a missing tool (target: zero prerequisite surprises). File when \scripts/setup-clone.ps1\ is next changed.
 - D00 T05 §4 completion review (2026-11-21), excellence: a refusal whose only findings are in ref names tells the owner to rename the ref, not to rewrite history (\scripts/leak-scan.ps1\ final message).
+
+- D00 T05 §6 completion review (2026-11-21), excellence: one durable, redacted record per distinct secret finding (its introducing commit and resolution) instead of one CI log per run; GitHub secret scanning raises repository alerts.
+- D00 T05 §6 completion review (2026-11-21), excellence: a reviewed gitleaks pin update and a full-history rescan for each adopted rules release, even with no push between (a scheduled run of the secrets job).

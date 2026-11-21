@@ -99,9 +99,12 @@ if ($history) {
   $outgoing = @(Invoke-Git (@('rev-list') + $revisions))
   $known = @()
   if ($All) {
-    foreach ($line in Invoke-Git @('for-each-ref', '--format=%(objecttype) %(objectname) %(refname)', 'refs/tags')) {
+    # Every ref as a push of it would be read (D00 T05 §6): its name is published text, and an object it names that is
+    # not a commit (an annotated tag, or a file or tree a lightweight tag points at) goes through the tag pass.
+    foreach ($line in Invoke-Git @('for-each-ref', '--format=%(objecttype) %(objectname) %(refname)')) {
       $kind, $sha, $name = $line -split ' ', 3
-      if ($kind -eq 'tag') { $tags.Add([pscustomobject]@{ Name = ($name -replace '^refs/tags/', ''); Object = $sha }) }
+      $refNames.Add([pscustomobject]@{ Name = $name; Sha = $sha })
+      if ($kind -ne 'commit') { $tags.Add([pscustomobject]@{ Name = ($name -replace '^refs/(tags|heads)/', ''); Object = $sha }) }
     }
   }
 }
@@ -266,7 +269,15 @@ function Read-GitleaksReport([int]$code, [string]$text, [string]$what) {
 # Findings are kept as parts (commit, path, place, what) and printed only at the end, once every secret matched is
 # known, so no path shown anywhere holds any of them or a deny-list entry.
 $secrets = [Collections.Generic.List[string]]::new()
-function Add-Finding([string]$commit, [string]$path, [string]$place, [string]$what) { $failed.Add([pscustomobject]@{ Commit = $commit; Path = $path; Place = $place; What = $what }) }
+function Add-Finding([string]$commit, [string]$path, [string]$place, [string]$what, [string]$fingerprint = '') { $failed.Add([pscustomobject]@{ Commit = $commit; Path = $path; Place = $place; What = $what; Fingerprint = $fingerprint }) }
+# Known false positives: one fingerprint per line of .gitleaksignore (# lines are comments). gitleaks applies them to
+# the patch scan itself; the objects scanned as one stream below are matched here, by the same commit:file:rule:line
+# form, the file being the object's path or, for an object with none, what it is (its place).
+$ignored = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$ignoreFile = Join-Path $repoRoot '.gitleaksignore'
+if (Test-Path -LiteralPath $ignoreFile -PathType Leaf) {
+  foreach ($entry in [IO.File]::ReadAllLines($ignoreFile)) { if ($entry.Trim() -and -not $entry.TrimStart().StartsWith('#')) { [void]$ignored.Add($entry.Trim()) } }
+}
 if ($outgoing.Count) {
   $logOpts = (@('--diff-merges=first-parent') + $revisions) -join ' '
   # The report comes back on standard output, never a file: it is not redacted, so each matched secret can be kept
@@ -277,7 +288,7 @@ if ($outgoing.Count) {
   foreach ($f in $findings) {
     if ($f.Secret) { $secrets.Add("$($f.Secret)") }
     if ($f.Match) { $secrets.Add("$($f.Match)") }
-    Add-Finding "$($f.Commit)" "$($f.File)" "$($f.StartLine)" "secret ($($f.RuleID))"
+    Add-Finding "$($f.Commit)" "$($f.File)" "$($f.StartLine)" "secret ($($f.RuleID))" "$($f.Fingerprint)"
   }
 }
 # --- the deny list over what the outgoing commits publish ---
@@ -377,7 +388,10 @@ function Invoke-SecretScans {
     $n = [Array]::BinarySearch($starts, $at); if ($n -lt 0) { $n = (-bnot $n) - 1 }
     $item = $secretQueue[[Math]::Max(0, $n)]
     if ($f.Secret) { $secrets.Add("$($f.Secret)") }
-    Add-Finding $item.Commit $item.Path "$(if ($item.Path) { $at - $starts[[Math]::Max(0, $n)] + 1 } else { $item.Place })" "secret ($($f.RuleID)) in $($item.What)"
+    $lineThere = $at - $starts[[Math]::Max(0, $n)] + 1
+    $fingerprint = "$($item.Commit):$(if ($item.Path) { $item.Path } else { $item.Place }):$($f.RuleID):$lineThere"
+    if ($ignored.Contains($fingerprint)) { continue }
+    Add-Finding $item.Commit $item.Path "$(if ($item.Path) { $lineThere } else { $item.Place })" "secret ($($f.RuleID)) in $($item.What)" $fingerprint
   }
 }
 # Files whose content git leaves out of the patch, by git's own judgement (`diff-tree --numstat` gives "-" for them):
@@ -444,6 +458,8 @@ if ($deny.Count) {
   # one-ref push would then be checked byte by byte.
   # One check of every ref name, by its bytes: git's own when it gave them on standard input, else -Updates in UTF-8.
   if (-not $stdinBytes -and $Updates) { $stdinBytes = [Text.UTF8Encoding]::new($false).GetBytes(($Updates -join "`n")) }
+  # A history scan has no ref lines: each ref it read (-All) is checked by its name as git lists it.
+  if ($history) { foreach ($ref in $refNames) { if (Test-Deny $ref.Name) { Add-Finding $ref.Sha $null 'the name of the ref pushing this tip' 'deny-list entry (in its name)' } } }
   if ($stdinBytes) {
     foreach ($line in (Split-Bytes $stdinBytes 10)) {
       $fields = Split-Bytes $line 32
@@ -481,7 +497,8 @@ if ($failed.Count) {
     $where = if (-not $f.Path) { $f.Place } elseif ($hidden) { 'a path' } else { [regex]::Replace($f.Path, '[\x00-\x1F\x7F]', { param($m) '\x{0:x2}' -f [int][char]$m.Value }) }
     if ($f.Path -and $f.Place) { $where = "${where}:$($f.Place)" }
     $lead = if ($f.Commit) { "$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): " } else { '' }
-    "${lead}${where}: $($f.What)"
+    $mark = if (-not $f.Fingerprint) { '' } elseif ($hidden) { ' (its .gitleaksignore fingerprint is withheld: its path is hidden)' } else { " (.gitleaksignore fingerprint: $($f.Fingerprint))" }
+    "${lead}${where}: $($f.What)$mark"
   }
   $lines = @($lines | Select-Object -Unique)
   foreach ($line in $lines) { Say $line }

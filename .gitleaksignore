@@ -1,2 +1,4 @@
-# Known gitleaks false positives in this repository's history, one fingerprint per line (commit:file:rule:line,
-# as gitleaks reports it), each under a comment naming why it is not a secret (D00 T05 §6). None so far.
+# Known gitleaks false positives in this repository's history, one fingerprint per line (commit:file:rule:line), each
+# under a comment naming why it is not a secret (D00 T05 §6). scripts/leak-scan.ps1 prints the fingerprint of every
+# secret finding (".gitleaksignore fingerprint: ..."), for the patch scan and the objects it scans beside it alike.
+# None so far.
