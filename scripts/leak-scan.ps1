@@ -56,7 +56,14 @@ foreach ($line in $Updates) {
 if (-not $locals.Count -and -not $tags.Count) { exit 0 }
 
 # What the destination already has, asked of the destination.
-$listed = & git -C $repoRoot ls-remote $Remote 2>$null
+# A remote given as an address (a push to a bare URL) is named for git through its environment configuration, so the
+# address, which can hold a credential, is never on a command line.
+$remoteName = $Remote
+if (-not ((& git -C $repoRoot remote 2>$null) -contains $Remote)) {
+  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'remote.bosun-leak-scan.url'; $env:GIT_CONFIG_VALUE_0 = $Remote
+  $remoteName = 'bosun-leak-scan'
+}
+$listed = & git -C $repoRoot ls-remote $remoteName 2>$null
 if ($LASTEXITCODE) { Stop-Scan 'the remote could not be listed, so the commits it lacks are not known' }
 $known = @($listed | ForEach-Object { ("$_" -split '\s+')[0] } | Where-Object { $_ -match '^[0-9a-f]{40}$' } | Sort-Object -Unique |
   Where-Object { & git -C $repoRoot cat-file -e "$_^{commit}" 2>$null; -not $LASTEXITCODE })
@@ -168,6 +175,26 @@ if ($deny.Count -and $outgoing.Count) {
     }
     $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"
     if (Test-Deny $message) { Add-Finding $c $null 'commit message' 'deny-list entry' }
+  }
+}
+# --- gitleaks over files a tag publishes without a commit (a tag on a file or a tree) ---
+foreach ($tag in $tags) {
+  if ("$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)") { continue }
+  foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $(if ($known) { @('--not') + $known } else { @() }))) {
+    if (((Invoke-Git @('cat-file', '-t', $object)) -join '') -ne 'blob') { continue }
+    $start = [Diagnostics.ProcessStartInfo]::new('gitleaks')
+    foreach ($a in 'stdin', '--no-banner', '--report-format', 'json', '--report-path', '-', '--exit-code', '3') { $start.ArgumentList.Add($a) }
+    $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
+    $scan = [Diagnostics.Process]::Start($start)
+    $out = $scan.StandardOutput.ReadToEndAsync(); $null = $scan.StandardError.ReadToEndAsync()
+    $bytes = Get-GitBytes @('cat-file', 'blob', $object)
+    $scan.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $scan.StandardInput.Close()
+    $scan.WaitForExit()
+    if ($scan.ExitCode -ne 0 -and $scan.ExitCode -ne 3) { Stop-Scan "gitleaks could not scan a file the tag publishes (exit $($scan.ExitCode))" }
+    if ($scan.ExitCode -eq 3) {
+      try { $hits = @($out.Result | ConvertFrom-Json -ErrorAction Stop) } catch { Stop-Scan 'the gitleaks report could not be read' }
+      foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $tag.Object $null 'a tag being pushed' "secret ($($f.RuleID)) in a file it publishes" }
+    }
   }
 }
 if ($deny.Count) {

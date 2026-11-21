@@ -301,6 +301,20 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $pathy @('refs/tags/export-v1')
   Check 'a deny entry holding a separator is found in a tagged tree''s full paths' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list export-v1)) "(exit $($r.Exit): $($r.Text))"
 
+  # --- a secret a tag publishes without any commit ---
+  $blobToken = New-Token
+  $secretBlob = "token = $blobToken" | git -C $owner hash-object -w --stdin
+  git -C $owner tag -a blob-secret -m 'release' $secretBlob
+  $r = Invoke-Push $owner @('refs/tags/blob-secret')
+  Check 'a tag on a file holding a secret is refused by gitleaks' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\) in a file it publishes' -and -not $r.Text.Contains($blobToken) -and -not (git --git-dir=$remote tag --list blob-secret)) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner tag -d blob-secret | Out-Null
+
+  # --- a push to a bare address works the same as one to a named remote ---
+  $null = Add-Commit $owner 'by-address.txt' "token = $(New-Token)"
+  $r = [pscustomobject]@{ Text = (git -C $owner push $remote main 2>&1 | Out-String); Exit = $LASTEXITCODE }
+  Check 'a push to a bare address is scanned and refused' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\)') "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
