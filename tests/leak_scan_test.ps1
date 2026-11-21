@@ -264,6 +264,22 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $owner @('main')
   Check 'a submodule entry replaced by a clean file pushes' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
 
+  # --- UTF-32 text, and tags on files ---
+  $before = Get-Refs $remote
+  [IO.File]::WriteAllText((Join-Path $owner 'report32.txt'), "Status`nClient: Acme Corp (EU)`n", [Text.Encoding]::UTF32)
+  git -C $owner add -A; git -C $owner commit -q -m 'report32'
+  $r = Invoke-Push $owner @('main')
+  Check 'an entry in a UTF-32 file is found at its line' ($r.Exit -ne 0 -and $r.Text -match 'report32.txt:2: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+  git -C $owner tag -a file-v1 -m 'release' 'HEAD:clean.txt'
+  $r = Invoke-Push $owner @('refs/tags/file-v1')
+  Check 'a clean tag on a file pushes' ($r.Exit -eq 0 -and (git --git-dir=$remote tag --list file-v1)) "(exit $($r.Exit): $($r.Text))"
+  $privateBlob = "Client: Acme Corp (EU)" | git -C $owner hash-object -w --stdin
+  git -C $owner tag -a file-v2 -m 'release' $privateBlob
+  $r = Invoke-Push $owner @('refs/tags/file-v2')
+  Check 'a tag on a file holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list file-v2)) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner tag -d file-v2 | Out-Null
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

@@ -46,7 +46,8 @@ foreach ($line in $Updates) {
   if ($parts.Count -ne 4 -or $parts[1] -notmatch '^[0-9a-f]{40}$') { Stop-Scan 'a pushed ref could not be read' }
   if ($parts[1] -eq $zero) { continue }  # a deletion publishes nothing
   if ($parts[2] -like 'refs/tags/*') { $tags.Add([pscustomobject]@{ Name = $parts[2].Substring(10); Object = $parts[1] }) }
-  $commit = (Invoke-Git @('rev-parse', '--verify', '--quiet', "$($parts[1])^{commit}")) -join ''
+  # A tag can point at a file or a tree, not only a commit: only what peels to a commit has commits to scan.
+  $commit = "$(& git -C $repoRoot rev-parse --verify --quiet "$($parts[1])^{commit}" 2>$null)"
   if ($commit) { $locals.Add($commit) }
 }
 if (-not $locals.Count -and -not $tags.Count) { exit 0 }
@@ -92,12 +93,13 @@ function Get-GitBytes([string[]]$arguments) {
 # Text as it is stored: UTF-8 (the default), or UTF-16 when it carries a byte-order mark or NUL bytes, as a report
 # saved by Windows PowerShell 5.1 does.
 function ConvertFrom-Blob([byte[]]$bytes) {
-  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) { return [Text.Encoding]::Unicode.GetString($bytes, 2, $bytes.Length - 2) }
-  if ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) { return [Text.Encoding]::BigEndianUnicode.GetString($bytes, 2, $bytes.Length - 2) }
-  $utf8 = [Text.Encoding]::UTF8.GetString($bytes)
-  # No byte-order mark but NUL bytes: each reading is returned on its own, so a line is counted within the one that holds it.
-  if ([Array]::IndexOf($bytes, [byte]0) -ge 0) { return @($utf8, [Text.Encoding]::Unicode.GetString($bytes), [Text.Encoding]::BigEndianUnicode.GetString($bytes)) }
-  $utf8
+  # Text with no NUL byte is UTF-8 (a leading byte-order mark aside). Text with NUL bytes is some UTF-16 or UTF-32
+  # (Windows PowerShell's Out-File and Set-Content -Encoding utf32 write those): every reading is returned, each with
+  # NULs and byte-order marks taken out, so an entry is found in whichever one holds it. With NULs taken out, the UTF-16
+  # readings also read UTF-32 text (any character below U+10000), so UTF-32 needs no reading of its own.
+  if ([Array]::IndexOf($bytes, [byte]0) -lt 0) { return [Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF) }
+  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode
+  foreach ($encoding in $encodings) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
 }
 
 # --- gitleaks over the outgoing commits ---
@@ -174,6 +176,10 @@ if ($deny.Count) {
       $hit = Test-Deny $body
       $object = (($body -split "`n" | Where-Object { $_ -match '^object [0-9a-f]{40}$' } | Select-Object -First 1) -replace '^object ', '')
       $depth++
+    }
+    # A tag on a file publishes that file: its content is checked too.
+    if (-not $hit -and $object -and ((Invoke-Git @('cat-file', '-t', $object)) -join '') -eq 'blob') {
+      $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0
     }
     if ($hit) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (its name or an annotation it carries)' }
   }
