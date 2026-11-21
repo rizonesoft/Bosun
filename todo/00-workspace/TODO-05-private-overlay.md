@@ -212,16 +212,18 @@ Agents need the owner's rules on the owner's machine and must not see them anywh
 
 The local guard protects pushes from the owner's machine; CI protects everything else, including history pushed before the guard existed and pushes from another machine. It never sees the overlay, so it scans for secrets only.
 
+> **Fact 2026-11-21:** `gitleaks git . --redact --log-opts --all` over this repository's whole history today reports 0 findings, so the job starts green with an empty `.gitleaksignore`.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Add a `gitleaks` job to `.github/workflows/build.yml` over the full history. Done when: the job is green on `main`, and the same job, given a synthetic commit holding a token built inside the job, reports it. **Corrected 2026-11-21:** `D00 T05 §4`'s pre-push guard refuses a pushed planted token, so the red proof happens inside CI.
+1. Add a `gitleaks` job to `.github/workflows/plan.yml` over the full history. Done when: the job is green on `main`, and the same job, given a synthetic commit holding a token built inside the job, reports it. **Corrected 2026-11-21:** `D00 T05 §4`'s pre-push guard refuses a pushed planted token, so the red proof happens inside CI.
 
-- [ ] Add a `secrets` job on `ubuntu-latest` to `.github/workflows/build.yml` with `fetch-depth: 0` that runs a pinned `gitleaks` release over the whole history with `--redact`. Done when: the job runs on the next push. Cheaper substitute: scanning only the pushed commit.
-- [ ] Pin the `gitleaks` download by version and SHA-256 in the workflow. Done when: the step verifies the checksum before running. Cheaper substitute: an unpinned `latest` download.
+- [ ] Add a `secrets` job on `ubuntu-latest` to `.github/workflows/plan.yml` with `fetch-depth: 0` that runs a pinned `gitleaks` release over the whole history with `--redact`. Done when: the job runs on the next push, a push that changes only `todo/`, `docs/` or Markdown included. Cheaper substitute: scanning only the pushed commit. **Corrected 2026-11-21:** `build.yml` skips pushes that change only `todo/`, `docs/` and Markdown (its `paths-ignore`), so a secret in such a push would wait for the next code push; `plan.yml` runs on every push and is one of the workflows `scripts/ci_status.py` gates main on.
+- [ ] Pin the `gitleaks` download by version and SHA-256 in the workflow (8.30.1, `gitleaks_8.30.1_linux_x64.tar.gz`, `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb` from that release's `gitleaks_8.30.1_checksums.txt`, the version `D00 T05 §4` pins). Done when: the step verifies the checksum before running, and a wrong digest fails the step. Cheaper substitute: an unpinned `latest` download.
 - [ ] Prove the job finds a secret without pushing one: a step in the same job makes a throwaway commit in a temporary clone holding a token built at run time, runs the same pinned `gitleaks` over it and asserts a finding (and that the token appears nowhere in the log). Done when: the job is green on `main` with that self-test step passing, and the step fails when the scanner is skipped. **Corrected 2026-11-21:** the plan review of `D00 T05 §4` found the pushed throwaway branch would be refused by that section's guard.
 - [ ] Add `.gitleaksignore` entries only for known false positives with a comment naming each, starting empty. Done when: the job is green on `main` with every ignore entry explained.
 - [ ] Commit: `ci: scan the full public history for secrets on every push`
