@@ -40,7 +40,7 @@ title: "TODO-05 -- Public core and private overlay"
 | 4 | §4 | Pre-push leak guard with gitleaks and the private deny list | §1 | [x] |
 | 5 | §5 | Agent rules split into public and overlay halves | §1 | [x] |
 | 6 | §6 | Full-history secret scan in CI | §4 | [x] |
-| 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [ ] |
+| 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [x] |
 | 8 | §8 | Machine paths and personal names scrubbed from public files | §4, §7 | [ ] |
 
 ## 1. Overlay folder, config lookup and the rule that admits it
@@ -265,11 +265,14 @@ Evidence from the private files stays private: this public section records only 
 - [x] Seed `.private/deny-list.txt` with the private strings found in this file's current state that no commit identity carries (the vault item's id and the vault's name as the token wording gives it), with a comment saying what else belongs (client and project names the owner adds) and what never does: the owner's name and commit address, which are the author and committer of every commit, so the deny pass would refuse every push. Done when: in a disposable bare remote and scratch checkout using the seeded list, a push adding each entry is refused with the remote ref unchanged and a clean push advances it, recorded as counts only. **Corrected 2026-11-21:** the owner name was listed, which the author-identity check in `D00 T05 §4` matches on every commit; plan review gap 5: a scan of a recent range cannot prove the list works.
 - [x] Check the live public files against the seeded list, locally: no tracked file outside `docs/reviews/`, `docs/phase-runs/` and the stamped sections' text holds a deny-list entry (case-insensitive, literal), read from `.private/deny-list.txt` at run time. Done when: the check is recorded as pass with the number of entries and files checked. **Corrected 2026-11-21:** plan review gap 7.
 - [x] Correct the design's file table: `.remember/` stays where its plugin writes it, untracked and ignored by its own `.gitignore` (`*`), since moving it into `.private/` would break the plugin and gains nothing. Done when: `docs/specs/2026-11-20-public-core-private-overlay-design.md` says so, and `git ls-files .remember` prints nothing. **Corrected 2026-11-21:** plan review gap 3; reversing it costs moving 18 plugin files and repointing the plugin.
-- [ ] Commit: `overlay: owner values and rules read from the private overlay`
+- [x] Commit: `overlay: owner values and rules read from the private overlay`
 
 > **Evidence 2026-11-21 (pass or fail and counts only):** `.private` is the overlay's own clone, marked, its push address `rizonetech/Bosun-private` (pass); the overlay's first commit holds `AGENTS.md`, `README.md`, `config.toml` and `deny-list.txt`, and `git ls-remote` shows `main` at it (pass); the public default and the `vault_item` read from a fresh clone of the pushed overlay, `BOSUN_VAULT_ITEM` cleared, match with `Source` = `file` (pass); in a disposable bare remote with the seeded list (2 entries), 2 of 2 pushes adding an entry were refused without it shown, the remote unchanged each time, and a clean push advanced it (pass); 567 live public files hold no entry outside two stamped sections' text, TODO-03 §10 and this file's §5, which are history (pass); this checkout's `scripts/overlay_rules_hook.py` payload holds `.private/AGENTS.md` byte for byte, and a new Claude Code session here followed its check rule (pass). `CHANGELOG.md` has only `[Unreleased]` entries, so its vault mention was reworded, not left as history.
 
 **Test checkpoint:** `pwsh tests/agent_rules_test.ps1`, `pwsh tests/overlay_test.ps1` and `pwsh tests/start_run_test.ps1` exit 0, and the local deny-list check of the live public files passes.
+
+> **Verified:** 2026-11-21 | §7 | e7564565d00f21fce8f2a4df45b9e811a79e6e31
+> **Review:** `docs/reviews/d00-t05-s7.json`
 
 ## 8. Machine paths and personal names scrubbed from public files
 

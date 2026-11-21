@@ -1,0 +1,91 @@
+{
+  "ref": "D00 T05 \u00a77",
+  "title": "Owner values moved into the overlay",
+  "implementation_sha": "e7564565d00f21fce8f2a4df45b9e811a79e6e31",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T05-s7.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T05-s7.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/start_run_test.ps1 -> 58 checks, all passed, exit 0",
+    "pwsh tests/agent_rules_test.ps1 -> all checks passed (no deny-list entry in the four rule files)",
+    "pwsh tests/overlay_test.ps1 -> 70 checks, all passed",
+    "CI plan https://github.com/rizonesoft/Bosun/actions/runs/44906810162 -> green at e756456",
+    "CI build run 44906810158 -> success at e756456"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T05-s7.md",
+    "verdict": "filed",
+    "candidate": "4fb83687dcc18bcb3c40e4dc1a81f5d518bf0c18",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D00 T03 \u00a723"
+    ]
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T05-s7.md",
+    "candidate": "461b0b41221187a3ab0cc8ddadedf8aac4df8183",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "461b0b41221187a3ab0cc8ddadedf8aac4df8183",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
