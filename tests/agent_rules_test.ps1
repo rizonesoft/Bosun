@@ -34,10 +34,14 @@ foreach ($pair in @(@('AGENTS.md', $agents), @('CLAUDE.md', $claude))) {
 # the deny list's entries (read from it, never written here; D00 T05 §7). Counts only are shown.
 $denyFile = Join-Path $repoRoot '.private\deny-list.txt'
 if (Test-Path -LiteralPath $denyFile -PathType Leaf) {
-  $entries = @([IO.File]::ReadAllLines($denyFile) | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  # Compared as scripts/leak-scan.ps1 compares (NFKC, then invariant upper case), so a decomposed accent matches too.
+  function Get-Folded([string]$value) { $value.Normalize([Text.NormalizationForm]::FormKC).ToUpperInvariant() }
+  $entries = @([IO.File]::ReadAllLines($denyFile) | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { Get-Folded $_ })
+  if (-not $entries.Count) { 'note: .private/deny-list.txt lists no entries yet, so there is nothing to check the rule files against' }
   foreach ($pair in @(foreach ($ruleFile in 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'CODEX.md') { ,@($ruleFile, [IO.File]::ReadAllText((Join-Path $repoRoot $ruleFile))) })) {
-    $found = @($entries | Where-Object { $pair[1].IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
-    Check "$($pair[0]) holds none of the overlay's $($entries.Count) deny-list entries" ($entries.Count -gt 0 -and $found -eq 0) "($found found)"
+    $folded = Get-Folded $pair[1]
+    $found = @($entries | Where-Object { $folded.Contains($_, [StringComparison]::Ordinal) }).Count
+    if ($entries.Count) { Check "$($pair[0]) holds none of the overlay's $($entries.Count) deny-list entries" ($found -eq 0) "($found found)" }
   }
 } else { 'note: no .private/deny-list.txt in this checkout, so the rule files are not checked against it' }
 $settings = Get-Content -LiteralPath (Join-Path $repoRoot '.claude\settings.json') -Raw | ConvertFrom-Json
