@@ -173,7 +173,7 @@ function Test-OverlayOrigin([string]$origin, [hashtable]$source) {
   switch ($source.Kind) {
     'github' {
       $name = [regex]::Escape($source.Value)
-      return $origin -match "^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)$name(\.git)?/?$"
+      return $origin -match "^(https://src\.com/|git@github\.com:|ssh://git@github\.com/)$name(\.git)?/?$"
     }
     'path' {
       if (-not [IO.Path]::IsPathRooted($origin)) { return $false }

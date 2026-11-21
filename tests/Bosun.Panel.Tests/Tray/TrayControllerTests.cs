@@ -130,8 +130,8 @@ public class TrayControllerTests
 
     [Theory]
     [InlineData(true, "--tray")]
-    [InlineData(true, "C:\\Bosun\\Bosun.Panel.exe", "--TRAY")]
-    [InlineData(false, "C:\\Bosun\\Bosun.Panel.exe")]
+    [InlineData(true, "C:\\src\\Bosun\\Bosun.Panel.exe", "--TRAY")]
+    [InlineData(false, "C:\\src\\Bosun\\Bosun.Panel.exe")]
     [InlineData(false, "--trayed")]
     [InlineData(false)]
     public void The_tray_argument_is_what_windows_starts_the_panel_with(bool inTray, params string[] arguments)
@@ -139,7 +139,7 @@ public class TrayControllerTests
         Assert.Equal(inTray, TrayController.StartsInTray(arguments));
         Assert.Equal("--tray", TrayController.TrayArgument);
         // The Run value passes the same word (D02 T02 §5).
-        Assert.EndsWith(" " + TrayController.TrayArgument, new Bosun.Core.StartupEntry(new Settings.FakeRunKey(), "C:\\Bosun\\Bosun.Panel.exe").Command);
+        Assert.EndsWith(" " + TrayController.TrayArgument, new Bosun.Core.StartupEntry(new Settings.FakeRunKey(), "C:\\src\\Bosun\\Bosun.Panel.exe").Command);
     }
 
     // ---- closing the window ----

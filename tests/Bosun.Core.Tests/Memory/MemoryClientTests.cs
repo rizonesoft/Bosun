@@ -188,10 +188,10 @@ public sealed class MemoryClientTests : IDisposable
         Dictionary<string, string?> env = new() { ["LOCALAPPDATA"] = @"C:\Users\person\AppData\Local" };
         var installed = @"C:\Users\person\AppData\Local\Bosun\bin\bosun.exe";
         Assert.Equal(installed, BosunTool.Locate(out _, k => env.GetValueOrDefault(k), p => p == installed));
-        env[BosunTool.Variable] = @"D:\Bosun\build\Release\bosun.exe";
-        Assert.Equal(@"D:\Bosun\build\Release\bosun.exe", BosunTool.Locate(out _, k => env.GetValueOrDefault(k), _ => true));
+        env[BosunTool.Variable] = @"D:\src\Bosun\build\Release\bosun.exe";
+        Assert.Equal(@"D:\src\Bosun\build\Release\bosun.exe", BosunTool.Locate(out _, k => env.GetValueOrDefault(k), _ => true));
         Assert.Null(BosunTool.Locate(out var why, k => env.GetValueOrDefault(k), _ => false));
-        Assert.Contains(@"D:\Bosun\build\Release\bosun.exe", why);
+        Assert.Contains(@"D:\src\Bosun\build\Release\bosun.exe", why);
         env.Remove(BosunTool.Variable);
         Assert.Null(BosunTool.Locate(out why, k => env.GetValueOrDefault(k), _ => false));
         Assert.Contains(installed, why);

@@ -1738,7 +1738,7 @@ inline std::optional<std::string> percent_decode(const std::string& s) {
     return out;
 }
 
-// A root's URI as VS Code writes it: `file:///d%3A/GitHub/Bosun` is `D:\GitHub\Bosun`, `file://server/share/x` is
+// A root's URI as VS Code writes it: `file:///d%3A/src/Bosun` is `D:\src\Bosun`, `file://server/share/x` is
 // `\\server\share\x`, and `vscode-remote://wsl%2Bubuntu/home/me/app` is the guest path `/home/me/app` in `ubuntu`. Any
 // other kind (another remote, a virtual folder) is not a place Bosun can put in a repo: nothing, with why.
 inline std::optional<EditorRoot> editor_root(const std::string& uri, std::string& why) {

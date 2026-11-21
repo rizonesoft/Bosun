@@ -25,7 +25,7 @@ public class QueueVisualTests
 {
     /// <summary>A real <c>bosun status --json</c>, from build/Release/bosun.exe on 2026-11-16 with nothing queued.</summary>
     const string Captured = """
-        {"schema_version":1,"ns":"Bosun","at":"2026-11-16T15:07:49Z","slots":[{"index":0,"busy":false,"holder":null},{"index":1,"busy":false,"holder":null}],"waiters":[],"memory":{"available_mb":4607,"total_mb":32601,"min_avail_mb":6144},"guest":null,"logger":{"windows":"running","wsl":null},"records":{"readable":true,"skipped":0,"dir":"C:\\Users\\DerickPayne\\AppData\\Local\\Bosun\\run\\1\\ns-%42osun"}}
+        {"schema_version":1,"ns":"Bosun","at":"2026-11-16T15:07:49Z","slots":[{"index":0,"busy":false,"holder":null},{"index":1,"busy":false,"holder":null}],"waiters":[],"memory":{"available_mb":4607,"total_mb":32601,"min_avail_mb":6144},"guest":null,"logger":{"windows":"running","wsl":null},"records":{"readable":true,"skipped":0,"dir":"C:\\Users\\dev\\AppData\\Local\\Bosun\\run\\1\\ns-%42osun"}}
         """;
 
     /// <summary>A holder's record as <c>dm::status_json</c> writes it.</summary>

@@ -50,6 +50,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\leak-scan.ps1') -Destinatio
 Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\sync.ps1') -Destination (Join-Path $seed 'scripts\sync.ps1')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\lib\overlay.ps1') -Destination (Join-Path $seed 'scripts\lib\overlay.ps1')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\hooks\pre-push') -Destination (Join-Path $seed 'scripts\hooks\pre-push')
+Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts\machine-path-check.ps1') -Destination (Join-Path $seed 'scripts\machine-path-check.ps1')
 Set-Content -LiteralPath (Join-Path $seed '.gitignore') -Value ".private/"
 Set-Content -LiteralPath (Join-Path $seed 'notes.txt') -Value "line one`nline two`nline three"
 git -C $seed add -A; git -C $seed update-index --chmod=+x scripts/hooks/pre-push; git -C $seed commit -q -m seed
@@ -585,6 +586,16 @@ Client: Acme Corp (EU)"))
   Remove-Item -LiteralPath $lockFile
   $r = Invoke-Push $stale @('topic')
   Check 'and once it can be, the next push removes it and goes through' ($r.Exit -eq 0 -and -not (git -C $stale for-each-ref 'refs/bosun-leak-scan/')) "(exit $($r.Exit): $($r.Text))"
+
+  # --- a machine path in a tracked file is refused before the scan, a profile-free one too (D00 T05 §8) ---
+  $machine = New-Checkout 'machine' (New-Remote 'machine-remote')
+  $machineBare = Join-Path $work 'machine-remote.git'
+  $machineBefore = Get-Refs $machineBare
+  # Built at run time, so this file holds no such path itself (scripts/machine-path-check.ps1 reads it too).
+  $null = Add-Commit $machine 'notes\where.txt' "built in D:\$('Git' + 'Hub')\tool`n"
+  $r = Invoke-Push $machine @('main')
+  Check 'a checkout path with no profile name in a tracked file refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and $r.Text -match 'machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
+  git -C $machine reset -q --hard origin/main
 
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
   $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')

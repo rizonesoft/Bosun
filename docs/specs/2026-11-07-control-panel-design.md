@@ -145,7 +145,7 @@ The owner set these on 2026-11-07. `D00 T03` builds them, and every other sectio
 | Pressure monitor | Built, automatic action off until logs exist |
 | Parking | Built, with an empty list |
 | Signing | Unsigned; revisit if the repo goes public |
-| Base kit | `R:\GitHub\Steward`, confirmed |
+| Base kit | `R:\src\Steward`, confirmed |
 | Licence | `GPL-3.0-or-later`, confirmed |
 
 A run that reaches the finish line writes `docs/acceptance/<date>.md`, listing every step left for the owner and any parked section.

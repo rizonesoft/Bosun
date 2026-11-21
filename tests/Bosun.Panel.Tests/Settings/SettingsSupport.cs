@@ -97,7 +97,7 @@ public sealed class FakeWindowsTheme : IWindowsTheme
 /// <summary>A Settings page over a settings file and a Run key that are only memory, with what the tests read back.</summary>
 public sealed class SettingsFixture
 {
-    public const string FilePath = @"X:\bosun-test\panel.json";
+    public const string FilePath = @"X:\src\bosun-test\panel.json";
     public const string Program = @"C:\Program Files\Bosun\Bosun.Panel.exe";
 
     public MemoryFiles Files { get; } = new();

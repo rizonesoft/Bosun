@@ -73,7 +73,7 @@ public class MemoryPageTests
 
     internal static SnapshotDoc Snapshot(string repos = "", string memory = """{"available_mb":8192,"total_mb":32768,"commit_mb":38000,"commit_limit_mb":65536,"pages_in_per_sec":3}""",
         string vm = """{"running":true,"processes":1,"private_mb":12083,"rss_mb":9000}""", bool written = true) =>
-        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"windows","at":"2026-11-16T09:00:00Z","interval_s":5,"memory":{{memory}},"wsl_vm":{{vm}},"repos":[{{(repos.Length > 0 ? repos : Repos(("D:/Recto", 6348, 14), ("D:/Bosun", 922, 5)))}}],"processes":[],"history_written":{{(written ? "true" : "false")}}}""",
+        JsonSerializer.Deserialize($$"""{"schema_version":1,"side":"windows","at":"2026-11-16T09:00:00Z","interval_s":5,"memory":{{memory}},"wsl_vm":{{vm}},"repos":[{{(repos.Length > 0 ? repos : Repos(("D:/Recto", 6348, 14), ("D:/src/Bosun", 922, 5)))}}],"processes":[],"history_written":{{(written ? "true" : "false")}}}""",
             MemoryJson.Default.SnapshotDoc)!;
 
     internal static SnapshotDoc WslSnapshot(string? repos = null) =>

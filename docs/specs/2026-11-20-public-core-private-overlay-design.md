@@ -16,7 +16,7 @@ Decisions recorded with this spec:
 ## How does it sit on the machine?
 
 ```
-D:\GitHub\Bosun\            clone of rizonesoft/Bosun (public, all code)
+D:\src\Bosun\            clone of rizonesoft/Bosun (public, all code)
   .gitignore                ignores .private/
   .private\                 clone of rizonetech/Bosun-private
     config.toml             owner values the code reads at run time
@@ -54,7 +54,7 @@ Paths inside stamped sections, phase-run records and `docs/reviews/` receipts ar
 
 ## How does it stay in sync without thinking about it?
 
-- **One folder.** Work in `D:\GitHub\Bosun` as before. VS Code and lazygit list the nested `.private` repo next to the main one.
+- **One folder.** Work in `D:\src\Bosun` as before. VS Code and lazygit list the nested `.private` repo next to the main one.
 - **Setup.** `pwsh scripts/setup-clone.ps1` clones `rizonetech/Bosun-private` (or `BOSUN_OVERLAY_REPO`) into `.private` when `gh repo view rizonetech/Bosun-private` succeeds, checks the clone's origin and marks it as the overlay (`bosun.overlay = true` in its config). Otherwise it says why in one line and goes on (corrected 2026-11-20 from "skips it silently": a stranger learns why nothing happened). An existing `.private` is never changed, except that an unmarked checkout of the overlay itself is marked.
 - **Pull.** A `post-merge` hook in `scripts/hooks` fast-forwards a marked, clean `.private` after every pull of the public repo that merges or fast-forwards. An already up to date pull or a pull that rebases runs no `post-merge` hook; `scripts/sync.ps1` updates both then.
 - **Status and push.** `pwsh scripts/sync.ps1` pulls and pushes both repos and prints one line each: clean, ahead, behind or dirty. `-Check` only reports.

@@ -33,11 +33,11 @@ function read(recorder) {
 
 test('a folder window writes its full URI, its processes and its session', () => {
   const folder = scratch();
-  const r = new Recorder(standIn(['file:///d%3A/GitHub/Bosun']), { proc, now: clock, folder });
+  const r = new Recorder(standIn(['file:///d%3A/src/Bosun']), { proc, now: clock, folder });
   assert.equal(r.write(), true);
   assert.deepEqual(read(r), {
     schema_version: 1, app_name: 'Visual Studio Code', main_pid: 4000, host_pid: 4242, session_id: 'a1b2c3d4-0001',
-    workspace_file: null, roots: ['file:///d%3A/GitHub/Bosun'], written_utc: '2026-11-20T11:00:00.000Z',
+    workspace_file: null, roots: ['file:///d%3A/src/Bosun'], written_utc: '2026-11-20T11:00:00.000Z',
   });
   assert.equal(path.basename(r.path), 'a1b2c3d4-0001.json');
 });

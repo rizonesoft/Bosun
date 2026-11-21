@@ -150,18 +150,18 @@ public static partial class RenderCatalog
         InstancesCase("wsl-notice", new Instances.FakeInstances
         {
             Answer = Instances.InstanceFixtures.View("No WSL distro has reported its instances to C:\\Users\\me\\AppData\\Local\\Bosun\\logs, so only Windows is listed.",
-                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun"))),
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun"))),
         }, "No WSL distro has reported"),
         InstancesCase("stale", new Instances.FakeInstances
         {
             Answer = Instances.InstanceFixtures.View(null,
-                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun")),
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun")),
                 Instances.InstanceFixtures.StaleWsl("Ubuntu", TimeSpan.FromMinutes(4), Instances.InstanceFixtures.I("claude", 2, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app"))),
         }, "Last seen 4 minutes ago"),
         InstancesCase("unreadable-distro", new Instances.FakeInstances
         {
             Answer = Instances.InstanceFixtures.View(null,
-                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun")),
+                Instances.InstanceFixtures.Win(Instances.InstanceFixtures.I("claude", 1, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun")),
                 Instances.InstanceFixtures.Failed("wsl", "Ubuntu", "instances-wsl-Ubuntu.json is not an instances report: 'n' is an invalid start of a value.")),
         }, "WSL (Ubuntu): instances-wsl-Ubuntu.json is not an instances report"),
         InstancesCase("windows-failed", new Instances.FakeInstances

@@ -105,7 +105,7 @@ public class InstancesPageTests
             var claude = Line(page, 100);
             Assert.Equal(("Claude Code", "Windows", "Working", "2.0 GB", "2 h 12 min"), (claude.Instance, claude.Side, claude.State, claude.Memory, claude.Uptime));
             Assert.Equal("Claude Code says busy (session record)", claude.StateDetail);
-            Assert.Equal("claude, pid 100, in D:\\Bosun", claude.InstanceDetail);
+            Assert.Equal("claude, pid 100, in D:\\src\\Bosun", claude.InstanceDetail);
             Assert.Equal(("VS Code", "Unknown", "10.0 GB", "5 min"), (Line(page, 101).Instance, Line(page, 101).State, Line(page, 101).Memory, Line(page, 101).Uptime));
             var reviewing = Line(page, 300);
             Assert.Equal(("WSL (Ubuntu)", "Reviewing"), (reviewing.Side, reviewing.State));
@@ -118,10 +118,10 @@ public class InstancesPageTests
             Assert.Equal(("Not available: its memory could not be read", "Not available: its start could not be read"), (codex.MemoryWhy, codex.UptimeWhy));
             Assert.Equal(("1 h", "1 d", "2 h 12 min", "45 s"), (InstanceLine.Duration(3600), InstanceLine.Duration(86400), InstanceLine.Duration(7920), InstanceLine.Duration(45)));
 
-            // D:/Bosun holds the Windows agent and editor and the WSL agent under /mnt/d; /home/me/app is the distro's; codex is in no repo.
+            // D:/src/Bosun holds the Windows agent and editor and the WSL agent under /mnt/d; /home/me/app is the distro's; codex is in no repo.
             var groups = page.LinesView.Groups.Cast<CollectionViewGroup>().Select(g => (g.Name, g.ItemCount)).ToList();
             // In the scanner's repo order (InstanceClient.Merge), then the instances outside any repo.
-            Assert.Equal([("/home/me/app in WSL (Ubuntu)", 1), ("D:/Bosun", 3), (InstancesPage.NotInRepo, 1)], groups.Select(g => ((string)g.Name, g.ItemCount)));
+            Assert.Equal([("/home/me/app in WSL (Ubuntu)", 1), ("D:/src/Bosun", 3), (InstancesPage.NotInRepo, 1)], groups.Select(g => ((string)g.Name, g.ItemCount)));
         });
     }
 
@@ -130,7 +130,7 @@ public class InstancesPageTests
     {
         var source = new FakeInstances
         {
-            Answer = View(null, Win(I("job", 7, cwd: @"D:\Bosun", repo: "D:/Bosun", started: null, state: "idle", slot: 2, command: "cmake --build",
+            Answer = View(null, Win(I("job", 7, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun", started: null, state: "idle", slot: 2, command: "cmake --build",
                 evidence: "holds slot 2; its command has not started (waiting for guest memory)"))),
         };
         OnPage(source, h =>
@@ -167,7 +167,7 @@ public class InstancesPageTests
         OnPage(source, h =>
         {
             Assert.Equal(1, source.Reads);
-            source.Answer = View(null, Win(I("claude", 100, cwd: @"D:\Bosun", repo: "D:/Bosun")));
+            source.Answer = View(null, Win(I("claude", 100, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun")));
             h.Advance(TimeSpan.FromSeconds(31));
             Assert.Equal(2, source.Reads);
             Assert.Single(h.Page.Lines);                                                       // the rows changed with it
@@ -331,7 +331,7 @@ public class InstancesPageTests
             claude.OpenFolder!.Execute(null);
             // Its line is written once the launch has returned: waited for itself, not for the launch (CI's red run).
             Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal)));
-            Assert.Equal(("explorer.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].ArgumentList.Single()));
+            Assert.Equal(("explorer.exe", @"D:\src\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].ArgumentList.Single()));
             Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Info && e.Message.StartsWith("Open folder of Claude Code", StringComparison.Ordinal));
             Line(h.Page, 4242).OpenTerminal!.Execute(null);
             Until(() => h.Launcher.Started.Count == 2);
@@ -354,7 +354,7 @@ public class InstancesPageTests
         {
             Line(h.Page, 100).OpenTerminal!.Execute(null);
             Until(() => h.Launcher.Started.Count == 1);
-            Assert.Equal(("cmd.exe", @"D:\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].WorkingDirectory));
+            Assert.Equal(("cmd.exe", @"D:\src\Bosun"), (h.Launcher.Started[^1].FileName, h.Launcher.Started[^1].WorkingDirectory));
         }, windowsTerminal: false);
 
         OnPage(new FakeInstances(), h =>
@@ -362,12 +362,12 @@ public class InstancesPageTests
             Line(h.Page, 100).OpenFolder!.Execute(null);
             Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
             Assert.Empty(h.Launcher.Started);
-            Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith(@"The folder is no longer there: D:\Bosun", StringComparison.Ordinal));
+            Assert.Contains(h.Log.Entries, e => e.Severity == LogSeverity.Fail && e.Message.EndsWith(@"The folder is no longer there: D:\src\Bosun", StringComparison.Ordinal));
             // Its actions are now off, with why, until a refresh reads the instance again (the completion review).
             var gone = Line(h.Page, 100);
             Assert.False(gone.OpenFolder!.CanExecute(null));
             Assert.False(gone.OpenTerminal!.CanExecute(null));
-            Assert.Equal(@"The folder is no longer there: D:\Bosun", gone.OpenFolderTip);
+            Assert.Equal(@"The folder is no longer there: D:\src\Bosun", gone.OpenFolderTip);
             h.Page.RefreshNow!.Execute(null);
             Settle();
             Assert.True(Line(h.Page, 100).OpenFolder!.CanExecute(null));
@@ -396,7 +396,7 @@ public class InstancesPageTests
         {
             Line(h.Page, 100).OpenFolder!.Execute(null);                                        // returns at once: the check is off the UI thread
             Until(() => h.Log.Entries.Any(e => e.Severity == LogSeverity.Fail));
-            Assert.Contains(h.Log.Entries, e => e.Message.EndsWith(@"The folder could not be reached within 0 s: D:\Bosun", StringComparison.Ordinal));
+            Assert.Contains(h.Log.Entries, e => e.Message.EndsWith(@"The folder could not be reached within 0 s: D:\src\Bosun", StringComparison.Ordinal));
             Assert.Empty(h.Launcher.Started);
         }, folderExists: _ => never.Wait(TimeSpan.FromSeconds(30)), folderWait: TimeSpan.FromMilliseconds(200));
     }
@@ -501,7 +501,7 @@ public class InstancesPageTests
     {
         // D03 T02 §6: a report with no drives and no word why is from an older logger; one that could not read its mount
         // table says so itself, as an automount problem, and is not told to update.
-        var older = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl", cwd: "/mnt/d/Bosun")], olderLogger: true), Now));
+        var older = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl", cwd: "/mnt/d/src/Bosun")], olderLogger: true), Now));
         Assert.Contains("WSL (Ubuntu): its logger is older than drive mounts, so its folders on Windows drives are shown as the distro's own: in the Bosun checkout, run pwsh scripts/install.ps1 -Distro Ubuntu",
             InstancesPage.NoticesOf(View(null, Win(), older)));
         var unread = new SideReading("wsl", "Ubuntu", Bosun.Core.Memory.Reading<InstancesDoc>.Of(Doc("wsl", "Ubuntu", [I("claude", 300, side: "wsl")],
@@ -565,12 +565,12 @@ public class InstancesPageTests
             var row = h.Shell.Palette.Rows.Single(r => r.Name == "Open folder of Claude Code");
             _ = row.Run();
             Until(() => h.Launcher.Started.Count == 1);
-            Assert.Equal(@"D:\Bosun", h.Launcher.Started.Single().ArgumentList.Single());
+            Assert.Equal(@"D:\src\Bosun", h.Launcher.Started.Single().ArgumentList.Single());
 
             page.RefreshNow!.Execute(null);                                                     // the same instance: still selected
             Settle();
             Assert.Equal(100, page.Selected!.Row.Instance.Pid);
-            source.Answer = View(null, Win(I("code", 101, cwd: @"D:\Bosun", repo: "D:/Bosun")));
+            source.Answer = View(null, Win(I("code", 101, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun")));
             page.RefreshNow!.Execute(null);                                                     // gone: nothing selected, not another row
             Settle();
             Assert.Null(page.Selected);
@@ -635,10 +635,10 @@ public class InstancesPageTests
             Assert.Equal("Instances by repo", System.Windows.Automation.AutomationProperties.GetName(grid));
             Assert.Equal(["Instance", "Side", "State", "GB", "Uptime", "Open"], grid.Columns.Select(c => (string)c.Header));
             var texts = PageRenderer.TextsOf(view);
-            Assert.Contains("D:/Bosun", texts);
+            Assert.Contains("D:/src/Bosun", texts);
             Assert.Contains("/home/me/app in WSL (Ubuntu)", texts);
             var buttons = ShellSupport.Under<Button>(view).Where(b => b.Name == "OpenFolder").ToList();
-            Assert.Contains(buttons, b => System.Windows.Automation.AutomationProperties.GetName(b) == "Open folder of Claude Code (claude, pid 100, in D:\\Bosun)");
+            Assert.Contains(buttons, b => System.Windows.Automation.AutomationProperties.GetName(b) == "Open folder of Claude Code (claude, pid 100, in D:\\src\\Bosun)");
             return 0;
         }, 1360, 860);
     }

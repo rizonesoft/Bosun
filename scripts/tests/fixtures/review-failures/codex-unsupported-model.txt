@@ -1,6 +1,6 @@
 OpenAI Codex v0.167.0
 --------
-workdir: D:\GitHub\Bosun
+workdir: D:\src\Bosun
 model: no-such-model-zz9
 provider: openai
 approval: never

@@ -5,7 +5,7 @@ What the owner confirmed for the unattended campaign (`D00 T03 §10`), which `pw
 ## What the owner confirmed
 
 - Extra usage: off, confirmed by the owner on 2026-11-08 in the Claude account's settings (it was on, and the owner switched it off during the preflight).
-- Reboot check: passed on 2026-11-08. The machine booted at 11:38:12 local time; the `Bosun attach D` task ran at 11:38:28 with result 0 and found `R:\Conclave.vhdx` already attached; D: came back as D: (ReFS, 1 TB); the owner signed in at 11:44:45 and the `Bosun heartbeat` task ticked `d:\github\bosun` at 11:49:01 with no error, 4 minutes 16 seconds later; this Claude Code session resumed.
+- Reboot check: passed on 2026-11-08. The machine booted at 11:38:12 local time; the `Bosun attach D` task ran at 11:38:28 with result 0 and found `R:\Conclave.vhdx` already attached; D: came back as D: (ReFS, 1 TB); the owner signed in at 11:44:45 and the `Bosun heartbeat` task ticked `d:\src\bosun` at 11:49:01 with no error, 4 minutes 16 seconds later; this Claude Code session resumed.
 
 Corrected 2026-11-10: the `D:` volume, its `Bosun attach D` task and the `Bosun heartbeat` task named above were retired. The repo is on its original drive, and its own `Bosun run watchdog` task ticks it.
 

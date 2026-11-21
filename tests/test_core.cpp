@@ -71,17 +71,17 @@ static void batch() {
 
 static void repos() {
     // Repo attribution walks up to the nearest .git and keeps same-named repos apart.
-    std::set<std::string> gits{"D:/GitHub/Bosun", "/home/u/a/app", "/home/u/b/app"};
+    std::set<std::string> gits{"D:/src/Bosun", "/home/u/a/app", "/home/u/b/app"};
     auto has = [&](const std::string& d) { return dm::GitProbe{gits.count(d) > 0, std::nullopt}; };
-    CHECK(dm::repo_walk("D:\\GitHub\\Bosun\\src\\x", has).repo == "D:/GitHub/Bosun");
-    CHECK(dm::repo_walk("D:\\GitHub\\Bosun\\", has).repo == "D:/GitHub/Bosun");
+    CHECK(dm::repo_walk("D:\\src\\Bosun\\src\\x", has).repo == "D:/src/Bosun");
+    CHECK(dm::repo_walk("D:\\src\\Bosun\\", has).repo == "D:/src/Bosun");
     CHECK(dm::repo_walk("/home/u/a/app/src", has, false).repo != dm::repo_walk("/home/u/b/app/src", has, false).repo);
     CHECK(!dm::repo_walk("C:\\Windows\\System32", has).repo.has_value());
     // A drive's root is asked as "D:/", never "D:", which Windows reads relative to the drive's current folder.
     std::vector<std::string> asked;
     auto record = [&](const std::string& d) { asked.push_back(d); return dm::GitProbe{d == "D:/", std::nullopt}; };
-    CHECK(dm::repo_walk("D:\\scratch\\x", record).repo == std::optional<std::string>("D:/"));
-    CHECK((asked == std::vector<std::string>{"D:/scratch/x", "D:/scratch", "D:/"}));
+    CHECK(dm::repo_walk("D:\\work\\x", record).repo == std::optional<std::string>("D:/"));
+    CHECK((asked == std::vector<std::string>{"D:/work/x", "D:/work", "D:/"}));
     // D03 T02 §7: a probe that fails stops the walk with why; a checkout above it is never taken for its repo.
     auto failing = [](const std::string& d) -> dm::GitProbe {
         if (d == "D:/outer/denied") return {false, std::string("Access is denied.")};
@@ -165,7 +165,7 @@ static void records() {
     h.process_start = 134390106322799740ULL;
     h.started_at = "2026-11-13T04:00:00Z";
     h.command = "\"C:\\Program Files\\x.exe\" --name \"caf\xc3\xa9\" a\tb";
-    h.repo = "D:/GitHub/Bosun";
+    h.repo = "D:/src/Bosun";
     h.side = "windows";
     h.slot = 1;
     h.session = 3;
@@ -646,7 +646,7 @@ static void status_json() {
         r.process_start = 1000 + static_cast<uint64_t>(pid);
         r.started_at = at;
         r.command = "cmake --build build";
-        r.repo = "D:/GitHub/Bosun";
+        r.repo = "D:/src/Bosun";
         r.side = "windows";
         r.session = 1;
         r.ns = "Bosun";
@@ -700,7 +700,7 @@ static void status_json() {
     const Json& s0 = s["slots"].item(0);
     CHECK(s0["index"].n == 0 && s0["busy"].kind == Json::Bool && s0["busy"].b);
     CHECK(s0["holder"]["pid"].n == 10 && s0["holder"]["state"].s == "live" && s0["holder"]["phase"].s == "running");
-    CHECK(s0["holder"]["command"].s == h0.command && s0["holder"]["repo"].s == "D:/GitHub/Bosun" && s0["holder"]["slot"].n == 0);
+    CHECK(s0["holder"]["command"].s == h0.command && s0["holder"]["repo"].s == "D:/src/Bosun" && s0["holder"]["slot"].n == 0);
     CHECK(s0["holder"]["waited_s"].n == 30 && s0["holder"]["running_s"].n == 149);
     const Json& s1 = s["slots"].item(1);
     CHECK(s1["busy"].kind == Json::Bool && !s1["busy"].b && s1["holder"].kind == Json::Null);  // the leftover names nobody
@@ -799,7 +799,7 @@ static void jobs() {
     j.ended_at = "2026-11-13T05:00:12Z";
     j.pid = 77;
     j.command = "pytest -k \"a and b\" caf\xc3\xa9";
-    j.repo = "D:/GitHub/Bosun";
+    j.repo = "D:/src/Bosun";
     j.side = "windows";
     j.ns = "Bosun";
     j.slot = 1;
@@ -882,7 +882,7 @@ static void editor_windows() {
     CHECK(r && r->location == "wsl" && r->distro == std::optional<std::string>("Ubuntu-24.04") && r->path == "/home/me/app");
     CHECK(!dm::editor_root("vscode-remote://ssh-remote%2Bhost/x", why) && why.find("not WSL") != std::string::npos);
     CHECK(!dm::editor_root("vscode-remote://wsl%2Ba%2Fb/x", why));  // no distro is named so
-    CHECK(!dm::editor_root("vscode-vfs://github/x", why) && !dm::editor_root("file:///d%3A/x%2", why));
+    CHECK(!dm::editor_root("vscode-vfs://src/x", why) && !dm::editor_root("file:///d%3A/x%2", why));
     // A distro's folder opened through its Windows share is a WSL root, so it never wakes a stopped distro (completion review).
     auto viaShare = dm::editor_root("file://wsl.localhost/Ubuntu/home/me/app/", why);
     CHECK(viaShare && viaShare->location == "wsl" && viaShare->distro == std::optional<std::string>("Ubuntu") && viaShare->path == "/home/me/app");

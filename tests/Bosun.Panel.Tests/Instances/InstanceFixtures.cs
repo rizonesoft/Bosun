@@ -43,16 +43,16 @@ internal static class InstanceFixtures
 
     internal static InstancesView View(string? notice, params SideReading[] sides) => new(InstanceClient.Merge(sides), sides, notice);
 
-    /// <summary>Both sides: an agent and an editor in D:/Bosun, a WSL agent in that same folder through /mnt/d, a job holding slot 1, and one outside a repo.</summary>
+    /// <summary>Both sides: an agent and an editor in D:/src/Bosun, a WSL agent in that same folder through /mnt/d, a job holding slot 1, and one outside a repo.</summary>
     internal static InstancesView Both() => View(null,
         Win(
-            I("claude", 100, cwd: @"D:\Bosun", repo: "D:/Bosun", mb: 2048, started: "2026-11-16T06:48:00Z", state: "working", evidence: "Claude Code says busy (session record)"),
-            I("code", 101, cwd: @"D:\Bosun", repo: "D:/Bosun", mb: 10240, started: "2026-11-16T08:55:00Z", state: "unknown"),
+            I("claude", 100, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun", mb: 2048, started: "2026-11-16T06:48:00Z", state: "working", evidence: "Claude Code says busy (session record)"),
+            I("code", 101, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun", mb: 10240, started: "2026-11-16T08:55:00Z", state: "unknown"),
             I("codex", 102, cwd: @"C:\Users\me", repo: null, mb: null, started: null, state: "idle"),
             I("job", 9200, side: "wsl", cwd: null, repo: null, mb: 300, started: "2026-11-16T08:58:00Z", state: "working", slot: 1,
                 evidence: "holds slot 1, its command running since 2026-11-16T08:58:00Z", command: "make test", guestPid: 4242, guestDistro: "Ubuntu")),
         Wsl("Ubuntu",
-            I("claude", 300, side: "wsl", cwd: "/mnt/d/Bosun", repo: "/mnt/d/Bosun", mb: 512, started: "2026-11-16T08:30:00Z", state: "reviewing", evidence: "runs under astra's review (dispatcher pid 77)"),
+            I("claude", 300, side: "wsl", cwd: "/mnt/d/src/Bosun", repo: "/mnt/d/src/Bosun", mb: 512, started: "2026-11-16T08:30:00Z", state: "reviewing", evidence: "runs under astra's review (dispatcher pid 77)"),
             I("job", 4242, side: "wsl", cwd: "/home/me/app", repo: "/home/me/app", mb: 900, started: "2026-11-16T08:58:00Z", state: "unknown", command: "make test", name: "bosun")));
 }
 

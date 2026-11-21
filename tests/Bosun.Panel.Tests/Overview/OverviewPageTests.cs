@@ -316,7 +316,7 @@ public class OverviewPageTests
     static Bosun.Core.Instances.InstancesView ScanOf(string kind) => kind switch
     {
         "both" => Both(),
-        "stale" => View(null, Win(I("claude", 100, repo: "D:/Bosun")), StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), I("claude", 300, side: "wsl", repo: "/home/me/app"))),
+        "stale" => View(null, Win(I("claude", 100, repo: "D:/src/Bosun")), StaleWsl("Ubuntu", TimeSpan.FromMinutes(12), I("claude", 300, side: "wsl", repo: "/home/me/app"))),
         "unread" => View(null, Failed("windows", null, "bosun instances --json did not answer within 20 s and was stopped."), Wsl("Ubuntu", I("claude", 300, side: "wsl"))),
         "empty" => View(null, Win(), Wsl("Ubuntu")),
         "unlisted" => View(Unlisted, Win(I("claude", 100))),

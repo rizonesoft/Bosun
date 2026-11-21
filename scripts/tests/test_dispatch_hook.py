@@ -57,19 +57,19 @@ class Clean(unittest.TestCase):
                 self.assertIsNone(hook.verdict(payload(command)))
 
     def test_each_command_is_read_in_its_own_shell(self):
-        wrapped = "bash -c 'python scripts/review-dispatch.py --writer claude --prompt R:/scratch/review.md &'"
+        wrapped = "bash -c 'python scripts/review-dispatch.py --writer claude --prompt R:/work/review.md &'"
         self.assertIn("not detached", hook.verdict(payload(wrapped, "PowerShell", background=True)))
-        quoted = 'python scripts/review-dispatch.py --writer claude --prompt "R:/scratch/research & review.md"'
+        quoted = 'python scripts/review-dispatch.py --writer claude --prompt "R:/work/research & review.md"'
         self.assertIsNone(hook.verdict(payload(quoted, background=True)))
-        two_lines = "Write-Output starting\n& python scripts/review-dispatch.py --prompt R:/scratch/review.md"
+        two_lines = "Write-Output starting\n& python scripts/review-dispatch.py --prompt R:/work/review.md"
         self.assertIsNone(hook.verdict(payload(two_lines, "PowerShell", background=True)))
         self.assertIn("not detached", hook.verdict(payload("Write-Output a; " + REVIEW + " &", "PowerShell", background=True)))
 
     def test_a_backgrounded_pipeline_and_a_continued_line_are_seen(self):
-        self.assertIn("not detached", hook.verdict(payload(REVIEW + " | tee R:/scratch/review.log &", background=True)))
+        self.assertIn("not detached", hook.verdict(payload(REVIEW + " | tee R:/work/review.log &", background=True)))
         self.assertIn("not detached", hook.verdict(payload(REVIEW + " \\\n&", background=True)))
         self.assertIn("not detached", hook.verdict(payload(REVIEW + " `\n&", "PowerShell", background=True)))
-        self.assertIsNone(hook.verdict(payload(REVIEW + " | tee R:/scratch/review.log", background=True)))
+        self.assertIsNone(hook.verdict(payload(REVIEW + " | tee R:/work/review.log", background=True)))
         self.assertIsNone(hook.verdict(payload(REVIEW + " 2>&1 | & tee x.log", "PowerShell", background=True)))
 
     def test_a_backgrounded_list_and_a_group_are_seen(self):
@@ -124,7 +124,7 @@ class Clean(unittest.TestCase):
         self.assertIsNone(hook.verdict(payload(base + " 2>&1 | tail -3", background=True)))
 
     def test_every_spelling_argparse_accepts_is_a_review(self):
-        for args in ("--prompt=R:/scratch/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
+        for args in ("--prompt=R:/work/p.md", "--pro p.md", "--writer claude --prompt p.md", "--writer=claude --prom=p.md"):
             command = f"python scripts/review-dispatch.py {args}"
             with self.subTest(args):
                 self.assertIn("not detached", hook.verdict(payload(command + " &", background=True)))

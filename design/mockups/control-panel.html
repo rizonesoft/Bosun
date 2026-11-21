@@ -103,7 +103,7 @@ Settings:{g:'App',i:'settings',s:'Every setting here has a named consumer.',b:()
 About:{g:'App',i:'info',s:'What is installed.',b:()=>card('Bosun','info','<div class="note">Version, commit, .NET runtime, log folders and licences.</div>')},
 };
 const nav=document.getElementById('nav'),main=document.getElementById('page'),marker=document.getElementById('marker');let group='',timer;
-const REPOS=[{n:'Bosun',side:'Windows',p:'D:\\GitHub\\Bosun'},{n:'Steward',side:'Windows',p:'R:\\GitHub\\Steward'},{n:'Recto',side:'Windows',p:'R:\\GitHub\\Recto'},{n:'Office',side:'Windows',p:'R:\\GitHub\\Office'},{n:'sample-api',side:'WSL',p:'~/code/sample-api',d:'Ubuntu'},{n:'sample-web',side:'WSL',p:'~/code/sample-web',d:'Ubuntu',off:1}];
+const REPOS=[{n:'Bosun',side:'Windows',p:'D:\\src\\Bosun'},{n:'Steward',side:'Windows',p:'R:\\src\\Steward'},{n:'Recto',side:'Windows',p:'R:\\src\\Recto'},{n:'Office',side:'Windows',p:'R:\\src\\Office'},{n:'sample-api',side:'WSL',p:'~/code/sample-api',d:'Ubuntu'},{n:'sample-web',side:'WSL',p:'~/code/sample-web',d:'Ubuntu',off:1}];
 let repo=REPOS[0],current='Overview';
 const REPO_PAGES=['Plan','Reviews','Unattended run','Hooks and automations'];
 const repoOpts=s=>`<optgroup label="${s}">`+REPOS.filter(r=>r.side===s).map(r=>`<option value="${r.n}"${r===repo?' selected':''}>${r.n}</option>`).join('')+'</optgroup>';

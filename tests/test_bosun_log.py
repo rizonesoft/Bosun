@@ -30,8 +30,8 @@ class RepoForDir(unittest.TestCase):
         )
 
     def test_windows_mounted_repo_is_attributed(self):
-        gits = {"/mnt/d/GitHub/Bosun"}
-        self.assertEqual(dl.repo_for_dir("/mnt/d/GitHub/Bosun/src", gits.__contains__, {}), "/mnt/d/GitHub/Bosun")
+        gits = {"/mnt/d/src/Bosun"}
+        self.assertEqual(dl.repo_for_dir("/mnt/d/src/Bosun/src", gits.__contains__, {}), "/mnt/d/src/Bosun")
 
     def test_no_repo_is_empty(self):
         self.assertEqual(dl.repo_for_dir("/home/u", set().__contains__, {}), "")
@@ -323,10 +323,10 @@ class Instances(unittest.TestCase):
         self.assertEqual(dl.log_folder(logs, self.table(self.drive("/mnt/c", "C"), bind))[0], "/mnt/c/Users/me/AppData/Local/Bosun/logs")
         found, why = dl.log_folder(logs, self.table(bind))  # only the read-only route: none to write to
         self.assertIsNone(found)
-        # Round 12: a read-only self-bind over /mnt/c/Bosun inside a writable C:; the path lands in it, so /win is used.
+        # Round 12: a read-only self-bind over /mnt/c/src/Bosun inside a writable C:; the path lands in it, so /win is used.
         win = self.drive("/win", "C")
-        ro_child = self.drive("/mnt/c/Bosun", "C", parent=500).replace(" / /mnt/c/Bosun rw,", " /Bosun /mnt/c/Bosun ro,")
-        self.assertEqual(dl.log_folder("C:/Bosun/logs", self.table(self.drive("/mnt/c", "C", id=500), win, ro_child))[0], "/win/Bosun/logs")
+        ro_child = self.drive("/mnt/c/src/Bosun", "C", parent=500).replace(" / /mnt/c/src/Bosun rw,", " /src/Bosun /mnt/c/src/Bosun ro,")
+        self.assertEqual(dl.log_folder("C:/src/Bosun/logs", self.table(self.drive("/mnt/c", "C", id=500), win, ro_child))[0], "/win/src/Bosun/logs")
         # The report says what is mounted, read-only or not: both map guest folders to Windows.
         self.assertEqual(dl.drive_mounts(self.table(bind))[0], [{"mount": "/srv/bosun-logs", "windows": "C:\\Users\\me\\AppData\\Local\\Bosun\\logs"}])
 
@@ -338,11 +338,11 @@ class Instances(unittest.TestCase):
 
     def test_a_route_this_user_cannot_write_through_gives_way_to_the_next(self):
         # Completion review: the more specific bind is inside a folder the logger can't enter; /mnt/c can be written.
-        logs = "C:/Bosun/logs"
-        private = self.drive("/home/other/bosun", "C").replace(" / /home/other/bosun ", " /Bosun /home/other/bosun ")
+        logs = "C:/src/Bosun/logs"
+        private = self.drive("/home/other/bosun", "C").replace(" / /home/other/bosun ", " /src/Bosun /home/other/bosun ")
         table = self.table(self.drive("/mnt/c", "C"), private)
         with unittest.mock.patch.object(dl, "reachable_for_writing", lambda path: not path.startswith("/home/other")):
-            self.assertEqual(dl.log_folder(logs, table)[0], "/mnt/c/Bosun/logs")
+            self.assertEqual(dl.log_folder(logs, table)[0], "/mnt/c/src/Bosun/logs")
         with unittest.mock.patch.object(dl, "reachable_for_writing", lambda path: False):
             found, why = dl.log_folder(logs, table)
         self.assertIsNone(found)
@@ -1715,7 +1715,7 @@ class InstallScript(unittest.TestCase):
         os.chmod(os.path.join(fake, "systemctl"), 0o755)
         environ = {k: v for k, v in os.environ.items() if k != "WSL_DISTRO_NAME"}
         environ.update(HOME=home, PATH=fake + os.pathsep + os.environ["PATH"], **env)
-        done = subprocess.run(["bash", os.path.join(os.path.dirname(__file__), "..", "wsl", "install.sh"), "/mnt/c/bosun.exe", logs],
+        done = subprocess.run(["bash", os.path.join(os.path.dirname(__file__), "..", "wsl", "install.sh"), "/mnt/c/src/bosun.exe", logs],
                               env=environ, capture_output=True, text=True, timeout=60)
         unit = os.path.join(home, ".config", "systemd", "user", "bosun-log.service")
         if not os.path.exists(unit):

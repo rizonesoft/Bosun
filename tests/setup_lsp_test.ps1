@@ -5,14 +5,14 @@ $ErrorActionPreference = 'Stop'
 $failed = 0
 function Case([string]$name, [object[]]$entries, [bool]$want) {
   $json = ConvertTo-Json -InputObject @($entries) -Depth 3
-  $got = Test-PluginInstalled -ListJson $json -Id 'clangd-lsp@claude-plugins-official' -Repo 'D:\Bosun'
+  $got = Test-PluginInstalled -ListJson $json -Id 'clangd-lsp@claude-plugins-official' -Repo 'D:\src\Bosun'
   if ($got -ne $want) { "FAIL $name (got $got, want $want)"; $script:failed++ } else { "ok   $name" }
 }
 $id = 'clangd-lsp@claude-plugins-official'
-Case 'installed for this checkout' @(@{ id = $id; scope = 'project'; projectPath = 'D:\Bosun' }) $true
-Case 'path compared without case or trailing slash' @(@{ id = $id; scope = 'project'; projectPath = 'd:\bosun\' }) $true
+Case 'installed for this checkout' @(@{ id = $id; scope = 'project'; projectPath = 'D:\src\Bosun' }) $true
+Case 'path compared without case or trailing slash' @(@{ id = $id; scope = 'project'; projectPath = 'd:\src\bosun\' }) $true
 Case 'installed for the user' @(@{ id = $id; scope = 'user' }) $true
-Case 'only installed for the old checkout' @(@{ id = $id; scope = 'project'; projectPath = 'R:\GitHub\Bosun' }) $false
-Case 'another plugin for this checkout' @(@{ id = 'pyright-lsp@claude-plugins-official'; scope = 'project'; projectPath = 'D:\Bosun' }) $false
+Case 'only installed for the old checkout' @(@{ id = $id; scope = 'project'; projectPath = 'R:\src\Bosun' }) $false
+Case 'another plugin for this checkout' @(@{ id = 'pyright-lsp@claude-plugins-official'; scope = 'project'; projectPath = 'D:\src\Bosun' }) $false
 Case 'nothing installed' @() $false
 if ($failed) { exit 1 }

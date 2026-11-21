@@ -12,10 +12,10 @@ function Case([string]$name, [string]$generator, [string]$homeDir, [string]$sour
   if ($got -ne $want) { "FAIL $name (stale: got $got, want $want)"; $script:failed++ } else { "ok   $name" }
 }
 try {
-  Case 'same generator and folder is reused' 'Ninja Multi-Config' 'D:/Bosun' 'D:\Bosun' $false
-  Case 'folder compared without case' 'Ninja Multi-Config' 'd:/bosun' 'D:\Bosun\' $false
-  Case 'moved checkout is configured fresh' 'Ninja Multi-Config' 'R:/GitHub/Bosun' 'D:\Bosun' $true
-  Case 'other generator is configured fresh' 'Visual Studio 18 2026' 'D:/Bosun' 'D:\Bosun' $true
-  if (Test-BuildCacheStale -Cache (Join-Path $dir 'missing.txt') -SourceDir 'D:\Bosun') { 'FAIL no cache needs no fresh'; $failed++ } else { 'ok   no cache needs no fresh' }
+  Case 'same generator and folder is reused' 'Ninja Multi-Config' 'D:/src/Bosun' 'D:\src\Bosun' $false
+  Case 'folder compared without case' 'Ninja Multi-Config' 'd:/src/bosun' 'D:\src\Bosun\' $false
+  Case 'moved checkout is configured fresh' 'Ninja Multi-Config' 'R:/src/Bosun' 'D:\src\Bosun' $true
+  Case 'other generator is configured fresh' 'Visual Studio 18 2026' 'D:/src/Bosun' 'D:\src\Bosun' $true
+  if (Test-BuildCacheStale -Cache (Join-Path $dir 'missing.txt') -SourceDir 'D:\src\Bosun') { 'FAIL no cache needs no fresh'; $failed++ } else { 'ok   no cache needs no fresh' }
 } finally { Remove-Item -LiteralPath $dir -Recurse -Force }
 if ($failed) { exit 1 }

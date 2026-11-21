@@ -1,7 +1,7 @@
 # Whether build/CMakeCache.txt can be reused for this checkout, used by scripts/build.ps1.
 #
 # CMake refuses a cache another generator wrote, and one written for another source folder (a checkout that moved,
-# such as R:\GitHub\Bosun to D:\Bosun on 2026-11-10). Both need `--fresh`, which rebuilds the cache and keeps the
+# such as R:\src\Bosun to D:\src\Bosun on 2026-11-10). Both need `--fresh`, which rebuilds the cache and keeps the
 # rest of build/ (the run's records).
 function Test-BuildCacheStale([string]$Cache, [string]$SourceDir, [string]$Generator = 'Ninja Multi-Config') {
   if (-not (Test-Path -LiteralPath $Cache)) { return $false }

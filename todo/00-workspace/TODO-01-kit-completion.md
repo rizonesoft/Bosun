@@ -23,8 +23,8 @@ title: "TODO-01 -- Finish the agent kit"
 ## Inputs
 
 - `docs/specs/2026-11-07-control-panel-design.md`, the table of sources.
-- `R:\GitHub\Recto\scripts\review-dispatch.py`, `scripts/campaign_guard.py:780`, `scripts/dispatch_hook.py`.
-- `R:\GitHub\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
+- `R:\src\Recto\scripts\review-dispatch.py`, `scripts/campaign_guard.py:780`, `scripts/dispatch_hook.py`.
+- `R:\src\Isotone\scripts\weakening-scan.py`, `native-std-check.py`, `native-pe-check.py`.
 - -> XREF: D00 T02 §2 -- consumes this file
 - -> XREF: D00 T03 §10 -- consumed by this file
 - -> XREF: D00 T02 §4 -- consumes this file

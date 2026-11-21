@@ -17,16 +17,16 @@ public class OpenCommandsTests
     [Fact]
     public void A_Windows_row_opens_Explorer_and_a_terminal_at_its_folder()
     {
-        var target = Target(new InstanceRow(I("claude", 1, cwd: @"D:\Bosun", repo: "D:/Bosun"), null));
-        Assert.Equal(new OpenTarget(null, @"D:\Bosun"), target);
+        var target = Target(new InstanceRow(I("claude", 1, cwd: @"D:\src\Bosun", repo: "D:/src/Bosun"), null));
+        Assert.Equal(new OpenTarget(null, @"D:\src\Bosun"), target);
         var folder = OpenCommands.Folder(target);
         Assert.Equal("explorer.exe", folder.FileName);
-        Assert.Equal([@"D:\Bosun"], folder.ArgumentList);
+        Assert.Equal([@"D:\src\Bosun"], folder.ArgumentList);
         var wt = OpenCommands.Terminal(target, windowsTerminal: true);
-        Assert.Equal(("wt.exe", @"D:\Bosun"), (wt.FileName, wt.WorkingDirectory));
+        Assert.Equal(("wt.exe", @"D:\src\Bosun"), (wt.FileName, wt.WorkingDirectory));
         Assert.Equal(["-d", "."], wt.ArgumentList);
         var console = OpenCommands.Terminal(target, windowsTerminal: false);           // no Windows Terminal: a console of its own
-        Assert.Equal(("cmd.exe", @"D:\Bosun", true), (console.FileName, console.WorkingDirectory, console.UseShellExecute));
+        Assert.Equal(("cmd.exe", @"D:\src\Bosun", true), (console.FileName, console.WorkingDirectory, console.UseShellExecute));
     }
 
     [Fact]
@@ -51,9 +51,9 @@ public class OpenCommandsTests
     public void A_WSL_row_under_mnt_opens_the_Windows_drive_in_Explorer_and_keeps_its_Linux_path_in_the_shell()
     {
         // The distro's drive mounts as its report gives them, which the merge puts on each row.
-        var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/mnt/d/Bosun/src", repo: "/mnt/d/Bosun"), "Ubuntu", Default));
-        Assert.Equal(@"D:\Bosun\src", OpenCommands.Folder(target).ArgumentList.Single());
-        Assert.Equal(@"D:\Bosun\src", OpenCommands.Terminal(target, true).WorkingDirectory);    // wsl.exe starts in /mnt/d/Bosun/src behind it
+        var target = Target(new InstanceRow(I("claude", 3, side: "wsl", cwd: "/mnt/d/src/Bosun/src", repo: "/mnt/d/src/Bosun"), "Ubuntu", Default));
+        Assert.Equal(@"D:\src\Bosun\src", OpenCommands.Folder(target).ArgumentList.Single());
+        Assert.Equal(@"D:\src\Bosun\src", OpenCommands.Terminal(target, true).WorkingDirectory);    // wsl.exe starts in /mnt/d/src/Bosun/src behind it
         Assert.Equal(@"C:\", OpenCommands.MountedDrive("/mnt/c", Default));
         Assert.Null(OpenCommands.MountedDrive("/mnt/cdrom/x", Default));                         // a folder named like a drive is not one
     }
@@ -104,10 +104,10 @@ public class OpenCommandsTests
         Assert.Equal(new OpenTarget("Debian", "/home/me/app"), named.Target);
         Assert.Equal((null, OpenCommands.NoDistro), OpenCommands.Resolve(new InstanceRow(I("job", 9, side: "wsl", cwd: "/home/me/app"), null)));
         // A Windows path is never handed to a WSL shell.
-        Assert.Equal((null, OpenCommands.NoDistro), OpenCommands.Resolve(new InstanceRow(I("job", 9, side: "wsl", cwd: @"D:\Bosun", guestDistro: "Debian"), null)));
+        Assert.Equal((null, OpenCommands.NoDistro), OpenCommands.Resolve(new InstanceRow(I("job", 9, side: "wsl", cwd: @"D:\src\Bosun", guestDistro: "Debian"), null)));
         Assert.Equal((null, OpenCommands.NoFolder), OpenCommands.Resolve(new InstanceRow(I("claude", 9, cwd: null, repo: null), null)));
         // Without a cwd, the repo.
-        Assert.Equal(@"D:/Bosun", OpenCommands.Resolve(new InstanceRow(I("claude", 9, cwd: null, repo: "D:/Bosun"), null)).Target!.Path);
+        Assert.Equal(@"D:/src/Bosun", OpenCommands.Resolve(new InstanceRow(I("claude", 9, cwd: null, repo: "D:/src/Bosun"), null)).Target!.Path);
     }
 
     [Fact]

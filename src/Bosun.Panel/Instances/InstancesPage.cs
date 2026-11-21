@@ -58,7 +58,7 @@ public sealed class InstanceLine : Observable
     /// <summary>The same instance across refreshes: its side, its distro and its pid.</summary>
     public string Key { get; }
 
-    /// <summary>The repo group's header: "D:/Bosun", "/home/me/app in WSL (Ubuntu)" or "Not in a repo".</summary>
+    /// <summary>The repo group's header: "D:/src/Bosun", "/home/me/app in WSL (Ubuntu)" or "Not in a repo".</summary>
     public string Group { get; }
 
     public int GroupOrder { get; }

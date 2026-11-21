@@ -119,6 +119,8 @@ jobs:
         run: pwsh tests\sync_test.ps1
       - name: Agent rules test
         run: pwsh tests\agent_rules_test.ps1
+      - name: Machine path check test
+        run: pwsh tests\machine_path_test.ps1
       - name: Campaign admin setup test
         run: pwsh tests\campaign_admin_test.ps1
       - name: Campaign hold test

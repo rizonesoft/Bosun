@@ -91,14 +91,14 @@ public sealed class InstanceClientTests : IDisposable
         Assert.All(view.Sides, s => Assert.True(s.Reading.HasValue && !s.Reading.IsStale, s.Reading.Why));
         Assert.Equal([["instances", "--json"]], Calls()); // WSL is read from its reports, never asked through wsl.exe
 
-        // D:/Bosun holds Windows' claude, codex and cmake job, Ubuntu's claude in /mnt/d/bosun (letter case aside), and the
+        // D:/src/Bosun holds Windows' claude, codex and cmake job, Ubuntu's claude in /mnt/d/src/bosun (letter case aside), and the
         // WSL job joined: memory and folder from Ubuntu's report, slot and state from the Windows holder.
-        var bosun = Assert.Single(view.Groups, g => g.Repo == "D:/Bosun");
+        var bosun = Assert.Single(view.Groups, g => g.Repo == "D:/src/Bosun");
         Assert.Null(bosun.Distro);
         Assert.Equal([("claude", 4024116L), ("claude", 87544L), ("codex", 6060L), ("job", 4321L), ("job", 9100L)],
             bosun.Rows.Select(r => (r.Instance.Kind, r.Instance.Pid)).OrderBy(x => x.Kind).ThenBy(x => x.Pid.ToString()));
         var joined = bosun.Rows.Single(r => r.Instance.Pid == 4321);
-        Assert.Equal(("Ubuntu", 1, "working", 900L, "/mnt/d/bosun", "make -j8"),
+        Assert.Equal(("Ubuntu", 1, "working", 900L, "/mnt/d/src/bosun", "make -j8"),
             (joined.Distro, joined.Instance.Slot, joined.Instance.State, joined.Instance.PrivateMb, joined.Instance.Cwd, joined.Instance.Command));
         Assert.DoesNotContain(view.Groups.SelectMany(g => g.Rows), r => r.Instance.Pid == 9200); // the holder is shown as its half
 
@@ -154,7 +154,7 @@ public sealed class InstanceClientTests : IDisposable
         var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
         Assert.StartsWith($"No WSL distro has reported its instances to {_logs}, so only Windows is listed.", view.WslNotice);
         Assert.Equal(["Windows"], view.Sides.Select(s => s.Name));
-        Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
+        Assert.Contains(view.Groups, g => g.Repo == "D:/src/Bosun");
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public sealed class InstanceClientTests : IDisposable
         var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
         Assert.Equal(ReadingProblem.Invalid, ubuntu.Problem);
         Assert.Contains("instances-wsl-Ubuntu.json is not an instances report", ubuntu.Why);
-        Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
+        Assert.Contains(view.Groups, g => g.Repo == "D:/src/Bosun");
         Assert.Contains(view.Groups, g => g.Distro == "Debian");
 
         // And the reverse: Windows failed, the distro's rows kept.
@@ -245,7 +245,7 @@ public sealed class InstanceClientTests : IDisposable
     [Fact]
     public async Task An_editor_s_windows_go_in_each_repo_they_hold_a_WSL_window_in_its_own_distro_s()
     {
-        // D03 T02 §4: one Windows editor with a window on D:/Bosun and WSL windows on the same guest path in two distros.
+        // D03 T02 §4: one Windows editor with a window on D:/src/Bosun and WSL windows on the same guest path in two distros.
         Report("Ubuntu", "wsl-ubuntu.json");
         Report("Debian", "wsl-debian.json");
         var doc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
@@ -258,14 +258,14 @@ public sealed class InstanceClientTests : IDisposable
             row["repo"] = repo;
             return row;
         }
-        rows.Add(Editor("s1#0", "windows", null, @"D:\Bosun\src", "D:/Bosun"));
+        rows.Add(Editor("s1#0", "windows", null, @"D:\src\Bosun\src", "D:/src/Bosun"));
         rows.Add(Editor("s2#0", "wsl", "Ubuntu", "/home/dev/projects/app", "/home/dev/projects/app"));
         rows.Add(Editor("s3#0", "wsl", "Debian", "/home/dev/projects/app", "/home/dev/projects/app"));
         var view = await Fake(Answer(Write("editor.json", doc.ToJsonString()))).ReadAsync(Token);
         Assert.True(view.Sides[0].Reading.HasValue, view.Sides[0].Reading.Why);
         var editor = view.Groups.SelectMany(g => g.Rows.Select(r => (g.Repo, g.Distro, Window: r.Instance.Window, r.Instance.Pid))).Where(x => x.Pid == 777)
             .OrderBy(x => x.Window, StringComparer.Ordinal).Select(x => (x.Repo, x.Distro, x.Window)).ToList();
-        Assert.Equal([("D:/Bosun", null, "s1#0"), ("/home/dev/projects/app", "Ubuntu", "s2#0"), ("/home/dev/projects/app", "Debian", "s3#0")], editor);
+        Assert.Equal([("D:/src/Bosun", null, "s1#0"), ("/home/dev/projects/app", "Ubuntu", "s2#0"), ("/home/dev/projects/app", "Debian", "s3#0")], editor);
         // Each WSL window shares its distro's group with that distro's own instances, never the other's.
         var ubuntuApp = view.Groups.Single(g => g is { Repo: "/home/dev/projects/app", Distro: "Ubuntu" });
         Assert.Contains(ubuntuApp.Rows, r => r.Instance.Window == "s2#0");
@@ -295,13 +295,13 @@ public sealed class InstanceClientTests : IDisposable
     public void Each_row_takes_its_own_distro_s_drive_mounts_and_an_unknown_one_keeps_the_guest_path()
     {
         // D03 T02 §6. Ubuntu has D: at /mnt/d; Debian moved its drives, D: at /windir/d. A Windows editor has a window on
-        // /mnt/d/Bosun in each distro, and Windows saw an unjoined holder in Debian with that repo.
+        // /mnt/d/src/Bosun in each distro, and Windows saw an unjoined holder in Debian with that repo.
         var ubuntu = Wsl("wsl-ubuntu.json", Drives(("/mnt/c", "C:\\"), ("/mnt/d", "D:\\")));
-        var debian = Wsl("wsl-debian.json", Drives(("/windir/d", "D:\\")), Row("claude", 7001, "wsl", "/windir/d/Bosun", "/windir/d/Bosun"), Row("claude", 7002, "wsl", "/mnt/d/Bosun", "/mnt/d/Bosun"));
+        var debian = Wsl("wsl-debian.json", Drives(("/windir/d", "D:\\")), Row("claude", 7001, "wsl", "/windir/d/src/Bosun", "/windir/d/src/Bosun"), Row("claude", 7002, "wsl", "/mnt/d/src/Bosun", "/mnt/d/src/Bosun"));
         var windowsDoc = JsonNode.Parse(File.ReadAllText(Fixture("windows.json")))!.AsObject();
         JsonObject Editor(string window, string distro)
         {
-            var row = Row("code", 777, "windows", "/mnt/d/Bosun", "/mnt/d/Bosun");
+            var row = Row("code", 777, "windows", "/mnt/d/src/Bosun", "/mnt/d/src/Bosun");
             row["placed_by"] = "window";
             row["window"] = window;
             row["location"] = "wsl";
@@ -309,7 +309,7 @@ public sealed class InstanceClientTests : IDisposable
             row["shared_mb"] = 10;
             return row;
         }
-        var holder = Row("job", 9300, "wsl", null, "/mnt/d/Bosun");
+        var holder = Row("job", 9300, "wsl", null, "/mnt/d/src/Bosun");
         holder["slot"] = 2;
         holder["guest_pid"] = 99999;
         holder["guest_distro"] = "Debian";
@@ -325,29 +325,29 @@ public sealed class InstanceClientTests : IDisposable
         }
 
         var groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), Fresh("Debian", debian)]);
-        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Window == "u#1"));
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));     // a guest folder in Debian
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 9300));          // the unjoined holder: its distro's
-        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));                 // Debian's own D: folder
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
+        Assert.Equal(("D:/src/Bosun", null), Group(groups, r => r.Instance.Window == "u#1"));
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));     // a guest folder in Debian
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 9300));          // the unjoined holder: its distro's
+        Assert.Equal(("D:/src/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));                 // Debian's own D: folder
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
 
         // Debian's report missing: its editor window and holder have no mounts, so they stay Debian's guest folders.
         groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu)]);
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
         Assert.Null(groups.SelectMany(g => g.Rows).Single(r => r.Instance.Pid == 9300).Mounts);
 
         // Debian's report stale: it speaks for its own rows (kept for the page), never for the live editor's window.
         var stale = new SideReading("wsl", "Debian", Reading<InstancesDoc>.Stale(debian, Now, TimeSpan.FromMinutes(12), "WSL (Debian) last reported 12 minutes ago."));
         groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), stale], keepStale: true);
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
         Assert.Null(groups.SelectMany(g => g.Rows).Single(r => r.Instance.Window == "d#1").Mounts);
-        Assert.Equal(("D:/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));
+        Assert.Equal(("D:/src/Bosun", null), Group(groups, r => r.Instance.Pid == 7001));
 
         // Debian's report older than drive mounts: not known, so even /mnt/d stays Debian's own.
-        var legacy = Wsl("wsl-debian.json", null, Row("claude", 7002, "wsl", "/mnt/d/Bosun", "/mnt/d/Bosun"));
+        var legacy = Wsl("wsl-debian.json", null, Row("claude", 7002, "wsl", "/mnt/d/src/Bosun", "/mnt/d/src/Bosun"));
         groups = InstanceClient.Merge([Win(), Fresh("Ubuntu", ubuntu), Fresh("Debian", legacy)]);
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
-        Assert.Equal(("/mnt/d/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Pid == 7002));
+        Assert.Equal(("/mnt/d/src/Bosun", "Debian"), Group(groups, r => r.Instance.Window == "d#1"));
     }
 
     [Fact]
@@ -376,7 +376,7 @@ public sealed class InstanceClientTests : IDisposable
         var ubuntu = JsonNode.Parse(File.ReadAllText(Fixture("wsl-ubuntu.json")))!.AsObject();
         var half = ubuntu["instances"]!.AsArray().First(r => r!["pid"]!.GetValue<long>() == 4321)!.AsObject();
         half["repo"] = null;
-        half["repo_why"] = "/mnt/d/bosun/inner could not be checked for a repo: Permission denied";
+        half["repo_why"] = "/mnt/d/src/bosun/inner could not be checked for a repo: Permission denied";
         var wsl = JsonSerializer.Deserialize(ubuntu.ToJsonString(), InstanceJson.Default.InstancesDoc)!;
         var plain = JsonSerializer.Deserialize(File.ReadAllText(Fixture("windows.json")), InstanceJson.Default.InstancesDoc)!;
         var joined = InstanceClient.Merge([new SideReading("windows", null, Reading<InstancesDoc>.Of(plain, Now)), new SideReading("wsl", "Ubuntu", Reading<InstancesDoc>.Of(wsl, Now))])
@@ -435,7 +435,7 @@ public sealed class InstanceClientTests : IDisposable
         var view = await Fake(Answer(Fixture("windows.json"))).ReadAsync(Token);
         var ubuntu = view.Sides.Single(s => s.Distro == "Ubuntu").Reading;
         Assert.Equal((ReadingProblem.Invalid, true), (ubuntu.Problem, ubuntu.Why!.EndsWith("has no schema_version.", StringComparison.Ordinal)));
-        Assert.Contains(view.Groups, g => g.Repo == "D:/Bosun");
+        Assert.Contains(view.Groups, g => g.Repo == "D:/src/Bosun");
         Assert.Contains(view.Groups, g => g.Distro == "Debian");
     }
 

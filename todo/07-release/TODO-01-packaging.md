@@ -16,7 +16,7 @@ title: "TODO-01 -- Packaging and budgets"
 ## Inputs
 
 - `design/SPEC.md` §16.
-- `R:\GitHub\Steward\publish.sh`, `R:\GitHub\Steward\scripts\signing-status.ps1`.
+- `R:\src\Steward\publish.sh`, `R:\src\Steward\scripts\signing-status.ps1`.
 - -> XREF: D00 T02 §2 -- consumed by this file
 - -> XREF: D02 T02 §4 -- consumed by this file
 - -> XREF: D05 T02 §3 -- consumed by this file
@@ -90,7 +90,7 @@ Unsigned builds work for a private tool, but SmartScreen warns on other machines
 1. Port `scripts/signing-status.ps1`. Done when: it reports all binaries.
 2. Record the decision. Done when: the script reports unsigned as the expected state.
 
-- [ ] Port from `R:\GitHub\Steward\scripts\signing-status.ps1`. Done when: every `.exe`, `.dll` and `.ps1` lists its state.
+- [ ] Port from `R:\src\Steward\scripts\signing-status.ps1`. Done when: every `.exe`, `.dll` and `.ps1` lists its state.
 - [ ] Record unsigned as the decision in `scripts/signing-status.ps1`. Done when: `STATUS` output says unsigned by decision, and a signed file is reported as a mismatch. Cheaper substitute: claiming signed while unsigned.
 - [ ] Commit: `release: signing status`
 

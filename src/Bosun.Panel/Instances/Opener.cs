@@ -7,7 +7,7 @@ namespace Bosun.Panel.Instances;
 
 /// <summary>Where an instance's Open folder and Open terminal go: a Windows folder, or a folder inside a WSL distro.</summary>
 /// <param name="Distro">The distro, for a WSL folder; null for a Windows one.</param>
-/// <param name="Path">The folder as its side writes it: <c>D:\Bosun</c>, or <c>/home/me/app</c> or <c>/mnt/c/src</c>.</param>
+/// <param name="Path">The folder as its side writes it: <c>D:\src\Bosun</c>, or <c>/home/me/app</c> or <c>/mnt/c/src</c>.</param>
 /// <param name="Mounts">The Windows drives the distro has mounted (D03 T02 §6); null when not known, so no guest path is taken for a drive's folder.</param>
 public sealed record OpenTarget(string? Distro, string Path, DriveMounts? Mounts = null)
 {

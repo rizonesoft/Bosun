@@ -16,7 +16,7 @@ title: "TODO-02 -- The .NET foundation"
 
 ## Inputs
 
-- `R:\GitHub\Steward\Directory.Build.props` and `R:\GitHub\Isotone\Directory.Packages.props`.
+- `R:\src\Steward\Directory.Build.props` and `R:\src\Isotone\Directory.Packages.props`.
 - `docs/specs/2026-11-07-control-panel-design.md`, the technology section.
 - -> XREF: D00 T01 §6 -- consumed by this file
 - -> XREF: D02 T01 §1 -- consumes this file
