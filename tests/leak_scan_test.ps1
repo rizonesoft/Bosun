@@ -392,6 +392,15 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $owner @("${archived}:refs/archive/fixture")
   Check 'a file pushed to a custom ref is checked' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote for-each-ref refs/archive)) "(exit $($r.Exit): $($r.Text))"
 
+  # --- a commit message in any encoding git knows (Windows-1250 here) ---
+  $lodz = "$([char]0x141)$([char]0xF3)d$([char]0x17A)"
+  $polish = New-Checkout 'polish' $remote -Deny @($lodz)
+  $message1250 = Join-Path $work 'cp1250-message.txt'
+  [IO.File]::WriteAllBytes($message1250, [Text.Encoding]::GetEncoding(1250).GetBytes("Trip to $lodz"))
+  git -C $polish -c i18n.commitEncoding=windows-1250 commit -q --allow-empty -F $message1250
+  $r = Invoke-Push $polish @('main')
+  Check 'an entry in a Windows-1250 commit message is found through git''s re-encoding' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry') "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

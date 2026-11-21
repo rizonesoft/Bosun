@@ -180,9 +180,10 @@ if ($deny.Count -and $outgoing.Count) {
       }
     }
     # The whole commit object as published: its author and committer names and addresses as well as its message.
-    # The raw commit object, read under every encoding as a file is: an encoding header (i18n.commitEncoding) can store
-    # the message in Windows-1252 or anything else.
-    if (@(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'commit', $c)) | Where-Object { Test-Deny $_ }).Count) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
+    # The raw commit object, read under every encoding as a file is, and    # Git itself re-encodes by the commit's encoding header (Windows-1250, Shift-JIS or any other it knows), so its UTF-8
+    # rendering of the message and identities is read too.
+    $asGit = [Text.Encoding]::UTF8.GetString((Get-GitBytes @('log', '-1', '--encoding=UTF-8', '--format=%an%n%ae%n%cn%n%ce%n%B', $c)))
+    if ((Test-Deny $asGit) -or @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'commit', $c)) | Where-Object { Test-Deny $_ }).Count) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
   }
 }
 # --- gitleaks over files a tag publishes without a commit (a tag on a file or a tree) ---
