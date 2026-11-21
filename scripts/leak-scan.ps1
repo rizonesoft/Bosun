@@ -49,13 +49,6 @@ function Invoke-Git([string[]]$arguments) {
   @($out | ForEach-Object { "$_" })
 }
 
-# The one gitleaks both scans below run, resolved once from PATH, so each uses the same tool.
-$gitleaksExe = (Get-Command gitleaks -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
-if (-not $gitleaksExe) {
-  $remedy = if ($IsWindows) { 'winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user' }
-            else { 'download gitleaks_8.30.1_linux_x64.tar.gz from https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1, check it against gitleaks_8.30.1_checksums.txt, and put gitleaks on PATH' }
-  Stop-Scan "gitleaks is not installed, so the commits cannot be checked for secrets: $remedy"
-}
 
 # Git writes the ref lines in UTF-8; they are read as bytes, never through the console's code page (437 here), so a
 # name like café reaches the checks as git publishes it.
@@ -84,7 +77,16 @@ foreach ($line in $Updates) {
   $commit = "$(& git -C $repoRoot rev-parse --verify --quiet "$($parts[1])^{commit}" 2>$null)"
   if ($commit) { $locals.Add($commit) }
 }
-if (-not $history -and -not $locals.Count -and -not $tags.Count) { exit 0 }
+if (-not $history -and -not $locals.Count -and -not $tags.Count) { exit 0 }  # only deletions: nothing is published
+# The one gitleaks both scans below run, resolved once from PATH, so each uses the same tool; needed only once there is
+# something to scan, so a push of deletions alone goes through without it.
+$gitleaksExe = (Get-Command gitleaks -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+if (-not $gitleaksExe) {
+  $remedy = if ($IsWindows) { 'winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user' }
+            else { 'download gitleaks_8.30.1_linux_x64.tar.gz from https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1, check it against gitleaks_8.30.1_checksums.txt, and put gitleaks on PATH' }
+  Stop-Scan "gitleaks is not installed, so the commits cannot be checked for secrets: $remedy"
+}
+
 
 # What the destination already has, asked of the destination.
 # A remote given as an address (a push to a bare URL) is named for git through its environment configuration, so the
@@ -141,6 +143,11 @@ $outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $revisions)) } el
 }
 
 # --- the private deny list, read first so no finding of either pass prints a path holding an entry ---
+# Every comparison folds both sides one way: NFKC (composed and decomposed accents, full-width letters alike), then
+# invariant upper case, which maps final and medial sigma alike (lower case maps the capital to medial sigma only).
+function Get-Folded([string]$value) {
+  try { $value.Normalize([Text.NormalizationForm]::FormKC).ToUpperInvariant() } catch { $value.ToUpperInvariant() }
+}
 $denyPath = Join-Path $repoRoot '.private' 'deny-list.txt'
 $deny = @()
 if (Test-Path -LiteralPath $denyPath) {
@@ -148,12 +155,12 @@ if (Test-Path -LiteralPath $denyPath) {
   catch { Stop-Scan 'the deny list (.private/deny-list.txt) exists but could not be read' }
   # A comment is a line whose first character is #, tested on the line as written, so an indented `  # name` is an
   # entry. An entry's surrounding whitespace is removed, so a stray space never narrows a match.
-  $deny = @($text -split "`r?`n" | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+  $deny = @($text -split "`r?`n" | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { Get-Folded $_ })
 }
 function Test-Deny([string]$value) {
   if (-not $value) { return $false }
-  $lower = $value.ToLowerInvariant()
-  foreach ($entry in $deny) { if ($lower.Contains($entry, [StringComparison]::Ordinal)) { return $true } }
+  $folded = Get-Folded $value
+  foreach ($entry in $deny) { if ($folded.Contains($entry, [StringComparison]::Ordinal)) { return $true } }
   $false
 }
 
@@ -181,7 +188,11 @@ function ConvertFrom-Blob([byte[]]$bytes) {
   # D00 T05 §4); six readings of a pushed file cost microseconds.
   foreach ($encoding in Get-Encodings) { ConvertTo-Reading $encoding $bytes }
 }
-function Get-Encodings { [Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(1252), [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false) }
+# Every code page Windows saves "ANSI" text in (1250 to 1258 by region, 874 Thai, 932, 936, 949 and 950 East Asian),
+# KOI8-R and KOI8-U, then UTF-16 and UTF-32 both ways: a name saved by any regional Windows is read as it was written.
+$script:encodings = @([Text.Encoding]::UTF8) + @(foreach ($page in 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258, 874, 932, 936, 949, 950, 20866, 21866) { [Text.Encoding]::GetEncoding($page) }) +
+  @([Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false))
+function Get-Encodings { $script:encodings }
 function ConvertTo-Reading($encoding, [byte[]]$bytes) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
 # Names git publishes are bytes, which on Linux and WSL need not be UTF-8 (a legacy archive's file name, a ref typed
 # in a Latin-1 shell). They are cut out of git's raw output at its byte separators and each name is read under every
@@ -272,10 +283,10 @@ if ($deny.Count -and $outgoing.Count) {
       $reported = $false
       foreach ($encoding in Get-Encodings) {
         $had = @{}
-        foreach ($text in ((ConvertTo-Reading $encoding $oldBytes).ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
+        foreach ($text in ((Get-Folded (ConvertTo-Reading $encoding $oldBytes)) -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
         $seen = @{}
         $number = 0
-        foreach ($text in ((ConvertTo-Reading $encoding $newBytes).ToLowerInvariant() -split "`r?`n")) {
+        foreach ($text in ((Get-Folded (ConvertTo-Reading $encoding $newBytes)) -split "`r?`n")) {
           $number++
           if (-not (Test-Deny $text)) { continue }
           $seen[$text] = 1 + [int]$seen[$text]

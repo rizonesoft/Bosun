@@ -533,6 +533,19 @@ Client: Acme Corp (EU)"))
   Check 'blank and # lines in the deny list match nothing' ($r.Exit -eq 0 -and (Get-Head $remote 'refs/heads/main') -eq $fine) "(exit $($r.Exit): $($r.Text))"
   git -C $owner pull -q --ff-only 2>$null
 
+  # --- case and code page: a Greek name in another case, a Polish name saved as Windows-1250 ---
+  $regional = New-Checkout 'regional' (New-Remote 'regional-remote') -Deny @("$([char]0x039D)$([char]0x0399)$([char]0x039A)$([char]0x039F)$([char]0x03A3)", "$([char]0x0141)$([char]0x00F3)d$([char]0x017A)")
+  $regionalBare = Join-Path $work 'regional-remote.git'
+  $regionalBefore = Get-Refs $regionalBare
+  $greek = Add-Commit $regional 'greek.txt' 'clean' "Notes for $([char]0x03BD)$([char]0x03B9)$([char]0x03BA)$([char]0x03BF)$([char]0x03C2)"
+  $r = Invoke-Push $regional @('main')
+  Check 'a Greek entry in capitals matches its lower case with a final sigma' ($r.Exit -ne 0 -and $r.Text -match "$($greek.Substring(0, 12)): commit message or author: deny-list entry" -and (Get-Refs $regionalBare) -eq $regionalBefore) "(exit $($r.Exit): $($r.Text))"
+  git -C $regional reset -q --hard origin/main
+  [IO.File]::WriteAllBytes((Join-Path $regional 'export.csv'), [byte[]](0x69, 0x64, 0x2C, 0x63, 0x69, 0x74, 0x79, 0x0A, 0x31, 0x2C, 0xA3, 0xF3, 0x64, 0x9F, 0x0A))
+  git -C $regional add -A; git -C $regional commit -q -m export
+  $r = Invoke-Push $regional @('main')
+  Check 'an entry in a Windows-1250 file is found at its line' ($r.Exit -ne 0 -and $r.Text -match 'export.csv:2: deny-list entry' -and (Get-Refs $regionalBare) -eq $regionalBefore) "(exit $($r.Exit): $($r.Text))"
+
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
   $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')
   $spacedBare = Join-Path $work 'spaced-remote.git'
@@ -606,6 +619,10 @@ Client: Acme Corp (EU)"))
     $env:PATH = $withoutGitleaks
     try { $r = Invoke-Push $owner @('main') } finally { $env:PATH = $withTools }
     Check 'without gitleaks the push is refused with the install command' ($r.Exit -ne 0 -and $r.Text -match 'gitleaks is not installed' -and $r.Text -match 'winget install --id Gitleaks.Gitleaks' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+    $made = Invoke-Push $owner @("$(Get-Head $owner 'refs/remotes/origin/main'):refs/heads/obsolete")
+    $env:PATH = $withoutGitleaks
+    try { $r = Invoke-Push $owner @(':refs/heads/obsolete') } finally { $env:PATH = $withTools }
+    Check 'without gitleaks a push of deletions alone goes through' ($made.Exit -eq 0 -and $r.Exit -eq 0 -and -not (Get-Head $remote 'refs/heads/obsolete')) "(exit $($made.Exit)/$($r.Exit): $($r.Text))"
   }
   $lock = [IO.File]::Open((Join-Path $owner '.private\deny-list.txt'), 'Open', 'ReadWrite', 'None')
   try { $r = Invoke-Push $owner @('main') } finally { $lock.Dispose() }

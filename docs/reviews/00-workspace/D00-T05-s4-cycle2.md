@@ -32,3 +32,35 @@ OVERALL: needs-attention
 - Planned: gap 4 (object id and redaction on each deny refusal) in 843fb03
 - Planned: gap 5 (deletion case proves its setup) in 843fb03
 - Planned: gap 6 (-Updates named; -Range and -All added; §8 uses -All) in 843fb03
+
+## Round 1: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T07:04:04Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Seconds: 100
+- Lines: 15
+- Digest: 24f7adf345333816
+
+## adversarial
+
+**Verdict: needs-attention**
+
+1. **P1** [`scripts/leak-scan.ps1:155`](D:/GitHub/Bosun/scripts/leak-scan.ps1:155) misses case-insensitive matches in Greek names. Put `ΝΙΚΟΣ` in the deny list and push a commit whose message contains `νικος`. The guard lowercases both strings and compares them ordinally. PowerShell produces `σ` from uppercase `Σ`, while the lowercase name ends in `ς`. I verified that the guard’s comparison returns false for this pair. The private name can pass in an ordinary UTF-8 commit message.
+
+2. **P1** [`scripts/leak-scan.ps1:184`](D:/GitHub/Bosun/scripts/leak-scan.ps1:184) misses private names in Windows-1250 text exports. Put `Łódź` in the UTF-8 deny list and push a CSV containing that name saved as Windows-1250. Its bytes are `A3 F3 64 9F`. I verified that none of the six decodings the guard tries recovers the listed string. An otherwise clean export can therefore pass the hook with the private name intact.
+
+3. **P2** [`scripts/leak-scan.ps1:52`](D:/GitHub/Bosun/scripts/leak-scan.ps1:52) requires Gitleaks before reading the ref updates. On a checkout with the hook installed and Gitleaks absent from `PATH`, run `git push origin --delete obsolete` for an existing remote branch. The hook exits with the installation remedy before reaching its deletion-only success path. This prevents the owner from removing a published ref even though the push introduces nothing to scan.
+
+The comparison and decoding checks ran in memory. I did not execute the push reproductions.
+
+HIGHEST: P1  
+RECURRING: none  
+OVERALL: needs-attention
