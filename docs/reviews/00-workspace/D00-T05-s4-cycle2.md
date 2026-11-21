@@ -26,9 +26,9 @@ HIGHEST: P1
 PLAN: gaps  
 OVERALL: needs-attention
 
-- Planned: gap 1 (one rule for every gitleaks result) in the next commit
-- Planned: gap 2 (list-side spaces in the regression) in the next commit
-- Planned: gap 3 (Linux missing-tool test in CI) in the next commit
-- Planned: gap 4 (object id and redaction on each deny refusal) in the next commit
-- Planned: gap 5 (deletion case proves its setup) in the next commit
-- Planned: gap 6 (-Updates named; -Range and -All added; §8 uses -All) in the next commit
+- Planned: gap 1 (one rule for every gitleaks result) in 843fb03
+- Planned: gap 2 (list-side spaces in the regression) in 843fb03
+- Planned: gap 3 (Linux missing-tool test in CI) in 843fb03
+- Planned: gap 4 (object id and redaction on each deny refusal) in 843fb03
+- Planned: gap 5 (deletion case proves its setup) in 843fb03
+- Planned: gap 6 (-Updates named; -Range and -All added; §8 uses -All) in 843fb03
