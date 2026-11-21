@@ -333,6 +333,13 @@ Client: Acme Corp (EU)"))
   Check 'an author address holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
 
+  # --- UTF-16 with a byte-order mark and no NUL byte (CJK text) ---
+  $cjk = New-Checkout 'cjk' $remote -Deny @("$([char]0x6771)$([char]0x4EAC)")
+  [IO.File]::WriteAllBytes((Join-Path $cjk 'label.txt'), [byte[]](@(0xFF, 0xFE) + [Text.Encoding]::Unicode.GetBytes("$([char]0x6771)$([char]0x4EAC)")))
+  git -C $cjk add -A; git -C $cjk commit -q -m 'label'
+  $r = Invoke-Push $cjk @('main')
+  Check 'a UTF-16 file with a mark and no NUL byte is read as UTF-16' ($r.Exit -ne 0 -and $r.Text -match 'label.txt:1: deny-list entry') "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
