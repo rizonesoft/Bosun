@@ -1,0 +1,102 @@
+{
+  "ref": "D00 T05 \u00a74",
+  "title": "Pre-push leak guard with gitleaks and the private deny list",
+  "implementation_sha": "a583abcf8892b97416451f7500a7fdaeef4685ef",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/leak_scan_test.ps1 -> 93 checks, all passed, exit 0",
+    "wsl pwsh tests/linux/leak_scan_missing_tool_test.ps1 -> 3 checks, all passed",
+    "CI build https://github.com/rizonesoft/Bosun/actions/runs/44885800514 -> green at 8642b22 (leak-guard and linux jobs passed)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+    "verdict": "completed",
+    "candidate": "6db2f3f103e8ccf51144c10b09977541331a1dcf",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 5,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T05-s4-cycle2.md",
+    "candidate": "7f9e20a0256da80fe553dc1198ba0a380c42023f",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7f9e20a0256da80fe553dc1198ba0a380c42023f",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

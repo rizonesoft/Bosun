@@ -37,7 +37,7 @@ title: "TODO-05 -- Public core and private overlay"
 | 1 | §1 | Overlay folder, config lookup and the rule that admits it | -- | [x] |
 | 2 | §2 | Overlay clone in setup and pull after merge | §1 | [x] |
 | 3 | §3 | One sync command for both repositories | §2 | [x] |
-| 4 | §4 | Pre-push leak guard with gitleaks and the private deny list | §1 | [ ] |
+| 4 | §4 | Pre-push leak guard with gitleaks and the private deny list | §1 | [x] |
 | 5 | §5 | Agent rules split into public and overlay halves | §1 | [ ] |
 | 6 | §6 | Full-history secret scan in CI | §4 | [ ] |
 | 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [ ] |
@@ -170,6 +170,9 @@ Making the repository public was the irreversible step; from here every push is 
 **Test checkpoint:** `pwsh tests/leak_scan_test.ps1` exits 0, and fails when the deny-list pass in `scripts/leak-scan.ps1` is removed.
 
 > **Repair cycle:** 1: 2026-11-21: its 33 review rounds ran out with a P1 open (round 33: deny-list lines are trimmed before the # comment test, so an indented literal entry is lost); the new cycle fixes it under a fresh plan review (after: its 33 review rounds ran out with findings open)
+
+> **Verified:** 2026-11-21 | §4 | a583abcf8892b97416451f7500a7fdaeef4685ef
+> **Review:** `docs/reviews/d00-t05-s4.json`
 
 ## 5. Agent rules split into public and overlay halves
 
