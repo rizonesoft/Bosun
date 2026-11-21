@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 49 | Checklist items: 487
+Sections: 49 | Checklist items: 489
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -54,7 +54,7 @@ Sections: 49 | Checklist items: 487
 | [x]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 9     |
 | [x]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 6     |
 | [x]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 11    |
-| [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 9     |
+| [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 11    |
 | [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                      | none        | 8     |
 | [ ]    | D00 T06 §2  | Open findings, part 2 of 6                                      | none        | 8     |
 | [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                      | none        | 8     |
@@ -190,4 +190,4 @@ Sections: 6 | Checklist items: 27
 
 Progress: 99/133 verified sections, 9 ready to run now.
 
-Checklist: 962/1135 items completed (includes Commit items).
+Checklist: 962/1137 items completed (includes Commit items).
