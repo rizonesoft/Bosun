@@ -963,6 +963,8 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 8, 9, 29, 
 
 ## 26. Review dispatcher shows round times and settled sources, and takes non-section reviews
 
+> **Started:** 2026-11-21T22:02:47Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 10, 11 and 13, raised by the completion review of `D00 T01 §2`). `scripts/review-dispatch.py --list-rounds` shows each pass's `seconds` only under `--json`; the settled items carried into a prompt do not say which file and line they came from; and a review of a change that belongs to no TODO section is refused ("exactly one returned plan review is required before rounds"), although the `independent-review` skill sends every nontrivial change to the dispatcher.
 
 **Corrected 2026-11-21 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s26.md` returned five gaps (2 P1, 3 P2), planned in below: a verdict contract for `--kind change` (candidate, reviewer, effort, lenses, the round's verdict, retry on an empty reply, refusal of a second); both readers (`--list-rounds` and `stamp`) knowing the record; the destination enforced by place and by name; settled sources across repair cycles; a duration on every kind's own line.
