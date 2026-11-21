@@ -509,6 +509,14 @@ Client: Acme Corp (EU)"))
   Check 'a clean push to a destination with 900 tags goes through' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
   Check 'and the scan leaves no temporary refs behind' (-not (git -C $tagged for-each-ref 'refs/bosun-leak-scan/'))
 
+  # --- a cleanup deleting a file named with an entry is not refused for it ---
+  $cleanup = New-Checkout 'cleanup' $remote -Deny @('old-client')
+  $null = Add-Commit $cleanup 'old-client.txt' 'notes'
+  git -C $cleanup push -q --no-verify origin main 2>$null   # fixture only: the name already on the remote
+  git -C $cleanup rm -q old-client.txt; git -C $cleanup commit -q -m 'remove notes'
+  $r = Invoke-Push $cleanup @('main')
+  Check 'deleting a file named with an entry pushes' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

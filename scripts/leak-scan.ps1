@@ -50,7 +50,9 @@ if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) {
 if ($null -eq $Updates) {
   $stdin = [IO.MemoryStream]::new()
   [Console]::OpenStandardInput().CopyTo($stdin)
-  $Updates = @([Text.UTF8Encoding]::new($false).GetString($stdin.ToArray()) -split "`r?`n" | Where-Object { $_.Trim() })
+  $stdinBytes = $stdin.ToArray()
+  $Updates = @([Text.UTF8Encoding]::new($false).GetString($stdinBytes) -split "`r?`n" | Where-Object { $_.Trim() })
+
 }
 $locals = [Collections.Generic.List[string]]::new()
 $tags = [Collections.Generic.List[object]]::new()
@@ -158,6 +160,24 @@ function ConvertFrom-Blob([byte[]]$bytes) {
 }
 function Get-Encodings { [Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(1252), [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false) }
 function ConvertTo-Reading($encoding, [byte[]]$bytes) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
+# Names git publishes are bytes, which on Linux and WSL need not be UTF-8 (a legacy archive's file name, a ref typed
+# in a Latin-1 shell). They are cut out of git's raw output at its byte separators and each name is read under every
+# encoding, so a deny-list entry is found whatever the name's bytes. Only names a push publishes are passed in.
+function Split-Bytes([byte[]]$bytes, [byte]$separator) {
+  $parts = [Collections.Generic.List[object]]::new()
+  $start = 0
+  for ($n = 0; $n -le $bytes.Length; $n++) {
+    if ($n -eq $bytes.Length -or $bytes[$n] -eq $separator) {
+      if ($n -gt $start) { $parts.Add([byte[]]$bytes[$start..($n - 1)]) }
+      $start = $n + 1
+    }
+  }
+  ,$parts
+}
+function Test-DenyBytes([byte[]]$name) {
+  foreach ($encoding in Get-Encodings) { if (Test-Deny (ConvertTo-Reading $encoding $name)) { return $true } }
+  $false
+}
 
 # --- gitleaks over the outgoing commits ---
 # Findings are kept as parts (commit, path, place, what) and printed only at the end, once every secret matched is
@@ -190,10 +210,16 @@ if ($deny.Count -and $outgoing.Count) {
     $tree = if ($parent) { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', "$parent", $c) } else { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', '--root', $c) }
     $treeBytes = Get-GitBytes $tree
     $tokens = [Text.Encoding]::UTF8.GetString($treeBytes) -split "`0"
-    # A path git stores as other bytes than UTF-8 (a legacy archive's name, on Linux or WSL) is read under every encoding
-    # too, so a name holding an entry is found whatever its bytes.
-    foreach ($encoding in Get-Encodings) {
-      if (Test-Deny (ConvertTo-Reading $encoding $treeBytes)) { Add-Finding $c 'a path' '' 'deny-list entry (in a file name)'; break }
+    # Each published path as its own bytes: the destination of every record that is not a deletion, never a deleted path
+    # or a rename's source, so a cleanup that removes a name is not refused for it.
+    $records = Split-Bytes $treeBytes 0
+    for ($r = 0; $r -lt $records.Count; $r++) {
+      if ($records[$r][0] -ne [byte][char]':') { continue }
+      $status = [Text.Encoding]::ASCII.GetString($records[$r]).Split(' ')[-1]
+      $step = if ($status -match '^[RC]') { 2 } else { 1 }
+      $published = if ($r + $step -lt $records.Count) { $records[$r + $step] } else { $null }
+      $r += $step
+      if ($status -notmatch '^D' -and $published -and (Test-DenyBytes $published)) { Add-Finding $c 'a path' '' 'deny-list entry (in a file name)'; break }
     }
     for ($i = 0; $i -lt $tokens.Count; $i++) {
       if (-not $tokens[$i].StartsWith(':')) { continue }
@@ -301,6 +327,9 @@ foreach ($tag in $tags) {
 if ($deny.Count) {
   # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
   foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
+  # Each destination ref name as its own bytes (the third field of git's lines), when git gave them on standard input.
+  $refNameBytes = if ($stdinBytes) { @(foreach ($line in (Split-Bytes $stdinBytes 10)) { $fields = Split-Bytes $line 32; if ($fields.Count -ge 4) { ,$fields[2] } }) } else { @() }
+  foreach ($name in $refNameBytes) { if (Test-DenyBytes $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
 
   foreach ($tag in $tags) {
     if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in its name)'; continue }
@@ -316,7 +345,7 @@ if ($deny.Count) {
       if ($type -eq 'tag') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'tag', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
       elseif (-not $peelsToCommit -and $type -eq 'tree') {
         # Every path under the tree, whole (an entry can hold a separator), read as raw NUL-separated records.
-        $hit = @(([Text.Encoding]::UTF8.GetString((Get-GitBytes @('ls-tree', '-r', '-t', '-z', '--full-tree', $object))) -split "`0") | Where-Object { $_ -and (Test-Deny ($_ -replace '^[^\t]*\t', '')) }).Count -gt 0
+        $hit = @(foreach ($entry in (Split-Bytes (Get-GitBytes @('ls-tree', '-r', '-t', '-z', '--full-tree', $object)) 0)) { $tab = [Array]::IndexOf($entry, [byte]9); if ($tab -ge 0 -and $tab + 1 -lt $entry.Length -and (Test-DenyBytes ([byte[]]$entry[($tab + 1)..($entry.Length - 1)]))) { 1 } }).Count -gt 0
       }
       elseif (-not $peelsToCommit -and $type -eq 'blob') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
       if ($hit) { break }
