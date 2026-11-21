@@ -182,21 +182,6 @@ $notKnown = if ($known) { @('--not', "--glob=$scanRefs/known/*") } else { @() }
 $revisions = @("--glob=$scanRefs/push/*") + $notKnown
 $outgoing = if ($locals.Count) { @(Invoke-Git (@('rev-list') + $revisions)) } else { @() }
 }
-# The owner's machine paths (D00 T05 §8): every file each outgoing commit adds or changes is checked as git publishes
-# it, its blob, by scripts/machine-path-check.ps1, so a path added in one commit and removed in the next, fixed only in
-# the working tree, or kept in a symbolic link's target, is still refused. Its lines name files and line numbers, never
-# the path. The commits go to it in a file, since a first push can name thousands.
-if (-not $history -and $outgoing.Count) {
-  $list = Join-Path ([IO.Path]::GetTempPath()) "bosun-machine-paths-$PID-$([guid]::NewGuid().ToString('N')).txt"
-  try {
-    [IO.File]::WriteAllLines($list, [string[]]$outgoing)
-    $said = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'machine-path-check.ps1') -Repo $repoRoot -CommitsFile $list 2>&1)
-    $code = $LASTEXITCODE
-  } finally { Remove-Item -LiteralPath $list -ErrorAction Ignore }
-  if ($code -eq 1) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'a pushed commit shows a machine path (above); replace it with a repository-relative path or a sample in that commit, then push again' }
-  if ($code -ne 0) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'the pushed commits could not be checked for machine paths' }
-}
-
 # --- the private deny list, read first so no finding of either pass prints a path holding an entry ---
 # Every comparison folds both sides one way: NFKC (composed and decomposed accents, full-width letters alike), then
 # invariant upper case, which maps final and medial sigma alike (lower case maps the capital to medial sigma only).
@@ -217,6 +202,23 @@ function Test-Deny([string]$value) {
   $folded = Get-Folded $value
   foreach ($entry in $deny) { if ($folded.Contains($entry, [StringComparison]::Ordinal)) { return $true } }
   $false
+}
+
+# The owner's machine paths (D00 T05 §8): every file each outgoing commit adds or changes is checked as git publishes
+# it, its blob, by scripts/machine-path-check.ps1, so a path added in one commit and removed in the next, fixed only in
+# the working tree, or kept in a symbolic link's target, is still refused. Its lines name files and line numbers, never
+# the path. The commits go to it in a file, since a first push can name thousands.
+if (-not $history -and $outgoing.Count) {
+  $list = Join-Path ([IO.Path]::GetTempPath()) "bosun-machine-paths-$PID-$([guid]::NewGuid().ToString('N')).txt"
+  try {
+    [IO.File]::WriteAllLines($list, [string[]]$outgoing)
+    $said = @(& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $PSScriptRoot 'machine-path-check.ps1') -Repo $repoRoot -CommitsFile $list 2>&1)
+    $code = $LASTEXITCODE
+  } finally { Remove-Item -LiteralPath $list -ErrorAction Ignore }
+  # A file the check names is shown as "a path" when its name holds a deny-list entry, as every finding here is.
+  $said = @($said | ForEach-Object { $line = "$_"; if ($line -match '^(machine-path-check: )(.+?)(: (its name|line .*))$' -and (Test-Deny $Matches[2])) { "$($Matches[1])a path$($Matches[3])" } else { $line } })
+  if ($code -eq 1) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'a pushed commit shows a machine path (above); replace it with a repository-relative path or a sample in that commit, then push again' }
+  if ($code -ne 0) { foreach ($line in $said) { Say "$line" }; Stop-Scan 'the pushed commits could not be checked for machine paths' }
 }
 
 # Git's raw bytes, never its display: a path or file content reaches the checks exactly as it will be published,

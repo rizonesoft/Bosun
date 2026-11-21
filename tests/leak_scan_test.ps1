@@ -596,6 +596,11 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $machine @('main')
   Check 'a checkout path with no profile name in a tracked file refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and $r.Text -match 'machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
   git -C $machine reset -q --hard origin/main
+  # A file named with a deny-list entry and holding a machine path: refused, its name shown as "a path".
+  $machineDeny = New-Checkout 'machine-deny' (New-Remote 'machine-deny-remote') -Deny @('sample-client')
+  $null = Add-Commit $machineDeny 'notes\sample-client.md' "kept in D:\$('Bos' + 'un') once`n"
+  $r = Invoke-Push $machineDeny @('main')
+  Check 'a machine-path finding in a deny-listed file name shows it as a path' ($r.Exit -ne 0 -and $r.Text -match 'machine-path-check: a path: line 1' -and $r.Text -notmatch '(?i)sample-client') "(exit $($r.Exit): $($r.Text))"
   # Added in one commit and removed in the next, then pushed together: every outgoing commit is read, not the tip.
   $null = Add-Commit $machine 'notes\where.txt' "built in D:\$('Git' + 'Hub')\tool`n"
   git -C $machine rm -q 'notes/where.txt'; git -C $machine commit -q -m 'remove the note'
