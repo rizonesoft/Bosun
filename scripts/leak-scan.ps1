@@ -87,7 +87,8 @@ function Get-GitBytes([string[]]$arguments) {
   $process.StandardOutput.BaseStream.CopyTo($buffer)
   $process.WaitForExit(); $null = $errors.Result
   if ($process.ExitCode) { Stop-Scan "git $($arguments[0]) failed, so the outgoing commits could not be read" }
-  $buffer.ToArray()
+  # A byte array goes back whole: the pipeline would turn an empty one (a zero-byte file, an empty commit) into nothing.
+  ,$buffer.ToArray()
 }
 # Text as it is stored: UTF-8 (the default), or UTF-16 when it carries a byte-order mark or NUL bytes, as a report
 # saved by Windows PowerShell 5.1 does.
@@ -133,15 +134,25 @@ if ($deny.Count -and $outgoing.Count) {
       $path = if ($status -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
       if ($status -match '^D' -or $fields[1] -eq '160000') { continue }
       if (Test-Deny $path) { $failed.Add("${short}: a path: deny-list entry (in a file name)"); continue }
-      foreach ($content in @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))) {
-        $lower = $content.ToLowerInvariant()
-        $at = -1
-        foreach ($entry in $deny) { $found = $lower.IndexOf($entry, [StringComparison]::Ordinal); if ($found -ge 0 -and ($at -lt 0 -or $found -lt $at)) { $at = $found } }
-        if ($at -ge 0) {
-          $line = ([regex]::Matches($lower.Substring(0, $at), "`n")).Count + 1
-          $failed.Add("${short}: ${path}:${line}: deny-list entry")
-          break
+      # What the commit adds: a line holding an entry counts only when the new file has more of that line than the
+      # parent's version did, so an edit around an entry already published, or a cleanup removing one, is not refused.
+      $newReadings = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))
+      $oldReadings = if ($fields[2] -match '^0+$') { @() } else { @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2]))) }
+      $had = @{}
+      foreach ($reading in $oldReadings) {
+        foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
+      }
+      $reported = $false
+      foreach ($reading in $newReadings) {
+        $seen = @{}
+        $number = 0
+        foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) {
+          $number++
+          if (-not (Test-Deny $text)) { continue }
+          $seen[$text] = 1 + [int]$seen[$text]
+          if ($seen[$text] -gt [int]$had[$text]) { $failed.Add("${short}: ${path}:${number}: deny-list entry"); $reported = $true; break }
         }
+        if ($reported) { break }
       }
     }
     $message = (Invoke-Git @('log', '-1', '--format=%B', $c)) -join "`n"
@@ -150,9 +161,15 @@ if ($deny.Count -and $outgoing.Count) {
 }
 if ($deny.Count) {
   foreach ($tag in $tags) {
-    $type = (Invoke-Git @('cat-file', '-t', $tag.Object)) -join ''
-    $annotation = if ($type -eq 'tag') { (Invoke-Git @('cat-file', '-p', $tag.Object)) -join "`n" } else { '' }
-    if ((Test-Deny $tag.Name) -or (Test-Deny $annotation)) { $failed.Add("$($tag.Object.Substring(0, 12)): a tag being pushed: deny-list entry (its name or annotation)") }
+    # A tag can point at another tag, which is published with it: every annotation down the chain is checked.
+    $object = $tag.Object; $hit = Test-Deny $tag.Name; $depth = 0
+    while (-not $hit -and $depth -lt 50 -and ((Invoke-Git @('cat-file', '-t', $object)) -join '') -eq 'tag') {
+      $body = (Invoke-Git @('cat-file', '-p', $object)) -join "`n"
+      $hit = Test-Deny $body
+      $object = (($body -split "`n" | Where-Object { $_ -match '^object [0-9a-f]{40}$' } | Select-Object -First 1) -replace '^object ', '')
+      $depth++
+    }
+    if ($hit) { $failed.Add("$($tag.Object.Substring(0, 12)): a tag being pushed: deny-list entry (its name or an annotation it carries)") }
   }
 }
 

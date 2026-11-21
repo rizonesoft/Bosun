@@ -198,6 +198,33 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $owner @('main')
   Check 'a secret in a file named with an entry is reported with the path hidden' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: secret' -and $r.Text -notmatch '(?i)acme') "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
+  # --- a tag inside a tag carries its own annotation ---
+  git -C $owner tag -a rc-inner -m 'Release for Acme Corp (EU)'
+  git -C $owner tag -a v-outer -m 'clean release note' rc-inner
+  $r = Invoke-Push $owner @('refs/tags/v-outer')
+  Check 'a clean tag pointing at a tag whose annotation holds an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-outer)) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner tag -d v-outer rc-inner | Out-Null
+
+  # --- a zero-byte file and an empty commit are clean ---
+  $null = Add-Commit $owner '.gitkeep' ''
+  git -C $owner commit -q --allow-empty -m 'empty'
+  $r = Invoke-Push $owner @('main')
+  Check 'a zero-byte file and an empty commit push cleanly with a deny list' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+
+  # --- only what a commit adds: an entry already published is not refused again ---
+  $published = Add-Commit $owner 'docs\history.md' "Project log`nClient: Acme Corp (EU)`nmore`nClient: Acme Corp (EU)`n"
+  git -C $owner push -q --no-verify origin main 2>$null   # fixture only: the entry already on the remote, past the guard
+  $null = Add-Commit $owner 'docs\history.md' "Project log, edited`nClient: Acme Corp (EU)`nmore`nClient: Acme Corp (EU)`n"
+  $r = Invoke-Push $owner @('main')
+  Check 'an unrelated edit beside an entry already published is not refused' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+  $null = Add-Commit $owner 'docs\history.md' "Project log, edited`nClient: Acme Corp (EU)`nmore`n"
+  $r = Invoke-Push $owner @('main')
+  Check 'a cleanup removing one of two entries is not refused' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+  $before = Get-Refs $remote
+  $null = Add-Commit $owner 'docs\history.md' "Project log, edited`nClient: Acme Corp (EU)`nmore`nNew line for acme corp (eu)`n"
+  $r = Invoke-Push $owner @('main')
+  Check 'a new line with an entry in that file is refused at its line' ($r.Exit -ne 0 -and $r.Text -match 'docs/history.md:4: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
