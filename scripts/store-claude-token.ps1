@@ -81,7 +81,7 @@ if ($RecordOnly) {
 $plain = if ($FromVault) {
   # The item comes from -VaultItem, else BOSUN_VAULT_ITEM, else the overlay's vault_item; it is settled before any
   # `op` call, so a checkout with none set up says what to set and reads nothing.
-  if (-not $VaultItem) {
+  if (-not "$VaultItem".Trim()) {
     . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
     try { $lookup = Get-BosunOverlayValue -Key vault_item }
     catch { "the vault item could not be read from .private/config.toml ($($_.Exception.Message)); fix vault_item there or set BOSUN_VAULT_ITEM; nothing changed"; exit 1 }

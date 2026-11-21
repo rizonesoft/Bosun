@@ -132,7 +132,8 @@ function Get-BosunOverlayValue {
   # The variable alone is enough: it is read before the root is looked at, so a root that cannot be resolved (a
   # disconnected drive) never defeats an override.
   $fromVariable = [Environment]::GetEnvironmentVariable($Variable)
-  if ($fromVariable) {
+  # A value of only whitespace counts as unset, as an empty one does, so a stray space never masks the next source.
+  if ($fromVariable -and $fromVariable.Trim()) {
     return [pscustomobject]@{ Value = $fromVariable; Source = 'variable'; Message = "$Key from `$env:$Variable" }
   }
   if ($VariableOnly) {
@@ -148,7 +149,7 @@ function Get-BosunOverlayValue {
   # path that cannot be read is refused with its reason.
   $values = Read-BosunOverlayConfig -Path $config
   if ($null -ne $values) {
-    if ($values.ContainsKey($Key) -and $values[$Key] -ne '') {
+    if ($values.ContainsKey($Key) -and "$($values[$Key])".Trim()) {
       return [pscustomobject]@{ Value = $values[$Key]; Source = 'file'; Message = "$Key from $config" }
     }
   }

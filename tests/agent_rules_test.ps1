@@ -35,7 +35,7 @@ foreach ($pair in @(@('AGENTS.md', $agents), @('CLAUDE.md', $claude))) {
 $denyFile = Join-Path $repoRoot '.private\deny-list.txt'
 if (Test-Path -LiteralPath $denyFile -PathType Leaf) {
   $entries = @([IO.File]::ReadAllLines($denyFile) | Where-Object { -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-  foreach ($pair in @(@('AGENTS.md', $agents), @('CLAUDE.md', $claude))) {
+  foreach ($pair in @(foreach ($ruleFile in 'AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'CODEX.md') { ,@($ruleFile, [IO.File]::ReadAllText((Join-Path $repoRoot $ruleFile))) })) {
     $found = @($entries | Where-Object { $pair[1].IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
     Check "$($pair[0]) holds none of the overlay's $($entries.Count) deny-list entries" ($entries.Count -gt 0 -and $found -eq 0) "($found found)"
   }

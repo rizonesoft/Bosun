@@ -306,6 +306,10 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://ArgVault/argitem/credential' -and $r.Calls -contains 'item get argitem --vault ArgVault --format json') 'an explicit -VaultItem wins over the variable and the overlay, for both op calls'
       $r = Invoke-Import @()
       Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://EnvVault/envitem/credential' -and $r.Calls -contains 'item get envitem --vault EnvVault --format json') 'BOSUN_VAULT_ITEM wins over the overlay, for both op calls'
+      # Whitespace is no setting: spaces in the variable or in -VaultItem fall through to the overlay's item.
+      $env:BOSUN_VAULT_ITEM = '   '
+      $r = Invoke-Import @('-VaultItem', '  ')
+      Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://FileVault/fileitem/credential') 'spaces in BOSUN_VAULT_ITEM or -VaultItem count as unset, never as an item'
       Remove-Item -LiteralPath Env:BOSUN_VAULT_ITEM
       $r = Invoke-Import @()
       Check ($r.Exit -eq 0 -and $r.Calls -contains 'read op://FileVault/fileitem/credential' -and $r.Calls -contains 'item get fileitem --vault FileVault --format json') 'without either, the overlay''s vault_item is read, for both op calls'

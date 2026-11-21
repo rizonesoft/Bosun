@@ -71,6 +71,10 @@ try {
   $env:BOSUN_VAULT_ITEM = ''
   $r = Get-BosunOverlayValue -Key vault_item
   Check 'an empty variable counts as unset' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
+  $env:BOSUN_VAULT_ITEM = '   '
+  $r = Get-BosunOverlayValue -Key vault_item
+  Check 'a variable of only spaces counts as unset too' ($r.Source -eq 'file' -and $r.Value -eq 'op://vault/item/field') "($($r.Source) $($r.Value))"
+  $env:BOSUN_VAULT_ITEM = ''
   Clear-Vars
 
   # An empty file holds no key: setup-required, at once (round 2 found the read retried an empty file forever).
