@@ -90,3 +90,32 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T07:24:04Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: quality
+- Seconds: 38
+- Lines: 12
+- Digest: b32e7adbb751cde1
+
+## quality
+
+**Verdict: needs-attention**
+
+1. **P2** The Linux test leaves the caller’s Git environment pointing into a deleted fixture. It changes `HOME`, `GIT_CONFIG_GLOBAL`, and `GIT_CONFIG_NOSYSTEM`, but its `finally` block restores only `PATH` before deleting the temporary home and config. To reproduce on WSL, invoke `& ./tests/linux/leak_scan_missing_tool_test.ps1` from an existing `pwsh` session, then run `Test-Path -LiteralPath $env:HOME` in that session. It returns false, and subsequent Git commands no longer see the caller’s global configuration. Save and restore every environment variable the fixture changes or removes. [tests/linux/leak_scan_missing_tool_test.ps1:54](D:/GitHub/Bosun/tests/linux/leak_scan_missing_tool_test.ps1:54)
+2. **P3** The guarded-sync test can pass when `sync.ps1` reports success to automation after a refused push. Its assertion checks the diagnostic and remote ref but omits the process exit code. To reproduce the coverage gap, make the fixture’s copy of `sync.ps1` exit 0 after printing the refusal. The assertion still passes. Capture `$LASTEXITCODE` immediately after invoking sync and assert it equals 1. [tests/leak_scan_test.ps1:653](D:/GitHub/Bosun/tests/leak_scan_test.ps1:653)
+
+Both reproductions were traced from the diff. The tests were not executed.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention

@@ -649,8 +649,8 @@ Client: Acme Corp (EU)"))
   $syncer = New-Checkout 'syncer' $remote
   $null = Add-Commit $syncer 'sync-secret.txt' "token = $(New-Token)"
   $publicMain = Get-Head $remote 'refs/heads/main'
-  $said = & $pwshExe -NoProfile -File (Join-Path $syncer 'scripts\sync.ps1') 2>&1 | Out-String
-  Check 'sync passes on the guard''s reason and the remote is unchanged' ($said -match 'leak-scan: .*secret \(github-pat\)' -and $said -match 'the push was refused' -and (Get-Head $remote 'refs/heads/main') -eq $publicMain) "($said)"
+  $said = & $pwshExe -NoProfile -File (Join-Path $syncer 'scripts\sync.ps1') 2>&1 | Out-String; $syncCode = $LASTEXITCODE
+  Check 'sync passes on the guard''s reason, exits 1 and the remote is unchanged' ($syncCode -eq 1 -and $said -match 'leak-scan: .*secret \(github-pat\)' -and $said -match 'the push was refused' -and (Get-Head $remote 'refs/heads/main') -eq $publicMain) "($said)"
 
   $tempAfter = @(Get-ChildItem -LiteralPath $reportDir -Filter 'bosun-leak-scan-*.json' -ErrorAction Ignore).Name | Where-Object { $_ -notin $tempBefore }
   Check 'no gitleaks report is left behind in the scratch folder' (-not $tempAfter -and (Get-ChildItem -LiteralPath $reportDir -Force | Measure-Object).Count -eq 0) "($($tempAfter -join ', '))"
