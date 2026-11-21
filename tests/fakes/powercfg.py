@@ -1,7 +1,7 @@
 """A stand-in for powercfg.exe over a JSON file named by BOSUN_FAKE_POWERCFG, for the campaign hold tests.
 
 Answers /getactivescheme, /q <scheme> <sub> <setting>, /setacvalueindex and /setdcvalueindex <scheme> <sub> <setting>
-<value>, and /setactive <scheme>, in powercfg's own output format. An optional "active" names the plan /getactivescheme reports. With BOSUN_FAKE_POWERCFG_FAIL set, every set
+<value>, and /setactive <scheme> (which makes it the plan /getactivescheme reports), in powercfg's own output format. An optional "active" names the plan /getactivescheme reports. With BOSUN_FAKE_POWERCFG_FAIL set, every set
 command fails, as a locked-down policy would make it. With BOSUN_FAKE_POWERCFG_HANG set to "read" or "write", every
 query or every set command writes its process id to <state>.hang.pid and hangs for ten minutes, as a wedged powercfg
 would, so a test can prove the caller stops it.
@@ -49,8 +49,14 @@ elif args[:1] in (["/setacvalueindex"], ["/setdcvalueindex"]) and len(args) == 5
         sys.exit(1)
     state["values"][key]["AC" if args[0] == "/setacvalueindex" else "DC"] = int(args[4])
     save()
-elif args[:1] == ["/setactive"]:
-    pass
+elif args[:1] == ["/setactive"] and len(args) == 2:
+    # As Windows does: the plan named is the one in force, and naming the one already in force changes nothing.
+    if args[1] != state.get("active", scheme):
+        if args[1] == scheme:
+            state.pop("active", None)
+        else:
+            state["active"] = args[1]
+        save()
 else:
     print(f"fake powercfg: unsupported {sys.argv[1:]}")
     sys.exit(2)

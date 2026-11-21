@@ -153,13 +153,14 @@ try {
   [IO.File]::WriteAllText($record, $broken)
   $r = Hold @('-Restore')
   Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time' -and [IO.File]::ReadAllText($record) -eq $broken) 'a malformed Expires is refused by name, and the record is left'
-  # A record from before these fields began when its file was written, and expires a day later.
+  # A record from before these fields began when its file was written, and has no expiry: it may hold a campaign still
+  # running, and a day from its write time restored a live campaign's hold on 2026-11-21.
   $rec.PSObject.Properties.Remove('Applied'); $rec.PSObject.Properties.Remove('Expires')
   [IO.File]::WriteAllText($record, ($rec | ConvertTo-Json -Depth 8))
   $then = [datetime]::new(2026, 11, 20, 8, 0, 0, [DateTimeKind]::Utc)
   (Get-Item -LiteralPath $record).LastWriteTimeUtc = $then
   $r = Hold @('-Status')
-  Check ($r.Code -eq 0 -and $r.Text -match 'hold applied 2026-11-20 08:00:00Z' -and $r.Text -match 'expires 2026-11-21 08:00:00Z') "an old three-field record began when it was written ($(($r.Text -split "`n")[0]))"
+  Check ($r.Code -eq 0 -and $r.Text -match 'hold applied 2026-11-20 08:00:00Z' -and $r.Text -match 'no expiry \(recorded before expiries were\)') "an old three-field record began when it was written and has no expiry ($(($r.Text -split "`n")[0]))"
   Hold @('-Restore') | Out-Null
 
   # -Status reads the saved plan's values now and before, after one drifts and another plan becomes active.
@@ -191,6 +192,17 @@ try {
   $r = Hold @('-Status')
   Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL
   Check ($r.Code -eq 1 -and $r.Text -match '^FAIL ') "status with a failing power query is one FAIL line ($r.Text)"
+
+  # A restore after the owner switched to another plan writes the held plan's values and leaves the owner's plan in force
+  # (round 1 of D00 T03 §24).
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $live = Get-Content $state -Raw | ConvertFrom-Json
+  $live | Add-Member -NotePropertyName active -NotePropertyValue '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -Force
+  [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Restore')
+  $after = Get-Content $state -Raw | ConvertFrom-Json
+  Check ($r.Code -eq 0 -and $after.active -eq '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -and $after.values.'SUB_VIDEO/VIDEOIDLE'.AC -eq 7200) "a restore leaves the plan the owner switched to in force ($($after.active))"
 
   # -Auto: marked before anything changes, tried once, then the manual command.
   Reset '1'

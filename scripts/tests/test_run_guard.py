@@ -1450,6 +1450,36 @@ class CampaignHold(unittest.TestCase):
         guard.hook(json.dumps({"hook_event_name": "SessionEnd", "session_id": "me", "reason": "other"}), fake.env(), self.path)
         self.assertEqual(fake.restores, 1)
 
+    def test_a_run_that_died_before_the_hold_never_restores_it(self):
+        # Round 1: a window closed with no SessionEnd, a hold applied for the next campaign, then a status read
+        # recorded the old run's end, later than the hold, and undid it.
+        fake = FakeHold(applied=self.now)
+        guard.save(self.run_state(), self.path)  # the old run, still recorded active, its session gone
+        state = guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now + 60)
+        self.assertFalse(state["active"])
+        self.assertEqual(fake.restores, 0)
+        self.assertIsNotNone(fake.record)
+
+    def test_a_restore_that_failed_before_marking_the_record_is_not_tried_again(self):
+        # Round 1: the script could fail before writing RestoreTried (an unwritable folder), and every read retried.
+        fake = FakeHold(applied=self.now - 600, expires=self.now - 1)
+        fake.restore = lambda: (setattr(fake, "restores", fake.restores + 1), {"exit": 1, "output": "FAIL cannot write"})[1]
+        guard.save(self.run_state(), self.path)
+        world = World(alive=("me",))
+        guard.settle_gone(fake.env(world), self.path, now=self.now)
+        guard.settle_gone(fake.env(world), self.path, now=self.now + 30)
+        guard.hook(json.dumps({"hook_event_name": "Stop", "session_id": "me"}), fake.env(world), self.path)
+        self.assertEqual(fake.restores, 1)
+
+    def test_an_older_holds_failure_does_not_ask_to_undo_a_new_hold(self):
+        # Round 1: a failed restore, a manual restore, a fresh hold: status asked to restore the fresh one.
+        fake = FakeHold(applied=self.now)
+        state = self.run_state(hold_restore={"at": guard.stamp(self.now - 3600), "applied": guard.stamp(self.now - 7200),
+                                             "why": "the hold expired", "exit": 1, "output": "FAIL"})
+        word, data, lines = guard.status_view(state, fake.env())
+        self.assertFalse([line for line in lines if "failed" in line], lines)
+        self.assertEqual(data["hold_restore"]["exit"], 1, "the old attempt is still in the JSON")
+
     def test_a_quiet_live_run_restores_at_expiry_on_a_status_read(self):
         fake = FakeHold(applied=self.now - 600, expires=self.now + 100)
         guard.save(self.run_state(), self.path)
@@ -1465,8 +1495,9 @@ class CampaignHold(unittest.TestCase):
         fake = FakeHold(applied=self.now - 600)
         state = self.run_state()
         self.assertFalse(guard.end(state, "other", "a stale launcher"))
-        self.assertFalse(guard.release_hold(state, fake.env(), self.now))
+        guard.release_hold(state, fake.env(), self.now)  # the run still active claims its hold, and restores nothing
         self.assertEqual(fake.restores, 0)
+        self.assertTrue(state["active"])
 
     def test_a_failed_restore_is_tried_once_and_kept_across_a_new_run(self):
         fake = FakeHold(applied=self.now - 600, ok=False)
@@ -1519,7 +1550,9 @@ class CampaignHold(unittest.TestCase):
         self.assertIsNone(hold["restore_tried"])
         record.write_text(json.dumps({"Scheme": "x", "Power": [], "Lock": None}), encoding="utf-8")
         os.utime(record, (1763712000, 1763712000))
-        self.assertEqual(guard.real_hold(record), {"applied": 1763712000, "expires": 1763712000 + 86400, "restore_tried": None})
+        # An old record has no expiry: a day from its write time restored a live campaign's hold on 2026-11-21.
+        self.assertEqual(guard.real_hold(record), {"applied": 1763712000, "expires": None, "restore_tried": None})
+        self.assertIsNone(guard.hold_due({**active()}, guard.real_hold(record), time.time()))
         record.write_text(json.dumps({"Scheme": "x", "Applied": "soon"}), encoding="utf-8")
         self.assertIn("error", guard.real_hold(record))
         with mock.patch.dict(os.environ, {"RUN_GUARD_STATE": "x"}, clear=False):

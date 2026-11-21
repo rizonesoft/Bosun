@@ -373,7 +373,7 @@ function Test-Hold {
   # The same expiry the run guard reads: an expired hold is restored at the run's first hook event, mid-campaign.
   $life = Get-HoldLife $saved $HoldRecord
   $redo = '`pwsh scripts/campaign-hold.ps1 -Restore`, then `pwsh scripts/campaign-hold.ps1 -Apply`'
-  if ($life.Expires -le [datetime]::UtcNow) { Fail "the hold expired at $($life.Expires.ToString('u')), so the run guard would restore it at the run's first event" $redo; return }
+  if ($life.Expires -and $life.Expires -le [datetime]::UtcNow) { Fail "the hold expired at $($life.Expires.ToString('u')), so the run guard would restore it at the run's first event" $redo; return }
   if ($life.RestoreTried) { Fail "an automatic restore of this hold was tried at $($life.RestoreTried.ToString('u')) and left it in place" $redo; return }
   # The values Windows obeys are the active plan's, so a plan switched to after the hold isn't held at all.
   try { $active = Get-ActiveScheme $PowerCfg } catch { Fail "the active power plan can't be read: $($_.Exception.Message)" $fix; return }

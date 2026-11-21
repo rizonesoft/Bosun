@@ -170,10 +170,11 @@ function ConvertTo-HoldTime($value) {
 
 # When a checked hold record began, when it expires and when an automatic restore was tried ($null if never). A record
 # written before these fields began when its file was written, since a record is never rewritten until a restore is
-# tried, and expires a day later (D00 T03 §24).
+# tried, and has no expiry ($null): it may hold a campaign still running, so only the end of its run restores it
+# (D00 T03 §24; a day's expiry from its write time restored a live campaign's hold on 2026-11-21).
 function Get-HoldLife($saved, [string]$path) {
   $applied = if ($saved.PSObject.Properties.Name -contains 'Applied') { ConvertTo-HoldTime $saved.Applied } else { (Get-Item -LiteralPath $path).LastWriteTimeUtc }
-  $expires = if ($saved.PSObject.Properties.Name -contains 'Expires') { ConvertTo-HoldTime $saved.Expires } else { $applied.AddHours(24) }
+  $expires = if ($saved.PSObject.Properties.Name -contains 'Expires') { ConvertTo-HoldTime $saved.Expires } else { $null }
   $tried = if ($saved.PSObject.Properties.Name -contains 'RestoreTried' -and $null -ne $saved.RestoreTried) { ConvertTo-HoldTime $saved.RestoreTried } else { $null }
   [pscustomobject]@{ Applied = $applied; Expires = $expires; RestoreTried = $tried }
 }
@@ -217,7 +218,9 @@ function Set-PowerValue([string]$powercfg, [string]$scheme, [string]$sub, [strin
   $flag = if ($line -eq 'AC') { '/setacvalueindex' } else { '/setdcvalueindex' }
   $r = Invoke-PowerCfg $powercfg @($flag, $scheme, $sub, $setting, "$value")
   if ($r.Code -ne 0) { throw "powercfg $flag $scheme $sub $setting $value failed: $($r.Out)" }
-  [void](Invoke-PowerCfg $powercfg @('/setactive', $scheme))  # applies the change to the running scheme
+  # Applies the change to the running scheme, and only to it: activating a plan the owner has since switched away from
+  # would quietly undo that choice (round 1 of D00 T03 §24).
+  if ((Get-ActiveScheme $powercfg) -eq $scheme) { [void](Invoke-PowerCfg $powercfg @('/setactive', $scheme)) }
 }
 
 # The screen saver lock value: the string in $key, or $null when absent.

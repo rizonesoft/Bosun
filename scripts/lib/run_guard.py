@@ -115,14 +115,6 @@ class Env:
     restore_hold: Callable[[], dict] = lambda: {"exit": 0, "output": ""}
 
 
-def from_stamp(text: object) -> float | None:
-    """The epoch seconds of a `stamp`, or None."""
-    try:
-        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
-    except ValueError:
-        return None
-
-
 def stamp(now: float | None = None) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now if now is not None else time.time()))
 
@@ -461,16 +453,17 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
         data["hold"] = {"error": hold["error"]}
         lines.append(f"hold: {hold['error']}; {manual}")
     elif hold:
-        data["hold"] = {"applied": stamp(hold["applied"]), "expires": stamp(hold["expires"]),
+        data["hold"] = {"applied": stamp(hold["applied"]), "expires": None if hold["expires"] is None else stamp(hold["expires"]),
                         "restore_tried": None if hold["restore_tried"] is None else stamp(hold["restore_tried"])}
         age = max(0, int(time.time() - hold["applied"]))
-        lines.append(f"hold: applied {age // 3600} h {age % 3600 // 60} min ago, restored at the first hook event or status read after the run ends or after {stamp(hold['expires'])}")
+        lines.append(f"hold: applied {age // 3600} h {age % 3600 // 60} min ago, restored at the first hook event or status read after the run ends" + (f" or after {stamp(hold['expires'])}" if hold['expires'] is not None else " (it has no expiry)"))
         if hold["restore_tried"] is not None:
             lines.append(f"hold: an automatic restore was tried at {stamp(hold['restore_tried'])} and left it in place; {manual}")
     tried = state.get("hold_restore")
     if tried:
         data["hold_restore"] = tried
-        if tried.get("exit") != 0:
+        # Only a failure of the hold in place now asks for a manual restore: an older one's would undo a new hold.
+        if tried.get("exit") != 0 and hold and not hold.get("error") and tried.get("applied") == hold_mark(hold):
             lines.append(f"hold: the automatic restore at {tried.get('at')} ({tried.get('why')}) failed: {tried.get('output')}; {manual}")
     return word, data, lines
 
@@ -631,32 +624,54 @@ def read_hold(env: Env) -> dict | None:
         return {"error": repr(error)}
 
 
+def hold_mark(hold: dict) -> str:
+    """The one name of a hold, for the run that claims it and the restore that tries it: when it was applied."""
+    return stamp(hold["applied"])
+
+
+def claim_hold(state: dict, hold: dict | None) -> bool:
+    """An active run claims the hold it sees, so that only its end restores that hold (D00 T03 §24). A run whose
+    session died before a hold was applied never sees it, and its end, however late it is recorded, leaves the hold
+    for the next run. Returns whether the claim changed the state."""
+    if not state.get("active") or not hold or hold.get("error") or hold.get("restore_tried") is not None:
+        return False
+    if state.get("hold_for") == hold_mark(hold):
+        return False
+    state["hold_for"] = hold_mark(hold)
+    return True
+
+
 def hold_due(state: dict, hold: dict | None, now: float) -> str | None:
-    """Why the campaign hold is to be restored now, or None (D00 T03 §24). A hold is restored once (an automatic restore
-    marks the record before it changes anything), when it has expired, or when the run in `state` has ended after the
-    hold was applied: a hold applied after a run ended is a new hold, for the next run, and is left alone."""
+    """Why the campaign hold is to be restored now, or None. A hold is restored once: the script marks the record
+    before it changes anything, and the guard's own attempt (`hold_restore`) names the hold it tried, so a restore that
+    failed before it could mark the record is not tried again either. It is restored when it has expired, or when the
+    run that claimed it has ended."""
     if not hold or hold.get("error") or hold.get("restore_tried") is not None:
         return None
-    if now >= hold["expires"]:
+    if (state.get("hold_restore") or {}).get("applied") == hold_mark(hold):
+        return None
+    if hold["expires"] is not None and now >= hold["expires"]:
         return "the hold expired"
-    ended = from_stamp(state.get("ended")) if not state.get("active") and state.get("status") in END_STATES else None
-    if ended is not None and ended >= math.floor(hold["applied"]):
+    if not state.get("active") and state.get("status") in END_STATES and state.get("hold_for") == hold_mark(hold):
         return "the run it was applied for ended"
     return None
 
 
 def release_hold(state: dict, env: Env, now: float | None = None) -> bool:
-    """Restore the campaign hold when it is due, keeping the result in `hold_restore`. Called under the state lock by
-    every path that ends or reads a run, so two never restore at once. Returns whether it changed the state."""
+    """Claim the hold for an active run, and restore it when it is due, keeping the result in `hold_restore`. Called
+    under the state lock by every path that ends or reads a run, so two never restore at once. Returns whether it
+    changed the state."""
     now = time.time() if now is None else now
     hold = read_hold(env)
+    claimed = claim_hold(state, hold)
     why = hold_due(state, hold, now)
     if not why or hold is None:
-        return False
+        return claimed
     result = env.restore_hold()
-    state["hold_restore"] = {"at": stamp(now), "applied": stamp(hold["applied"]), "why": why,
+    state["hold_restore"] = {"at": stamp(now), "applied": hold_mark(hold), "why": why,
                              "exit": result.get("exit"), "output": str(result.get("output", ""))[:500]}
     return True
+
 
 def end(state: dict, session: str, reason: str) -> bool:
     """Record the run of `session` ended, as its launcher does once the CLI it started has returned (an Antigravity
@@ -813,6 +828,7 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
         state = load(path)
         before = json.dumps(state, sort_keys=True)
         merge_pending_wait(state, path, time.time())
+        claim_hold(state, read_hold(env))  # before the stop, which may be the one that ends the run
         reason = on_antigravity_stop(state, data, env)
         release_hold(state, env)
         if json.dumps(state, sort_keys=True) != before:
@@ -1092,7 +1108,7 @@ def hold_time(value: object) -> float | None:
 
 def real_hold(path: Path | None = None) -> dict | None:
     """The hold record's life, read as scripts/campaign-hold.ps1 reads it (Get-HoldLife): a record from before these
-    fields began when its file was written and expires a day later."""
+    fields began when its file was written and has no expiry (None): only the end of its run restores it."""
     path = hold_record_path() if path is None else path
     if path is None or not path.exists():
         return None
@@ -1104,9 +1120,9 @@ def real_hold(path: Path | None = None) -> dict | None:
     if not isinstance(data, dict):
         return {"error": f"{path.name} holds no record"}
     applied = hold_time(data["Applied"]) if "Applied" in data else written
-    expires = hold_time(data["Expires"]) if "Expires" in data else (applied + 86400 if applied is not None else None)
+    expires = hold_time(data["Expires"]) if "Expires" in data else None
     tried = None if data.get("RestoreTried") is None else hold_time(data["RestoreTried"])
-    if applied is None or expires is None or (data.get("RestoreTried") is not None and tried is None):
+    if applied is None or ("Expires" in data and expires is None) or (data.get("RestoreTried") is not None and tried is None):
         return {"error": f"{path.name} has a time field that is not a time"}
     return {"applied": applied, "expires": expires, "restore_tried": tried}
 
@@ -1223,6 +1239,7 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
     state = load(path)
     before = json.dumps(state, sort_keys=True)
     merge_pending_wait(state, path, time.time())
+    claim_hold(state, read_hold(env))  # before the event, which may be the one that ends the run
     output = ""
     if event == "UserPromptSubmit":
         note = on_prompt(state, data, env)

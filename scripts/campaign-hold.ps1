@@ -78,7 +78,7 @@ if ($Status) {
   $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme  # first: a failed query is the one FAIL line, nothing before it
   $life = Get-HoldLife $saved $Record
   $age = [datetime]::UtcNow - $life.Applied
-  "hold applied $($life.Applied.ToString('u')) ($([int]$age.TotalHours) h $($age.Minutes) min ago), expires $($life.Expires.ToString('u'))"
+  "hold applied $($life.Applied.ToString('u')) ($([int]$age.TotalHours) h $($age.Minutes) min ago), $(if ($life.Expires) { "expires $($life.Expires.ToString('u'))" } else { 'no expiry (recorded before expiries were): it goes back when its run ends' })"
   "scheme $($saved.Scheme)"
   for ($i = 0; $i -lt $saved.Power.Count; $i++) {
     foreach ($line in 'AC', 'DC') { "  $($saved.Power[$i].Sub) $($saved.Power[$i].Setting) $line`: now $($now.Power[$i].$line), before $($saved.Power[$i].$line)" }
@@ -98,7 +98,7 @@ if ($Restore) {
     if ($life.RestoreTried) { "FAIL an automatic restore was already tried at $($life.RestoreTried.ToString('u')); restore by hand: $(Get-RestoreCommand)"; exit 2 }
     # Marked before anything changes, so a restore that is killed or fails is never tried again by itself.
     $saved | Add-Member -NotePropertyName Applied -NotePropertyValue $life.Applied.ToString('o') -Force
-    $saved | Add-Member -NotePropertyName Expires -NotePropertyValue $life.Expires.ToString('o') -Force
+    if ($life.Expires) { $saved | Add-Member -NotePropertyName Expires -NotePropertyValue $life.Expires.ToString('o') -Force }
     $saved | Add-Member -NotePropertyName RestoreTried -NotePropertyValue ([datetime]::UtcNow.ToString('o')) -Force
     Save-Json $saved $Record
     Changed
