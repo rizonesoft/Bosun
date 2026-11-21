@@ -77,11 +77,14 @@ try {
 
   $state = Join-Path $work 'state.json'
   $env:RUN_GUARD_STATE = $state
+  # The guard's waits too (review and gate marks, the CI gate's wait), so a live session's never reach a case.
+  $env:RUN_GUARD_BUILD = Join-Path $work 'guard-build'
   # With nothing but Windows on PATH, as on a CI runner with no Claude Code: a dry run starts nothing, so it needs none.
   $path = $env:Path
   $env:Path = Join-Path $env:SystemRoot 'System32'
   try { $out = (& $pwsh -NoProfile -File $script -DryRun) -join "`n" } finally { $env:Path = $path }
   Remove-Item Env:RUN_GUARD_STATE
+  Remove-Item Env:RUN_GUARD_BUILD -ErrorAction Ignore
   Check ($LASTEXITCODE -eq 0 -and -not (Test-Path $state)) 'a dry run leaves the run state alone'
   Check ($out -match '(?m)run-guard\.py start --session ([0-9a-f-]{36})\s*$' -and $out -match "claude --session-id $($Matches[1]) --dangerously-skip-permissions --model opus --effort medium --name Bosun Claude campaign `"/goal ") 'the guard is told the same session id the session starts with, in bypass mode, at medium effort, with its goal'
   Check ($out -notmatch 'claude-opus-\d') 'the model is the alias for the newest Opus, never one pinned version'
@@ -110,6 +113,8 @@ try {
   Set-ItemProperty -LiteralPath $envKey -Name 'CLAUDE_CODE_OAUTH_TOKEN' -Value 'tok-start-run-test'
   $had = $env:CLAUDE_CODE_OAUTH_TOKEN
   $env:RUN_GUARD_STATE = $state
+  # The guard's waits too (review and gate marks, the CI gate's wait), so a live session's never reach a case.
+  $env:RUN_GUARD_BUILD = Join-Path $work 'guard-build'
   $env:Path = "$fake;$path"
   try {
     $env:CLAUDE_CODE_OAUTH_TOKEN = $null
@@ -171,6 +176,7 @@ Start-Sleep 120
     $env:CLAUDE_CODE_OAUTH_TOKEN = $had
     $env:Path = $path
     Remove-Item Env:RUN_GUARD_STATE
+    Remove-Item Env:RUN_GUARD_BUILD -ErrorAction Ignore
     Remove-Item -LiteralPath $envKey -Recurse -Force
   }
 
@@ -212,6 +218,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
   $guardCli = Join-Path $repo 'scripts\run-guard.py'
   function AgyState { if (Test-Path $agyState) { Get-Content $agyState -Raw | ConvertFrom-Json } }
   $env:RUN_GUARD_STATE = $agyState
+  $env:RUN_GUARD_BUILD = Join-Path $work 'guard-build'
   $env:Path = "$agyHome;$path"
   try {
     foreach ($exit in 0, 1) {
@@ -257,7 +264,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       foreach ($id in @($launcher.Id, $agyPid) | Where-Object { $_ }) { Stop-Process -Id $id -Force -ErrorAction Ignore }
     }
   } finally {
-    Remove-Item Env:FAKE_AGY_EXIT, Env:FAKE_AGY_SLEEP, Env:RUN_GUARD_STATE -ErrorAction Ignore
+    Remove-Item Env:FAKE_AGY_EXIT, Env:FAKE_AGY_SLEEP, Env:RUN_GUARD_STATE, Env:RUN_GUARD_BUILD -ErrorAction Ignore
     $env:Path = $path
   }
 
@@ -317,10 +324,11 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       $beforeToken = (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN'); $beforeDay = Get-Content $record -Raw
       Remove-Item -LiteralPath $config
       $r = Invoke-Import @()
-      Check ($r.Exit -eq 1 -and $r.Said -match 'BOSUN_VAULT_ITEM' -and $r.Said -match 'vault_item' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken -and (Get-Content $record -Raw) -eq $beforeDay) 'with no item set up anywhere it exits 1 naming both, calls no op and changes nothing'
+      # Each name on its own: the file key must appear apart from the variable it is the suffix of (case-sensitive).
+      Check ($r.Exit -eq 1 -and $r.Said -cmatch 'BOSUN_VAULT_ITEM' -and $r.Said -cmatch '(^|[^A-Z_])vault_item' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken -and (Get-Content $record -Raw) -eq $beforeDay) 'with no item set up anywhere it exits 1 naming both, calls no op and changes nothing'
       Set-Content -LiteralPath $config -Value 'vault_item = "unterminated'
       $r = Invoke-Import @()
-      Check ($r.Exit -eq 1 -and $r.Said -match 'could not be read from .private/config.toml' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken) 'a malformed overlay config is refused the same way'
+      Check ($r.Exit -eq 1 -and $r.Said -match 'could not be read from .private/config.toml' -and $r.Said -cmatch 'BOSUN_VAULT_ITEM' -and $r.Said -cmatch '(^|[^A-Z_])vault_item' -and -not $r.Calls.Count -and (Get-Item $vaultKey).GetValue('CLAUDE_CODE_OAUTH_TOKEN') -eq $beforeToken -and (Get-Content $record -Raw) -eq $beforeDay) 'a malformed overlay config is refused the same way, naming both, the token and its day unchanged'
       # The other modes never read the setting: they work with the malformed config still there.
       $out = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-04-01 -Key $vaultKey -Record $record) -join "`n"
       Check ($LASTEXITCODE -eq 0 -and (Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-04-01') '-RecordOnly never reads the vault setting'

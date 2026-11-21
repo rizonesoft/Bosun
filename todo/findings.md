@@ -215,3 +215,5 @@ Unscheduled defects noticed while working on another section. Record each entry 
 
 - D00 T05 §6 completion review (2026-11-21), excellence: one durable, redacted record per distinct secret finding (its introducing commit and resolution) instead of one CI log per run; GitHub secret scanning raises repository alerts.
 - D00 T05 §6 completion review (2026-11-21), excellence: a reviewed gitleaks pin update and a full-history rescan for each adopted rules release, even with no push between (a scheduled run of the secrets job).
+
+- D00 T05 §7 completion review (2026-11-21), excellence: an optional process-scoped launch through `op run` with a secret reference, so a campaign start writes no persistent token and inherits none into unrelated shells, and a changed vault value takes effect at the next start with no re-import (target: zero persistent token writes for an owner who chooses it).

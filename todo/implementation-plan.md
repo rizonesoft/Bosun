@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 48 | Checklist items: 478
+Sections: 49 | Checklist items: 481
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -46,6 +46,7 @@ Sections: 48 | Checklist items: 478
 | [x]    | D00 T03 §20 | Runner badge and campaign names on the run shortcuts            | none        | 9     |
 | [x]    | D00 T03 §21 | Run guard waits on a long local gate                            | none        | 7     |
 | [x]    | D00 T03 §22 | CI gate waits for a push's own run before starting one          | none        | 9     |
+| [ ]    | D00 T03 §23 | Token and issue day stored together                             | none        | 3     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it       | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                     | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
@@ -187,6 +188,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 97/132 verified sections, 9 ready to run now.
+Progress: 97/133 verified sections, 10 ready to run now.
 
-Checklist: 954/1126 items completed (includes Commit items).
+Checklist: 954/1129 items completed (includes Commit items).

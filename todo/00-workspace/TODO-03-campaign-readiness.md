@@ -61,6 +61,7 @@ title: "TODO-03 -- Campaign readiness"
 | 20 | §20 | Runner badge and campaign names on the run shortcuts | -- | [x] |
 | 21 | §21 | Run guard waits on a long local gate | -- | [x] |
 | 22 | §22 | CI gate waits for a push's own run before starting one | -- | [x] |
+| 23 | §23 | Token and issue day stored together | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -854,6 +855,24 @@ Filed 2026-11-13 from the phase 2 run, when the owner asked why the run seemed t
 
 > **Verified:** 2026-11-13 | §22 | 4e7f3bc9e3f06a80f3f5520ebc89095c8d6e9b1c
 > **Review:** `docs/reviews/d00-t03-s22.json`
+
+## 23. Token and issue day stored together
+
+Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-workspace/D00-T05-s7.md`). `scripts/store-claude-token.ps1` writes the token to the user variable before it writes the day it was made to `%LOCALAPPDATA%\Bosun\claude-token.json`, so a record that cannot be written (held open, a full disk) leaves a new token beside the old token's day. And when the new day is unknown, a failed removal of the old record is ignored and the import reports success. `scripts/campaign-preflight.ps1` then judges the token's expiry by the wrong day.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Store the token and its day as one step. Done when: a record that cannot be written or removed leaves the token as it was and says so.
+
+- [ ] Write the day's record (or remove it, for an unknown day) before the token, and when that fails change nothing and exit 1 with the reason. Done when: `tests/start_run_test.ps1`, with the record held open without sharing, shows a vault import and a pasted token each exit 1, the stored token and the record unchanged, for a known day and for an unknown one. Cheaper substitute: a warning after the token is already replaced.
+- [ ] Restore the old record when the token itself cannot be stored after the record was written. Done when: the test, with the key unwritable, reads the old record back unchanged.
+- [ ] Commit: `campaign: the token and its issue day are stored together`
+
+**Test checkpoint:** `pwsh tests/start_run_test.ps1` exits 0, and fails when the record is written after the token again.
 
 ## Verification
 
