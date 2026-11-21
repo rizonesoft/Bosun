@@ -15,7 +15,7 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
 # --- the tracked rule files ---
 $agents = [IO.File]::ReadAllText((Join-Path $repoRoot 'AGENTS.md'))
 $claude = [IO.File]::ReadAllText((Join-Path $repoRoot 'CLAUDE.md'))
-Check 'AGENTS.md points every agent at .private/AGENTS.md, behind the overlay mark on a real folder' ($agents -match '\.private/AGENTS\.md' -and $agents -match 'bosun\.overlay' -and $agents -match 'not a link or junction')
+Check 'AGENTS.md points every agent at .private/AGENTS.md, behind the overlay mark on a real folder' ($agents -match '\.private/AGENTS\.md' -and $agents -match 'bosun\.overlay' -and $agents -match 'not a link or junction' -and $agents -match 'linked worktree')
 foreach ($file in 'GEMINI.md', 'CODEX.md') {
   $text = [IO.File]::ReadAllText((Join-Path $repoRoot $file))
   Check "$file defers to AGENTS.md and leaves the pointer to it" ($text -match '\(\./AGENTS\.md\)|`AGENTS\.md`|\bAGENTS\.md\b' -and $text -notmatch '\.private/AGENTS\.md')
@@ -128,6 +128,14 @@ try {
   Push-Location -LiteralPath $checkout
   try { $said = & $sh scripts/hooks/post-merge 2>&1 | Out-String } finally { Pop-Location }
   Check 'and puts it back when the overlay gains AGENTS.md' ((Read-Local $checkout) -ceq $block) "($said)"
+  # Setup's printed undo of the mark, run as printed, leaves no import behind before any sync or pull.
+  $undo = ([regex]::Match([IO.File]::ReadAllText((Join-Path $repoRoot 'scripts\setup-clone.ps1')), 'to undo the mark only \(the checkout stays as it is\): ([^''(]+)')).Groups[1].Value.Trim()
+  Check 'setup''s printed undo of the mark also refreshes the agent rules' ($undo -match 'update-agent-rules\.ps1') "($undo)"
+  Push-Location -LiteralPath $checkout
+  try { foreach ($step in $undo -split ';\s*') { Invoke-Expression $step | Out-Null } } finally { Pop-Location }
+  Check 'and run as printed, it leaves no import behind' ($null -eq (Read-Local $checkout)) "($(Read-Local $checkout))"
+  git -C (Join-Path $checkout '.private') config --local bosun.overlay true
+  $null = Update-BosunAgentRules $checkout
   # The hook cannot replace a CLAUDE.local.md held open without delete sharing: it says so, and still exits 0.
   Remove-Item -LiteralPath (Join-Path $checkout '.private\AGENTS.md')
   $lock = [IO.File]::Open((Join-Path $checkout 'CLAUDE.local.md'), 'Open', 'Read', 'Read')

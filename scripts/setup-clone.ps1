@@ -97,7 +97,7 @@ if ($item) {
     git -C $private config --local bosun.overlay true 2>&1 | Out-Null
     if ("$(git -C $private config --local --get bosun.overlay 2>$null)" -ne 'true') { Stop-Setup '.private is the overlay, but it could not be marked as one (git config --local bosun.overlay true)' }
     'overlay: .private is the overlay; marked it as one, so every pull of this checkout that merges keeps it current'
-    'overlay: to undo the mark only (the checkout stays as it is): git -C .private config --local --unset bosun.overlay'
+    'overlay: to undo the mark only (the checkout stays as it is): git -C .private config --local --unset bosun.overlay; pwsh scripts/update-agent-rules.ps1 (which takes the overlay''s rules out of CLAUDE.local.md)'
   } else { Skip-Overlay '.private is a checkout of another repository; it was left as it is' }
 } else {
   $ready = $true
