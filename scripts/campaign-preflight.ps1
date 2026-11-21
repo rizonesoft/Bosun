@@ -1,5 +1,10 @@
 # One command that proves the unattended campaign can run before anyone walks away (D00 T03 §9 and §10). Every check
 # prints ok or FAIL, and each FAIL names the command that fixes it. Exits 1 when any check fails, 2 on a bad argument.
+# Each check is named as it starts and its result carries the run's elapsed time; the checks that read only this
+# machine come first; a failing run ends with one ordered fix list (this account, then an elevated shell, then what
+# only the owner confirms) and the command that runs the checks again (D00 T03 §25).
+#
+# Branch protection, once on, is undone with: gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection
 #
 #   pwsh scripts/campaign-preflight.ps1                  every check
 #   pwsh scripts/campaign-preflight.ps1 -Only gh,ci      a subset, by name (see $Checks below); it says it is one
@@ -49,15 +54,27 @@ Stop-TreeWithThisWindow
 $PowerCfgSeconds = $ProbeSeconds
 if (-not $Acceptance) { $Acceptance = Join-Path $Repo 'docs\acceptance\preflight.md' }
 # The campaign writes where the checkout is, so that drive is the one that must not fill: never a drive named in code.
+# A list given through pwsh -File arrives as one string, as -Only does; a drive path never holds a comma.
+$FreeDrives = @($FreeDrives | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (-not $FreeDrives) { $FreeDrives = @([IO.Path]::GetPathRoot((Resolve-Path -LiteralPath $Repo).Path)) }
 $failed = 0
 # Written to the host, not returned: a check that fails inside a helper whose result is assigned (as Probe's is) would
 # otherwise hand its own report back as that result.
-function Pass([string]$what) { Write-Host "ok   $what" }
-function Fail([string]$what, [string]$fix) {
-  Write-Host "FAIL $what"
+# Each result carries how long its check has taken (D00 T03 §25), and each fix is kept for the one list at the end, by
+# who can make it: this account, an elevated shell, or only the owner.
+# The run's clock, and one per check, restarted as each check starts: a result shows how long its own check took.
+$script:runClock = [Diagnostics.Stopwatch]::StartNew()
+$script:clock = [Diagnostics.Stopwatch]::StartNew()
+$script:fixes = [Collections.Generic.List[object]]::new()
+function Seconds([Diagnostics.Stopwatch]$watch) { $watch.Elapsed.TotalSeconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) }  # one spelling, whatever the culture
+function Took { "($(Seconds $script:clock) s)" }
+function Pass([string]$what) { Write-Host "ok   $what $(Took)" }
+function Fail([string]$what, [string]$fix, [ValidateSet('', 'account', 'elevated', 'owner')][string]$kind = '') {
+  Write-Host "FAIL $what $(Took)"
   Write-Host "     fix: $fix"
   $script:failed++
+  if (-not $kind) { $kind = if ($fix -match '\belevated shell\b') { 'elevated' } else { 'account' } }
+  if (-not ($script:fixes | Where-Object { $_.Fix -eq $fix })) { $script:fixes.Add([pscustomobject]@{ Kind = $kind; Fix = $fix }) }
 }
 function Tail([string]$text) { (($text -split "`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' / ').Trim() }
 
@@ -285,35 +302,68 @@ function Test-Protection {
   }
   $hostName, $owner, $name = $Matches[1], $Matches[2], $Matches[3]
   $endpoint = "repos/$owner/$name/branches/main/protection"
-  $undo = "to put main back unprotected: gh api --hostname $hostName --method DELETE $endpoint"
-  $fix = "turn it on: gh api --hostname $hostName --method PUT $endpoint with enforce_admins true and allow_force_pushes and allow_deletions false (D00 T03 §17), then run the preflight again"
-  $r = Probe 'gh' @('api', '--hostname', $hostName, $endpoint) $fix $Repo @{ GH_REPO = $null; GH_HOST = $null; GH_ENTERPRISE_TOKEN = $null }
+  # Each state has its own fix (D00 T03 §25): one that could not be read is diagnosed and never written over; a
+  # missing one is created; a partial one is mended with the rules it already has. Each write is one copyable command,
+  # its whole body on stdin, then the read-back that confirms it.
+  $unread = '`gh auth status`, and check that this account may read the repository''s settings, then run the preflight again'
+  $readBack = "then read it back: gh api --hostname $hostName $endpoint --jq '{enforce_admins: .enforce_admins.enabled, allow_force_pushes: .allow_force_pushes.enabled, allow_deletions: .allow_deletions.enabled}'"
+  $put = { param($body) "'$($body.Replace("'", "''"))' | gh api --hostname $hostName --method PUT $endpoint --input -; $readBack" }
+  Write-Host "     asking $hostName for the branch protection of $owner/$name's main, up to $ProbeSeconds s"
+  $r = Probe 'gh' @('api', '--hostname', $hostName, $endpoint) $unread $Repo @{ GH_REPO = $null; GH_HOST = $null; GH_ENTERPRISE_TOKEN = $null }
   if (-not $r) { return }
   if ($r.Code -ne 0) {
-    if ($r.Out -match 'Branch not protected') { Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" $fix }
-    else { Fail "main's protection can't be read (gh api: $(Tail $r.Out))" '`gh auth status`, and check that this account may read the repository''s settings, then run the preflight again' }
+    if ($r.Out -match 'Branch not protected') {
+      $body = '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}'
+      Fail "main on the remote is not protected: a force push or a deletion of main would be accepted" "turn it on: $(& $put $body) (to undo: gh api --hostname $hostName --method DELETE $endpoint)"
+    }
+    else { Fail "main's protection can't be read (gh api: $(Tail $r.Out))" $unread }
     return
   }
   try { $got = $r.Out | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $got = $null }
-  if ($got -isnot [Collections.IDictionary]) { Fail "main's protection came back as something other than GitHub's JSON: $(Tail $r.Out)" '`gh api repos/{owner}/{repo}/branches/main/protection` by hand, then run the preflight again'; return }
+  if ($got -isnot [Collections.IDictionary]) { Fail "main's protection came back as something other than GitHub's JSON: $(Tail $r.Out)" $unread; return }
   # Each is an object with an `enabled` boolean; anything else (missing, null, a string) is not a yes.
-  function Get-Enabled([string]$name) {
-    $value = $got[$name]
+  function Get-Enabled([string]$key) {
+    $value = $got[$key]
     if ($value -is [Collections.IDictionary] -and $value['enabled'] -is [bool]) { return $value['enabled'] }
     return $null
   }
   $admins, $force, $delete = (Get-Enabled 'enforce_admins'), (Get-Enabled 'allow_force_pushes'), (Get-Enabled 'allow_deletions')
-  $wrong = @()
   if ($null -eq $admins -or $null -eq $force -or $null -eq $delete) {
     $absent = @(@{ enforce_admins = $admins; allow_force_pushes = $force; allow_deletions = $delete }.GetEnumerator() | Where-Object { $null -eq $_.Value } | ForEach-Object Key | Sort-Object)
-    Fail "main's protection does not say $($absent -join ', ') (GitHub's answer lacks them, or not as true or false)" $fix
+    Fail "main's protection does not say $($absent -join ', ') (GitHub's answer lacks them, or not as true or false)" $unread
     return
   }
+  $wrong = @()
   if (-not $admins) { $wrong += 'admins are not held to it (enforce_admins is off), so the account the run pushes as could still force-push' }
   if ($force) { $wrong += 'force pushes are allowed' }
   if ($delete) { $wrong += 'deleting main is allowed' }
-  if ($wrong) { Fail "main's protection is partial: $($wrong -join '; ')" $fix; return }
-  Pass "main of $owner/$name is protected: force pushes and deletion refused, admins included ($undo)"
+  if ($wrong) {
+    Fail "main's protection is partial: $($wrong -join '; ')" (Get-ProtectionMend $got $hostName $owner $name $put)
+    return
+  }
+  Pass "main of $owner/$name is protected: force pushes and deletion refused, admins included"
+}
+
+# The PUT that mends a partial protection and keeps every rule GitHub returned, or, when it holds push restrictions a
+# body cannot carry over, the settings page to change it by hand.
+function Get-ProtectionMend($got, [string]$hostName, [string]$owner, [string]$name, [scriptblock]$put) {
+  if ($got['restrictions']) { return "it restricts who may push, which a PUT would have to restate: on https://$hostName/$owner/$name/settings/branches, edit main's rule to include administrators and to refuse force pushes and deletion, then run the preflight again" }
+  $checks = $got['required_status_checks']
+  $keepChecks = if ($checks -is [Collections.IDictionary]) {
+    [ordered]@{ strict = [bool]$checks['strict']; contexts = @($checks['contexts'] | Where-Object { $_ }) }
+  } else { $null }
+  $reviews = $got['required_pull_request_reviews']
+  $keepReviews = if ($reviews -is [Collections.IDictionary]) {
+    $kept = [ordered]@{}
+    foreach ($key in 'dismiss_stale_reviews', 'require_code_owner_reviews', 'required_approving_review_count', 'require_last_push_approval') { if ($reviews.Contains($key)) { $kept[$key] = $reviews[$key] } }
+    $kept
+  } else { $null }
+  $body = [ordered]@{ required_status_checks = $keepChecks; enforce_admins = $true; required_pull_request_reviews = $keepReviews; restrictions = $null; allow_force_pushes = $false; allow_deletions = $false }
+  foreach ($key in 'required_linear_history', 'required_conversation_resolution', 'block_creations', 'lock_branch', 'allow_fork_syncing') {
+    $v = $got[$key]
+    if ($v -is [Collections.IDictionary] -and $v['enabled'] -is [bool]) { $body[$key] = $v['enabled'] }
+  }
+  "mend it, keeping its other rules: $(& $put ($body | ConvertTo-Json -Depth 5 -Compress))"
 }
 
 function Test-Ci {
@@ -458,7 +508,7 @@ function Test-Setup {
 function Test-Lock {
   try { $secs = Get-RegValue $InactivityKey 'InactivityTimeoutSecs' } catch { Fail "the inactivity policy can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
   if ($secs -and [int]$secs -gt 0) {
-    Fail "a machine policy locks this PC after $secs seconds idle (InactivityTimeoutSecs)" "ask whoever manages this PC (Intune) to lift it, or set $InactivityKey InactivityTimeoutSecs to 0 in an elevated shell"
+    Fail "a machine policy locks this PC after $secs seconds idle (InactivityTimeoutSecs)" "ask whoever manages this PC (Intune) to lift it, or set $InactivityKey InactivityTimeoutSecs to 0 in an elevated shell" 'owner'
     return
   }
   Pass 'no machine inactivity lock'
@@ -466,27 +516,50 @@ function Test-Lock {
 
 function Test-Owner {
   $fix = "the owner confirms it, and it is recorded in $Acceptance"
-  if (-not (Test-Path -LiteralPath $Acceptance)) { Fail "no owner record at $Acceptance (extra usage off, reboot check)" $fix; return }
+  if (-not (Test-Path -LiteralPath $Acceptance)) { Fail "no owner record at $Acceptance (extra usage off, reboot check)" $fix 'owner'; return }
   $text = [IO.File]::ReadAllText($Acceptance)
   $missing = @()
   if ($text -notmatch '(?m)^- Extra usage: off\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'extra usage off, with a date, in the Claude account''s settings' }
   if ($text -notmatch '(?m)^- Reboot check: passed\b[^\r\n]*\b\d{4}-\d{2}-\d{2}\b') { $missing += 'the reboot check passed, with a date' }
-  if ($missing) { Fail "the owner's record doesn't show $($missing -join ', or ')" $fix; return }
+  if ($missing) { Fail "the owner's record doesn't show $($missing -join ', or ')" $fix 'owner'; return }
   Pass 'owner record: extra usage off, reboot check passed'
 }
 
+# First the checks that start no process (space, owner, lock), so a failure they find is on screen before any probe
+# starts; then the others that read only this machine; then those that ask GitHub or a CLI's servers (D00 T03 §25).
+# -Only runs its checks in this order too, whatever order it is given in.
 $Checks = [ordered]@{
-  bosun = { Test-Bosun }; cmake = { Test-CMake }; denylist = { Test-DenyList }; dotnet = { Test-Dotnet }; gh = { Test-Gh }
-  claude = { Test-Claude }; codex = { Test-Codex }; wsl = { Test-Wsl }; tree = { Test-Tree }; pushed = { Test-Pushed }; protection = { Test-Protection }; ci = { Test-Ci }; guard = { Test-Guard }
-  space = { Test-Space }; hold = { Test-Hold }; setup = { Test-Setup }; lock = { Test-Lock }; owner = { Test-Owner }
+  space = { Test-Space }; owner = { Test-Owner }; lock = { Test-Lock }; tree = { Test-Tree }; denylist = { Test-DenyList }
+  hold = { Test-Hold }; setup = { Test-Setup }; guard = { Test-Guard }; bosun = { Test-Bosun }; cmake = { Test-CMake }
+  dotnet = { Test-Dotnet }; wsl = { Test-Wsl }; gh = { Test-Gh }; claude = { Test-Claude }; codex = { Test-Codex }
+  pushed = { Test-Pushed }; protection = { Test-Protection }; ci = { Test-Ci }
 }
 $names = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $unknown = @($names | Where-Object { -not $Checks.Contains($_) })
 if ($unknown) { "unknown check(s): $($unknown -join ', '); the checks are $($Checks.Keys -join ', ')"; exit 2 }
 if (-not $names) { $names = @($Checks.Keys) }
-foreach ($n in $names) { & $Checks[$n] }
+$names = @($Checks.Keys | Where-Object { $names -contains $_ })  # in the order they run
+foreach ($n in $names) {
+  Write-Host "checking $n..."
+  $script:clock.Restart()
+  & $Checks[$n]
+}
 if ($failed) {
-  "$failed check(s) failed"
+  "$failed check(s) failed in $(Seconds $script:runClock) s. Fix them in this order:"
+  $step = 0
+  foreach ($group in @(@('account', 'with this account'), @('elevated', 'in an elevated shell'), @('owner', 'only the owner can confirm'))) {
+    $these = @($script:fixes | Where-Object { $_.Kind -eq $group[0] })
+    if (-not $these) { continue }
+    "  $($group[1]):"
+    foreach ($f in $these) { $step++; "    $step. $($f.Fix)" }
+  }
+  # The same checks with the same options, single-quoted: a recheck of another checkout or other limits proves nothing.
+  $again = foreach ($key in 'Repo', 'Only', 'ProbeSeconds', 'MinFreeGB', 'MinLoginDays', 'ReviewerModel', 'Distro', 'FreeDrives') {
+    if (-not $PSBoundParameters.ContainsKey($key)) { continue }
+    $values = if ($key -eq 'Only') { @($names -join ',') } else { @($PSBoundParameters[$key]) }
+    " -$key " + (@($values | ForEach-Object { "'" + "$_".Replace("'", "''") + "'" }) -join ',')
+  }
+  "then run it again: pwsh scripts/campaign-preflight.ps1$($again -join '')"
   exit 1
 }
 # A subset passing proves only those checks, so it says so rather than clearing the campaign.

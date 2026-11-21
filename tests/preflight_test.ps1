@@ -114,7 +114,7 @@ try {
     Check ($r.Code -eq 2 -and $r.Text -match "$($bad[0]) must be at least 1") "$($bad[0]) $($bad[1]) is refused with exit 2"
   }
   $r = Preflight $system @('-Only', 'nope')
-  Check ($r.Code -eq 2 -and $r.Text -match 'the checks are bosun, cmake') 'an unknown check name exits 2 and lists the checks'
+  Check ($r.Code -eq 2 -and $r.Text -match 'the checks are space, owner, lock') 'an unknown check name exits 2 and lists the checks, the ones that start no process first'
   $r = Preflight $system @('-Only', 'bosun')
   Check ($r.Code -eq 1 -and $r.Text -match 'bosun is not on the PATH a run launches with' -and $r.Text -match 'fix: install it with `pwsh scripts/install.ps1`') 'no bosun fails with its fix'
   $d = Tool 'bosun-bad' 'bosun' "echo cannot reach the logger`r`nexit /b 1"
@@ -286,7 +286,7 @@ try {
     $body | ConvertTo-Json -Depth 4 -Compress
   }
   $r = Preflight "$(Protection 'gh-protected' (Shape));$system" @('-Only', 'protection')
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   main of [\w.-]+/[\w.-]+ is protected: force pushes and deletion refused, admins included' -and $r.Text -match 'method DELETE repos/') 'full protection passes, naming the repository and the undo'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   main of [\w.-]+/[\w.-]+ is protected: force pushes and deletion refused, admins included' -and $r.Text -notmatch 'method DELETE' -and @($r.Text -split "`n" | Where-Object { $_ -like 'ok   main of*' }).Count -eq 1) 'full protection passes in one short line, naming the repository, the undo left to the help (D00 T03 §25)'
   foreach ($case in @(
       @{ Name = 'gh-force'; Answer = (Shape $true $true $false); Says = 'force pushes are allowed' },
       @{ Name = 'gh-delete'; Answer = (Shape $true $false $true); Says = 'deleting main is allowed' },
@@ -331,6 +331,88 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $left.Count -eq 0) 'a protection read that hangs is stopped at its limit, with its whole tree'
   $listed = & $pwsh -NoProfile -File (Join-Path $repo 'scripts/campaign-preflight.ps1') -Only nope 2>&1 | Out-String
   Check ($listed -match 'the checks are [^\r\n]*\bprotection\b') 'protection is one of the default checks a full preflight runs'
+
+  # D00 T03 §25. The output read as a stream, each line stamped as it arrives while the preflight runs, so what is on
+  # screen when is measured, not inferred from the final text.
+  function Stream([string]$path, [string[]]$extra) {
+    $start = [Diagnostics.ProcessStartInfo]::new($pwsh)
+    foreach ($a in @('-NoProfile', '-File', (Join-Path $repo 'scripts\campaign-preflight.ps1'), '-SearchPath', $path) + $extra) { $start.ArgumentList.Add($a) }
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $process = [Diagnostics.Process]::Start($start)
+    $null = $process.StandardError.ReadToEndAsync()
+    $seen = [Collections.Generic.List[object]]::new()
+    while ($null -ne ($line = $process.StandardOutput.ReadLine())) { $seen.Add([pscustomobject]@{ At = $clock.Elapsed.TotalSeconds; Line = $line }) }
+    $process.WaitForExit()
+    [pscustomobject]@{ Code = $process.ExitCode; Lines = $seen }
+  }
+  function When($run, [string]$pattern) { $hit = $run.Lines | Where-Object { $_.Line -match $pattern } | Select-Object -First 1; if ($hit) { $hit.At } else { 999 } }
+  $slowGit = Tool 'git-slow' 'git' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
+  $slowGh = Tool 'gh-slow' 'gh' "`"%SystemRoot%\System32\PING.EXE`" $marker >nul"
+  $noOwner = Join-Path $work 'no-owner.md'
+  try {
+    $run = Stream "$slowGit;$slowGh;$system" @('-Only', 'protection,tree,owner', '-ProbeSeconds', '3', '-Acceptance', $noOwner)
+  } finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
+  $ownerAt = When $run '^FAIL no owner record'
+  Check ($ownerAt -lt 5 -and $ownerAt -lt (When $run '^checking tree\.\.\.') -and (When $run '^checking tree') -lt (When $run '^checking protection')) ("in -Only protection,tree,owner the owner failure is on screen at {0:N1} s, before the slow local and remote probes start" -f $ownerAt)
+  $listedOrder = (& $pwsh -NoProfile -File (Join-Path $repo 'scripts/campaign-preflight.ps1') -Only nope 2>&1 | Out-String)
+  Check ($listedOrder -match 'the checks are space, owner, lock, tree') 'the default order starts with the checks that start no process'
+  Check ((When $run '^checking owner\.\.\.') -lt $ownerAt) 'a check is named before its own result'
+  # An instant check after a slow one: a clock for the whole run would give it the slow one's time too.
+  try { $timed = Stream "$slowGit;$system" @('-Only', 'tree,hold', '-ProbeSeconds', '3', '-HoldRecord', (Join-Path $work 'no-hold.json')) }
+  finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
+  $secs = { param($pattern) $hit = $timed.Lines | Where-Object { $_.Line -match $pattern } | Select-Object -First 1; if ($hit -and $hit.Line -match '\((\d+\.\d) s\)$') { [double]$Matches[1] } else { -1 } }
+  $treeSecs = & $secs '^FAIL .*(git|tree|status)'; $holdSecs = & $secs "^FAIL the hold isn't applied"
+  Check ($treeSecs -ge 2 -and $holdSecs -ge 0 -and $holdSecs -lt 1) "each result carries its own check's duration (tree $treeSecs s, then hold $holdSecs s)"
+  # The protection read says the host, the repository and the limit before it ends.
+  $origin = (git -C $repo remote get-url origin).Trim()
+  $null = $origin -match '([^/:]+)[/:]([^/]+)/([^/]+?)(?:\.git)?/?$'
+  $askPattern = '^\s+asking ' + [regex]::Escape($Matches[1]) + ' for the branch protection of ' + [regex]::Escape("$($Matches[2])/$($Matches[3])") + '''s main, up to 3 s$'
+  try { $asking = Stream "$slowGh;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '3') }
+  finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
+  $askAt = When $asking $askPattern; $endAt = When $asking 'gave no answer within 3 seconds'
+  Check ($askAt -lt $endAt - 2) ("the protection read names its host, repository and limit {0:N1} s before it ends" -f ($endAt - $askAt))
+
+  # Each protection state's fix, run as printed against a recording gh: the body it sends, the read-back's target.
+  $wantHost, $wantPath = $Matches[1], "repos/$($Matches[2])/$($Matches[3])/branches/main/protection"
+  $recorder = Join-Path $work 'gh-recorder'
+  New-Item -ItemType Directory -Force $recorder | Out-Null
+  Set-Content (Join-Path $recorder 'gh.cmd') "@echo off`r`necho %*>>`"$recorder\args.txt`"`r`nfindstr `"^`" >>`"$recorder\stdin.txt`"`r`necho {}" -Encoding ascii
+  function Run-Printed([string]$command) {
+    Remove-Item -LiteralPath "$recorder\args.txt", "$recorder\stdin.txt" -ErrorAction Ignore
+    $env:Path = "$recorder;$env:Path"
+    try { & $pwsh -NoProfile -Command $command 2>&1 | Out-Null } finally { $env:Path = $env:Path.Substring($recorder.Length + 1) }
+    [pscustomobject]@{ Args = @(Get-Content -LiteralPath "$recorder\args.txt" -ErrorAction Ignore); Body = (Get-Content -LiteralPath "$recorder\stdin.txt" -Raw -ErrorAction Ignore) }
+  }
+  function Fix-Of($r) { ($r.Text -split "`n" | Where-Object { $_ -match '^\s+fix: ' } | Select-Object -First 1) -replace '^\s+fix: ', '' }
+  $r = Preflight "$(Protection 'gh-absent' '{"message":"Branch not protected","status":"404"}' 1);$system" @('-Only', 'protection')
+  $fix = Fix-Of $r
+  $null = $fix -match '^turn it on: (?<put>.+?); then read it back: (?<back>.+?) \(to undo: (?<undo>.+)\)$'
+  $put = Run-Printed $Matches.put; $back = Run-Printed $Matches.back; $undo = Run-Printed $Matches.undo
+  $sent = try { $put.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+  Check ($put.Args[0] -eq "api --hostname $wantHost --method PUT $wantPath --input -" -and $sent.enforce_admins -eq $true -and $sent.allow_force_pushes -eq $false -and $sent.allow_deletions -eq $false) "an absent protection's PUT, run as printed, sends the whole body to this origin's main ($($put.Args[0]))"
+  Check ($back.Args[0] -like "api --hostname $wantHost $wantPath --jq *" -and $undo.Args[0] -eq "api --hostname $wantHost --method DELETE $wantPath") 'its read-back and its undo, run as printed, name the same host, repository and branch'
+  $asked = (Get-Content -LiteralPath (Join-Path $work 'gh-absent.asked') -Raw).Trim()
+  Check ($asked -notmatch 'PUT|DELETE|POST') 'the preflight itself only reads the protection'
+  $partial = [ordered]@{ url = 'x'; required_status_checks = @{ strict = $true; contexts = @('build') }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false }; required_linear_history = @{ enabled = $true } } | ConvertTo-Json -Depth 5 -Compress
+  $r = Preflight "$(Protection 'gh-partial' $partial);$system" @('-Only', 'protection')
+  $fix = Fix-Of $r
+  $null = $fix -match '^mend it, keeping its other rules: (?<put>.+?); then read it back: (?<back>.+)$'
+  $mend = Run-Printed $Matches.put
+  $kept = try { $mend.Body | ConvertFrom-Json -ErrorAction Stop } catch { $null }
+  Check ($r.Text -match 'partial: admins are not held' -and $kept.enforce_admins -eq $true -and @($kept.required_status_checks.contexts) -contains 'build' -and $kept.required_status_checks.strict -eq $true -and $kept.required_linear_history -eq $true) "a partial protection's mend keeps its required status check and its other rules ($($mend.Body))"
+  $restricted = [ordered]@{ url = 'x'; restrictions = @{ users = @(@{ login = 'someone' }) }; enforce_admins = @{ enabled = $false }; allow_force_pushes = @{ enabled = $false }; allow_deletions = @{ enabled = $false } } | ConvertTo-Json -Depth 5 -Compress
+  $r = Preflight "$(Protection 'gh-restricted' $restricted);$system" @('-Only', 'protection')
+  Check ((Fix-Of $r) -match '^it restricts who may push.*settings/branches' -and (Fix-Of $r) -notmatch 'method PUT') 'a protection with push restrictions is mended by hand on the settings page, never by a PUT'
+  foreach ($case in @(@{ Name = 'gh-refused'; Answer = 'gh: Not Found (HTTP 404)'; Code = 1 }, @{ Name = 'gh-garbled'; Answer = 'not json'; Code = 0 })) {
+    $r = Preflight "$(Protection $case.Name $case.Answer $case.Code);$system" @('-Only', 'protection')
+    Check ($r.Code -eq 1 -and (Fix-Of $r) -match 'gh auth status' -and $r.Text -notmatch 'method PUT') "protection that cannot be read ($($case.Name -replace '^gh-', '')) gets a diagnosis and no write"
+  }
+  $r = Preflight "$slowGh;$gitHere;$system" @('-Only', 'protection', '-ProbeSeconds', '2')
+  Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore }
+  Check ($r.Text -match 'gave no answer' -and $r.Text -notmatch 'method PUT') 'a protection read that times out gets a diagnosis and no write'
+  $help = Get-Content (Join-Path $repo 'scripts/campaign-preflight.ps1') -TotalCount 12 | Out-String
+  Check ($help -match 'gh api --hostname <host> --method DELETE repos/<owner>/<repo>/branches/main/protection') 'the header help says how to undo protection the fix created'
 
   # A probe that hangs is stopped at its limit, with its whole tree.
   $marker = "-n 41 -w 1000 127.0.0.$((Get-Random -Maximum 200) + 2)"
@@ -478,6 +560,25 @@ Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* 
   $setupPlace = @('-PolicyKey', $policy, '-TaskStore', $store, '-BinDir', $bin, '-DotnetDir', $dotnetDir, '-Record', $adminRecord)
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 1 -and $r.Text -match "admin setup isn't in place" -and $r.Text -match 'NoAutoRebootWithLoggedOnUsers is absent' -and $r.Text -match 'campaign-admin-setup.ps1 -Apply') 'no admin setup fails with its fix'
+  # D00 T03 §25: a failing run ends with one ordered list, this account's fixes, then an elevated shell's, then what only
+  # the owner confirms, each fix once however many failures share it, and the command that reruns the same checks with
+  # this run's options, which finds the same failure when run as printed.
+  $spaced = Join-Path $work 'a checkout with spaces'
+  if (-not (Test-Path $spaced)) { git init -q -b main $spaced }
+  $drive = [IO.Path]::GetPathRoot($spaced)
+  $r = Preflight $system (@('-Only', 'owner,setup,space', '-Repo', $spaced, '-MinFreeGB', '1000000000', '-FreeDrives', "$drive,$drive", '-Acceptance', (Join-Path $work 'no-owner.md')) + $place)
+  $list = $r.Text.Substring([Math]::Max(0, $r.Text.IndexOf('check(s) failed')))
+  $groups = [ordered]@{}; $current = $null
+  foreach ($l in $list -split "`n") {
+    if ($l -match '^  (with this account|in an elevated shell|only the owner can confirm):$') { $current = $Matches[1]; $groups[$current] = @() }
+    elseif ($current -and $l -match '^    \d+\. (.+)$') { $groups[$current] += $Matches[1] }
+  }
+  Check ($r.Code -eq 1 -and @($groups.Keys) -join '|' -eq 'with this account|in an elevated shell|only the owner can confirm' -and @($groups['with this account']).Count -eq 1 -and $groups['with this account'][0] -eq "free space on $drive" -and @($groups['in an elevated shell'] | Where-Object { $_ -match 'campaign-admin-setup\.ps1' }).Count -eq @($groups['in an elevated shell']).Count -and @($groups['only the owner can confirm']).Count -eq 1) "a failing run ends with each fix once, in its group, in order ($(($groups.Keys | ForEach-Object { "${_}: $($groups[$_] -join ' / ')" }) -join ' || '))"
+  $recheck = ($list -split "`n" | Where-Object { $_ -like 'then run it again: *' }) -replace '^then run it again: ', ''
+  Check ($recheck -match "-Repo '[^']*a checkout with spaces'" -and $recheck -match "-Only 'space,owner,setup'" -and $recheck -match "-MinFreeGB '1000000000'") "the recheck command carries this run's options ($recheck)"
+  Push-Location $repo
+  try { $again = & $pwsh -NoProfile -Command $recheck 2>&1 | Out-String } finally { Pop-Location }  # read-only: the preflight changes nothing
+  Check ($again -match "(?m)^FAIL drive $([regex]::Escape($drive)) has .* under the .* GB the campaign needs") "run as printed, the recheck finds the same space failure on the same checkout ($(($again -split "`n" | Select-Object -First 6) -join ' | '))"
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-admin-setup.ps1') -Apply @setupPlace | Out-Null
   $r = Preflight $system (@('-Only', 'setup') + $place)
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   admin setup in place') 'admin setup in place passes'
