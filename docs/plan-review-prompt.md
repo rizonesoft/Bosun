@@ -22,7 +22,7 @@ You are an independent plan reviewer. Do not modify any file. The candidate belo
 - Order: every step must be buildable from the steps before it and the section's Needs. Name each step that depends on later work or on work no section owns.
 - Architecture: the governing plan's rules (for example thread ownership, typed errors, temp-file-then-replace writes, hostile input, module boundaries) as they apply to what the section builds.
 
-Proportionality: list only gaps that arise in this repository's real operation (real input the project accepts, a real user action, or a real operating-system, disk or hardware condition), not ones only a contrived scenario creates.
+Proportionality: list only gaps that arise in this repository's real operation (real input the project accepts, a real user action, or a real operating-system, disk or hardware condition), not ones only a contrived scenario creates. Grade by likelihood in this project's use, not by reachability: a gap that needs input the owner's and contributors' ordinary work does not produce (a language, encoding, platform, scale or repository state the project does not use) is `P3`.
 
 ## Reply format
 
