@@ -433,6 +433,13 @@ Client: Acme Corp (EU)"))
   Check 'a secret in a commit message is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: secret \(github-pat\) in the commit itself' -and -not $r.Text.Contains($msgToken)) "(exit $($r.Exit): $($r.Text))"
   git -C $plainClone reset -q --hard origin/main
 
+  # --- a secret in a lightweight tag's name ---
+  $refToken = New-Token
+  git -C $plainClone tag "release-$refToken" HEAD
+  $r = Invoke-Push $plainClone @("refs/tags/release-$refToken")
+  Check 'a secret in a ref name is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'a ref being pushed: secret \(github-pat\) in its name' -and -not $r.Text.Contains($refToken) -and -not (git --git-dir=$remote tag --list "release-*")) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone tag -d "release-$refToken" | Out-Null
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'

@@ -112,9 +112,10 @@ function ConvertFrom-Blob([byte[]]$bytes) {
   # on Windows, UTF-16 and UTF-32 in both byte orders), each with NULs and byte-order marks taken out, and an entry
   # found in any reading counts. Encoding by encoding, the guesses kept missing a case (rounds 1, 3, 7, 12 to 14 of
   # D00 T05 §4); six readings of a pushed file cost microseconds.
-  $encodings = [Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(1252), [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false)
-  foreach ($encoding in $encodings) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
+  foreach ($encoding in Get-Encodings) { ConvertTo-Reading $encoding $bytes }
 }
+function Get-Encodings { [Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(1252), [Text.Encoding]::Unicode, [Text.Encoding]::BigEndianUnicode, [Text.Encoding]::UTF32, [Text.UTF32Encoding]::new($true, $false) }
+function ConvertTo-Reading($encoding, [byte[]]$bytes) { $encoding.GetString($bytes).Replace([string][char]0, '').Replace([string][char]0xFEFF, '') }
 
 # --- gitleaks over the outgoing commits ---
 # Findings are kept as parts (commit, path, place, what) and printed only at the end, once every secret matched is
@@ -157,20 +158,18 @@ if ($deny.Count -and $outgoing.Count) {
       if ($fields[1] -eq '160000') { continue }
       # What the commit adds: a line holding an entry counts only when the new file has more of that line than the
       # parent's version did, so an edit around an entry already published, or a cleanup removing one, is not refused.
-      $newReadings = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))
+      $newBytes = Get-GitBytes @('cat-file', 'blob', $fields[3])
       # No prior blob for an added file, or for one that replaces a submodule entry (whose old object is a commit).
-      $oldReadings = @(if ($fields[2] -match '^0+$' -or $fields[0] -eq '160000') { } else { ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[2])) })
-      # Each reading of the new file is compared with the same reading of the old one (the same decoding), never with
-      # their sum, which counts one line once per reading that shows it.
+      $oldBytes = if ($fields[2] -match '^0+$' -or $fields[0] -eq '160000') { ,[byte[]]@() } else { ,(Get-GitBytes @('cat-file', 'blob', $fields[2])) }
+      # One encoding at a time, the new file against the same reading of its parent (never their sum, which counts one
+      # line once per reading that shows it), so only two decoded copies are held at once, however large the file.
       $reported = $false
-      for ($k = 0; $k -lt $newReadings.Count; $k++) {
-        $reading = $newReadings[$k]
+      foreach ($encoding in Get-Encodings) {
         $had = @{}
-        $oldReading = if ($oldReadings.Count -eq $newReadings.Count) { $oldReadings[$k] } elseif ($oldReadings.Count) { $oldReadings[0] } else { '' }
-        foreach ($text in ($oldReading.ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
+        foreach ($text in ((ConvertTo-Reading $encoding $oldBytes).ToLowerInvariant() -split "`r?`n")) { if (Test-Deny $text) { $had[$text] = 1 + [int]$had[$text] } }
         $seen = @{}
         $number = 0
-        foreach ($text in ($reading.ToLowerInvariant() -split "`r?`n")) {
+        foreach ($text in ((ConvertTo-Reading $encoding $newBytes).ToLowerInvariant() -split "`r?`n")) {
           $number++
           if (-not (Test-Deny $text)) { continue }
           $seen[$text] = 1 + [int]$seen[$text]
@@ -230,6 +229,8 @@ foreach ($c in $outgoing) {
     if ($unshown.Contains($path)) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $fields[3])) $c $path '' 'a file git does not diff' }
   }
 }
+# Ref names (a lightweight tag adds no object, so its name is the only thing it publishes).
+if ($refNames.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($refNames -join "`n"))) '' $null 'a ref being pushed' 'its name' }
 # Tag annotations, and the files a tag publishes without a commit.
 foreach ($tag in $tags) {
   $peels = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
@@ -242,6 +243,7 @@ foreach ($tag in $tags) {
 if ($deny.Count) {
   # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
   foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
+
   foreach ($tag in $tags) {
     if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in its name)'; continue }
     # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
