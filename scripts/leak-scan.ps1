@@ -50,7 +50,10 @@ foreach ($line in $Updates) {
   if ($parts.Count -ne 4 -or $parts[1] -notmatch '^[0-9a-f]{40}$') { Stop-Scan 'a pushed ref could not be read' }
   if ($parts[1] -eq $zero) { continue }  # a deletion publishes nothing
   $refNames.Add($parts[2])
-  if ($parts[2] -like 'refs/tags/*') { $tags.Add([pscustomobject]@{ Name = $parts[2].Substring(10); Object = $parts[1] }) }
+  # Every pushed object that is not itself a commit (a tag, or a file or tree under any ref, refs/archive/... included)
+  # goes through the object pass below, whatever namespace it is pushed to.
+  $type = "$(& git -C $repoRoot cat-file -t $parts[1] 2>$null)"
+  if ($type -ne 'commit') { $tags.Add([pscustomobject]@{ Name = ($parts[2] -replace '^refs/(tags|heads)/', ''); Object = $parts[1] }) }
   # A tag can point at a file or a tree, not only a commit: only what peels to a commit has commits to scan.
   $commit = "$(& git -C $repoRoot rev-parse --verify --quiet "$($parts[1])^{commit}" 2>$null)"
   if ($commit) { $locals.Add($commit) }
@@ -177,8 +180,9 @@ if ($deny.Count -and $outgoing.Count) {
       }
     }
     # The whole commit object as published: its author and committer names and addresses as well as its message.
-    $message = (Invoke-Git @('cat-file', 'commit', $c)) -join "`n"
-    if (Test-Deny $message) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
+    # The raw commit object, read under every encoding as a file is: an encoding header (i18n.commitEncoding) can store
+    # the message in Windows-1252 or anything else.
+    if (@(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'commit', $c)) | Where-Object { Test-Deny $_ }).Count) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
   }
 }
 # --- gitleaks over files a tag publishes without a commit (a tag on a file or a tree) ---
@@ -197,7 +201,7 @@ foreach ($tag in $tags) {
     if ($scan.ExitCode -ne 0 -and $scan.ExitCode -ne 3) { Stop-Scan "gitleaks could not scan a file the tag publishes (exit $($scan.ExitCode))" }
     if ($scan.ExitCode -eq 3) {
       try { $hits = @($out.Result | ConvertFrom-Json -ErrorAction Stop) } catch { Stop-Scan 'the gitleaks report could not be read' }
-      foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $tag.Object $null 'a tag being pushed' "secret ($($f.RuleID)) in a file it publishes" }
+      foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $tag.Object $null 'a tag or other object being pushed' "secret ($($f.RuleID)) in a file it publishes" }
     }
   }
 }
@@ -205,7 +209,7 @@ if ($deny.Count) {
   # A destination name is published too: a branch or tag named with an entry is refused even with clean commits.
   foreach ($name in $refNames) { if (Test-Deny $name) { Add-Finding '' $null 'a ref being pushed' 'deny-list entry (in its name)' } }
   foreach ($tag in $tags) {
-    if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (in its name)'; continue }
+    if (Test-Deny $tag.Name) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in its name)'; continue }
     # Everything the tag sends that the destination lacks, as git itself lists it: the tag objects down its chain, and,
     # for a tag that does not peel to a commit, the trees, paths and files it publishes. Commits are checked above,
     # by what each adds, so only objects reached without a commit are read here.
@@ -222,7 +226,7 @@ if ($deny.Count) {
       elseif (-not $peelsToCommit -and $type -eq 'blob') { $hit = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $object)) | Where-Object { Test-Deny $_ }).Count -gt 0 }
       if ($hit) { break }
     }
-    if ($hit) { Add-Finding $tag.Object $null 'a tag being pushed' 'deny-list entry (in an annotation, or a file or path it publishes)' }
+    if ($hit) { Add-Finding $tag.Object $null 'a tag or other object being pushed' 'deny-list entry (in an annotation, or a file or path it publishes)' }
   }
 }
 if ($failed.Count) {

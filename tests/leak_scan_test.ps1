@@ -168,7 +168,7 @@ try {
   git -C $owner reset -q --hard origin/main; git -C $owner branch -q -D side
   git -C $owner tag -a v-private -m 'Release for Acme Corp (EU)'
   $r = Invoke-Push $owner @('refs/tags/v-private')
-  Check 'a tag annotation holding a deny-list string is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-private)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a tag annotation holding a deny-list string is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-private)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d v-private | Out-Null
 
   # --- the deny pass reads what is published, not git's display of it ---
@@ -202,7 +202,7 @@ Client: Acme Corp (EU)"))
   git -C $owner tag -a rc-inner -m 'Release for Acme Corp (EU)'
   git -C $owner tag -a v-outer -m 'clean release note' rc-inner
   $r = Invoke-Push $owner @('refs/tags/v-outer')
-  Check 'a clean tag pointing at a tag whose annotation holds an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-outer)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a clean tag pointing at a tag whose annotation holds an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list v-outer)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d v-outer rc-inner | Out-Null
 
   # --- a zero-byte file and an empty commit are clean ---
@@ -277,7 +277,7 @@ Client: Acme Corp (EU)"))
   $privateBlob = "Client: Acme Corp (EU)" | git -C $owner hash-object -w --stdin
   git -C $owner tag -a file-v2 -m 'release' $privateBlob
   $r = Invoke-Push $owner @('refs/tags/file-v2')
-  Check 'a tag on a file holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list file-v2)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a tag on a file holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list file-v2)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d file-v2 | Out-Null
 
   # --- a tag on a tree, and a long chain of tags ---
@@ -285,12 +285,12 @@ Client: Acme Corp (EU)"))
   git -C $owner tag -a tree-v1 -m 'release' 'HEAD:pack'
   git -C $owner reset -q --hard origin/main
   $r = Invoke-Push $owner @('refs/tags/tree-v1')
-  Check 'a tag on a tree publishing a file with an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list tree-v1)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a tag on a tree publishing a file with an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list tree-v1)) "(exit $($r.Exit): $($r.Text))"
   git -C $owner tag -d tree-v1 | Out-Null
   git -C $owner tag -a chain-0 -m 'Release for Acme Corp (EU)'
   foreach ($n in 1..55) { git -C $owner tag -a "chain-$n" -m 'clean' "chain-$($n - 1)" }
   $r = Invoke-Push $owner @('refs/tags/chain-55')
-  Check 'an entry at the bottom of a 56-tag chain is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list chain-55)) "(exit $($r.Exit): $($r.Text))"
+  Check 'an entry at the bottom of a 56-tag chain is found' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list chain-55)) "(exit $($r.Exit): $($r.Text))"
   foreach ($n in 0..55) { git -C $owner tag -d "chain-$n" | Out-Null }
 
   # --- a tagged tree is checked by whole paths ---
@@ -299,7 +299,7 @@ Client: Acme Corp (EU)"))
   git -C $pathy tag -a export-v1 -m 'release' 'HEAD:export'
   git -C $pathy reset -q --hard origin/main
   $r = Invoke-Push $pathy @('refs/tags/export-v1')
-  Check 'a deny entry holding a separator is found in a tagged tree''s full paths' ($r.Exit -ne 0 -and $r.Text -match 'a tag being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list export-v1)) "(exit $($r.Exit): $($r.Text))"
+  Check 'a deny entry holding a separator is found in a tagged tree''s full paths' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote tag --list export-v1)) "(exit $($r.Exit): $($r.Text))"
 
   # --- a secret a tag publishes without any commit ---
   $blobToken = New-Token
@@ -380,6 +380,17 @@ Client: Acme Corp (EU)"))
     Check 'a newline in a reported path is shown escaped, not as a line' ($r.Exit -ne 0 -and $r.Text -match 'odd\\x0aFAKE STATUS.txt:1: deny-list entry' -and $r.Text -notmatch '(?m)^FAKE STATUS') "(exit $($r.Exit): $($r.Text))"
     git -C $owner reset -q --hard origin/main
   } else { 'note a newline in a file name: git here refuses such a path in the index, so that case runs only where git accepts one' }
+
+  # --- a legacy-encoded commit message, and a file pushed to a custom ref ---
+  $cafe2 = New-Checkout 'cafe2' $remote -Deny @("Caf$([char]0xE9)")
+  $messageFile = Join-Path $work 'cp1252-message.txt'
+  [IO.File]::WriteAllBytes($messageFile, [Text.Encoding]::GetEncoding(1252).GetBytes("Visit to Caf$([char]0xE9) Central"))
+  git -C $cafe2 -c i18n.commitEncoding=windows-1252 commit -q --allow-empty -F $messageFile
+  $r = Invoke-Push $cafe2 @('main')
+  Check 'an entry in a Windows-1252 commit message is found' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry') "(exit $($r.Exit): $($r.Text))"
+  $archived = 'Client: Acme Corp (EU)' | git -C $owner hash-object -w --stdin
+  $r = Invoke-Push $owner @("${archived}:refs/archive/fixture")
+  Check 'a file pushed to a custom ref is checked' ($r.Exit -ne 0 -and $r.Text -match 'a tag or other object being pushed: deny-list entry' -and -not (git --git-dir=$remote for-each-ref refs/archive)) "(exit $($r.Exit): $($r.Text))"
 
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
