@@ -191,11 +191,11 @@ Agents need the owner's rules on the owner's machine and must not see them anywh
 - [ ] Add the import to `CLAUDE.md` if a missing import is silent; otherwise make `scripts/setup-clone.ps1` write an ignored `CLAUDE.local.md` holding the import when `.private/AGENTS.md` exists. Done when: the chosen path loads the overlay rules in the owner's checkout. Cheaper substitute: copying the owner's rules into `CLAUDE.md`.
 - [ ] Add one line to `AGENTS.md` telling Codex and Antigravity to also read `.private/AGENTS.md` when it exists. Done when: the line is present and `GEMINI.md` and `CODEX.md` do not repeat it. Cheaper substitute: a copy of the rules in each agent file.
 - [ ] Add `CLAUDE.local.md` to `.gitignore` if the fallback is used. Done when: `git check-ignore CLAUDE.local.md` prints it.
-- [ ] Add `tests/agent_rules_test.ps1` asserting `CLAUDE.md` and `AGENTS.md` carry the overlay pointer and no `op://`, vault or machine path text. Done when: it passes and fails when an `op://` line is added to `AGENTS.md`.
-- [ ] Register `tests/agent_rules_test.ps1` in `scripts/check-all.ps1` and CI. Done when: `-List` shows it.
+- [ ] Add `tests/agent_rules_test.ps1` asserting `CLAUDE.md` (or the setup-written `CLAUDE.local.md` path) and `AGENTS.md` carry the overlay pointer and hold no `op://` reference and no machine path (an absolute drive path such as `C:\Users\...`, or `/home/<name>`, `/mnt/<drive>/Users/...`). Done when: it passes and fails when an `op://` line or a `C:\Users\` path is added to `AGENTS.md`. **Corrected 2026-11-21:** `AGENTS.md` still names the 1Password Conclave vault, which `D00 T05 §7` moves to the overlay with its own Done when; this test takes the vault-name check over in `§7`.
+- [ ] Run `tests/agent_rules_test.ps1` in the Windows scripts job of `.github/workflows/build.yml`. Done when: `pwsh scripts/check-all.ps1 -List` shows `test:agent_rules` and the candidate's CI run shows the step passed. **Corrected 2026-11-21:** check-all discovers `tests/*_test.ps1` by name (`scripts/check-all.ps1:77`), so only CI needs a step.
 - [ ] Commit: `overlay: agent rules load the overlay's half when present`
 
-**Test checkpoint:** `pwsh tests/agent_rules_test.ps1` exits 0, and fails when an `op://` line is added to `AGENTS.md`.
+**Test checkpoint:** `pwsh tests/agent_rules_test.ps1` exits 0, and fails when an `op://` line or a machine path is added to `AGENTS.md`.
 
 ## 6. Full-history secret scan in CI
 
