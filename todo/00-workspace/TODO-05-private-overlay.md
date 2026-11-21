@@ -210,6 +210,8 @@ Agents need the owner's rules on the owner's machine and must not see them anywh
 
 ## 6. Full-history secret scan in CI
 
+> **Started:** 2026-11-21T11:14:14Z
+
 The local guard protects pushes from the owner's machine; CI protects everything else, including history pushed before the guard existed and pushes from another machine. It never sees the overlay, so it scans for secrets only.
 
 > **Fact 2026-11-21:** `gitleaks git . --redact --log-opts --all` over this repository's whole history today reports 0 findings, so the job starts green with an empty `.gitleaksignore`.
