@@ -64,3 +64,29 @@ The comparison and decoding checks ran in memory. I did not execute the push rep
 HIGHEST: P1  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-21T07:21:56Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: 7f9e20a0256da80fe553dc1198ba0a380c42023f
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Seconds: 45
+- Lines: 9
+- Digest: 1bdc8f4b3852d072
+
+## consistency
+
+**Verdict: needs-attention**
+
+1. **P2** The Linux missing-tool test fails on a supported installation layout. The scanner tells Linux users to put `gitleaks` on `PATH`, but the test exits before exercising the hook if `gitleaks` is in `/usr/bin`, `/bin`, or the directory containing `git` or `pwsh`. To reproduce, run `pwsh tests/linux/leak_scan_missing_tool_test.ps1` on WSL with Gitleaks installed at `/usr/bin/gitleaks`. The test reports `FAIL gitleaks can be left off PATH` without attempting a push. Give the fixture a private `PATH` containing only its required commands so the result is independent of the host installation. This reproduction follows from the explicit exit branch and was not executed. [tests/linux/leak_scan_missing_tool_test.ps1:26](D:/GitHub/Bosun/tests/linux/leak_scan_missing_tool_test.ps1:26)
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention

@@ -12,19 +12,20 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
 }
 
-# Isolated as the Windows suite is: no inherited repository, its own home and git configuration, and a PATH of
-# only the folders git, pwsh and sh live in, so gitleaks (wherever else it is installed) is not on it.
+# Isolated as the Windows suite is: no inherited repository, its own home and git configuration, and a PATH of one
+# private folder holding links to git, pwsh and sh only, so gitleaks is off it wherever it is installed.
 foreach ($name in 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX') { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
 $gitExe = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $pwshExe = (Get-Process -Id $PID).Path
-$dirs = @((Split-Path $gitExe), (Split-Path $pwshExe), '/bin', '/usr/bin') | Select-Object -Unique
-$found = @($dirs | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'gitleaks') })
+$shExe = (Get-Command sh -CommandType Application | Select-Object -First 1).Source
+$bin = Join-Path $work 'bin'
+New-Item -ItemType Directory -Path $bin | Out-Null
+foreach ($tool in @{ git = $gitExe; pwsh = $pwshExe; sh = $shExe }.GetEnumerator()) { New-Item -ItemType SymbolicLink -Path (Join-Path $bin $tool.Key) -Target $tool.Value | Out-Null }
 $savedPath = $env:PATH
 $env:HOME = Join-Path $work 'home'; New-Item -ItemType Directory -Path $env:HOME | Out-Null
 $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'; $env:GIT_CONFIG_NOSYSTEM = '1'
 try {
-  if ($found) { Check 'gitleaks can be left off PATH' $false "(it shares $($found -join ', ') with git, pwsh or sh)"; exit 1 }
-  $env:PATH = $dirs -join ':'
+  $env:PATH = $bin
   git config --global user.name 'Leak Test'; git config --global user.email 'leak-test@example.invalid'
   git config --global init.defaultBranch main
 
