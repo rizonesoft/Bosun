@@ -101,7 +101,9 @@ function ConvertFrom-Blob([byte[]]$bytes) {
 
 # --- gitleaks over the outgoing commits ---
 if ($outgoing.Count) {
-  $report = Join-Path ([IO.Path]::GetTempPath()) ("bosun-leak-scan-" + [guid]::NewGuid().ToString('N') + '.json')
+  # The scratch folder the repository names (BOSUN_SCRATCH), else the system temp folder.
+  $scratchDir = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
+  $report = Join-Path $scratchDir ("bosun-leak-scan-" + [guid]::NewGuid().ToString('N') + '.json')
   try {
     $logOpts = (@('--diff-merges=first-parent') + $range) -join ' '
     & gitleaks git $repoRoot --log-opts $logOpts --redact --no-banner --report-format json --report-path $report --exit-code 3 *> $null

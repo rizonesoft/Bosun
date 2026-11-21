@@ -14,7 +14,7 @@ function Check([string]$name, [bool]$ok, [string]$detail = '') {
 # --- isolation ---
 $gitVariables = 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX'
 $saved = @{}
-foreach ($name in @('PATH', 'HOME', 'USERPROFILE', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'BOSUN_OVERLAY_REPO') + $gitVariables) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in @('PATH', 'HOME', 'USERPROFILE', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'BOSUN_OVERLAY_REPO', 'BOSUN_SCRATCH') + $gitVariables) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 foreach ($name in @('BOSUN_OVERLAY_REPO') + $gitVariables) { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore }
 $gitExe = (Get-Command git -CommandType Application | Select-Object -First 1).Source
 $pwshExe = (Get-Process -Id $PID).Path
@@ -27,7 +27,11 @@ $env:HOME = Join-Path $work 'home'; $env:USERPROFILE = $env:HOME
 New-Item -ItemType Directory -Path $env:HOME | Out-Null
 $env:GIT_CONFIG_GLOBAL = Join-Path $work 'gitconfig'; $env:GIT_CONFIG_NOSYSTEM = '1'
 Set-Content -LiteralPath $env:GIT_CONFIG_GLOBAL -Value "[user]`n`tname = Leak Test`n`temail = leak-test@example.invalid`n[init]`n`tdefaultBranch = main"
-$tempBefore = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter 'bosun-leak-scan-*.json' -ErrorAction Ignore).Name
+# The scan writes its report under BOSUN_SCRATCH: set it to a folder of the test's own, and look there.
+$reportDir = Join-Path $work 'reports'
+New-Item -ItemType Directory -Path $reportDir | Out-Null
+$env:BOSUN_SCRATCH = $reportDir
+$tempBefore = @(Get-ChildItem -LiteralPath $reportDir -Filter 'bosun-leak-scan-*.json' -ErrorAction Ignore).Name
 
 # A GitHub token shape, made here so the repository never holds one.
 $letters = [char[]]'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -227,8 +231,8 @@ try {
   $said = & $pwshExe -NoProfile -File (Join-Path $syncer 'scripts\sync.ps1') 2>&1 | Out-String
   Check 'sync passes on the guard''s reason and the remote is unchanged' ($said -match 'leak-scan: .*secret \(github-pat\)' -and $said -match 'the push was refused' -and (Get-Head $remote 'refs/heads/main') -eq $publicMain) "($said)"
 
-  $tempAfter = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Filter 'bosun-leak-scan-*.json' -ErrorAction Ignore).Name | Where-Object { $_ -notin $tempBefore }
-  Check 'no gitleaks report is left behind' (-not $tempAfter) "($($tempAfter -join ', '))"
+  $tempAfter = @(Get-ChildItem -LiteralPath $reportDir -Filter 'bosun-leak-scan-*.json' -ErrorAction Ignore).Name | Where-Object { $_ -notin $tempBefore }
+  Check 'no gitleaks report is left behind in the scratch folder' (-not $tempAfter -and (Get-ChildItem -LiteralPath $reportDir -Force | Measure-Object).Count -eq 0) "($($tempAfter -join ', '))"
 } finally {
   foreach ($name in $saved.Keys) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
   Remove-Item -LiteralPath $work -Recurse -Force
