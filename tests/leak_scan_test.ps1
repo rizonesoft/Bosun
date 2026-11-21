@@ -596,6 +596,12 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $machine @('main')
   Check 'a checkout path with no profile name in a tracked file refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and $r.Text -match 'machine path' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
   git -C $machine reset -q --hard origin/main
+  # Added in one commit and removed in the next, then pushed together: every outgoing commit is read, not the tip.
+  $null = Add-Commit $machine 'notes\where.txt' "built in D:\$('Git' + 'Hub')\tool`n"
+  git -C $machine rm -q 'notes/where.txt'; git -C $machine commit -q -m 'remove the note'
+  $r = Invoke-Push $machine @('main')
+  Check 'a machine path added and removed again before the push is still refused' ($r.Exit -ne 0 -and $r.Text -match 'where\.txt: line 1' -and (Get-Refs $machineBare) -eq $machineBefore) "(exit $($r.Exit): $($r.Text))"
+  git -C $machine reset -q --hard origin/main
 
   # --- a deny-list line's whitespace: an indented # line is an entry, matched without its spaces ---
   $spaced = New-Checkout 'spaced' (New-Remote 'spaced-remote') -Deny @('  # Internal codename  ')

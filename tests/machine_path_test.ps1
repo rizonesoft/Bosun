@@ -108,6 +108,30 @@ try {
   $r = Invoke-Check (New-Repo @{ 'notes.txt' = "cd D:\$gh`n" }) ''
   Check 'and the path forms are still checked' ($r.Code -eq 1) "($($r.Said))"
 
+  # A push's commits: a path added in one and removed in the next is still found when both are listed.
+  $pushed = New-Repo @{ 'base.txt' = 'clean' }
+  [IO.File]::WriteAllText((Join-Path $pushed 'note.txt'), "built in D:\$gh\tool`n"); git -C $pushed add -A; git -C $pushed commit -q -m add
+  $added = "$(git -C $pushed rev-parse HEAD)"
+  git -C $pushed rm -q note.txt; git -C $pushed commit -q -m remove
+  $removed = "$(git -C $pushed rev-parse HEAD)"
+  $list = Join-Path $work 'pushed.txt'
+  [IO.File]::WriteAllLines($list, [string[]]@($removed, $added))
+  $r = Invoke-Check $pushed $profileName @('-CommitsFile', $list)
+  Check 'a path added in one pushed commit and removed in the next is found' ($r.Code -eq 1 -and $r.Said -match 'note\.txt: line 1') "($($r.Code): $($r.Said))"
+  [IO.File]::WriteAllLines($list, [string[]]@($removed))
+  $r = Invoke-Check $pushed $profileName @('-CommitsFile', $list)
+  Check 'and the removing commit alone adds nothing to find' ($r.Code -eq 0) "($($r.Code): $($r.Said))"
+
+  # An overlay config that cannot be read is an incomplete check; a config without the key keeps contributor behaviour.
+  $configured = New-Repo @{ 'a.txt' = 'clean' }
+  New-Item -ItemType Directory -Path (Join-Path $configured '.private') | Out-Null
+  [IO.File]::WriteAllText((Join-Path $configured '.private\config.toml'), "profile_name = `"one`"`nprofile_name = `"two`"`n")
+  $r = Invoke-Check $configured ''
+  Check 'an overlay config that cannot be read makes the check incomplete' ($r.Code -eq 2 -and $r.Said -match 'profile_name could not be read') "($($r.Code): $($r.Said))"
+  [IO.File]::WriteAllText((Join-Path $configured '.private\config.toml'), "vault_item = `"op://x/y/z`"`n")
+  $r = Invoke-Check $configured ''
+  Check 'and one without the key checks the path forms and says the name was not' ($r.Code -eq 0 -and $r.Said -match 'no profile_name is set up') "($($r.Code): $($r.Said))"
+
   # A commit that cannot be read is an incomplete check, never a clean one.
   $r = Invoke-Check (New-Repo @{ 'a.txt' = 'clean' }) $profileName @('-Commit', 'no-such-commit')
   Check 'a commit that cannot be read makes the check incomplete' ($r.Code -eq 2 -and $r.Said -match 'incomplete') "($($r.Code): $($r.Said))"

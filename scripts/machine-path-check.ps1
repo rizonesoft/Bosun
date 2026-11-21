@@ -12,12 +12,20 @@
 # are history and skipped, and so is a stamped section of a todo/ file (one carrying a Verified: line), whole.
 # Each finding prints the file and line numbers, never the matched text; a path that itself holds a match is "a path".
 #
-#   pwsh scripts/machine-path-check.ps1 [-Repo <checkout>] [-Commit <commit>]
+#   pwsh scripts/machine-path-check.ps1 [-Repo <checkout>] [-Commit <commit>]     every file of one commit
+#   pwsh scripts/machine-path-check.ps1 -CommitsFile <file>                    the files a push's commits add or change
 #
 # Exit 0 when clean, 1 with findings, 2 when the check is incomplete (the commit or a blob cannot be read): an
 # incomplete check is never reported clean.
 [CmdletBinding()]
-param([string]$Repo = (Split-Path $PSScriptRoot), [string]$Commit = 'HEAD')
+param(
+  [string]$Repo = (Split-Path $PSScriptRoot),
+  [string]$Commit = 'HEAD',
+  # A push's commits, one per line in a file (scripts/leak-scan.ps1 writes it): only the files each of them adds or
+  # changes are read, which is everything the push introduces, so a path added in one commit and removed in the next is
+  # still found. The file keeps a long list off the command line.
+  [string]$CommitsFile
+)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
 $forms = @(
@@ -27,7 +35,10 @@ $forms = @(
   '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(Bosun|DevMode)(?![\w.-])', '(?<![\w.-])/mnt/[a-z]/(Bosun|DevMode)(?![\w.-])',
   '(?<![A-Za-z0-9])[A-Za-z]:[\\/]+scratch(?![\w.-])', '(?<![\w.-])/mnt/[a-z]/scratch(?![\w.-])'
 )
-$profileName = try { "$((Get-BosunOverlayValue -Key profile_name -Root $Repo).Value)".Trim() } catch { '' }
+# A setting that is not there (a contributor's checkout) leaves the name unchecked; a config that cannot be read is an
+# incomplete check, never a quiet one.
+try { $profileName = "$((Get-BosunOverlayValue -Key profile_name -Root $Repo).Value)".Trim() }
+catch { "machine-path-check: incomplete: the overlay's profile_name could not be read ($($_.Exception.Message))"; exit 2 }
 if ($profileName) { $name = [regex]::Escape($profileName); $forms += "\b$name\b", "/home/$name\b" }
 $pattern = [regex]::new('(?i)' + ($forms -join '|'))
 
@@ -44,20 +55,47 @@ function Invoke-GitBytes([string[]]$arguments, [byte[]]$feed = $null) {
   $reading.Wait(); $process.WaitForExit(); $null = $err.Result
   [pscustomobject]@{ Code = $process.ExitCode; Bytes = $buffer.ToArray() }
 }
-$tree = Invoke-GitBytes @('ls-tree', '-r', '-z', '--full-tree', $Commit)
-if ($tree.Code) { "machine-path-check: incomplete: git could not read the files of $Commit"; exit 2 }
-$entries = @(foreach ($record in ([Text.Encoding]::UTF8.GetString($tree.Bytes) -split "`0")) {
-  if (-not $record) { continue }
-  $meta, $path = $record -split "`t", 2
-  $mode, $type, $sha = $meta -split ' '
-  if ($type -ne 'blob') { continue }  # a submodule's commit is not a file of this repository
-  if ($path -like 'docs/reviews/*' -or $path -like 'docs/phase-runs/*') { continue }
-  [pscustomobject]@{ Path = $path; Sha = $sha }
-})
+# The files to read: every blob of -Commit, or each file the commits in -CommitsFile add or change (against their
+# first parent, a root commit against nothing), each blob once.
+function Read-Records([byte[]]$bytes) {
+  foreach ($record in ([Text.Encoding]::UTF8.GetString($bytes) -split "`0")) { if ($record) { $record } }
+}
+$seen = [Collections.Generic.HashSet[string]]::new()
+$entries = [Collections.Generic.List[object]]::new()
+function Add-Entry([string]$path, [string]$sha, [string]$type) {
+  if ($type -ne 'blob' -or $sha -match '^0+$') { return }  # a submodule's commit, or a file the commit removes
+  if ($path -like 'docs/reviews/*' -or $path -like 'docs/phase-runs/*') { return }
+  if ($seen.Add("$sha $path")) { $entries.Add([pscustomobject]@{ Path = $path; Sha = $sha }) }
+}
+if ($CommitsFile) {
+  $commits = @(try { [IO.File]::ReadAllLines($CommitsFile) | ForEach-Object { $_.Trim() } | Where-Object { $_ } } catch { "machine-path-check: incomplete: the list of commits could not be read"; exit 2 })
+  $label = "the $($commits.Count) commit(s) pushed"
+  foreach ($c in $commits) {
+    $diff = Invoke-GitBytes @('diff-tree', '-r', '-z', '--no-commit-id', '--root', '-m', '--first-parent', '--diff-filter=AMRCT', $c)
+    if ($diff.Code) { "machine-path-check: incomplete: git could not read the changes of $c"; exit 2 }
+    $records = @(Read-Records $diff.Bytes)
+    for ($i = 0; $i -lt $records.Count; $i++) {
+      if (-not $records[$i].StartsWith(':')) { continue }
+      $fields = $records[$i].Substring(1) -split ' '
+      $step = if ($fields[4] -match '^[RC]') { 2 } else { 1 }
+      $path = $records[$i + $step]; $i += $step
+      Add-Entry $path $fields[3] $(if ($fields[1] -eq '160000') { 'commit' } else { 'blob' })
+    }
+  }
+} else {
+  $label = $Commit
+  $tree = Invoke-GitBytes @('ls-tree', '-r', '-z', '--full-tree', $Commit)
+  if ($tree.Code) { "machine-path-check: incomplete: git could not read the files of $Commit"; exit 2 }
+  foreach ($record in (Read-Records $tree.Bytes)) {
+    $meta, $path = $record -split "`t", 2
+    $mode, $type, $sha = $meta -split ' '
+    Add-Entry $path $sha $type
+  }
+}
 $found = 0
 if ($entries.Count) {
   $batch = Invoke-GitBytes @('cat-file', '--batch') ([Text.Encoding]::ASCII.GetBytes((($entries | ForEach-Object { $_.Sha }) -join "`n") + "`n"))
-  if ($batch.Code) { "machine-path-check: incomplete: git could not read the blobs of $Commit"; exit 2 }
+  if ($batch.Code) { "machine-path-check: incomplete: git could not read the blobs of $label"; exit 2 }
   $bytes = $batch.Bytes; $at = 0
   foreach ($entry in $entries) {
     $shown = if ($pattern.IsMatch($entry.Path)) { 'a path' } else { $entry.Path }
@@ -88,6 +126,6 @@ if ($entries.Count) {
   }
 }
 $note = if ($profileName) { '' } else { '; no profile_name is set up (BOSUN_PROFILE_NAME or the private overlay), so the owner''s profile name was not checked' }
-if ($found) { "machine-path-check: $found file(s) of $Commit hold the owner's machine paths$note"; exit 1 }
-"machine-path-check: clean ($($entries.Count) files of $Commit, history excluded$note)"
+if ($found) { "machine-path-check: $found file(s) of $label hold the owner's machine paths$note"; exit 1 }
+"machine-path-check: clean ($($entries.Count) files of $label, history excluded$note)"
 exit 0
