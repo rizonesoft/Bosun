@@ -230,15 +230,20 @@ foreach ($c in $outgoing) {
     $name = if ($cells[2] -eq '') { $n += 2; $numstat[$n] } else { $cells[2] }
     if ($dash) { [void]$unshown.Add($name) }
   }
+  $newPaths = [Collections.Generic.List[string]]::new()
   $tree = @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id') + $base
   $tokens = [Text.Encoding]::UTF8.GetString((Get-GitBytes $tree)) -split "`0"
   for ($i = 0; $i -lt $tokens.Count; $i++) {
     if (-not $tokens[$i].StartsWith(':')) { continue }
     $fields = $tokens[$i].Substring(1) -split ' '
     $path = if ($fields[4] -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
-    if ($fields[4] -match '^D' -or $fields[1] -eq '160000') { continue }
+    if ($fields[4] -match '^D') { continue }
+    [void]$newPaths.Add($path)
+    if ($fields[1] -eq '160000') { continue }
     if ($unshown.Contains($path)) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $fields[3])) $c $path '' 'a file git does not diff' }
   }
+  # The paths themselves are published text (a submodule entry's directory name included): one gitleaks pass over them.
+  if ($newPaths.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($newPaths -join "`n"))) $c $null 'a file or folder name' 'a path it adds' }
 }
 # Ref names (a lightweight tag adds no object, so its name is the only thing it publishes).
 if ($refNames.Count) { Find-SecretsIn ([Text.Encoding]::UTF8.GetBytes(($refNames -join "`n"))) '' $null 'a ref being pushed' 'its name' }

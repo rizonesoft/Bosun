@@ -461,6 +461,18 @@ Client: Acme Corp (EU)"))
     Check 'a push by address with inherited GIT_CONFIG_COUNT entries goes through' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
   } finally { foreach ($n in 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0') { Remove-Item -LiteralPath "Env:$n" -ErrorAction Ignore } }
 
+  # --- a secret only in a folder name (an embedded checkout's), clean content and messages ---
+  $dirToken = New-Token
+  $tokenDir = Join-Path $plainClone "vendor-$dirToken"
+  git init -q $tokenDir
+  Set-Content -LiteralPath (Join-Path $tokenDir 'x.txt') -Value 'x'
+  git -C $tokenDir add -A; git -C $tokenDir commit -q -m 'neutral'
+  git -C $plainClone add -A 2>$null; git -C $plainClone commit -q -m 'neutral'
+  $r = Invoke-Push $plainClone @('main')
+  Check 'a secret only in a folder name is refused, the name hidden' ($r.Exit -ne 0 -and $r.Text -match 'a file or folder name: secret \(github-pat\) in a path it adds' -and -not $r.Text.Contains($dirToken)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone reset -q --hard origin/main
+  Remove-Item -LiteralPath $tokenDir -Recurse -Force
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
