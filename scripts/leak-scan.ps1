@@ -211,9 +211,11 @@ foreach ($c in $outgoing) {
   $numstat = [Text.Encoding]::UTF8.GetString((Get-GitBytes (@('diff-tree', '-z', '-r', '-M', '--numstat', '--no-commit-id') + $base))) -split "`0"
   $unshown = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   for ($n = 0; $n -lt $numstat.Count; $n++) {
-    if ($numstat[$n] -notmatch '^(\S+)\t(\S+)\t(.*)$') { continue }
-    $dash = $Matches[1] -eq '-'
-    $name = if ($Matches[3] -eq '') { $n += 2; $numstat[$n] } else { $Matches[3] }
+    # Split at the first two tabs only: the rest is the path verbatim, a newline in it included.
+    $cells = $numstat[$n] -split "`t", 3
+    if ($cells.Count -ne 3) { continue }
+    $dash = $cells[0] -eq '-'
+    $name = if ($cells[2] -eq '') { $n += 2; $numstat[$n] } else { $cells[2] }
     if ($dash) { [void]$unshown.Add($name) }
   }
   $tree = @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id') + $base
