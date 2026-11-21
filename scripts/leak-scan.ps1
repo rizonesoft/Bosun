@@ -186,24 +186,45 @@ if ($deny.Count -and $outgoing.Count) {
     if ((Test-Deny $asGit) -or @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'commit', $c)) | Where-Object { Test-Deny $_ }).Count) { Add-Finding $c $null 'commit message or author' 'deny-list entry' }
   }
 }
-# --- gitleaks over files a tag publishes without a commit (a tag on a file or a tree) ---
+# --- gitleaks over bytes the patch scan above cannot see ---
+# One helper for every such object: a file git calls binary (its patch shows no content), a tag's annotation, and
+# the files a tag publishes without a commit. Each finding's secret is kept from every path shown.
+function Find-SecretsIn([byte[]]$bytes, [string]$commit, [string]$path, [string]$place, [string]$what) {
+  $start = [Diagnostics.ProcessStartInfo]::new('gitleaks')
+  foreach ($a in 'stdin', '--no-banner', '--report-format', 'json', '--report-path', '-', '--exit-code', '3') { $start.ArgumentList.Add($a) }
+  $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
+  $scan = [Diagnostics.Process]::Start($start)
+  $out = $scan.StandardOutput.ReadToEndAsync(); $null = $scan.StandardError.ReadToEndAsync()
+  $scan.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $scan.StandardInput.Close()
+  $scan.WaitForExit()
+  if ($scan.ExitCode -ne 0 -and $scan.ExitCode -ne 3) { Stop-Scan "gitleaks could not scan $what (exit $($scan.ExitCode))" }
+  if ($scan.ExitCode -eq 3) {
+    try { $hits = @($out.Result | ConvertFrom-Json -ErrorAction Stop) } catch { Stop-Scan 'the gitleaks report could not be read' }
+    foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $commit $path "$(if ($path) { $f.StartLine } else { $place })" "secret ($($f.RuleID)) in $what" }
+  }
+}
+# Binary files the outgoing commits add or change (git's own test: a NUL byte in the first 8000).
+foreach ($c in $outgoing) {
+  $parent = & git -C $repoRoot rev-parse --verify --quiet "$c^1" 2>$null
+  $tree = if ($parent) { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', "$parent", $c) } else { @('diff-tree', '-z', '-r', '-M', '--raw', '--no-commit-id', '--root', $c) }
+  $tokens = [Text.Encoding]::UTF8.GetString((Get-GitBytes $tree)) -split "`0"
+  for ($i = 0; $i -lt $tokens.Count; $i++) {
+    if (-not $tokens[$i].StartsWith(':')) { continue }
+    $fields = $tokens[$i].Substring(1) -split ' '
+    $path = if ($fields[4] -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
+    if ($fields[4] -match '^D' -or $fields[1] -eq '160000') { continue }
+    $bytes = Get-GitBytes @('cat-file', 'blob', $fields[3])
+    $head = [Math]::Min(8000, $bytes.Length)
+    if ($head -and [Array]::IndexOf($bytes, [byte]0, 0, $head) -ge 0) { Find-SecretsIn $bytes $c $path '' 'a binary file' }
+  }
+}
+# Tag annotations, and the files a tag publishes without a commit.
 foreach ($tag in $tags) {
-  if ("$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)") { continue }
+  $peels = [bool]"$(& git -C $repoRoot rev-parse --verify --quiet "$($tag.Object)^{commit}" 2>$null)"
   foreach ($object in Invoke-Git (@('rev-list', '--objects', '--no-object-names', $tag.Object) + $(if ($known) { @('--not') + $known } else { @() }))) {
-    if (((Invoke-Git @('cat-file', '-t', $object)) -join '') -ne 'blob') { continue }
-    $start = [Diagnostics.ProcessStartInfo]::new('gitleaks')
-    foreach ($a in 'stdin', '--no-banner', '--report-format', 'json', '--report-path', '-', '--exit-code', '3') { $start.ArgumentList.Add($a) }
-    $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
-    $scan = [Diagnostics.Process]::Start($start)
-    $out = $scan.StandardOutput.ReadToEndAsync(); $null = $scan.StandardError.ReadToEndAsync()
-    $bytes = Get-GitBytes @('cat-file', 'blob', $object)
-    $scan.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length); $scan.StandardInput.Close()
-    $scan.WaitForExit()
-    if ($scan.ExitCode -ne 0 -and $scan.ExitCode -ne 3) { Stop-Scan "gitleaks could not scan a file the tag publishes (exit $($scan.ExitCode))" }
-    if ($scan.ExitCode -eq 3) {
-      try { $hits = @($out.Result | ConvertFrom-Json -ErrorAction Stop) } catch { Stop-Scan 'the gitleaks report could not be read' }
-      foreach ($f in $hits) { if ($f.Secret) { $secrets.Add("$($f.Secret)") }; Add-Finding $tag.Object $null 'a tag or other object being pushed' "secret ($($f.RuleID)) in a file it publishes" }
-    }
+    $type = (Invoke-Git @('cat-file', '-t', $object)) -join ''
+    if ($type -eq 'tag') { Find-SecretsIn (Get-GitBytes @('cat-file', 'tag', $object)) $tag.Object $null 'a tag or other object being pushed' 'its annotation' }
+    elseif ($type -eq 'blob' -and -not $peels) { Find-SecretsIn (Get-GitBytes @('cat-file', 'blob', $object)) $tag.Object $null 'a tag or other object being pushed' 'a file it publishes' }
   }
 }
 if ($deny.Count) {

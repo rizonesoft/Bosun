@@ -401,6 +401,20 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $polish @('main')
   Check 'an entry in a Windows-1250 commit message is found through git''s re-encoding' ($r.Exit -ne 0 -and $r.Text -match 'commit message or author: deny-list entry') "(exit $($r.Exit): $($r.Text))"
 
+  # --- secrets the patch scan cannot see: a binary file, a tag annotation ---
+  $plainClone = New-Checkout 'plain-clone' $remote
+  $binToken = New-Token
+  [IO.File]::WriteAllBytes((Join-Path $plainClone 'blob.bin'), [byte[]](@(0, 1, 2, 0) + [Text.Encoding]::ASCII.GetBytes("`ntoken = $binToken`n")))
+  git -C $plainClone add -A; git -C $plainClone commit -q -m 'binary'
+  $r = Invoke-Push $plainClone @('main')
+  Check 'a secret in a file git calls binary is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'blob.bin:\d+: secret \(github-pat\) in a binary file' -and -not $r.Text.Contains($binToken)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone reset -q --hard origin/main
+  $tagToken = New-Token
+  git -C $plainClone tag -a release-notes-2 -m "release token = $tagToken"
+  $r = Invoke-Push $plainClone @('refs/tags/release-notes-2')
+  Check 'a secret in a tag annotation on a published commit is refused, without a deny list' ($r.Exit -ne 0 -and $r.Text -match 'secret \(github-pat\) in its annotation' -and -not $r.Text.Contains($tagToken) -and -not (git --git-dir=$remote tag --list release-notes-2)) "(exit $($r.Exit): $($r.Text))"
+  git -C $plainClone tag -d release-notes-2 | Out-Null
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
