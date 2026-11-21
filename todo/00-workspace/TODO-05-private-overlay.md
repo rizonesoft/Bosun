@@ -39,7 +39,7 @@ title: "TODO-05 -- Public core and private overlay"
 | 3 | §3 | One sync command for both repositories | §2 | [x] |
 | 4 | §4 | Pre-push leak guard with gitleaks and the private deny list | §1 | [x] |
 | 5 | §5 | Agent rules split into public and overlay halves | §1 | [x] |
-| 6 | §6 | Full-history secret scan in CI | §4 | [ ] |
+| 6 | §6 | Full-history secret scan in CI | §4 | [x] |
 | 7 | §7 | Owner values moved into the overlay | §1, §2, §5 | [ ] |
 | 8 | §8 | Machine paths and personal names scrubbed from public files | §4, §7 | [ ] |
 
@@ -229,11 +229,14 @@ The local guard protects pushes from the owner's machine; CI protects everything
 - [x] Pin the `gitleaks` download by version and SHA-256 in the workflow (8.30.1, `gitleaks_8.30.1_linux_x64.tar.gz`, `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb` from that release's `gitleaks_8.30.1_checksums.txt`, the version `D00 T05 §4` pins). Done when: the step verifies the checksum before running, and a wrong digest fails the step. Cheaper substitute: an unpinned `latest` download.
 - [x] Prove the job finds a secret without pushing one: a step in the same job makes a temporary clone whose history holds a token built at run time in one commit, removed again in the next, and in a merge resolution, then runs the same `pwsh scripts/leak-scan.ps1 -All` there and asserts exit 1 with a finding naming each introducing commit and its file, the token nowhere in the log; a scan that fails for another reason (exit 1 with no finding) fails the step too. Done when: the job is green on `main` with that self-test step passing, and the step fails when the scan is skipped or the merge resolution is not found. **Corrected 2026-11-21:** the plan review of `D00 T05 §4` found the pushed throwaway branch would be refused by that section's guard; plan review gaps 1 and 2.
 - [x] Add `.gitleaksignore` entries only for known false positives with a comment naming each, starting empty. Done when: the job is green on `main` with every ignore entry explained.
-- [ ] Commit: `ci: scan the full public history for secrets on every push`
+- [x] Commit: `ci: scan the full public history for secrets on every push`
 
 > **Proof 2026-11-21:** plan run 44900979895 at `a1ef002`: the secrets job (0.7 min) scanned 1,252 commits clean, and its self-test step named `config.txt:1` and the merge's `resolved.txt:1` with the token redacted; both steps success. `sha256sum --check --strict` with a wrong digest exits 1, so the install step stops on one.
 
 **Test checkpoint:** the `plan` run for the candidate SHA (`gh run view <run> --json jobs`) shows the `secrets` job's history-scan and self-test steps both completed with `success`, and the self-test's log names the synthetic finding with the token redacted; a missing, skipped or failed step fails the checkpoint. **Corrected 2026-11-21:** plan review gap 3; `scripts/ci_status.py` reports a workflow's conclusion, not its steps.
+
+> **Verified:** 2026-11-21 | §6 | c270be93b7260b856c8acc4668f93b50ccb2e7b6
+> **Review:** `docs/reviews/d00-t05-s6.json`
 
 ## 7. Owner values moved into the overlay
 

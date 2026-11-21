@@ -51,7 +51,7 @@ Sections: 48 | Checklist items: 475
 | [x]    | D00 T05 §3  | One sync command for both repositories                          | none        | 9     |
 | [x]    | D00 T05 §4  | Pre-push leak guard with gitleaks and the private deny list     | none        | 17    |
 | [x]    | D00 T05 §5  | Agent rules split into public and overlay halves                | none        | 9     |
-| [ ]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 6     |
+| [x]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 6     |
 | [ ]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 8     |
 | [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 7     |
 | [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                      | none        | 8     |
@@ -187,6 +187,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 96/132 verified sections, 10 ready to run now.
+Progress: 97/132 verified sections, 9 ready to run now.
 
-Checklist: 943/1123 items completed (includes Commit items).
+Checklist: 944/1123 items completed (includes Commit items).
