@@ -4,7 +4,7 @@
 #   pwsh scripts/leak-scan.ps1 -Remote <name or URL>          the pre-push ref lines on standard input
 #   pwsh scripts/leak-scan.ps1 -Remote <name or URL> -Updates '<local ref> <local sha> <remote ref> <remote sha>', ...
 #   pwsh scripts/leak-scan.ps1 -Range <revision range>        the commits git rev-list gives for the range
-#   pwsh scripts/leak-scan.ps1 -All                           every commit reachable from HEAD, root included
+#   pwsh scripts/leak-scan.ps1 -All                           every ref's history, root included, and every annotated tag
 #
 # The outgoing commits come from the destination itself: `git ls-remote` gives its current tips, and every commit
 # being pushed that is not reachable from one of them is outgoing (a local tracking ref is never trusted). They are
@@ -23,7 +23,7 @@ param(
   # never reaches a process command line.
   [string]$Remote = $env:BOSUN_LEAK_REMOTE,
   [string[]]$Updates,
-  # A scan outside a push (D00 T05 §7 and §8): the commits of a revision range, or every commit reachable from HEAD.
+  # A scan outside a push (D00 T05 §6 to §8): the commits of a revision range, or every ref's history and annotated tag.
   # Neither reads standard input or lists a remote.
   [string]$Range,
   [switch]$All

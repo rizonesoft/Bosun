@@ -7,7 +7,7 @@
 #   pwsh tests/ci/secret_history_selftest.ps1      (the secrets job in .github/workflows/plan.yml runs it)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path (Split-Path $PSScriptRoot)
-$scratch = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } elseif ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
+$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } elseif ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $scratch ('bosun-secret-history-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
 $failed = 0
