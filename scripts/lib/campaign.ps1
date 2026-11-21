@@ -132,6 +132,7 @@ function Assert-Record($saved, [string]$path, [string]$kind) {
     if (-not (& $has $saved 'Scheme') -or "$($saved.Scheme)" -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { $why = 'Scheme is not a power plan GUID' }
     elseif (-not (& $has $saved 'Power') -or @($saved.Power).Count -ne $HoldPower.Count) { $why = "Power does not hold the $($HoldPower.Count) held settings" }
     elseif (-not (& $has $saved 'Lock') -or ($null -ne $saved.Lock -and $saved.Lock -isnot [string])) { $why = 'Lock is missing, or neither absent nor a string' }
+    elseif ($bad = @('Applied', 'Expires', 'RestoreTried') | Where-Object { (& $has $saved $_) -and $null -ne $saved.$_ -and $null -eq (ConvertTo-HoldTime $saved.$_) } | Select-Object -First 1) { $why = "$bad is not a time" }
     else {
       for ($i = 0; $i -lt $HoldPower.Count -and -not $why; $i++) {
         $e = @($saved.Power)[$i]
@@ -156,6 +157,25 @@ function Assert-Record($saved, [string]$path, [string]$kind) {
     }
   } else { throw "Assert-Record: unknown kind '$kind'" }
   if ($why) { throw "$path is not a complete $kind record ($why); move it aside after checking what it holds" }
+}
+
+# A hold record's time field as a UTC [datetime], or $null when it is not one. ConvertFrom-Json gives a [datetime] for
+# an ISO time and a [string] otherwise.
+function ConvertTo-HoldTime($value) {
+  if ($value -is [datetime]) { return $value.ToUniversalTime() }
+  $when = [datetime]::MinValue
+  if ($value -is [string] -and [datetime]::TryParse($value, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AdjustToUniversal, AssumeUniversal', [ref]$when)) { return $when }
+  $null
+}
+
+# When a checked hold record began, when it expires and when an automatic restore was tried ($null if never). A record
+# written before these fields began when its file was written, since a record is never rewritten until a restore is
+# tried, and expires a day later (D00 T03 §24).
+function Get-HoldLife($saved, [string]$path) {
+  $applied = if ($saved.PSObject.Properties.Name -contains 'Applied') { ConvertTo-HoldTime $saved.Applied } else { (Get-Item -LiteralPath $path).LastWriteTimeUtc }
+  $expires = if ($saved.PSObject.Properties.Name -contains 'Expires') { ConvertTo-HoldTime $saved.Expires } else { $applied.AddHours(24) }
+  $tried = if ($saved.PSObject.Properties.Name -contains 'RestoreTried' -and $null -ne $saved.RestoreTried) { ConvertTo-HoldTime $saved.RestoreTried } else { $null }
+  [pscustomobject]@{ Applied = $applied; Expires = $expires; RestoreTried = $tried }
 }
 
 # --- The hold: power timeouts and the screen saver lock ---------------------------------------------------------

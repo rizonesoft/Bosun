@@ -129,6 +129,91 @@ try {
   Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1' -and -not (Test-Path $record)) 'a retry then restores everything'
   $r = Hold @('-Restore')
   Check ($r.Code -eq 0 -and $r.Text -match 'nothing to restore') 'restore with no record says so'
+
+  # The hold's life (D00 T03 §24): when it began and expires, kept whole by a repeat apply.
+  Reset '1'
+  $r = Hold @('-Apply')
+  $rec = Get-Content $record -Raw | ConvertFrom-Json
+  $applied = ([datetime]$rec.Applied).ToUniversalTime(); $expires = ([datetime]$rec.Expires).ToUniversalTime()
+  Check ($r.Code -eq 0 -and [math]::Abs(([datetime]::UtcNow - $applied).TotalMinutes) -lt 5 -and ($expires - $applied).TotalHours -eq 24) 'apply records when the hold began and a 24 hour expiry'
+  $saved = [IO.File]::ReadAllText($record)
+  $r = Hold @('-Apply', '-Hours', '5')
+  Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($record) -eq $saved) 'a repeat apply with other hours keeps the originals, the start and the expiry'
+  Hold @('-Restore') | Out-Null
+  foreach ($bad in 0, 169) {
+    Reset '1'
+    $r = Hold @('-Apply', '-Hours', "$bad")
+    Check ($r.Code -ne 0 -and -not (Test-Path $record) -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1') "-Hours $bad is refused with nothing written or changed"
+  }
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $rec = Get-Content $record -Raw | ConvertFrom-Json
+  $rec.Expires = 'soon'
+  $broken = $rec | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($record, $broken)
+  $r = Hold @('-Restore')
+  Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time' -and [IO.File]::ReadAllText($record) -eq $broken) 'a malformed Expires is refused by name, and the record is left'
+  # A record from before these fields began when its file was written, and expires a day later.
+  $rec.PSObject.Properties.Remove('Applied'); $rec.PSObject.Properties.Remove('Expires')
+  [IO.File]::WriteAllText($record, ($rec | ConvertTo-Json -Depth 8))
+  $then = [datetime]::new(2026, 11, 20, 8, 0, 0, [DateTimeKind]::Utc)
+  (Get-Item -LiteralPath $record).LastWriteTimeUtc = $then
+  $r = Hold @('-Status')
+  Check ($r.Code -eq 0 -and $r.Text -match 'hold applied 2026-11-20 08:00:00Z' -and $r.Text -match 'expires 2026-11-21 08:00:00Z') "an old three-field record began when it was written ($(($r.Text -split "`n")[0]))"
+  Hold @('-Restore') | Out-Null
+
+  # -Status reads the saved plan's values now and before, after one drifts and another plan becomes active.
+  Reset $null
+  Hold @('-Apply') | Out-Null
+  $live = Get-Content $state -Raw | ConvertFrom-Json
+  $live.values.'SUB_VIDEO/VIDEOIDLE'.AC = 99
+  $live | Add-Member -NotePropertyName active -NotePropertyValue '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c'
+  [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Status')
+  Check ($r.Code -eq 0 -and $r.Text -match 'scheme 381b4222' -and $r.Text -match 'VIDEOIDLE AC: now 99, before 7200' -and $r.Text -match 'STANDBYIDLE DC: now 0, before 600' -and $r.Text -match 'ScreenSaverIsSecure: now 0, before \(absent\)') "status reads each held value now and before, an absent lock as absent"
+  $command = ($r.Text -split "`n" | Where-Object { $_ -like 'restore: *' }) -replace '^restore: pwsh scripts/campaign-hold.ps1', ''
+  Check ($command -match '-Record' -and $command -match '-LockKey') "status prints the restore command with this run's targets ($command)"
+  $out = Invoke-Expression "& `$pwsh -NoProfile -File `$hold $command 2>&1"
+  $now = (Get-Content $state -Raw | ConvertFrom-Json).values
+  Check ($LASTEXITCODE -eq 0 -and $now.'SUB_VIDEO/VIDEOIDLE'.AC -eq 7200 -and $now.'SUB_SLEEP/STANDBYIDLE'.DC -eq 600 -and $null -eq (Lock) -and -not (Test-Path $record)) "the printed command, run as printed, restores every value ($($out | Select-Object -Last 1))"
+  $r = Hold @('-Status')
+  Check ($r.Code -eq 0 -and $r.Text -eq 'no hold') 'status with no record says no hold'
+  Reset '1'
+  [IO.File]::WriteAllText($record, '{ not json')
+  $r = Hold @('-Status')
+  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL .*is not a readable record') 'status of an unreadable record is one FAIL line'
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $env:BOSUN_FAKE_POWERCFG_FAIL = '1'
+  $live = Get-Content $state -Raw | ConvertFrom-Json
+  $live.scheme = '00000000-0000-0000-0000-000000000000'
+  [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Status')
+  Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL
+  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL ') "status with a failing power query is one FAIL line ($r.Text)"
+
+  # -Auto: marked before anything changes, tried once, then the manual command.
+  Reset '1'
+  Hold @('-Apply') | Out-Null
+  $env:BOSUN_TEST_FAIL_AFTER_CHANGES = '1'
+  $r = Hold @('-Restore', '-Auto')
+  Remove-Item Env:BOSUN_TEST_FAIL_AFTER_CHANGES
+  $rec = Get-Content $record -Raw | ConvertFrom-Json
+  Check ($r.Code -ne 0 -and $rec.RestoreTried -and (AllHeld)) 'an automatic restore marks the record before its first change'
+  $r = Hold @('-Restore', '-Auto')
+  Check ($r.Code -eq 2 -and $r.Text -match 'already tried' -and $r.Text -match 'restore by hand: pwsh scripts/campaign-hold.ps1 -Restore' -and (AllHeld)) 'a second automatic restore is refused with the manual command, changing nothing'
+  $r = Hold @('-Restore')
+  Check ($r.Code -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1' -and -not (Test-Path $record)) 'the manual restore still restores after it'
+
+  # The targets come from BOSUN_HOLD_* when no parameter names them, as the run guard runs it.
+  Reset '1'
+  $env:BOSUN_HOLD_RECORD = $record; $env:BOSUN_HOLD_POWERCFG = $powercfg; $env:BOSUN_HOLD_LOCKKEY = $keyPath
+  try {
+    $out = & $pwsh -NoProfile -File $hold -Apply 2>&1
+    Check ($LASTEXITCODE -eq 0 -and (Test-Path $record) -and (AllHeld)) "the BOSUN_HOLD_* variables name the targets ($($out | Select-Object -Last 1))"
+    $out = & $pwsh -NoProfile -File $hold -Restore 2>&1
+    Check ($LASTEXITCODE -eq 0 -and [IO.File]::ReadAllText($state) -eq $original -and -not (Test-Path $record)) 'and restore uses them too'
+  } finally { Remove-Item Env:BOSUN_HOLD_RECORD, Env:BOSUN_HOLD_POWERCFG, Env:BOSUN_HOLD_LOCKKEY -ErrorAction Ignore }
 }
 finally {
   Remove-Item Env:BOSUN_FAKE_POWERCFG -ErrorAction Ignore

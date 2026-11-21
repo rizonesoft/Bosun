@@ -427,6 +427,16 @@ try {
   & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-hold.ps1') -Apply -Record $holdRecord -PowerCfg $powercfg -LockKey $lockKey | Out-Null
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') 'an applied hold passes'
+# An expired hold whose values still match fails: the run guard would restore it at the run's first event (D00 T03 §24).
+$holdText = [IO.File]::ReadAllText($holdRecord)
+$expired = $holdText | ConvertFrom-Json
+$expired.Expires = [datetime]::UtcNow.AddMinutes(-1).ToString('o')
+[IO.File]::WriteAllText($holdRecord, ($expired | ConvertTo-Json -Depth 8))
+$r = Preflight $system $holdArgs
+Check ($r.Code -eq 1 -and $r.Text -match 'the hold expired at' -and $r.Text -match 'campaign-hold.ps1 -Restore`, then `pwsh scripts/campaign-hold.ps1 -Apply') 'an expired hold whose values match fails with restore then apply'
+[IO.File]::WriteAllText($holdRecord, $holdText)
+$r = Preflight $system $holdArgs
+Check ($r.Code -eq 0) 'and the same hold unexpired passes'
   & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 600
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'the hold drifted: VIDEOIDLE AC is 600') 'a held value that drifted fails with its fix'

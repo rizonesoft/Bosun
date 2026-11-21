@@ -150,9 +150,14 @@ def main() -> int:
     if args.command == "end":
         with guard.locked():
             state = guard.load()
-            if guard.end(state, args.session, args.reason):
-                guard.save(state)
+            ended = guard.end(state, args.session, args.reason)
+            if ended:
                 guard.log(f"end: {state.get('why')}")
+            restored = guard.release_hold(state, guard.REAL)  # the launcher's end is the run's end: no hook may follow it
+            if restored:
+                guard.log(f"end: hold restore exit {state['hold_restore'].get('exit')}")
+            if ended or restored:
+                guard.save(state)
         say(state.get("status") or ("active" if state.get("active") else "inactive"))
         return 0
     with guard.locked():
@@ -172,6 +177,7 @@ def main() -> int:
                 return 1
         else:
             guard.halt(state, args.ground, args.reason)
+            guard.release_hold(state, guard.REAL)  # a halt ends the run: its hold goes back now, not at a later hook
         guard.save(state)
     say(state.get("status", ""))
     if args.command == "halt":
