@@ -146,7 +146,8 @@ if (-not $plain) { 'no token given, nothing changed'; exit 2 }
 if ($plain -match '\s') { 'that has spaces or line breaks inside it, so it is not one token; nothing changed'; exit 2 }
 
 # Each failure names the store to repair. Once the token is stored, nothing claims "nothing changed": a day that
-# could not be recorded for it is distrusted by the preflight (its fingerprint is another token's, or there is none).
+# could not be recorded for it is distrusted by the preflight when the record on disk is another token's, and still
+# trusted when it is this same token's, as Get-FailedDayNote says in each case.
 $remedy = "``pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>``"
 try {
   if (-not (Test-Path -LiteralPath $Key)) { New-Item -Path $Key -Force | Out-Null }

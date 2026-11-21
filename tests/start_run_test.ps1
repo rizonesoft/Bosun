@@ -365,7 +365,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
         $hold = [IO.File]::Open($record, 'Open', 'Read', 'None')
         try { $said = (& $case.Run) -join "`n"; $code = $LASTEXITCODE } finally { $hold.Dispose() }
         $left = @(Get-ChildItem -LiteralPath (Split-Path $record) -Filter '*.tmp' -Force).Count
-        Check ($code -eq 1 -and $said -match $case.Says -and $said -match '-RecordOnly -IssuedOn' -and (Get-Stored) -ceq $case.Token -and (Get-Content $record -Raw) -eq $before -and (Get-RecordFingerprint) -ne (Get-TokenFingerprint (Get-Stored)) -and -not $said.Contains($case.Token) -and $left -eq 0) "$($case.Name), its record held open, exits 1 naming the record, the old record kept and distrusted, no temporary file left ($said)"
+        Check ($code -eq 1 -and $said -match $case.Says -and $said.Contains($record) -and $said -match '-RecordOnly -IssuedOn' -and (Get-Stored) -ceq $case.Token -and (Get-Content $record -Raw) -eq $before -and (Get-RecordFingerprint) -ne (Get-TokenFingerprint (Get-Stored)) -and -not $said.Contains($case.Token) -and $left -eq 0) "$($case.Name), its record held open, exits 1 naming the record, the old record kept and distrusted, no temporary file left ($said)"
       }
 
       # A key the token cannot be written to: the token store is named, and the record is left as it was.
@@ -381,7 +381,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Set-KeyRule $true
       try { $said = ('tok-after-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-06) -join "`n"; $code = $LASTEXITCODE }
       finally { Set-KeyRule $false }
-      Check ($code -eq 1 -and $said -match 'could not be stored' -and (Get-Stored) -ceq 'tok-before-lock' -and (Get-Content $record -Raw) -eq $before -and -not $said.Contains('tok-after-lock')) "a token the key will not take exits 1 naming the key, the old token and its record kept ($said)"
+      Check ($code -eq 1 -and $said -match 'could not be stored' -and $said.Contains($vaultKey) -and (Get-Stored) -ceq 'tok-before-lock' -and (Get-Content $record -Raw) -eq $before -and -not $said.Contains('tok-after-lock')) "a token the key will not take exits 1 naming the key, the old token and its record kept ($said)"
 
       # A correction that cannot be written leaves the old day for this same token in force, and says so plainly.
       $hold = [IO.File]::Open($record, 'Open', 'Read', 'None')
