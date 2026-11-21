@@ -163,6 +163,8 @@ Making the repository public was the irreversible step; from here every push is 
 
 **Test checkpoint:** `pwsh tests/leak_scan_test.ps1` exits 0, and fails when the deny-list pass in `scripts/leak-scan.ps1` is removed.
 
+> **Repair cycle:** 1: 2026-11-21: its 33 review rounds ran out with a P1 open (round 33: deny-list lines are trimmed before the # comment test, so an indented literal entry is lost); the new cycle fixes it under a fresh plan review (after: its 33 review rounds ran out with findings open)
+
 ## 5. Agent rules split into public and overlay halves
 
 Agents need the owner's rules on the owner's machine and must not see them anywhere else. The public files keep every rule a contributor needs and load the overlay's rules when present.
