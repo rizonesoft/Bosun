@@ -894,6 +894,8 @@ Filed 2026-11-21 from the completion review of `D00 T05 §7` (`docs/reviews/00-w
 
 ## 24. Campaign hold restores itself and shows its state
 
+> **Started:** 2026-11-21T18:38:27Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 6 and 7, raised by the completion reviews of `§10` and `§18`). `scripts/campaign-hold.ps1` has only `-Apply` and `-Restore` (`scripts/campaign-hold.ps1:14`): a hold applied for a run stays on after the run ends until someone remembers to restore it, and nothing shows how old a hold is or how to undo it. Inside the owner's rule that nothing restarts a run, the run's own guard can still put the machine back when the run ends.
 
 **Corrected 2026-11-21 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s24.md` returned ten gaps (7 P1, 3 P2), all answered by one design below: the hold record, which `scripts/campaign-hold.ps1` owns, carries when it was applied, its expiry and whether an automatic restore was tried, so the guard needs no state of its own about the hold. A hold belongs to a run that ends after it was applied (a hold applied after a run ended is never undone by that run); an automatic restore is tried once per hold, marked in the record before anything changes; every guard path that ends a run, and every hook or status read, makes the same decision; the earlier items, which kept the attempt in the run state, are replaced.
