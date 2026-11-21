@@ -41,7 +41,13 @@ if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) {
   Stop-Scan "gitleaks is not installed, so the push cannot be checked for secrets: $remedy"
 }
 
-if ($null -eq $Updates) { $Updates = @([Console]::In.ReadToEnd() -split "`r?`n" | Where-Object { $_.Trim() }) }
+# Git writes the ref lines in UTF-8; they are read as bytes, never through the console's code page (437 here), so a
+# name like café reaches the checks as git publishes it.
+if ($null -eq $Updates) {
+  $stdin = [IO.MemoryStream]::new()
+  [Console]::OpenStandardInput().CopyTo($stdin)
+  $Updates = @([Text.UTF8Encoding]::new($false).GetString($stdin.ToArray()) -split "`r?`n" | Where-Object { $_.Trim() })
+}
 $locals = [Collections.Generic.List[string]]::new()
 $tags = [Collections.Generic.List[object]]::new()
 $refNames = [Collections.Generic.List[string]]::new()
@@ -66,7 +72,11 @@ if (-not $locals.Count -and -not $tags.Count) { exit 0 }
 # address, which can hold a credential, is never on a command line.
 $remoteName = $Remote
 if (-not ((& git -C $repoRoot remote 2>$null) -contains $Remote)) {
-  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'remote.bosun-leak-scan.url'; $env:GIT_CONFIG_VALUE_0 = $Remote
+  # Appended after any entries the caller passed this way (a credential helper, say), never over them.
+  $slot = if ("$env:GIT_CONFIG_COUNT" -match '^\d+$') { [int]$env:GIT_CONFIG_COUNT } else { 0 }
+  Set-Item -LiteralPath "Env:GIT_CONFIG_KEY_$slot" -Value 'remote.bosun-leak-scan.url'
+  Set-Item -LiteralPath "Env:GIT_CONFIG_VALUE_$slot" -Value $Remote
+  $env:GIT_CONFIG_COUNT = "$($slot + 1)"
   $remoteName = 'bosun-leak-scan'
 }
 $listed = & git -C $repoRoot ls-remote $remoteName 2>$null

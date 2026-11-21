@@ -448,6 +448,19 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $plainClone @("refs/tags/$nbspTag")
   Check 'a clean tag named with a no-break space pushes' ($r.Exit -eq 0 -and (git --git-dir=$remote tag --list "release*candidate")) "(exit $($r.Exit): $($r.Text))"
 
+  # --- a non-ASCII branch name holding an entry, read as git writes it ---
+  $cafeRef = New-Checkout 'cafe-ref' $remote -Deny @("caf$([char]0xE9)")
+  $r = Invoke-Push $cafeRef @("HEAD:refs/heads/caf$([char]0xE9)-notes")
+  Check 'a non-ASCII branch name holding an entry is refused' ($r.Exit -ne 0 -and $r.Text -match 'a ref being pushed: deny-list entry' -and -not (git --git-dir=$remote for-each-ref 'refs/heads/caf*')) "(exit $($r.Exit): $($r.Text))"
+
+  # --- a caller's own GIT_CONFIG_COUNT entries survive the scan ---
+  $env:GIT_CONFIG_COUNT = '1'; $env:GIT_CONFIG_KEY_0 = 'core.bosunTestMarker'; $env:GIT_CONFIG_VALUE_0 = 'kept'
+  try {
+    $null = Add-Commit $plainClone 'config-count.txt' 'clean'
+    $r = [pscustomobject]@{ Text = (git -C $plainClone push $remote main 2>&1 | Out-String); Exit = $LASTEXITCODE }
+    Check 'a push by address with inherited GIT_CONFIG_COUNT entries goes through' ($r.Exit -eq 0) "(exit $($r.Exit): $($r.Text))"
+  } finally { foreach ($n in 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0') { Remove-Item -LiteralPath "Env:$n" -ErrorAction Ignore } }
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
