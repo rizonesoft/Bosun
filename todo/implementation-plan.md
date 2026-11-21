@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 42 | Checklist items: 424
+Sections: 48 | Checklist items: 472
 
 | Status | Reference   | Deliverable                                                     | Needs       | Items |
 | ------ | ----------- | --------------------------------------------------------------- | ----------- | ----- |
@@ -54,6 +54,12 @@ Sections: 42 | Checklist items: 424
 | [ ]    | D00 T05 §6  | Full-history secret scan in CI                                  | none        | 5     |
 | [ ]    | D00 T05 §7  | Owner values moved into the overlay                             | none        | 8     |
 | [ ]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files     | none        | 7     |
+| [ ]    | D00 T06 §1  | Open findings, part 1 of 6                                      | none        | 8     |
+| [ ]    | D00 T06 §2  | Open findings, part 2 of 6                                      | none        | 8     |
+| [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                      | none        | 8     |
+| [ ]    | D00 T06 §4  | Open findings, part 4 of 6                                      | none        | 8     |
+| [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                      | none        | 8     |
+| [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                      | none        | 8     |
 
 ### Phase 1: Core data contract
 
@@ -181,6 +187,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 94/126 verified sections, 10 ready to run now.
+Progress: 94/132 verified sections, 10 ready to run now.
 
-Checklist: 927/1072 items completed (includes Commit items).
+Checklist: 929/1120 items completed (includes Commit items).
