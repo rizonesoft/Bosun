@@ -278,7 +278,7 @@ def schedule_cap(schedule):
 # this cycle, itself included, that any one of its P1 or P2 findings has been reported in, or `RECURRING: none`. Under
 # a pin with [schedule] recurrence_cap, a round whose finding has reached that count ends the cycle's rounds: the
 # section takes a repair cycle (a fresh plan review), and is never stamped on it.
-RECURRING = re.compile(r"^[ \t]*RECURRING:[ \t]*(none|[1-9]\d{0,2})[ \t]*$", re.IGNORECASE | re.MULTILINE)
+RECURRING = re.compile(r"^[ \t]*RECURRING:[ \t]*(none|[1-9]\d{0,2})[ \t]*\r?$", re.IGNORECASE | re.MULTILINE)
 
 
 def recurring(review):

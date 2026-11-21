@@ -474,6 +474,7 @@ class RecurringFindings(unittest.TestCase):
         self.assertTrue(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING: 2\nRECURRING: none\nOVERALL: x'))
         self.assertFalse(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING: none\nOVERALL: x'))
         self.assertTrue(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\nRECURRING:\n3\nOVERALL: x'))
+        self.assertFalse(d.recurrence_missing(schedule, 'round', 'HIGHEST: P2\r\nRECURRING: 2\r\nOVERALL: x'))  # Windows replies
         self.assertFalse(d.recurrence_missing(schedule, 'plan', 'PLAN: complete\nOVERALL: approve'))
         self.assertFalse(d.recurrence_missing(self.schedule(None), 'round', 'HIGHEST: P2\nOVERALL: x'))
 
