@@ -108,13 +108,19 @@ if ($outgoing.Count) {
   $report = Join-Path $scratchDir ("bosun-leak-scan-" + [guid]::NewGuid().ToString('N') + '.json')
   try {
     $logOpts = (@('--diff-merges=first-parent') + $range) -join ' '
-    & gitleaks git $repoRoot --log-opts $logOpts --redact --no-banner --report-format json --report-path $report --exit-code 3 *> $null
+    # Not redacted: the report stays local (removed below) so each matched secret can be compared with its path, and no
+    # path holding one is ever printed. Only commit, path, line and rule are shown.
+    & gitleaks git $repoRoot --log-opts $logOpts --no-banner --report-format json --report-path $report --exit-code 3 *> $null
     $code = $LASTEXITCODE
     if ($code -ne 0 -and $code -ne 3) { Stop-Scan "gitleaks could not scan the outgoing commits (exit $code)" }
     try { $findings = @(Get-Content -LiteralPath $report -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop) }
     catch { Stop-Scan 'the gitleaks report could not be read' }
     if ($code -eq 3 -and -not $findings.Count) { Stop-Scan 'gitleaks reported a finding its report does not hold' }
-    foreach ($f in $findings) { $failed.Add("$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): $(Show-Path "$($f.File)"):$($f.StartLine): secret ($($f.RuleID))") }
+    foreach ($f in $findings) {
+      $file = "$($f.File)"
+      $shown = if ($f.Secret -and $file.Contains("$($f.Secret)", [StringComparison]::OrdinalIgnoreCase)) { 'a path' } else { Show-Path $file }
+      $failed.Add("$("$($f.Commit)".Substring(0, [Math]::Min(12, "$($f.Commit)".Length))): ${shown}:$($f.StartLine): secret ($($f.RuleID))")
+    }
   } finally { Remove-Item -LiteralPath $report -ErrorAction Ignore }
 }
 
@@ -132,8 +138,10 @@ if ($deny.Count -and $outgoing.Count) {
       $fields = $tokens[$i].Substring(1) -split ' '
       $status = $fields[4]
       $path = if ($status -match '^[RC]') { $tokens[$i + 2]; $i += 2 } else { $tokens[$i + 1]; $i += 1 }
-      if ($status -match '^D' -or $fields[1] -eq '160000') { continue }
+      if ($status -match '^D') { continue }
+      # The path is published even for a submodule entry (an embedded checkout added by mistake), so it is checked first.
       if (Test-Deny $path) { $failed.Add("${short}: a path: deny-list entry (in a file name)"); continue }
+      if ($fields[1] -eq '160000') { continue }
       # What the commit adds: a line holding an entry counts only when the new file has more of that line than the
       # parent's version did, so an edit around an entry already published, or a cleanup removing one, is not refused.
       $newReadings = @(ConvertFrom-Blob (Get-GitBytes @('cat-file', 'blob', $fields[3])))

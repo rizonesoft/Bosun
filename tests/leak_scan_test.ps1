@@ -225,6 +225,25 @@ Client: Acme Corp (EU)"))
   $r = Invoke-Push $owner @('main')
   Check 'a new line with an entry in that file is refused at its line' ($r.Exit -ne 0 -and $r.Text -match 'docs/history.md:4: deny-list entry' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
   git -C $owner reset -q --hard origin/main
+  # --- an embedded checkout's path is published too ---
+  $before = Get-Refs $remote
+  $embedded = Join-Path $owner 'acme corp (eu) checkout'
+  git init -q $embedded
+  Set-Content -LiteralPath (Join-Path $embedded 'x.txt') -Value 'x'
+  git -C $embedded add -A; git -C $embedded commit -q -m x
+  git -C $owner add -A 2>$null; git -C $owner commit -q -m 'neutral'
+  $r = Invoke-Push $owner @('main')
+  Check 'an embedded checkout named with an entry is refused, the name not shown' ($r.Exit -ne 0 -and $r.Text -match 'a path: deny-list entry' -and $r.Text -notmatch '(?i)acme' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+  Remove-Item -LiteralPath $embedded -Recurse -Force
+
+  # --- a secret in a file's own name is never printed ---
+  $nameToken = New-Token
+  $null = Add-Commit $owner "$nameToken.txt" "token = $nameToken"
+  $r = Invoke-Push $owner @('main')
+  Check 'a secret in a file name is refused and its path hidden' ($r.Exit -ne 0 -and $r.Text -match 'a path:1: secret' -and -not $r.Text.Contains($nameToken) -and -not $r.Text.Contains($nameToken.Substring(4, 12))) "(exit $($r.Exit): $($r.Text))"
+  git -C $owner reset -q --hard origin/main
+
   # --- blank and # lines ignored ---
   $commented = New-Checkout 'commented' $remote -Deny @('', '# Acme', '   ')
   $fine = Add-Commit $commented 'acme.txt' '# Acme is only a comment in that list'
