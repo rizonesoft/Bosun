@@ -363,7 +363,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
         'tok-old-seed' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-03-01 | Out-Null
         $before = Get-Content $record -Raw
         $hold = [IO.File]::Open($record, 'Open', 'Read', 'None')
-        try { $said = (& $case.Run) -join "`n"; $code = $LASTEXITCODE } finally { $hold.Dispose() }
+        try { $said = (& $case.Run 2>&1) -join "`n"; $code = $LASTEXITCODE } finally { $hold.Dispose() }
         $left = @(Get-ChildItem -LiteralPath (Split-Path $record) -Filter '*.tmp' -Force).Count
         Check ($code -eq 1 -and $said -match $case.Says -and $said.Contains($record) -and $said -match '-RecordOnly -IssuedOn' -and (Get-Stored) -ceq $case.Token -and (Get-Content $record -Raw) -eq $before -and (Get-RecordFingerprint) -ne (Get-TokenFingerprint (Get-Stored)) -and -not $said.Contains($case.Token) -and $left -eq 0) "$($case.Name), its record held open, exits 1 naming the record, the old record kept and distrusted, no temporary file left ($said)"
       }
@@ -379,7 +379,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
         try { $acl = $handle.GetAccessControl(); if ($add) { $acl.AddAccessRule($deny) } else { [void]$acl.RemoveAccessRule($deny) }; $handle.SetAccessControl($acl) } finally { $handle.Dispose() }
       }
       Set-KeyRule $true
-      try { $said = ('tok-after-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-06) -join "`n"; $code = $LASTEXITCODE }
+      try { $said = ('tok-after-lock' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-04-06 2>&1) -join "`n"; $code = $LASTEXITCODE }
       finally { Set-KeyRule $false }
       Check ($code -eq 1 -and $said -match 'could not be stored' -and $said.Contains($vaultKey) -and (Get-Stored) -ceq 'tok-before-lock' -and (Get-Content $record -Raw) -eq $before -and -not $said.Contains('tok-after-lock')) "a token the key will not take exits 1 naming the key, the old token and its record kept ($said)"
 
@@ -391,6 +391,17 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $true
       try { $said = (& $pwsh -NoProfile -File $kitStore -RecordOnly -IssuedOn 2026-01-15 -Key $vaultKey -Record $record) -join "`n"; $code = $LASTEXITCODE } finally { Set-ItemProperty -LiteralPath $record -Name IsReadOnly -Value $false }
       Check ($code -eq 1 -and $said -match 'still stands and is still trusted' -and $said -match 'before starting a campaign' -and (Get-Content $record -Raw) -eq $before) "a failed -RecordOnly correction on a read-only record says the old day still stands for this token ($said)"
+      # A renewal written into the first token's recovery item: the item's creation day is the old token's, so an item
+      # changed on a later day gives no day, and one changed the day it was made keeps it.
+      $editedOp = Join-Path $fake 'op-edited.cmd'
+      Set-Content $editedOp "@echo off`r`nif `"%1`"==`"read`" (echo tok-renewed& exit /b 0)`r`nif `"%1 %2`"==`"item get`" (echo {`"created_at`":`"2025-12-01T08:00:00Z`",`"updated_at`":`"2026-11-01T09:00:00Z`"}& exit /b 0)`r`nexit /b 1" -Encoding ascii
+      'tok-old-seed' | & $pwsh -NoProfile -File $kitStore -Key $vaultKey -Record $record -IssuedOn 2026-03-01 | Out-Null
+      $said = (& $pwsh -NoProfile -File $kitStore -FromVault -Op $editedOp -Key $vaultKey -Record $record 2>&1) -join "`n"; $code = $LASTEXITCODE
+      Check ($code -eq 0 -and (Get-Stored) -ceq 'tok-renewed' -and -not (Test-Path $record) -and $said -match 'changed after it was made' -and $said -match '-RecordOnly -IssuedOn') "a vault item changed after it was made records no day for its token ($said)"
+      $sameDayOp = Join-Path $fake 'op-sameday.cmd'
+      Set-Content $sameDayOp "@echo off`r`nif `"%1`"==`"read`" (echo tok-sameday& exit /b 0)`r`nif `"%1 %2`"==`"item get`" (echo {`"created_at`":`"2026-02-10T08:00:00Z`",`"updated_at`":`"2026-02-10T17:00:00Z`"}& exit /b 0)`r`nexit /b 1" -Encoding ascii
+      $null = & $pwsh -NoProfile -File $kitStore -FromVault -Op $sameDayOp -Key $vaultKey -Record $record
+      Check ($LASTEXITCODE -eq 0 -and (Get-Content $record -Raw | ConvertFrom-Json).issued -eq '2026-02-10' -and (Get-RecordFingerprint) -eq (Get-TokenFingerprint 'tok-sameday')) 'an item changed the day it was made keeps that day for its token'
       # A relative -Record is one path for the write and the rename, after Set-Location too.
       $relative = Join-Path $work 'relative-place'
       New-Item -ItemType Directory -Path (Join-Path $relative 'inner') -Force | Out-Null

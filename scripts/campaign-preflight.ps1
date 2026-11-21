@@ -187,6 +187,9 @@ function Test-Claude {
       $recorded = try { Get-Content -LiteralPath $TokenRecord -Raw | ConvertFrom-Json } catch { $null }
       try { if ($recorded -and "$($recorded.token)" -ceq (Get-TokenFingerprint "$token")) { $issued = [datetime]::ParseExact([string]$recorded.issued, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } } catch { $issued = $null }
       if (-not $issued) { Fail "the stored token's issue day isn't recorded for it at $TokenRecord (none, or one for another token), so its year can't be checked" '`pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>`, then run the preflight again'; return }
+      # A day after today (a clock corrected after the import, a record edited by hand) is refused, as the importer
+      # refuses one: it would credit the token with more than its year.
+      if ($issued -gt [datetime]::UtcNow.Date) { Fail "the stored token's recorded issue day, $($issued.ToString('yyyy-MM-dd')), is after today, so its year can't be trusted" '`pwsh scripts/store-claude-token.ps1 -RecordOnly -IssuedOn <the day you ran claude setup-token>`, then run the preflight again'; return }
       $ends = $issued.AddYears(1)
       $days = [math]::Floor(($ends - [datetime]::UtcNow.Date).TotalDays)
       if ($days -lt $MinLoginDays) { Fail "the stored token, made on $($issued.ToString('yyyy-MM-dd')), ends on $($ends.ToString('yyyy-MM-dd')), in $days days, sooner than the $MinLoginDays a campaign may need" $long; return }

@@ -121,17 +121,24 @@ $plain = if ($FromVault) {
   if ($LASTEXITCODE -or -not "$read".Trim()) { "``op read`` could not read the token from the vault (exit $LASTEXITCODE): check ``op whoami`` and that the vault item is the one set up; nothing changed"; exit 1 }
   if (-not $dayGiven) {
     # A token from the vault was not made today: its day is the day the vault item was created, and when that can't
-    # be read no day is recorded, so the preflight asks for one instead of trusting an invented year.
+    # be read no day is recorded, so the preflight asks for one instead of trusting an invented year. An item changed on
+    # a later day than it was made may hold a newer token in its first one's item (a renewal written into the same
+    # recovery item), so its creation day is not this token's day either (D00 T03 §23).
     $dayUnknown = $true
+    $dayWhy = "the vault didn't say when it was made"
     $parts = $VaultItem -replace '^op://', '' -split '/'
     $item = & $tool item get $parts[1] --vault $parts[0] --format json 2>$null
     if (-not $LASTEXITCODE -and $item) {
       try {
-        $created = ($item -join "`n" | ConvertFrom-Json).created_at
-        if ($created -isnot [datetime]) { $created = [datetime]::Parse("$created", [Globalization.CultureInfo]::InvariantCulture, 'AdjustToUniversal') }
-        $day = $created.ToUniversalTime().Date
-        $IssuedOn = $day.ToString('yyyy-MM-dd')
-        $dayUnknown = $IssuedOn -gt $today
+        $doc = $item -join "`n" | ConvertFrom-Json
+        $asDay = { param($value) if ($value -isnot [datetime]) { $value = [datetime]::Parse("$value", [Globalization.CultureInfo]::InvariantCulture, 'AdjustToUniversal') }; $value.ToUniversalTime().Date }
+        $day = & $asDay $doc.created_at
+        $changed = if ($doc.updated_at) { & $asDay $doc.updated_at } else { $day }
+        if ($changed -gt $day) { $dayWhy = "the vault item was changed after it was made, so it may hold a newer token than its creation day says" }
+        else {
+          $IssuedOn = $day.ToString('yyyy-MM-dd')
+          $dayUnknown = $IssuedOn -gt $today
+        }
       } catch { $dayUnknown = $true }
     }
     $item = $null
@@ -161,8 +168,8 @@ $plain = $null
 if ($dayUnknown) {
   # The record on disk belongs to the token this one replaced, so it goes too.
   Remove-Item -LiteralPath $Record -ErrorAction Ignore
-  if (Test-Path -LiteralPath $Record) { "stored $Name ($($back.Length) characters); the vault didn't say when it was made, and the day at $Record could not be removed, so $(Get-FailedDayNote $fingerprint): close what holds it, then run $remedy"; exit 1 }
-  "stored $Name ($($back.Length) characters), but the vault didn't say when it was made, so no day is recorded: run $remedy"
+  if (Test-Path -LiteralPath $Record) { "stored $Name ($($back.Length) characters); $dayWhy, and the day at $Record could not be removed, so $(Get-FailedDayNote $fingerprint): close what holds it, then run $remedy"; exit 1 }
+  "stored $Name ($($back.Length) characters), but $dayWhy, so no day is recorded: run $remedy"
   exit 0
 }
 try { Save-Issued $IssuedOn $fingerprint }

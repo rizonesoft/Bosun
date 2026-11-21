@@ -230,6 +230,10 @@ try {
   Set-Content -LiteralPath $tokenRecord -Value (@{ issued = [datetime]::UtcNow.ToString('yyyy-MM-dd') } | ConvertTo-Json -Compress)
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 1 -and $r.Text -match "isn't recorded for it") 'a record written before fingerprints is no day either'
+  # A day after today, though recorded for this token, is refused with the same remedy.
+  Set-Content -LiteralPath $tokenRecord -Value (@{ issued = [datetime]::UtcNow.AddDays(5).ToString('yyyy-MM-dd'); token = (Get-TokenFingerprint $stored) } | ConvertTo-Json -Compress)
+  $r = Preflight "$d;$system" $claude
+  Check ($r.Code -eq 1 -and $r.Text -match 'is after today' -and $r.Text -match '-RecordOnly -IssuedOn') 'a recorded day after today is refused, naming how to correct it'
   Set-Content -LiteralPath $tokenRecord -Value (@{ issued = [datetime]::UtcNow.ToString('yyyy-MM-dd'); token = (Get-TokenFingerprint $stored) } | ConvertTo-Json -Compress)
   $r = Preflight "$d;$system" $claude
   Check ($r.Code -eq 0) 'and the same day recorded for the stored token passes'
