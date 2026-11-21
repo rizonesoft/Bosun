@@ -3,6 +3,8 @@
 # in what a push publishes refuses it, the remote's refs read back unchanged, and nothing matched is ever printed.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
+# The prerequisite first, so a machine without gitleaks leaves no scratch folder behind.
+if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) { 'FAIL gitleaks is not installed; this test needs it (winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user)'; exit 1 }
 $scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $scratch ('bosun-leak-scan-test-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $work | Out-Null
@@ -456,9 +458,15 @@ Client: Acme Corp (EU)"))
   # --- refusals on every failure ---
   $before = Get-Refs $remote
   $null = Add-Commit $owner 'harmless.txt' 'harmless'
-  $env:PATH = $withoutGitleaks
-  try { $r = Invoke-Push $owner @('main') } finally { $env:PATH = $withTools }
-  Check 'without gitleaks the push is refused with the install command' ($r.Exit -ne 0 -and $r.Text -match 'gitleaks is not installed' -and $r.Text -match 'winget install --id Gitleaks.Gitleaks' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  # Hiding gitleaks needs it in a folder of its own: a package-manager shim folder holding git or pwsh too cannot be
+  # left off PATH without them (the hook needs a real pwsh executable, which a shim script cannot stand in for).
+  if ((Split-Path $gitleaks.Source) -in (Split-Path $gitExe), (Split-Path $pwshExe)) {
+    'note without gitleaks: gitleaks shares a folder with git or pwsh here, so it cannot be hidden from the hook; that case runs where it has a folder of its own'
+  } else {
+    $env:PATH = $withoutGitleaks
+    try { $r = Invoke-Push $owner @('main') } finally { $env:PATH = $withTools }
+    Check 'without gitleaks the push is refused with the install command' ($r.Exit -ne 0 -and $r.Text -match 'gitleaks is not installed' -and $r.Text -match 'winget install --id Gitleaks.Gitleaks' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
+  }
   $lock = [IO.File]::Open((Join-Path $owner '.private\deny-list.txt'), 'Open', 'ReadWrite', 'None')
   try { $r = Invoke-Push $owner @('main') } finally { $lock.Dispose() }
   Check 'a deny list that cannot be read refuses the push' ($r.Exit -ne 0 -and $r.Text -match 'deny list .* could not be read' -and (Get-Refs $remote) -eq $before) "(exit $($r.Exit): $($r.Text))"
