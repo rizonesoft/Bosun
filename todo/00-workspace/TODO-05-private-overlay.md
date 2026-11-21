@@ -240,6 +240,8 @@ The local guard protects pushes from the owner's machine; CI protects everything
 
 ## 7. Owner values moved into the overlay
 
+> **Started:** 2026-11-21T12:34:43Z
+
 With the plumbing in place, the owner's values leave the public files: each becomes a key in `.private/config.toml` read through `Get-BosunOverlayValue`, and the public default becomes a setup-required message.
 
 **Phase:** 0
