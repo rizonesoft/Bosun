@@ -176,6 +176,8 @@ Making the repository public was the irreversible step; from here every push is 
 
 ## 5. Agent rules split into public and overlay halves
 
+> **Started:** 2026-11-21T09:04:37Z
+
 Agents need the owner's rules on the owner's machine and must not see them anywhere else. The public files keep every rule a contributor needs and load the overlay's rules when present.
 
 **Phase:** 0
