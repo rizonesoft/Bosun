@@ -193,7 +193,7 @@ try {
   Reset '1'
   [IO.File]::WriteAllText($record, '{ not json')
   $r = Hold @('-Status')
-  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL .*is not a readable record') 'status of an unreadable record is one FAIL line'
+  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL .*is not a readable record' -and @($r.Text -split "`n").Count -eq 1) 'status of an unreadable record is one FAIL line'
   Reset '1'
   Hold @('-Apply') | Out-Null
   $env:BOSUN_FAKE_POWERCFG_FAIL = '1'
@@ -202,7 +202,7 @@ try {
   [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
   $r = Hold @('-Status')
   Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL
-  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL ') "status with a failing power query is one FAIL line ($r.Text)"
+  Check ($r.Code -eq 1 -and $r.Text -match '^FAIL ' -and @($r.Text -split "`n").Count -eq 1) "status with a failing power query is one FAIL line ($($r.Text))"
 
   # A restore after the owner switched to another plan writes the held plan's values and leaves the owner's plan in force
   # (round 1 of D00 T03 §24).
@@ -222,7 +222,7 @@ try {
   $r = Hold @('-Restore', '-Auto')
   Remove-Item Env:BOSUN_TEST_FAIL_AFTER_CHANGES
   $rec = Get-Content $record -Raw | ConvertFrom-Json
-  Check ($r.Code -ne 0 -and $rec.RestoreTried -and (AllHeld)) 'an automatic restore marks the record before its first change'
+  Check ($r.Code -ne 0 -and $rec.RestoreTried -and (AllHeld) -and (Lock) -eq '0') 'an automatic restore marks the record before its first change, power and lock both still held'
   $r = Hold @('-Restore', '-Auto')
   Check ($r.Code -eq 2 -and $r.Text -match 'already tried' -and $r.Text -match 'restore by hand: pwsh scripts/campaign-hold.ps1 -Restore' -and (AllHeld)) 'a second automatic restore is refused with the manual command, changing nothing'
   $r = Hold @('-Restore')
