@@ -1,11 +1,11 @@
-# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
+﻿# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
 # run changes nothing; and when the launcher's window process ends, nothing it started keeps running.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $script = Join-Path $repo 'scripts\start-run.ps1'
 $pwsh = (Get-Process -Id $PID).Path
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-start-run-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $repo 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'start-run'
 $failed = 0
 function Check([bool]$ok, [string]$what) {
   if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ }

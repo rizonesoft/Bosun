@@ -15,6 +15,7 @@ from unittest import mock
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "lib"))
 import todo_graph as tg  # noqa: E402
+from scratch import scratch_tempdir
 
 ADJACENCY = ("**Adjacency:** list=not-applicable (fixture); document=not-applicable (fixture); "
              "settings=not-applicable (fixture); reporting=not-applicable (fixture); "
@@ -100,7 +101,7 @@ class Grammar(unittest.TestCase):
 
 class Tree(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = scratch_tempdir("todo-graph")
         self.root = pathlib.Path(self.tmp.name)
         (self.root / "todo/00-workspace").mkdir(parents=True)
 

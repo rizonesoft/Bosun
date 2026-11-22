@@ -1,4 +1,4 @@
-# The one command that says whether this tree is fit to commit: every gate, in order, stopping at the first failure.
+﻿# The one command that says whether this tree is fit to commit: every gate, in order, stopping at the first failure.
 #
 #   pwsh scripts/check-all.ps1                 run every step
 #   pwsh scripts/check-all.ps1 -List           print the steps and what is left out, and run nothing
@@ -112,6 +112,14 @@ if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1).
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
 try { $gateMark = Enter-GateMark 'check-all' } catch { "check-all: $($_.Exception.Message)"; exit 1 }
+$savedWslenv = $env:WSLENV
+$wslenvChanged = $false
+if ($Wsl -and $env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) {
+  # Forward Windows BOSUN_SCRATCH to WSL steps in Linux path form (D00 T07 §3).
+  $parts = @($env:WSLENV -split ':' | Where-Object { $_ -and $_ -notmatch '^BOSUN_SCRATCH(/|$)' })
+  $env:WSLENV = ($parts + 'BOSUN_SCRATCH/p') -join ':'
+  $wslenvChanged = $true
+}
 try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
 $started = [Diagnostics.Stopwatch]::StartNew()
@@ -152,4 +160,9 @@ foreach ($step in $steps) {
 }
 "all $($steps.Count) steps passed in $([int]$started.Elapsed.TotalSeconds) s"
 exit 0
-} finally { Exit-GateMark $gateMark }
+} finally {
+  if ($wslenvChanged) {
+    if ($null -eq $savedWslenv) { Remove-Item Env:WSLENV -ErrorAction Ignore } else { $env:WSLENV = $savedWslenv }
+  }
+  Exit-GateMark $gateMark
+}

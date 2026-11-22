@@ -4,10 +4,12 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_tempdir
 
 
 def find_bash():
@@ -26,7 +28,7 @@ def hook_commands():
 @unittest.skipUnless(find_bash(), "needs bash")
 class HookInterpreter(unittest.TestCase):
     def run_with_only(self, interpreter, command):
-        with tempfile.TemporaryDirectory() as tmp:
+        with scratch_tempdir("hook-commands") as tmp:
             stub = Path(tmp) / interpreter
             stub.write_text('#!/bin/sh\necho "ran: $1"\n', newline="\n")
             stub.chmod(0o755)

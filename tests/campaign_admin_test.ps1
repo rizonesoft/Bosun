@@ -1,4 +1,4 @@
-# scripts/campaign-admin-setup.ps1 and scripts/install-dotnet-final.ps1 against a test policy key under HKCU, a JSON
+﻿# scripts/campaign-admin-setup.ps1 and scripts/install-dotnet-final.ps1 against a test policy key under HKCU, a JSON
 # task store, and fake dotnet and installer. Nothing here needs elevation, changes machine policy or registers a task.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -6,8 +6,8 @@ $failed = 0
 function Check($ok, $what) {
   if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ }
 }
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-admin-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $repo 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'admin'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
 $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $setup = Join-Path $repo 'scripts\campaign-admin-setup.ps1'

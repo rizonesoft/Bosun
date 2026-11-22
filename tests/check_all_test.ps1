@@ -1,13 +1,11 @@
-# Tests scripts/check-all.ps1: with stand-in steps, that it runs every step once in order, stops at the first
+﻿# Tests scripts/check-all.ps1: with stand-in steps, that it runs every step once in order, stops at the first
 # failure and names it, leaves nothing a step started running, and runs only what -Only names; that every test in
 # tests/ is in the gate and in CI; and that a stale plan fails the real plan step. The stand-ins write one line each.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $gate = Join-Path $repo 'scripts/check-all.ps1'
-# Scratch files go where BOSUN_SCRATCH says, and to the system's temporary folder only when it is not set.
-$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ("bosun-check-all-test-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'check-all-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
@@ -249,6 +247,28 @@ try {
   git @git commit -q --allow-empty -m 'explain' -m 'Weakening scan: test-removed tests/a_test.ps1:another thing holds -- the option it covered was removed'
   $r = Invoke-Gate @('-Only', 'weakening') $scanGate
   Check 'the same removal answered in a commit body lets the gate pass, and the answer is shown' ($r.Exit -eq 0 -and $r.Text -match 'answered   test-removed tests/a_test\.ps1:another thing holds -- the option it covered was removed') "(exit $($r.Exit): $($r.Text))"
+
+  # --- -Wsl forwards BOSUN_SCRATCH to WSL steps via WSLENV (D00 T07 §3) ---
+  $wslProbe = Join-Path $work 'wslenv-probe.ps1'
+  $wslSeen = Join-Path $work 'wslenv-seen.txt'
+  Set-Content -LiteralPath $wslProbe -Value "Set-Content -LiteralPath '$wslSeen' -Value (`$env:WSLENV ?? '')"
+  $wslStepFile = Join-Path $work 'wsl-steps.json'
+  ConvertTo-Json -InputObject @(@{ name = 'probe'; file = 'pwsh'; args = @('-NoProfile', '-File', $wslProbe) }) -Depth 4 | Set-Content -LiteralPath $wslStepFile
+  $savedScratch = $env:BOSUN_SCRATCH
+  $savedWslenv = $env:WSLENV
+  try {
+    $env:BOSUN_SCRATCH = $work
+    $env:WSLENV = 'LOCALAPPDATA'
+    $r = Invoke-Gate @('-StepFile', $wslStepFile, '-Wsl')
+    $seenWslenv = (Get-Content -LiteralPath $wslSeen -Raw -ErrorAction Ignore).Trim()
+    Check '-Wsl adds BOSUN_SCRATCH/p to WSLENV when BOSUN_SCRATCH is an existing directory' ($r.Exit -eq 0 -and ($seenWslenv -split ':') -contains 'BOSUN_SCRATCH/p' -and ($seenWslenv -split ':') -contains 'LOCALAPPDATA') "(exit $($r.Exit), WSLENV='$seenWslenv')"
+    $rNoWsl = Invoke-Gate @('-StepFile', $wslStepFile)
+    $seenNoWsl = (Get-Content -LiteralPath $wslSeen -Raw -ErrorAction Ignore).Trim()
+    Check 'without -Wsl, WSLENV is not modified' ($rNoWsl.Exit -eq 0 -and $seenNoWsl -eq 'LOCALAPPDATA') "(exit $($rNoWsl.Exit), WSLENV='$seenNoWsl')"
+  } finally {
+    if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
+    if ($null -eq $savedWslenv) { Remove-Item Env:WSLENV -ErrorAction Ignore } else { $env:WSLENV = $savedWslenv }
+  }
 } finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore }
 if ($failed) { "$failed check(s) failed"; exit 1 }
 'all checks passed'

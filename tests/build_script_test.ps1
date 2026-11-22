@@ -2,7 +2,8 @@
 # it cannot configure from is configured fresh once while a real configure error still fails. The script and its
 # lib folder are copied into a temporary checkout, so the real build tree is neither read nor touched.
 $ErrorActionPreference = 'Stop'
-$dir = Join-Path ([IO.Path]::GetTempPath()) ("bosun-build-script-test-" + [guid]::NewGuid())
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'build-script-test'
 $checkout = Join-Path $dir 'checkout'
 $bin = Join-Path $dir 'bin'
 New-Item -ItemType Directory -Path (Join-Path $checkout 'scripts'), $bin | Out-Null

@@ -7,11 +7,13 @@ import json
 from pathlib import Path
 import re
 import shutil
-import tempfile
+import sys
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_dir
 SPEC = importlib.util.spec_from_file_location("build_theme", ROOT / "scripts" / "build-theme.py")
 assert SPEC is not None and SPEC.loader is not None
 theme = importlib.util.module_from_spec(SPEC)
@@ -20,7 +22,7 @@ SPEC.loader.exec_module(theme)
 
 class BuildThemeTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = scratch_dir("build-theme")
         self.tokens = self.tmp / "colors.json"
         shutil.copyfile(ROOT / "design" / "tokens" / "colors.json", self.tokens)
         self.out = self.tmp / "Generated"

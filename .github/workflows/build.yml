@@ -113,6 +113,8 @@ jobs:
         run: pwsh scripts\build.ps1
       - name: Build the .NET solution
         run: dotnet build Bosun.slnx -nologo -maxCpuCount:2
+      - name: Scratch helper test
+        run: pwsh tests\scratch_test.ps1
       - name: Preflight test
         run: pwsh tests\preflight_test.ps1
       - name: Queue tests

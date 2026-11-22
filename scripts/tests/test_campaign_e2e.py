@@ -34,17 +34,25 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "lib"))
 import todo_graph as tg  # noqa: E402
+from scratch import scratch_dir
 REF ="D00 T01"  # the clone's only TODO file is 00-workspace/TODO-01
 SECTIONS = ["one", "two", "three", "four", "five"]
 PENDING_SECONDS = 35 * 60  # longer than the gate's own 30 minute wait, so one call ends in `wait`
 HOURS = float(os.environ.get("BOSUN_E2E_HOURS", "8"))
 LOOK_EVERY = 300  # between the test's own looks at a run whose session has ended
 RUN_OVER = ("drained", "complete", "parked", "stalled", "stopped", "halted")  # the guard's own endings: nothing is left to start
-SCRATCH = Path(os.environ.get("BOSUN_E2E_SCRATCH") or os.environ.get("BOSUN_SCRATCH") or tempfile.gettempdir())
+
+
+def campaign_scratch_dir(name: str, *, create_override: bool = False) -> Path:
+    override = os.environ.get("BOSUN_E2E_SCRATCH", "").strip()
+    if override and (create_override or os.path.isdir(override)):
+        return scratch_dir(name, root=override, create_root=create_override)
+    return scratch_dir(name)
 
 FAKE_GH = r'''"""The e2e campaign's GitHub CLI: CI answers scripted by the newest e2e section stamped in each commit."""
 import json, os, re, subprocess, sys, time
@@ -340,7 +348,7 @@ class ScriptedCi(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.work = Path(tempfile.mkdtemp(prefix="bosun-campaign-fixture-", dir=str(SCRATCH) if SCRATCH.is_dir() else None))
+        cls.work = campaign_scratch_dir("campaign-fixture")
         # Registered before seeding: a failed setUpClass skips tearDownClass, which left a folder behind each time.
         cls.addClassCleanup(remove_tree, cls.work)
         cls.seeded = seed(cls.work)
@@ -393,7 +401,7 @@ class ScriptedCi(unittest.TestCase):
 
     def test_seeding_a_seeded_clone_still_works(self):
         # The campaign's own sessions run this suite inside the clone, where ROOT is already the fixture.
-        work = Path(tempfile.mkdtemp(prefix="bosun-campaign-fixture-", dir=str(SCRATCH) if SCRATCH.is_dir() else None))
+        work = campaign_scratch_dir("campaign-fixture")
         self.addCleanup(remove_tree, work)
         # A copy at the fixture commit itself, so re-seeding it changes nothing and the commit is empty.
         source = work / "seeded"
@@ -407,6 +415,29 @@ class ScriptedCi(unittest.TestCase):
         finally:
             ROOT = saved
         self.assertIn("disposable campaign's fixture", run(["git", "log", "-1", "--format=%s"], cwd=inner["clone"]).stdout)
+
+    def test_campaign_scratch_dir_honours_bosun_e2e_scratch_override(self):
+        base = scratch_dir("campaign-override-test")
+        self.addCleanup(remove_tree, base)
+        general = base / "general"
+        general.mkdir()
+        existing_e2e = base / "e2e-existing"
+        existing_e2e.mkdir()
+        missing_e2e = base / "nested" / "e2e-missing"
+        with mock.patch.dict(os.environ, {"BOSUN_SCRATCH": str(general), "BOSUN_E2E_SCRATCH": str(existing_e2e)}):
+            picked = campaign_scratch_dir("campaign-fixture")
+            self.addCleanup(remove_tree, picked)
+            self.assertEqual(picked.parent.resolve(), existing_e2e.resolve())
+        with mock.patch.dict(os.environ, {"BOSUN_SCRATCH": str(general), "BOSUN_E2E_SCRATCH": str(missing_e2e)}):
+            created = campaign_scratch_dir("campaign-e2e", create_override=True)
+            self.addCleanup(remove_tree, created)
+            self.assertTrue(missing_e2e.is_dir())
+            self.assertEqual(created.parent.resolve(), missing_e2e.resolve())
+        with mock.patch.dict(os.environ, {"BOSUN_SCRATCH": str(general)}):
+            os.environ.pop("BOSUN_E2E_SCRATCH", None)
+            fallback = campaign_scratch_dir("campaign-fixture")
+            self.addCleanup(remove_tree, fallback)
+            self.assertEqual(fallback.parent.resolve(), general.resolve())
 
     def test_the_clone_cannot_start_a_campaign_of_its_own(self):
         self.assertFalse([k for k in self.seeded["env"] if k.startswith("BOSUN_E2E")],
@@ -480,8 +511,7 @@ class DisposableCampaign(unittest.TestCase):
     def test_a_disposable_campaign_meets_every_gate_action_and_a_killed_session_stays_dead(self):
         self.claude = shutil.which("claude")
         self.assertIsNotNone(self.claude, "claude is not on PATH")
-        SCRATCH.mkdir(parents=True, exist_ok=True)
-        self.work = Path(tempfile.mkdtemp(prefix="bosun-campaign-e2e-", dir=str(SCRATCH)))
+        self.work = campaign_scratch_dir("campaign-e2e", create_override=True)
         if os.environ.get("BOSUN_E2E_KEEP") != "1":
             self.addCleanup(remove_tree, self.work)
         seeded = seed(self.work)

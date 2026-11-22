@@ -14,6 +14,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_dir
 
 
 def find_bosun():
@@ -37,7 +39,7 @@ class UnattendedSession(unittest.TestCase):
         self.assertIsNotNone(claude, "claude is not on PATH")
         assert claude is not None, "claude is on PATH"
         self.assertTrue(BOSUN.is_file(), f"no bosun at {BOSUN}: set BOSUN_EXE, or put bosun on PATH")
-        self.repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-"))
+        self.repo = scratch_dir("e2e")
         self.addCleanup(lambda: shutil.rmtree(self.repo, ignore_errors=True))
         self.git("init", "-q")
         self.git("config", "user.email", "e2e@example.com")
@@ -51,14 +53,14 @@ class UnattendedSession(unittest.TestCase):
         (self.repo / ".claude" / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": settings["hooks"]["PreToolUse"]}}),
                                                              encoding="utf-8")
         # A remote that holds a commit the session doesn't have, so a force push would rewrite it.
-        remote = Path(tempfile.mkdtemp(prefix="bosun-e2e-remote-"))
+        remote = scratch_dir("e2e-remote")
         self.addCleanup(lambda: shutil.rmtree(remote, ignore_errors=True))
         subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "deny list")
         self.git("remote", "add", "origin", str(remote))
         self.git("push", "-q", "origin", "HEAD:refs/heads/main")
-        other = Path(tempfile.mkdtemp(prefix="bosun-e2e-other-"))
+        other = scratch_dir("e2e-other")
         self.addCleanup(lambda: shutil.rmtree(other, ignore_errors=True))
         subprocess.run(["git", "clone", "-q", str(remote), str(other / "c")], check=True)
         for args in (["config", "user.email", "o@example.com"], ["config", "user.name", "O"],
@@ -136,7 +138,7 @@ class BackgroundReview(unittest.TestCase):
         claude = shutil.which("claude")
         self.assertIsNotNone(claude, "claude is not on PATH")
         assert claude is not None, "claude is on PATH"
-        repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-review-"))
+        repo = scratch_dir("e2e-review")
         self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
         subprocess.run(["git", "init", "-q", str(repo)], check=True)
         (repo / "scripts").mkdir()

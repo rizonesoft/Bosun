@@ -1,13 +1,12 @@
-# Tests scripts/leak-scan.ps1 and scripts/hooks/pre-push (D00 T05 §4) through real pushes to local bare remotes: a
+﻿# Tests scripts/leak-scan.ps1 and scripts/hooks/pre-push (D00 T05 §4) through real pushes to local bare remotes: a
 # secret (a token built at run time, so no token-shaped text is ever committed here) or a deny-list string anywhere
 # in what a push publishes refuses it, the remote's refs read back unchanged, and nothing matched is ever printed.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
 # The prerequisite first, so a machine without gitleaks leaves no scratch folder behind.
 if (-not (Get-Command gitleaks -CommandType Application -ErrorAction Ignore)) { 'FAIL gitleaks is not installed; this test needs it (winget install --id Gitleaks.Gitleaks -e --version 8.30.1 --scope user)'; exit 1 }
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-leak-scan-test-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'leak-scan-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

@@ -1,4 +1,4 @@
-# Integration test for `bosun instances` (D03 T02 §1): real processes, named by their images, found in their repos,
+﻿# Integration test for `bosun instances` (D03 T02 §1): real processes, named by their images, found in their repos,
 # their state from session records and review marks, and the jobs holding slots. Everything it starts runs from copies
 # of the test sleeper under this test's own folder, its records and session records in homes of its own, and every
 # process it started is ended, tree and all, whatever happens.
@@ -8,8 +8,8 @@ Remove-Item Env:BOSUN_SLOT -ErrorAction Ignore  # a suite run through `bosun run
 $bosun = (Resolve-Path (Join-Path $Build 'bosun.exe')).Path
 $sleeper = (Resolve-Path (Join-Path $Build 'test_sleeper.exe')).Path
 $ns = "BosunInst$PID"
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-inst-$PID"
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'inst'
 $work = (Resolve-Path $work).Path
 $env:LOCALAPPDATA = Join-Path $work 'home'      # the queue's records
 $env:USERPROFILE = Join-Path $work 'profile'    # Claude Code's session records

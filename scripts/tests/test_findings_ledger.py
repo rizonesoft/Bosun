@@ -18,6 +18,7 @@ assert SPEC is not None and SPEC.loader is not None
 ledger = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ledger)
 sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_dir
 from todo_graph import Refused as ledger_refused  # noqa: E402
 
 BASE = """# Findings
@@ -43,7 +44,7 @@ def git(root, *args):
 
 class FindingsLedgerTest(unittest.TestCase):
     def setUp(self):
-        self.root = Path(tempfile.mkdtemp(dir=os.environ.get("BOSUN_SCRATCH") or None))
+        self.root = scratch_dir("findings-ledger")
         self.addCleanup(shutil.rmtree, self.root, True)
         git(self.root, "init", "-q")
         git(self.root, "config", "user.email", "t@example.invalid")

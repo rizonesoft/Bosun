@@ -1,4 +1,4 @@
-# Tests scripts/render-pages.ps1 (D02 T02 §9): it writes the sample view's four pictures and their index, and a run
+﻿# Tests scripts/render-pages.ps1 (D02 T02 §9): it writes the sample view's four pictures and their index, and a run
 # that can't finish leaves nothing that reads as a current run.
 #
 # Each case writes into a scratch folder of its own (-Out), never build/renders. The builds are of one test project
@@ -6,13 +6,12 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $script = Join-Path $repo 'scripts/render-pages.ps1'
-$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ("bosun-render-pages-test-" + [guid]::NewGuid())
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'render-pages-test'
 $failed = 0
 function Check([string]$Name, [bool]$Ok) { if ($Ok) { "ok   $Name" } else { "FAIL $Name"; $script:failed++ } }
 function Names([string]$Folder) { @(Get-ChildItem -LiteralPath $Folder -File | Sort-Object Name | ForEach-Object Name) -join ',' }
 
-New-Item -ItemType Directory -Path $work | Out-Null
 try {
   # A build that fails: the old pictures and their index are gone before the build starts, and stay gone.
   $out = Join-Path $work 'broken'

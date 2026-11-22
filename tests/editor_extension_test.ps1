@@ -1,13 +1,12 @@
-# The window reporter's package (D03 T02 §4): scripts/install-editor-extension.ps1 -PackOnly builds a VSIX whose
+﻿# The window reporter's package (D03 T02 §4): scripts/install-editor-extension.ps1 -PackOnly builds a VSIX whose
 # manifest names the extension as its package.json does, holds the files the extension runs from and nothing else.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
 $repo = Split-Path $PSScriptRoot
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch "editor-extension-test-$([guid]::NewGuid().ToString('N').Substring(0, 12))"
-New-Item -ItemType Directory -Force -Path $work | Out-Null
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'editor-extension-test'
 $failures = 0
 function Check([string]$what, [bool]$ok, [string]$detail = '') {
     if ($ok) { "ok   $what" } else { $script:failures++; "FAIL $what"; if ($detail) { "     | $detail" } }

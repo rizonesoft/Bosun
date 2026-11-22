@@ -3,8 +3,8 @@
 # called from another working directory without -Root, so a helper that read the caller's folder would fail here.
 $ErrorActionPreference = 'Stop'
 $source = Join-Path $PSScriptRoot '..\scripts\lib\overlay.ps1'
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$dir = Join-Path $scratch ("bosun-overlay-test-" + [guid]::NewGuid())
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'overlay-test'
 $checkout = Join-Path $dir 'checkout'
 $elsewhere = Join-Path $dir 'elsewhere'
 New-Item -ItemType Directory -Path (Join-Path $checkout 'scripts\lib'), $elsewhere | Out-Null

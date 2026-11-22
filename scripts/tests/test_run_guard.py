@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
 import run_guard as guard  # noqa: E402
+from scratch import scratch_tempdir
 
 
 class World:
@@ -265,7 +266,7 @@ class Halts(unittest.TestCase):
 
 class HookEntry(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("run-guard")
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "state.json"
 
@@ -339,7 +340,7 @@ class HookEntry(unittest.TestCase):
 
 class Signature(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("run-guard")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for command in (["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "start"]):
@@ -380,7 +381,7 @@ class ReviewInFlight(unittest.TestCase):
     """A review that is running lets the turn end, and only while its dispatcher lives and its deadline holds."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("run-guard")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.marks = self.root / "build" / "review-in-flight"
@@ -430,7 +431,7 @@ class CiInFlight(unittest.TestCase):
     Stop hook's "continue" let §2 start before §1's CI cleared."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("run-guard")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "build").mkdir()
@@ -509,7 +510,7 @@ class UsageLimits(unittest.TestCase):
                 self.assertIsNone(guard.reset_time(wild, now))
 
     def test_a_wild_reset_still_saves_a_30_minute_wait_through_the_hook(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             path = Path(folder) / "state.json"
             guard.save(active(), path)
             guard.hook(json.dumps(self.failure("rate_limit", "resets in 100000000 hours")), World().env(), path)
@@ -554,7 +555,7 @@ class UsageLimits(unittest.TestCase):
         self.assertIn("owner's to sort out", account["wait_detail"])
 
     def test_the_hook_saves_the_wait_and_the_stop_hook_honours_it_from_a_fresh_read(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             path = Path(folder) / "state.json"
             guard.save(active(), path)
             world = World()
@@ -581,7 +582,7 @@ class UsageLimits(unittest.TestCase):
             self.assertEqual(guard.load(path)["status"], "halted")
 
     def test_status_shows_a_sign_in_wait_and_what_to_do(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             state = active(started_at=time.time())  # just started, so its session is not yet judged gone
             guard.on_stop_failure(state, self.failure("authentication_failed"))
             (Path(folder) / "state.json").write_text(json.dumps(state), encoding="utf-8")
@@ -599,7 +600,7 @@ class SavingAWait(unittest.TestCase):
     """A wait the disk won't take at once is kept, and taken up by the next hook event."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("run-guard")
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "state.json"
         guard.save(active(), self.path)
@@ -641,7 +642,7 @@ class SlowReads(unittest.TestCase):
         def run(*args, cwd=None, timeout=20):
             seen["timeout"] = timeout
             return subprocess.CompletedProcess(args, 0, b"[]", b"")
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             (Path(folder) / "todo").mkdir()
             (Path(folder) / "todo" / "wakes.json").write_text(json.dumps([{}, {}]), encoding="utf-8")
             with mock.patch.object(guard, "run", side_effect=run):
@@ -687,7 +688,7 @@ class SlowReads(unittest.TestCase):
 
 class Acceptance(unittest.TestCase):
     def test_the_file_is_written_atomically_read_back_and_never_overwritten(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             root = Path(folder)
             first = guard.write_acceptance("complete", "# one\n", root, "2026-11-08")
             second = guard.write_acceptance("parked", "# two\n", root, "2026-11-08")
@@ -696,7 +697,7 @@ class Acceptance(unittest.TestCase):
             self.assertEqual(list((root / "docs" / "acceptance").glob("*.tmp")), [])
 
     def test_a_write_the_disk_refuses_raises_for_the_guard_to_retry(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             (Path(folder) / "docs").mkdir()
             (Path(folder) / "docs" / "acceptance").write_text("a file where the folder would go", encoding="utf-8")
             with self.assertRaises(OSError):
@@ -747,7 +748,7 @@ class StatusCommand(unittest.TestCase):
     """`run-guard.py status` against a corrupt state and a failing hook, through the real CLI."""
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.state = Path(self.folder.name) / "state.json"
         self.env = {**os.environ, "RUN_GUARD_STATE": str(self.state), "PYTHONIOENCODING": "utf-8"}
@@ -791,7 +792,7 @@ class NoAutoResume(unittest.TestCase):
     Nothing restarts or resumes one: a session that is gone is recorded as ended, and nothing is launched."""
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.path = Path(self.folder.name) / "state.json"
 
@@ -882,7 +883,7 @@ class NoAutoResume(unittest.TestCase):
 
 class ProcessStarts(unittest.TestCase):
     def test_linux_start_times_tell_a_reused_pid(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             proc = Path(folder)
             (proc / "42").mkdir()
             rest = " ".join(["S"] + [str(n) for n in range(4, 22)] + ["777"] + ["0"] * 30)
@@ -1043,7 +1044,7 @@ class Waits(unittest.TestCase):
             guard.set_wait({}, "reviewer-unavailable", 1000)
 
     def test_status_shows_the_wait_and_how_to_recover(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("run-guard") as folder:
             env = {**os.environ, "RUN_GUARD_STATE": str(Path(folder) / "state.json")}
             script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py")]
             done = subprocess.run([*script, "wait", "--reason", "reviewer-unavailable", "--minutes", "30"], env=env,
@@ -1074,7 +1075,7 @@ class AntigravityRuns(unittest.TestCase):
     SESSION = "4a6e0b1c-agy0-4000-8000-000000000019"
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.path = Path(self.folder.name) / "state.json"
         self.owner = {"pid": 4242, "started": 777, "alive": True}
@@ -1530,7 +1531,7 @@ class LocalGates(unittest.TestCase):
     holds while the gate's process runs, the turn may end under it, and `status` says waiting."""
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
         self.marks = self.root / "build" / "gate-in-flight"
@@ -1661,7 +1662,7 @@ class LegacyHoldIsNotTouched(unittest.TestCase):
             raise unittest.SkipTest("the legacy hold is Windows' powercfg and registry")
         import winreg
         self.winreg = winreg
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         work = Path(self.folder.name)
         self.power = work / "power.json"
@@ -1737,7 +1738,7 @@ class Look(unittest.TestCase):
     of one ending with what is left, at once with nothing, and at its limit with all of it; it starts nothing."""
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.marks = Path(self.folder.name) / "marks"
         self.marks.mkdir()
@@ -2009,7 +2010,7 @@ class StatusNamesEachWait(unittest.TestCase):
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.NOW - ago))
 
     def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
+        self.folder = scratch_tempdir("run-guard")
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
         for sub in ("review-in-flight", "gate-in-flight"):

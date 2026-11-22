@@ -13,6 +13,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_dir
 SPEC = importlib.util.spec_from_file_location("build_icons", ROOT / "scripts" / "build-icons.py")
 assert SPEC is not None and SPEC.loader is not None
 icons = importlib.util.module_from_spec(SPEC)
@@ -32,7 +34,7 @@ def frames(ico: bytes):
 
 class BuildIconsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = scratch_dir("build-icons")
         self.masters = self.tmp / "icon"
         shutil.copytree(ROOT / "design" / "icon", self.masters)
         self.out = self.tmp / "bosun.ico"
@@ -116,7 +118,7 @@ class BadgedIconTest(unittest.TestCase):
     MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" fill="#123456"/></svg>'
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = scratch_dir("build-icons")
         self.mark = self.tmp / "mark.svg"
         self.mark.write_text(self.MARK, encoding="utf-8")
         self.masters = ROOT / "design" / "icon"
@@ -351,7 +353,7 @@ class TrayIconsTest(unittest.TestCase):
     disc, in the theme's colours, built and checked with the app icon as one set."""
 
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = scratch_dir("build-icons")
         self.masters = self.tmp / "icon"
         shutil.copytree(ROOT / "design" / "icon", self.masters)
         self.tokens = self.tmp / "colors.json"

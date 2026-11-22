@@ -11,6 +11,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_dir, scratch_tempdir
 spec = importlib.util.spec_from_file_location("tool_guard", ROOT / "scripts" / "tool-guard.py")
 assert spec is not None and spec.loader is not None, "the script file must be loadable as a module"
 tg = importlib.util.module_from_spec(spec)
@@ -35,9 +37,6 @@ def link(target, at):
 
 
 REAL_ROOTS = tg.scratch_roots  # before any test replaces it
-SCRATCH = Path(os.environ.get("BOSUN_SCRATCH") or tempfile.gettempdir())
-if not SCRATCH.is_dir():
-    SCRATCH = Path(tempfile.gettempdir())
 
 
 class Base(unittest.TestCase):
@@ -46,7 +45,7 @@ class Base(unittest.TestCase):
     a wrong answer."""
 
     def setUp(self):
-        self.base = Slashed(Path(tempfile.mkdtemp(dir=str(SCRATCH), prefix="bosun-tg-")).resolve())
+        self.base = Slashed(scratch_dir("tg").resolve())
         self.addCleanup(lambda: shutil.rmtree(self.base, ignore_errors=True))
         self.project = self.base / "project"
         self.scratch = self.base / "scratch"
@@ -377,7 +376,7 @@ class FailsClosed(Base):
         self.assertIn(tg.canonical(tempfile.gettempdir()), roots)
 
     def test_the_operator_s_scratch_folder_comes_from_its_variable_and_none_is_named_in_code(self):
-        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, {"BOSUN_SCRATCH": folder}):
+        with scratch_tempdir("tg-env") as folder, mock.patch.dict(os.environ, {"BOSUN_SCRATCH": folder}):
             self.assertIn(tg.canonical(folder), [tg.canonical(r) for r in REAL_ROOTS()])
         with mock.patch.dict(os.environ):
             os.environ.pop("BOSUN_SCRATCH", None)

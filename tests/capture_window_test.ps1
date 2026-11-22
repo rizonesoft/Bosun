@@ -1,4 +1,4 @@
-# Tests scripts/capture-window.ps1 (D02 T02 §9) as far as it can be tested with no desktop: its own self-test, which
+﻿# Tests scripts/capture-window.ps1 (D02 T02 §9) as far as it can be tested with no desktop: its own self-test, which
 # checks the pair writer, the covered-window rule, and that what a launch started is stopped as a tree while a process
 # of the same name is left alone. Capturing a real window needs a desktop session: that is D02 T02 §10.
 #
@@ -22,9 +22,10 @@ $text.TrimEnd()
 if ($code -ne 0 -or $text -notmatch '(?m)^self-test: all pass\s*$') { "capture-window's self-test failed (exit $code)"; exit 1 }
 
 Add-Type -Path $lockSource
-$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [System.IO.Path]::GetTempPath() }
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'capture-lock-test'
 # The folder's name holds an apostrophe, so a path spliced into a child's source would break it (round 1, P2).
-$dir = Join-Path $scratch ("capture-lock-test-O'Brien-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+$dir = Join-Path $work "O'Brien"
 New-Item -ItemType Directory -Path $dir | Out-Null
 $name = 'test-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
 $other = 'test-' + [Guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -268,7 +269,7 @@ try {
     $left = [Bosun.Desktop.DesktopLock]::RecordPath($n, $folder)
     Check "no record is left for $n" (-not (Test-Path -LiteralPath $left))
   }
-  try { Remove-Item -LiteralPath $dir -Recurse -Force } catch { "the test's folder $dir was left behind: $($_.Exception.Message)" }
+  try { Remove-Item -LiteralPath $work -Recurse -Force } catch { "the test's folder $work was left behind: $($_.Exception.Message)" }
 }
 if ($failed.Count) { "$($failed.Count) check(s) failed"; exit 1 }
 'all passed'

@@ -1,11 +1,10 @@
-# Tests scripts/sync.ps1 (D00 T05 §3) against temporary repositories: a public bare remote and an overlay bare remote,
+﻿# Tests scripts/sync.ps1 (D00 T05 §3) against temporary repositories: a public bare remote and an overlay bare remote,
 # an owner checkout of each with distinct, known commits, and the real scripts/hooks/post-merge installed. The
 # operator's gh, tokens, overlay setting, home and git config never reach a case.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-sync-test-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'sync-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

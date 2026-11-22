@@ -15,8 +15,8 @@
 param([switch]$BreakBuild)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
-$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ("bosun-dotnet-nodes-test-" + [guid]::NewGuid())
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'dotnet-nodes-test'
 $failed = 0
 $finished = $false  # set at the end of the cases: a run stopped early keeps its logs
 $jobs = [Collections.Generic.List[object]]::new()  # every build's job, ended in the finally below

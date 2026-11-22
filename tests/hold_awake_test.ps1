@@ -1,12 +1,12 @@
-# scripts/lib/hold-awake.ps1 under a fake parent (D00 T03 §28): it holds, says so, and lets go within a second of its
+﻿# scripts/lib/hold-awake.ps1 under a fake parent (D00 T03 §28): it holds, says so, and lets go within a second of its
 # parent ending, of its launcher's release and of its minutes running out; a refused request says so with exit 3.
 # Every process started here has no window, and each is stopped with its tree in the end.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $holder = Join-Path $repo 'scripts\lib\hold-awake.ps1'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
-$work = Join-Path ($env:BOSUN_SCRATCH ? $env:BOSUN_SCRATCH : [IO.Path]::GetTempPath()) "bosun-hold-awake-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $repo 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'hold-awake'
 $failed = 0
 function Check($ok, $what) { if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ } }
 $started = [Collections.Generic.List[Diagnostics.Process]]::new()

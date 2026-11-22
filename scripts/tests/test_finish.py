@@ -13,6 +13,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from scratch import scratch_tempdir
 import todo_graph as tg  # noqa: E402
 from test_todo_graph import Tree, todo_file  # noqa: E402
 
@@ -33,7 +34,7 @@ class Evidence(unittest.TestCase):
     """Close-out evidence in a real git repository: it counts only when committed after the newest stamp it covers."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("finish")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.git("init", "-q")
@@ -324,7 +325,7 @@ class CrashAfterTheLastStamp(Evidence):
 
 class InterruptedAcceptance(unittest.TestCase):
     def test_a_write_cut_off_leaves_the_run_to_retry_and_the_retry_succeeds(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("finish") as folder:
             root = Path(folder)
             (root / "docs" / "acceptance").mkdir(parents=True)
             (root / "docs" / "acceptance" / "2026-11-08.md.999.tmp").write_text("half", encoding="utf-8")  # a crash's leftover

@@ -1,10 +1,10 @@
-# Tests scripts/setup-clone.ps1 against temporary clones: the hooks setting is written to the clone named, read
+﻿# Tests scripts/setup-clone.ps1 against temporary clones: the hooks setting is written to the clone named, read
 # back, left alone when it is already right, and never reported when it could not be written; and nothing is
 # scheduled or run for a clone. The guard in each clone is a stand-in that records every call made to it.
 $ErrorActionPreference = 'Stop'
 $setup = Join-Path $PSScriptRoot '..\scripts\setup-clone.ps1'
-$work = Join-Path ([IO.Path]::GetTempPath()) ("bosun-setup-clone-test-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'setup-clone-test'
 $failed = 0
 # The setup script also clones the private overlay when gh can see it (D00 T05 §2, tested in
 # tests/overlay_clone_test.ps1). Here no gh is on PATH (and any that were would find an empty config and no token),

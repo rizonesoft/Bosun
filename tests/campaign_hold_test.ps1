@@ -1,4 +1,4 @@
-# scripts/campaign-hold.ps1 against a fake powercfg (tests/fakes/powercfg.py) and a registry key of its own (D00 T03
+﻿# scripts/campaign-hold.ps1 against a fake powercfg (tests/fakes/powercfg.py) and a registry key of its own (D00 T03
 # §28): -Apply refuses, since a campaign's launcher now holds the machine awake itself; -Status and -Restore put back a
 # hold an older version left. Nothing here touches the real power scheme or desktop settings.
 $ErrorActionPreference = 'Stop'
@@ -7,8 +7,8 @@ $failed = 0
 function Check($ok, $what) {
   if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ }
 }
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-hold-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $repo 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'hold'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
 $hold = Join-Path $repo 'scripts\campaign-hold.ps1'
 $python = (Get-Command python -CommandType Application | Select-Object -First 1).Source

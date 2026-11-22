@@ -1,12 +1,12 @@
-# Tests Measure-Job (scripts/lib/job-measure.ps1) and scripts/measure-build.ps1 with fake builds: what a job reports
+﻿# Tests Measure-Job (scripts/lib/job-measure.ps1) and scripts/measure-build.ps1 with fake builds: what a job reports
 # for exit code, time and the memory of child processes, that nothing it started is left running, and that
 # measurements are stored, refused and rendered as the script says. Every process a case starts is in a job that
 # ends with the case, and the fakes write a few lines at most.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\scripts\lib\job-measure.ps1')
 $measure = Join-Path $PSScriptRoot '..\scripts\measure-build.ps1'
-$dir = Join-Path ([IO.Path]::GetTempPath()) ("bosun-measure-test-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $dir | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'measure-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

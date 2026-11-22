@@ -14,7 +14,37 @@ import uuid
 import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "wsl"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "lib"))
 import bosun_log as dl
+from scratch import scratch_dir, scratch_root
+
+
+def _supports_posix_fs(folder: str) -> bool:
+    """True when `folder` supports POSIX FIFOs and chmod 000 enforcement (false on WSL DrvFs/9p mounts)."""
+    probe = str(scratch_dir("posix-probe", root=folder))
+    try:
+        os.mkfifo(os.path.join(probe, "p"))
+        shut = os.path.join(probe, "shut")
+        os.makedirs(os.path.join(shut, "in"))
+        os.chmod(shut, 0o000)
+        try:
+            if os.geteuid() != 0 and os.access(os.path.join(shut, "in"), os.F_OK):
+                return False
+        finally:
+            os.chmod(shut, 0o755)
+        return True
+    except OSError:
+        return False
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def _posix_scratch_dir(name: str) -> str:
+    """Allocate under BOSUN_SCRATCH when its filesystem supports POSIX FIFOs/modes, else Linux system temp."""
+    root = str(scratch_root())
+    if _supports_posix_fs(root):
+        return str(scratch_dir(name, root=root))
+    return str(scratch_dir(name, root=tempfile.gettempdir()))
 
 
 class RepoForDir(unittest.TestCase):
@@ -71,7 +101,7 @@ class Snapshot(unittest.TestCase):
     """current-wsl.json (D01 T01 §4): the Windows schema, written whole or not at all."""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bosun-snap-")
+        self.dir = str(scratch_dir("snap"))
         self.addCleanup(shutil.rmtree, self.dir, True)
 
     def path(self):
@@ -197,7 +227,7 @@ class Instances(unittest.TestCase):
     """The WSL instance scanner (D03 T02 §1) over a fixture /proc: the rules of src/core.hpp, from Linux's own files."""
 
     def setUp(self):
-        self.root = tempfile.mkdtemp()
+        self.root = _posix_scratch_dir("log-root")
         self.proc = os.path.join(self.root, "proc")
         self.home = os.path.join(self.root, "home")
         os.makedirs(self.proc)
@@ -738,7 +768,7 @@ class FakeSlice:
 
 class PolicyReading(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bosun-policy-")
+        self.dir = str(scratch_dir("policy"))
         self.addCleanup(shutil.rmtree, self.dir, True)
 
     def put(self, text):
@@ -769,7 +799,7 @@ class PolicyReading(unittest.TestCase):
 
 class HostReading(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bosun-host-")
+        self.dir = str(scratch_dir("host"))
         self.addCleanup(shutil.rmtree, self.dir, True)
 
     def put(self, available=3000, total=32000, age=0, **change):
@@ -808,13 +838,13 @@ class HostReading(unittest.TestCase):
 def setUpModule():
     # The throttles under test take their locks under a root of their own, never the running service's /run/user/<uid>.
     global _RUN_USER_ROOT
-    _RUN_USER_ROOT = tempfile.mkdtemp(prefix="bosun-run-user-")
+    _RUN_USER_ROOT = str(scratch_dir("run-user"))
     for uid in (1000, 1001, os.getuid() if hasattr(os, "getuid") else 1000):
         os.makedirs(os.path.join(_RUN_USER_ROOT, str(uid)), exist_ok=True)
     dl.RUN_USER = _RUN_USER_ROOT
     # No throttle under test reads the machine's real control groups, unless it is given them (the real-slice tests).
     global _CGROUP_ROOT
-    _CGROUP_ROOT = tempfile.mkdtemp(prefix="bosun-cgroup-")
+    _CGROUP_ROOT = str(scratch_dir("cgroup"))
     dl.CGROUP_ROOT = _CGROUP_ROOT
 
 
@@ -829,7 +859,7 @@ class ThrottleCase(unittest.TestCase):
     LIMIT = 2 * GB   # the policy's job limit, 2048 MB
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bosun-throttle-")
+        self.dir = _posix_scratch_dir("throttle")
         self.addCleanup(shutil.rmtree, self.dir, True)
         patch = unittest.mock.patch.object(dl, "meminfo", lambda: {"MemTotal": 16 * 1024 * 1024})  # a 16 GB guest
         patch.start()
@@ -838,7 +868,7 @@ class ThrottleCase(unittest.TestCase):
         quiet.start()
         self.addCleanup(quiet.stop)
         self.slice = FakeSlice(8 * GB)
-        self.cgroups = tempfile.mkdtemp(prefix="bosun-cgroups-")   # the kernel's cgroup tree, as this throttle sees it
+        self.cgroups = str(scratch_dir("cgroups"))   # the kernel's cgroup tree, as this throttle sees it
         self.addCleanup(shutil.rmtree, self.cgroups, True)
         self.throttle = dl.Throttle(self.dir, self.slice, unit="bosun-jobs.slice", distro="alpha", cgroup_root=self.cgroups)
         self.policy()
@@ -1229,7 +1259,7 @@ class ThrottleRecordAndRace(ThrottleCase):
 class ThrottleOwner(ThrottleCase):
     def test_a_second_logger_of_the_same_user_never_throttles_or_writes(self):
         # Round 10: two loggers of one user raced on one record and lost the original. One owns; the other only samples.
-        lock_dir = tempfile.mkdtemp(prefix="bosun-lock-")
+        lock_dir = str(scratch_dir("lock"))
         self.addCleanup(shutil.rmtree, lock_dir, True)
         path = os.path.join(lock_dir, "bosun-throttle-u1000-bosun-jobs.slice.lock")
         holder = subprocess.Popen([sys.executable, "-c",
@@ -1691,7 +1721,7 @@ class ReachableForWriting(unittest.TestCase):
     """The probe the logger's route choice uses (D03 T02 §6 completion review), on real folders."""
 
     def test_a_folder_this_user_may_write_into_and_one_it_may_not_enter(self):
-        root = tempfile.mkdtemp(prefix="bosun-reach-")
+        root = _posix_scratch_dir("reach")
         self.addCleanup(shutil.rmtree, root, True)
         self.assertTrue(dl.reachable_for_writing(os.path.join(root, "not", "made", "yet")))
         shut = os.path.join(root, "shut")
@@ -1706,7 +1736,7 @@ class InstallScript(unittest.TestCase):
     """wsl/install.sh run against a temporary HOME and a stand-in systemctl: the unit it writes names the distro."""
 
     def run_install(self, logs="/mnt/c/logs", **env):
-        home = tempfile.mkdtemp(prefix="bosun-install-")
+        home = str(scratch_dir("install"))
         self.addCleanup(shutil.rmtree, home, True)
         fake = os.path.join(home, "fakebin")
         os.makedirs(fake)
@@ -1972,7 +2002,7 @@ class ThrottleOnARealSlice(unittest.TestCase):
             raise unittest.SkipTest("no systemd user session here (the WSL step runs this test where there is one)")
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp(prefix="bosun-real-slice-")
+        self.dir = str(scratch_dir("real-slice"))
         self.UNIT = f"bosun-t{os.getpid()}r{uuid.uuid4().hex[:8]}.slice"
         self.scope = f"bosun-test-sleep-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         self.addCleanup(self.cleanup)

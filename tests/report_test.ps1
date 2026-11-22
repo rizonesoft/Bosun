@@ -1,10 +1,11 @@
-# Tests bosun report's floor (D03 T01 §6): --low-mb at the command, the built bosun.exe over log files the test writes in
+﻿# Tests bosun report's floor (D03 T01 §6): --low-mb at the command, the built bosun.exe over log files the test writes in
 # a LOCALAPPDATA of its own. Omitted it is 2048; a value is the JSON's low_mb, its minutes and the text's words; a missing
 # or bad value is refused with exit 64, naming it.
 $ErrorActionPreference = 'Stop'
 $exe = Join-Path $PSScriptRoot '..\build\Release\bosun.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw "build first: $exe" }
-$dir = Join-Path ([IO.Path]::GetTempPath()) ("bosun-report-test-" + [guid]::NewGuid())
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'report-test'
 $logs = Join-Path $dir 'Bosun\logs'
 New-Item -ItemType Directory -Path $logs | Out-Null
 $failed = 0

@@ -1,4 +1,4 @@
-# Tests scripts/machine-path-check.ps1 (D00 T05 §8) over scratch repositories with synthetic owner paths and a
+﻿# Tests scripts/machine-path-check.ps1 (D00 T05 §8) over scratch repositories with synthetic owner paths and a
 # synthetic profile name: each form in a committed live file is found (exit 1), whatever the working tree holds, a
 # symbolic link's target included; stamped TODO text, reviews, phase runs, sites and generic sample paths are not
 # (exit 0); a contributor's own login is never taken for the owner's name; and a commit that cannot be read is an
@@ -6,9 +6,8 @@
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
 $check = Join-Path $repoRoot 'scripts\machine-path-check.ps1'
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-machine-path-test-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'machine-path-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

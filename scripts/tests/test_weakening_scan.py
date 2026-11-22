@@ -9,12 +9,13 @@ import os
 import re
 from pathlib import Path
 import subprocess
-import tempfile
+import sys
 import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRATCH = os.environ.get("BOSUN_SCRATCH") if os.path.isdir(os.environ.get("BOSUN_SCRATCH") or "") else None
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_tempdir
 spec = importlib.util.spec_from_file_location("weakening_scan", ROOT / "scripts" / "weakening-scan.py")
 assert spec is not None and spec.loader is not None
 scan = importlib.util.module_from_spec(spec)
@@ -76,7 +77,7 @@ SOURCE_TEXT = "def run():\n    return 1\n"
 
 class Repo(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=SCRATCH)
+        self.tmp = scratch_tempdir("weakening-scan")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.git("init", "-q", "-b", "main")
@@ -795,7 +796,7 @@ class Ranges(Repo):
         self.assertIn(f"committed {head[:7]}..{head[:7]}: 0 signal(s)", text)
 
     def test_outside_a_repository_it_exits_2(self):
-        with tempfile.TemporaryDirectory(dir=SCRATCH) as empty:
+        with scratch_tempdir("weakening-scan") as empty:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = scan.main([], root=Path(empty))

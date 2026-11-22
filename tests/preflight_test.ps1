@@ -1,4 +1,4 @@
-# The preflight's checks against fake tools, disposable repos, test registry keys and a JSON task store, and the PATH
+﻿# The preflight's checks against fake tools, disposable repos, test registry keys and a JSON task store, and the PATH
 # script against a test variable. Nothing here touches the real user PATH, policy, power scheme or tasks.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -6,8 +6,8 @@ $failed = 0
 function Check($ok, $what) {
   if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ }
 }
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-preflight-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $repo 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'preflight'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
 $system = Join-Path $env:SystemRoot 'System32'
 

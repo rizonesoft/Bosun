@@ -1,4 +1,4 @@
-# Tests scripts/smoke-input.ps1 (D02 T02 §12) with stand-ins: a dotnet that lists, runs and reports tests as each case
+﻿# Tests scripts/smoke-input.ps1 (D02 T02 §12) with stand-ins: a dotnet that lists, runs and reports tests as each case
 # tells it, an input watcher that only keeps its file, and the lock and idle probes read from files. It never runs the
 # real smoke or touches the desktop: the lock has a name of its own, the state folder is the test's, and every process
 # a case starts is ended as a tree at the end. Console children start without a window of their own.
@@ -12,8 +12,8 @@ function Check([string]$Name, [bool]$Ok, [string]$Said = '') {
   if ($Ok) { "ok   $Name" } else { "FAIL $Name"; if ($Said) { $Said.TrimEnd() -split "`r?`n" | Select-Object -Last 12 | ForEach-Object { "     | $_" } }; $failed.Add($Name) }
 }
 
-$scratch = if ($env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$dir = Join-Path $scratch ('smoke-input-test-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+. (Join-Path $repo 'scripts/lib/scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'smoke-input-test'
 $fakes = Join-Path $dir 'fakes'
 New-Item -ItemType Directory -Force -Path $fakes | Out-Null
 $lockName = 'test-' + [guid]::NewGuid().ToString('N').Substring(0, 12)
@@ -598,8 +598,13 @@ for (`$i = 0; `$i -lt 600 -and (Test-Path -LiteralPath '$holdFile'); `$i++) { St
     Remove-Item -LiteralPath $history
     Set-Content -LiteralPath $mark -Value $was
     $before = @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count
-    Push-Location $env:TEMP
-    try { Start-ScheduledTask -TaskName $taskName } finally { Pop-Location }
+    Push-Location -LiteralPath $dir
+    $taskCwd = ''
+    try {
+      $taskCwd = (Get-Location).Path
+      Start-ScheduledTask -TaskName $taskName
+    } finally { Pop-Location }
+    Check 'scheduled-task start runs from the allocated scratch directory' ([IO.Path]::GetFullPath($taskCwd).TrimEnd('\') -eq [IO.Path]::GetFullPath($dir).TrimEnd('\')) "($taskCwd vs $dir)"
     $deadline = (Get-Date).AddSeconds(90)
     while ((Get-Date) -lt $deadline -and @(if (Test-Path -LiteralPath (Join-Path $state 'input-history.jsonl')) { Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') }).Count -le $before) { Start-Sleep -Milliseconds 500 }
     $entry = @(Get-Content -LiteralPath (Join-Path $state 'input-history.jsonl') -ErrorAction Ignore | ForEach-Object { $_ | ConvertFrom-Json })[-1]

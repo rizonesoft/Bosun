@@ -6,12 +6,12 @@ import json
 import os
 from pathlib import Path
 import struct
-import tempfile
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-# Scratch files go where BOSUN_SCRATCH says, and to the system's temporary folder only when it is not set.
-SCRATCH = os.environ.get("BOSUN_SCRATCH") if os.path.isdir(os.environ.get("BOSUN_SCRATCH") or "") else None
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_tempdir
 
 
 def load(name):
@@ -115,7 +115,7 @@ class Images(unittest.TestCase):
         self.assertEqual(Counted.asked, 2)
 
     def test_a_huge_file_that_is_not_an_image_is_refused_without_being_loaded(self):
-        with tempfile.TemporaryDirectory(dir=SCRATCH) as tmp:
+        with scratch_tempdir("native-checks") as tmp:
             big = Path(tmp) / "big.exe"
             with big.open("wb") as out:
                 out.truncate(256 * 1024 ** 2)  # a length only: the file is never written, and must never be read whole
@@ -130,7 +130,7 @@ class Images(unittest.TestCase):
         return code, out.getvalue()
 
     def test_the_command_exits_0_1_or_2(self):
-        with tempfile.TemporaryDirectory(dir=SCRATCH) as tmp:
+        with scratch_tempdir("native-checks") as tmp:
             folder = Path(tmp)
             (folder / "good.exe").write_bytes(image())
             self.assertEqual(self.run_main(pe, [str(folder)])[0], 0)
@@ -153,7 +153,7 @@ class Images(unittest.TestCase):
 
 class Standard(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(dir=SCRATCH)
+        self.tmp = scratch_tempdir("native-checks")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.cmake = self.root / "CMakeLists.txt"

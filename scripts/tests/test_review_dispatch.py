@@ -17,6 +17,8 @@ import unittest.mock
 from collections.abc import Set as AbstractSet
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS / "lib"))
+from scratch import scratch_tempdir
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
 
 
@@ -197,7 +199,7 @@ class Harness(unittest.TestCase):
     """A scratch repository with the dispatcher, a pin and a fake CLI on PATH; holds no tests itself."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
+        self._tmp = scratch_tempdir("review-dispatch")
         self.repo = Path(self._tmp.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".conclave").mkdir()
@@ -280,7 +282,7 @@ def still_running(pid, wait=5):
 
 class HarnessTimeout(unittest.TestCase):
     def test_a_timeout_stops_the_grandchild_too(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with scratch_tempdir("review-dispatch") as tmp:
             pid_file = Path(tmp) / "grandchild.pid"
             script = ("import subprocess, sys, time\n"
                       # Started as the dispatcher starts a reviewer: output to files, so no pipe of ours waits for
@@ -1607,7 +1609,7 @@ class RepositoryPin(unittest.TestCase):
         pin = module.load_pin(REPO_PIN, data=text.encode("utf-8"))
         self.assertNotIn("retired", pin["routes"])
         self.assertEqual(pin["routes"]["claude"], ["astra"])
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("review-dispatch") as folder:
             live = Path(folder) / "reviewers.toml"
             live.write_text(text, encoding="utf-8")
             with self.assertRaises(module.Refused):
@@ -1646,8 +1648,7 @@ class RepairCycles(unittest.TestCase):
     """Written with the dispatcher's own functions, so these exercise what a real cycle does."""
 
     def setUp(self):
-        import tempfile
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = scratch_tempdir("review-dispatch")
         self.addCleanup(self.tmp.cleanup)
         self.folder = Path(self.tmp.name)
 

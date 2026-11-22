@@ -11,6 +11,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_tempdir
 spec = importlib.util.spec_from_file_location("dispatch_hook", ROOT / "scripts" / "dispatch_hook.py")
 assert spec is not None and spec.loader is not None, "the script file must be loadable as a module"
 hook = importlib.util.module_from_spec(spec)
@@ -171,7 +173,7 @@ class Pin(unittest.TestCase):
     """The pin is the owner's: a review or a stamp waits while it has uncommitted changes."""
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
+        self.temp = scratch_tempdir("dispatch-hook")
         self.addCleanup(self.temp.cleanup)
         self.repo = Path(self.temp.name)
         git = lambda *a: subprocess.run(["git", "-C", str(self.repo), *a], check=True, capture_output=True)
@@ -228,7 +230,7 @@ class Process(unittest.TestCase):
         self.assertIn("not detached", done.stderr)
 
     def test_a_hook_without_its_parser_says_so_and_lets_the_call_through(self):
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("dispatch-hook") as folder:
             lone = Path(folder) / "dispatch_hook.py"
             lone.write_bytes((ROOT / "scripts" / "dispatch_hook.py").read_bytes())
             done = subprocess.run([sys.executable, str(lone)], input=json.dumps(payload(REVIEW + " &", background=True)),

@@ -2,8 +2,8 @@
 # another generator or another checkout folder, and reuses it otherwise.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\scripts\lib\build-cache.ps1')
-$dir = Join-Path ([IO.Path]::GetTempPath()) ("bosun-cache-test-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $dir | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'cache-test'
 $failed = 0
 function Case([string]$name, [string]$generator, [string]$homeDir, [string]$source, [bool]$want) {
   $cache = Join-Path $dir 'CMakeCache.txt'

@@ -3,8 +3,8 @@
 # shell, so nothing one case loaded can make the next one pass.
 $ErrorActionPreference = 'Stop'
 $lib = Join-Path $PSScriptRoot '..\scripts\lib\dev-env.ps1'
-$dir = Join-Path ([IO.Path]::GetTempPath()) ("bosun-devenv-test-" + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $dir | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$dir = New-BosunScratchFolder -Name 'devenv-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

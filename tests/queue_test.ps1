@@ -1,4 +1,4 @@
-# Integration test for the build queue. Uses a private slot namespace, so it does not touch real builds.
+﻿# Integration test for the build queue. Uses a private slot namespace, so it does not touch real builds.
 param([string]$Build = "$PSScriptRoot\..\build\Release", [switch]$SkipWsl)
 $ErrorActionPreference = 'Stop'
 # A suite run through `bosun run` hands this test the slot marker, and a job that has it passes straight through
@@ -7,8 +7,8 @@ Remove-Item Env:BOSUN_SLOT -ErrorAction Ignore
 $bosun = Join-Path $Build 'bosun.exe'
 $sleeper = Join-Path $Build 'test_sleeper.exe'
 $ns = "BosunTest$PID"
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-test-$PID"
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'queue-test'
 # The slot records go to a home of the test's own (D01 T01 §1), so none of this machine's own jobs is read or touched.
 $env:LOCALAPPDATA = Join-Path $work 'home'
 # The namespace's folder: upper-case letters as %XX (dm::ns_dir), so names differing only in case stay apart.
@@ -803,8 +803,9 @@ if ($SkipWsl) {
   if ($done) { Check ($job.ExitCode -eq 0) "the nested WSL run exits 0 (got $($job.ExitCode))" } else { Stop-Process -Id $job.Id -Force }
 
   # A top-level WSL run holds its slot through bosun.exe acquire, whose record names wsl, the Linux repo and the command.
-  $linuxRepo = "/tmp/bosunrec$PID"
-  wsl.exe -d Ubuntu -- mkdir -p "$linuxRepo/.git" "$linuxRepo/sub"
+  $linuxRepoWin = Join-Path $work "wsl-rec-$PID"
+  New-Item -ItemType Directory -Path (Join-Path $linuxRepoWin '.git'), (Join-Path $linuxRepoWin 'sub') -Force | Out-Null
+  $linuxRepo = (wsl.exe -d Ubuntu -- wslpath -a $linuxRepoWin.Replace('\', '/')).Trim()
   $savedWslenv = $env:WSLENV
   $env:WSLENV = (@($savedWslenv, 'LOCALAPPDATA') | Where-Object { $_ }) -join ':'  # the test's home reaches bosun.exe
   try {

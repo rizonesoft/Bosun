@@ -1,13 +1,12 @@
-# Tests how agents get the overlay's owner-only rules (D00 T05 §5): the public rule files carry the pointer and no
+﻿# Tests how agents get the overlay's owner-only rules (D00 T05 §5): the public rule files carry the pointer and no
 # private reference, machine path or plain import of the overlay; scripts/overlay_rules_hook.py trusts only the marked
 # overlay's own clone and its own AGENTS.md and hands those rules to a Claude Code session as SessionStart context,
 # and nothing otherwise; and setup's printed undo of the mark works
 # from any folder. Every case runs in temporary checkouts.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-agent-rules-test-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'agent-rules-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

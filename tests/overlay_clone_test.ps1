@@ -1,12 +1,11 @@
-# Tests the overlay half of scripts/setup-clone.ps1 and scripts/hooks/post-merge (D00 T05 §2) against temporary
+﻿# Tests the overlay half of scripts/setup-clone.ps1 and scripts/hooks/post-merge (D00 T05 §2) against temporary
 # repositories: local bare remotes stand in for the public repository and the overlay, and a stand-in gh stands in
 # for GitHub. The operator's own gh, tokens, overlay setting and git config never reach a case.
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot
 $setup = Join-Path $repoRoot 'scripts\setup-clone.ps1'
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-overlay-clone-test-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'overlay-clone-test'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }
@@ -446,14 +445,15 @@ try {
   Check 'an empty overlay takes its first commit from the remote default branch, whatever its name' ((Get-Head $renamedPrivate) -eq (Get-Head $renamedPusher) -and "$(git -C $renamedPrivate symbolic-ref --short HEAD)" -eq 'trunk' -and $out -match 'its first commit') "($out)"
 
   # --- a checkout whose git data lives in another folder ---
-  $sepGit = Join-Path ([IO.Path]::GetTempPath()) ('bosun-overlay-sep-' + [guid]::NewGuid().ToString('N'))
+  $sepRoot = New-BosunScratchFolder -Name 'overlay-sep'
+  $sepGit = Join-Path $sepRoot 'git'
   $separate = Join-Path $work 'separate-git-dir'
   try {
     git clone -q --separate-git-dir=$sepGit $public $separate 2>$null
     $env:BOSUN_OVERLAY_REPO = $overlayRemote
     $r = Invoke-Setup $separate
     Check 'a checkout with a separate git folder gets the overlay, staged beside it' ($r.Exit -eq 0 -and "$(git -C (Join-Path $separate '.private') config --local --get bosun.overlay)" -eq 'true' -and -not @(Get-ChildItem -LiteralPath $separate -Force -Filter '.private-clone-*').Count) "(exit $($r.Exit): $($r.Text))"
-  } finally { Remove-Item -LiteralPath $sepGit -Recurse -Force -ErrorAction Ignore }
+  } finally { Remove-Item -LiteralPath $sepRoot -Recurse -Force -ErrorAction Ignore }
 
   # --- a .git that is a junction to another clone's git data ---
   $donor = Join-Path $work 'git-junction-donor'

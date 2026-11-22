@@ -1,6 +1,7 @@
 # The WSL side must install from a folder WSL can read, even when it cannot see the drive holding the repo.
 $ErrorActionPreference = 'Stop'
-$work = Join-Path $env:TEMP "bosun-stage-$PID"
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'stage-wsl'
 try {
   $path = & (Join-Path $PSScriptRoot '..\scripts\stage-wsl.ps1') -Destination $work
   foreach ($name in 'bosun', 'bosun_log.py', 'install.sh') {

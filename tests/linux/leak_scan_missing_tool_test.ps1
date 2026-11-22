@@ -1,12 +1,11 @@
-# The leak guard on Linux and WSL without gitleaks (D00 T05 §4): a real push through scripts/hooks/pre-push is
+﻿# The leak guard on Linux and WSL without gitleaks (D00 T05 §4): a real push through scripts/hooks/pre-push is
 # refused with the release-archive install, never winget's, and the destination's refs read back unchanged. Runs on
 # Linux only (the CI linux job, or WSL): tests/leak_scan_test.ps1 covers Windows.
 $ErrorActionPreference = 'Stop'
 if (-not $IsLinux) { 'this test runs on Linux; tests/leak_scan_test.ps1 covers Windows'; exit 1 }
 $repoRoot = Split-Path (Split-Path $PSScriptRoot)
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-leak-scan-linux-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'leak-scan-linux'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

@@ -10,7 +10,9 @@ import sys
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # so test_todo_graph imports however the suite is run
+from scratch import scratch_tempdir
 spec = importlib.util.spec_from_file_location('policy_dispatch', ROOT / 'scripts/review-dispatch.py')
 assert spec is not None and spec.loader is not None, 'scripts/review-dispatch.py must load as a module with a loader'
 d = importlib.util.module_from_spec(spec)
@@ -102,7 +104,7 @@ class FiledLeftovers(unittest.TestCase):
     def verdict_ok(self, name, verdict, clean_last=True):
         dispatch = fixtures.tg.review_dispatch()
         pin = historical_pin()
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("review-policy") as folder:
             path = Path(folder) / name
             plan = entry('plan')
             plan.update(attempt_reviewer='carbon', attempt_model=plan['model'], attempt_cli='agy', failover=[], effort='medium', lenses=['plan'])
@@ -166,7 +168,7 @@ class CurrentPolicy(unittest.TestCase):
         import test_todo_graph as fixtures
         dispatch = fixtures.tg.review_dispatch()
         pin = historical_pin()
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("review-policy") as folder:
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round'):
                 e = entry(kind, clean=True)
@@ -186,7 +188,7 @@ class CurrentPolicy(unittest.TestCase):
 
     def test_record_roundtrip_and_order_replay(self):
         pin = historical_pin()
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("review-policy") as folder:
             path = Path(folder) / 'review.md'
             for kind in ('plan', 'round', 'completion'):
                 e = entry(kind, clean=True)
@@ -501,7 +503,7 @@ class RecurringFindings(unittest.TestCase):
         dispatch = fixtures.tg.review_dispatch()
         pin = historical_pin()
         pin['schedule']['recurrence_cap'] = 3
-        with tempfile.TemporaryDirectory() as folder:
+        with scratch_tempdir("review-policy") as folder:
             path = Path(folder) / 'D00-T01-s1.md'
             plan = entry('plan')
             plan.update(attempt_reviewer='carbon', attempt_model=plan['model'], attempt_cli='agy', failover=[],
@@ -595,7 +597,7 @@ class ClaudeNeverReviews(unittest.TestCase):
 
     def test_a_live_pin_with_a_claude_reviewer_refuses_routed_or_not(self):
         for routed in (True, False):
-            with self.subTest(routed=routed), tempfile.TemporaryDirectory() as folder:
+            with self.subTest(routed=routed), scratch_tempdir("review-policy") as folder:
                 path = Path(folder) / 'reviewers.toml'
                 path.write_text(self.pin_text(routed), encoding='utf-8')
                 with self.assertRaisesRegex(d.Refused, 'sonnet.*Claude is never a reviewer'):

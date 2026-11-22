@@ -1,4 +1,4 @@
-# The CI secrets job's self-test (D00 T05 §6): the history scan it runs, `pwsh scripts/leak-scan.ps1 -All`, must find
+﻿# The CI secrets job's self-test (D00 T05 §6): the history scan it runs, `pwsh scripts/leak-scan.ps1 -All`, must find
 # a secret that is only in the history. A scratch repository holds a token built at run time in one commit, removed
 # again in the next, and in a merge resolution only; the same command, run there, must exit 1 naming each introducing
 # commit and its file, with the token nowhere in its output. A scan that fails for another reason (exit 1 with no
@@ -7,9 +7,8 @@
 #   pwsh tests/ci/secret_history_selftest.ps1      (the secrets job in .github/workflows/plan.yml runs it)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path (Split-Path $PSScriptRoot)
-$scratch = if ($env:BOSUN_SCRATCH) { $env:BOSUN_SCRATCH } elseif ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
-$work = Join-Path $scratch ('bosun-secret-history-' + [guid]::NewGuid())
-New-Item -ItemType Directory -Path $work | Out-Null
+. (Join-Path $repoRoot 'scripts/lib/scratch.ps1')
+$work = New-BosunScratchFolder -Name 'secret-history'
 $failed = 0
 function Check([string]$name, [bool]$ok, [string]$detail = '') {
   if ($ok) { "ok   $name" } else { "FAIL $name $detail"; $script:failed++ }

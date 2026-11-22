@@ -12,6 +12,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+from scratch import scratch_tempdir
 sys.path.insert(0, str(ROOT / "scripts"))
 import ci_status
 
@@ -102,7 +104,7 @@ class FakeGit:
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp = scratch_tempdir("ci-status")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         folder = self.root / ".github" / "workflows"
@@ -972,7 +974,7 @@ class Gate(Base):
 
     def test_read_head_matches_git_in_a_linked_worktree(self):
         git = self.git_files()
-        with tempfile.TemporaryDirectory() as other:
+        with scratch_tempdir("ci-status") as other:
             tree = Path(other) / "tree"
             git("worktree", "add", "-q", "-b", "side", str(tree))
             self.assertEqual(ci_status.read_head(tree), git("rev-parse", "side"))

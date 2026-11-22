@@ -1,8 +1,8 @@
 # Tests Install-SwapFile (scripts/lib/swap-file.ps1): an exe that is running is replaced without stopping it.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '..\scripts\lib\swap-file.ps1')
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-swap-test-$PID"
-New-Item -ItemType Directory -Force $work | Out-Null
+. (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
+$work = New-BosunScratchFolder -Name 'swap-test'
 $failed = 0
 function Check([bool]$ok, [string]$what) { if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ } }
 $proc = $null
