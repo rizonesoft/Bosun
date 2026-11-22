@@ -1412,7 +1412,12 @@ def wake_apply_rows(root, date, run=subprocess.run, rows=None):
     rows = rows if rows is not None else graph(root)
     seen = inputs_fingerprint(root)
     applied = []
-    for wake in wake_check(root, rows, run):
+    passing = wake_check(root, rows, run)
+    if passing and inputs_fingerprint(root) != seen:
+        # A check may change the tree itself (or another command may, while it runs): the Needs are cleared from the
+        # tree as it now is, never from text the files no longer hold (the completion review of D00 T07 §1).
+        rows, seen = graph(root), inputs_fingerprint(root)
+    for wake in passing:
         after = clear_need(root, wake["section"], wake["need"], date, rows)
         if after is not False:
             applied.append(wake)

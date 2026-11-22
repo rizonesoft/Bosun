@@ -1952,6 +1952,56 @@ class Stamp(Tree):
             self.assertIn("a verdict matching clean", str(refused.exception))
         self.assertEqual(plan.read_bytes(), before)
 
+    def plan_modes_refuse(self, fragment):
+        """Both plan modes refuse this tree naming `fragment`, and the refused sync leaves the plan's bytes."""
+        plan = self.root / tg.PLAN
+        before = plan.read_bytes()
+        for argv in (["plan", "--check"], ["plan", "--sync"]):
+            with self.subTest(argv=argv), self.assertRaises(tg.Refused) as refused:
+                graph_loads(self.root, *argv)
+            self.assertIn(fragment, str(refused.exception))
+        self.assertEqual(plan.read_bytes(), before)
+
+    def stamped_receipt(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        return self.root / tg.graph(self.root)["D00 T01 §1"].receipt
+
+    def test_a_receipt_whose_policy_commit_is_outside_its_candidate_s_history_is_refused(self):
+        # The completion review of D00 T07 §1: the ancestry check now answers through the cached is_ancestor, so a
+        # real commit outside the candidate's history must still be refused by both plan modes.
+        path = self.stamped_receipt()
+        tree = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD^{tree}"], capture_output=True,
+                              text=True, check=True).stdout.strip()
+        side = subprocess.run(["git", "-C", str(self.root), "commit-tree", tree, "-m", "a commit on no branch"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["policy"] = side
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        self.plan_modes_refuse("policy commit is not an ancestor of candidate")
+
+    def test_a_committed_reviewer_pin_that_cannot_be_read_is_refused(self):
+        # The completion review of D00 T07 §1: the committed pin is now read through the cached show_committed; a pin
+        # it cannot read (an object gone from the repository) must still be refused by both plan modes.
+        path = self.stamped_receipt()
+        dispatch = tg.review_dispatch()
+        real = dispatch.show_committed
+        for caller, fragment in (("pin_schedule", "no reviewer pin .conclave/reviewers.toml at"),
+                                 ("record_policy", "cannot read the initiating committed reviewer policy")):
+            def unreadable_for(root, sha, path, caller=caller):
+                # The pin is gone only for this one reader, so each refusal is proven on its own.
+                if sys._getframe(1).f_code.co_name == caller:
+                    return 128, b""
+                return real(root, sha, path)
+            if caller == "record_policy":
+                # record_policy is asked only of a receipt naming its policy commit: name one in its history.
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data["policy"] = self.sha
+                path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            with self.subTest(caller=caller), mock.patch.object(dispatch, "show_committed", unreadable_for):
+                self.plan_modes_refuse(fragment)
+
     def test_unstamp_takes_back_its_file_s_completed_line(self):
         self.tick_work()
         tg.projections(self.root, sync=True)
@@ -2641,6 +2691,24 @@ class GraphLoadsWake(Tree):
         self.assertEqual((loads, code), (2, 0), out)  # the state before the check, then the changed one
         self.assertIn("- [x] Work.", todo.read_text(encoding="utf-8"))
         tg.projections(self.root)  # the plan matches the changed tree, not the rows read before the check
+
+    def test_a_passing_check_that_edits_its_own_section_still_clears_its_need(self):
+        # The completion review of D00 T07 §1: the Need was cleared from the text read before the check, which the
+        # check had changed, so the clear was refused; it is now cleared from the tree as the check left it.
+        self.write(todo_file([(1, "A", 0, "owner-decision", "--")]))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        edit = ("import pathlib, sys; p = pathlib.Path(sys.argv[1]); "
+                "p.write_text(p.read_text(encoding='utf-8').replace('- [ ] Work.', '- [x] Work.', 1), encoding='utf-8')")
+        (self.root / tg.WAKES).write_text(json.dumps([
+            {"section": "D00 T01 §1", "need": "owner-decision", "check": ["python", "-c", edit, str(todo)]}]), encoding="utf-8")
+        tg.projections(self.root, sync=True)
+        loads, code, out = graph_loads(self.root, "wake", "--apply")
+        self.assertEqual(code, 0, out)
+        text = todo.read_text(encoding="utf-8")
+        self.assertIn("- [x] Work.", text)  # the check's own edit survives
+        self.assertIn("**Needs:** none", text)  # and its Need is cleared
+        self.assertEqual(loads, 3)  # before the check, as the check left it, and after the clear
+        tg.projections(self.root)
 
     def test_a_tree_changed_after_the_wakes_finish_is_built_again_before_the_plan_syncs(self):
         # Round 2 of D00 T07 §1: the change lands after the wake loop has returned, just before the CLI's final sync.
