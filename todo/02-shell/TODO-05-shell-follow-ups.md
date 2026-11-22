@@ -64,6 +64,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 66, 68 and
 - [ ] Add `Hover` to `ThemeContrast.Surfaces` in `tests/Bosun.Panel.Tests/ThemeContrast.cs`, and check the pairs each control template really draws (read from `src/Bosun.Panel/Theme/Controls.xaml`: hover, selected, disabled opacity and overlays), not only the fixed token grid (base lines 66 and 69). Done when: the test fails on today's `design/tokens/colors.json` naming dark `TextMute` and light `Accent` on `Hover`.
 - [ ] Name the file and token path in each failure (`design/tokens/colors.json`, `dark.TextMute`) (base line 68). Done when: the failing run above prints both for each pair.
 - [ ] Raise dark `TextMute` and light `Accent` in `design/tokens/colors.json` the least that passes 4.5:1 on every surface, rebuild with `python scripts/build-theme.py`, and capture the Queue and Memory pages in both themes before and after. Done when: the test passes, and the before and after renders are in `build/renders/` and attached to the review. Cheaper substitute: keeping caption and accent text off hovered rows, which changes what a row shows.
+- [ ] Prove the contrast palette from `SystemColors` (`src/Bosun.Panel/Theme/HighContrastTheme.cs`, applied to `src/Bosun.Panel/Theme/Controls.xaml` live by `App.xaml.cs`) in all four Windows contrast themes, Aquatic and Dusk beside the Night sky and Desert that `tests/Bosun.Panel.Tests/Helpers/ContrastPalettes.cs` holds, switching live into each and restoring the chosen theme on leaving contrast (base line 80; filed by `D00 T06 §3`'s repair cycle, since `D02 T03 §10` proved two of the four). Done when: a test switches into each of the four and back and reads the system colours applied, then the chosen theme restored.
 - [ ] Commit: `theme: contrast holds on hovered rows and every drawn pair (D02 T05 §1)`
 
 **Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter ThemeContrast` exits 0, and fails with the two tokens restored.
@@ -287,13 +288,13 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 89, 90, 10
 1. Keep the evidence. Done when: a crashing test host leaves a dump, and a failed smoke test keeps its folder.
 2. Leave no noise and measure. Done when: the crash test leaves no error report, and the smoke's timings are recorded.
 
-- [ ] Collect a dump when the test host crashes (`--blame-crash` with a dump type, or `DOTNET_DbgEnableMiniDump`), and run the panel's tests in full ten times recording any crash, its dump and the free memory then (base line 89). Done when: the runs are recorded here, and a crash, if any, has its dump and stack named or is filed with them.
+- [ ] Add `Microsoft.Testing.Extensions.CrashDump` to the test projects and pass `--crashdump` in `scripts/check-all.ps1` and `.github/workflows/build.yml`, keeping a CI run's dump as an artefact, then run the panel's tests in full ten times recording any crash, its dump and the free memory then (base line 89). Done when: a deliberately crashing test host leaves a dump through the local gate and through CI, where it is kept as an artefact, and the ten runs are recorded here, a crash named by its dump and stack or filed with them.
 - [ ] Have the test child opt out of Windows Error Reporting for itself (`SetErrorMode` with `SEM_NOGPFAULTERRORBOX`, or `WerSetFlags`) before it dies on purpose (base line 90). Done when: a crash test run leaves no new Application log error or report, checked before and after.
 - [ ] Keep the folder of a failed smoke test and print its path with the last assertion's context, with a capture of the panel's window only where `RealInput`'s checks allow it (base line 104). Done when: a deliberately failed smoke test leaves its folder and prints its path; a passing one leaves nothing.
-- [ ] Measure the smoke's cold and warm duration and its three slowest tests over five runs (base line 105). Done when: the numbers are recorded here with their commit.
+- [ ] Measure the smoke's cold and warm duration and its three slowest tests over five runs, keeping one panel per test as it runs now (base line 105). Done when: the numbers are recorded here with their commit and that each test had a panel of its own.
 - [ ] Commit: `tests: the panel's host names a crash, leaves no error report, keeps a failed smoke's evidence (D02 T05 §11)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Crash` exits 0 with no new Application log error, and the runs and timings are in this section.
+**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Crash` exits 0 with no new Application log error, a deliberate host crash leaves its dump locally and as a CI artefact, and the runs and timings are in this section.
 
 ## 12. Async commands say they are running and can be cancelled
 

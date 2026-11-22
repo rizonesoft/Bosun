@@ -50,6 +50,9 @@ class FindingsLedgerTest(unittest.TestCase):
         (self.root / "todo").mkdir()
         self.findings = self.root / "todo" / "findings.md"
         self.findings.write_text(BASE, encoding="utf-8")
+        (self.root / "scripts").mkdir()
+        for name in ("a.py", "b.py", "d.py"):  # the files a classification inspects must exist (cycle 2 of D00 T06 §3)
+            (self.root / "scripts" / name).write_text("# a script\n", encoding="utf-8")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", "base")
         self.base = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -133,12 +136,29 @@ class FindingsLedgerTest(unittest.TestCase):
                 # Round 6: a comma read as both separator and boundary.
                 ([good[5].replace("item 2,", "items 2, 3 to 4,"), good[6], good[8]], False, "base line 5: is scheduled in"),
                 ([good[5].replace("item 2,", "item 2, 3,"), good[6], good[8]], False, "base line 5: is scheduled in"),
-                ([good[5].replace("item 2,", "items 2 and 3,"), good[6], good[8]], True, "")):
+                ([good[5].replace("item 2,", "items 2 and 3,"), good[6], good[8]], True, ""),
+                # Cycle 2 of D00 T06 §3: a folder, or a path that isn't there, proves nothing.
+                ([good[5].replace("`scripts/a.py:1`", "`scripts`"), good[6], good[8]], False, "which is not a file of the repository"),
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/gone.py:3`"), good[6], good[8]], False, "which is not a file of the repository")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)
                 self.assertEqual(code, 0 if settled else 1, out)
                 self.assertIn(says, out)
+
+    def test_a_row_settled_before_the_base_stays_as_it_was(self):
+        # Cycle 2 of D00 T06 §3: base line 7 was struck before the base; changing or removing it fails the range.
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        self.assertEqual(self.checked()[0], 0)
+        lines = self.findings.read_text(encoding="utf-8").splitlines()
+        settled = [i for i, line in enumerate(lines) if "settled before the base" in line][0]
+        for change in (lambda l: l[:settled] + l[settled + 1:], lambda l: l[:settled] + [l[settled].replace("D00 T02 §4", "D00 T02 §5")] + l[settled + 1:]):
+            with self.subTest(change=change):
+                self.findings.write_text("\n".join(change(list(lines))) + "\n", encoding="utf-8")
+                code, out = self.checked()
+                self.assertEqual(code, 1, out)
+                self.assertIn("base line 7: settled before the base, and changed or removed since", out)
+        self.findings.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def settle(self, first, second, fourth):
         lines = BASE.splitlines()

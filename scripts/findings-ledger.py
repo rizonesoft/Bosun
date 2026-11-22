@@ -127,6 +127,9 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     if not m:
         return ("has a classification line without its evidence in %s (line %d): it must read "
                 "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
+    inspected = Path(root or ROOT) / re.sub(r":\d+(-\d+)?$", "", m.group(4))
+    if root is not None and not inspected.is_file():  # a folder or a path that isn't there proves nothing (cycle 2)
+        return "cites `%s` in %s (line %d), which is not a file of the repository: name the file inspected" % (m.group(4), record, at)
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
@@ -223,6 +226,8 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
         return 2
     open_entries = [(n, then[n - 1][2:]) for n in range(first, min(last, len(then)) + 1)
                     if then[n - 1].startswith("- ") and not then[n - 1].startswith("- ~~")]
+    # A row struck before the base is settled already, and stays exactly as it was (cycle 2 of D00 T06 §3).
+    kept = [(n, then[n - 1]) for n in range(first, min(last, len(then)) + 1) if then[n - 1].startswith("- ~~")]
     now = (root / FINDINGS).read_text(encoding="utf-8").splitlines()
     classified = record_lines(record) if record else None
     bad = 0
@@ -242,6 +247,10 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))
+    for n, row in kept:
+        if row not in now:
+            bad += 1
+            print("findings-ledger: base line %d: settled before the base, and changed or removed since" % n)
     if bad:
         print("findings-ledger: %d of %d entries on lines %d to %d (at %s) are not settled" % (bad, len(open_entries), first, last, base))
         return 1

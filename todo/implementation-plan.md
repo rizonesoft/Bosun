@@ -101,7 +101,7 @@ Sections: 11 | Checklist items: 76
 
 ### Phase 2: Shell and brand
 
-Sections: 42 | Checklist items: 324
+Sections: 42 | Checklist items: 325
 
 | Status | Reference   | Deliverable                                                                        | Needs                     | Items |
 | ------ | ----------- | ---------------------------------------------------------------------------------- | ------------------------- | ----- |
@@ -131,7 +131,7 @@ Sections: 42 | Checklist items: 324
 | [x]    | D02 T03 §10 | High contrast theme and renders                                                    | none                      | 11    |
 | [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                                 | display-session           | 4     |
 | [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen                     | display-session           | 7     |
-| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named          | none                      | 4     |
+| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named          | none                      | 5     |
 | [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests                      | display-session           | 3     |
 | [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                         | none                      | 3     |
 | [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray                  | none                      | 3     |
@@ -232,4 +232,4 @@ Sections: 6 | Checklist items: 30
 
 Progress: 111/175 verified sections, 41 ready to run now.
 
-Checklist: 1051/1315 items completed (includes Commit items).
+Checklist: 1051/1316 items completed (includes Commit items).
