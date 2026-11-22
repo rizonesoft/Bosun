@@ -161,17 +161,24 @@ if ($InstallShortcut) {
   $failed = 0
   foreach ($l in $launchers) {
     $icon = Join-Path $IconDir $l.Icon
-    $said = 'python is not on PATH'
-    $code = 1
-    if ($python) {
+    # One fix for each cause (D00 T03 §31): the builder says its own (scripts/build-icons.py, FAILURES), and the two
+    # this script meets before it starts are said here.
+    $said = $null
+    if (-not $python) {
+      $said = 'python is not on PATH: install Python 3 (winget install Python.Python.3.14), then run this again'
+    } else {
       try {
-        New-Item -ItemType Directory -Force -Path $IconDir | Out-Null
-        $said = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark (Join-Path $IconDir "marks\$($l.Mark)") 2>&1 | Select-Object -Last 1)
-        $code = $LASTEXITCODE
-      } catch { $said = $_.Exception.Message }
+        New-Item -ItemType Directory -Force -Path $IconDir -ErrorAction Stop | Out-Null
+        # New-Item -Force takes a file already at that path without complaint: the folder must really be one.
+        if (-not (Test-Path -LiteralPath $IconDir -PathType Container)) { throw "a file is already at that path" }
+      } catch { $said = "the icon folder $IconDir can't be made ($($_.Exception.Message)): choose another -IconDir, or move what is in its way" }
     }
-    if ($code) {
-      "the badged icon for '$($l.Name)' could not be rendered ($said): the shortcut carries the plain Bosun icon. Fix: python -m pip install -r scripts/requirements-icons.txt, then this again"
+    if (-not $said) {
+      $said = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark (Join-Path $IconDir "marks\$($l.Mark)") 2>&1 | Select-Object -Last 1)
+      if (-not $LASTEXITCODE) { $said = $null }
+    }
+    if ($said) {
+      "the badged icon for '$($l.Name)' could not be rendered, so the shortcut carries the plain Bosun icon: $said"
       $icon = $plain
     }
     # Written beside its final name, read back, and only then put in place: a save that fails (a full disk, a denied

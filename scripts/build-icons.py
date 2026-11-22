@@ -75,21 +75,86 @@ def badged(png: bytes, size: int, fill: str, mark: Path | None) -> bytes:
     return bytes(resvg_py.svg_to_bytes(svg_string=svg, width=size, height=size))
 
 
+# A badge's failures, each with its own exit code and fix (D00 T03 §31); D02 T05 §4 uses the same map for the app icon.
+FAILURES = {
+    2: "a package the icons need is missing",
+    3: "an input can't be read",
+    4: "an input is not valid",
+    5: "the renderer failed on valid input",
+    6: "the output can't be written",
+}
+REQUIREMENTS = "python -m pip install -r scripts/requirements-icons.txt"
+
+
+class BadgeFailure(Exception):
+    """One way a badge fails: `code` from FAILURES, and the one line that says what to do."""
+
+    def __init__(self, code: int, text: str):
+        super().__init__(text)
+        self.code = code
+
+
 def check_mark(mark: Path) -> None:
-    """Raise ValueError unless the mark file draws something on its own. Embedded in the badge, a mark the renderer
-    can't read is dropped in silence, which would ship a colour-only badge as if the mark were there."""
+    """Raise BadgeFailure unless the mark file draws something on its own. Embedded in the badge, a mark the renderer
+    can't read is dropped in silence, which would ship a colour-only badge as if the mark were there. A mark that can't
+    be read (missing, denied) is told apart from one that is not a valid SVG."""
     import io
 
     import resvg_py
     from PIL import Image
 
     try:
-        png = bytes(resvg_py.svg_to_bytes(svg_string=mark.read_text(encoding="utf-8"), width=64, height=64))
+        text = mark.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise BadgeFailure(4, f"the mark {mark} is not UTF-8 SVG text ({error}): mend or remove it") from error
+    except OSError as error:
+        raise BadgeFailure(3, f"the mark {mark} can't be read ({error.strerror or error}): it must exist and be readable") from error
+    try:
+        png = bytes(resvg_py.svg_to_bytes(svg_string=text, width=64, height=64))
         drawn = Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3][1] > 0
     except Exception as error:  # the renderer and the decoder raise their own types for a file they can't read
-        raise ValueError(f"the mark {mark} can't be drawn ({error})") from error
+        raise BadgeFailure(4, f"the mark {mark} can't be drawn ({error}): mend or remove it") from error
     if not drawn:
-        raise ValueError(f"the mark {mark} draws nothing")
+        raise BadgeFailure(4, f"the mark {mark} draws nothing: mend or remove it")
+
+
+def output_remedy(error: OSError, path: Path) -> str:
+    """The fix for an icon that can't be written, by its cause."""
+    win = getattr(error, "winerror", None)
+    if error.errno == 28 or win in (39, 112):  # ENOSPC, ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL
+        return f"the drive is full: free space on the drive of {path.parent}, then run this again"
+    if win in (32, 33):  # ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        return f"another program holds {path} (an icon viewer, Explorer's preview): close it, then run this again"
+    if isinstance(error, PermissionError) or win == 5:
+        return f"{path} or its folder can't be written here (read-only or denied): make it writable or choose another -IconDir"
+    return f"{error.strerror or error}: fix that, then run this again"
+
+
+def badge(masters: Path, fill: str, mark: Path | None, out: Path) -> int:
+    """Write one campaign launcher's badged icon, or say in one line why not, with its code (FAILURES)."""
+    def fail(code: int, text: str) -> int:
+        print(f"{text}; the old icon, if any, is kept", file=sys.stderr)
+        return code
+
+    try:
+        if mark:
+            check_mark(mark)
+        content = build(masters, fill, mark)
+    except ImportError as error:
+        return fail(2, f"{error.name or 'a package the icons need'} is not installed: {REQUIREMENTS}")
+    except BadgeFailure as error:
+        return fail(error.code, str(error))
+    except OSError as error:
+        what = error.filename or str(error)
+        return fail(3, f"{what} can't be read ({error.strerror or error}): it must exist and be readable")
+    except Exception as error:  # the renderer's own types, on masters that are in the repository and valid
+        return fail(5, f"the renderer failed ({error!r}): report it with the master and the renderer's version")
+    try:
+        write_atomic(out, content)
+    except OSError as error:
+        return fail(6, f"{out} can't be written: {output_remedy(error, out)}")
+    print(f"wrote {out} ({len(FRAMES)} frames, {len(content)} bytes)")
+    return 0
 
 
 # --- The tray's state icons (D02 T01 §3, design/SPEC.md §17) ---
@@ -283,18 +348,11 @@ def main(argv=None) -> int:
             parser.error("a badged icon is a per-machine file: give --out a path outside the repository, without --check")
     elif args.badge_mark:
         parser.error("--badge-mark needs --badge-fill")
-    mark = args.badge_mark if args.badge_mark and args.badge_mark.is_file() else None
-    if mark:
-        try:
-            check_mark(mark)
-        except ValueError as error:
-            print(f"{error}: nothing was written; mend or remove it", file=sys.stderr)
-            return 1
+    # A mark that is not there is a badge with colour only (the marks are trademarks, kept outside the repository);
+    # one that is there but can't be read is a failure of its own.
+    mark = args.badge_mark if args.badge_mark and (args.badge_mark.exists() or args.badge_mark.is_symlink()) else None
     if args.badge_fill:
-        content = build(args.masters, args.badge_fill, mark)
-        write_atomic(args.out, content)
-        print(f"wrote {args.out} ({len(FRAMES)} frames, {len(content)} bytes)")
-        return 0
+        return badge(args.masters, args.badge_fill, mark, args.out)
     # The app icon, and with it the tray's three state icons: beside it in resources/ by default, or where --tray-out
     # says. With --out alone only the app icon is built or checked, as before the tray icons existed.
     outputs = {args.out: (build(args.masters), len(FRAMES))}

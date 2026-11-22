@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import sys
 from pathlib import Path
 import shutil
 import struct
@@ -179,9 +180,60 @@ class BadgedIconTest(unittest.TestCase):
             bad = self.tmp / name
             bad.write_text(text, encoding="utf-8")
             with self.subTest(mark=name):
-                self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(bad)]), 1)
+                self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(bad)]), 4)  # not valid
                 self.assertEqual(out.read_bytes(), b"the icon from before")
         self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(self.mark)]), 0, "a good mark was refused")
+
+    def badge_run(self, *extra, out=None):
+        """main on the badge path: its exit code, its stderr lines and its stdout."""
+        out = out or self.tmp / "launcher.ico"
+        err, said = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(said):
+            code = icons.main(["--out", str(out), "--badge-fill", "#D97757", *extra])
+        return code, [line for line in err.getvalue().splitlines() if line.strip()], said.getvalue()
+
+    def test_each_way_a_badge_fails_has_its_own_code_one_line_and_keeps_the_old_icon(self):
+        # D00 T03 §31: one exit code and one fix per cause (FAILURES), never a traceback, the old icon kept.
+        out = self.tmp / "launcher.ico"
+        bad = self.tmp / "bad.svg"
+        bad.write_text("<svg this is truncated", encoding="utf-8")
+        held = self.tmp / "held.ico"
+        held.write_bytes(b"the icon from before")
+        empty = self.tmp / "no-masters"
+        empty.mkdir()
+        real_read = Path.read_text
+        def denied(path, *args, **kwargs):
+            if path == self.mark:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real_read(path, *args, **kwargs)
+        def renderer_breaks(master, size):
+            raise RuntimeError("the renderer could not lay out the master")
+        cases = (
+            ("resvg-py missing", 2, mock.patch.dict(sys.modules, {"resvg_py": None}), ("--badge-mark", str(self.mark)), out, "pip install -r scripts/requirements-icons.txt"),
+            ("Pillow missing", 2, mock.patch.dict(sys.modules, {"PIL": None, "PIL.Image": None}), ("--badge-mark", str(self.mark)), out, "pip install -r scripts/requirements-icons.txt"),
+            ("a mark denied", 3, mock.patch.object(Path, "read_text", denied), ("--badge-mark", str(self.mark)), out, "must exist and be readable"),
+            ("a mark malformed", 4, contextlib.nullcontext(), ("--badge-mark", str(bad)), out, "mend or remove it"),
+            ("a master missing", 3, contextlib.nullcontext(), ("--masters", str(empty)), out, "must exist and be readable"),
+            ("the renderer failing", 5, mock.patch.object(icons, "render", renderer_breaks), (), out, "report it"),
+        )
+        for name, code, context, extra, target, fix in cases:
+            with self.subTest(name):
+                target.write_bytes(b"the icon from before")
+                with context:
+                    got, lines, said = self.badge_run(*extra, out=target)
+                self.assertEqual(got, code, lines)
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn(fix, lines[0])
+                self.assertNotIn("pip install", lines[0]) if code != 2 else None
+                self.assertEqual(target.read_bytes(), b"the icon from before")
+        held.chmod(0o444)  # an existing ICO the replace cannot take, for real
+        try:
+            got, lines, said = self.badge_run(out=held)
+        finally:
+            held.chmod(0o644)
+        self.assertEqual((got, len(lines)), (6, 1), lines)
+        self.assertIn("make it writable or choose another -IconDir", lines[0])
+        self.assertEqual(held.read_bytes(), b"the icon from before")
 
     def test_a_failed_replace_keeps_the_old_icon_and_leaves_no_temporary_file(self):
         out = self.tmp / "launcher.ico"
@@ -190,8 +242,8 @@ class BadgedIconTest(unittest.TestCase):
         def refused(src, dst):
             raise PermissionError(13, "the icon is open in another process", str(dst))
 
-        with mock.patch.object(icons.os, "replace", refused), self.assertRaises(OSError):
-            icons.main(["--out", str(out), "--badge-fill", "#4C8DF6"])
+        with mock.patch.object(icons.os, "replace", refused):
+            self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#4C8DF6"]), 6)  # the output, said in one line
         self.assertEqual(out.read_bytes(), b"the icon from before")
         self.assertEqual(sorted(p.name for p in self.tmp.iterdir() if p.suffix != ".svg"), ["launcher.ico"])
 
