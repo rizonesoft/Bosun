@@ -49,6 +49,7 @@ title: "TODO-02 -- Instances and queue"
 | 10 | §10 | A WSL terminal opened at the row's own guest folder | §6 | [ ] |
 | 11 | §11 | Repo lookup gaps left by §7 | §7 | [ ] |
 | 12 | §12 | The Monitor pages mark what changed and are measured | -- | [ ] |
+| 13 | §13 | Monitor reads say exactly what failed, and what each figure counts | -- | [ ] |
 
 ## 1. Instance scanner
 
@@ -410,7 +411,7 @@ The completion review of `D03 T02 §7` (`docs/reviews/03-monitor/D03-T02-s7.md`,
 
 ## 12. The Monitor pages mark what changed and are measured
 
-Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 111, completion reviews of `D02 T02 §8` and `D02 T03 §7`), which named `todo/03-monitor` for the Memory, Instances and Queue pages, now in `src/Bosun.Panel/Memory/MemoryPage.cs`, `src/Bosun.Panel/Instances/InstancesPage.cs` and `src/Bosun.Panel/Queue/QueuePage.cs`. Nothing marks what changed since the last refresh, and nothing measures how soon a page is readable.
+Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 111, completion reviews of `D02 T02 §8` and `D02 T03 §7`), which named `todo/03-monitor` for the Memory, Instances and Queue pages, now in `src/Bosun.Panel/Memory/MemoryPage.cs`, `src/Bosun.Panel/Instances/InstancesPage.cs` and `src/Bosun.Panel/Queue/QueuePage.cs`. Nothing marks what changed since the last refresh, and nothing measures how soon a page is readable. Extended 2026-11-22 by `D00 T06 §4` (base lines 117, 121, 122, 145 and 146).
 
 **Phase:** 3
 **Needs:** display-session
@@ -423,6 +424,11 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 11
 
 - [ ] Mark what changed since the last refresh for one cycle on the Memory, Instances and Queue pages, in words or an accessible status as well as colour, with no motion under reduced motion, as Process Explorer highlights additions and removals (base line 103). Done when: a test refreshes with one row added and one removed and reads each marked for one cycle, with its accessible text, and no animation with motion off.
 - [ ] Measure the median and 95th percentile time to readable data and any UI thread stall on each page, beside Task Manager, keeping the 150 ms delay and the 220 ms move, and no move frame over 16.7 ms (base line 111). Done when: the numbers are recorded here with their commit.
+- [ ] Measure live snapshot and status delivery and a full 14-day report from `src/Bosun.Core/Memory/` (`MemoryClient.cs`) on the reference machine, the 95th percentile under 150 ms and 2 s, within the panel's budget (base line 117). Done when: the numbers are recorded here with their commit and the machine. Cheaper substitute: a 1-day report, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] While the Instances page is open, bring a WSL change to it within 2 s at p95 instead of the 30 s sample of `wsl/bosun_log.py` (`write_instances`), keeping the guarantee that the panel never starts a distro (base line 121). Done when: a test changes a guest's instances, reads the page updated within 2 s, and reads no distro started. Cheaper substitute: a shorter sample for every page, open or not, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Show the first side's rows within 500 ms at p95 in `src/Bosun.Core/Instances/InstanceClient.cs` (`ReadAsync`) and each other side as it arrives, instead of waiting for every side (base line 122). Done when: a test holds the Windows scan back and reads WSL's rows shown first, then both. Cheaper substitute: a spinner until every side is in, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Update rows in place in `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`), so the selected repo, the focused cell and the scroll survive a refresh, moving only when the repo goes (base line 145). Done when: a test selects, focuses and scrolls, refreshes, and reads all three kept, then removes the repo and reads the selection moved. Cheaper substitute: restoring the selection by index after clearing the rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Apply a refresh with 1,000 repo-side rows under 50 ms at p95 in `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`), with no repeated `Any` search (base line 146). Done when: a test times the refresh at 1,000 rows and the number is recorded here. Cheaper substitute: timing 100 rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `monitor: the pages mark what changed and are measured (D03 T02 §12)`
 
 **Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "MemoryPage|InstancesPage|QueuePage"` exits 0, and the measurements are in this section.
@@ -431,6 +437,32 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 11
 **Job:** the operator sees at a glance what is new or gone since the last look.
 **Treatment:** a one-cycle mark with words, not colour alone. Cheaper substitute that fails: a colour flash.
 **Chrome:** the pages' own tables; no new control.
+## 13. Monitor reads say exactly what failed, and what each figure counts
+
+Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 115, 116, 123, 124 and 144, completion reviews of `D03 T01 §1`, `§2` and `D03 T02 §1`). `src/Bosun.Core/Memory/MemoryClient.cs` opens the snapshot on the caller's thread and says any I/O error as held by another program; `src/Bosun.Core/Instances/InstanceDocs.cs` gives one unreadable count; the Instances page of `D03 T02 §2` has no keyboard-only test; `src/Bosun.Panel/Memory/MemoryView.xaml` doesn't say what its figures count.
+
+**Phase:** 3
+**Needs:** display-session
+**Surface:** yes
+
+**Build order:**
+
+1. Read off the UI thread, with the cause named. Done when: the open runs on the thread pool, and only a sharing violation is said as held.
+2. Name what is missing. Done when: each unavailable value has its own reason, and the figures say what they count.
+
+- [ ] Open the snapshot and check its length on the thread pool in `src/Bosun.Core/Memory/MemoryClient.cs` (`ReadSharedTextAsync`, once `ReadSnapshotTextAsync`), and measure the UI thread's stall before and after (base line 115). Done when: a test with a delayed open reads the caller's thread free, and the stall is recorded here. Cheaper substitute: awaiting a completed task before the synchronous open, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Say "held by another program" in `src/Bosun.Core/Memory/MemoryClient.cs` only for a sharing violation, and any other I/O error as a read failure with its message, without asserting a lock (base line 116). Done when: a test raises a sharing violation and another I/O error and reads each said as its own. Cheaper substitute: matching the message text instead of the error code, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Give each unavailable memory, folder or start its own reason in `src/Bosun.Core/Instances/InstanceDocs.cs` (`Unreadable`), reachable in one keyboard action on the Instances page (`src/Bosun.Panel/Instances/InstancesPage.cs`) (base line 123). Done when: a test with one row missing each reads three reasons, each reached by one key from its row. Cheaper substitute: a longer count message, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Prove every Instances page action of `D03 T02 §2` by keyboard alone in `tests/Bosun.Panel.Tests/Instances/InstancesPageTests.cs`: reaching the grouped inventory, a row's Open folder and Open terminal (findings base line 124; the navigation, the row actions and the renders of every state in each theme, `tests/Bosun.Panel.Tests/Render/RenderCatalog.cs:791`, shipped with `D03 T02 §2`). Done when: a test reaches the page and both actions of a row by keys only and reads each run. Cheaper substitute: invoking the commands directly, which skips focus, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Say what each figure on the Memory page counts in `src/Bosun.Panel/Memory/MemoryView.xaml`: private committed is not physical RAM, WSL rows are inside the VM's cost, and repo rows don't add up to Windows used, seen or reachable by keyboard (base line 144). Done when: a test reads the three statements, each reachable by keyboard. Cheaper substitute: a tooltip reachable by mouse only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Commit: `monitor: reads say exactly what failed, and what each figure counts (D03 T02 §13)`
+
+**Test checkpoint:** `dotnet test tests/Bosun.Core.Tests --filter "MemoryClient|InstanceDocs"` and `dotnet test tests/Bosun.Panel.Tests --filter "MemoryPage|InstancesPage"` exit 0.
+
+**Fidelity:** `design/SPEC.md` (the Memory and Instances pages) and their renders with a reason shown.
+**Job:** the operator knows what a figure means and why a value is missing, without guessing.
+**Treatment:** named causes and plain statements beside the figures. Cheaper substitute that fails: one generic error line.
+**Chrome:** the pages' own tables and notices; no new control.
 ## Verification
 
 - `dotnet test Bosun.slnx` passes.
