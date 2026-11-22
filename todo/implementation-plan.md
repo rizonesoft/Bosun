@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 68 | Checklist items: 578
+Sections: 68 | Checklist items: 585
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -69,7 +69,7 @@ Sections: 68 | Checklist items: 578
 | [x]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 9     |
 | [x]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
 | [x]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 9     |
-| [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 8     |
+| [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 15    |
 | [ ]    | D00 T07 §1  | Graph loads once per command                                                           | none        | 4     |
 | [ ]    | D00 T07 §2  | Pyright clean over the scripts                                                         | none        | 5     |
 | [ ]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 3     |
@@ -240,4 +240,4 @@ Sections: 6 | Checklist items: 30
 
 Progress: 114/183 verified sections, 46 ready to run now.
 
-Checklist: 1069/1393 items completed (includes Commit items).
+Checklist: 1069/1400 items completed (includes Commit items).
