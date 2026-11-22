@@ -94,6 +94,7 @@ Unattended checks prove the parts. Only a person can say the whole thing is righ
 
 - [ ] Run `pwsh scripts/install.ps1` for the real install, then walk each rail page in `design/SPEC.md` on real work. Done when: every page has been used. Cheaper substitute: a checklist ticked without using it.
 - [ ] Watch the screen saver under the campaign's hold (`D00 T03 §28`): with a run started and the owner's own screen-saver settings (the preflight refuses one that locks on resume), the display stays on and the machine does not sleep through twice the display timeout. Done when: the result and the Windows build are recorded here (`-> XREF: D00 T03 §28`).
+- [ ] Run the panel's smoke (`tests/Bosun.Panel.E2E`) attended at 100, 150 and 200 percent scaling and in both themes, checking keyboard order and the focus ring, and record it beside the run (base line 106 of `todo/findings.md`, the completion review of `D02 T02 §10`; filed here by `D00 T06 §3`). Done when: the result for each scale and theme is recorded beside the run.
 - [ ] Commit: `manual: first attended walkthrough`
 
 **Test checkpoint:** `(Get-Item $env:LOCALAPPDATA\Bosun\panel\Bosun.Panel.exe).VersionInfo.ProductVersion` holds the installed commit, and the walkthrough note is committed.

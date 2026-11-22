@@ -48,6 +48,7 @@ title: "TODO-02 -- Instances and queue"
 | 9 | §9 | VS Code forks placed by their windows | §5 | [ ] |
 | 10 | §10 | A WSL terminal opened at the row's own guest folder | §6 | [ ] |
 | 11 | §11 | Repo lookup gaps left by §7 | §7 | [ ] |
+| 12 | §12 | The Monitor pages mark what changed and are measured | -- | [ ] |
 
 ## 1. Instance scanner
 
@@ -407,6 +408,29 @@ The completion review of `D03 T02 §7` (`docs/reviews/03-monitor/D03-T02-s7.md`,
 
 **Test checkpoint:** `pwsh -NoProfile -File tests/instances_test.ps1` prints `all passed`, `build/Release/test_core.exe repos`, `instances` and `editor-windows` print `ok`, and the WSL logger tests pass (`pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`); each fails if its change is reverted.
 
+## 12. The Monitor pages mark what changed and are measured
+
+Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 111, completion reviews of `D02 T02 §8` and `D02 T03 §7`), which named `todo/03-monitor` for the Memory, Instances and Queue pages, now in `src/Bosun.Panel/Memory/MemoryPage.cs`, `src/Bosun.Panel/Instances/InstancesPage.cs` and `src/Bosun.Panel/Queue/QueuePage.cs`. Nothing marks what changed since the last refresh, and nothing measures how soon a page is readable.
+
+**Phase:** 3
+**Needs:** display-session
+**Surface:** yes
+
+**Build order:**
+
+1. Mark changes. Done when: what changed since the last refresh is marked for one cycle, in words as well as colour.
+2. Measure. Done when: time to readable data and any UI thread stall are recorded beside Task Manager.
+
+- [ ] Mark what changed since the last refresh for one cycle on the Memory, Instances and Queue pages, in words or an accessible status as well as colour, with no motion under reduced motion, as Process Explorer highlights additions and removals (base line 103). Done when: a test refreshes with one row added and one removed and reads each marked for one cycle, with its accessible text, and no animation with motion off.
+- [ ] Measure the median and 95th percentile time to readable data and any UI thread stall on each page, beside Task Manager, keeping the 150 ms delay and the 220 ms move, and no move frame over 16.7 ms (base line 111). Done when: the numbers are recorded here with their commit.
+- [ ] Commit: `monitor: the pages mark what changed and are measured (D03 T02 §12)`
+
+**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "MemoryPage|InstancesPage|QueuePage"` exits 0, and the measurements are in this section.
+
+**Fidelity:** `design/SPEC.md` (the Memory, Instances and Queue pages) and their renders with a change marked.
+**Job:** the operator sees at a glance what is new or gone since the last look.
+**Treatment:** a one-cycle mark with words, not colour alone. Cheaper substitute that fails: a colour flash.
+**Chrome:** the pages' own tables; no new control.
 ## Verification
 
 - `dotnet test Bosun.slnx` passes.
