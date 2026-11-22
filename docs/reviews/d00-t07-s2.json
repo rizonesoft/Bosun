@@ -1,0 +1,123 @@
+{
+  "ref": "D00 T07 \u00a72",
+  "title": "Pyright clean over the scripts",
+  "implementation_sha": "54770ad16928dccb6ecfad57214b2877157a6793",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 8,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 9,
+      "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pyright --pythonplatform Windows scripts -> 0 errors, 0 warnings, 0 informations",
+    "pyright --pythonplatform Linux scripts -> 0 errors, 0 warnings, 0 informations",
+    "python -m unittest scripts.tests.test_weakening_scan scripts.tests.test_todo_graph -> Ran 263 tests: OK",
+    "python scripts/ci_status.py --gate --sha 54770ad -> build.yml green (https://github.com/rizonesoft/Bosun/actions/runs/45061689519), plan.yml green: proceed"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+    "verdict": "completed",
+    "candidate": "b9f7a05675b941e2e5fee5a8de2e313f3b031e21",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 9,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s2.md",
+    "candidate": "bbab502132e1dbb5151a4f6b97ba63acd58aeac9",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "bbab502132e1dbb5151a4f6b97ba63acd58aeac9",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

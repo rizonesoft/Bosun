@@ -32,7 +32,7 @@ title: "TODO-07 -- Kit follow-ups"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Graph loads once per command | -- | [x] |
-| 2 | §2 | Pyright clean over the scripts | -- | [ ] |
+| 2 | §2 | Pyright clean over the scripts | -- | [x] |
 | 3 | §3 | Test fixtures in the scratch folder | -- | [ ] |
 | 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [ ] |
 | 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [ ] |
@@ -116,7 +116,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 - [x] Fix every other error at its source by the disposition above, never by a `# type: ignore`, a `# pyright: ignore`, a file-level `# pyright:` comment or a change to `pyrightconfig.json` that lowers what it checks. Done when: `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors` in the environment above, and an error planted inside a `sys.platform == "win32"` branch and one inside the other branch each fail their platform's run, recorded here. Cheaper substitute: lowering `pyrightconfig.json`'s strictness, which the Done when refuses.
 - [x] Extend `scripts/weakening-scan.py` to report a `# pyright: ignore`, a file-level `# pyright:` comment and a `pyrightconfig.json` change that turns a rule off, lowers `typeCheckingMode` or drops a path from what it checks, as it reports a `type: ignore` today, with cases in `scripts/tests/test_weakening_scan.py` (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tests pass, and fail on a diff that disables a rule and on one that adds a blanket ignore hiding a known error.
 - [x] Run the pinned pyright on both platforms in the scripts job of `.github/workflows/build.yml`, with no `continue-on-error`, so a new error fails the job and the workflow and a new pyright release cannot (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: a `workflow_dispatch` run on a branch holding one planted error shows the scripts job and the workflow failed, and a run after removing only that error shows both green, the pyright version and invocation the same in both, their URLs recorded here.
-- [ ] Commit: `scripts: pyright reports no errors (D00 T07 §2)`
+- [x] Commit: `scripts: pyright reports no errors (D00 T07 §2)`
 
 **Baseline 2026-11-22 (pyright 1.1.414, Python 3.14.10, `scripts/requirements-icons.txt` installed, at `662b5b0`):** 385 errors on Windows and 402 on Linux, in 25 files each; the rule totals and the file totals each sum to the run's total.
 
@@ -173,6 +173,9 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 **CI proof 2026-11-22:** on the disposable branch `pyright-proof` (from `bb95044`), `workflow_dispatch` run 45056011422 at `4a7b382`, which holds one planted error in `scripts/lib/host_caps.py`, concluded `failure`, its scripts job failing at `Pyright over the scripts, as on Windows` (https://github.com/rizonesoft/Bosun/actions/runs/45056011422); run 45057069671 at `3ccefbe`, which removes only that error, concluded `success` with every job green (https://github.com/rizonesoft/Bosun/actions/runs/45057069671). Both ran the same pinned `pyright==1.1.414` steps. The branch's two commits cancel each other; its local copy is deleted, and the remote one is left for the owner, since the campaign's deny list refuses a remote branch deletion.
 
 **Test checkpoint:** in the environment above, `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors`; `python -m unittest scripts.tests.test_weakening_scan` exits 0 with its disabled-rule and blanket-ignore cases; `python scripts/run-tests.py` exits 0; and the two `workflow_dispatch` runs are recorded here (**corrected 2026-11-22, the plan review of `D00 T07 §2`**).
+
+> **Verified:** 2026-11-22 | §2 | 54770ad16928dccb6ecfad57214b2877157a6793
+> **Review:** `docs/reviews/d00-t07-s2.json`
 
 ## 3. Test fixtures in the scratch folder
 
