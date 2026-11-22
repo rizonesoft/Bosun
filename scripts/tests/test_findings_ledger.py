@@ -160,6 +160,12 @@ class FindingsLedgerTest(unittest.TestCase):
         self.assertEqual(ledger.finding_files("- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."),
                          ["src/app.cpp", "wsl/bosun_log.py"])
         self.assertEqual(ledger.finding_files("- `design/tokens/colors.json`: `light.Accent` is low."), ["design/tokens/colors.json"])
+        # Round 1 of D00 T06 §6: base line 208 names its second file in the description, a dot-prefixed path.
+        self.assertEqual(ledger.finding_files("- `scripts/lib/overlay.ps1`: list the keys in `.private/config.toml`, as `.git` does not."),
+                         ["scripts/lib/overlay.ps1", ".private/config.toml"])
+        why = ledger.problem("- `scripts/lib/overlay.ps1`: list the keys in `.private/config.toml`.", "Scheduled: D09 T01 §1.",
+                             str(self.root), lambda ref, root: (0, "- [ ] Update `scripts/lib/overlay.ps1` (base line 5)."), line=5, cite_lines=True)
+        self.assertIn("does not name .private/config.toml", why)
         entry = "- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."
         for body, settled in (("Fix `src/app.cpp`.\n\n- [ ] Fix it (base line 5).", False),
                               ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix both (base line 5).", True)):
@@ -168,6 +174,13 @@ class FindingsLedgerTest(unittest.TestCase):
                 self.assertEqual(why is None, settled, why)
                 if not settled:
                     self.assertIn("does not name wsl/bosun_log.py", why)
+
+    def test_classify_without_a_record_is_refused(self):
+        # Round 1 of D00 T06 §6: --classify alone checked nothing and passed.
+        with self.assertRaises(SystemExit) as raised, contextlib.redirect_stderr(io.StringIO()) as err:
+            ledger.main(["--base", self.base, "--lines", "5-8", "--classify"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--classify needs --record", err.getvalue())
 
     def test_classify_requires_the_classification_on_each_line(self):
         # The plan review of D00 T06 §6: a scheduled defect and a scheduled suggestion read alike without it.

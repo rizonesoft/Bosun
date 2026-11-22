@@ -86,7 +86,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 1. Sort the errors. Done when: each class is counted here, real faults apart.
 2. Fix them at their source. Done when: pyright reports 0 errors, and CI keeps it there.
 
-- [ ] Run pyright over `scripts/` and count the errors by rule and file, recording here which are platform noise (a POSIX module on Windows), which are missing narrowing and which are real faults. Done when: the table is written with the pyright version.
+- [ ] Run pyright over `scripts/` and count the errors by rule and file, the 24 in `scripts/lib/run_guard.py` and its callers that base line 12 names among them (**corrected 2026-11-22, round 1 of `D00 T06 §6`:** the item never named that file), recording here which are platform noise (a POSIX module on Windows), which are missing narrowing and which are real faults. Done when: the table is written with the pyright version.
 - [ ] Fix each real fault with a regression test that fails before its fix. Done when: each has its test named here.
 - [ ] Narrow optional values where they are used (an early return or an `assert` with a reason), and mark the platform modules as platform code (`sys.platform` checks pyright understands), never a blanket `# type: ignore`. Done when: `pyright scripts` reports 0 errors and no new `type: ignore` is added. Cheaper substitute: lowering `pyrightconfig.json`'s strictness.
 - [ ] Run pyright in CI's scripts job in `.github/workflows/build.yml`, so a new error turns the run red. Done when: a pushed branch with one type error shows the step red, recorded here.

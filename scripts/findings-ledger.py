@@ -271,14 +271,15 @@ def finding_file(entry):
 
 
 def finding_files(entry):
-    """Every file a finding is about: each path-like backticked name in its head, the text before its first `: `
-    (`src/app.cpp` and `wsl/bosun_log.py` for base line 205), else its one `finding_file` (the plan review of D00 T06
-    §6: an owner of the first alone left the other platform unchecked)."""
+    """Every file a finding names: each path-like backticked name anywhere in it (`src/app.cpp` and `wsl/bosun_log.py`
+    for base line 205; `scripts/lib/overlay.ps1` and, in its text, `.private/config.toml` for base line 208), else its
+    one `finding_file` (the plan review and round 1 of D00 T06 §6: an owner of one file alone left the other unchecked)."""
     text = entry[2:] if entry.startswith("- ") else entry
-    head = re.split(r":\s", text, maxsplit=1)[0]
+    head = text
     named = [re.split(r":\d", n)[0].replace("\\", "/") for n in re.findall(r"`([^`]+)`", head)]
-    # A path, or a name with a file's extension; a token such as `light.Accent` or `.git` is not a file.
-    files = [n for n in named if " " not in n and not n.startswith(".") and (
+    # A path, or a name with a file's extension; a token such as `light.Accent` or `.git` is not a file, while a
+    # dot-prefixed path such as `.private/config.toml` is.
+    files = [n for n in named if " " not in n and (
         "/" in n or re.search(r"\.(cs|cpp|hpp|h|py|ps1|psm1|js|mjs|ts|json|md|xaml|toml|ya?ml|txt|slnx|csproj|props|targets|sh|cmd|bat|ico|png|svg)$", n))]
     return list(dict.fromkeys(files)) or ([finding_file(entry)] if finding_file(entry) else [])
 
@@ -345,6 +346,8 @@ def main(argv=None):
     sys.path.insert(0, str(ROOT / "scripts" / "lib"))
     from todo_graph import Refused
     try:
+        if args.classify and not args.record:  # nothing to classify against: refused, never a silent pass (round 1 of §6)
+            parser.error("--classify needs --record, the classification it checks")
         return check(args.base, int(m.group(1)), int(m.group(2)), cite_lines=args.cite_lines, record=args.record, classify=args.classify)
     except (Refused, OSError, ValueError) as exc:  # an invalid plan or an unreadable file: incomplete, as todo-graph.py has it
         print("findings-ledger: cannot check: %s" % exc)
