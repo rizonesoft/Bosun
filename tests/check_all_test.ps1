@@ -586,13 +586,13 @@ switch ($Mode) {
       $pStall.Dispose()
     }
 
-    # 7. Regression (R4 F1 & F2): a 4 MiB burst into a stalled stdout pipe drains quickly without per-chunk 50 ms stalls,
-    #    and a transient reader pause recovers once the reader resumes so summary and log: <path> are still delivered.
+    # 7. Regression (R4 F1/F2 & R5 F1): a 4 MiB burst into a stalled stdout pipe drains quickly without per-chunk stalls,
+    #    and a transient reader pause during a 4 MiB numbered burst recovers with ZERO dropped lines plus summary and log: <path>.
     $burstLogs = Join-Path $liveDir 'burst-logs'
     New-Item -ItemType Directory -Path $burstLogs | Out-Null
     $env:BOSUN_SCRATCH = $burstLogs
     $burstScript = Join-Path $liveDir 'burst.ps1'
-    Set-Content -LiteralPath $burstScript -Value '$chunk = "B" * 65536; for ($i = 0; $i -lt 64; $i++) { [Console]::Out.WriteLine($chunk) }'
+    Set-Content -LiteralPath $burstScript -Value '$pad = "B" * 4096; for ($i = 1; $i -le 1024; $i++) { [Console]::Out.WriteLine("LINE-$i-$pad") }'
     $burstSteps = Join-Path $liveDir 'burst-steps.json'
     ConvertTo-Json -InputObject @(@{ name = 'burst'; file = 'pwsh'; args = @('-NoProfile', '-File', $burstScript) }) -Depth 4 | Set-Content -LiteralPath $burstSteps
     $psiBurst = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
@@ -629,7 +629,7 @@ switch ($Mode) {
     foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $pauseSteps)) { $psiPause.ArgumentList.Add($arg) }
     $pPause = [Diagnostics.Process]::Start($psiPause)
     try {
-      # Pause reading for 1.5 s while burst1 fills the pipe, then resume reading and release step2.
+      # Pause reading for 1.5 s while burst1 emits 1024 numbered 4 KiB lines, then resume reading and release step2.
       Start-Sleep -Milliseconds 1500
       $pauseCap = [BosunTestAsyncCapture]::new()
       $pauseCap.Attach($pPause)
@@ -637,8 +637,9 @@ switch ($Mode) {
       Set-Content -LiteralPath $pauseFlag -Value 'go'
       $pauseExited = Wait-GateExit $pPause 15000
       $pauseOut = $pauseCap.GetText()
-      Check 'after a transient stdout pause, resuming reads still delivers the final summary and log: <path>' ($pauseExited -and
-        $pPause.ExitCode -eq 0 -and $pauseOut -match 'all 2 steps passed' -and (Get-LogPath $pauseOut)) "(exited=$pauseExited, exit=$($pPause.ExitCode), log='$(Get-LogPath $pauseOut)')"
+      $pauseLineCount = [regex]::Matches($pauseOut, '(?m)^LINE-\d+-B+').Count
+      Check 'after a transient stdout pause, resuming reads delivers all 1024 numbered lines plus final summary and log: <path>' ($pauseExited -and
+        $pPause.ExitCode -eq 0 -and $pauseLineCount -eq 1024 -and $pauseOut -match 'all 2 steps passed' -and (Get-LogPath $pauseOut)) "(exited=$pauseExited, exit=$($pPause.ExitCode), lines=$pauseLineCount, log='$(Get-LogPath $pauseOut)')"
     } finally {
       if (-not $pPause.HasExited) { $pPause.Kill($true) }
       $pPause.Dispose()

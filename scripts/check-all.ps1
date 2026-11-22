@@ -129,108 +129,147 @@ try {
 if (-not ('Bosun.ConsolePump' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 
 namespace Bosun {
+  // Tails the run's scratch log file to process stdout on a background thread with O(1) memory:
+  // - Never blocks the gate or drops bytes on transient stdout backpressure (the log file is the buffer).
+  // - Lets gate summary lines use PowerShell's output stream when stdout is caught up, or fall back to
+  //   in-order log tailing while a consumer is temporarily paused.
   public sealed class ConsolePump : IDisposable {
-    private readonly BlockingCollection<byte[]> _queue = new BlockingCollection<byte[]>(64);
+    private readonly string _logPath;
     private readonly Stream _stdout;
     private readonly Thread _worker;
+    private readonly object _sync = new object();
+    private readonly AutoResetEvent _signal = new AutoResetEvent(false);
     private readonly ManualResetEventSlim _idle = new ManualResetEventSlim(true);
-    private int _pending;
-    private int _stalled;
-    private int _broken;
-    private int _closed;
+    private long _consoleOffset;
+    private long _targetOffset;
+    private bool _broken;
+    private bool _closed;
 
-    public ConsolePump() {
+    public ConsolePump(string logPath) {
+      _logPath = logPath;
       _stdout = Console.OpenStandardOutput();
       _worker = new Thread(Run) { IsBackground = true, Name = "bosun-console-pump" };
       _worker.Start();
     }
 
-    public bool Stalled { get { return Volatile.Read(ref _stalled) != 0; } }
-    public bool Broken { get { return Volatile.Read(ref _broken) != 0; } }
-
     private void Run() {
+      byte[] buf = new byte[16384];
       try {
-        foreach (byte[] chunk in _queue.GetConsumingEnumerable()) {
-          try {
-            _stdout.Write(chunk, 0, chunk.Length);
+        using (FileStream rs = File.Open(_logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
+          while (true) {
+            long start, limit;
+            bool done;
+            lock (_sync) {
+              start = _consoleOffset;
+              limit = _targetOffset;
+              done = _closed && start >= limit;
+              if (start >= limit) _idle.Set();
+            }
+            if (done) return;
+            if (start >= limit) {
+              _signal.WaitOne(100);
+              continue;
+            }
+            rs.Position = start;
+            int toRead = (int)Math.Min((long)buf.Length, limit - start);
+            int n = rs.Read(buf, 0, toRead);
+            if (n <= 0) {
+              _signal.WaitOne(50);
+              continue;
+            }
+            _stdout.Write(buf, 0, n);
             _stdout.Flush();
-            // A completed stdout write proves the consumer is draining again.
-            Volatile.Write(ref _stalled, 0);
-          } finally {
-            if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
+            lock (_sync) {
+              _consoleOffset = start + n;
+              if (_consoleOffset >= _targetOffset) _idle.Set();
+            }
           }
         }
       } catch (IOException) {
-        // Broken or closed stdout pipe: stop pumping console output without affecting scratch logging.
-        Volatile.Write(ref _broken, 1);
-        Volatile.Write(ref _stalled, 1);
+        lock (_sync) { _broken = true; _idle.Set(); }
       } catch (ObjectDisposedException) {
-        // Stdout stream closed during teardown.
-        Volatile.Write(ref _broken, 1);
-        Volatile.Write(ref _stalled, 1);
-      } finally {
-        _idle.Set();
+        lock (_sync) { _broken = true; _idle.Set(); }
       }
     }
 
-    public void Enqueue(byte[] data, int count) {
-      if (data == null || count <= 0 || _closed != 0 || Broken) return;
-      // While stalled, try non-blockingly (0 ms) so draining megabytes into the scratch log pays zero wait per chunk.
-      int waitMs = Stalled ? 0 : 50;
-      byte[] copy = new byte[count];
-      Buffer.BlockCopy(data, 0, copy, 0, count);
-      Interlocked.Increment(ref _pending);
-      _idle.Reset();
-      try {
-        if (!_queue.TryAdd(copy, waitMs)) {
-          Volatile.Write(ref _stalled, 1);
-          if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
+    public void NotifyBytes(long newLength) {
+      lock (_sync) {
+        if (_broken || _closed) return;
+        if (newLength > _targetOffset) {
+          _targetOffset = newLength;
+          _idle.Reset();
         }
-      } catch (InvalidOperationException) {
-        if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
       }
+      _signal.Set();
+    }
+
+    // If the pump is caught up to beforeOffset, advance its cursor past afterOffset and return true so the caller
+    // can emit the gate line on PowerShell's output stream. Otherwise queue afterOffset for in-order log tailing.
+    public bool TryEmitGateLineOnPipeline(long beforeOffset, long afterOffset, int waitMs) {
+      _idle.Wait(waitMs);
+      lock (_sync) {
+        if (_broken) return false;
+        if (_consoleOffset == beforeOffset && _targetOffset == beforeOffset) {
+          _consoleOffset = afterOffset;
+          _targetOffset = afterOffset;
+          _idle.Set();
+          return true;
+        }
+        if (afterOffset > _targetOffset) {
+          _targetOffset = afterOffset;
+          _idle.Reset();
+        }
+      }
+      _signal.Set();
+      return false;
     }
 
     public bool WaitIdle(int waitMs) {
-      if (Broken) return false;
+      lock (_sync) { if (_broken) return false; }
       return _idle.Wait(waitMs);
     }
 
-    public void Close(int waitMs) {
-      if (Interlocked.Exchange(ref _closed, 1) != 0) return;
-      _queue.CompleteAdding();
-      _worker.Join((Stalled || Broken) ? 0 : waitMs);
+    public void Close(int stallTimeoutMs) {
+      lock (_sync) {
+        if (_closed) return;
+        _closed = true;
+      }
+      _signal.Set();
+      long lastOffset;
+      lock (_sync) { lastOffset = _consoleOffset; }
+      int stalledMs = 0;
+      while (!_worker.Join(25)) {
+        long curOffset;
+        lock (_sync) { curOffset = _consoleOffset; }
+        if (curOffset > lastOffset) {
+          lastOffset = curOffset;
+          stalledMs = 0;
+        } else {
+          stalledMs += 25;
+          if (stalledMs >= stallTimeoutMs) break;
+        }
+      }
     }
 
-    public void Dispose() { Close(2000); }
+    public void Dispose() { Close(250); }
   }
 }
 '@
 }
 
 $utf8 = [Text.UTF8Encoding]::new($false)
-$consolePump = [Bosun.ConsolePump]::new()
+$consolePump = [Bosun.ConsolePump]::new($logPath)
 $logWriteState = @{ Count = 0 }
-function Write-ConsoleBytes([byte[]]$Bytes, [int]$Count = -1) {
-  if (-not $Bytes) { return }
-  $len = if ($Count -ge 0) { $Count } else { $Bytes.Length }
-  if ($len -le 0) { return }
-  $consolePump.Enqueue($Bytes, $len)
-}
 function Write-ConsoleLine([string]$Line) {
-  # Emit gate lines through PowerShell's output stream so in-process callers (`$r = & scripts/check-all.ps1 ...`)
-  # capture them just like `-List`. Wait briefly for any queued step bytes so output stays ordered; if the console
-  # consumer is currently stalled (WaitIdle returns false), skip Write-Output for this line without permanently
-  # suppressing later lines once the consumer catches up.
+  # Emit console-only lines (such as `log: <path>`) through PowerShell's output stream when stdout is caught up.
   if (-not $consolePump.WaitIdle(200)) { return }
   Write-Output $Line
 }
-function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1) {
+function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1, [switch]$NotifyPump) {
   if (-not $Bytes) { return }
   $len = if ($Count -ge 0) { $Count } else { $Bytes.Length }
   if ($len -le 0) { return }
@@ -246,11 +285,16 @@ function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1) {
     $err.Data['BosunLogWriteFailure'] = $true
     throw $err
   }
+  if ($NotifyPump) { $consolePump.NotifyBytes($logStream.Position) }
 }
 function Write-GateLine([string]$Line) {
+  $before = $logStream.Position
   $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
   Write-LogBytes $bytes $bytes.Length
-  Write-ConsoleLine $Line
+  $after = $logStream.Position
+  if ($consolePump.TryEmitGateLineOnPipeline($before, $after, 200)) {
+    Write-Output $Line
+  }
 }
 
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1) and surfaces $logPath.
@@ -330,8 +374,7 @@ foreach ($step in $steps) {
         if ($n -le 0) { break }
         $streamState.Offset += $n
         $readThisTick += $n
-        Write-LogBytes $buf $n
-        Write-ConsoleBytes $buf $n
+        Write-LogBytes $buf $n -NotifyPump
       }
     } finally { $rs.Dispose() }
   }
@@ -402,6 +445,6 @@ exit 0
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
   Exit-GateMark $gateMark
-  if ($consolePump) { $consolePump.Close(2000) }
+  if ($consolePump) { $consolePump.Close(250) }
   if ($logStream) { $logStream.Dispose() }
 }
