@@ -293,8 +293,15 @@ exit $LASTEXITCODE
   try {
     $env:PATH = "$bin;$env:PATH"
     Remove-Item Env:BOSUN_MEASURE_QUEUED
+    # The marks seen while the queued run builds: the outer one says it queued, the child's names its log (§32).
+    $queuedMarks = Join-Path $dir 'queued-marks'
+    New-Item -ItemType Directory -Force $queuedMarks | Out-Null
+    $env:BOSUN_GATE_MARK_DIR = $queuedMarks
+    Remove-Item -LiteralPath (Join-Path $dir 'mark-outputs.txt') -ErrorAction Ignore
     $run = Invoke-Measure 'ok' @('-Label', 'queued', '-Decision', 'kept', '-Samples', '1', '-Note', 'a note with spaces', '-LockSeconds', '7', '-TimeoutSeconds', '99', '-BuildArgs', 'Sccache')
-  } finally { $env:PATH = $savedPath; $env:BOSUN_MEASURE_QUEUED = '1' }
+  } finally { $env:PATH = $savedPath; $env:BOSUN_MEASURE_QUEUED = '1'; Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore }
+  $queuedOutputs = @(Get-Content -LiteralPath (Join-Path $dir 'mark-outputs.txt') -ErrorAction Ignore)
+  Check "a queued measurement's outer mark says it queued, and its child's names its log" ($queuedOutputs.Count -ge 1 -and -not ($queuedOutputs | Where-Object { $_ -notmatch 'queued through bosun run' -or $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger and \.warm logs beside it' })) "($($queuedOutputs | Select-Object -First 1))"
   $calls = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-calls.txt') -ErrorAction Ignore)
   $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
   $queued = $data.labels | Where-Object label -eq 'queued'

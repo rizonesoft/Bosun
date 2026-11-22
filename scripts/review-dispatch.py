@@ -1669,7 +1669,10 @@ def main(argv=None):
             entry = before_attempt(key)
         pass_name = position if args.record else args.kind
         result = review(pin, args.writer, args.prompt, args.timeout, plan, settled,
-                        about={"pass": pass_name, "record": args.record or "not recorded"})
+                        about={"pass": pass_name,
+                               # Where the result really goes: a findings path the reviewer and the operator can
+                               # open from the checkout root, or the dispatcher's own output (completion review of §32).
+                               "record": shown_path(args.record) if args.record else "the dispatcher's own output (stdout)"})
         if args.writer_model:
             result["writer_model"] = args.writer_model
         if policy_sha:

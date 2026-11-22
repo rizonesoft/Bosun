@@ -400,15 +400,18 @@ def scan_ci(root: Path | None = None) -> list[tuple[str, dict]]:
     """The CI gate polling now, as (its identity, its wait): see `ci_in_flight`."""
     try:
         waiting = json.loads((build_dir(root) / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
-        sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
+        sha, pid = str(waiting["sha"]), int(waiting["pid"])
     except FileNotFoundError:
         return []
     except OSError as error:
         return [(f"{CANT_TELL}: {error}", {})]
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return []  # no wait, or one from a gate too old to name its pid: nothing is polling
+    # A start that can't be read (nan, a number past any clock) leaves its age unknown, not the live gate unseen
+    # (completion review of D00 T03 §32); a readable one past the gate's own limit is a gate that has given up.
+    since = start_seconds(waiting.get("since"))
     try:
-        if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
+        if pid > 0 and (since is None or time.time() - since < CI_WAIT_LIMIT) and pid_alive(pid):
             return [(f"{sha[:12]}, gate pid {pid}", waiting)]
     except OSError as error:
         return [(f"{CANT_TELL}: gate pid {pid} ({error})", {})]
@@ -481,9 +484,10 @@ def start_seconds(value: object) -> float | None:
 def utc_seconds(text: object) -> float | None:
     """A `yyyy-mm-ddThh:mm:ssZ` time as epoch seconds, or None when it is not one."""
     try:
-        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+        seconds = float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
     except (ValueError, OverflowError):
         return None
+    return start_seconds(seconds)  # a year 9999 parses, and stamp() can't show it (completion review of §32)
 
 
 def real_wait_details(root: Path | None = None) -> list[dict]:
@@ -495,7 +499,8 @@ def real_wait_details(root: Path | None = None) -> list[dict]:
                               ("a CI gate", scan_ci, lambda d: start_seconds(d.get("since"))),
                               ("a local gate", scan_gates, lambda d: utc_seconds(d.get("since")))):
         for text, doc in scan(root):
-            if text.startswith(CANT_TELL):
+            if text.startswith(CANT_TELL):  # shown apart, never counted as in flight (completion review of §32)
+                found.append({"kind": kind, "what": text, "pass": None, "since": None, "output": None, "unseen": True})
                 continue
             found.append({"kind": kind, "what": text, "pass": doc.get("pass"), "since": start(doc),
                           "output": doc.get("record") if kind == "a review" else doc.get("output")})
@@ -506,7 +511,7 @@ def wait_details(env: Env) -> list[dict]:
     """The items in flight, read once: the world's own reading when it has one (`env.details`), else built from the
     readers alone, with nothing known of their start or output."""
     if env.details is not None:
-        return env.details()
+        return env.details()  # read once: every view below comes from this one list
     return [{"kind": what, "what": one, "pass": None, "since": None, "output": None}
             for what, field in (("a review", "reviewing"), ("a CI gate", "ci_waiting"), ("a local gate", "gating"))
             for one in (known(getattr(env, field)()) or "").split("; ") if one]
@@ -516,7 +521,7 @@ def flying_text(details: list[dict]) -> str | None:
     """The `in_flight` string, as `in_flight` gives it: one part per kind, its items joined."""
     parts = []
     for kind in ("a review", "a CI gate", "a local gate"):
-        items = [d["what"] for d in details if d["kind"] == kind]
+        items = [d["what"] for d in details if d["kind"] == kind and not d.get("unseen")]
         if items:
             parts.append(f"{kind} in flight ({'; '.join(items)})")
     return "; ".join(parts) or None
@@ -548,7 +553,9 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
     flight are read once, and the word, the `in_flight` string, the lines and the JSON all come from that one reading,
     so an item ending between two reads can't leave `waiting` with nothing named (D00 T03 §32)."""
     now = time.time() if now is None else now
-    details = wait_details(env) if state.get("active") and not unreadable else []
+    everything = wait_details(env) if state.get("active") and not unreadable else []
+    unseen = [d for d in everything if d.get("unseen")]
+    details = [d for d in everything if not d.get("unseen")]
     flying = flying_text(details)
     if unreadable:
         word = "unreadable"
@@ -567,17 +574,21 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
                          for d in details]
     if unreadable:
         data["state_error"] = unreadable
+    if unseen:  # a wait the guard could not look at: said, and not counted as in flight
+        data["unseen"] = [{"kind": d["kind"], "error": d["what"]} for d in unseen]
     lines = []
     if unreadable:
         lines.append(f"the run state can't be read: {unreadable}")
     for failure in data.get("hook_failures") or []:
         lines.append(f"a hook failed open at {failure.get('at')}: {failure.get('error')}")
+    for d in unseen:
+        lines.append(f"{d['kind']} could not be looked at: {d['what']}")
     if word == "waiting" and waiting(state):
         lines.append(f"waiting for {state['wait_reason']} until {data['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
     if word == "waiting" and flying:
         lines.append(f"waiting for {flying}")
         for d in details:  # one line each: what it is, how long it has run, where its output goes
-            what = f"{d['kind']} ({d['what']})" + (f", {d['pass']}" if d["pass"] else "")
+            what = f"{d['kind']} ({d['what']})" + (f", {d['pass']}" if d["pass"] else ", pass unknown" if d["kind"] == "a review" else "")
             lines.append(f"  {what}: {took(None if d['since'] is None else now - d['since'])} so far; output: {d['output'] or 'unknown'}")
     return word, data, lines
 

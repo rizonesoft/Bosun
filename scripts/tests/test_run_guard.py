@@ -2017,10 +2017,50 @@ class StatusNamesEachWait(unittest.TestCase):
         self.assertEqual(data["waits"][0]["output"], "gh run list --commit " + "a" * 40)
         # One reading: the word, the string and the lines agree even if the readers would now say the item ended.
         once = [{"kind": "a local gate", "what": "check-all, pid 9", "pass": None, "since": self.NOW - 10, "output": "x"}]
-        env = guard.replace(World().env(), details=lambda: once, gating=lambda: None)
+        reads = iter([once])  # a second read fails the test: every view must come from the one reading
+        env = guard.replace(World().env(), details=lambda: next(reads), gating=lambda: None)
         word, data, lines = guard.status_view(active(), env, path=self.root / "state.json", now=self.NOW)
         self.assertEqual((word, data["in_flight"]), ("waiting", "a local gate in flight (check-all, pid 9)"))
         self.assertEqual(len(data["waits"]), 1)
+
+    def test_bad_starts_through_the_real_readers_keep_every_wait(self):
+        # Completion review of D00 T03 §32: a year 9999, a nan and a number past any clock, read by the real readers
+        # beside a healthy wait; every wait is still named, the affected ones with their age unknown.
+        good = self.gate("check-all", self.at(20), output="the console that started it")
+        far = self.review("astra", "9999-12-31T23:59:59Z", **{"pass": "round 1", "record": "docs/reviews/x.md"})
+        for since in (float("nan"), 10 ** 400):
+            with self.subTest(since=str(since)[:12]):
+                (self.root / "build" / "ci-gate.json").write_text(
+                    '{"waiting": {"sha": "' + "a" * 40 + '", "since": ' + ("NaN" if since != since else str(since)) + f', "pid": {os.getpid()}}}}}',
+                    encoding="utf-8")
+                word, data, lines = self.view()
+                ages = {w["what"]: w["elapsed_seconds"] for w in data["waits"]}
+                self.assertEqual(ages.get(f"check-all, pid {good.pid}"), 20, ages)
+                self.assertIsNone(ages[f"astra, dispatcher pid {far.pid}"])
+                self.assertIn("a" * 12 + f", gate pid {os.getpid()}", ages, "a live CI gate with a start no clock can read was dropped")
+                self.assertIsNone(ages["a" * 12 + f", gate pid {os.getpid()}"])
+
+    def test_a_wait_that_cannot_be_looked_at_is_said_and_not_counted(self):
+        # Completion review of D00 T03 §32: a denied mark folder says so in text and JSON, and holds nothing.
+        gate = self.gate("check-all", self.at(10), output="x")
+        real = os.listdir
+        denied = self.root / "build" / "review-in-flight"
+        def refuse(path):
+            if Path(path) == denied:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real(path)
+        with unittest.mock.patch.object(guard.os, "listdir", refuse):
+            word, data, lines = self.view()
+        self.assertEqual(data["in_flight"], f"a local gate in flight (check-all, pid {gate.pid})")
+        self.assertEqual(len(data["waits"]), 1)
+        self.assertEqual(data["unseen"][0]["kind"], "a review")
+        self.assertIn("Access is denied", data["unseen"][0]["error"])
+        self.assertTrue(any(line.startswith("a review could not be looked at: ") for line in lines), lines)
+
+    def test_an_older_review_mark_says_its_pass_is_unknown(self):
+        old = self.review("astra", self.at(30))  # no pass, no record
+        word, data, lines = self.view()
+        self.assertIn(f"a review (astra, dispatcher pid {old.pid}), pass unknown: 30 s so far; output: unknown", "\n".join(lines))
 
     def test_a_start_no_clock_can_show_is_unknown_and_the_rest_still_show(self):
         # Round 1 of D00 T03 §32: an unrepresentable CI start must not stop status naming the other waits.

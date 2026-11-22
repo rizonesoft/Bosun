@@ -1243,7 +1243,7 @@ class InFlightMarks(Harness):
                 self.assertRegex(call["in_flight"][0], r"^\d+-sol\.json$")
                 # D00 T03 §32: what the mark runs and where its result goes, for run-guard.py status.
                 doc = call["in_flight_docs"][0]
-                self.assertEqual((doc.get("pass"), doc.get("record")), ("round", "not recorded"), doc)
+                self.assertEqual((doc.get("pass"), doc.get("record")), ("round", "the dispatcher's own output (stdout)"), doc)
                 self.assertEqual(self.marks(), [], "the mark outlived the review")
 
     def test_the_guard_reads_a_running_dispatcher_s_mark_as_live(self):
