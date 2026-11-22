@@ -1,0 +1,95 @@
+{
+  "ref": "D00 T06 \u00a76",
+  "title": "Open findings, part 6 of 6",
+  "implementation_sha": "4d87c303610f47fca87e10ac17a0a48b5a0746c5",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T06-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T06-s6.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T06-s6.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python scripts/findings-ledger.py --base b8c4e0b3 --lines 182-214 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify -> all 32 entries settled; --base 3f36a14 --lines 216-242 -> all 24 settled",
+    "grep -cE '^- [^~]' todo/findings.md -> 0",
+    "python -m unittest scripts.tests.test_findings_ledger -> Ran 17 tests, OK",
+    "python scripts/todo-graph.py validate -> valid: 199 sections; plan --check -> plan current",
+    "CI at 4d87c30: build.yml: green at 4d87c303610f (https://github.com/rizonesoft/Bosun/actions/runs/45040826282); plan.yml green (https://github.com/rizonesoft/Bosun/actions/runs/45040826201)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T06-s6.md",
+    "verdict": "completed",
+    "candidate": "b8c2505056a41b54904776e38073775a1a26d200",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 returned two P3 points only, so the loop stopped on severity; both were fixed in b8c2505 (a superseded case for --classify, and the file-list test checking membership), before the completion review.",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T06-s6.md",
+    "candidate": "3f36a140e2c1bcd75e90fca0acfb0125ccd34816",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3f36a140e2c1bcd75e90fca0acfb0125ccd34816",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

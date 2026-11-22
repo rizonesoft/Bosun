@@ -2,7 +2,7 @@
 schema_version: 1
 id: findings-triage
 domain: 00-workspace
-status: active
+status: done
 title: "TODO-06 -- Findings triage"
 depends_on: ["private-overlay"]
 ---
@@ -36,7 +36,7 @@ depends_on: ["private-overlay"]
 | 3 | §3 | Open findings, part 3 of 6 | -- | [x] |
 | 4 | §4 | Open findings, part 4 of 6 | -- | [x] |
 | 5 | §5 | Open findings, part 5 of 6 | -- | [x] |
-| 6 | §6 | Open findings, part 6 of 6 | -- | [ ] |
+| 6 | §6 | Open findings, part 6 of 6 | -- | [x] |
 
 ## 1. Open findings, part 1 of 6
 
@@ -228,11 +228,14 @@ depends_on: ["private-overlay"]
 - [x] Triage the open findings added after the base, on lines 228 to 232 of `todo/findings.md` (as of `3f36a14`), as the base batches are. Done when: `python scripts/findings-ledger.py --base 3f36a14 --lines 228-232 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` exits 0 (**corrected 2026-11-22, the plan review of §6**). Cheaper substitute: leaving the entries added after the base for a later triage, which the Done when refuses.
 - [x] Triage the open findings added after the base, on lines 233 to 237 of `todo/findings.md` (as of `3f36a14`), as the base batches are. Done when: `python scripts/findings-ledger.py --base 3f36a14 --lines 233-237 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` exits 0 (**corrected 2026-11-22, the plan review of §6**). Cheaper substitute: leaving the entries added after the base for a later triage, which the Done when refuses.
 - [x] Triage the open findings added after the base, on lines 238 to 242 of `todo/findings.md` (as of `3f36a14`), as the base batches are. Done when: `python scripts/findings-ledger.py --base 3f36a14 --lines 238-242 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` exits 0 (**corrected 2026-11-22, the plan review of §6**). Cheaper substitute: leaving the entries added after the base for a later triage, which the Done when refuses.
-- [ ] Commit: `todo: settle findings lines 182 to 214 (D00 T06 §6)`
+- [x] Commit: `todo: settle findings lines 182 to 214 (D00 T06 §6)`
 
 **Evidence 2026-11-22:** the 32 entries open on base lines 182 to 214 and the 24 added after that base (lines 216 to 242 at `3f36a14`) were read in full and checked against the code, one line each in `docs/reviews/00-workspace/D00-T06-s6.md`, each stating its classification (6 defects, 2 already fixed, 48 suggestions) and citing a tracked `path:line` it was reopened at. Two are done (187 by `e5d7876`, 231 by `3484026`) and 54 scheduled: 20 into open sections (`D05 T02 §3` and `§10`, `D03 T02 §11`, `§12` and `§15`, `D00 T07 §6` and `§10`) and 34 into fourteen new sections, one script or feature each (`D05 T02 §12` and `§13`, `D03 T02 §18`, `D00 T07 §11` to `§21`); 205 and 206 are owned on both platforms. The ledger now requires every file a finding names and, with `--classify`, its classification (`7125448`). `python scripts/findings-ledger.py --base b8c4e0b3 --lines 182-214 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` -> all 32 settled; `--base 3f36a14 --lines 216-242` -> all 24 settled; each of the twelve batches exits 0; `grep -cE '^- [^~]' todo/findings.md` -> 0.
 
 **Test checkpoint:** `python scripts/findings-ledger.py --base b8c4e0b3 --lines 182-214 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` and `python scripts/findings-ledger.py --base 3f36a14 --lines 216-242 --cite-lines --record docs/reviews/00-workspace/D00-T06-s6.md --classify` exit 0, `grep -cE '^- [^~]' todo/findings.md` prints 0 (**corrected 2026-11-22, the plan review of §6**), and the base range check exits 0 (**corrected 2026-11-22, round 4 of §3's repair cycle:** without both checks it passed with the classification record missing) (every entry open on those lines at `b8c4e0b3` is in the file once, struck, with a disposition that resolves), `python scripts/todo-graph.py validate` exits 0, and `python scripts/todo-graph.py plan --check` reports the plan current (**corrected 2026-11-22, the plan review of §5**). **Corrected 2026-11-21 (plan review of §1):** it checked physical lines for a strike marker, which a deleted or ownerless entry passes.
+
+> **Verified:** 2026-11-22 | §6 | 4d87c303610f47fca87e10ac17a0a48b5a0746c5
+> **Review:** `docs/reviews/d00-t06-s6.json`
 
 ## Verification
 
