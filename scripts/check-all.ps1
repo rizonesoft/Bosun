@@ -32,7 +32,9 @@ param(
   # For tests/check_all_test.ps1: a JSON file of stand-in steps ([{ "name", "file", "args" }]) run in place of the real ones.
   [string]$StepFile,
   # For tests/check_all_test.ps1: fail log writes after this many successful writes (0 disables).
-  [int]$FailLogAfterWrites = 0
+  [int]$FailLogAfterWrites = 0,
+  # For tests/check_all_test.ps1: force an initialization failure right after opening the run log.
+  [switch]$FailAfterLogCreate
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -129,14 +131,16 @@ try {
 if (-not ('Bosun.ConsolePump' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading;
 
 namespace Bosun {
   // Tails the run's scratch log file to process stdout on a background thread with O(1) memory:
   // - Never blocks the gate or drops bytes on transient stdout backpressure (the log file is the buffer).
   // - Lets gate summary lines use PowerShell's output stream when stdout is caught up, or fall back to
-  //   in-order log tailing while a consumer is temporarily paused.
+  //   in-order log tailing (and queued final console-only lines) while a consumer is temporarily paused.
   public sealed class ConsolePump : IDisposable {
     private readonly string _logPath;
     private readonly Stream _stdout;
@@ -144,8 +148,10 @@ namespace Bosun {
     private readonly object _sync = new object();
     private readonly AutoResetEvent _signal = new AutoResetEvent(false);
     private readonly ManualResetEventSlim _idle = new ManualResetEventSlim(true);
+    private readonly Queue<byte[]> _tailLines = new Queue<byte[]>();
     private long _consoleOffset;
     private long _targetOffset;
+    private long _tailBytesWritten;
     private bool _broken;
     private bool _closed;
 
@@ -162,14 +168,25 @@ namespace Bosun {
         using (FileStream rs = File.Open(_logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
           while (true) {
             long start, limit;
+            byte[] tail = null;
             bool done;
             lock (_sync) {
               start = _consoleOffset;
               limit = _targetOffset;
-              done = _closed && start >= limit;
-              if (start >= limit) _idle.Set();
+              if (start >= limit && _tailLines.Count > 0) tail = _tailLines.Dequeue();
+              done = _closed && start >= limit && tail == null;
+              if (start >= limit && tail == null) _idle.Set();
             }
             if (done) return;
+            if (tail != null) {
+              _stdout.Write(tail, 0, tail.Length);
+              _stdout.Flush();
+              lock (_sync) {
+                _tailBytesWritten += tail.Length;
+                if (_consoleOffset >= _targetOffset && _tailLines.Count == 0) _idle.Set();
+              }
+              continue;
+            }
             if (start >= limit) {
               _signal.WaitOne();
               continue;
@@ -185,7 +202,7 @@ namespace Bosun {
             _stdout.Flush();
             lock (_sync) {
               _consoleOffset = start + n;
-              if (_consoleOffset >= _targetOffset) _idle.Set();
+              if (_consoleOffset >= _targetOffset && _tailLines.Count == 0) _idle.Set();
             }
           }
         }
@@ -207,13 +224,23 @@ namespace Bosun {
       _signal.Set();
     }
 
+    public void QueueTailLine(string line) {
+      byte[] data = Encoding.UTF8.GetBytes(line + Environment.NewLine);
+      lock (_sync) {
+        if (_broken || _closed) return;
+        _tailLines.Enqueue(data);
+        _idle.Reset();
+      }
+      _signal.Set();
+    }
+
     // If the pump is caught up to beforeOffset, advance its cursor past afterOffset and return true so the caller
     // can emit the gate line on PowerShell's output stream. Otherwise queue afterOffset for in-order log tailing.
     public bool TryEmitGateLineOnPipeline(long beforeOffset, long afterOffset, int waitMs) {
       _idle.Wait(waitMs);
       lock (_sync) {
         if (_broken) return false;
-        if (_consoleOffset == beforeOffset && _targetOffset == beforeOffset) {
+        if (_consoleOffset == beforeOffset && _targetOffset == beforeOffset && _tailLines.Count == 0) {
           _consoleOffset = afterOffset;
           _targetOffset = afterOffset;
           _idle.Set();
@@ -239,14 +266,14 @@ namespace Bosun {
         _closed = true;
       }
       _signal.Set();
-      long lastOffset;
-      lock (_sync) { lastOffset = _consoleOffset; }
+      long lastProgress;
+      lock (_sync) { lastProgress = _consoleOffset + _tailBytesWritten; }
       int stalledMs = 0;
       while (!_worker.Join(25)) {
-        long curOffset;
-        lock (_sync) { curOffset = _consoleOffset; }
-        if (curOffset > lastOffset) {
-          lastOffset = curOffset;
+        long curProgress;
+        lock (_sync) { curProgress = _consoleOffset + _tailBytesWritten; }
+        if (curProgress > lastProgress) {
+          lastProgress = curProgress;
           stalledMs = 0;
         } else {
           stalledMs += 25;
@@ -255,19 +282,25 @@ namespace Bosun {
       }
     }
 
-    public void Dispose() { Close(250); }
+    public void Dispose() { Close(1500); }
   }
 }
 '@
 }
 
 $utf8 = [Text.UTF8Encoding]::new($false)
-$consolePump = [Bosun.ConsolePump]::new($logPath)
-$logWriteState = @{ Count = 0 }
+$consolePump = $null
+$gateMark = $null
+$savedWslenv = $env:WSLENV
+$savedScratch = $env:BOSUN_SCRATCH
+$wslenvChanged = $false
+$logWriteState = @{ Count = 0; AtLineStart = $true }
 function Write-ConsoleLine([string]$Line) {
-  # Emit console-only lines (such as `log: <path>`) through PowerShell's output stream when stdout is caught up.
-  if (-not $consolePump.WaitIdle(200)) { return }
-  Write-Output $Line
+  # Emit console-only lines (such as `log: <path>` and partial-log diagnostics) through PowerShell's output stream
+  # when stdout is caught up, or queue them behind the log backlog on ConsolePump so a paused reader still gets them.
+  if (-not $consolePump) { Write-Output $Line; return }
+  if ($consolePump.WaitIdle(200)) { Write-Output $Line; return }
+  $consolePump.QueueTailLine($Line)
 }
 function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1, [switch]$NotifyPump) {
   if (-not $Bytes) { return }
@@ -280,39 +313,44 @@ function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1, [switch]$NotifyPump) {
     $logStream.Write($Bytes, 0, $len)
     $logStream.Flush()
     $logWriteState.Count++
+    $logWriteState.AtLineStart = ($Bytes[$len - 1] -eq 10)
   } catch {
     $err = [InvalidOperationException]::new("check-all: failed to write run log '$logPath': $($_.Exception.Message)", $_.Exception)
     $err.Data['BosunLogWriteFailure'] = $true
     throw $err
   }
-  if ($NotifyPump) { $consolePump.NotifyBytes($logStream.Position) }
+  if ($NotifyPump -and $consolePump) { $consolePump.NotifyBytes($logStream.Position) }
 }
 function Write-GateLine([string]$Line) {
+  if (-not $logWriteState.AtLineStart) {
+    $nl = $utf8.GetBytes([Environment]::NewLine)
+    Write-LogBytes $nl $nl.Length -NotifyPump
+  }
   $before = $logStream.Position
   $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
   Write-LogBytes $bytes $bytes.Length
   $after = $logStream.Position
-  if ($consolePump.TryEmitGateLineOnPipeline($before, $after, 200)) {
+  if (-not $consolePump) {
+    Write-Output $Line
+  } elseif ($consolePump.TryEmitGateLineOnPipeline($before, $after, 200)) {
     Write-Output $Line
   }
 }
 
+try {
+if ($FailAfterLogCreate) { throw [InvalidOperationException]::new('simulated post-log initialization failure') }
+$consolePump = [Bosun.ConsolePump]::new($logPath)
+
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1) and surfaces $logPath.
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
-$gateMark = $null
 try {
   $gateMark = Enter-GateMark 'check-all' $logPath
 } catch {
   $msg = "check-all: $($_.Exception.Message)"
-  try { Write-GateLine $msg } catch { Write-ConsoleLine $msg; Write-ConsoleLine $_.Exception.Message }
+  Write-GateLine $msg
   Write-ConsoleLine "log: $logPath"
-  $consolePump.Close(2000)
-  if ($logStream) { $logStream.Dispose() }
   exit 1
 }
-$savedWslenv = $env:WSLENV
-$savedScratch = $env:BOSUN_SCRATCH
-$wslenvChanged = $false
 if ($Wsl -and -not [string]::IsNullOrWhiteSpace($env:BOSUN_SCRATCH)) {
   $trimmedScratch = $env:BOSUN_SCRATCH.Trim()
   if (Test-Path -LiteralPath $trimmedScratch -PathType Container) {
@@ -323,7 +361,6 @@ if ($Wsl -and -not [string]::IsNullOrWhiteSpace($env:BOSUN_SCRATCH)) {
     $wslenvChanged = $true
   }
 }
-try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
 $sdkPrinted = $false
 $started = [Diagnostics.Stopwatch]::StartNew()
@@ -445,6 +482,6 @@ exit 0
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
   Exit-GateMark $gateMark
-  if ($consolePump) { $consolePump.Close(250) }
+  if ($consolePump) { $consolePump.Close(1500) }
   if ($logStream) { $logStream.Dispose() }
 }

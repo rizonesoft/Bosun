@@ -325,9 +325,11 @@ function Measure-Job {
   if (-not $command) { throw "Measure-Job could not start '$FilePath': no such program on PATH or at that path" }
   $line = (@($command.Source) + $ArgumentList | ForEach-Object { ConvertTo-CommandLineArgument $_ }) -join ' '
   $run = [Bosun.JobMeasure+Run]::new($line, $WorkingDirectory, $OutputPath)
+  $finalDrained = $false
+  $tickFailed = $false
   try {
     # Waited for in short slices, so Ctrl+C (or a stopped pipeline) is seen within one of them: the finally below
-    # then ends the job at once. One long native wait would hold PowerShell until the command ended by itself.
+    # then ends the job at once and drains any remaining output written to -OutputPath before teardown.
     $timedOut = $false
     $stoppedBy = $null
     $waiting = [bool]$StartedPath
@@ -341,19 +343,30 @@ function Measure-Job {
       if ($waiting) { if ($QueueSeconds -gt 0 -and $elapsed -ge $QueueSeconds) { $timedOut = $true; break } }
       elseif ($TimeoutSeconds -gt 0 -and ($elapsed - $began) -ge $TimeoutSeconds) { $timedOut = $true; break }
       if ($StopWhen) { $why = & $StopWhen; if ($why) { $stoppedBy = "$why"; $timedOut = $true; break } }
-      if ($OnTick) { & $OnTick $false }
+      if ($OnTick) {
+        try { & $OnTick $false } catch { $tickFailed = $true; throw }
+      }
     }
     if (-not $timedOut -and $waiting -and (Test-Path -LiteralPath $StartedPath)) {
       $waiting = $false; $began = $run.ElapsedSeconds
       if ($OnStarted) { & $OnStarted $began }
     }
     $result = $run.Finish($timedOut)
-    if ($OnTick) { & $OnTick $true }
+    if ($OnTick) {
+      $finalDrained = $true
+      try { & $OnTick $true } catch { $tickFailed = $true; throw }
+    }
     $result | Add-Member -NotePropertyName StoppedBy -NotePropertyValue $stoppedBy -Force
     if ($StartedPath) {
       $result.QueuedSeconds = [Math]::Round($(if ($waiting) { $result.Seconds } else { $began }), 2)
       $result.TimedOutInQueue = $timedOut -and $waiting
     }
     $result
-  } finally { $run.Dispose() }
+  } finally {
+    $run.Dispose()
+    if ($OnTick -and -not $finalDrained -and -not $tickFailed) {
+      $finalDrained = $true
+      & $OnTick $true
+    }
+  }
 }

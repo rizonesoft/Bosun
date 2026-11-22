@@ -644,6 +644,95 @@ switch ($Mode) {
       if (-not $pPause.HasExited) { $pPause.Kill($true) }
       $pPause.Dispose()
     }
+
+    # 8. Completion Gap 1: reader pauses ACROSS finalization (success and mid-run write failure), then resumes
+    $finLogs = Join-Path $liveDir 'fin-pause-logs'
+    New-Item -ItemType Directory -Path $finLogs | Out-Null
+    $env:BOSUN_SCRATCH = $finLogs
+    $psiFinOk = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $psiFinOk.WorkingDirectory = $repo; $psiFinOk.UseShellExecute = $false; $psiFinOk.RedirectStandardOutput = $true; $psiFinOk.RedirectStandardError = $true; $psiFinOk.CreateNoWindow = $true
+    foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $burstSteps)) { $psiFinOk.ArgumentList.Add($arg) }
+    $pFinOk = [Diagnostics.Process]::Start($psiFinOk)
+    try {
+      # Pause 800 ms while burst finishes and enters finalization, then resume reading before Close(1500) expires.
+      Start-Sleep -Milliseconds 800
+      $finOkCap = [BosunTestAsyncCapture]::new()
+      $finOkCap.Attach($pFinOk)
+      $finOkExited = Wait-GateExit $pFinOk 15000
+      $finOkOut = $finOkCap.GetText()
+      Check 'resuming stdout reads across finalization still delivers the final log: <path> on success' ($finOkExited -and
+        $pFinOk.ExitCode -eq 0 -and $finOkOut -match 'all 1 steps passed' -and (Get-LogPath $finOkOut)) "(exited=$finOkExited, exit=$($pFinOk.ExitCode), log='$(Get-LogPath $finOkOut)')"
+    } finally { if (-not $pFinOk.HasExited) { $pFinOk.Kill($true) }; $pFinOk.Dispose() }
+
+    $psiFinFail = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $psiFinFail.WorkingDirectory = $repo; $psiFinFail.UseShellExecute = $false; $psiFinFail.RedirectStandardOutput = $true; $psiFinFail.RedirectStandardError = $true; $psiFinFail.CreateNoWindow = $true
+    foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $burstSteps, '-FailLogAfterWrites', '10')) { $psiFinFail.ArgumentList.Add($arg) }
+    $pFinFail = [Diagnostics.Process]::Start($psiFinFail)
+    try {
+      Start-Sleep -Milliseconds 800
+      $finFailCap = [BosunTestAsyncCapture]::new()
+      $finFailCap.Attach($pFinFail)
+      $finFailExited = Wait-GateExit $pFinFail 15000
+      $finFailOut = $finFailCap.GetText()
+      Check 'resuming stdout reads across finalization still delivers the partial-log diagnostic on mid-run write failure' ($finFailExited -and
+        $pFinFail.ExitCode -eq 1 -and $finFailOut -match 'failed to write run log' -and $finFailOut -match 'partial log:') "(exited=$finFailExited, exit=$($pFinFail.ExitCode), out='$($finFailOut.Substring([Math]::Max(0, $finFailOut.Length - 240)))')"
+    } finally { if (-not $pFinFail.HasExited) { $pFinFail.Kill($true) }; $pFinFail.Dispose() }
+
+    # 9. Completion Gap 2: unterminated child stderr is followed by FAIL on its own line in console and log
+    $untermSteps = Join-Path $liveDir 'unterm-steps.json'
+    ConvertTo-Json -InputObject @(@{ name = 'unterminated'; file = 'pwsh'; args = @('-NoProfile', '-Command', "[Console]::Error.Write('UNTERMINATED-ERR-MSG'); exit 4") }) -Depth 4 | Set-Content -LiteralPath $untermSteps
+    $rUnterm = Invoke-Gate @('-StepFile', $untermSteps)
+    $untermLog = Get-LogPath $rUnterm.Text
+    $untermLogText = if ($untermLog -and (Test-Path -LiteralPath $untermLog)) { Get-Content -LiteralPath $untermLog -Raw } else { '' }
+    Check 'unterminated child stderr and the following FAIL diagnosis appear on separate lines in console and log' ($rUnterm.Exit -eq 1 -and
+      $rUnterm.Text -match '(?m)^UNTERMINATED-ERR-MSG\r?$' -and $rUnterm.Text -match '(?m)^FAIL unterminated: exit 4' -and
+      $untermLogText -match '(?m)^UNTERMINATED-ERR-MSG\r?$' -and $untermLogText -match '(?m)^FAIL unterminated: exit 4') "(exit=$($rUnterm.Exit), log='$untermLog')"
+
+    # 10. Completion Gap 3: cancellation stops the child tree and drains spool output written since the last poll
+    . (Join-Path $repo 'scripts/lib/job-measure.ps1')
+    $cancelReady = Join-Path $liveDir 'cancel-ready.flag'
+    $cancelPidFile = Join-Path $liveDir 'cancel-child.pid'
+    $cancelSpool = Join-Path $liveDir 'cancel-spool.out'
+    $cancelRunLog = Join-Path $liveDir 'cancel-run.log'
+    $cancelChildScript = Join-Path $liveDir 'cancel-child.ps1'
+    Set-Content -LiteralPath $cancelChildScript -Value @"
+`$c = Start-Process pwsh -PassThru -NoNewWindow -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 300'
+Set-Content -LiteralPath '$cancelPidFile' -Value `$c.Id
+[Console]::Out.WriteLine('CANCEL-SPOOL-MARKER'); [Console]::Out.Flush()
+Set-Content -LiteralPath '$cancelReady' -Value 'ready'
+Start-Sleep 300
+"@
+    $psCancel = [PowerShell]::Create()
+    try {
+      $null = $psCancel.AddScript(@"
+. '$($repo)\scripts\lib\job-measure.ps1'
+`$off = @{ Pos = [long]0 }
+`$drain = {
+  param([bool]`$Final = `$false)
+  # Only drain on Final so CANCEL-SPOOL-MARKER is guaranteed to sit undrained until cancellation triggers finally.
+  if (-not `$Final -or -not (Test-Path -LiteralPath '$cancelSpool')) { return }
+  `$txt = Get-Content -LiteralPath '$cancelSpool' -Raw -ErrorAction Ignore
+  if (`$txt) { Set-Content -LiteralPath '$cancelRunLog' -Value `$txt }
+}
+Measure-Job -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', '$cancelChildScript') -WorkingDirectory '$liveDir' -OutputPath '$cancelSpool' -TimeoutSeconds 30 -OnTick `$drain
+"@)
+      $asyncCancel = $psCancel.BeginInvoke()
+      $cancelIsReady = Wait-Condition { Test-Path -LiteralPath $cancelReady } 15000
+      $psCancel.Stop()
+      try { $null = $psCancel.EndInvoke($asyncCancel) } catch [Management.Automation.PipelineStoppedException] { $null = $true }
+      $cancelChildPid = if (Test-Path -LiteralPath $cancelPidFile) { [int](Get-Content -LiteralPath $cancelPidFile -Raw).Trim() } else { 0 }
+      $cancelLogText = if (Test-Path -LiteralPath $cancelRunLog) { Get-Content -LiteralPath $cancelRunLog -Raw } else { '' }
+      Check 'cancelling Measure-Job stops the child tree and drains spool output written before cancellation' ($cancelIsReady -and
+        $cancelChildPid -gt 0 -and (Wait-Gone $cancelChildPid) -and $cancelLogText -match 'CANCEL-SPOOL-MARKER') "(ready=$cancelIsReady, child=$cancelChildPid, log='$cancelLogText')"
+    } finally { $psCancel.Dispose() }
+
+    # 11. Completion Gap 4: post-log initialization failure records its cause in the log and prints log: <path>
+    Set-Steps @(@{ name = 'one' })
+    $rInitFail = Invoke-Gate @('-StepFile', $stepFile, '-FailAfterLogCreate')
+    $initFailLog = Get-LogPath $rInitFail.Text
+    $initFailLogText = if ($initFailLog -and (Test-Path -LiteralPath $initFailLog)) { Get-Content -LiteralPath $initFailLog -Raw } else { '' }
+    Check 'a post-log initialization failure records its cause in the log, prints log: <path>, and runs no step' ($rInitFail.Exit -eq 1 -and
+      -not $rInitFail.Ran -and $initFailLog -and $initFailLogText -match 'simulated post-log initialization failure') "(exit=$($rInitFail.Exit), ran=$($rInitFail.Ran -join ','), log='$initFailLog')"
   } finally {
     Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore
     $env:BOSUN_SCRATCH = $defaultLogRoot
