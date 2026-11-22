@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T06 \u00a72",
+  "title": "Open findings, part 2 of 6",
+  "implementation_sha": "14d5d0377bc0d0957921c31594d46c764a32a4d0",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T06-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T06-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/findings-ledger.py --base b8c4e0b3 --lines 41-75 -> all 35 entries on lines 41 to 75 (at b8c4e0b3) settled",
+    "each batch range 41-45 to 71-75 -> exit 0; base line 46 pointed at D00 T03 \u00a729 -> exit 1, naming scripts/build-icons.py",
+    "python scripts/todo-graph.py validate -> valid: 164 sections",
+    "CI at 14d5d03: plan.yml: green at 14d5d0377bc0 (https://github.com/rizonesoft/Bosun/actions/runs/44984772649)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T06-s2.md",
+    "verdict": "completed",
+    "candidate": "4634383cda5d030ab9db4023da088971c6ce0339",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T06-s2.md",
+    "candidate": "ab8d891a6ac0a2c2c7d9065ef1137e9459f07e1a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "ab8d891a6ac0a2c2c7d9065ef1137e9459f07e1a",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
