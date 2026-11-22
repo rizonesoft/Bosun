@@ -130,14 +130,16 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
-        named = re.match(r"items? ((?:\d+|and|,|\s)+)", m.group(3))
-        if not named:
+        # Every item the evidence names, wherever and however often: each "item N" or "items N, M and K" is read, so
+        # no spelling of the list can leave a number unchecked (rounds 3 and 4 of D00 T06 §3, one class).
+        named = [int(k) for run in re.findall(r"\bitems? (\d+(?:\s*(?:,|and|&)\s*\d+)*)", m.group(3)) for k in re.findall(r"\d+", run)]
+        if not named or not re.match(r"items? \d", m.group(3)):
             return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
         if resolver is not None:
             # The item named must be the finding's own: it cites this base line (round 2 of D00 T06 §3).
             ref = REF.findall(m.group(2))[0]
             items = checklist(resolver(ref, root)[1])
-            numbers = [int(k) for k in re.findall(r"\d+", named.group(1))]
+            numbers = named
             # Every item named must exist and be the finding's own (round 3 of D00 T06 §3), not one of several.
             if not numbers or not all(1 <= k <= len(items) and n in cited_lines(items[k - 1]) for k in numbers):
                 return "is scheduled in %s to %s item %s, which does not cite base line %d (line %d)" % (
