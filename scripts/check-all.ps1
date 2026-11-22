@@ -171,7 +171,7 @@ namespace Bosun {
             }
             if (done) return;
             if (start >= limit) {
-              _signal.WaitOne(100);
+              _signal.WaitOne();
               continue;
             }
             rs.Position = start;
