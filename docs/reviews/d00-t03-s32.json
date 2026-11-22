@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T03 \u00a732",
+  "title": "Guard status names each wait, its elapsed time and its output",
+  "implementation_sha": "2a0599f966bfbd1b2059d4489212718453ef2905",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s32.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s32.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts.tests.test_run_guard scripts.tests.test_review_dispatch scripts.tests.test_ci_status -> Ran 429 tests, OK (skipped=3)",
+    "pwsh tests/check_all_test.ps1 and pwsh tests/measure_build_test.ps1 -> exit 0",
+    "mutation: elapsed from the process FILETIME -> 2 tests fail",
+    "CI full gate at 2a0599f: build.yml green https://github.com/rizonesoft/Bosun/actions/runs/45010465880, plan.yml green https://github.com/rizonesoft/Bosun/actions/runs/45010465902"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s32.md",
+    "verdict": "completed",
+    "candidate": "17c6649992520cbc26b88eda445fd70e38f46045",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s32.md",
+    "candidate": "d5ca0b681f047a1a441dfae060f59491dd51778e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "d5ca0b681f047a1a441dfae060f59491dd51778e",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

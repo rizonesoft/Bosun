@@ -55,7 +55,7 @@ Sections: 68 | Checklist items: 576
 | [x]    | D00 T03 §29 | Antigravity waits see their result within seconds                                      | none        | 4     |
 | [x]    | D00 T03 §30 | Antigravity sees a failed guard, within the hook's time                                | none        | 3     |
 | [x]    | D00 T03 §31 | Shortcut install says one fix for each way a badge fails                               | none        | 3     |
-| [ ]    | D00 T03 §32 | Guard status names each wait, its elapsed time and its output                          | none        | 4     |
+| [x]    | D00 T03 §32 | Guard status names each wait, its elapsed time and its output                          | none        | 4     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                                                 | none        | 9     |
@@ -220,6 +220,6 @@ Sections: 6 | Checklist items: 29
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 110/165 verified sections, 32 ready to run now.
+Progress: 111/165 verified sections, 31 ready to run now.
 
-Checklist: 1042/1270 items completed (includes Commit items).
+Checklist: 1043/1270 items completed (includes Commit items).
