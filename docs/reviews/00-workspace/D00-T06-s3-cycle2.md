@@ -110,3 +110,29 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 4: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:34:12Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: integration
+- Seconds: 96
+- Lines: 9
+- Digest: c3fefc67326567e4
+
+## integration
+
+**needs-attention**
+
+1. **P2** `todo/00-workspace/TODO-06-findings-triage.md:158` omits `--cite-lines` and `--record` from the §4 checkpoint. The §5 and §6 checkpoints repeat the omission at lines 182 and 206. Line 110 explicitly applies both checks to every subsequent triage section. To reproduce, resolve `D00 T06 §4` with `python -B scripts/todo-graph.py resolve "D00 T06 §4"` and inspect its checkpoint. That command never opens a classification record, so once the strikes resolve it can pass with the entire record missing. Wire both options into the three remaining checkpoints, each with its own record path.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention
