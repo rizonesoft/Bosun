@@ -92,6 +92,8 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 21, measure
 
 ## 2. Pyright clean over the scripts
 
+> **Started:** 2026-11-22T18:10:08Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since `pyrightconfig.json` resolves `scripts/lib`, pyright reports type errors in the scripts and their tests (480 on 2026-11-21, most of them optional values used where a value is required, and `fcntl` on Windows). An editor full of red hides the one error that is real.
 
 **Phase:** 0
