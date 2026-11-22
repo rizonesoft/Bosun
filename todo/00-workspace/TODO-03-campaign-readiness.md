@@ -70,7 +70,7 @@ title: "TODO-03 -- Campaign readiness"
 | 29 | §29 | Antigravity waits see their result within seconds | -- | [x] |
 | 30 | §30 | Antigravity sees a failed guard, within the hook's time | -- | [x] |
 | 31 | §31 | Shortcut install says one fix for each way a badge fails | -- | [x] |
-| 32 | §32 | Guard status names each wait's stage, elapsed time and output | -- | [ ] |
+| 32 | §32 | Guard status names each wait, its elapsed time and its output | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -1153,9 +1153,11 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 43, complet
 
 > **Verified:** 2026-11-22 | §31 | 54bf86320ed3f4205335aff798cc0a5383252f76
 > **Review:** `docs/reviews/d00-t03-s31.json`
-## 32. Guard status names each wait's stage, elapsed time and output
+## 32. Guard status names each wait, its elapsed time and its output
 
 Filed 2026-11-22 from `D00 T03 §30`'s plan review, which moved finding 48 here (`todo/findings.md`, base line 48, completion review of `§21`). `status` says a review, a CI gate or a local gate is in flight (`in_flight` in `scripts/lib/run_guard.py`) without its stage, elapsed time or output location, and no record holds a stage or an output: a review's mark (`scripts/review-dispatch.py`, `build/review-in-flight/`) has its pid, reviewer, `started` (UTC text) and deadline; a local gate's (`scripts/lib/gate-mark.ps1`, written by `scripts/check-all.ps1` and `scripts/measure-build.ps1`) its pid, `started` (a process FILETIME, for identity) and name; the CI gate's wait (`scripts/ci_status.py`, `build/ci-gate.json`, one `waiting` slot) its commit, `since` (epoch seconds) and pid.
+
+**Corrected 2026-11-22 (plan review of §32):** the plan review in `docs/reviews/00-workspace/D00-T03-s32.md` returned six gaps (3 P1, 3 P2), and three of the heaviest came from rewriting a gate's mark at every step: a temporary copy beside the live mark that `look` would read as a second gate, a measurement whose output moves between logs mid-run, and a queued outer process whose child does the work. The finding asks that a running gate be diagnosed without a process search: what it is, how long it has run, and where its output goes, which each tool knows when it starts. So every record is written once, at its start, and never rewritten; a per-step stage within a gate is not taken (its cost is those three gaps, for a line `check-all` and the measurement already print to their own console). Gap 2 (elapsed from each record's own start), gap 5's first look with no run yet, and gap 6 (one observation for every view) are built below.
 
 **Phase:** 0
 **Needs:** none
@@ -1163,15 +1165,15 @@ Filed 2026-11-22 from `D00 T03 §30`'s plan review, which moved finding 48 here 
 
 **Build order:**
 
-1. Each tool records its stage and output. Done when: the dispatcher, both local gate writers and the CI gate write a stage and their real output location, keeping the start they began with.
-2. `status` names them. Done when: one line per item in flight gives its stage, elapsed time and output, and `look` still compares only stable identities.
+1. Each tool records what it is and where its output goes. Done when: a review, a local gate and a CI gate each write those once, at their start, beside the start time they already keep.
+2. `status` names them. Done when: one line per item in flight gives what it is, its elapsed time and its output, from one observation, and `look` still compares only stable identities.
 
-- [ ] Have `scripts/review-dispatch.py` write its pass (`plan`, `round N`, `completion` or `change`) and its `--record` path into its in-flight mark; have `scripts/lib/gate-mark.ps1` give `Set-GateMarkStage` (rewriting the mark by temporary file then replace, keeping `pid` and `started`) and an output field set at `Enter-GateMark`; have `scripts/check-all.ps1` and `scripts/measure-build.ps1` each call `Set-GateMarkStage` at every step and name their real output (a log path when they keep one, else `the console that started it`); and have `scripts/ci_status.py` write each look's workflow states and the runs' URLs into its wait. Done when: each tool's test reads the new fields while it runs (`scripts/tests/test_review_dispatch.py`, `tests/check_all_test.ps1`, `tests/measure_build_test.ps1`, `scripts/tests/test_ci_status.py`), with the stage changing between two steps and `started` unchanged.
-- [ ] Keep the readers' identity strings (`review_in_flight`, `ci_in_flight`, `gate_in_flight`) unchanged, which `look` and `look_for` compare, and add `wait_details` in `scripts/lib/run_guard.py` that reads each live item's stage, start and output for `status` only. Done when: a test changes a live gate's stage and a CI wait's states between two looks while the same processes live, and `look` keeps waiting while `status` shows the new stage.
-- [ ] Have `status` (`python scripts/run-guard.py status`, its lines from `status_view` in `scripts/lib/run_guard.py`) print one line per item in flight (what it is, its stage, elapsed time from its own start field, its output) and put the same in `--json` as a list, naming `unknown` for a field an older mark lacks. Done when: with a fixed clock, a test reads the exact elapsed time for a review mark (UTC text), a local gate mark (its `since` or mark time, not the identity FILETIME) and a CI wait (epoch seconds), two reviews and two local gates in one call each with its own values, an older mark of each kind showing `unknown`, and a legacy and a new CI wait in two calls; and the JSON list holds one entry per item, none duplicated or missing.
-- [ ] Commit: `run-guard: status names each wait's stage, elapsed time and output (D00 T03 §32)`
+- [ ] Have `scripts/review-dispatch.py` write its pass (`plan`, `round N`, `completion` or `change`) and its `--record` path into its in-flight mark when it writes it; have `Enter-GateMark` in `scripts/lib/gate-mark.ps1` take an `-Output` it writes into the mark once, beside `since` (the gate's own UTC start) and `started` (the process FILETIME, for identity), with `scripts/check-all.ps1` giving `the console that started it` and `scripts/measure-build.ps1` its log folder (an outer process that queues a child naming the child's own mark); and have `scripts/ci_status.py` write, when it creates its wait, that its runs are listed by `gh run list --commit <sha>` until it has their URLs. Done when: `scripts/tests/test_review_dispatch.py`, `tests/check_all_test.ps1`, `tests/measure_build_test.ps1` and `scripts/tests/test_ci_status.py` each read the new field while the tool runs, the CI one on a first look with no run listed yet.
+- [ ] Keep the readers' identity strings (`review_in_flight`, `ci_in_flight`, `gate_in_flight`) unchanged, which `look` and `look_for` compare, and add `wait_details` in `scripts/lib/run_guard.py` that reads each live item's kind, start and output once; have `status_view` build its word, its `in_flight` string, its lines and its JSON from that one reading, so a gate ending between two reads can't leave `waiting` with nothing named. Done when: a test reads `status` while a gate ends and finds the word and the items agreeing, the `in_flight` string unchanged for its callers, and `look` still waiting on a live gate whose details changed.
+- [ ] Have `status` (`python scripts/run-guard.py status`, its lines from `status_view` in `scripts/lib/run_guard.py`) print one line per item in flight (what it is, its elapsed time from its own start field, its output) and put the same in `--json` as a list, naming `unknown` for a field an older mark lacks. Done when: with a fixed clock and three distinct times (the process start, the gate start, the mark's file time), a test reads the exact elapsed time from the gate start for a local mark (`since`), a review mark (`started`, UTC text) and a CI wait (`since`, epoch seconds); two reviews and two local gates in one call each with its own values; an older mark of each kind showing `unknown`; and a legacy and a new CI wait in two calls; and the JSON list holds one entry per item, none duplicated or missing.
+- [ ] Commit: `run-guard: status names each wait, its elapsed time and its output (D00 T03 §32)`
 
-**Test checkpoint:** `python scripts/run-tests.py test_run_guard test_review_dispatch test_ci_status`, `pwsh tests/check_all_test.ps1` and `pwsh tests/measure_build_test.ps1` exit 0, and the elapsed-time test fails when elapsed is read from the identity FILETIME.
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard test_review_dispatch test_ci_status`, `pwsh tests/check_all_test.ps1` and `pwsh tests/measure_build_test.ps1` exit 0, and the elapsed-time test fails when elapsed is read from the process FILETIME or the mark's file time.
 ## Verification
 
 - `pwsh scripts/campaign-preflight.ps1` exits 0.
