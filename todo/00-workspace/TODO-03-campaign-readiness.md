@@ -1099,22 +1099,24 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47,
 
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 42 and 48, completion reviews of `§19` and `§21`). `scripts/run-guard.py` fails open on an Antigravity hook error and prints nothing (`hook --runner antigravity`), recording the failure only for `status`; and `status` says a gate is in flight (`in_flight` in `scripts/lib/run_guard.py`) without its stage, elapsed time or output location.
 
+**Corrected 2026-11-22 (validation before the build):** the section said `in_flight` would read each record's stage, start and output location, but no record holds a stage or an output: a review's mark (`scripts/review-dispatch.py`, `build/review-in-flight/`) has its pid, reviewer, start and deadline; a local gate's (`scripts/lib/gate-mark.ps1`) its pid, process start and name; the CI gate's wait (`scripts/ci_status.py`, `build/ci-gate.json`) its commit, start and pid. Each owning tool now writes what it knows, and the guard only reads it. For the failure notice, `agy` 1.5.14's changelog documents one output a hook can show the operator without sending it to the model, `errorMessage.userMessage` (beside `{"decision": "continue", "reason"}`, which sends the session on); the guard uses it, so a failed guard is said and the session is not held. The completion review of `§29` added a hook that cannot read or save the run state.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Tell an Antigravity session its guard failed. Done when: a failed Antigravity hook prints one notice Antigravity shows.
-2. Name a running gate. Done when: `status` gives its stage, elapsed time and output path.
+1. Tell the operator a guard failed. Done when: a failed Antigravity hook, including one that cannot read or save the run state, prints one notice for the operator and holds nothing.
+2. Each tool records its stage and output. Done when: a review, a local gate and a CI gate each write their stage and where their output goes.
+3. Name a running gate. Done when: `status` gives each one's stage, elapsed time and output in one line.
 
-- [ ] Find which output an Antigravity Stop hook can show its session (the hook contract in `.agents/hooks.json` and Antigravity's documentation) and record it here. Done when: the mechanism is named with its source, or this item records that none exists and why.
-- [ ] Have `scripts/run-guard.py` (`hook --runner antigravity`) give that notice once when the guard fails open, naming the failure and `python scripts/run-guard.py status` (base line 42), keeping it fail-open; that includes a hook that cannot read the run state, or cannot save it after ending a woken hold or recording what `look` starts from (**added 2026-11-22 by the completion review of D00 T03 §29**). Done when: a test in `scripts/tests/test_run_guard.py` makes the hook raise, and makes its state read and its save fail, and reads the notice each time, and the session is not held. Cheaper substitute: a log line nobody reads.
-- [ ] Have `in_flight` in `scripts/lib/run_guard.py` read each gate's own record (`build/gate-in-flight/`, `build/review-in-flight/`, the CI gate's wait record) for its current stage, start and output location, and have `status` print them in one line per gate (base line 48). Done when: a test seeds each kind and reads its stage, elapsed seconds and path from one `status` call.
+- [ ] Move the Antigravity hook's fail-open from `scripts/run-guard.py` into `scripts/lib/run_guard.py` (`hook_antigravity_answer`), and on any failure (the hook raising, the run state unreadable, a save that fails, as after ending a woken hold or recording what `look` starts from) print `{"errorMessage": {"userMessage": "Run guard failed and is not holding this run: <error>; see python scripts/run-guard.py status"}}` with no `decision`, and record the failure for `status` as today (base line 42; the `agy changelog` line on `errorMessage` is the source). Done when: tests in `scripts/tests/test_run_guard.py` make the hook raise, point the state at a folder that cannot be read, and make the save fail, and in each read that notice and no `decision`; the CLI prints the same through a real subprocess. Cheaper substitute: a log line nobody reads.
+- [ ] Have `scripts/review-dispatch.py` write the pass it runs (`plan`, `round N`, `completion` or `change`) and its `--record` path into its in-flight mark; have `scripts/lib/gate-mark.ps1` give `Set-GateMarkStage` (rewriting the mark, temporary file then replace) and `scripts/check-all.ps1` call it at each step with the step's name; and have `scripts/ci_status.py` write each look's workflow states (its `waiting:` text) and the runs' URLs into its wait in `build/ci-gate.json`. Done when: each tool's own test reads the new fields while it runs (`scripts/tests/test_review_dispatch.py`, `tests/check_all_test.ps1`, `scripts/tests/test_ci_status.py`), and a mark from before them still reads (the guard treats a missing field as unknown).
+- [ ] Have `in_flight` in `scripts/lib/run_guard.py` read those fields, and `status` print one line per item in flight: what it is, its stage, how long it has run (from its start) and its output (the findings file, the check-all step, the CI run URLs), naming `unknown` for a field an older mark lacks (base line 48). Done when: a test seeds each kind with and without the new fields and reads each line from one `status` call.
 - [ ] Commit: `run-guard: status names a gate's stage, and Antigravity sees a failed guard (D00 T03 §30)`
 
-**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the notice test fails with the notice removed.
-
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard test_review_dispatch test_ci_status` and `pwsh tests/check_all_test.ps1` exit 0, and the notice tests fail with the hook's notice removed.
 ## 31. Shortcut install: one fix per failure, a fast rerun and an optional hotkey
 
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 43 to 45, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py`, and says to install the icon packages whatever made the render fail; an unchanged rerun renders both icons again; neither shortcut has a hotkey.
