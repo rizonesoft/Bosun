@@ -289,6 +289,18 @@ class Kinds(Repo):
         self.assertFalse(scan.RELAX.search("# pyright: reportArgumentType=error, reportAssignmentType=error"))
         self.assertFalse(scan.RELAX.search("# pyright: strict"))
 
+    def test_a_config_answer_needs_its_fingerprint(self):
+        # Round 6 of D00 T07 §2: an answer giving only L1 matched any config signal, whose line is always 1.
+        self.write("pyrightconfig.json", "{}\n")
+        self.base = self.commit("an empty config")
+        self.edit("pyrightconfig.json", "{}", '{"exclude": ["scripts"]}')
+        self.commit("exclude the scripts", "Weakening scan: warning-relaxed pyrightconfig.json:L1 -- a formatting change")
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        self.assertEqual(code, 1, text)  # the bare L1 answer covers nothing
+        signal = [line.split()[2] for line in text.splitlines() if line.strip().startswith("unanswered")][0]
+        self.git("commit", "-q", "--allow-empty", "-m", "answer it", "-m", f"Weakening scan: warning-relaxed {signal} -- checked")
+        self.assertEqual(self.run_scan("--base", self.base, "--head", "HEAD")[0], 0)  # its fingerprinted answer does
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")

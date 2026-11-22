@@ -110,6 +110,9 @@ class CannotRead(Exception):
     """The range, or a file in it, could not be read (exit 2)."""
 
 
+CHECKER_CONFIG = "pyrightconfig.json"  # its signals are matched by fingerprint alone (see apply_answers)
+
+
 def line_id(lines, number):
     """`L<n>#<fp>` for a line signal: its line number, and a fingerprint of the code it flags (the first 6 hex of the
     SHA-1 of the whitespace-normalised flagged line plus the next non-blank line), so an answer still finds the signal
@@ -435,7 +438,7 @@ def scan(changes):
                 signals.append(Signal("assertion-removed", path, powershell_case(text) or line_id(change.new, number)))
 
     for path, change in sorted(files.items()):
-        if path == "pyrightconfig.json":
+        if path == CHECKER_CONFIG:
             # What the type checker reads: any change to it is a signal, fingerprinted by the whole new file, so each
             # distinct edit is answered on its own and no answer covers another. Judging which edits weaken pyright
             # (paths, modes, rules, environments and their order, comments) reopened in four review rounds of
@@ -553,7 +556,9 @@ def apply_answers(signals, given):
         take(signal, lambda entry: entry[0] == str(signal))
     for signal in signals:
         here = LINE_ID.match(str(signal))
-        if signal.reason or not here:
+        if signal.reason or not here or signal.path == CHECKER_CONFIG:
+            # A config signal's line is always 1, so an answer without its fingerprint would cover any edit of the file;
+            # it is answered by fingerprint only (round 6 of D00 T07 §2).
             continue
         line = int(here[3])
         take(signal, lambda entry: entry[2] is not None and entry[2][3] is None
