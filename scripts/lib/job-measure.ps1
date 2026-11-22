@@ -315,7 +315,11 @@ function Measure-Job {
     [int]$QueueSeconds = 0,
     # Asked between waits (every 200 ms): a non-empty answer ends the job, its whole tree, at once, and comes back as
     # the result's StoppedBy (with TimedOut set, as for any job that was ended).
-    [scriptblock]$StopWhen
+    [scriptblock]$StopWhen,
+    # Called once with the elapsed queue wait seconds when -StartedPath appears (either during polling or on fast exit).
+    [scriptblock]$OnStarted,
+    # Called on each poll tick (every 200 ms) and once after the job finishes, so callers can stream -OutputPath live.
+    [scriptblock]$OnTick
   )
   $command = Get-Command -Name $FilePath -CommandType Application -ErrorAction Ignore | Select-Object -First 1
   if (-not $command) { throw "Measure-Job could not start '$FilePath': no such program on PATH or at that path" }
@@ -330,13 +334,21 @@ function Measure-Job {
     $began = 0.0
     while (-not $run.Wait(200)) {
       $elapsed = $run.ElapsedSeconds
-      if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $elapsed }
+      if ($waiting -and (Test-Path -LiteralPath $StartedPath)) {
+        $waiting = $false; $began = $elapsed
+        if ($OnStarted) { & $OnStarted $began }
+      }
+      if ($OnTick) { & $OnTick }
       if ($waiting) { if ($QueueSeconds -gt 0 -and $elapsed -ge $QueueSeconds) { $timedOut = $true; break } }
       elseif ($TimeoutSeconds -gt 0 -and ($elapsed - $began) -ge $TimeoutSeconds) { $timedOut = $true; break }
       if ($StopWhen) { $why = & $StopWhen; if ($why) { $stoppedBy = "$why"; $timedOut = $true; break } }
     }
-    if ($waiting -and (Test-Path -LiteralPath $StartedPath)) { $waiting = $false; $began = $run.ElapsedSeconds }
+    if (-not $timedOut -and $waiting -and (Test-Path -LiteralPath $StartedPath)) {
+      $waiting = $false; $began = $run.ElapsedSeconds
+      if ($OnStarted) { & $OnStarted $began }
+    }
     $result = $run.Finish($timedOut)
+    if ($OnTick) { & $OnTick }
     $result | Add-Member -NotePropertyName StoppedBy -NotePropertyValue $stoppedBy -Force
     if ($StartedPath) {
       $result.QueuedSeconds = [Math]::Round($(if ($waiting) { $result.Seconds } else { $began }), 2)

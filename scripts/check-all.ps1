@@ -35,6 +35,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/job-measure.ps1')
+. (Join-Path $PSScriptRoot 'lib/scratch.ps1')
 
 # What a default run does not cover, why, and how to run it.
 $LeftOut = @(
@@ -109,9 +110,56 @@ $unknown = @($Only | Where-Object { $_ -notin $steps.Name })
 if ($unknown) { "check-all: no step named $($unknown -join ', '). The steps are: $($steps.Name -join ', ')"; exit 2 }
 if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 
-# While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1).
+# Each execution creates a distinct run log under the scratch root before the gate mark and before any step runs,
+# streaming all gate lines and step stdout/stderr to both console and log incrementally (D00 T07 §4).
+$scratchRoot = Get-BosunScratchRoot
+$logName = "bosun-check-all-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).log"
+$logPath = Join-Path $scratchRoot $logName
+try {
+  $initStream = [IO.File]::Open($logPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+  $initStream.Dispose()
+} catch {
+  "check-all: could not create run log '$logPath': $($_.Exception.Message)"
+  exit 1
+}
+
+$utf8 = [Text.UTF8Encoding]::new($false)
+$stdout = [Console]::OpenStandardOutput()
+function Write-ConsoleBytes([byte[]]$Bytes) {
+  if (-not $Bytes -or $Bytes.Length -eq 0) { return }
+  $stdout.Write($Bytes, 0, $Bytes.Length)
+  $stdout.Flush()
+}
+function Write-ConsoleLine([string]$Line) {
+  Write-ConsoleBytes ($utf8.GetBytes($Line + [Environment]::NewLine))
+}
+function Write-LogBytes([byte[]]$Bytes) {
+  if (-not $Bytes -or $Bytes.Length -eq 0) { return }
+  try {
+    $fs = [IO.File]::Open($logPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try { $fs.Write($Bytes, 0, $Bytes.Length); $fs.Flush() } finally { $fs.Dispose() }
+  } catch {
+    $err = [InvalidOperationException]::new("check-all: failed to write run log '$logPath': $($_.Exception.Message)", $_.Exception)
+    $err.Data['BosunLogWriteFailure'] = $true
+    throw $err
+  }
+}
+function Write-GateLine([string]$Line) {
+  $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
+  Write-ConsoleBytes $bytes
+  Write-LogBytes $bytes
+}
+
+# While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1) and surfaces $logPath.
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
-try { $gateMark = Enter-GateMark 'check-all' } catch { "check-all: $($_.Exception.Message)"; exit 1 }
+try {
+  $gateMark = Enter-GateMark 'check-all' $logPath
+} catch {
+  $msg = "check-all: $($_.Exception.Message)"
+  try { Write-GateLine $msg } catch { Write-ConsoleLine $msg; Write-ConsoleLine $_.Exception.Message }
+  Write-ConsoleLine "log: $logPath"
+  exit 1
+}
 $savedWslenv = $env:WSLENV
 $savedScratch = $env:BOSUN_SCRATCH
 $wslenvChanged = $false
@@ -127,44 +175,116 @@ if ($Wsl -and -not [string]::IsNullOrWhiteSpace($env:BOSUN_SCRATCH)) {
 }
 try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
+$sdkPrinted = $false
 $started = [Diagnostics.Stopwatch]::StartNew()
 foreach ($step in $steps) {
   $file = $step.File; $arguments = $step.Arguments
   if (-not (Get-Command $file -CommandType Application -ErrorAction Ignore)) {
-    "FAIL $($step.Name): $file is not on PATH or does not exist, so the step could not start ($(Format-Command $step))"
+    Write-GateLine "FAIL $($step.Name): $file is not on PATH or does not exist, so the step could not start ($(Format-Command $step))"
+    Write-ConsoleLine "log: $logPath"
     exit 1
   }
-  "---- $($step.Name): $(Format-Command $step)"
-  $measure = @{ WorkingDirectory = $repo; TimeoutSeconds = [int][Math]::Ceiling($StepMinutes * 60) }
+  if ($file -eq 'dotnet' -and -not $sdkPrinted) {
+    # Probe the effective .NET SDK once from $repo so global.json (allowPrerelease: false) applies even when
+    # check-all is launched from another working directory (D00 T07 §4).
+    $sdkOut = Join-Path $scratchRoot "bosun-check-all-sdk-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).out"
+    try {
+      $sdkRes = Measure-Job -FilePath $file -ArgumentList @('--version') -WorkingDirectory $repo -TimeoutSeconds 30 -OutputPath $sdkOut
+      $sdkText = if (Test-Path -LiteralPath $sdkOut) { Get-Content -LiteralPath $sdkOut -Raw -ErrorAction Ignore } else { '' }
+    } finally { Remove-Item -LiteralPath $sdkOut -Force -ErrorAction Ignore }
+    $sdkTrimmed = if ($sdkText) { $sdkText.Trim() } else { '' }
+    if ($sdkRes.TimedOut -or $sdkRes.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($sdkTrimmed)) {
+      if ($sdkTrimmed) { Write-GateLine $sdkTrimmed }
+      $reason = if ($sdkRes.TimedOut) { 'timed out after 30 s' } elseif ($sdkRes.ExitCode -ne 0) { "exit $($sdkRes.ExitCode)" } else { 'empty version output' }
+      Write-GateLine "FAIL dotnet-sdk: could not resolve .NET SDK via 'dotnet --version' in $repo ($reason)"
+      Write-ConsoleLine "log: $logPath"
+      exit 1
+    }
+    $sdkVersion = ($sdkTrimmed -split "`r?`n" | Where-Object { $_ -and $_.Trim() } | Select-Object -Last 1).Trim()
+    Write-GateLine "dotnet-sdk: $sdkVersion"
+    $sdkPrinted = $true
+  }
+  Write-GateLine "---- $($step.Name): $(Format-Command $step)"
+  $stepOut = Join-Path $scratchRoot "bosun-check-all-step-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).out"
+  $streamState = @{ Offset = [long]0 }
+  $drainOutput = {
+    if (-not (Test-Path -LiteralPath $stepOut)) { return }
+    $chunks = [Collections.Generic.List[byte[]]]::new()
+    $rs = [IO.File]::Open($stepOut, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+      if ($rs.Length -gt $streamState.Offset) {
+        $rs.Position = $streamState.Offset
+        $buf = [byte[]]::new(16384)
+        while (($n = $rs.Read($buf, 0, $buf.Length)) -gt 0) {
+          $slice = [byte[]]::new($n)
+          [Array]::Copy($buf, 0, $slice, 0, $n)
+          $chunks.Add($slice)
+          $streamState.Offset += $n
+        }
+      }
+    } finally { $rs.Dispose() }
+    foreach ($slice in $chunks) {
+      Write-ConsoleBytes $slice
+      Write-LogBytes $slice
+    }
+  }
+  $measure = @{
+    WorkingDirectory = $repo
+    TimeoutSeconds   = [int][Math]::Ceiling($StepMinutes * 60)
+    OutputPath       = $stepOut
+    OnTick           = $drainOutput
+  }
   if ($step.Queue -and $queue) {
     # The step runs under the queue through a small wrapper that marks the moment its turn comes. Until that mark
     # it may wait -QueueMinutes; from it, -StepMinutes counts, exactly as for a step that is not queued.
-    $mark = Join-Path ([IO.Path]::GetTempPath()) ("bosun-check-all-$PID-" + [guid]::NewGuid() + '.started')
+    $mark = Join-Path $scratchRoot ("bosun-check-all-$PID-" + [guid]::NewGuid() + '.started')
     # The command goes as one encoded argument, so `pwsh -File` cannot split one shaped like `-name:value`.
     $command = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject (@($file) + $arguments) -Compress)))
     $arguments = @('run', '--', 'pwsh', '-NoProfile', '-File', (Join-Path $PSScriptRoot 'lib/queued-step.ps1'), $mark, $command)
     $file = 'bosun'
     $measure.StartedPath = $mark
     $measure.QueueSeconds = [int][Math]::Ceiling($QueueMinutes * 60)
+    Write-GateLine "waiting $($step.Name): queued for a build slot"
+    $stepName = $step.Name
+    $measure.OnStarted = {
+      param([double]$waited)
+      Write-GateLine "started $($stepName): got build slot after $($waited.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) s"
+    }
   }
   try { $result = Measure-Job -FilePath $file -ArgumentList $arguments @measure }
-  finally { if ($measure.StartedPath) { Remove-Item -LiteralPath $measure.StartedPath -Force -ErrorAction Ignore } }
+  finally {
+    if ($measure.StartedPath) { Remove-Item -LiteralPath $measure.StartedPath -Force -ErrorAction Ignore }
+    Remove-Item -LiteralPath $stepOut -Force -ErrorAction Ignore
+  }
   if ($result.TimedOutInQueue) {
-    "FAIL $($step.Name): waited $QueueMinutes minutes for a queue slot and did not get one ($(Format-Command $step))"
+    Write-GateLine "FAIL $($step.Name): waited $QueueMinutes minutes for a queue slot and did not get one ($(Format-Command $step))"
+    Write-ConsoleLine "log: $logPath"
     exit 1
   }
   if ($result.TimedOut) {
-    "FAIL $($step.Name): stopped at its $StepMinutes minute limit, with everything it started ($(Format-Command $step))"
+    Write-GateLine "FAIL $($step.Name): stopped at its $StepMinutes minute limit, with everything it started ($(Format-Command $step))"
+    Write-ConsoleLine "log: $logPath"
     exit 1
   }
   if ($result.ExitCode -ne 0) {
-    "FAIL $($step.Name): exit $($result.ExitCode) from: $(Format-Command $step)"
+    Write-GateLine "FAIL $($step.Name): exit $($result.ExitCode) from: $(Format-Command $step)"
+    Write-ConsoleLine "log: $logPath"
     exit 1
   }
-  "ok   $($step.Name) ($($result.Seconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) s)"
+  Write-GateLine "ok   $($step.Name) ($($result.Seconds.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) s)"
 }
-"all $($steps.Count) steps passed in $([int]$started.Elapsed.TotalSeconds) s"
+Write-GateLine "all $($steps.Count) steps passed in $([int]$started.Elapsed.TotalSeconds) s"
+Write-ConsoleLine "log: $logPath"
 exit 0
+} catch {
+  if ($_.Exception.Data -and $_.Exception.Data['BosunLogWriteFailure']) {
+    Write-ConsoleLine "$($_.Exception.Message) (partial log: $logPath)"
+    exit 1
+  }
+  $failMsg = "FAIL check-all: $($_.Exception.Message)"
+  try { Write-GateLine $failMsg } catch { Write-ConsoleLine $failMsg; Write-ConsoleLine "$($_.Exception.Message) (partial log: $logPath)" }
+  Write-ConsoleLine "log: $logPath"
+  exit 1
 } finally {
   if ($wslenvChanged) {
     if ($null -eq $savedWslenv) { Remove-Item Env:WSLENV -ErrorAction Ignore } else { $env:WSLENV = $savedWslenv }
