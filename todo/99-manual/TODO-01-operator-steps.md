@@ -93,7 +93,7 @@ Unattended checks prove the parts. Only a person can say the whole thing is righ
 2. File what's wrong. Done when: gaps are sections or `todo/findings.md` entries.
 
 - [ ] Run `pwsh scripts/install.ps1` for the real install, then walk each rail page in `design/SPEC.md` on real work. Done when: every page has been used. Cheaper substitute: a checklist ticked without using it.
-- [ ] Watch the screen saver under the campaign's hold (`D00 T03 §28`): with a run started and the screen saver at its shortest timeout, the desktop neither blanks nor locks in twice that time. Done when: the result and the Windows build are recorded here (`-> XREF: D00 T03 §28`).
+- [ ] Watch the screen saver under the campaign's hold (`D00 T03 §28`): with a run started and the owner's own screen-saver settings (the preflight refuses one that locks on resume), the display stays on and the machine does not sleep through twice the display timeout. Done when: the result and the Windows build are recorded here (`-> XREF: D00 T03 §28`).
 - [ ] Commit: `manual: first attended walkthrough`
 
 **Test checkpoint:** `(Get-Item $env:LOCALAPPDATA\Bosun\panel\Bosun.Panel.exe).VersionInfo.ProductVersion` holds the installed commit, and the walkthrough note is committed.
