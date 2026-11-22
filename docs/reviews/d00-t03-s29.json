@@ -1,0 +1,105 @@
+{
+  "ref": "D00 T03 \u00a729",
+  "title": "Antigravity waits see their result within seconds",
+  "implementation_sha": "4bbfc06e269925a9bf682112ac78bd8b3bc1a10a",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts.tests.test_run_guard -> Ran 126 tests, OK",
+    "mutations: look ignoring an ending, the hook not ending a woken hold, the handoff dropped, and the cant-tell carry dropped -> each fails its test",
+    "CI full gate at 4bbfc06: build.yml green https://github.com/rizonesoft/Bosun/actions/runs/44991790012, plan.yml green https://github.com/rizonesoft/Bosun/actions/runs/44991790010"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+    "verdict": "filed",
+    "candidate": "d0ebae042bf03eafe7c47929c1f0271a4e6928fd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D00 T03 \u00a730"
+    ]
+  },
+  "rounds_spent": 5,
+  "cap_outcome": "round 5 returned one P3 (the mixed review and local gate test used two local gates); fixed in d0ebae0 with real review and gate marks, then the completion review ran on the final candidate",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s29.md",
+    "candidate": "2842fd619c16a0ddaa33f0beabdf3e31abd529a3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "2842fd619c16a0ddaa33f0beabdf3e31abd529a3",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
