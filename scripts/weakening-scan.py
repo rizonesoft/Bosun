@@ -124,8 +124,12 @@ def relaxed_checker(old, new):
     def load(lines):
         if lines is None:
             return {}
+        # JSON with comments and trailing commas, as pyright reads it (round 4 of D00 T07 §2: a comment-only change
+        # read as unparsable, and so shared one answer with a later exclusion). Strings are kept whole.
+        text = re.sub(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', lambda m: m[0] if m[0].startswith('"') else "",
+                      "\n".join(lines), flags=re.S)
         try:
-            data = json.loads("\n".join(lines))
+            data = json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
         except ValueError:
             return None
         return data if isinstance(data, dict) else None
@@ -144,7 +148,11 @@ def relaxed_checker(old, new):
         if set(after.get(key) or []) - set(before.get(key) or []):
             reasons.append(f"{key} path added")
     mode = after.get("typeCheckingMode", "standard")
-    if MODES.get(mode, 0) < MODES.get(before.get("typeCheckingMode", "standard"), 0):
+    for side in (before, after):  # one of pyright's modes, else what it checks is unknown (round 4 of §2)
+        value = side.get("typeCheckingMode", "standard")
+        if not isinstance(value, str) or value not in MODES:
+            return ["typeCheckingMode is not one of off, basic, standard and strict"]
+    if MODES[mode] < MODES[before.get("typeCheckingMode", "standard")]:
         reasons.append(f"typeCheckingMode={json.dumps(mode)} lowered")  # its value, so basic and off are two answers
     def rules(data, where=""):
         """Every report* setting, at the top level and in each executionEnvironments entry, by where it applies."""
@@ -154,7 +162,17 @@ def relaxed_checker(old, new):
                 found.update(rules(env, f"executionEnvironments[{env.get('root', n)}]."))
         return found
     old_rules, new_rules = rules(before), rules(after)
-    for key, value in new_rules.items():
+    for key, value in [*old_rules.items(), *new_rules.items()]:  # a severity is a word or a flag, nothing else
+        if not isinstance(value, (bool, str)):
+            return [f"{key} is not a severity"]
+    for key in sorted(set(old_rules) | set(new_rules)):
+        if key not in new_rules:
+            # An override taken out restores the mode's default, which may be weaker; it is said, since the default
+            # is not known here (round 4 of D00 T07 §2: only keys present after the edit were compared).
+            if SEVERITY.get(old_rules[key], 3) > 0:
+                reasons.append(f"{key}={json.dumps(old_rules[key])} override removed")
+            continue
+        value = new_rules[key]
         # Weaker than before, by rank, so a rule raised from none to warning is not a weakening (round 2 of §2).
         if SEVERITY.get(value, 3) < SEVERITY.get(old_rules.get(key, "error"), 3):
             reasons.append(f"{key}={json.dumps(value)} lowered")

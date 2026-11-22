@@ -303,6 +303,20 @@ class Kinds(Repo):
                                               ['{', '  "exclude": ["build", {"root": "scripts"}]', '}']),
                          ["exclude is not a list of paths"])
 
+    def test_the_config_is_read_as_pyright_reads_it(self):
+        # Round 4 of D00 T07 §2: a comment read as unparsable, a deleted override went unseen, a bad mode raised.
+        reasons = scan.relaxed_checker
+        base = ['{', '  "include": ["scripts"],', '  "reportUnusedImport": "error"', '}']
+        commented = ['{', '  // generated folders stay out', '  "include": ["scripts"],', '  "reportUnusedImport": "error",', '}']
+        self.assertEqual(reasons(base, commented), [])  # a comment and a trailing comma change nothing
+        excluded = commented[:-1] + ['  "exclude": ["scripts"]', '}']
+        self.assertEqual(reasons(base, excluded), ["exclude path added: scripts"])  # its own answer, not the comment's
+        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"]', '}']), ['reportUnusedImport="error" override removed'])
+        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": ["basic"]', '}']),
+                         ["typeCheckingMode is not one of off, basic, standard and strict"])
+        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"],', '  "reportUnusedImport": ["none"]', '}']),
+                         ["reportUnusedImport is not a severity"])
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")
