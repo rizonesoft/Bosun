@@ -90,7 +90,16 @@ function Start-Hold {
   $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
   try {
     $holder = [Diagnostics.Process]::Start($info)
-    $said = $holder.StandardOutput.ReadLine()
+    # Bounded: the holder writes its record before it answers, and a start is never blocked by the hold (round 2 of
+    # D00 T03 §28), so one that does not answer in time is stopped and the writer starts anyway.
+    $answer = $holder.StandardOutput.ReadLineAsync()
+    $seconds = if ($env:BOSUN_TEST_HOLD_ANSWER_SECONDS) { [double]$env:BOSUN_TEST_HOLD_ANSWER_SECONDS } else { 30 }
+    if (-not $answer.Wait([TimeSpan]::FromSeconds($seconds))) {
+      & taskkill.exe /T /F /PID $holder.Id 2>&1 | Out-Null
+      "hold: the holder gave no answer within $seconds seconds and was stopped, so the machine may sleep during the run"
+      return $null
+    }
+    $said = $answer.Result
   } catch {
     "hold: the holder could not start ($($_.Exception.Message)), so the machine may sleep during the run"
     return $null

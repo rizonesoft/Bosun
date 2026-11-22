@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $holder = Join-Path $repo 'scripts\lib\hold-awake.ps1'
 $pwsh = Join-Path $PSHOME 'pwsh.exe'
-$work = Join-Path ([IO.Path]::GetTempPath()) "bosun-hold-awake-$PID"
+$work = Join-Path ($env:BOSUN_SCRATCH ? $env:BOSUN_SCRATCH : [IO.Path]::GetTempPath()) "bosun-hold-awake-$PID"
 New-Item -ItemType Directory -Force $work | Out-Null
 $failed = 0
 function Check($ok, $what) { if ($ok) { "ok   $what" } else { "FAIL $what"; $script:failed++ } }

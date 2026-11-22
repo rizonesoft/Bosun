@@ -237,6 +237,17 @@ exit ([int]$env:FAKE_WRITER_EXIT)
       Start-Sleep -Milliseconds 1000
       Check ($saw -match '^alive \d+$' -and ($said -match '^hold: the machine stays awake') -and -not (Get-Process -Id $record.pid -ErrorAction Ignore) -and -not $shell.HasExited) "$($case.Name): the holder held before the writer started and was gone within a second of it returning, the shell still open ($saw)"
     }
+    # A holder that does not answer is stopped at its bound and the writer starts anyway (round 2 of D00 T03 §28).
+    $build = Join-Path $holdDir 'build-stall'
+    New-Item -ItemType Directory -Force $build | Out-Null
+    $env:RUN_GUARD_BUILD = $build; $env:FAKE_WRITER_SECONDS = '1'; $env:FAKE_WRITER_EXIT = '0'
+    $env:BOSUN_TEST_HOLD_STALL = '60'; $env:BOSUN_TEST_HOLD_ANSWER_SECONDS = '2'
+    Remove-Item -LiteralPath $holdState -ErrorAction Ignore
+    try { $shell = Invoke-Kept @(); $shells += $shell; $said = Wait-Done $shell }
+    finally { Remove-Item Env:BOSUN_TEST_HOLD_STALL, Env:BOSUN_TEST_HOLD_ANSWER_SECONDS -ErrorAction Ignore }
+    $saw = "$(Get-Content -LiteralPath (Join-Path $build 'writer-saw.txt') -Raw -ErrorAction Ignore)".Trim()
+    $stalled = @(Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe'" | Where-Object { $_.CommandLine -match [regex]::Escape($build) -and $_.CommandLine -match 'hold-awake' })
+    Check (($said -match 'the holder gave no answer within 2 seconds and was stopped') -and $saw -eq 'none' -and $stalled.Count -eq 0) "a holder that does not answer is stopped at its bound and the writer still starts ($($said -match '^hold:'))"
     # A timed hold, with a six-second minute: held, then gone while the writer runs on.
     $build = Join-Path $holdDir 'build-timed'
     New-Item -ItemType Directory -Force $build | Out-Null

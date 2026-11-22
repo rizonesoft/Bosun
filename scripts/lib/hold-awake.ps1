@@ -64,6 +64,7 @@ $acquired = $previous -ne 0
 $why = if ($acquired) { $null } else { "SetThreadExecutionState refused the request (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" }
 $fields = @{ pid = $PID; parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
 if ($why) { $fields.why = $why }
+if ($env:BOSUN_TEST_HOLD_STALL) { Start-Sleep -Seconds ([int]$env:BOSUN_TEST_HOLD_STALL) }
 $unrecorded = $null
 try { Save-Hold $fields } catch { $unrecorded = "$($_.Exception.Message)" }
 # One line for the launcher: held or failed, and a record that could not be written, since a reader (the preflight)
