@@ -130,6 +130,8 @@ depends_on: ["private-overlay"]
 
 **Test checkpoint:** `python scripts/findings-ledger.py --base b8c4e0b3 --lines 76-111 --cite-lines --record docs/reviews/00-workspace/D00-T06-s3.md` exits 0 (**corrected 2026-11-22, plan review of §3**) (every entry open on those lines at `b8c4e0b3` is in the file once, struck, with a disposition that resolves), and `python scripts/todo-graph.py validate` exits 0. **Corrected 2026-11-21 (plan review of §1):** it checked physical lines for a strike marker, which a deleted or ownerless entry passes.
 
+> **Repair cycle:** 1: 2026-11-22: the recurrence cap of 3 was reached on the owning-item class of scripts/findings-ledger.py (rounds 4 to 6), now a closed grammar in a56a682; the repair cycle re-reviews the section on it (after: a finding recurred in 3 of its review rounds, so the fixes aren't converging)
+
 ## 4. Open findings, part 4 of 6
 
 `todo/findings.md` holds defects and suggestions noticed while building other sections. Unscheduled, they block nothing and are never built, so the plan is not complete while any stays open. This section settles the open findings on lines 112 to 146 (as of `b8c4e0b3`), 35 entries.
