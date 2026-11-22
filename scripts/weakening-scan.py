@@ -56,9 +56,11 @@ import argparse
 import ast
 from collections import Counter, defaultdict
 import hashlib
+import io
 import re
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -232,6 +234,20 @@ def enclosing_case(lines, number):
         if lines[index].strip() and len(lines[index]) - len(lines[index].lstrip()) < indent and not found:
             indent = len(lines[index]) - len(lines[index].lstrip())
     return None
+
+
+def own_relaxations(lines, added):
+    """The added lines of a Python file whose real comment relaxes a check (a noqa, type: ignore or pyright
+    directive), found by the tokenizer and so never in a string, as in the fixtures of the scan's own tests (round 7 of
+    D00 T07 §2: those files were not checked for it at all). A file that does not tokenize reports none here."""
+    found = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO("\n".join(lines or []) + "\n").readline):
+            if token.type == tokenize.COMMENT and token.start[0] in added and RELAX.search(token.string):
+                found.add(token.start[0])
+    except (tokenize.TokenError, SyntaxError):
+        return []
+    return sorted(found)
 
 
 def own_skips(lines, added):
@@ -456,6 +472,8 @@ def scan(changes):
             # applies to them as to any test.
             for number in own_skips(change.new, {number for number, _ in change.added}):
                 signals.append(Signal("skip-added", path, line_id(change.new, number)))
+            for number in own_relaxations(change.new, {number for number, _ in change.added}):
+                signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
             continue
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):

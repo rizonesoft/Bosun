@@ -301,6 +301,16 @@ class Kinds(Repo):
         self.git("commit", "-q", "--allow-empty", "-m", "answer it", "-m", f"Weakening scan: warning-relaxed {signal} -- checked")
         self.assertEqual(self.run_scan("--base", self.base, "--head", "HEAD")[0], 0)  # its fingerprinted answer does
 
+    def test_the_scan_s_own_files_are_read_for_real_suppressions(self):
+        # Round 7 of D00 T07 §2: the scan's own files skipped every line pattern, so a real pyright comment there was
+        # never seen. Real comments are read by the tokenizer; the same words in a fixture string stay quiet.
+        own = "scripts/tests/test_weakening_scan.py"
+        self.write(own, "FIXTURE = 'x = 1  # pyright: ignore'\n")
+        self.base = self.commit("the scan's own test")
+        self.edit(own, "FIXTURE = 'x = 1  # pyright: ignore'\n",
+                  "FIXTURE = 'x = 1  # pyright: ignore'\nOTHER = 'y = 2  # type: ignore'\nprobe: int = 'bad'  # pyright: ignore\n")
+        self.assertEqual(self.signals(self.commit("suppress in the scan's own test"))[1], [f"warning-relaxed {own}:L3"])
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")
@@ -400,7 +410,8 @@ class Kinds(Repo):
                 "    def test_another_rule(self):\n        self.assertTrue(True)\n")
 
     def test_the_patterns_the_scan_s_own_files_hold_as_text_are_not_flagged(self):
-        self.write("scripts/weakening-scan.py", 'SKIP = "skipTest("  # noqa\n')
+        # Patterns held as text, in strings as the scan's rules hold them; a real comment would be its own signal (round 7).
+        self.write("scripts/weakening-scan.py", 'SKIP = "skipTest("\nNOQA = "# noqa"\n')
         self.write(self.OWN_TEST, self.OWN_TEXT)
         self.commit("the scan and its test")
         self.assertEqual(self.signals(), (0, []))
