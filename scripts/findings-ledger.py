@@ -150,7 +150,7 @@ def citation_problem(cited, root):
     return None
 
 
-def record_problem(n, entries, struck, record, resolver=None, root=None):
+def record_problem(n, entries, struck, record, resolver=None, root=None, classify=False):
     """Why the classification of base line `n` does not stand beside its strike, or None."""
     if not entries:
         return "has no classification line (- %d: ...) in %s" % (n, record)
@@ -161,6 +161,11 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     if not m:
         return ("has a classification line without its evidence in %s (line %d): it must read "
                 "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
+    if classify and not re.match(r"(a defect|a suggestion|already fixed|superseded)\b", m.group(5)):
+        # The classification itself, not only the disposition: a scheduled defect and a scheduled suggestion read
+        # alike without it (the plan review of D00 T06 §6).
+        return ("does not say what it is in %s (line %d): its evidence begins `a defect`, `a suggestion`, "
+                "`already fixed` or `superseded`" % (record, at))
     if root is not None:
         cited = citation_problem(m.group(4), root)
         if cited:
@@ -229,8 +234,9 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
         elif code not in (0, 4):
             return "%s is not an open section (resolve exit %d)" % (refs[0], code)
         key = finding_file(entry)
-        if key and key not in body.replace("\\", "/"):
-            return "%s does not name %s, so it does not visibly own this finding" % (refs[0], key)
+        for named in finding_files(entry):
+            if named not in body.replace("\\", "/"):
+                return "%s does not name %s, so it does not visibly own this finding" % (refs[0], named)
         if cite_lines and line not in item_citations(body):
             return "%s has no checklist item citing base line %d, so no item of it visibly owns this finding" % (refs[0], line)
         if not key and not re.search(r"findings base line %d(?!\d)" % line, body):
@@ -264,7 +270,20 @@ def finding_file(entry):
     return word.replace("\\", "/")
 
 
-def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, record=None):
+def finding_files(entry):
+    """Every file a finding is about: each path-like backticked name in its head, the text before its first `: `
+    (`src/app.cpp` and `wsl/bosun_log.py` for base line 205), else its one `finding_file` (the plan review of D00 T06
+    §6: an owner of the first alone left the other platform unchecked)."""
+    text = entry[2:] if entry.startswith("- ") else entry
+    head = re.split(r":\s", text, maxsplit=1)[0]
+    named = [re.split(r":\d", n)[0].replace("\\", "/") for n in re.findall(r"`([^`]+)`", head)]
+    # A path, or a name with a file's extension; a token such as `light.Accent` or `.git` is not a file.
+    files = [n for n in named if " " not in n and not n.startswith(".") and (
+        "/" in n or re.search(r"\.(cs|cpp|hpp|h|py|ps1|psm1|js|mjs|ts|json|md|xaml|toml|ya?ml|txt|slnx|csproj|props|targets|sh|cmd|bat|ico|png|svg)$", n))]
+    return list(dict.fromkeys(files)) or ([finding_file(entry)] if finding_file(entry) else [])
+
+
+def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, record=None, classify=False):
     if first < 1 or first > last:
         print("findings-ledger: the range %d-%d is empty or reversed; give first-last with first at least 1" % (first, last))
         return 2
@@ -295,7 +314,7 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
             why = problem(text, hits[0][len(struck):], root, resolver, n, cite_lines)
             if not why and classified is not None:
                 # The classification must say what the strike says, once, with its evidence (D00 T06 §3).
-                why = record_problem(n, classified.get(n, []), hits[0][len(struck):], record, resolver, root)
+                why = record_problem(n, classified.get(n, []), hits[0][len(struck):], record, resolver, root, classify)
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))
@@ -317,6 +336,8 @@ def main(argv=None):
     parser.add_argument("--lines", required=True, help="first-last, 1-based, inclusive")
     parser.add_argument("--cite-lines", action="store_true", help="a scheduled owner must cite the finding's base line")
     parser.add_argument("--record", help="the classification whose `- N: <disposition>` lines must agree with each strike")
+    parser.add_argument("--classify", action="store_true",
+                        help="with --record, each line's evidence begins with its classification: a defect, a suggestion, already fixed or superseded")
     args = parser.parse_args(argv)
     m = re.fullmatch(r"(\d+)-(\d+)", args.lines)
     if not m:
@@ -324,7 +345,7 @@ def main(argv=None):
     sys.path.insert(0, str(ROOT / "scripts" / "lib"))
     from todo_graph import Refused
     try:
-        return check(args.base, int(m.group(1)), int(m.group(2)), cite_lines=args.cite_lines, record=args.record)
+        return check(args.base, int(m.group(1)), int(m.group(2)), cite_lines=args.cite_lines, record=args.record, classify=args.classify)
     except (Refused, OSError, ValueError) as exc:  # an invalid plan or an unreadable file: incomplete, as todo-graph.py has it
         print("findings-ledger: cannot check: %s" % exc)
         return 2

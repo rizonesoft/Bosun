@@ -154,6 +154,41 @@ class FindingsLedgerTest(unittest.TestCase):
                 self.assertEqual(code, 0 if settled else 1, out)
                 self.assertIn(says, out)
 
+    def test_an_owner_names_every_file_the_finding_names(self):
+        # The plan review of D00 T06 §6: base lines 205 and 206 name src/app.cpp and wsl/bosun_log.py; an owner of the
+        # first alone left the WSL side unchecked.
+        self.assertEqual(ledger.finding_files("- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."),
+                         ["src/app.cpp", "wsl/bosun_log.py"])
+        self.assertEqual(ledger.finding_files("- `design/tokens/colors.json`: `light.Accent` is low."), ["design/tokens/colors.json"])
+        entry = "- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."
+        for body, settled in (("Fix `src/app.cpp`.\n\n- [ ] Fix it (base line 5).", False),
+                              ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix both (base line 5).", True)):
+            with self.subTest(body=body):
+                why = ledger.problem(entry, "Scheduled: D09 T01 §1.", str(self.root), lambda ref, root: (0, body), line=5, cite_lines=True)
+                self.assertEqual(why is None, settled, why)
+                if not settled:
+                    self.assertIn("does not name wsl/bosun_log.py", why)
+
+    def test_classify_requires_the_classification_on_each_line(self):
+        # The plan review of D00 T06 §6: a scheduled defect and a scheduled suggestion read alike without it.
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        record = self.root / "classification.md"
+        owner = "Fix `scripts/a.py`.\n\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Commit: x"
+        resolver = lambda ref, root: (0, owner) if ref == "D09 T01 §1" else fake_resolve(ref, root)
+        lines = {5: "- 5: Scheduled: D09 T01 §1 (item 1, the fix). Inspected `scripts/a.py:1`: {} it is still true.",
+                 6: "- 6: Declined: a one-off script nobody runs again (no use after it). Inspected `scripts/b.py:1`: {} it runs once.",
+                 8: "- 8: Done: D09 T01 §3 shipped it (it does it now). Inspected `scripts/d.py:1`: {} it does it now."}
+        for words, classify, settled, says in (
+                (("a defect,", "a suggestion,", "already fixed,"), True, True, ""),
+                (("", "a suggestion,", "already fixed,"), True, False, "base line 5: does not say what it is"),
+                (("maybe a bug,", "a suggestion,", "already fixed,"), True, False, "base line 5: does not say what it is"),
+                (("", "", ""), False, True, "")):
+            with self.subTest(words=words, classify=classify):
+                record.write_text("# C\n\n" + "\n".join(lines[n].format(w).replace(":  ", ": ") for n, w in zip((5, 6, 8), words)) + "\n", encoding="utf-8")
+                code, out = self.checked(resolver, record=record, classify=classify)
+                self.assertEqual(code, 0 if settled else 1, out)
+                self.assertIn(says, out)
+
     def test_a_strike_and_classification_with_no_disposition_are_said_not_crashed(self):
         # D00 T06 §5: struck and classified alike with no disposition, the record check raised a TypeError.
         self.settle("Fine now.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
