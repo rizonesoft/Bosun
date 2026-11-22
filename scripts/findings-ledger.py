@@ -131,9 +131,11 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
         # A closed grammar, not a parser of the spellings seen so far (rounds 3 to 5 of D00 T06 §3, one class): the
-        # evidence begins with exactly `item N` or `items N, M and K`, then a comma or its end, and names no item
+        # evidence begins with exactly `item N` or `items N and M`, then a comma before a word or its end, and names no item
         # anywhere after; a range, a repeated `item` or anything else is refused, never partly read.
-        owners = re.match(r"items? (\d+(?:(?:, | and |, and )\d+)*)(?=,|$)", m.group(3))
+        # One separator, `and`, so a comma is only ever the boundary, and the boundary is the end or a comma before a
+        # word, never before a number (round 6 of D00 T06 §3: a comma serving as both let `items 2, 3 to 4` be half read).
+        owners = re.match(r"(item \d+|items \d+(?: and \d+)+)(?=$|, [^\W\d])", m.group(3))
         rest = m.group(3)[owners.end():] if owners else ""
         named = [int(k) for k in re.findall(r"\d+", owners.group(1))] if owners else []
         if not owners or re.search(r"\bitems?\b", rest, re.IGNORECASE):

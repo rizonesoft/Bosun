@@ -104,7 +104,7 @@ class FindingsLedgerTest(unittest.TestCase):
     def test_the_classification_must_agree_with_every_strike(self):
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
         record = self.root / "classification.md"
-        owner = "Fix `scripts/a.py`.\n\n- [ ] Something else (base line 9).\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Commit: x"
+        owner = "Fix `scripts/a.py`.\n\n- [ ] Something else (base line 9).\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Test it (base line 5).\n- [ ] Commit: x"
         resolver = lambda ref, root: (0, owner) if ref == "D09 T01 §1" else fake_resolve(ref, root)
         good = {5: "- 5: Scheduled: D09 T01 §1 (item 2, the fix). Inspected `scripts/a.py:1`: the first finding is still true.",
                 6: "- 6: Declined: one-off (a one-off script nobody runs again). Inspected `scripts/b.py`: it runs once.",
@@ -129,7 +129,11 @@ class FindingsLedgerTest(unittest.TestCase):
                 ([good[5].replace("item 2, the fix", "item 2, the fix, and item 1 too"), good[6], good[8]], False, "base line 5: is scheduled in"),
                 # Round 5: a range, which a prefix parser reads as its first number only.
                 ([good[5].replace("item 2,", "items 2 to 3,"), good[6], good[8]], False, "base line 5: is scheduled in"),
-                ([good[5].replace("item 2,", "items 2 and 1,"), good[6], good[8]], False, "base line 5: is scheduled in")):
+                ([good[5].replace("item 2,", "items 2 and 1,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                # Round 6: a comma read as both separator and boundary.
+                ([good[5].replace("item 2,", "items 2, 3 to 4,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                ([good[5].replace("item 2,", "item 2, 3,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                ([good[5].replace("item 2,", "items 2 and 3,"), good[6], good[8]], True, "")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)
