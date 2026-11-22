@@ -132,6 +132,8 @@ def citation_problem(cited, root):
         _TRACKED[root] = set(listed.stdout.split("\0")) if listed.returncode == 0 else set()
     if path not in _TRACKED[root]:
         return "not a file git tracks in this checkout (give its repository-relative path)"
+    if not (Path(root) / path).is_file():  # tracked, but renamed or removed in the working tree (cycle 2, round 2)
+        return "tracked, but not in the working tree (renamed or removed): cite the file as it is now"
     if first:
         count = len((Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines())
         lines = [int(first)] + ([int(last)] if last else [])

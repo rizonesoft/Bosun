@@ -38,10 +38,10 @@ title: "TODO-05 -- Shell follow-ups"
 | 5 | §5 | Icons checked at every scale and under colour-vision simulation | §4 | [ ] |
 | 6 | §6 | Process runner measured against asynchronous pipes | -- | [ ] |
 | 7 | §7 | Runner badges and the tray cue recognised by people at a glance | §4, §5 | [ ] |
-| 8 | §8 | Render catalog: a review report, readable companions, progress and an honest Shows | -- | [ ] |
+| 8 | §8 | Render catalog: review report, readable companions, progress, honest Shows | -- | [ ] |
 | 9 | §9 | Controls measured, and motion through one helper | -- | [ ] |
 | 10 | §10 | The crash notice copies a redacted report and names its buttons | -- | [ ] |
-| 11 | §11 | Test host: a named crash, no error reports, kept evidence, a measured smoke | -- | [ ] |
+| 11 | §11 | Test host: a named crash, no error reports, kept evidence, timed smoke | -- | [ ] |
 | 12 | §12 | Async commands say they are running and can be cancelled | -- | [ ] |
 | 13 | §13 | The panel starts fast, answers a hung first launch, and opens at a page | -- | [ ] |
 | 14 | §14 | Refresh says when and how it went, and a failure can be copied | -- | [ ] |
@@ -203,7 +203,7 @@ Filed 2026-11-22 by the completion review of `D00 T06 §2` from `todo/findings.m
 **Treatment:** a timed showing with real viewers. Cheaper substitute that fails: a colour-difference number standing in for recognition.
 **Chrome:** the icons from `scripts/build-icons.py`; nothing new drawn for the test.
 
-## 8. Render catalog: a review report, readable companions, progress and an honest Shows
+## 8. Render catalog: review report, readable companions, progress, honest Shows
 
 Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 76 to 79, completion reviews of `D02 T02 §9`). `WriteAll` in `tests/Bosun.Panel.Tests/Render/RenderCatalog.cs` writes only the PNGs and their JSON index, keeps every case's decoded pixels for a theme and reports nothing until it ends; `Shows` in `tests/Bosun.Panel.Tests/Render/PageRenderer.cs` (`Texts`) counts text that is transparent, clipped away or covered.
 
@@ -275,7 +275,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 84 and 86,
 **Treatment:** a task dialog with named actions. Cheaper substitute that fails: Yes and No with a longer sentence.
 **Chrome:** the system task dialog; no custom window.
 
-## 11. Test host: a named crash, no error reports, kept evidence, a measured smoke
+## 11. Test host: a named crash, no error reports, kept evidence, timed smoke
 
 Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 89, 90, 104 and 105). One full test run in about 25 ended with a heap-corruption exit and no dump (`tests/Bosun.Panel.Tests`, 2026-11-15); each crash test leaves a Windows error report (`tests/Bosun.Panel.TestChild/Program.cs`, `crash-thread`); a failed smoke test deletes its own folder (`tests/Bosun.Panel.E2E/PanelProcess.cs`, `Dispose`); and the smoke's duration is unmeasured.
 

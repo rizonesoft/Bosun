@@ -151,6 +151,22 @@ class FindingsLedgerTest(unittest.TestCase):
                 self.assertEqual(code, 0 if settled else 1, out)
                 self.assertIn(says, out)
 
+    def test_a_tracked_file_gone_from_the_working_tree_is_said_not_crashed(self):
+        # Cycle 2, round 2 of D00 T06 §3: tracked by git but renamed or removed on disk, with and without a line.
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        owner = "Fix `scripts/a.py`.\n\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Commit: x"
+        resolver = lambda ref, root: (0, owner) if ref == "D09 T01 §1" else fake_resolve(ref, root)
+        (self.root / "scripts" / "a.py").unlink()  # still in git's index
+        record = self.root / "classification.md"
+        for cited in ("`scripts/a.py`", "`scripts/a.py:1`"):
+            with self.subTest(cited=cited):
+                record.write_text("# C\n\n- 5: Scheduled: D09 T01 §1 (item 1, the fix). Inspected " + cited + ": it is gone.\n"
+                                  "- 6: Declined: one-off (a one-off). Inspected `scripts/b.py`: it runs once.\n"
+                                  "- 8: Done: D09 T01 §3 (shipped it). Inspected `scripts/d.py`: done.\n", encoding="utf-8")
+                ledger._TRACKED.clear()
+                code, out = self.checked(resolver, record=record)
+                self.assertEqual(code, 1, out)
+                self.assertIn("tracked, but not in the working tree", out)
     def test_a_row_settled_before_the_base_stays_as_it_was(self):
         # Cycle 2 of D00 T06 §3: base line 7 was struck before the base; changing or removing it fails the range.
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")

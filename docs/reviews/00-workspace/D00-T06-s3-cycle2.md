@@ -56,3 +56,30 @@ OVERALL: needs-attention
 HIGHEST: P1  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 2: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:26:38Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: consistency
+- Seconds: 47
+- Lines: 10
+- Digest: 3b97d68cb415f39a
+
+## consistency
+
+**needs-attention**
+
+1. **P2** `scripts/findings-ledger.py:133` treats Git index membership as proof that the cited file exists in the current checkout. In a disposable checkout, rename `src/Bosun.Panel/Theme/Controls.xaml` without staging the rename, then run the section’s ledger checkpoint for base line 81. Its path-only citation still passes because `git ls-files` lists the old name. Run the same checkpoint for base line 83, which cites the same file with a line number, and `read_text()` raises `FileNotFoundError` instead of reporting the invalid citation. Both forms should produce the ledger’s normal finding-specific diagnostic for a missing file.
+2. **P3** `todo/02-shell/TODO-05-shell-follow-ups.md:41` exceeds the repository’s 100-character limit for Markdown table rows. I measured 106 characters on line 41 and 101 on line 44. Reproduce with `rg -n '^\|.{100,}$' todo/02-shell/TODO-05-shell-follow-ups.md`.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention
