@@ -410,21 +410,15 @@ def started_record(state, sha):
 INTERRUPTED = "the gate stopped before GitHub answered the start"
 
 
-def tied_run(entry, accepted_at):
-    """The run a start became: the commit's newest run, made by workflow_dispatch no earlier than GitHub accepted the
-    start; never an older run, a cancelled dispatch included (round 1 of D00 T03 §27)."""
-    run = entry.get("newest_run") or {}
-    if run.get("event") == "workflow_dispatch" and accepted_at and str(run.get("createdAt") or "") >= accepted_at:
-        return run
-    return None
-
-
-def unanswered_text(name, why, branch):
+def unanswered_text(name, why, branch, sha=None):
+    # Look first, then start only if nothing is listed: the start may be running (the completion review of D00 T03 §27).
+    look = f"gh run list --workflow {name} --commit {sha}" if sha else f"gh run list --workflow {name} --branch {branch}"
     return (f"the start of {name} got no clear answer ({why}), so it may be running and won't be started again for "
-            f"this commit; if no run appears: gh workflow run {name} --ref {branch}")
+            f"this commit; check `{look}`, and only if it lists no run: gh workflow run {name} --ref {branch}")
 
 
-def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None, hold=lambda: False, now=time.time):
+def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=None, hold=lambda: False, now=time.time,
+            refusals=None):
     """What can be done about workflows with no run and no proof, added to the report. With `gate` it starts each one
     once, but only while the branch's remote head is this commit; while `hold()` says so it starts none yet and names
     them under `holding`, since the push's own run may be about to be listed. `hold` is asked after the remote head has
@@ -434,14 +428,10 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     for key in ("recovery", "started", "started_at", "moved_to", "not_pushed", "recovery_error", "holding",
                 "start_refused", "start_unanswered", "head_unread"):
         result.pop(key, None)
+    refusals = {} if refusals is None else refusals
     if not missing:
-        # Every workflow has a run now; one the gate started is named with the run it became (D00 T03 §27).
-        if gate and sha:
-            accepted = started_record(read_gate(path), sha).get("accepted", {})
-            entries = {e["workflow"]: e for e in result["workflows"]}
-            tied = [name for name, at in accepted.items() if name in entries and tied_run(entries[name], at)]
-            if tied:
-                result["started"], result["started_at"] = tied, {name: accepted[name] for name in tied}
+        # Every workflow has a run now, shown on its own line. No run is credited to a start: GitHub's dispatch returns
+        # no run identity, so any pairing is a guess, which twice named the wrong run (round 1 and the completion review).
         return
     if not sha:
         # Judging the branch itself, so whatever it holds is what should run.
@@ -469,11 +459,17 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     if not gate:
         # A read-only look (the preflight's) consults the gate's record first: a workflow a gate already started or
         # asked to start, answered or not, may be about to run, so it is reported as such and never offered as a
-        # command, which could run it twice (round 2 of D00 T03 §27).
-        record = started_record(read_gate(path), sha)
+        # command, which could run it twice (round 2 of D00 T03 §27); and a record lost since the last green offers
+        # nothing, since what was started is then unknown (the completion review).
+        state = read_gate(path)
+        if state.get(HISTORY_LOST):
+            result["recovery_error"] = (f"{path.name} could not be read since the last green, so what was started for "
+                                        f"this commit is unknown; check `gh run list --commit {sha}` before starting anything")
+            return
+        record = started_record(state, sha)
         accepted = record.get("accepted", {})
         asked = [name for name in missing if name in record["workflows"]]
-        pending = {name: unanswered_text(name, record["unanswered"].get(name) or INTERRUPTED, branch)
+        pending = {name: unanswered_text(name, record["unanswered"].get(name) or INTERRUPTED, branch, sha)
                    for name in asked if name not in accepted}
         if pending:
             result["start_unanswered"] = pending
@@ -487,7 +483,7 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     if hold():
         result["holding"] = missing
         return
-    errors, refused, unanswered = [], {}, {}
+    errors, refused, unanswered, accepted_now = [], dict(refusals), {}, {}
     for name in missing:
         if expired():
             errors.append(f"the wait ran out before {name} could be started")
@@ -506,8 +502,8 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
                               f"gh workflow run {name} --ref {branch}")
                 continue
             record = started_record(state, sha)
-            if name in record["workflows"]:
-                continue
+            if name in record["workflows"] or name in refusals:
+                continue  # already asked for; or refused in this invocation, which is reported, not retried each look
             record["workflows"].append(name)
             state["started"] = record
             if not write_gate(path, state):
@@ -519,15 +515,18 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
             code, out, err = None, "", str(exc)
         if code == 0:
             print(f"recovery: started {name} on {branch} at {sha}", file=sys.stderr)
-            # Accepted, and when: only this makes it a confirmed start, and only a run made after it is the one it became.
+            # Accepted, and when: only this makes a reservation a confirmed start. GitHub said yes either way; a record
+            # that can't be saved is said apart, so this run reports the start it made (the completion review).
+            at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now()))
+            accepted_now[name] = at
             with gate_lock(path) as held:
                 state = read_gate(path)
                 record = started_record(state, sha)
-                record.setdefault("accepted", {})[name] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now()))
+                record.setdefault("accepted", {})[name] = at
                 state["started"] = record
                 saved = held and write_gate(path, state)
             if not saved:
-                unanswered[name] = "GitHub accepted it, but the gate could not record that"
+                result.setdefault("unrecorded", []).append(name)
             continue
         reason = (err or out or "").strip().splitlines()
         why = (reason[0] if reason else "no output")[:MAX_MESSAGE]
@@ -539,7 +538,7 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
                 record["workflows"] = [w for w in record["workflows"] if w != name]
                 state["started"] = record
                 write_gate(path, state)
-            refused[name] = f"gh workflow run exited {code}: {why}"
+            refused[name] = refusals[name] = f"gh workflow run exited {code}: {why}"
         else:
             # No answer either way: GitHub may have accepted it. Starting again could run it twice, so it stays recorded,
             # with what was said, so every later look and a restart still report that it was never confirmed.
@@ -559,21 +558,20 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
             unanswered.setdefault(name, why)
     # Each outcome apart (D00 T03 §27): a start GitHub accepted, one it never answered (never started again, never
     # called started), one it refused; `recovery_error` keeps only the causes where no start was tried.
-    accepted = record.get("accepted", {})
+    accepted = {**record.get("accepted", {}), **accepted_now}
     # A reservation with no answer recorded (the gate stopped while gh was asking) is not a confirmed start: it is
     # reported as unanswered, and, like every reservation, never started again.
     for name in record["workflows"]:
         if name in missing and name not in accepted and name not in record["unanswered"] and name not in refused:
             unanswered.setdefault(name, INTERRUPTED)
-    entries = {e["workflow"]: e for e in result["workflows"]}
-    confirmed = [name for name in record["workflows"] if name in accepted and name not in unanswered
-                 and (name in missing or tied_run(entries.get(name, {}), accepted[name]))]
+    confirmed = [name for name in missing if name in accepted and name not in unanswered]
     if confirmed:
         result["started"], result["started_at"] = confirmed, {name: accepted[name] for name in confirmed}
+    refused = {name: why for name, why in refused.items() if name in missing}
     if refused:
         result["start_refused"] = refused
     if unanswered:
-        result["start_unanswered"] = {name: unanswered_text(name, why, branch) for name, why in unanswered.items()}
+        result["start_unanswered"] = {name: unanswered_text(name, why, branch, sha) for name, why in unanswered.items()}
     if errors:
         result["recovery_error"] = "; ".join(errors)
 
@@ -732,8 +730,10 @@ def progress(runner, entry):
     """One workflow on the waiting line: its verdict, and for an open run its newest run's URL and its current job,
     `queued` when it has none yet, or `job unknown (<why>)` when the job read fails; the verdict is never changed here."""
     run = entry.get("newest_run") or {}
-    if not run.get("url") or run.get("status") == "completed":
+    if not run.get("url"):
         return f"{entry['workflow']} {entry['verdict']}", False
+    if run.get("status") == "completed":  # a finished sibling keeps its run's URL (the completion review)
+        return f"{entry['workflow']} {entry['verdict']} ({run['url']})", False
     try:
         view = gh_json(runner, ["run", "view", str(run.get("databaseId")), "--json", "jobs"])
         jobs = view.get("jobs") if isinstance(view, dict) else None
@@ -921,6 +921,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         return left
 
     held, held_for, held_since = [], 0.0, None
+    refusals = {}  # a start GitHub refused in this invocation: reported on every later look, never tried again in it
 
     def look_after():
         """A missing run is started, held or explained on this look, and what was held is remembered for the report:
@@ -929,7 +930,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         nonlocal held_for, held_since
         if held_since is not None:
             held_for += clock() - held_since
-        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=lambda: hold_left() > 0, now=wall)
+        recover(ask, result, args.branch, sha, args.gate, root / REPAIRS, lambda: remaining() <= 0, git_call, hold=lambda: hold_left() > 0, now=wall,
+                refusals=refusals)
         for name in result.get("holding", []):
             if name not in held:
                 held.append(name)
@@ -990,10 +992,11 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             # The preflight reads this line and passes it on as the fix.
             print(f"to get a real run: {result['recovery']}")
         # Each start outcome on a line of its own, naming its workflow (D00 T03 §27).
-        entries = {e["workflow"]: e for e in result["workflows"]}
+        unrecorded = set(result.get("unrecorded", []))
         for name in result.get("started", []):
-            run = tied_run(entries.get(name, {}), result.get("started_at", {}).get(name))
-            print(f"started {name}: {run['url']}" if run and run.get("url") else f"started {name}; its run is not listed yet")
+            at = result.get("started_at", {}).get(name)
+            note = "; the gate could not record that, so a restart will call it not answered" if name in unrecorded else ""
+            print(f"started {name}: GitHub accepted it at {at}; its run shows on its line once listed{note}")
         for name, text in result.get("start_unanswered", {}).items():
             print(f"start not answered: {name} ({text})")
         for name, why in result.get("start_refused", {}).items():

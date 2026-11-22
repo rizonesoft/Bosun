@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -1038,7 +1039,7 @@ class Gate(Base):
         code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))
         lines = text.strip().splitlines()
         self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
-        self.assertEqual(lines[-2], "started build.yml; its run is not listed yet")  # each outcome its own line (D00 T03 §27)
+        self.assertTrue(lines[-2].startswith("started build.yml: GitHub accepted it at "), lines[-2])  # each outcome its own line (D00 T03 §27)
         self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
         self.assertIn(f"recovery: started build.yml on main at {SHA}", self.stderr)
         self.assertNotIn("to get a real run", text)  # nobody is asked to run a command
@@ -1249,7 +1250,7 @@ class Gate(Base):
         self.assertIn("recovery: started build.yml", first[2])
         second = self.fresh(["--gate", "--sha", "HEAD"])
         self.assertNotIn("recovery: started", second[2])
-        self.assertIn("started build.yml; its run is not listed yet\nstarted plan.yml; its run is not listed yet", second[1])
+        self.assertRegex(second[1], r"started build\.yml: GitHub accepted it at \S+; its run shows on its line once listed\nstarted plan\.yml: GitHub accepted it at ")
 
     def test_a_new_commit_gets_its_own_start(self):
         self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
@@ -1640,7 +1641,7 @@ class Gate(Base):
 
     def test_after_a_fresh_clone_a_real_run_decides(self):
         first = self.fresh(["--gate", "--sha", "HEAD"])
-        self.assertIn("started build.yml; its run is not listed yet\nstarted plan.yml; its run is not listed yet", first[1])
+        self.assertRegex(first[1], r"started build\.yml: GitHub accepted it at \S+; its run shows on its line once listed\nstarted plan\.yml: GitHub accepted it at ")
         code, out, _ = self.fresh(["--gate", "--sha", "HEAD"], {"build.yml": [run()], "plan.yml": [run()]})
         self.assertEqual((code, out.strip().splitlines()[-1]), (0, "action: proceed"))
 
@@ -1954,6 +1955,57 @@ class OpenRuns(Base):
         self.assertNotIn("https://x/1", waiting[0], "the older finished run is never the one named")
         self.assertIn("build.yml pending (https://x/2, job Build)", waiting[1])
         self.assertIn("build.yml pending (https://x/2, job unknown (", waiting[2])
+        self.assertIn("plan.yml green (https://x/5)", waiting[0], "a finished sibling keeps its run's URL")
+
+    def test_completion_an_acceptance_the_gate_cannot_record_is_still_a_start(self):
+        clock = _Clock()
+        gh = FakeGh({"plan.yml": [run()]})
+        slow = _Slow(gh, clock, cost=0)
+        slow.dispatch["build.yml"] = "ok"
+        state = self.state()
+
+        def unwritable(_gh, name):
+            # After the reservation is saved and before the acceptance is: the record can no longer be written.
+            state.unlink()
+            state.mkdir()
+        gh.on_dispatch = unwritable
+        slow.gh = gh
+        original = slow.__call__
+
+        def dispatching(args):
+            out = original(args)
+            if args[:2] == ["workflow", "run"]:
+                unwritable(gh, args[2])
+            return out
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0"], dispatching, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0)
+        self.assertIn("started build.yml: GitHub accepted it at ", out)
+        self.assertIn("the gate could not record that", out)
+        self.assertNotIn("start not answered: build.yml", out)
+
+    def test_completion_a_lost_record_offers_no_start_in_a_read_only_look(self):
+        self.state().parent.mkdir(parents=True, exist_ok=True)
+        self.state().write_text(json.dumps({ci_status.HISTORY_LOST: True}), encoding="utf-8")
+        code, out = self.go(["--sha", "HEAD"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
+        self.assertNotIn("gh workflow run", out)
+        self.assertIn(f"check `gh run list --commit {SHA}` before starting anything", out)
+        # An unanswered start's own advice looks first, and names a start only after that look.
+        self.state().write_text(json.dumps({"started": {"sha": SHA, "workflows": ["build.yml"], "unanswered": {"build.yml": "timed out"}}}), encoding="utf-8")
+        code, out = self.go(["--sha", "HEAD"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
+        for at in [m.start() for m in re.finditer("gh workflow run", out)]:
+            self.assertTrue(out[:at].endswith("only if it lists no run: "), out)
+        self.assertIn(f"gh run list --workflow build.yml --commit {SHA}", out)
+
+    def test_completion_a_refused_start_is_tried_once_per_gate(self):
+        clock = _Clock()
+        gh = FakeGh({"plan.yml": [run()]})
+        slow = _Slow(gh, clock, cost=0)
+        slow.dispatch["build.yml"] = "HTTP 403: Resource not accessible by integration"
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "3"], slow, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0 + clock.t)
+        tries = [c for c in slow.calls if c[:3] == ["workflow", "run", "build.yml"]]
+        self.assertEqual(len(tries), 1, f"a refusal is reported, not retried on every look: {len(tries)} tries")
+        self.assertIn("start refused: build.yml: gh workflow run exited 1: HTTP 403", out)
 
     def outcomes(self, dispatch, listed=None):
         """A gate on a commit neither workflow has run for, each start answered as `dispatch` says; `listed` lists a
@@ -1974,13 +2026,13 @@ class OpenRuns(Base):
     def test_each_start_outcome_has_its_own_line(self):
         cases = {
             "started, not yet listed": ({"build.yml": "ok", "plan.yml": "ok"}, None,
-                                        ["started build.yml; its run is not listed yet", "started plan.yml; its run is not listed yet"]),
+                                        ["started build.yml: GitHub accepted it at ", "started plan.yml: GitHub accepted it at "]),
             "refused": ({"build.yml": "HTTP 422: Workflow does not have 'workflow_dispatch' trigger", "plan.yml": "ok"}, None,
                         ["start refused: build.yml: gh workflow run exited 1: HTTP 422: Workflow does not have 'workflow_dispatch' trigger",
-                         "started plan.yml; its run is not listed yet"]),
+                         "started plan.yml: GitHub accepted it at "]),
             "not answered": ({"build.yml": "error connecting to api.github.com", "plan.yml": "ok"}, None,
                              ["start not answered: build.yml (the start of build.yml got no clear answer (error connecting to api.github.com)",
-                              "started plan.yml; its run is not listed yet"]),
+                              "started plan.yml: GitHub accepted it at "]),
         }
         for name, (dispatch, listed, want) in cases.items():
             with self.subTest(name):
@@ -1997,7 +2049,7 @@ class OpenRuns(Base):
                     self.assertEqual(started_on_stderr, said[0].startswith("started "), f"stderr and stdout agree on {wf}")
                 self.assertFalse([l for l in lines if l.startswith("no run was started:")], "a start was tried")
 
-    def test_a_start_tied_to_its_run_names_the_run(self):
+    def test_a_start_names_no_run_and_each_run_shows_on_its_own_line(self):
         clock = _Clock()
         gh = FakeGh({})
         slow = _Slow(gh, clock, cost=0)
@@ -2011,8 +2063,12 @@ class OpenRuns(Base):
                     gh.runs[name] = [dict(run("in_progress", None, run_id=run_id), event="workflow_dispatch")]
         code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "2"], slow, FakeGit(["src/a.cpp"]),
                             clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
-        self.assertIn("started build.yml: https://x/8", out.splitlines())
-        self.assertIn("started plan.yml: https://x/9", out.splitlines())
+        # The completion review: no run is credited to a start (GitHub's dispatch returns no run identity); each run shows
+        # on its own workflow's line, the start says only that GitHub accepted it.
+        self.assertFalse([l for l in out.splitlines() if l.startswith("started ") and "https://" in l])
+        waiting = [l for l in self.stderr.splitlines() if l.startswith("waiting:")]
+        self.assertIn("build.yml pending (https://x/8,", waiting[-1])
+        self.assertIn("plan.yml pending (https://x/9,", waiting[-1])
 
     def test_round_1_a_cancelled_older_dispatch_is_not_the_run_a_new_start_became(self):
         clock = _Clock()
@@ -2022,8 +2078,10 @@ class OpenRuns(Base):
         slow.dispatch["build.yml"] = "ok"
         code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0"], slow, FakeGit(["src/a.cpp"]),
                             clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0)  # 2026-11-19, after that run
-        self.assertIn("started build.yml; its run is not listed yet", out.splitlines())
-        self.assertNotIn("started build.yml: https://x/7", out, "the start is never paired with the older cancelled run")
+        started = [l for l in out.splitlines() if l.startswith("started build.yml")]
+        self.assertEqual(len(started), 1)
+        self.assertTrue(started[0].startswith("started build.yml: GitHub accepted it at ") and "https://" not in started[0],
+                        "a start names no run, so it never names the older cancelled one")
 
     def test_round_2_a_read_only_look_never_offers_a_start_a_gate_already_asked_for(self):
         self.state().parent.mkdir(parents=True, exist_ok=True)

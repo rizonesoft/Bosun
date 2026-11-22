@@ -382,7 +382,12 @@ function Test-Ci {
       # Each start outcome has its own words (D00 T03 §27); any of them means gh could not start a run here.
       # A start that got no answer, or one GitHub accepted, may be running already: wait for it, never start a second
       # (round 2 of D00 T03 §27); a refused start or no start at all is gh's to fix.
-      elseif ($r.Out -match '(?m)^(start not answered:|started )') { 'wait for the run the gate already asked for (`gh run list --commit HEAD`)' }
+      # gh passes --commit to GitHub as it is, so the lookup names the commit itself, never `HEAD` (the completion review).
+      elseif ($r.Out -match '(?m)^(start not answered:|started )') {
+        $head = Git @('rev-parse', 'HEAD')
+        $at = if ($head -and $head.Code -eq 0) { $head.Out.Trim() } else { '<the commit>' }
+        "wait for the run the gate already asked for (``gh run list --commit $at``)"
+      }
       elseif ($r.Out -match 'no run was started:|start refused:') { '`gh auth status`' }
       else { 'push HEAD so CI runs on it' }
       Fail "CI has no run for HEAD: $why" "$how, then run the preflight again"
