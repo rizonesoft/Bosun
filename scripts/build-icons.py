@@ -44,8 +44,16 @@ FRAMES = {16: 16, 20: 16, 24: 24, 32: 32, 40: 256, 48: 256, 64: 256, 256: 256}
 def render(master: Path, size: int) -> bytes:
     import resvg_py
 
+    # Read here, not by the renderer: resvg reports a file it can't open with the same ValueError as SVG it can't parse,
+    # and the two have different fixes (round 4 of D00 T03 §31).
     try:
-        png = resvg_py.svg_to_bytes(svg_path=str(master), width=size, height=size)
+        text = master.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise BadgeFailure(4, f"the master {master} is not UTF-8 SVG text ({error}): repair its SVG") from error
+    except OSError as error:
+        raise BadgeFailure(3, f"the master {master} can't be read ({error.strerror or error}): it must exist and be readable") from error
+    try:
+        png = resvg_py.svg_to_bytes(svg_string=text, width=size, height=size)
     except ValueError as error:  # resvg's parse error: the master is not valid SVG, a fix of its own (round 1 of §31)
         raise BadgeFailure(4, f"the master {master} is not valid SVG ({error}): repair its SVG (git diff shows what changed in a tracked one)") from error
     return bytes(png)

@@ -114,6 +114,11 @@ try {
   New-Item -ItemType Directory -Force $silent | Out-Null
   Set-Content -LiteralPath (Join-Path $silent 'python.cmd') -Value '@exit /b 9' -Encoding ascii
   Install-Case 'a builder that exits without a word' { $env:Path = "$silent;$noPython" } { $env:Path = $keptEnvPath } 'the badge builder exited 9 and said nothing' (Join-Path $work 'icons-silent')
+  # A python Windows will not start (round 4 of D00 T03 §31): a python.exe on PATH that is not a program.
+  $refused = Join-Path $work 'refused-python'
+  New-Item -ItemType Directory -Force $refused | Out-Null
+  [IO.File]::WriteAllText((Join-Path $refused 'python.exe'), 'not a program')
+  Install-Case 'a python Windows will not start' { $env:Path = "$refused;$noPython" } { $env:Path = $keptEnvPath } 'python could not be started' (Join-Path $work 'icons-refused')
   $badIcons2 = Join-Path $work 'icons-badmark-native'
   New-Item -ItemType Directory -Force (Join-Path $badIcons2 'marks') | Out-Null
   Set-Content -LiteralPath (Join-Path $badIcons2 'marks\claude.svg') -Value '<svg this is truncated'

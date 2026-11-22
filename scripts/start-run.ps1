@@ -180,8 +180,14 @@ if ($InstallShortcut) {
       } catch { $said = "the icon folder $IconDir can't be made ($($_.Exception.Message)): choose another -IconDir, or move what is in its way" }
     }
     if (-not $said) {
-      $last = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark $markPath 2>&1 | Select-Object -Last 1)
-      $built = $LASTEXITCODE
+      # A python that Windows refuses to start (application control) throws before it has an exit code (round 4).
+      try {
+        $last = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark $markPath 2>&1 | Select-Object -Last 1)
+        $built = $LASTEXITCODE
+      } catch {
+        $last = "python could not be started ($($_.Exception.Message)): allow $python to run, or put another Python 3 first on PATH"
+        $built = -1
+      }
       # The exit code decides, so a builder that ends without a word still falls back (round 1 of D00 T03 §31).
       if ($built) { $said = if ("$last".Trim()) { "$last" } else { "the badge builder exited $built and said nothing: run python scripts/build-icons.py --out <icon> --badge-fill $($l.Fill) to see why" } }
     }

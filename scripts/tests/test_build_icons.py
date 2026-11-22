@@ -211,6 +211,16 @@ class BadgedIconTest(unittest.TestCase):
             first.write_text("<svg xmlns='http://www.w3.org/2000/svg'><g>", encoding="utf-8")
         return folder
 
+    def denied_master(self):
+        """Path.read_text refusing the first master, as a file another process holds exclusively (round 4 of §31)."""
+        real_read = Path.read_text
+        first = sorted(self.masters.glob("*.svg"))[0]
+        def read(path, *args, **kwargs):
+            if Path(path) == first:
+                raise PermissionError(13, "The process cannot access the file because it is being used by another process", str(path))
+            return real_read(path, *args, **kwargs)
+        return read
+
     def badge_run(self, *extra, out=None):
         """main on the badge path: its exit code, its stderr lines and its stdout."""
         out = out or self.tmp / "launcher.ico"
@@ -243,6 +253,7 @@ class BadgedIconTest(unittest.TestCase):
             ("a master missing", 3, contextlib.nullcontext(), ("--masters", str(empty)), out, "must exist and be readable"),
             ("the renderer failing", 5, mock.patch.object(icons, "render", renderer_breaks), (), out, "report it"),
             ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "repair its SVG"),
+            ("a master held or denied", 3, mock.patch.object(Path, "read_text", self.denied_master()), (), out, "must exist and be readable"),
         )
         for name, code, context, extra, target, fix in cases:
             with self.subTest(name):
