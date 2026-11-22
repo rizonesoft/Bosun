@@ -47,7 +47,7 @@ def render(master: Path, size: int) -> bytes:
     try:
         png = resvg_py.svg_to_bytes(svg_path=str(master), width=size, height=size)
     except ValueError as error:  # resvg's parse error: the master is not valid SVG, a fix of its own (round 1 of §31)
-        raise BadgeFailure(4, f"the master {master} is not valid SVG ({error}): restore it with git checkout -- {master}") from error
+        raise BadgeFailure(4, f"the master {master} is not valid SVG ({error}): repair its SVG (git diff shows what changed in a tracked one)") from error
     return bytes(png)
 
 
@@ -133,11 +133,16 @@ def output_remedy(error: OSError, path: Path) -> str:
     return f"{error.strerror or error}: fix that, then run this again"
 
 
+def say_failure(code: int, text: str) -> int:
+    """Print one failure line, led by its kind from FAILURES, and return its code: the map is what the codes mean, so a
+    code it lacks is a bug, not a new kind (round 2 of D00 T03 §31)."""
+    print(f"{FAILURES[code]}: {text}; the old icon, if any, is kept", file=sys.stderr)
+    return code
+
+
 def badge(masters: Path, fill: str, mark: Path | None, out: Path) -> int:
     """Write one campaign launcher's badged icon, or say in one line why not, with its code (FAILURES)."""
-    def fail(code: int, text: str) -> int:
-        print(f"{text}; the old icon, if any, is kept", file=sys.stderr)
-        return code
+    fail = say_failure
 
     try:
         if mark:
@@ -348,10 +353,9 @@ def main(argv=None) -> int:
     # (round 1 of D00 T03 §31), and a fill that is not a colour is an input that is not valid, said in one line.
     if args.badge_fill is not None:
         if not re.fullmatch(r"#[0-9A-Fa-f]{6}", args.badge_fill):
-            print(f"--badge-fill must be a colour like #D97757, not {args.badge_fill!r}; the old icon, if any, is kept", file=sys.stderr)
-            return 4
-        if args.check or args.out.resolve().is_relative_to(ROOT):
-            parser.error("a badged icon is a per-machine file: give --out a path outside the repository, without --check")
+            return say_failure(4, f"--badge-fill must be a colour like #D97757, not {args.badge_fill!r}")
+        if args.check or args.out.resolve().is_relative_to(ROOT):  # one line, code 4, as every badge refusal (round 2)
+            return say_failure(4, "a badged icon is a per-machine file: give --out a path outside the repository, without --check")
     elif args.badge_mark:
         parser.error("--badge-mark needs --badge-fill")
     # A mark that is not there is a badge with colour only (the marks are trademarks, kept outside the repository);

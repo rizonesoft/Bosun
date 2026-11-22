@@ -165,11 +165,17 @@ class BadgedIconTest(unittest.TestCase):
         self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#4C8DF6", "--badge-mark", str(self.tmp / "no-such.svg")]), 0)
         self.assertEqual(out.read_bytes(), icons.build(self.masters, "#4C8DF6"))
         self.assertEqual(list(self.tmp.glob("*.tmp")), [])
+        with self.assertRaises(SystemExit):  # a mark with no fill is a usage error, not a badge that failed
+            icons.main(["--out", str(out), "--badge-mark", str(self.mark)])
         for bad in (["--badge-fill", "#4C8DF6"],  # the default --out is the committed icon
-                    ["--out", str(ROOT / "build" / "x.ico"), "--badge-fill", "#4C8DF6"],
-                    ["--out", str(out), "--badge-mark", str(self.mark)]):
-            with self.subTest(bad=bad), self.assertRaises(SystemExit):
-                icons.main(bad)
+                    ["--out", str(ROOT / "build" / "x.ico"), "--badge-fill", "#4C8DF6"]):
+            with self.subTest(bad=bad):  # code 4 in one line, as every badge refusal (round 2 of D00 T03 §31)
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = icons.main(bad)
+                lines = [line for line in err.getvalue().splitlines() if line.strip()]
+                self.assertEqual((code, len(lines)), (4, 1), lines)
+                self.assertIn("give --out a path outside the repository", lines[0])
         # A fill that is not a colour, empty included, is the badge path's code 4 in one line, and never reaches the
         # app icon's build (round 1 of D00 T03 §31).
         out.write_bytes(b"the icon from before")
@@ -235,7 +241,7 @@ class BadgedIconTest(unittest.TestCase):
             ("a mark malformed", 4, contextlib.nullcontext(), ("--badge-mark", str(bad)), out, "mend or remove it"),
             ("a master missing", 3, contextlib.nullcontext(), ("--masters", str(empty)), out, "must exist and be readable"),
             ("the renderer failing", 5, mock.patch.object(icons, "render", renderer_breaks), (), out, "report it"),
-            ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "restore it with git checkout"),
+            ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "repair its SVG"),
         )
         for name, code, context, extra, target, fix in cases:
             with self.subTest(name):
@@ -245,6 +251,7 @@ class BadgedIconTest(unittest.TestCase):
                 self.assertEqual(got, code, lines)
                 self.assertEqual(len(lines), 1, lines)
                 self.assertIn(fix, lines[0])
+                self.assertTrue(lines[0].startswith(icons.FAILURES[code] + ": "), lines[0])  # led by its kind from the map
                 self.assertNotIn("pip install", lines[0]) if code != 2 else None
                 self.assertEqual(target.read_bytes(), b"the icon from before")
         held.chmod(0o444)  # an existing ICO the replace cannot take, for real
