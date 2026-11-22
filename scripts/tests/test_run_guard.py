@@ -1330,6 +1330,83 @@ class AntigravityRuns(unittest.TestCase):
         said = guard.hook_antigravity_answer(lambda: json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}), self.SESSION, env, self.path)
         self.assertIn("errorMessage", json.loads(said))
 
+    def cli_env(self, **extra):
+        return {**os.environ, "RUN_GUARD_STATE": str(self.path), "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8",
+                "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build"), **extra}
+
+    def hook_cli(self, data: bytes, **extra):
+        return subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "hook", "--runner", "antigravity"],
+                              env=self.cli_env(**extra), input=data, capture_output=True, timeout=120, **guard.hidden())
+
+    def test_input_that_is_not_utf8_is_a_failure_said_through_the_cli(self):
+        # Completion review of D00 T03 §30: a replaced byte must not let a broken event pass as a clean one.
+        guard.save(self.run_state(), self.path)
+        done = self.hook_cli(b'{"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL", "lastUserInput": "go \xff on"}')
+        done.stdout = done.stdout.decode("utf-8")
+        self.assert_notice(done)
+        self.assertIn("UnicodeDecodeError", json.dumps(guard.hook_failures(self.path)))
+
+    def test_a_raising_hook_and_a_failing_save_are_said_through_the_cli(self):
+        # Completion review of D00 T03 §30: the contract asks the CLI itself for both, stdout framing and exit code too.
+        stop = json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}).encode("utf-8")
+        for fault, said in (("raise", "test: the hook raised"), ("save", "test: no space left on device")):
+            with self.subTest(fault):
+                state = self.run_state()
+                guard.set_wait(state, "reviewer-unavailable", time.time() + 600)  # an answer that changes the state
+                state.pop("wait_set", None)
+                guard.save(state, self.path)
+                done = self.hook_cli(stop, BOSUN_TEST_HOOK_FAULT=fault)
+                done.stdout = done.stdout.decode("utf-8")
+                self.assert_notice(done)
+                self.assertIn(said, json.loads(done.stdout)["errorMessage"]["userMessage"])
+
+    def test_a_record_that_cannot_be_written_or_cleared_is_said_in_the_log(self):
+        # Completion review of D00 T03 §30: no temporary record left behind, and a clear that fails is logged.
+        real_replace = guard.os.replace
+        def refuse(source, target, *args, **kwargs):
+            if Path(target).name == guard.HOOK_FAILURES:
+                raise PermissionError(13, "Access is denied")
+            return real_replace(source, target, *args, **kwargs)
+        with unittest.mock.patch.object(guard.os, "replace", refuse):
+            guard.record_hook_failure("antigravity: test", self.path)
+        self.assertEqual(list(self.path.parent.glob(f"{guard.HOOK_FAILURES}.*.tmp")), [], "a temporary record was left behind")
+        guard.record_hook_failure("antigravity: kept", self.path)
+        with unittest.mock.patch.object(Path, "unlink", side_effect=PermissionError(13, "Access is denied")):
+            guard.clear_hook_failures(self.path)
+        log = self.path.with_name("run-guard.log").read_text(encoding="utf-8")
+        self.assertIn("a hook failure could not be recorded", log)
+        self.assertIn("the hook failures could not be cleared", log)
+
+    def test_past_its_deadline_the_hook_starts_nothing(self):
+        # Completion review of D00 T03 §30: a read after the deadline was started with fresh time.
+        started = []
+        real_popen = guard.subprocess.Popen
+        def counted(*args, **kwargs):
+            started.append(args)
+            return real_popen(*args, **kwargs)
+        guard._deadline = time.monotonic() - 1
+        try:
+            with unittest.mock.patch.object(guard.subprocess, "Popen", counted), self.assertRaises(subprocess.TimeoutExpired):
+                guard.run(sys.executable, "-c", "pass")
+        finally:
+            guard._deadline = None
+        self.assertEqual(started, [], "a subprocess was started past the deadline")
+
+    @unittest.skipUnless(os.name == "nt", "the job object is the Windows holder; elsewhere the process group is")
+    def test_a_descendant_whose_parent_exited_is_stopped_at_the_timeout(self):
+        # Completion review of D00 T03 §30: taskkill /T cannot reach a child whose parent has already exited.
+        marker = Path(self.folder.name) / "orphan.pid"
+        parent = ("import subprocess, sys\n"
+                  "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                  f"open(r'{marker}', 'w').write(str(child.pid))\n")  # the parent exits now; its child keeps the pipes
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            guard.run(sys.executable, "-c", parent, timeout=2)
+        self.assertLess(time.monotonic() - started, 5, "the wait outlived its deadline")
+        orphan = int(marker.read_text())
+        self.addCleanup(lambda: guard.process_started(orphan) is not None and guard.stop_tree(orphan))
+        self.assertIsNone(guard.process_started(orphan), "the orphaned descendant outlived the timed-out read")
+
     def test_a_stalled_read_is_stopped_at_the_hook_deadline(self):
         # D00 T03 §30: the host gives the hook 60 seconds; a read that stalls is stopped and read as unknown.
         entered = []

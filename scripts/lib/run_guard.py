@@ -164,6 +164,8 @@ def save(state: dict, path: Path = STATE) -> None:
 
 def save_retrying(state: dict, path: Path = STATE, pause: float = 0.5) -> None:
     """A save that a moment's lock (an antivirus scan, a backup) doesn't defeat."""
+    if os.environ.get("BOSUN_TEST_HOOK_FAULT") == "save":  # test-only: a save that fails, through the real CLI
+        raise OSError(28, "test: no space left on device")
     for attempt in range(SAVE_TRIES):
         try:
             save(state, path)
@@ -924,6 +926,8 @@ def hook_antigravity_answer(read_input: Callable[[], str], session: str, env: En
     global _deadline
     _deadline = time.monotonic() + seconds
     try:
+        if os.environ.get("BOSUN_TEST_HOOK_FAULT") == "raise":  # test-only: the hook raising, through the real CLI
+            raise RuntimeError("test: the hook raised")
         output = hook_antigravity(read_input(), session, env, path)
     except Exception as error:  # fail open, and say so: a broken guard must never wedge a session or pass unseen
         log(f"antigravity hook failed open: {error!r}", path)
@@ -943,34 +947,82 @@ def hidden() -> dict:
 
 
 def stop_tree(pid: int) -> None:
-    """Stop a process and everything it started: a grandchild holding the captured pipes would otherwise keep the
-    wait going past its deadline (round 1 of D00 T03 §30)."""
+    """Stop a process and everything it started, by its tree: the fallback when no job holds it."""
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=10, **hidden())
     else:
         try:
             os.killpg(pid, 9)  # its own process group, from start_new_session
         except ProcessLookupError:
-            pass
+            pass  # the group is already gone
+
+
+class Job:
+    """A Windows job object holding one read and everything it starts, so a timeout stops every descendant, even one
+    whose parent has already exited, which `taskkill /T` can no longer reach (completion review of D00 T03 §30).
+    Off Windows, the read's process group plays the same part."""
+
+    def __init__(self, process: subprocess.Popen):
+        self.handle = None
+        self.pid = process.pid
+        if os.name != "nt":
+            return
+        import ctypes
+        from ctypes import wintypes
+
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        self.kernel.OpenProcess.restype = wintypes.HANDLE
+        job = self.kernel.CreateJobObjectW(None, None)
+        target = self.kernel.OpenProcess(0x0001 | 0x0100, False, process.pid)  # PROCESS_TERMINATE | PROCESS_SET_QUOTA
+        try:
+            if job and target and self.kernel.AssignProcessToJobObject(wintypes.HANDLE(job), wintypes.HANDLE(target)):
+                self.handle = job
+            elif job:
+                self.kernel.CloseHandle(wintypes.HANDLE(job))
+        finally:
+            if target:
+                self.kernel.CloseHandle(wintypes.HANDLE(target))
+
+    def stop(self) -> None:
+        if self.handle is None:
+            stop_tree(self.pid)
+            return
+        from ctypes import wintypes
+
+        self.kernel.TerminateJobObject(wintypes.HANDLE(self.handle), 1)
+
+    def close(self) -> None:
+        if self.handle is not None:
+            from ctypes import wintypes
+
+            self.kernel.CloseHandle(wintypes.HANDLE(self.handle))
+            self.handle = None
 
 
 def run(*args: str, cwd: Path = ROOT, timeout: float = 20) -> subprocess.CompletedProcess:
-    """A subprocess the guard waits for, stopped with its whole tree at `timeout`, or sooner at the running hook's
-    deadline (`_deadline`), so a stalled read is read as unknown and the hook still answers in its host's time."""
+    """A subprocess the guard waits for, stopped with everything it started at `timeout`, or sooner at the running
+    hook's deadline (`_deadline`), so a stalled read is read as unknown and the hook still answers in its host's time.
+    Past the deadline nothing new is started (completion review of D00 T03 §30)."""
     if _deadline is not None:
-        timeout = max(0.5, min(timeout, _deadline - time.monotonic()))
+        timeout = min(timeout, _deadline - time.monotonic())
+        if timeout <= 0:
+            raise subprocess.TimeoutExpired(list(args), 0)
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=env,
                                start_new_session=os.name != "nt", **hidden())
+    job = Job(process)
     try:
         out, err = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        stop_tree(process.pid)
+        job.stop()
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            pass  # the tree is stopped; what it left in the pipes is not waited for
+            pass  # every process in the job is stopped; a pipe still open is not waited for
         raise
+    finally:
+        job.close()
     return subprocess.CompletedProcess(args, process.returncode, out, err)
 
 
@@ -1248,18 +1300,22 @@ def record_hook_failure(error: str, path: Path = STATE) -> None:
         target = path.with_name(HOOK_FAILURES)
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps({"failures": failures}), encoding="utf-8")
-        os.replace(tmp, target)
-    except Exception:  # noqa: BLE001 - the hook is already failing open; this record is best effort by design
-        pass
+        try:
+            tmp.write_text(json.dumps({"failures": failures}), encoding="utf-8")
+            os.replace(tmp, target)
+        except Exception:
+            tmp.unlink(missing_ok=True)  # no temporary file is left behind a write that failed
+            raise
+    except Exception as error:  # noqa: BLE001 - the hook is already failing open; this record is best effort by design
+        log(f"a hook failure could not be recorded: {error!r}", path)
 
 
 def clear_hook_failures(path: Path = STATE) -> None:
     """A hook that ran clean: the guard works again, so the old failures no longer describe it."""
     try:
         path.with_name(HOOK_FAILURES).unlink(missing_ok=True)
-    except OSError:
-        pass
+    except OSError as error:  # status keeps showing the old failure; say why it could not be cleared
+        log(f"the hook failures could not be cleared: {error!r}", path)
 
 
 def hook(raw: str, env: Env = REAL, path: Path = STATE) -> str:

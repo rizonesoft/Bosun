@@ -79,7 +79,8 @@ def main() -> int:
         import os
 
         # Fail-open, its notice and its deadline live in the library (D00 T03 §30), input reading included.
-        output = guard.hook_antigravity_answer(lambda: sys.stdin.buffer.read().decode("utf-8", "replace"),
+        # Strict: input that is not UTF-8 is a failure the notice says, not a replaced character read as an event.
+        output = guard.hook_antigravity_answer(lambda: sys.stdin.buffer.read().decode("utf-8"),
                                                os.environ.get("BOSUN_RUN_SESSION", ""))
         if output:
             say(output)
