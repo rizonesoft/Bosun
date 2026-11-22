@@ -66,7 +66,7 @@ title: "TODO-03 -- Campaign readiness"
 | 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [x] |
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [x] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [x] |
-| 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [ ] |
+| 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [x] |
 
 ## 1. CI status that proves the commit
 
@@ -1053,11 +1053,14 @@ Filed 2026-11-21 by the completion review of `§24` (`docs/reviews/00-workspace/
 - [x] Refuse the lock the request cannot stop: Microsoft documents that `SetThreadExecutionState` does not stop the screen saver, and a secure one locks the desktop. The preflight's `lock` check in `scripts/campaign-preflight.ps1` also fails on an active screen saver that locks on resume (`ScreenSaveActive` 1 with `ScreenSaverIsSecure` 1 under `HKCU:\Control Panel\Desktop`), as an owner fix (turn off "On resume, display logon screen", or the screen saver), which the campaign never writes itself. Done when: `tests/preflight_test.ps1` fails a secure active saver with that fix and passes an inactive one and a non-secure one, alongside the existing `InactivityTimeoutSecs` cases; the launcher's help says the hold keeps the machine awake and the display on, and that the screen saver's lock is the owner's setting the preflight checks, with the documentation link; and the `D99 T01 §3` item observes the desktop with the owner's own saver settings, not with the saver disabled.
 - [x] Say the hold's state in the preflight's `hold` check: a live run whose holder holds passes (`held by run <pid>`); a live run whose holder failed fails with its reason; no live run, or one whose timed hold has ended, passes with what the launcher will do (`no run holds the machine now; the run's launcher holds it while its writer runs`); a hold record an older version left (`campaign-hold.json`) fails with `pwsh scripts/campaign-hold.ps1 -Restore`, and one that cannot be read fails with what to move aside. Done when: the preflight test reads each of the five states with its own wording.
 - [x] Retire the power-plan edits and their restore: `scripts/campaign-hold.ps1 -Apply` refuses, pointing at the launcher; `-Status` and `-Restore` stay for a record an older version left; `claim_hold`, `hold_due`, `release_hold`, `real_hold` and `real_restore_hold` and their calls leave `scripts/lib/run_guard.py` and `scripts/run-guard.py`, so no hook, status read, `end` or `halt` writes a setting. Done when: with a real legacy record seeded and the BOSUN_HOLD_* targets on a fixture, the guard's hook, status, `end` and `halt` paths run with zero setting writes and the record unchanged; then a manual `-Restore` puts back the saved AC/DC values and the lock before removing the record, and a failed read-back leaves the record for a retry; the hold, preflight and guard tests pass; the help of `-Apply -Hours` and the manual walkthrough name the launcher instead.
-- [ ] Commit: `campaign: the hold is a power request the run's process holds (D00 T03 §28)`
+- [x] Commit: `campaign: the hold is a power request the run's process holds (D00 T03 §28)`
 
 **Evidence 2026-11-22:** `pwsh tests/hold_awake_test.ps1` -> 9 passed; `pwsh tests/start_run_test.ps1` -> 78 passed (the Claude and Antigravity writers held and released, `-Minutes 1`, 0 and 10081); `pwsh tests/campaign_hold_test.ps1` -> all passed (`-Apply` refused naming the launcher, `-Status` and `-Restore` on a legacy record); `pwsh tests/preflight_test.ps1` -> 164 passed (the five hold states, the secure screen saver refused, an inactive or non-secure one passing); `python -m unittest scripts.tests.test_run_guard` -> 111 OK, with `LegacyHoldIsNotTouched` proving the hook, status, `end` and `halt` paths leave a seeded legacy record, the power values and the lock byte for byte, then a failed manual restore keeping the record and a retry putting every value back. The guard's hold code left by restoring `scripts/lib/run_guard.py` and `scripts/run-guard.py` to `29badd5`, before `§24`, since no later section touched them. The walkthrough is `docs/acceptance/preflight.md` and the script's own help: both name the launcher; no other document described `-Apply`.
 
 **Test checkpoint:** the holder test reads `held` while its parent lives and the holder gone within one second of its parent's death and of its release, and `pwsh tests/start_run_test.ps1`, `pwsh tests/campaign_hold_test.ps1`, `pwsh tests/preflight_test.ps1` and `python scripts/run-tests.py test_run_guard` exit 0; with the launcher's release removed, the writer-returns test fails.
+
+> **Verified:** 2026-11-22 | §28 | 97e56f1903db14ef267aef7f5a0ecb55548de230
+> **Review:** `docs/reviews/d00-t03-s28.json`
 
 ## Verification
 

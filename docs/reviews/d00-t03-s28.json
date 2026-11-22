@@ -1,0 +1,116 @@
+{
+  "ref": "D00 T03 \u00a728",
+  "title": "Campaign hold as a Windows power request the run's process holds",
+  "implementation_sha": "97e56f1903db14ef267aef7f5a0ecb55548de230",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 7,
+      "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pwsh tests/hold_awake_test.ps1 -> all passed (13 checks)",
+    "pwsh tests/start_run_test.ps1 -> 85 checks passed",
+    "pwsh tests/campaign_hold_test.ps1 -> all passed",
+    "pwsh tests/preflight_test.ps1 -> 175 checks passed",
+    "python -m unittest scripts.tests.test_run_guard -> Ran 111 tests, OK",
+    "mutation: both Stop-Hold calls removed from scripts/start-run.ps1 -> 7 release checks fail; restored -> 82 passed",
+    "CI full gate at 97e56f1: build.yml green https://github.com/rizonesoft/Bosun/actions/runs/44980046466, plan.yml green https://github.com/rizonesoft/Bosun/actions/runs/44980046451"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+    "verdict": "completed",
+    "candidate": "ad137596f27ecbcc52533d4d06469c0592e0e107",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 7,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s28.md",
+    "candidate": "c77960f84b9d1fceae4b445b70cc9cc6066db7d3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "c77960f84b9d1fceae4b445b70cc9cc6066db7d3",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
