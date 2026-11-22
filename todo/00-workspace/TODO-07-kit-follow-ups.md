@@ -215,17 +215,20 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 25, 28 and
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-22:** specified the exact log root (`Get-BosunScratchRoot` from `scripts/lib/scratch.ps1`, failing before step 1 if the log cannot be opened and creating no log on `-List` or unknown `-Only`), passing the log path to `Enter-GateMark` (updating `tests/check_all_test.ps1`'s mark-output check and copy lists to include `lib/scratch.ps1`), live streaming of each step's stdout/stderr to both console and log via `Measure-Job`, the `waiting`/`started` queue lines (including no `started` line on queue timeout), and printing `dotnet --version` once before the first `dotnet` step (failing cleanly if `dotnet --version` exits non-zero, keeping `global.json` `allowPrerelease: false`).
+
 **Build order:**
 
-1. Keep each run's output. Done when: a failure names its log, in `tests/check_all_test.ps1`.
-2. Say queue waits and the SDK. Done when: both lines are read back.
+1. Keep each run's output incrementally in a scratch log and pass its path to the gate mark. Done when: `tests/check_all_test.ps1` reads the log path on pass, failure, timeout, and missing program, verifies the log holds the step's output, verifies the gate mark names that log path, and verifies an unwritable log root fails before step 1.
+2. Report queue wait start and slot acquisition with wait duration. Done when: `tests/check_all_test.ps1` reads both lines and a positive wait time on the fake busy queue, and no `started` line on queue timeout.
+3. Print the effective .NET SDK once before the first `dotnet` step. Done when: `tests/check_all_test.ps1` reads `dotnet-sdk:` once across multiple `dotnet` steps, none when no `dotnet` step runs, and a failure when `dotnet --version` fails.
 
-- [ ] Write each run's output to a log under the scratch folder (`BOSUN_SCRATCH`, else the system temporary folder) as it goes, and print its path at the end and at a failure. Done when: the test of a failing step reads the log path, and the log holds that step's output. Cheaper substitute: telling the reader to run the step again.
-- [ ] Print one line when a queued step starts waiting and one when its turn comes, with how long it waited. Done when: the test with a fake busy queue reads both lines and a wait time.
-- [ ] Print the effective .NET SDK once (`dotnet --version`) before the local .NET build, keeping the release-only selection. Done when: the test reads the version line once in a run that builds .NET, and none in one that does not.
+- [ ] Add live incremental run logging to `scripts/check-all.ps1` (using `Get-BosunScratchRoot` from `scripts/lib/scratch.ps1`, creating no log on `-List` or unknown `-Only`, failing before step 1 if the log file cannot be created, passing the log path to `Enter-GateMark`, streaming each step's stdout/stderr to both console and log via `Measure-Job` without losing output on failure/timeout, and printing `log: <path>` on pass and on every failure exit). Done when: `tests/check_all_test.ps1` verifies the log path is printed on pass and on failure, the log file holds the failing step's output, the gate mark's `output` field equals that log path, `-List` creates no log, and an unwritable log root fails before step 1. Cheaper substitute: buffering until the end or telling the reader to run the step again, which the Done when refuses.
+- [ ] Add an `-OnStarted` callback (or equivalent transition hook) to `Measure-Job` in `scripts/lib/job-measure.ps1` and emit `waiting <step>: queued for a build slot` before a queued step starts and `started <step>: got build slot after <N.N> s` when its `-StartedPath` appears in `scripts/check-all.ps1` (written to both console and run log). Done when: `tests/check_all_test.ps1` with the fake busy queue reads both `waiting` and `started` lines with a positive wait time in console and log, and reads `waiting` without `started` when the queue times out. Cheaper substitute: printing the wait only after the step finishes, which the Done when refuses.
+- [ ] Before the first step whose program is `dotnet` in `scripts/check-all.ps1`, run `dotnet --version` once in `$repo` (preserving `global.json`'s `"allowPrerelease": false` release-only selection), emit `dotnet-sdk: <version>` to console and log, and fail cleanly (naming the log) if `dotnet --version` exits non-zero. Done when: `tests/check_all_test.ps1` reads `dotnet-sdk:` once in a run with two `dotnet` steps, zero times in a run with no `dotnet` step, and a failure naming the log when fake `dotnet --version` exits non-zero. Cheaper substitute: printing `dotnet --version` on every run regardless of steps or ignoring a failing `dotnet --version`, which the Done when refuses.
 - [ ] Commit: `check-all: a log, queue waits and the SDK (D00 T07 §4)`
 
-**Test checkpoint:** `pwsh tests/check_all_test.ps1` exits 0, and with the log path line removed the failing-step test fails.
+**Test checkpoint:** `pwsh tests/check_all_test.ps1` exits 0, and with the `log:` path line removed the failing-step test fails.
 
 ## 5. Weakening scan reads blobs in one batch and shows lines
 
