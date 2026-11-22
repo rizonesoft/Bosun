@@ -154,6 +154,18 @@ class FindingsLedgerTest(unittest.TestCase):
                 self.assertEqual(code, 0 if settled else 1, out)
                 self.assertIn(says, out)
 
+    def test_a_strike_and_classification_with_no_disposition_are_said_not_crashed(self):
+        # D00 T06 §5: struck and classified alike with no disposition, the record check raised a TypeError.
+        self.settle("Fine now.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        record = self.root / "classification.md"
+        record.write_text("# C\n\n- 5: Fine now (it is). Inspected `scripts/a.py:1`: it is.\n"
+                          "- 6: Declined: a one-off script nobody runs again (no use after it). Inspected `scripts/b.py:1`: it runs once.\n"
+                          "- 8: Done: D09 T01 §3 shipped it (it does it now). Inspected `scripts/d.py:1`: done.\n", encoding="utf-8")
+        code, out = self.checked(record=record)
+        self.assertEqual(code, 1, out)
+        self.assertIn("base line 5:", out)
+        self.assertIn("no disposition", out)
+
     def test_a_tracked_file_gone_from_the_working_tree_is_said_not_crashed(self):
         # Cycle 2, round 2 of D00 T06 §3: tracked by git but renamed or removed on disk, with and without a line.
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
@@ -217,6 +229,9 @@ class FindingsLedgerTest(unittest.TestCase):
             "fixed by no commit": "Fixed: deadbee, test: python x.",
             "done by nothing": "Done: earlier.",
             "declined without a reason": "Declined: no.",
+            # The plan review of D00 T06 §5: a valid first owner never vouches for what follows it.
+            "scheduled with a second, unresolved owner": "Scheduled: D09 T01 §1, then D09 T01 §9.",
+            "a second disposition after the first": "Scheduled: D09 T01 §1. Declined: not worth doing after all, really.",
         }
         for name, first in cases.items():
             with self.subTest(name):

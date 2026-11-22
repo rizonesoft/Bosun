@@ -164,7 +164,10 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     said, done = " ".join(m.group(2).split()).rstrip("."), " ".join(struck.split()).rstrip(".")
     if said != done:
         return "is classified as `%s` in %s, but struck as `%s`" % (said, record, done)
-    if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
+    key = settled_key(m.group(2))
+    if key is None:  # no disposition at all: said once, by `problem`, never a TypeError here (D00 T06 §5)
+        return "is classified in %s with no disposition (one of %s)" % (record, ", ".join(KINDS))
+    if key[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
         # A closed grammar, not a parser of the spellings seen so far (rounds 3 to 5 of D00 T06 §3, one class): the
         # evidence begins with exactly `item N` or `items N and M`, then a comma before a word or its end, and names no item
         # anywhere after; a range, a repeated `item` or anything else is refused, never partly read.
@@ -194,11 +197,18 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
     if not m:
         return "no disposition (one of %s) after the strike" % ", ".join(KINDS)
     kind, detail = m.groups()
+    # One disposition, and a schedule to one owner: a second after the first is never read, so it would stand
+    # unchecked beside a valid one (the plan review of D00 T06 §5).
+    again = re.search(r"\b(%s):" % "|".join(KINDS), detail)
+    if again:
+        return "has a second disposition (%s:) after %s: give one" % (again.group(1), kind)
     refs = REF.findall(detail)
     shas = [s for s in re.findall(r"`?\b([0-9a-f]{7,40})\b`?", detail)]
     if kind == "Scheduled":
         if not refs:
             return "Scheduled names no DNN TNN §N"
+        if len(set(refs)) > 1:
+            return "Scheduled names %d sections (%s): schedule it to one owner" % (len(set(refs)), ", ".join(refs))
         code, body = resolver(refs[0], root)
         if code == 3:
             # Stamped since it was scheduled: the owner shipped it. Scheduling into a section already stamped when the
