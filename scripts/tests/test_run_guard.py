@@ -1141,6 +1141,22 @@ class AntigravityRuns(unittest.TestCase):
         self.assertNotIn("10 minutes", reason)
         self.assertNotIn("time.sleep", reason)
 
+    def test_a_woken_rows_hold_is_ended_for_look_and_kept_for_the_wake_advice(self):
+        # Rounds 1 and 4 of D00 T03 §29: with work in flight the hook ends the hold `look` would otherwise wait out;
+        # with nothing in flight it leaves the hold to on_stop, which tells the session to apply the wake.
+        world = World(rows=())  # no runnable row: only the wake frees one
+        state = self.run_state()
+        guard.set_wait(state, "rows-waiting", time.time() + 3600)
+        env = guard.replace(self.env(world, ci="abc123, gate pid 2"), wakes=lambda: [{"ref": "D00 T01 §1"}])
+        answer, saved = self.stop(state, env)
+        self.assert_watch_answer(answer["reason"], "a CI gate in flight (abc123, gate pid 2)")
+        self.assertNotIn("rows-waiting", answer["reason"])
+        self.assertNotIn("wait_until", saved, "the woken hold was left for look to wait out")
+        state = self.run_state()
+        guard.set_wait(state, "rows-waiting", time.time() + 3600)
+        answer, _ = self.stop(state, guard.replace(self.env(world), wakes=lambda: [{"ref": "D00 T01 §1"}]))
+        self.assertIn("wake --apply", answer["reason"])
+
     def test_every_wait_is_answered_with_one_watch_loop(self):
         # D00 T03 §29: a timed wait, work in flight, or both, get the same runnable loop, neither hiding the other.
         until = time.time() + 1800
@@ -1568,16 +1584,16 @@ class Look(unittest.TestCase):
                              capture_output=True, text=True, encoding="utf-8", timeout=60, **guard.hidden()).stdout
         self.assertEqual(out.strip(), "still waiting: the run state, which can't be read now")
 
-    def test_a_woken_rows_hold_is_not_a_wait_in_look_either(self):
-        # Round 1 of D00 T03 §29: the hook and look apply the same wake rule.
+    def test_look_never_runs_the_wake_checks_and_keeps_a_zero_budget(self):
+        # Round 4 of D00 T03 §29: the wake checks run todo-graph, so look leaves them to the Stop hook.
+        def wakes():
+            raise AssertionError("look ran the wake checks")
         held = {"wait_until": time.time() + 3600, "wait_reason": "rows-waiting"}
-        clock = iter(range(100))
-        env = self.fake(["check-all, pid 9", None], wakes=[{"ref": "D00 T01 §1"}])
-        said = guard.look(env, lambda: dict(held), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
-        self.assertEqual(said, "ended: a local gate in flight (check-all, pid 9); still waiting: nothing")
-        clock = iter(range(100))
-        said = guard.look(self.fake(["check-all, pid 9", None]), lambda: dict(held), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
-        self.assertTrue(said.endswith("still waiting: the wait for rows-waiting until " + guard.stamp(held["wait_until"])), said)
+        env = guard.replace(self.fake(["check-all, pid 9"]), wakes=wakes)
+        started = time.monotonic()
+        said = guard.look(env, lambda: dict(held), 0)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertTrue(said.startswith("still waiting: a local gate in flight (check-all, pid 9); the wait for rows-waiting"), said)
 
     def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
         held = {"wait_until": 1_800_000_100.0, "wait_reason": "reviewer-unavailable"}

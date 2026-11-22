@@ -670,18 +670,17 @@ def antigravity_event(raw: str, session: str) -> dict:
     }
 
 
-WAKE_LOOK_SECONDS = 60  # how often `look` asks again whether a rows-waiting hold's wake has come (it runs todo-graph)
-
 
 def woken_now(state: dict, env: Env, now: float | None = None) -> bool:
     """Whether a timed hold on rows that were waiting has its wake now, so it no longer holds the run."""
     return waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
 
 
-def waits_now(env: Env, state: dict | None, now: float | None = None, woken: bool = False) -> list[str]:
+def waits_now(env: Env, state: dict | None, now: float | None = None) -> list[str]:
     """Each thing the run waits for now, one entry each: a review, a CI gate, every local gate, a timed wait that
-    hasn't passed (unless its wake has come, `woken`), and a run state that can't be read (`None`), which is never
-    taken as nothing to wait for. `look` compares these, so an entry's text stays the same while it lasts."""
+    hasn't passed, and a run state that can't be read (`None`), which is never taken as nothing to wait for. `look`
+    compares these, so an entry's text stays the same while it lasts. A rows-waiting hold whose wake has come is ended
+    in the state by the Stop hook (`on_antigravity_stop`), so `look` never runs the wake checks itself."""
     items = []
     for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting), ("a local gate", env.gating)):
         which = read()
@@ -689,7 +688,7 @@ def waits_now(env: Env, state: dict | None, now: float | None = None, woken: boo
             items.extend(f"{what} in flight ({one})" for one in str(which).split("; "))
     if state is None:
         items.append("the run state, which can't be read now")
-    elif waiting(state, now) and not woken:
+    elif waiting(state, now):
         detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
         items.append(f"the wait for {state.get('wait_reason')} until {stamp(state['wait_until'])}{detail}")
     return items
@@ -704,9 +703,7 @@ def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SE
     heartbeat, and nothing outside a run's own session may act for it."""
     start = clock()
     state = load_state()
-    at = wall()  # one reading of the wall clock per look, for the wake rule and the timed wait alike
-    woken, woken_at = (woken_now(state, env, at) if state else False), start
-    seen = waits_now(env, state, at, woken=woken)
+    seen = waits_now(env, state, wall())
     if not seen:
         return "nothing to wait for"
     while True:
@@ -718,10 +715,7 @@ def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SE
         # state never read at all is the wait 'the run state, which can't be read now'.
         fresh = load_state()
         state = state if fresh is None else fresh
-        at = wall()
-        if state and clock() - woken_at >= WAKE_LOOK_SECONDS:
-            woken, woken_at = woken_now(state, env, at), clock()
-        now = waits_now(env, state, at, woken=woken)
+        now = waits_now(env, state, wall())
         ended = [w for w in seen if w not in now]
         if ended:
             return f"ended: {'; '.join(ended)}; still waiting: {'; '.join(now) or 'nothing'}"
@@ -766,10 +760,14 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
         halt(state, "operator", words.strip())
         return None
     now = time.time()
+    # A rows-waiting hold whose wake has come is ended here when work in flight sends the session to `look`, in the
+    # state `look` reads, so the two never disagree on what holds the run and `look` never runs the wake checks (rounds
+    # 1 and 4 of D00 T03 §29); with nothing in flight it is left for on_stop, which tells the session to apply the wake.
+    # A timed wait and work in flight are one answer, so neither hides the other (its plan review).
     woken = woken_now(state, env, now)
-    # A timed wait and work in flight are one answer, so neither hides the other (D00 T03 §29's plan review); `look`
-    # applies the same wake rule, so the two never disagree on what still holds the run (round 1).
-    items = waits_now(env, state, now, woken=woken)
+    items = waits_now(env, {} if woken else state, now)
+    if woken and items:  # the session will `look` on what is in flight: the hold it no longer has is ended for it
+        end_wait(state, now, env.signature())
     if items:
         return wait_in_session(items)
     reason = on_stop(state, data, env)
