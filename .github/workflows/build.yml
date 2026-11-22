@@ -125,6 +125,8 @@ jobs:
         run: pwsh tests\campaign_admin_test.ps1
       - name: Campaign hold test
         run: pwsh tests\campaign_hold_test.ps1
+      - name: Campaign holder test
+        run: pwsh tests\hold_awake_test.ps1
       - name: Check-all gate test
         run: pwsh tests\check_all_test.ps1
       - name: No MSBuild node outlives a .NET build

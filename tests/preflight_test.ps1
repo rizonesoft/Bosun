@@ -583,7 +583,7 @@ try {
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a record whose pid now names another process reads as no run holding'
   # A run's record that cannot be read fails with what to move aside, never as no run.
-  foreach ($bad in '{ not json', '"just text"') {
+  foreach ($bad in '{ not json', '"just text"', '{"pid": 123}', "{`"pid`": $PID, `"started`": `"soon`", `"acquired`": true}") {
     [IO.File]::WriteAllText($runHold, $bad)
     $r = Preflight $system $holdArgs
     Check ($r.Code -eq 1 -and $r.Text -match "the run's hold record at .* can't be read" -and $r.Text -match 'Move-Item') "an unreadable run hold record ($bad) fails with what to move aside"
@@ -595,6 +595,15 @@ try {
   [IO.File]::WriteAllText($holdRecord, ($legacy | ConvertTo-Json -Depth 5))
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match 'a hold record an older version left is at' -and $r.Text.Contains("pwsh scripts/campaign-hold.ps1 -Restore -Record '$holdRecord'")) 'a record an older version left fails with the manual restore of that record'
+  # The restore keeps the targets the check was given, each quoted as pasted.
+  $odd = Join-Path $work "it's-hold.json"
+  [IO.File]::Copy($holdRecord, $odd, $true)
+  $r = Preflight $system @('-Only', 'hold', '-HoldRecord', $odd, '-RunHold', $runHold, '-PowerCfg', 'C:\fake\powercfg.exe', '-LockKey', 'HKCU:\Software\BosunTest\lock')
+  Check ($r.Text.Contains("-Record '$($odd.Replace("'", "''"))' -PowerCfg 'C:\fake\powercfg.exe' -LockKey 'HKCU:\Software\BosunTest\lock'")) 'the restore command keeps the record, power tool and lock key it was given, quoted'
+  [IO.File]::WriteAllText($odd, '{ not json')
+  $r = Preflight $system @('-Only', 'hold', '-HoldRecord', $odd, '-RunHold', $runHold)
+  Check ($r.Text.Contains("Move-Item -LiteralPath '$($odd.Replace("'", "''"))' -Destination")) 'a path holding a quote is quoted in the move-aside command'
+  Remove-Item -LiteralPath $odd
   [IO.File]::WriteAllText($holdRecord, '{ not json')
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match "a hold record an older version left can't be read" -and $r.Text -match 'Move-Item -LiteralPath') 'an unreadable record fails with what to move aside'
@@ -614,7 +623,7 @@ try {
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveActive -Value '1'
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaverIsSecure -Value '1'
   $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
-  Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume') 'a screen saver lock enforced by policy fails though the desktop''s own values say off'
+  Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume' -and $r.Text -match 'a policy sets ScreenSaveActive, ScreenSaverIsSecure' -and $r.Text -match 'Group Policy') 'a screen saver lock enforced by policy fails, naming the policy and who can change it'
   # A zero timeout never starts the saver, so it never locks.
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveTimeOut -Value '0'
   $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")

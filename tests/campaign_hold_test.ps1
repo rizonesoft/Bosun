@@ -53,6 +53,8 @@ try {
   Reset '1'
   $r = Hold @('-Apply')
   Check ($r.Code -eq 2 -and $r.Text -match 'a campaign no longer changes the power plan' -and $r.Text -match 'scripts/start-run.ps1' -and [IO.File]::ReadAllText($state) -eq $original -and (Lock) -eq '1' -and -not (Test-Path $record)) '-Apply refuses, names the launcher and changes nothing'
+  $r = Hold @('-Apply', '-Hours', '8')
+  Check ($r.Code -eq 2 -and $r.Text -match 'pwsh scripts/start-run.ps1 -Minutes 480' -and -not (Test-Path $record)) 'the old timed apply names the launcher''s -Minutes for the same time'
   $r = Hold
   Check ($r.Code -eq 0 -and $r.Text -match '-Status \| -Restore: for a hold an older version left') 'with no switch, it says what it is now for'
 

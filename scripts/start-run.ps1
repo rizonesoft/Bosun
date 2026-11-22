@@ -97,6 +97,11 @@ function Start-Hold {
     if (-not $answer.Wait([TimeSpan]::FromSeconds($seconds))) {
       & taskkill.exe /T /F /PID $holder.Id 2>&1 | Out-Null
       "hold: the holder gave no answer within $seconds seconds and was stopped, so the machine may sleep during the run"
+      # The holder never wrote its record, so this window writes one saying the hold failed: the preflight then fails
+      # while the writer runs, as for any failed hold, and Stop-Hold marks it released (completion review of §28).
+      $script:holdFailed = [ordered]@{ pid = $PID; started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'); parent = $PID; acquired = $false
+                                       minutes = $Minutes; at = [datetime]::UtcNow.ToString('o'); why = "the holder gave no answer within $seconds seconds and was stopped" }
+      Save-LauncherHold $script:holdFailed
       return $null
     }
     $said = $answer.Result
@@ -112,8 +117,24 @@ function Start-Hold {
   }
   $holder
 }
+# The record this window writes for a holder that never answered, temporary file then replace; a write that fails is
+# said, since the writer starts either way.
+function Save-LauncherHold($fields) {
+  try {
+    $dir = Split-Path $HoldRecord
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+    $tmp = "$HoldRecord.$PID.tmp"
+    try { [IO.File]::WriteAllText($tmp, ($fields | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)); [IO.File]::Move($tmp, $HoldRecord, $true) }
+    catch { Remove-Item -LiteralPath $tmp -ErrorAction Ignore; throw }
+  } catch { "hold: $HoldRecord could not be written ($($_.Exception.Message)), so the preflight cannot see this hold" }
+}
 function Stop-Hold($holder) {
   # The writer has returned or never started, and the window (-NoExit) outlives it: the hold goes now.
+  if ($script:holdFailed) {
+    $script:holdFailed.released = [datetime]::UtcNow.ToString('o'); $script:holdFailed.released_because = 'its launcher released it'
+    Save-LauncherHold $script:holdFailed
+    $script:holdFailed = $null
+  }
   if (-not $holder -or $holder.HasExited) { return }
   # A holder whose input is already gone is ended below by the kill, so a failed close needs nothing more.
   try { $holder.StandardInput.Close() } catch [System.IO.IOException], [System.ObjectDisposedException] { }

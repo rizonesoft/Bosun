@@ -27,10 +27,14 @@ function Save-Hold([hashtable]$fields) {
   if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
   $text = $fields | ConvertTo-Json -Compress
   $tmp = "$Record.$PID.tmp"
-  [IO.File]::WriteAllText($tmp, $text, [Text.UTF8Encoding]::new($false))
   # File.Move, not Move-Item -Force: that one overwrites a read-only record and moves into a directory of its name,
-  # so a record it did not write would read as written.
-  try { [IO.File]::Move($tmp, $Record, $true) } catch { Remove-Item -LiteralPath $tmp -ErrorAction Ignore; throw }
+  # so a record it did not write would read as written. A write that fails part way (a full disk) leaves no
+  # temporary file behind.
+  try {
+    if ($env:BOSUN_TEST_HOLD_PARTIAL) { [IO.File]::WriteAllText($tmp, '{"pid":'); throw 'test: the disk filled part way through the record' }
+    [IO.File]::WriteAllText($tmp, $text, [Text.UTF8Encoding]::new($false))
+    [IO.File]::Move($tmp, $Record, $true)
+  } catch { Remove-Item -LiteralPath $tmp -ErrorAction Ignore; throw }
 }
 
 if (-not ('BosunAwake.Power' -as [type])) {
@@ -62,7 +66,8 @@ $flags = [uint32]2147483651
 $previous = if ($env:BOSUN_TEST_HOLD_FAIL) { [uint32]0 } else { [BosunAwake.Power]::SetThreadExecutionState($flags) }
 $acquired = $previous -ne 0
 $why = if ($acquired) { $null } else { "SetThreadExecutionState refused the request (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" }
-$fields = @{ pid = $PID; started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'); parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
+# The flags asked for are recorded, so a test can tell a request that dropped one (Windows accepts a system-only one).
+$fields = @{ flags = $flags; pid = $PID; started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'); parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
 if ($why) { $fields.why = $why }
 if ($env:BOSUN_TEST_HOLD_STALL) { Start-Sleep -Seconds ([int]$env:BOSUN_TEST_HOLD_STALL) }
 $unrecorded = $null

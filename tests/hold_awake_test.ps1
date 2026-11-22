@@ -37,10 +37,12 @@ try {
   $h = Start-Holder $parent.Id $record
   $line = (Read-Answer $h)
   $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED, all three (completion review of D00 T03 §28).
+  Check ($saved.flags -eq 2147483651) "the holder asks for the continuous, system and display request ($($saved.flags))"
   Check ($line -eq 'held' -and $saved.acquired -eq $true -and $saved.pid -eq $h.Id -and $saved.parent -eq $parent.Id -and [math]::Abs((([datetime]$saved.started).ToUniversalTime() - $h.StartTime.ToUniversalTime()).TotalSeconds) -lt 1) "the holder says held and records its own pid and its parent ($line)"
   # Its parent ends: it lets go within a second.
   $parent.Kill(); $parent.WaitForExit()
-  Check (Gone-Within $h 1500) 'it is gone within a second of its parent ending'
+  Check (Gone-Within $h 1000) 'it is gone within a second of its parent ending'
   Check ((Get-Content -LiteralPath $record -Raw | ConvertFrom-Json).released_because -eq 'its parent ended') 'and its record says why'
 
   # Its launcher releases it by closing its input.
@@ -48,7 +50,7 @@ try {
   $h = Start-Holder $parent.Id (Join-Path $work 'b.json')
   $null = (Read-Answer $h)
   $h.StandardInput.Close()
-  Check (Gone-Within $h 1500) 'it is gone within a second of its launcher closing its input'
+  Check (Gone-Within $h 1000) 'it is gone within a second of its launcher closing its input'
   Check ($h.ExitCode -eq 0) 'and exits 0'
 
   # A timed hold: still held just before its time, gone at it.
@@ -77,6 +79,13 @@ try {
   $line = (Read-Answer $h)
   $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
   Check ($line -match "^held; but .*e\.json could not be written") "a record that cannot be written is said on the holder's line ($line)"
+  # A write that fails part way (a full disk) is said and leaves no temporary file behind.
+  $partial = Join-Path $work 'g.json'
+  $env:BOSUN_TEST_HOLD_PARTIAL = '1'
+  try { $h = Start-Holder $parent.Id $partial } finally { Remove-Item Env:BOSUN_TEST_HOLD_PARTIAL }
+  $line = (Read-Answer $h)
+  $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
+  Check ($line -match '^held; but .*g\.json could not be written' -and -not (Get-ChildItem -LiteralPath $work -Filter 'g.json.*.tmp')) "a record write that fails part way leaves no temporary file ($line)"
   # The case round 1 named: an older run's released record left read-only.
   $readOnly = Join-Path $work 'f.json'
   [IO.File]::WriteAllText($readOnly, '{"pid": 1, "released": "2026-11-21T00:00:00Z"}')

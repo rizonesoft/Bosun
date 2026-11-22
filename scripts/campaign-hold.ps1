@@ -17,6 +17,8 @@
 [CmdletBinding(DefaultParameterSetName = 'Help')]
 param(
   [Parameter(ParameterSetName = 'Apply')][switch]$Apply,
+  # Kept only so the old timed apply is answered with its replacement, not a parameter error.
+  [Parameter(ParameterSetName = 'Apply')][int]$Hours = 0,
   [Parameter(ParameterSetName = 'Status')][switch]$Status,
   [Parameter(ParameterSetName = 'Restore')][switch]$Restore,
   [string]$Record = ($env:BOSUN_HOLD_RECORD ? $env:BOSUN_HOLD_RECORD : (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json')),
@@ -33,7 +35,8 @@ Stop-TreeWithThisWindow
 $PowerCfgSeconds = $ProbeSeconds
 
 if ($Apply) {
-  "FAIL a campaign no longer changes the power plan or the screen saver lock: start it with ``pwsh scripts/start-run.ps1``, which holds the machine awake while its writer runs (D00 T03 §28); -Status and -Restore are here for a hold an older version left"
+  $start = if ($Hours -gt 0) { "pwsh scripts/start-run.ps1 -Minutes $([math]::Min($Hours * 60, 10080))" } else { 'pwsh scripts/start-run.ps1' }
+  "FAIL a campaign no longer changes the power plan or the screen saver lock: start it with ``$start``, which holds the machine awake while its writer runs (D00 T03 §28); -Status and -Restore are here for a hold an older version left"
   exit 2
 }
 if (-not $Status -and -not $Restore) {

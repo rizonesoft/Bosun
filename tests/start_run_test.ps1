@@ -265,7 +265,11 @@ exit ([int]$env:FAKE_WRITER_EXIT)
     finally { Remove-Item Env:BOSUN_TEST_HOLD_STALL, Env:BOSUN_TEST_HOLD_ANSWER_SECONDS -ErrorAction Ignore }
     $saw = "$(Get-Content -LiteralPath (Join-Path $build 'writer-saw.txt') -Raw -ErrorAction Ignore)".Trim()
     $stalled = @(Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe'" | Where-Object { $_.CommandLine -match [regex]::Escape($build) -and $_.CommandLine -match 'hold-awake' })
-    Check (($said -match 'the holder gave no answer within 2 seconds and was stopped') -and $saw -eq 'none' -and $stalled.Count -eq 0) "a holder that does not answer is stopped at its bound and the writer still starts ($($said -match '^hold:'))"
+    # The window records the failed hold, which the writer saw on entry, and marks it released once the writer returns.
+    $failedHold = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
+    $after = & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-preflight.ps1') -Only hold -RunHold (Join-Path $build 'run-hold.json') -HoldRecord (Join-Path $build 'none.json') 2>&1
+    Check ($failedHold.acquired -eq $false -and $failedHold.why -match 'no answer within 2 seconds' -and $failedHold.released_because -eq 'its launcher released it' -and "$after" -match 'no run holds the machine now') "a stalled holder's window records the failed hold and releases it with the writer ($($failedHold.why))"
+    Check (($said -match 'the holder gave no answer within 2 seconds and was stopped') -and $saw -eq 'gone' -and $stalled.Count -eq 0) "a holder that does not answer is stopped at its bound and the writer still starts ($($said -match '^hold:'))"
     # A timed hold, with a six-second minute: held, then gone while the writer runs on.
     $build = Join-Path $holdDir 'build-timed'
     New-Item -ItemType Directory -Force $build | Out-Null
@@ -306,6 +310,13 @@ exit ([int]$env:FAKE_WRITER_EXIT)
   Set-Content (Join-Path $agyHome 'fake_agy.py') @"
 import json, os, sys, time
 seen = {'args': sys.argv[1:], 'session': os.environ.get('BOSUN_RUN_SESSION'), 'pid': os.getpid()}
+# Whether the hold was taken before agy began (completion review of D00 T03 §28): a record held and not yet released.
+try:
+    with open(os.path.join(os.environ['RUN_GUARD_BUILD'], 'run-hold.json'), encoding='utf-8-sig') as hold:
+        record = json.load(hold)
+    seen['held_on_entry'] = bool(record.get('acquired')) and not record.get('released')
+except OSError:
+    seen['held_on_entry'] = False
 with open(r'$agySeen', 'w', encoding='utf-8') as out:
     json.dump(seen, out)
 time.sleep(float(os.environ.get('FAKE_AGY_SLEEP') or 0))
@@ -349,6 +360,7 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       Check (@($seen.args) -notcontains '--settings' -and (@($seen.args) -join ' ') -notmatch 'maxStopHookContinuations' -and @($seen.args)[-1] -like '/goal Finish the Bosun*') "agy gets its /goal prompt with no unknown --settings (exit $exit)"
       # D00 T03 §28: the Antigravity writer is held for too, and released when agy returns.
       $agyHold = Get-Content -LiteralPath (Join-Path $env:RUN_GUARD_BUILD 'run-hold.json') -Raw | ConvertFrom-Json
+      Check ($seen.held_on_entry -eq $true) "the Antigravity run is held before agy begins (exit $exit)"
       Check ($out -match 'hold: the machine stays awake' -and $agyHold.acquired -and $agyHold.released_because -eq 'its launcher released it' -and -not (Get-Process -Id $agyHold.pid -ErrorAction Ignore)) "the Antigravity run is held while agy runs, and released when agy returns with $exit"
       Check ($code -eq $exit -and $saved.status -eq 'ended' -and -not $saved.active -and $saved.why -match "agy returned \(exit $exit\)") "when agy returns with $exit, the run is recorded ended though the window lives on ($($saved.status): $($saved.why))"
     }

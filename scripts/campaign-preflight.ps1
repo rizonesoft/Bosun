@@ -49,6 +49,8 @@ param(
   [string]$Acceptance = '',
   [string]$VsWhere = (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
 )
+# The script's own parameters: inside a check, $PSBoundParameters is that function's.
+$given = $PSBoundParameters
 . (Join-Path $PSScriptRoot 'lib\campaign.ps1')
 # A threshold below its floor would let a check pass what it must refuse, so it is a bad argument, not a setting.
 foreach ($bad in @(@('ProbeSeconds', $ProbeSeconds, 1), @('MinFreeGB', $MinFreeGB, 1), @('MinLoginDays', $MinLoginDays, 1)) | Where-Object { $_[1] -lt $_[2] }) { "-$($bad[0]) must be at least $($bad[2]), not $($bad[1])"; exit 2 }
@@ -430,11 +432,17 @@ function Test-Space {
 }
 
 function Test-Hold {
+  # Each path pasted as printed: single quotes, a quote in it doubled.
+  $quote = { param($v) "'" + "$v".Replace("'", "''") + "'" }
   # A record an older version left (the power-plan edits of D00 T03 §24) still holds the plan's values: put it back.
   if (Test-Path -LiteralPath $HoldRecord) {
     try { $saved = Read-Json $HoldRecord; if ($saved) { Assert-Record $saved $HoldRecord 'hold' } }
-    catch { Fail "a hold record an older version left can't be read: $($_.Exception.Message)" "check what $HoldRecord holds, then move it aside (``Move-Item -LiteralPath '$HoldRecord' -Destination '$HoldRecord.damaged'``)"; return }
-    Fail "a hold record an older version left is at $HoldRecord, so the power plan's sleep and display timeouts and the screen saver lock are still held" "in this account: ``pwsh scripts/campaign-hold.ps1 -Restore -Record '$($HoldRecord.Replace("'", "''"))'``"
+    catch { Fail "a hold record an older version left can't be read: $($_.Exception.Message)" "check what $HoldRecord holds, then move it aside (``Move-Item -LiteralPath $(& $quote $HoldRecord) -Destination $(& $quote "$HoldRecord.damaged")``)"; return }
+    # The restore acts on the targets this check was given, as `campaign-hold.ps1 -Status` prints them.
+    $restore = "pwsh scripts/campaign-hold.ps1 -Restore -Record $(& $quote $HoldRecord)"
+    if ($given.ContainsKey('PowerCfg') -or $env:BOSUN_HOLD_POWERCFG) { $restore += " -PowerCfg $(& $quote $PowerCfg)" }
+    if ($given.ContainsKey('LockKey') -or $env:BOSUN_HOLD_LOCKKEY) { $restore += " -LockKey $(& $quote $LockKey)" }
+    Fail "a hold record an older version left is at $HoldRecord, so the power plan's sleep and display timeouts and the screen saver lock are still held" "in this account: ``$restore``"
     return
   }
   # The run's own hold (D00 T03 §28): held while its writer runs, said by its holder, never read from the machine's
@@ -447,8 +455,10 @@ function Test-Hold {
       try { $hold = Get-Content -LiteralPath $RunHold -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop; $why = $null; break }
       catch { $why = $_.Exception.Message; Start-Sleep -Milliseconds 150 }
     }
-    if ($why -or $hold -isnot [pscustomobject] -or -not ($hold.pid -is [long] -or $hold.pid -is [int])) {
-      Fail "the run's hold record at $RunHold can't be read$(if ($why) { ": $why" } else { ' (it is not a holder''s record)' })" "close any run, then move it aside (``Move-Item -LiteralPath '$RunHold' -Destination '$RunHold.damaged'``)"
+    # Whole: a whole-number pid, the start of its process and whether it held (ConvertFrom-Json reads a time as one).
+    $whole = $hold -is [pscustomobject] -and ($hold.pid -is [long] -or $hold.pid -is [int]) -and $hold.started -is [datetime] -and $hold.acquired -is [bool]
+    if ($why -or -not $whole) {
+      Fail "the run's hold record at $RunHold can't be read$(if ($why) { ": $why" } else { ' (it is not a whole holder''s record: pid, started and acquired)' })" "close any run, then move it aside (``Move-Item -LiteralPath $(& $quote $RunHold) -Destination $(& $quote "$RunHold.damaged")``)"
       return
     }
   }
@@ -456,11 +466,15 @@ function Test-Hold {
   # The pid and when its process began: a holder ended with its window before it could mark its release leaves a pid
   # Windows may give to another process (round 4 of D00 T03 §28).
   $live = $false
-  if ($hold -and -not $hold.released -and $hold.started) {
+  if ($hold -and -not $hold.released) {
     $process = Get-Process -Id ([int]$hold.pid) -ErrorAction Ignore
-    $live = $process -and [math]::Abs(($process.StartTime.ToUniversalTime() - ([datetime]$hold.started).ToUniversalTime()).TotalSeconds) -lt 1
+    $live = $process -and [math]::Abs(($process.StartTime.ToUniversalTime() - $hold.started.ToUniversalTime()).TotalSeconds) -lt 1
   }
-  if ($live -and $hold.acquired -eq $true) { Pass "the machine is held awake by run $($hold.pid)"; return }
+  if ($live -and $hold.acquired) {
+    $until = if ($hold.minutes -gt 0 -and $hold.at -is [datetime]) { "until $($hold.at.ToLocalTime().AddMinutes([double]$hold.minutes).ToString('yyyy-MM-dd HH:mm')) local time, or its writer returns" } else { 'until its writer returns' }
+    Pass "the machine is held awake by run $($hold.pid), $until"
+    return
+  }
   if ($live) {
     Fail "the run's hold failed: $($hold.why)" 'start the run again from its shortcut; if the hold fails again, the machine may sleep during the run'
     return
@@ -549,9 +563,11 @@ function Test-Lock {
   # The run's power request keeps the display on but does not stop the screen saver (Microsoft documents it), so a
   # saver that locks on resume locks the desktop mid-run: the owner's setting, which the campaign never writes.
   try {
-    $active = Get-RegValue $LockPolicyKey 'ScreenSaveActive'; if ($null -eq $active) { $active = Get-RegValue $LockKey 'ScreenSaveActive' }
-    $secure = Get-RegValue $LockPolicyKey 'ScreenSaverIsSecure'; if ($null -eq $secure) { $secure = Get-RegValue $LockKey 'ScreenSaverIsSecure' }
-    $timeout = Get-RegValue $LockPolicyKey 'ScreenSaveTimeOut'; if ($null -eq $timeout) { $timeout = Get-RegValue $LockKey 'ScreenSaveTimeOut' }
+    $byPolicy = @()  # the values a policy sets, so the fix names who can change them
+    $read = { param($name) $v = Get-RegValue $LockPolicyKey $name; if ($null -ne $v) { $script:byPolicy += $name; $v } else { Get-RegValue $LockKey $name } }
+    $script:byPolicy = @()
+    $active = & $read 'ScreenSaveActive'; $secure = & $read 'ScreenSaverIsSecure'; $timeout = & $read 'ScreenSaveTimeOut'
+    $byPolicy = $script:byPolicy
   }
   catch { Fail "the screen saver settings can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
   # The saver locks only when all three hold: it is on, it locks on resume, and it has a timeout to start at. Windows
@@ -559,7 +575,10 @@ function Test-Lock {
   $starts = 0
   if (-not [int]::TryParse("$timeout", [ref]$starts)) { $starts = 0 }
   if ("$active" -eq '1' -and "$secure" -eq '1' -and $starts -gt 0) {
-    Fail 'the screen saver locks the desktop on resume, and a campaign''s hold keeps the display on but cannot stop the screen saver' "turn off 'On resume, display logon screen' (Settings > Personalization > Lock screen > Screen saver), or the screen saver itself" 'owner'
+    $fix = if ($byPolicy) {
+      "a policy sets $($byPolicy -join ', ') under $LockPolicyKey, so the Settings page cannot change it: ask whoever manages this account's Group Policy to set 'Password protect the screen saver' or 'Enable screen saver' (User Configuration > Administrative Templates > Control Panel > Personalization) to Disabled or Not Configured"
+    } else { "turn off 'On resume, display logon screen' (Settings > Personalization > Lock screen > Screen saver), or the screen saver itself" }
+    Fail 'the screen saver locks the desktop on resume, and a campaign''s hold keeps the display on but cannot stop the screen saver' $fix 'owner'
     return
   }
   Pass 'no machine inactivity lock, and no screen saver that locks on resume'
