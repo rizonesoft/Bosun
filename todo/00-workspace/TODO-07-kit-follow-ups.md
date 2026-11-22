@@ -245,16 +245,18 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 26 and 27,
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-22:** specified binary-framed `git cat-file --batch` blob reading (for both `committed` and `uncommitted`, raising `CannotRead` / exit 2 on missing, non-blob, truncated, or non-zero git batch output and normalizing line endings to match `Text`), preserving the per-file `show` reader for fixture equivalence testing and the 1,000-file benchmark (against both per-file `show` and plain `git diff`), indented `    - L<n>: <text>` / `    + L<n>: <text>` context lines (at most 3 before and 3 after) under every committed and uncommitted signal without breaking existing `answered`/`unanswered` parsers, updating the two `show`-mocking tests in `scripts/tests/test_weakening_scan.py` to test batch reads (answering any `weakening-scan.py` signal if needed), and keeping `pyright` at 0 errors on Windows and Linux.
+
 **Build order:**
 
 1. Read a range's blobs in one batch. Done when: the same signals come back faster on a large range.
 2. Show each signal's lines. Done when: the report holds the before and after lines.
 
-- [ ] Read both sides of every changed file through one `git cat-file --batch` in `scripts/weakening-scan.py`, and measure a 1,000-file range against the current reader and against plain `git diff` of the same range, recording all three times here. Done when: `scripts/tests/test_weakening_scan.py` reads identical signals from both readers on its fixtures, and the three times are written here, the batch reader's overhead above `git diff` named. **Corrected 2026-11-21 (completion review of `D00 T06 §1`):** the comparison with plain `git diff` the finding asked for was missing. Cheaper substitute: parallel `git show` processes.
-- [ ] Print each signal's before and after lines (at most three of each, with line numbers) under it in the report. Done when: the test of a removed assertion reads the removed line in the report.
+- [ ] Read both sides of every changed file through one `git cat-file --batch` in `scripts/weakening-scan.py` (covering both `committed` and `uncommitted` git blobs, binary-framed by `<oid> <type> <size>\n<bytes>\n`, raising `CannotRead` / exit 2 on any missing/non-blob/truncated/non-zero batch error, and requesting only existing sides for created/deleted files), and measure a 1,000-file range against the current per-file `show` reader and against plain `git diff` of the same range, recording all three times here. Done when: `scripts/tests/test_weakening_scan.py` reads identical signals from both readers on its fixtures, proves one `git cat-file --batch` call per blob set (including created/deleted single-side reads and exit 2 on batch read/missing failures), and the three times are written here with the batch reader's overhead above `git diff` named. **Corrected 2026-11-21 (completion review of `D00 T06 §1`):** the comparison with plain `git diff` the finding asked for was missing. Cheaper substitute: parallel `git show` processes.
+- [ ] Print each signal's before and after lines (at most three of each, with line numbers, formatted as `    - L<n>: <line>` / `    + L<n>: <line>`) under every committed and uncommitted signal in the report, without breaking `answered`/`unanswered` line parsing. Done when: `scripts/tests/test_weakening_scan.py` verifies before/after lines with line numbers and the 3-line cap across signal kinds (including a removed assertion reading the removed line in the report).
 - [ ] Commit: `weakening-scan: one batch read and the lines each signal saw (D00 T07 §5)`
 
-**Test checkpoint:** `python scripts/run-tests.py test_weakening_scan` exits 0, and with the lines removed from the report the removed-assertion test fails.
+**Test checkpoint:** `python scripts/run-tests.py test_weakening_scan` exits 0, `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` report 0 errors, and with the lines removed from the report the removed-assertion test fails.
 
 ## 6. Clone setup and pre-commit say what they did
 
