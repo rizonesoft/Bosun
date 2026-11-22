@@ -247,9 +247,12 @@ class Kinds(Repo):
                 ("the mode lowered", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
                                                        '"exclude": ["build"],\n  "typeCheckingMode": "basic"'),
                  ["warning-relaxed pyrightconfig.json:L1"]),
+                # Round 5 of D00 T07 §2: the scan no longer judges a config edit, so a stricter one is answered too.
                 ("a stricter mode", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
                                                       '"exclude": ["build"],\n  "typeCheckingMode": "strict"'),
-                 []),
+                 ["warning-relaxed pyrightconfig.json:L1"]),
+                ("a comment only", lambda: self.edit("pyrightconfig.json", "{", "{\n  // generated folders stay out"),
+                 ["warning-relaxed pyrightconfig.json:L1"]),
                 # Round 1 of D00 T07 §2: a file-level rule set to a severity, and a rule lowered for one folder.
                 ("a file-level rule set to none", lambda: self.edit(SOURCE, "def run", "# pyright: reportAssignmentType=none\ndef run"),
                  [f"warning-relaxed {SOURCE}:L1"]),
@@ -275,47 +278,16 @@ class Kinds(Repo):
         self.commit("switch a rule off",
                     f"Weakening scan: warning-relaxed {ignored} -- the test is generated and checked on its own")
         code, text = self.run_scan("--base", self.base, "--head", "HEAD")
-        self.assertEqual(code, 1, text)  # the rule switched off is its own signal, still unanswered
+        # The range's config is its final content, which the answer written for the earlier content does not cover.
+        self.assertEqual(code, 1, text)
         self.assertEqual(sum(line.strip().startswith("unanswered") for line in text.splitlines()), 1, text)
-        self.assertEqual(sum(line.strip().startswith("answered") for line in text.splitlines()), 1, text)
+        self.assertEqual(sum(line.strip().startswith("answered") for line in text.splitlines()), 0, text)
 
-    def test_a_mode_lowered_twice_is_two_answers_and_a_rule_raised_is_none(self):
-        # Round 2 of D00 T07 §2: `basic` and `off` shared one fingerprint, so an answer for one covered the other; and a
-        # rule raised from none to warning was reported as lowered.
-        reasons = scan.relaxed_checker
-        base = ['{', '  "include": ["scripts"]', '}']
-        basic = reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": "basic"', '}'])
-        off = reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": "off"', '}'])
-        self.assertEqual(len(basic), 1)
-        self.assertEqual(len(off), 1)
-        self.assertNotEqual(basic, off)
-        quiet = ['{', '  "include": ["scripts"],', '  "reportAssignmentType": "none"', '}']
-        raised = ['{', '  "include": ["scripts"],', '  "reportAssignmentType": "warning"', '}']
-        self.assertEqual(reasons(quiet, raised), [])
-        self.assertEqual(len(reasons(raised, quiet)), 1)  # and the other way is a weakening
-
-    def test_every_rule_of_a_directive_is_read_and_a_malformed_list_is_said(self):
-        # Round 3 of D00 T07 §2: only a directive's first rule was read, and a non-string exclude entry raised.
+    def test_every_rule_of_a_directive_is_read(self):
+        # Round 3 of D00 T07 §2: only a directive's first rule was read.
         self.assertTrue(scan.RELAX.search("# pyright: reportArgumentType=error, reportAssignmentType=none"))
         self.assertFalse(scan.RELAX.search("# pyright: reportArgumentType=error, reportAssignmentType=error"))
         self.assertFalse(scan.RELAX.search("# pyright: strict"))
-        self.assertEqual(scan.relaxed_checker(['{', '  "exclude": ["build"]', '}'],
-                                              ['{', '  "exclude": ["build", {"root": "scripts"}]', '}']),
-                         ["exclude is not a list of paths"])
-
-    def test_the_config_is_read_as_pyright_reads_it(self):
-        # Round 4 of D00 T07 §2: a comment read as unparsable, a deleted override went unseen, a bad mode raised.
-        reasons = scan.relaxed_checker
-        base = ['{', '  "include": ["scripts"],', '  "reportUnusedImport": "error"', '}']
-        commented = ['{', '  // generated folders stay out', '  "include": ["scripts"],', '  "reportUnusedImport": "error",', '}']
-        self.assertEqual(reasons(base, commented), [])  # a comment and a trailing comma change nothing
-        excluded = commented[:-1] + ['  "exclude": ["scripts"]', '}']
-        self.assertEqual(reasons(base, excluded), ["exclude path added: scripts"])  # its own answer, not the comment's
-        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"]', '}']), ['reportUnusedImport="error" override removed'])
-        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": ["basic"]', '}']),
-                         ["typeCheckingMode is not one of off, basic, standard and strict"])
-        self.assertEqual(reasons(base, ['{', '  "include": ["scripts"],', '  "reportUnusedImport": ["none"]', '}']),
-                         ["reportUnusedImport is not a severity"])
 
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")

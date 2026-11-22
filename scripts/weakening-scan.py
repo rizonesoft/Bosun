@@ -20,9 +20,8 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
     skip-added           skipTest, unittest.skip, continue-on-error, or a -Skip switch on a test in the gate or CI
     ci-step-removed      a `run:` line gone from a workflow
     warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore, pyright:
-                         ignore, file-level pyright mode or rule or warning pragma put in, or a pyrightconfig.json
-                         change that drops an include path, adds an exclude or ignore one, lowers typeCheckingMode
-                         or sets a report rule below an error
+                         ignore, file-level pyright mode or rule below an error or warning pragma put in, or any
+                         change to pyrightconfig.json (each distinct edit its own signal)
     error-swallowed      an `except` whose body is only `pass` or `...`, a `catch` whose braces hold nothing or
                          only a comment, or a `contextlib.suppress` put in; whether the handler is new or an
                          existing one whose body was emptied, by a replacement or by deleting it
@@ -57,7 +56,6 @@ import argparse
 import ast
 from collections import Counter, defaultdict
 import hashlib
-import json
 import re
 import subprocess
 import sys
@@ -110,78 +108,6 @@ HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 class CannotRead(Exception):
     """The range, or a file in it, could not be read (exit 2)."""
-
-
-MODES = {"off": 0, "basic": 1, "standard": 2, "strict": 3}  # pyright's typeCheckingMode, weakest first
-# A report* setting's severity, weakest first; a setting absent before counts as an error, which is what fails a run.
-SEVERITY = {False: 0, "none": 0, "information": 1, "warning": 2, True: 3, "error": 3}
-
-
-def relaxed_checker(old, new):
-    """How a change to pyrightconfig.json lowers what pyright checks, one reason each: an `include` path dropped, an
-    `exclude` or `ignore` path added, `typeCheckingMode` lowered, or a `report*` rule set below an error. Unreadable
-    JSON on either side is itself a reason, since the checker would then run without it."""
-    def load(lines):
-        if lines is None:
-            return {}
-        # JSON with comments and trailing commas, as pyright reads it (round 4 of D00 T07 §2: a comment-only change
-        # read as unparsable, and so shared one answer with a later exclusion). Strings are kept whole.
-        text = re.sub(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', lambda m: m[0] if m[0].startswith('"') else "",
-                      "\n".join(lines), flags=re.S)
-        try:
-            data = json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
-        except ValueError:
-            return None
-        return data if isinstance(data, dict) else None
-    before, after = load(old), load(new)
-    if before is None or after is None:
-        return ["pyrightconfig.json does not parse"]
-    reasons = []
-    for key in ("include", "exclude", "ignore"):  # a list of paths, else what pyright reads of it is unknown
-        for side in (before, after):
-            value = side.get(key)
-            if value is not None and not (isinstance(value, list) and all(isinstance(p, str) for p in value)):
-                return [f"{key} is not a list of paths"]  # round 3 of D00 T07 §2: a set of a dict raised
-    if set(before.get("include") or []) - set(after.get("include") or []):
-        reasons.append("include path dropped")
-    for key in ("exclude", "ignore"):
-        if set(after.get(key) or []) - set(before.get(key) or []):
-            reasons.append(f"{key} path added")
-    mode = after.get("typeCheckingMode", "standard")
-    for side in (before, after):  # one of pyright's modes, else what it checks is unknown (round 4 of §2)
-        value = side.get("typeCheckingMode", "standard")
-        if not isinstance(value, str) or value not in MODES:
-            return ["typeCheckingMode is not one of off, basic, standard and strict"]
-    if MODES[mode] < MODES[before.get("typeCheckingMode", "standard")]:
-        reasons.append(f"typeCheckingMode={json.dumps(mode)} lowered")  # its value, so basic and off are two answers
-    def rules(data, where=""):
-        """Every report* setting, at the top level and in each executionEnvironments entry, by where it applies."""
-        found = {f"{where}{k}": v for k, v in data.items() if k.startswith("report")}
-        for n, env in enumerate(data.get("executionEnvironments") or []):
-            if isinstance(env, dict):
-                found.update(rules(env, f"executionEnvironments[{env.get('root', n)}]."))
-        return found
-    old_rules, new_rules = rules(before), rules(after)
-    for key, value in [*old_rules.items(), *new_rules.items()]:  # a severity is a word or a flag, nothing else
-        if not isinstance(value, (bool, str)):
-            return [f"{key} is not a severity"]
-    for key in sorted(set(old_rules) | set(new_rules)):
-        if key not in new_rules:
-            # An override taken out restores the mode's default, which may be weaker; it is said, since the default
-            # is not known here (round 4 of D00 T07 §2: only keys present after the edit were compared).
-            if SEVERITY.get(old_rules[key], 3) > 0:
-                reasons.append(f"{key}={json.dumps(old_rules[key])} override removed")
-            continue
-        value = new_rules[key]
-        # Weaker than before, by rank, so a rule raised from none to warning is not a weakening (round 2 of §2).
-        if SEVERITY.get(value, 3) < SEVERITY.get(old_rules.get(key, "error"), 3):
-            reasons.append(f"{key}={json.dumps(value)} lowered")
-    for key in ("exclude", "ignore"):  # name each path, so two exceptions are two answers (round 1 of §2)
-        reasons = [r for r in reasons if r != f"{key} path added"] + [
-            f"{key} path added: {p}" for p in sorted(set(after.get(key) or []) - set(before.get(key) or []))]
-    reasons = [r for r in reasons if r != "include path dropped"] + [
-        f"include path dropped: {p}" for p in sorted(set(before.get("include") or []) - set(after.get("include") or []))]
-    return reasons
 
 
 def line_id(lines, number):
@@ -510,12 +436,13 @@ def scan(changes):
 
     for path, change in sorted(files.items()):
         if path == "pyrightconfig.json":
-            # What the type checker reads, compared as settings rather than lines: a path dropped from what it checks,
-            # one put out of its reach, its mode or a rule lowered (D00 T07 §2: zero errors must not be bought here).
-            for reason in relaxed_checker(change.old, change.new):
-                # Fingerprinted by the setting and its value, not the file's first line, so one answer covers one
-                # weakening and never a different one made later in the range (round 1 of D00 T07 §2).
-                signals.append(Signal("warning-relaxed", path, f"L1#{hashlib.sha1(reason.encode('utf-8')).hexdigest()[:6]}"))
+            # What the type checker reads: any change to it is a signal, fingerprinted by the whole new file, so each
+            # distinct edit is answered on its own and no answer covers another. Judging which edits weaken pyright
+            # (paths, modes, rules, environments and their order, comments) reopened in four review rounds of
+            # D00 T07 §2, so the scan no longer judges: a stricter edit is answered as briefly as it is made.
+            if change.old != change.new:
+                digest = hashlib.sha1("\n".join(change.new or []).encode("utf-8")).hexdigest()[:6]
+                signals.append(Signal("warning-relaxed", path, f"L1#{digest}"))
             continue
         if not CODE.search(path):
             continue  # prose that mentions a pattern is not code that uses it
