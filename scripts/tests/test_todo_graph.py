@@ -1,5 +1,7 @@
 """Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
+import contextlib
 import importlib.util
+import io
 import json
 import pathlib
 import re
@@ -889,6 +891,14 @@ class Dispositions(Tree):
         design = (REPO / "docs" / "specs" / "2026-11-07-control-panel-design.md").read_text(encoding="utf-8")
         self.assertIn(f"| Review cap | {1 + schedule['max_low_rounds']} rounds a cycle", design)
         self.assertIn(f"Up to {schedule['max_repair_cycles']} repair cycles", design)
+
+    def test_repair_park_and_unpark_build_once_before_and_once_after_their_write(self):
+        self.use_up_repairs(count=2)
+        tg.projections(self.root, sync=True)  # a plan to keep in step, so each write's sync is counted too
+        self.assertEqual(graph_loads(self.root, "repair", "D00 T01 §1", "--reason", "one more", "--date", "2026-11-07")[:2], (2, 0))
+        self.exhaust("D00-T01-s1-cycle4.md")
+        self.assertEqual(graph_loads(self.root, "park", "D00 T01 §1", "--reason", "cycles used up", "--date", "2026-11-07")[:2], (2, 0))
+        self.assertEqual(graph_loads(self.root, "unpark", "D00 T01 §1", "--reason", "owner read it", "--date", "2026-11-08")[:2], (2, 0))
 
     def use_up_repairs(self, count=3):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
@@ -1899,6 +1909,47 @@ class Stamp(Tree):
         self.assertEqual(self.snapshot(), before)
         self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
 
+    # D00 T07 §1: one graph build per distinct graph state, through each CLI path a stampable tree reaches.
+    def test_each_reading_command_builds_the_graph_once(self):
+        tg.projections(self.root, sync=True)
+        for argv in (["validate"], ["plan", "--check"], ["plan", "--sync"], ["query", "deferred"],
+                     ["query", "adjacency"], ["query", "rounds"], ["query", "next"], ["query", "stats"],
+                     ["query", "disposition"], ["wake", "--check"]):
+            with self.subTest(argv=argv):
+                loads, code, _ = graph_loads(self.root, *argv)
+                self.assertEqual((loads, code), (1, 0))
+
+    def test_stamp_and_unstamp_build_once_before_and_once_after_their_write(self):
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        plan = self.ensure_plan("D00 T01 §1")
+        loads, code, _ = graph_loads(self.root, "stamp", "D00 T01 §1", "--sha", self.sha, "--plan", plan,
+                                     "--completion", f"{self.COMPLETION}:complete", "--review",
+                                     f"1:{self.reviews[0]['report']}:clean", "--check", "true -> ok", "--date", "2026-10-13")
+        self.assertEqual((loads, code), (2, 0))
+        loads, code, out = graph_loads(self.root, "unstamp", "D00 T01 §1", "--reason",
+                                       "checkpoint fails at abc1234; repair -> XREF: §2", "--date", "2026-10-21")
+        self.assertEqual((loads, code), (2, 0), out)  # its suspects are read from the reopened graph, not a third
+
+    def test_a_receipt_whose_verdict_its_findings_no_longer_bear_is_refused_by_both_plan_modes(self):
+        # D00 T07 §1: building the graph once must keep every check it makes. The receipt says round 1 was clean; its
+        # findings file is then changed to need attention, so plan --check and plan --sync both refuse it, and the
+        # refused sync leaves the plan's bytes as they were.
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        plan = self.root / tg.PLAN
+        before = plan.read_bytes()
+        report = self.root / self.reviews[0]["report"]
+        # The round recorded as the dispatcher writes it, still readable, but needing attention where the receipt says clean.
+        report.write_text(self.only(report.read_text(encoding="utf-8"), plans=True).rstrip("\n") + "\n\n" + envelope(1, overall="needs-attention"),
+                          encoding="utf-8")  # its plan review kept, so only the round's verdict disagrees
+        for argv in (["plan", "--check"], ["plan", "--sync"]):
+            with self.subTest(argv=argv), self.assertRaises(tg.Refused) as refused:
+                graph_loads(self.root, *argv)
+            self.assertIn("a verdict matching clean", str(refused.exception))
+        self.assertEqual(plan.read_bytes(), before)
+
     def test_unstamp_takes_back_its_file_s_completed_line(self):
         self.tick_work()
         tg.projections(self.root, sync=True)
@@ -2528,6 +2579,50 @@ class Repository(unittest.TestCase):
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+
+_CLI = None
+
+
+def cli():
+    """scripts/todo-graph.py as a module, loaded once, so a test runs its main() in this process and counts graphs."""
+    global _CLI
+    if _CLI is None:
+        spec = importlib.util.spec_from_file_location("todo_graph_cli", REPO / "scripts" / "todo-graph.py")
+        assert spec is not None and spec.loader is not None, "scripts/todo-graph.py could not be loaded"
+        _CLI = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_CLI)
+    return _CLI
+
+
+def graph_loads(root, *argv):
+    """How many times one CLI command builds the graph on the tree at root: its own graph() and the library's both
+    count, through one wrapper around the real graph (D00 T07 §1)."""
+    module, real, count = cli(), tg.graph, [0]
+
+    def counting(*args, **kwargs):
+        count[0] += 1
+        return real(*args, **kwargs)
+    out = io.StringIO()
+    with mock.patch.object(tg, "graph", counting), mock.patch.object(module, "graph", counting), \
+            mock.patch.object(module, "ROOT", pathlib.Path(root)), mock.patch.object(sys, "argv", ["todo-graph.py", *argv]), \
+            contextlib.redirect_stdout(out):
+        code = module.main()
+    return count[0], code, out.getvalue()
+
+
+class GraphLoadsWake(Tree):
+    def test_wake_builds_once_per_cleared_need_and_once_with_none_left(self):
+        self.write(todo_file([(1, "A", 0, "owner-decision", "--"), (2, "B", 0, "owner-decision", "--")]))
+        (self.root / tg.WAKES).write_text(json.dumps([
+            {"section": "D00 T01 §1", "need": "owner-decision", "check": ["python", "-c", "pass"]},
+            {"section": "D00 T01 §2", "need": "owner-decision", "check": ["python", "-c", "pass"]}]), encoding="utf-8")
+        tg.projections(self.root, sync=True)
+        loads, code, out = graph_loads(self.root, "wake", "--apply")
+        self.assertEqual((loads, code), (3, 0), out)  # the first state, then one per cleared Need
+        self.assertEqual(len(json.loads(out[:out.rindex("]") + 1])), 2)
+        loads, code, out = graph_loads(self.root, "wake", "--apply")
+        self.assertEqual((loads, code), (1, 0), out)  # nothing left to clear: one build, and the plan stays current
+        tg.projections(self.root)
 
 if __name__ == "__main__":
     unittest.main()

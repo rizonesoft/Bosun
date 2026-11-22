@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from host_caps import capabilities  # noqa: E402
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, next_work, park, repair, section_disposition, unpark,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
-                        suspects, unstamp, finish, work_items, wake_check, wake_apply)
+                        suspects, unstamp_rows, finish, work_items, wake_check, wake_apply_rows)
 
 
 def review_round(value):
@@ -112,9 +112,9 @@ def main():
         print(f"unparked {args.ref}, with one more repair cycle; plan synchronized")
         return 0
     if args.command == "unstamp":
-        revoked = unstamp(ROOT, args.ref, args.reason, args.date)
+        revoked, reopened = unstamp_rows(ROOT, args.ref, args.reason, args.date)
         print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")
-        for ref in suspects(ROOT, args.ref):
+        for ref in suspects(ROOT, args.ref, reopened):  # the reopened graph unstamp built, not a third (D00 T07 §1)
             print(f"suspect until {args.ref} re-stamps: {ref}")
         return 0
     if args.command == "stamp":
@@ -122,9 +122,9 @@ def main():
                         cap_outcome=args.cap_outcome, completion=args.completion, plan=args.plan)
         print(f"stamped {args.ref}; receipt {receipt}; plan synchronized")
         return 0
-    rows = graph()
+    rows = graph(ROOT)  # built once for every command below, and passed to what reads it (D00 T07 §1)
     if args.command == "plan":
-        projections(sync=args.sync)
+        projections(ROOT, sync=args.sync, rows=rows)
         print("plan synchronized" if args.sync else "plan current")
     elif args.command == "resolve":
         ref, code = extract_ref(args.ref, rows)
@@ -152,16 +152,16 @@ def main():
                       "ready": sum(disposition(r, rows) == 0 for r in rows.values()),
                       "blocked": sum(disposition(r, rows) == 4 for r in rows.values())}
         elif args.kind == "deferred":
-            result = deferrals()
+            result = deferrals(ROOT, rows)
         elif args.kind == "adjacency":
-            result = adjacency_report()
+            result = adjacency_report(ROOT, rows)
         elif args.kind == "rounds":
-            result = review_rounds()
+            result = review_rounds(ROOT, rows)
         elif args.kind == "plan":
             # The plan's names come from plan_config and every section from the graph, so a reader such as the
             # editor extension never parses todo/ itself (plan R34). graph() has already loaded todo/plan.json
             # strictly, so an unreadable one refused before this point.
-            config = plan_config()
+            config = plan_config(ROOT)
             result = {"title": config["title"], "acceptance": config["acceptance"],
                       "phases": {str(n): name for n, name in sorted(config["phases"].items())},
                       "sections": [{"ref": r.ref, "path": r.path, "title": r.title, "phase": r.phase,
@@ -187,9 +187,9 @@ def main():
         if args.check:
             print(json.dumps(wake_check(ROOT, rows), indent=2))
         else:
-            applied = wake_apply(ROOT, datetime.date.today().isoformat())
+            applied, current = wake_apply_rows(ROOT, datetime.date.today().isoformat(), rows=rows)
             print(json.dumps(applied, indent=2))
-            projections(ROOT, sync=True)  # always: a retry after an interrupted apply repairs the plan too
+            projections(ROOT, sync=True, rows=current)  # always: a retry after an interrupted apply repairs the plan too
     elif args.command == "build":
         atomic(ROOT / "build/todo-cache.json",
                json.dumps([r.public() for r in ordered(rows)], indent=2, ensure_ascii=False) + "\n")

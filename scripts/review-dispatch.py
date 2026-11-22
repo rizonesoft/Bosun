@@ -383,6 +383,22 @@ def check_sequence(schedule, kind, found, writer, writer_model):
         raise Refused("completion requires a clean terminal round; exhaustion is not approval")
 
 
+_COMMITTED = {}
+
+
+def show_committed(root, sha, path):
+    """`git show <sha>:<path>` as (returncode, stdout bytes). A file at a full commit SHA never changes, so a successful
+    read is kept for this process and asked once, however many receipts share the policy commit (D00 T07 §1: the
+    same read ran 345 times in one `plan --check`). A failure, or a SHA that is not a full one, is never kept."""
+    key = (str(Path(root).resolve()), sha, path)
+    if key in _COMMITTED:
+        return 0, _COMMITTED[key]
+    result = subprocess.run(["git", "-C", str(root), "show", f"{sha}:{path}"], capture_output=True, timeout=30)
+    if result.returncode == 0 and CANDIDATE.fullmatch(sha):
+        _COMMITTED[key] = result.stdout
+    return result.returncode, result.stdout
+
+
 def record_policy(pin, found, root=ROOT):
     """Bind a cycle to a committed pin, using the original plan candidate for old records."""
     if found is None:
@@ -403,11 +419,10 @@ def record_policy(pin, found, root=ROOT):
         sha = policies.pop()
     if not CANDIDATE.fullmatch(sha):
         raise Refused("invalid review policy commit")
-    result = subprocess.run(["git", "-C", str(root), "show", f"{sha}:.conclave/reviewers.toml"],
-                            capture_output=True, timeout=30)
-    if result.returncode:
+    code, shown = show_committed(root, sha, ".conclave/reviewers.toml")
+    if code:
         raise Refused("cannot read the initiating committed reviewer policy")
-    original = load_pin(data=result.stdout)
+    original = load_pin(data=shown)
     if legacy and original.get("schedule", {}).get("completion_order") == "last":
         raise Refused("current-policy lineage lacks its policy metadata")
     for e in entries:

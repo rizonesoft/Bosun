@@ -435,13 +435,30 @@ def plan_record(root, report, ref, commits=None, start=None):
             "effort": entry["effort"], "lenses": entry["lenses"] or []}
 
 
+_ANCESTRY = set()
+
+
+def is_ancestor(root, older, newer):
+    """Whether commit older is an ancestor of 
+ewer. Between two full SHAs that never changes, so a yes is kept for
+    this process and asked of git once (D00 T07 §1); a no, or a SHA that is not a full one, is asked each time."""
+    key = (str(Path(root).resolve()), older, newer)
+    if key in _ANCESTRY:
+        return True
+    yes = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+                         capture_output=True, timeout=30).returncode == 0
+    if yes and re.fullmatch(r"[0-9a-f]{40}", older) and re.fullmatch(r"[0-9a-f]{40}", newer):
+        _ANCESTRY.add(key)
+    return yes
+
+
 def pin_schedule(root, sha, ref):
     """The [schedule] of the reviewer pin committed at `sha`, loaded by the dispatcher's own `load_pin`."""
-    shown = subprocess.run(["git", "-C", str(root), "show", f"{sha}:{PIN}"], capture_output=True, timeout=30)
-    require(shown.returncode == 0, f"no reviewer pin {PIN} at {sha}: {ref}")
     dispatch = review_dispatch()
+    code, shown = dispatch.show_committed(root, sha, PIN)  # the dispatcher's cached read (D00 T07 §1)
+    require(code == 0, f"no reviewer pin {PIN} at {sha}: {ref}")
     try:
-        pin = dispatch.load_pin(PIN, data=shown.stdout)
+        pin = dispatch.load_pin(PIN, data=shown)
     except dispatch.Refused as exc:
         raise Refused(f"the reviewer pin at {sha} does not load: {exc}: {ref}") from None
     require("schedule" in pin, f"the reviewer pin at {sha} has no [schedule] to check the reviews against: {ref}")
@@ -648,9 +665,7 @@ def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=Non
             if "policy" in data:
                 require(isinstance(policy_sha, str) and re.fullmatch(r"[0-9a-f]{40}", policy_sha),
                         f"invalid policy commit: {ref}")
-                ancestor = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", policy_sha, stamp_sha],
-                                          capture_output=True, timeout=30)
-                require(ancestor.returncode == 0, f"policy commit is not an ancestor of candidate: {ref}")
+                require(is_ancestor(root, policy_sha, stamp_sha), f"policy commit is not an ancestor of candidate: {ref}")
                 found = review_dispatch().read_findings((Path(root) / recorded["report"]).read_bytes().decode("utf-8"))
                 try:
                     _, recovered = review_dispatch().record_policy(review_dispatch().load_pin(Path(root) / PIN), found, root)
@@ -1069,9 +1084,9 @@ def rewrite_section(root, row, body):
     require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
     atomic(path, text.replace(row.body, body))
     try:
-        graph(root)
+        after = graph(root)  # the written state, built once and used for the sync (D00 T07 §1)
         if plan_before is not None:
-            projections(root, sync=True)
+            projections(root, sync=True, rows=after)
     except BaseException as failure:
         try:
             atomic(path, original)
@@ -1081,6 +1096,7 @@ def rewrite_section(root, row, body):
             raise Refused(f"{row.ref} could not be restored after {failure!r}: {stuck!r}. {row.path} may hold the new line, "
                           f"and that is one valid cycle. Run `python scripts/todo-graph.py plan --sync` to finish it") from None
         raise
+    return after
 
 
 def open_section(root, ref, reason, date):
@@ -1364,9 +1380,10 @@ def wake_check(root, rows, run=subprocess.run):
     return passing
 
 
-def clear_need(root, ref, need, date):
-    """Take one Need off a section, noting it; nothing to do when it's already gone, so a repeat finishes the job."""
-    row = graph(root)[ref]
+def clear_need(root, ref, need, date, rows=None):
+    """Take one Need off a section, noting it; nothing to do when it's already gone, so a repeat finishes the job.
+    Returns the rows after the write, or False when nothing changed; `rows` is the current graph, read when absent."""
+    row = (rows if rows is not None else graph(root))[ref]
     if need not in row.needs:
         return False
     left = [n for n in row.needs if n != need]
@@ -1374,17 +1391,25 @@ def clear_need(root, ref, need, date):
     require(match, f"no Needs line in {ref}")
     body = row.body[:match.start()] + f"**Needs:** {', '.join(left) if left else 'none'}" + row.body[match.end():]
     body += f"\n\n> **Woken:** {date}: its `{need}` check in {WAKES} passed"
-    rewrite_section(root, row, body)
-    return True
+    return rewrite_section(root, row, body)
 
 
-def wake_apply(root, date, run=subprocess.run):
+def wake_apply(root, date, run=subprocess.run, rows=None):
     """Clear every Need whose wake passes now, returning what was cleared."""
+    return wake_apply_rows(root, date, run, rows)[0]
+
+
+def wake_apply_rows(root, date, run=subprocess.run, rows=None):
+    """Clear every Need whose wake passes now, returning what was cleared and the graph as it then stands, each state
+    built once: the rows a write validated are the next Need's (D00 T07 §1)."""
+    rows = rows if rows is not None else graph(root)
     applied = []
-    for wake in wake_check(root, graph(root), run):
-        if clear_need(root, wake["section"], wake["need"], date):
+    for wake in wake_check(root, rows, run):
+        after = clear_need(root, wake["section"], wake["need"], date, rows)
+        if after is not False:
             applied.append(wake)
-    return applied
+            rows = after
+    return applied, rows
 
 
 def ordered(sections):
@@ -1435,8 +1460,8 @@ def plan_config(root=ROOT):
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names}
 
 
-def projection(root=ROOT):
-    all_rows = graph(root)
+def projection(root=ROOT, rows=None):
+    all_rows = rows if rows is not None else graph(root)
     rows = ordered(all_rows)
     config = plan_config(root)
     lines = [f"# {config['title']}", "",
@@ -1473,8 +1498,9 @@ def projection(root=ROOT):
     return "\n".join(lines)
 
 
-def projections(root=ROOT, sync=False):
-    expected = projection(root)
+def projections(root=ROOT, sync=False, rows=None):
+    """Write or check the plan; `rows` is the graph already built for this state, else it is built here (D00 T07 §1)."""
+    expected = projection(root, rows)
     target = Path(root) / PLAN
     if sync:
         atomic(target, expected)
@@ -1483,8 +1509,8 @@ def projections(root=ROOT, sync=False):
                 f"stale projection: {PLAN}; run plan --sync")
 
 
-def deferrals(root=ROOT):
-    rows = graph(root)
+def deferrals(root=ROOT, rows=None):
+    rows = rows if rows is not None else graph(root)
     found = []
     for row in ordered(rows):
         for marker in ("Deferred", "Resolved"):
@@ -1493,8 +1519,9 @@ def deferrals(root=ROOT):
     return found
 
 
-def adjacency_report(root=ROOT):
-    graph(root)  # validation is what makes the declarations trustworthy
+def adjacency_report(root=ROOT, rows=None):
+    if rows is None:
+        graph(root)  # validation is what makes the declarations trustworthy; a caller that validated passes its rows
     report = {}
     for path in sorted((Path(root) / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
         relative = path.relative_to(root).as_posix()
@@ -1523,12 +1550,12 @@ def rounds_recorded(root, reviews):
     return spent
 
 
-def review_rounds(root=ROOT):
+def review_rounds(root=ROOT, rows=None):
     """Rounds spent per stamped section, from each receipt (or its findings files, for receipts older than the
     rounds_spent field), and a summary for tuning the cap."""
     root = Path(root)
     sections = []
-    for row in ordered(graph(root)):
+    for row in ordered(rows if rows is not None else graph(root)):
         if not row.done or not row.receipt:
             continue
         data = json.loads(read_text(root / row.receipt))
@@ -1636,9 +1663,9 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     try:
         atomic(receipt_path, json.dumps(data, indent=2) + "\n")
         atomic(path, text)
-        graph(root)
+        after = graph(root)  # the stamped state, built once and used for the sync (D00 T07 §1)
         if sync_plan or original_plan_bytes is not None:
-            projections(root, sync=True)
+            projections(root, sync=True, rows=after)
     except BaseException:  # an interrupt between writes must roll back as an error does
         try:
             if not path.is_file() or path.read_bytes() != original_bytes:
@@ -1660,6 +1687,12 @@ def unstamp(root, ref, reason, date):
     """Flip a stamped section back to open when an audit finds it regressed: remove its Verified and Review lines,
     untick its Commit item and row, reopen its file, and keep the receipt as evidence under a revoked name, with a dated
     Unstamped note in the section saying why. Re-stamping later writes a fresh receipt."""
+    return unstamp_rows(root, ref, reason, date)[0]
+
+
+def unstamp_rows(root, ref, reason, date):
+    """`unstamp`, returning the revoked receipt and the reopened graph, so its suspects are read from the state it
+    validated rather than built again (D00 T07 §1)."""
     root = Path(root)
     rows = graph(root)
     require(ref in rows, "unresolved section: " + ref)
@@ -1700,9 +1733,9 @@ def unstamp(root, ref, reason, date):
         if reopened_index is not None:
             atomic(index_path, reopened_index)  # its file is open again, so it's no longer Completed
         receipt_path.unlink()
-        graph(root)
+        after = graph(root)  # the reopened state, built once and used for the sync and the suspects
         if original_plan_bytes is not None:
-            projections(root, sync=True)
+            projections(root, sync=True, rows=after)
     except BaseException:  # an interrupt between writes must roll back as an error does
         try:
             if not receipt_path.is_file():
@@ -1717,7 +1750,7 @@ def unstamp(root, ref, reason, date):
                                                     or plan_path.read_bytes() != original_plan_bytes):
                 atomic(plan_path, original_plan_bytes)
         raise
-    return revoked
+    return revoked, after
 
 
 def reopen_in_index(root, path):
@@ -1749,9 +1782,9 @@ def reopen_in_index(root, path):
     return "\n".join(lines)
 
 
-def suspects(root, ref):
+def suspects(root, ref, rows=None):
     """Stamped sections that depend on ref, directly or through other sections: suspect while ref is open."""
-    rows = graph(root)
+    rows = rows if rows is not None else graph(root)
     found, frontier = [], [ref]
     while frontier:
         current = frontier.pop()
