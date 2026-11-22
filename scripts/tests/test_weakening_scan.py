@@ -570,15 +570,16 @@ class Fingerprints(Repo):
         self.answer(second)
         self.assertEqual(self.printed()[0], 0)
 
-    def test_an_old_answer_with_only_a_line_number_still_matches_the_same_line(self):
+    def test_an_answer_with_only_a_line_number_covers_nothing(self):
+        # Rounds 6 and 8 of D00 T07 §2: a bare L<line> answer covered whatever later stood on that line, a pyright
+        # directive put where a noqa was answered included. Only the fingerprinted form covers a signal.
         self.handlers("the read below says it is fine")
         self.answer("L4")
         code, found = self.printed()
-        self.assertEqual((code, [state for state, _ in found]), (0, ["answered"]))
-        self.assertRegex(found[0][1], r"^L4#[0-9a-f]{6}$")  # the report prints the new form
-        self.edit(SOURCE, "def run():", "# one\ndef run():")  # an old answer is not carried along by a move
-        self.commit("insert a line above")
-        self.assertEqual(self.printed()[0], 1)
+        self.assertEqual((code, [state for state, _ in found]), (1, ["unanswered"]))
+        self.assertRegex(found[0][1], r"^L4#[0-9a-f]{6}$")  # the report prints the form to answer with
+        self.answer(found[0][1])
+        self.assertEqual(self.printed()[0], 0)
 
     def test_an_answer_whose_fingerprint_does_not_match_a_changed_line_leaves_it_unanswered(self):
         self.handlers("the read below says it is fine")

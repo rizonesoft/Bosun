@@ -30,8 +30,8 @@ The id is the case's name where the signal is about a case, and `L<line>#<fp>` o
 removed, the new line for something added). The fingerprint is the first 6 hex of the SHA-1 of the flagged line and
 the next non-blank line, whitespace normalised, so two signals in one file are two things to answer, and an answer
 still finds its signal when a later edit only moves the line. An answer matches by kind, path and fingerprint with
-the line number ignored; an old answer with only `L<line>` matches the signal at that line. Signals that share a
-fingerprint in one file need one answer each.
+the line number ignored; an answer giving only `L<line>` matches nothing, since it would cover whatever later stood
+on that line. Signals that share a fingerprint in one file need one answer each.
 
 A signal is not a verdict. Each is either undone, or answered in the body of a commit in the scanned range:
 
@@ -560,9 +560,10 @@ def answers(root, base, head):
 
 def apply_answers(signals, given):
     """Set each signal's reason from the answers. An answer covers one signal and is used once. In order: the same
-    name; an answer with no fingerprint at the same line (an old answer still holds where the line has not moved);
-    then, for a signal that carries a fingerprint, an answer with the same kind, path and fingerprint wherever the
-    line now is. Several signals with one fingerprint need one answer each."""
+    name; then, for a signal that carries a fingerprint, an answer with the same kind, path and fingerprint wherever
+    the line now is. Several signals with one fingerprint need one answer each. An answer giving only a line no longer
+    matches: it covered whatever later stood on that line (rounds 6 and 8 of D00 T07 §2), and the gate scans only
+    commits not yet on origin/main, all of whose answers carry fingerprints."""
     def take(signal, matches):
         for entry in given:
             if not entry[3] and matches(entry):
@@ -572,15 +573,6 @@ def apply_answers(signals, given):
 
     for signal in signals:
         take(signal, lambda entry: entry[0] == str(signal))
-    for signal in signals:
-        here = LINE_ID.match(str(signal))
-        if signal.reason or not here or signal.path == CHECKER_CONFIG:
-            # A config signal's line is always 1, so an answer without its fingerprint would cover any edit of the file;
-            # it is answered by fingerprint only (round 6 of D00 T07 §2).
-            continue
-        line = int(here[3])
-        take(signal, lambda entry: entry[2] is not None and entry[2][3] is None
-             and entry[2][:3] == (signal.kind, signal.path, line))
     for signal in signals:
         here = LINE_ID.match(str(signal))
         if signal.reason or not here or not here[4]:
