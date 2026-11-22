@@ -48,7 +48,8 @@ title: "TODO-05 -- Shell follow-ups"
 | 15 | §15 | Settings preview a theme, save off the UI thread, and keep a snapshot | -- | [ ] |
 | 16 | §16 | The tray shows headroom and opens its menu beside the icon | -- | [ ] |
 | 17 | §17 | Keyboard reach: the palette, toasts, results, placeholders and the Activity list | -- | [ ] |
-| 18 | §18 | The smoke and the desktop lock: a cheap look first, an inspectable lock, kept reports | -- | [ ] |
+| 18 | §18 | The desktop lock: compiled once, and inspectable from another terminal | -- | [ ] |
+| 19 | §19 | The nightly smoke looks at the desk first, and its status points at each report | -- | [ ] |
 
 ## 1. Contrast holds on hovered rows and every drawn pair, with the token named
 
@@ -473,9 +474,9 @@ Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141
 **Job:** the operator repeats, finds and follows up an action without the mouse.
 **Treatment:** word-prefix search, a remembered last action, visible keys and keyboard-reachable toasts. Cheaper substitute that fails: a toast reachable only by Tab.
 **Chrome:** the palette and the toast host; no new window.
-## 18. The smoke and the desktop lock: a cheap look first, an inspectable lock, kept reports
+## 18. The desktop lock: compiled once, and inspectable from another terminal
 
-Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 165, 166, 173 and 174, completion reviews of `D02 T02 §11` and `§12`). The desktop lock compiles its source on every capture (`scripts/capture-window.ps1`), nothing reports who holds or waits for it (`scripts/lib/DesktopLock.cs`), the nightly smoke builds before it looks at the desk, and its status names a failure without its report (`scripts/smoke-input.ps1`).
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 165 and 166, the completion review of `D02 T02 §11`). The desktop lock compiles its source on every capture (`scripts/capture-window.ps1`), and nothing reports who holds or waits for it (`scripts/lib/DesktopLock.cs`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one script each.
 
 **Phase:** 2
 **Needs:** none
@@ -483,17 +484,33 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 165, 166, 
 
 **Build order:**
 
-1. Lock. Done when: the compiled lock is cached, and one command reports its holder and waiters.
-2. Smoke. Done when: the nightly admission looks first, and -Status points at each failure's reports.
+1. Cache. Done when: the compiled lock is reused until its source changes, within 100 ms at p95.
+2. Inspect. Done when: one read-only command names the holder and the waiters.
 
 - [ ] Cache the desktop lock that `scripts/capture-window.ps1` compiles (its `Add-Type` of `scripts/lib/DesktopLock.cs`) as an assembly keyed by the source's hash, keeping one source for both callers, for under 100 ms of added lock overhead at p95 across 30 fresh uncontended captures (base line 165). Done when: `tests/capture_window_test.ps1` reads the cached assembly reused, and rebuilt when the source changes, and the p95 over 30 captures is recorded here under 100 ms. Cheaper substitute: a second copy of the source, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Add one read-only command for `scripts/lib/DesktopLock.cs` that reports, from another terminal, the desktop's holder, how many wait and the oldest wait, without touching the desktop, as `bosun status` reports the queue's waiters (base line 166). Done when: `tests/Bosun.Panel.E2E/DesktopLockTests.cs` holds the lock with two waiting and reads the holder, the count 2 and the oldest wait from the command. Cheaper substitute: the holder record alone, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Commit: `scripts: the desktop lock is compiled once and inspectable (D02 T05 §18)`
+
+**Test checkpoint:** `pwsh tests/capture_window_test.ps1` exits 0, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*DesktopLock*"` exits 0, and the overhead is in this section.
+
+## 19. The nightly smoke looks at the desk first, and its status points at each report
+
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 173 and 174, the completion review of `D02 T02 §12`). The nightly smoke builds before it looks at the desk, and its status names a failure without its report (`scripts/smoke-input.ps1`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one script each.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Look first. Done when: a locked or recently used desk starts no build or discovery.
+2. Point at reports. Done when: -Status gives each failed test's TRX and log paths.
+
 - [ ] Look at the desk's lock and idle time in `scripts/smoke-input.ps1` before the build in the nightly admission, so a desk locked or used within 15 minutes makes zero build or discovery launches, keeping the guarded recheck after the watcher (base line 173). Done when: `tests/smoke_input_test.ps1` runs a scheduled admission on a locked desk and on a recently used one and reads no build or discovery started, and the recheck kept. Cheaper substitute: the single check after the build, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Have `scripts/smoke-input.ps1 -Status` name each failed real-input test and print the path to its retained TRX report and class log, in one call (base line 174). Done when: `tests/smoke_input_test.ps1` fails a test, calls `-Status`, and reads the test's name and both paths, each file present. Cheaper substitute: the names only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
-- [ ] Commit: `scripts: the smoke looks first, the desktop lock is cached and inspectable (D02 T05 §18)`
+- [ ] Commit: `scripts: the nightly smoke looks first and points at its reports (D02 T05 §19)`
 
-**Test checkpoint:** `pwsh tests/capture_window_test.ps1` and `pwsh tests/smoke_input_test.ps1` exit 0, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*DesktopLock*"` exits 0, and the overhead is in this section.
-
+**Test checkpoint:** `pwsh tests/smoke_input_test.ps1` exits 0.
 ## Verification
 
 - Every section's Test checkpoint passes on the stamped candidate, and `python scripts/todo-graph.py validate` passes.

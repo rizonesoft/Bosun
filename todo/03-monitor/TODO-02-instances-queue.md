@@ -51,7 +51,9 @@ title: "TODO-02 -- Instances and queue"
 | 12 | §12 | The Monitor pages mark what changed and are measured | -- | [ ] |
 | 13 | §13 | Monitor reads say exactly what failed, and what each figure counts | -- | [ ] |
 | 14 | §14 | The Memory page: a chart to inspect, a decision that shows its evidence | -- | [ ] |
-| 15 | §15 | The Instances, Queue and Overview pages find, keep their place and say their state | -- | [ ] |
+| 15 | §15 | The Instances page filters, keeps its place and tells instances apart | -- | [ ] |
+| 16 | §16 | The Queue page searches its history, finds a limit and says where it is read | -- | [ ] |
+| 17 | §17 | The Overview says each sample's age, keeps focus, and gives one install step | -- | [ ] |
 
 ## 1. Instance scanner
 
@@ -500,9 +502,9 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 147 to 155
 **Treatment:** an inspectable chart and a decision with its window, cause and evidence. Cheaper substitute that fails: the table as the only way to read a value.
 **Chrome:** the page's own chart and Decision card; no new window.
 
-## 15. The Instances, Queue and Overview pages find, keep their place and say their state
+## 15. The Instances page filters, keeps its place and tells instances apart
 
-Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158, 159 and 175 to 181, completion reviews of `D03 T02 §2`, `§3` and `D03 T01 §5`). The Instances page can't be filtered and rebuilds its rows (`src/Bosun.Panel/Instances/InstancesPage.cs`, `src/Bosun.Panel/Instances/InstancesView.xaml`); the Queue page's history can't be searched, its status waits for the slower reads and its limits don't say where they are read (`src/Bosun.Panel/Queue/QueuePage.cs`, `src/Bosun.Panel/Queue/QueueView.xaml`); the Overview's cards give no sample age, its Needs you rows lose focus and a missing bosun.exe is said once per source (`src/Bosun.Panel/Overview/OverviewPage.cs`).
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158 and 159, the completion review of `D03 T02 §2`). The Instances page can't be filtered, rebuilds its rows on each refresh and labels two instances of one kind alike (`src/Bosun.Panel/Instances/InstancesPage.cs`, `src/Bosun.Panel/Instances/InstancesView.xaml`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one page each.
 
 **Phase:** 3
 **Needs:** display-session
@@ -510,29 +512,70 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158, 
 
 **Build order:**
 
-1. Find. Done when: instances and finished jobs are searched by keyboard, and a limit is found by name.
+1. Filter. Done when: Ctrl+F filters 1,000 rows within 100 ms, the count announced.
 2. Keep place. Done when: rows update in place, keeping focus, scroll and sort.
-3. Say state. Done when: the status comes first, each card says its age, and one instruction names what a missing tool affects.
+3. Tell apart. Done when: each instance carries a short visible second label.
 
 - [ ] Add Ctrl+F to `src/Bosun.Panel/Instances/InstancesView.xaml` to filter the instances by repo or process, 1,000 rows within 100 ms, the count said to a screen reader (base line 156). Done when: `InstancesPageTests` filters 1,000 rows by a repo and by a process, each under 100 ms, and reads the count in a live region. Cheaper substitute: the palette's search, which finds commands, not rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Update rows in place in `src/Bosun.Panel/Instances/InstancesPage.cs` (`Show`), under 50 ms on the UI thread for 1,000 rows, keeping focus, scroll and sort over an unchanged refresh (base line 158). Done when: a test with 1,000 rows refreshes unchanged and reads the same row objects, the focus, the scroll offset and the sort kept, and the refresh timed under 50 ms. Cheaper substitute: restoring the selection by key after clearing, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Give each instance in `src/Bosun.Panel/Instances/InstancesPage.cs` (`InstanceLine`) a short visible second label, so two of one kind in one repo are told apart without hovering (base line 159). Done when: a test with two editors in one repo reads two different visible labels. Cheaper substitute: the detail in the tooltip only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Commit: `monitor: the Instances page filters, keeps its place and tells instances apart (D03 T02 §15)`
+
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPage*"` exits 0, and the timings are in this section.
+
+**Fidelity:** `design/SPEC.md` (the Instances page) and its renders with a filter and two labelled instances.
+**Job:** the operator finds an instance and keeps their place across refreshes.
+**Treatment:** a keyboard filter, in-place rows and a second label. Cheaper substitute that fails: a refresh that rebuilds the table.
+**Chrome:** the page's own table; no new window.
+## 16. The Queue page searches its history, finds a limit and says where it is read
+
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 175 to 178, the completion review of `D03 T02 §3`). The finished jobs can't be searched (`src/Bosun.Panel/Queue/QueueView.xaml`); a limit can't be reached by name, the status waits for the slower reads, and no limit says which environment reads it (`src/Bosun.Panel/Queue/QueuePage.cs`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one page each.
+
+**Phase:** 3
+**Needs:** display-session
+**Surface:** yes
+
+**Build order:**
+
+1. Find. Done when: the history is searched by keyboard and a limit is found by name from any page.
+2. Say state. Done when: the status is drawn first and each limit names its environment.
+
 - [ ] Add one keyboard search to the finished jobs of `src/Bosun.Panel/Queue/QueueView.xaml` across all 200 rows by command or repo, showing the matching row's whole command and repo, not cut off (base line 175). Done when: `QueuePageTests` searches 200 rows by a command and by a repo, reads the match, and reads its whole command and repo. Cheaper substitute: searching the visible rows only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Offer each queue limit by its name in Ctrl+K from any page, focusing its field in `src/Bosun.Panel/Queue/QueuePage.cs` at 960 x 600 without scrolling past the history (base line 176). Done when: a test on another page searches a limit's name, runs it, and reads the Queue page shown and the field focused and in view at 960 x 600. Cheaper substitute: a command found only on the Queue page, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Show the live area's status in `src/Bosun.Panel/Queue/QueuePage.cs` as soon as it is read, before the history and the limits (base line 177). Done when: a test holds the history read and reads the status drawn while it waits. Cheaper substitute: waiting for all three reads, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Say beside each limit in `src/Bosun.Panel/Queue/QueuePage.cs` which environment its variable is read in, since a WSL job's bosun reads Linux variables the Windows panel can't see (base line 178). Done when: a test reads the environment in each limit's hint and the WSL statement. Cheaper substitute: one note for the whole form, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Commit: `monitor: the Queue page searches its history, finds a limit and says where it is read (D03 T02 §16)`
+
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*QueuePage*"` exits 0.
+
+**Fidelity:** `design/SPEC.md` (the Queue page) and its renders with a search and a limit's environment shown.
+**Job:** the operator finds a past job or a limit at once and reads the live status first.
+**Treatment:** a history search, named limits and a status drawn first. Cheaper substitute that fails: a search of the visible rows only.
+**Chrome:** the page's own table and form; no new window.
+## 17. The Overview says each sample's age, keeps focus, and gives one install step
+
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 179 to 181, the completion review of `D03 T01 §5`). The Overview's cards give no sample age, its Needs you rows lose focus on a refresh, and a missing bosun.exe is said once per source (`src/Bosun.Panel/Overview/OverviewPage.cs`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one page each.
+
+**Phase:** 3
+**Needs:** display-session
+**Surface:** yes
+
+**Build order:**
+
+1. Age. Done when: every card says its sample's age, and open-to-decision is measured.
+2. Focus and install. Done when: a surviving row keeps focus, and one instruction names every affected card.
+
 - [ ] Say each memory card's sample age without navigation in `src/Bosun.Panel/Overview/OverviewPage.cs`, so a refreshed but unchanged logger sample is never taken for a new measurement, and measure open-to-decision against five seconds at the 95th percentile (base line 179). Done when: `OverviewPageTests` reads an age on every card and the age growing after an unchanged refresh, and the open-to-decision p95 is recorded here under 5 s. Cheaper substitute: an age on a stopped VM only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Keep keyboard focus on a Needs you row's Open in `src/Bosun.Panel/Overview/OverviewPage.cs` when the row survives a provider change, with zero extra keystrokes after a refresh (base line 180). Done when: `NeedsYouTests` focuses a row's Open, refreshes with another provider changed, and reads focus on the same Open. Cheaper substitute: focus returned to the table, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Give the Overview's failed state in `src/Bosun.Panel/Overview/OverviewPage.cs` one installation instruction naming every card a missing bosun.exe affects, each source's exact diagnostic still reachable (base line 181). Done when: `OverviewPageTests` with bosun.exe missing reads one instruction naming the cards, and each source's diagnostic. Cheaper substitute: the same instruction repeated for each source, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
-- [ ] Commit: `monitor: the Instances, Queue and Overview pages find, keep their place and say their state (D03 T02 §15)`
+- [ ] Commit: `monitor: the Overview says each sample's age, keeps focus, and gives one install step (D03 T02 §17)`
 
-**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPage*" --filter-class "*QueuePage*" --filter-class "*OverviewPage*" --filter-class "*NeedsYou*"` exits 0, and the measurements are in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OverviewPage*" --filter-class "*NeedsYou*"` exits 0, and the measurement is in this section.
 
-**Fidelity:** `design/SPEC.md` (the Instances, Queue and Overview pages) and their renders with a filter, a search and an age shown.
-**Job:** the operator finds a row, keeps their place across refreshes, and reads what is current.
-**Treatment:** keyboard search, in-place rows and stated ages. Cheaper substitute that fails: a refresh that rebuilds the table.
-**Chrome:** the pages' own tables and cards; no new window.
-
+**Fidelity:** `design/SPEC.md` (the Overview) and its renders with ages and the one instruction.
+**Job:** the operator knows how fresh each figure is and what one install fixes.
+**Treatment:** stated ages, kept focus and one instruction. Cheaper substitute that fails: the instruction repeated per source.
+**Chrome:** the page's own cards and table; no new window.
 ## Verification
 
 - `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).

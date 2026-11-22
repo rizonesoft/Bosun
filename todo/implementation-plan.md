@@ -101,93 +101,96 @@ Sections: 11 | Checklist items: 76
 
 ### Phase 2: Shell and brand
 
-Sections: 44 | Checklist items: 361
+Sections: 45 | Checklist items: 362
 
-| Status | Reference   | Deliverable                                                                           | Needs                     | Items |
-| ------ | ----------- | ------------------------------------------------------------------------------------- | ------------------------- | ----- |
-| [x]    | D02 T01 §1  | Generate the theme from tokens                                                        | none                      | 7     |
-| [x]    | D02 T01 §2  | Contrast and stray colour tests                                                       | none                      | 4     |
-| [x]    | D02 T01 §5  | App icon ICO from the masters                                                         | none                      | 8     |
-| [x]    | D02 T01 §3  | Tray state icons and the icon drift gate                                              | none                      | 7     |
-| [x]    | D02 T02 §3  | Process runner                                                                        | none                      | 9     |
-| [x]    | D02 T02 §8  | Pollers that stop when nothing is looking                                             | none                      | 6     |
-| [x]    | D02 T02 §9  | Off-screen page rendering for review                                                  | none                      | 9     |
-| [x]    | D02 T01 §4  | Control templates                                                                     | none                      | 25    |
-| [x]    | D02 T02 §1  | Startup, single instance and crash handling                                           | none                      | 16    |
-| [x]    | D02 T02 §2  | View model base and accessibility helpers                                             | none                      | 7     |
-| [x]    | D02 T02 §4  | Window chrome, rail and activity pane                                                 | none                      | 23    |
-| [x]    | D02 T02 §5  | Settings store and theme switching                                                    | none                      | 16    |
-| [x]    | D02 T02 §7  | Tray icon and notifications                                                           | none                      | 12    |
-| [x]    | D02 T02 §10 | End-to-end smoke through UI Automation                                                | display-session           | 14    |
-| [x]    | D02 T03 §1  | Elevation and motion tokens                                                           | none                      | 8     |
-| [x]    | D02 T03 §2  | Mica backdrop with a solid fallback                                                   | display-session           | 9     |
-| [x]    | D02 T03 §3  | Lucide icon map and rail marker                                                       | display-session           | 9     |
-| [x]    | D02 T03 §4  | Status pill and segmented control                                                     | display-session           | 8     |
-| [x]    | D02 T03 §5  | Gauge, sparkline and stacked bar                                                      | display-session           | 8     |
-| [x]    | D02 T03 §6  | Queue slot visuals                                                                    | none                      | 3     |
-| [x]    | D02 T03 §7  | Skeleton and page transitions                                                         | none                      | 12    |
-| [x]    | D02 T03 §8  | Command palette                                                                       | display-session           | 11    |
-| [x]    | D02 T03 §9  | In-window toasts                                                                      | display-session           | 8     |
-| [x]    | D02 T03 §10 | High contrast theme and renders                                                       | none                      | 11    |
-| [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                                    | display-session           | 4     |
-| [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen                        | display-session           | 7     |
-| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named             | display-session           | 9     |
-| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests                         | display-session           | 3     |
-| [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                            | none                      | 3     |
-| [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray                     | none                      | 3     |
-| [ ]    | D02 T05 §5  | Icons checked at every scale and under colour-vision simulation                       | display-session           | 4     |
-| [ ]    | D02 T05 §6  | Process runner measured against asynchronous pipes                                    | none                      | 3     |
-| [ ]    | D02 T05 §7  | Runner badges and the tray cue recognised by people at a glance                       | display-session, attended | 3     |
-| [ ]    | D02 T05 §8  | Render catalog: review report, readable companions, progress, honest Shows            | none                      | 5     |
-| [ ]    | D02 T05 §9  | Controls measured, and motion through one helper                                      | display-session           | 13    |
-| [ ]    | D02 T05 §10 | The crash notice copies a redacted report and names its buttons                       | display-session           | 3     |
-| [ ]    | D02 T05 §11 | Test host: a named crash, no error reports, kept evidence, timed smoke                | none                      | 5     |
-| [ ]    | D02 T05 §12 | Async commands say they are running and can be cancelled                              | none                      | 3     |
-| [ ]    | D02 T05 §13 | The panel starts fast, answers a hung first launch, and opens at a page               | display-session           | 4     |
-| [ ]    | D02 T05 §14 | Refresh says when and how it went, and a failure can be copied                        | display-session           | 7     |
-| [ ]    | D02 T05 §15 | Settings preview a theme, save off the UI thread, and keep a snapshot                 | display-session           | 10    |
-| [ ]    | D02 T05 §16 | The tray shows headroom and opens its menu beside the icon                            | display-session           | 5     |
-| [ ]    | D02 T05 §17 | Keyboard reach: the palette, toasts, results, placeholders and the Activity list      | display-session           | 12    |
-| [ ]    | D02 T05 §18 | The smoke and the desktop lock: a cheap look first, an inspectable lock, kept reports | none                      | 5     |
+| Status | Reference   | Deliverable                                                                      | Needs                     | Items |
+| ------ | ----------- | -------------------------------------------------------------------------------- | ------------------------- | ----- |
+| [x]    | D02 T01 §1  | Generate the theme from tokens                                                   | none                      | 7     |
+| [x]    | D02 T01 §2  | Contrast and stray colour tests                                                  | none                      | 4     |
+| [x]    | D02 T01 §5  | App icon ICO from the masters                                                    | none                      | 8     |
+| [x]    | D02 T01 §3  | Tray state icons and the icon drift gate                                         | none                      | 7     |
+| [x]    | D02 T02 §3  | Process runner                                                                   | none                      | 9     |
+| [x]    | D02 T02 §8  | Pollers that stop when nothing is looking                                        | none                      | 6     |
+| [x]    | D02 T02 §9  | Off-screen page rendering for review                                             | none                      | 9     |
+| [x]    | D02 T01 §4  | Control templates                                                                | none                      | 25    |
+| [x]    | D02 T02 §1  | Startup, single instance and crash handling                                      | none                      | 16    |
+| [x]    | D02 T02 §2  | View model base and accessibility helpers                                        | none                      | 7     |
+| [x]    | D02 T02 §4  | Window chrome, rail and activity pane                                            | none                      | 23    |
+| [x]    | D02 T02 §5  | Settings store and theme switching                                               | none                      | 16    |
+| [x]    | D02 T02 §7  | Tray icon and notifications                                                      | none                      | 12    |
+| [x]    | D02 T02 §10 | End-to-end smoke through UI Automation                                           | display-session           | 14    |
+| [x]    | D02 T03 §1  | Elevation and motion tokens                                                      | none                      | 8     |
+| [x]    | D02 T03 §2  | Mica backdrop with a solid fallback                                              | display-session           | 9     |
+| [x]    | D02 T03 §3  | Lucide icon map and rail marker                                                  | display-session           | 9     |
+| [x]    | D02 T03 §4  | Status pill and segmented control                                                | display-session           | 8     |
+| [x]    | D02 T03 §5  | Gauge, sparkline and stacked bar                                                 | display-session           | 8     |
+| [x]    | D02 T03 §6  | Queue slot visuals                                                               | none                      | 3     |
+| [x]    | D02 T03 §7  | Skeleton and page transitions                                                    | none                      | 12    |
+| [x]    | D02 T03 §8  | Command palette                                                                  | display-session           | 11    |
+| [x]    | D02 T03 §9  | In-window toasts                                                                 | display-session           | 8     |
+| [x]    | D02 T03 §10 | High contrast theme and renders                                                  | none                      | 11    |
+| [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                               | display-session           | 4     |
+| [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen                   | display-session           | 7     |
+| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named        | display-session           | 9     |
+| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests                    | display-session           | 3     |
+| [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                       | none                      | 3     |
+| [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray                | none                      | 3     |
+| [ ]    | D02 T05 §5  | Icons checked at every scale and under colour-vision simulation                  | display-session           | 4     |
+| [ ]    | D02 T05 §6  | Process runner measured against asynchronous pipes                               | none                      | 3     |
+| [ ]    | D02 T05 §7  | Runner badges and the tray cue recognised by people at a glance                  | display-session, attended | 3     |
+| [ ]    | D02 T05 §8  | Render catalog: review report, readable companions, progress, honest Shows       | none                      | 5     |
+| [ ]    | D02 T05 §9  | Controls measured, and motion through one helper                                 | display-session           | 13    |
+| [ ]    | D02 T05 §10 | The crash notice copies a redacted report and names its buttons                  | display-session           | 3     |
+| [ ]    | D02 T05 §11 | Test host: a named crash, no error reports, kept evidence, timed smoke           | none                      | 5     |
+| [ ]    | D02 T05 §12 | Async commands say they are running and can be cancelled                         | none                      | 3     |
+| [ ]    | D02 T05 §13 | The panel starts fast, answers a hung first launch, and opens at a page          | display-session           | 4     |
+| [ ]    | D02 T05 §14 | Refresh says when and how it went, and a failure can be copied                   | display-session           | 7     |
+| [ ]    | D02 T05 §15 | Settings preview a theme, save off the UI thread, and keep a snapshot            | display-session           | 10    |
+| [ ]    | D02 T05 §16 | The tray shows headroom and opens its menu beside the icon                       | display-session           | 5     |
+| [ ]    | D02 T05 §17 | Keyboard reach: the palette, toasts, results, placeholders and the Activity list | display-session           | 12    |
+| [ ]    | D02 T05 §18 | The desktop lock: compiled once, and inspectable from another terminal           | none                      | 3     |
+| [ ]    | D02 T05 §19 | The nightly smoke looks at the desk first, and its status points at each report  | none                      | 3     |
 
 ### Phase 3: Monitoring
 
-Sections: 32 | Checklist items: 239
+Sections: 34 | Checklist items: 241
 
-| Status | Reference   | Deliverable                                                                        | Needs           | Items |
-| ------ | ----------- | ---------------------------------------------------------------------------------- | --------------- | ----- |
-| [x]    | D02 T02 §11 | One desktop owner across smoke runs and captures                                   | none            | 7     |
-| [ ]    | D02 T02 §12 | Real-input smoke opt-in and on a nightly schedule                                  | third-party     | 12    |
-| [x]    | D02 T04 §1  | One focus outline per control, with focus renders                                  | none            | 9     |
-| [x]    | D02 T04 §2  | Field insets, error border and label spacing                                       | none            | 7     |
-| [x]    | D02 T04 §3  | Spacing scale, section headings and Settings in cards                              | none            | 7     |
-| [x]    | D02 T04 §4  | Table alignment and tabular numbers                                                | none            | 5     |
-| [x]    | D02 T04 §5  | Chart labels clear of lines and a readable time axis                               | none            | 6     |
-| [x]    | D02 T04 §6  | Deliberate disabled buttons, crisp pills, badge and close glyph                    | none            | 6     |
-| [x]    | D02 T04 §7  | Expandable toasts and a clean palette search field                                 | none            | 6     |
-| [x]    | D02 T04 §8  | Memory page scroll gutter and the Decision evidence list                           | none            | 5     |
-| [x]    | D02 T04 §9  | Placeholder copy, the Activity heading and the idle scroll thumb                   | none            | 4     |
-| [x]    | D03 T01 §1  | Memory readers                                                                     | none            | 8     |
-| [x]    | D03 T01 §2  | Memory page                                                                        | none            | 5     |
-| [x]    | D03 T01 §3  | History chart with a table equivalent                                              | none            | 6     |
-| [x]    | D03 T01 §4  | Pressure alerts                                                                    | none            | 6     |
-| [x]    | D03 T01 §6  | Decision card and the report's evidence for it                                     | none            | 9     |
-| [x]    | D03 T02 §1  | Instance scanner                                                                   | none            | 8     |
-| [x]    | D03 T02 §2  | Instances page                                                                     | none            | 15    |
-| [x]    | D03 T02 §3  | Queue page                                                                         | none            | 20    |
-| [x]    | D03 T01 §5  | Overview page                                                                      | none            | 11    |
-| [x]    | D03 T02 §4  | Editor windows by repo                                                             | none            | 9     |
-| [x]    | D03 T02 §5  | Editor windows in every VS Code profile                                            | none            | 6     |
-| [x]    | D03 T02 §6  | WSL folders under a relocated automount                                            | none            | 5     |
-| [x]    | D03 T02 §7  | A failed repo lookup said apart from no repo                                       | none            | 5     |
-| [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing                             | none            | 2     |
-| [ ]    | D03 T02 §9  | VS Code forks placed by their windows                                              | none            | 3     |
-| [ ]    | D03 T02 §10 | A WSL terminal opened at the row's own guest folder                                | none            | 2     |
-| [ ]    | D03 T02 §11 | Repo lookup gaps left by §7                                                        | none            | 7     |
-| [ ]    | D03 T02 §12 | The Monitor pages mark what changed and are measured                               | display-session | 8     |
-| [ ]    | D03 T02 §13 | Monitor reads say exactly what failed, and what each figure counts                 | display-session | 6     |
-| [ ]    | D03 T02 §14 | The Memory page: a chart to inspect, a decision that shows its evidence            | display-session | 13    |
-| [ ]    | D03 T02 §15 | The Instances, Queue and Overview pages find, keep their place and say their state | display-session | 11    |
+| Status | Reference   | Deliverable                                                                  | Needs           | Items |
+| ------ | ----------- | ---------------------------------------------------------------------------- | --------------- | ----- |
+| [x]    | D02 T02 §11 | One desktop owner across smoke runs and captures                             | none            | 7     |
+| [ ]    | D02 T02 §12 | Real-input smoke opt-in and on a nightly schedule                            | third-party     | 12    |
+| [x]    | D02 T04 §1  | One focus outline per control, with focus renders                            | none            | 9     |
+| [x]    | D02 T04 §2  | Field insets, error border and label spacing                                 | none            | 7     |
+| [x]    | D02 T04 §3  | Spacing scale, section headings and Settings in cards                        | none            | 7     |
+| [x]    | D02 T04 §4  | Table alignment and tabular numbers                                          | none            | 5     |
+| [x]    | D02 T04 §5  | Chart labels clear of lines and a readable time axis                         | none            | 6     |
+| [x]    | D02 T04 §6  | Deliberate disabled buttons, crisp pills, badge and close glyph              | none            | 6     |
+| [x]    | D02 T04 §7  | Expandable toasts and a clean palette search field                           | none            | 6     |
+| [x]    | D02 T04 §8  | Memory page scroll gutter and the Decision evidence list                     | none            | 5     |
+| [x]    | D02 T04 §9  | Placeholder copy, the Activity heading and the idle scroll thumb             | none            | 4     |
+| [x]    | D03 T01 §1  | Memory readers                                                               | none            | 8     |
+| [x]    | D03 T01 §2  | Memory page                                                                  | none            | 5     |
+| [x]    | D03 T01 §3  | History chart with a table equivalent                                        | none            | 6     |
+| [x]    | D03 T01 §4  | Pressure alerts                                                              | none            | 6     |
+| [x]    | D03 T01 §6  | Decision card and the report's evidence for it                               | none            | 9     |
+| [x]    | D03 T02 §1  | Instance scanner                                                             | none            | 8     |
+| [x]    | D03 T02 §2  | Instances page                                                               | none            | 15    |
+| [x]    | D03 T02 §3  | Queue page                                                                   | none            | 20    |
+| [x]    | D03 T01 §5  | Overview page                                                                | none            | 11    |
+| [x]    | D03 T02 §4  | Editor windows by repo                                                       | none            | 9     |
+| [x]    | D03 T02 §5  | Editor windows in every VS Code profile                                      | none            | 6     |
+| [x]    | D03 T02 §6  | WSL folders under a relocated automount                                      | none            | 5     |
+| [x]    | D03 T02 §7  | A failed repo lookup said apart from no repo                                 | none            | 5     |
+| [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing                       | none            | 2     |
+| [ ]    | D03 T02 §9  | VS Code forks placed by their windows                                        | none            | 3     |
+| [ ]    | D03 T02 §10 | A WSL terminal opened at the row's own guest folder                          | none            | 2     |
+| [ ]    | D03 T02 §11 | Repo lookup gaps left by §7                                                  | none            | 7     |
+| [ ]    | D03 T02 §12 | The Monitor pages mark what changed and are measured                         | display-session | 8     |
+| [ ]    | D03 T02 §13 | Monitor reads say exactly what failed, and what each figure counts           | display-session | 6     |
+| [ ]    | D03 T02 §14 | The Memory page: a chart to inspect, a decision that shows its evidence      | display-session | 13    |
+| [ ]    | D03 T02 §15 | The Instances page filters, keeps its place and tells instances apart        | display-session | 4     |
+| [ ]    | D03 T02 §16 | The Queue page searches its history, finds a limit and says where it is read | display-session | 5     |
+| [ ]    | D03 T02 §17 | The Overview says each sample's age, keeps focus, and gives one install step | display-session | 4     |
 
 ### Phase 5: Machine
 
@@ -235,6 +238,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 113/180 verified sections, 44 ready to run now.
+Progress: 113/183 verified sections, 47 ready to run now.
 
-Checklist: 1068/1390 items completed (includes Commit items).
+Checklist: 1068/1393 items completed (includes Commit items).
