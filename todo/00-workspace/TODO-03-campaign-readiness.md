@@ -1098,6 +1098,8 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47,
 > **Review:** `docs/reviews/d00-t03-s29.json`
 ## 30. Antigravity sees a failed guard, within the hook's time
 
+> **Started:** 2026-11-22T06:33:28Z
+
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 42, completion review of `§19`). `scripts/run-guard.py` fails open on an Antigravity hook error and prints nothing (`hook --runner antigravity`), recording the failure only for `status`; the completion review of `§29` added a hook that cannot read or save the run state.
 
 **Corrected 2026-11-22 (validation before the build):** `agy` 1.5.14's changelog documents one output a hook can show the operator without sending it to the model, `errorMessage.userMessage`, beside `{"decision": "continue", "reason"}`, which sends the session on; the guard uses it, so a failed guard is said and the session is not held.
