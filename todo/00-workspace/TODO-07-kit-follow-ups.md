@@ -57,6 +57,8 @@ title: "TODO-07 -- Kit follow-ups"
 
 ## 1. Graph loads once per command
 
+> **Started:** 2026-11-22T16:49:47Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 21, measured during `D00 T01 §4`). `scripts/todo-graph.py` loads the graph (`rows = graph()`), and its `plan` branch calls `projections` in `scripts/lib/todo_graph.py`, whose `projection` calls `graph(root)` again; the pre-commit hook runs `plan --check` on every plan commit, and it took 45 seconds on 2026-11-21.
 
 **Phase:** 0
