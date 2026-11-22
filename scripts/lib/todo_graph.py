@@ -1403,13 +1403,36 @@ def wake_apply_rows(root, date, run=subprocess.run, rows=None):
     """Clear every Need whose wake passes now, returning what was cleared and the graph as it then stands, each state
     built once: the rows a write validated are the next Need's (D00 T07 §1)."""
     rows = rows if rows is not None else graph(root)
+    seen = inputs_fingerprint(root)
     applied = []
     for wake in wake_check(root, rows, run):
         after = clear_need(root, wake["section"], wake["need"], date, rows)
         if after is not False:
             applied.append(wake)
             rows = after
+            seen = inputs_fingerprint(root)
+    # The checks can run for a minute each, and another command may change the tree meanwhile: rows read before them
+    # would then sync an old plan over a newer one, so a changed input is a new state, built again (round 1 of §1).
+    if inputs_fingerprint(root) != seen:
+        rows = graph(root)
     return applied, rows
+
+
+def inputs_fingerprint(root):
+    """What `graph` reads, cheaply: every file under todo/, docs/reviews/ and .conclave/ by path, size and time, and the
+    commit HEAD names. Equal fingerprints mean the rows built from them still stand (D00 T07 §1)."""
+    root = Path(root)
+    parts = []
+    for top in ("todo", "docs/reviews", ".conclave"):
+        base = root / top
+        if base.is_dir():
+            for path in sorted(base.rglob("*")):
+                if path.is_file():
+                    stat = path.stat()
+                    parts.append((path.relative_to(root).as_posix(), stat.st_size, stat.st_mtime_ns))
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "-q", "--verify", "HEAD"],
+                          capture_output=True, text=True, timeout=30).stdout.strip()
+    return hashlib.sha256(repr((parts, head)).encode("utf-8")).hexdigest()
 
 
 def ordered(sections):

@@ -2624,6 +2624,22 @@ class GraphLoadsWake(Tree):
         self.assertEqual((loads, code), (1, 0), out)  # nothing left to clear: one build, and the plan stays current
         tg.projections(self.root)
 
+    def test_a_tree_changed_while_the_checks_run_is_built_again_before_the_plan_syncs(self):
+        # Round 1 of D00 T07 §1: with no wake passing, the rows read before the checks synced an old plan over one
+        # another command had just made current. Here the check itself ticks an item, as another shell would, and fails.
+        self.write(todo_file([(1, "A", 0, "owner-decision", "--")]))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        edit = ("import pathlib, sys; p = pathlib.Path(sys.argv[1]); "
+                "p.write_text(p.read_text(encoding='utf-8').replace('- [ ] Work.', '- [x] Work.', 1), encoding='utf-8'); "
+                "sys.exit(1)")
+        (self.root / tg.WAKES).write_text(json.dumps([
+            {"section": "D00 T01 §1", "need": "owner-decision", "check": ["python", "-c", edit, str(todo)]}]), encoding="utf-8")
+        tg.projections(self.root, sync=True)
+        loads, code, out = graph_loads(self.root, "wake", "--apply")
+        self.assertEqual((loads, code), (2, 0), out)  # the state before the check, then the changed one
+        self.assertIn("- [x] Work.", todo.read_text(encoding="utf-8"))
+        tg.projections(self.root)  # the plan matches the changed tree, not the rows read before the check
+
 if __name__ == "__main__":
     unittest.main()
 
