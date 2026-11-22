@@ -1129,8 +1129,9 @@ class AntigravityRuns(unittest.TestCase):
         self.assertTrue(state["active"])
 
     WATCH_ACTIONS = ("run `python scripts/run-guard.py look` in the foreground", "On `still waiting:`, run it again.",
-                     "On `ended:`, read that tool's own result", "Start no new row while anything is still waiting.",
-                     "On `nothing to wait for`, continue process-plan.")
+                     "has a result to read once it is gone, whether `look` says `ended:` or it was already gone",
+                     "Start no new row while anything is still waiting.",
+                     "On `nothing to wait for`, read the result of each one named that you have not read yet, then continue process-plan.")
 
     def assert_watch_answer(self, reason, *waits):
         for action in self.WATCH_ACTIONS:
@@ -1528,6 +1529,42 @@ class Look(unittest.TestCase):
         took = time.monotonic() - started
         self.assertEqual(out.strip(), f"still waiting: a local gate in flight (check-all, pid {gate.pid})")
         self.assertGreaterEqual(took, 2)
+
+    def fake(self, gates, reviewing=None, wakes=()):
+        """An env whose local gate reads come from `gates` in turn (None for none live), the last one repeated."""
+        gates = list(gates)
+        def gating():
+            return gates.pop(0) if len(gates) > 1 else gates[0]
+        return guard.replace(World().env(), gating=gating, reviewing=lambda: reviewing, wakes=lambda: list(wakes))
+
+    def test_a_gate_that_starts_and_ends_within_one_look_is_an_end(self):
+        # Round 1 of D00 T03 §29: everything seen live counts, not only what the first look saw.
+        env = self.fake([None, "check-all, pid 9", None], reviewing="astra, dispatcher pid 1")
+        clock = iter(range(100))
+        said = guard.look(env, lambda: {}, 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, "ended: a local gate in flight (check-all, pid 9); still waiting: a review in flight (astra, dispatcher pid 1)")
+
+    def test_an_unreadable_state_is_a_wait_never_nothing(self):
+        # Round 1 of D00 T03 §29: a state that can't be read on the first look must not let the session go on.
+        reads = iter([None, None, {}])
+        clock = iter(range(100))
+        said = guard.look(self.fake([None]), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, "ended: the run state, which can't be read now; still waiting: nothing")
+        env = {**self.env, "RUN_GUARD_STATE": str(guard.ROOT / "scripts")}  # a folder: reading it fails
+        out = subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", "--max-seconds", "1"], env=env,
+                             capture_output=True, text=True, encoding="utf-8", timeout=60, **guard.hidden()).stdout
+        self.assertEqual(out.strip(), "still waiting: the run state, which can't be read now")
+
+    def test_a_woken_rows_hold_is_not_a_wait_in_look_either(self):
+        # Round 1 of D00 T03 §29: the hook and look apply the same wake rule.
+        held = {"wait_until": time.time() + 3600, "wait_reason": "rows-waiting"}
+        clock = iter(range(100))
+        env = self.fake(["check-all, pid 9", None], wakes=[{"ref": "D00 T01 §1"}])
+        said = guard.look(env, lambda: dict(held), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, "ended: a local gate in flight (check-all, pid 9); still waiting: nothing")
+        clock = iter(range(100))
+        said = guard.look(self.fake(["check-all, pid 9", None]), lambda: dict(held), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertTrue(said.endswith("still waiting: the wait for rows-waiting until " + guard.stamp(held["wait_until"])), said)
 
     def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
         reads = iter([{"wait_until": time.time() + 3600, "wait_reason": "reviewer-unavailable"}, None, {"wait_until": 0, "wait_reason": "reviewer-unavailable"}])
