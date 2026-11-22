@@ -55,6 +55,16 @@ function Start-GateAsync([string[]]$arguments, [string]$workingDirectory = $repo
   [pscustomobject]@{ Process = $proc; Capture = $capture }
 }
 function Get-AsyncText($handle) { $handle.Capture.GetText() }
+function Wait-GateExit([Diagnostics.Process]$proc, [int]$timeoutMs = 15000) {
+  if ($proc.WaitForExit($timeoutMs)) {
+    # Parameterless WaitForExit drains async OutputDataReceived/ErrorDataReceived only after exit is confirmed.
+    $proc.WaitForExit()
+    return $true
+  }
+  if (-not $proc.HasExited) { $proc.Kill($true) }
+  $null = $proc.WaitForExit(5000)
+  return $false
+}
 function Wait-Condition([scriptblock]$predicate, [int]$timeoutMs = 15000, [int]$pollMs = 50) {
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($sw.ElapsedMilliseconds -lt $timeoutMs) {
@@ -419,13 +429,12 @@ switch ($Mode) {
       $openReadRejected = $false
       try { $tmpFs = [IO.File]::OpenRead($activeLog); $tmpFs.Dispose() } catch [IO.IOException] { $openReadRejected = $true }
       Set-Content -LiteralPath $releaseLive -Value 'go'
-      $null = $h.Process.WaitForExit(15000)
-      $h.Process.WaitForExit()
+      $liveExited = Wait-GateExit $h.Process 15000
       $finalText = Get-AsyncText $h
       $finalLogText = if ($activeLog -and (Test-Path -LiteralPath $activeLog)) { Get-Content -LiteralPath $activeLog -Raw } else { '' }
       $outCountCon = [regex]::Matches($finalText, 'LIVE-STDOUT-MARKER').Count
       $outCountLog = [regex]::Matches($finalLogText, 'LIVE-STDOUT-MARKER').Count
-      Check 'live stdout and stderr stream once to console and active gate-mark log while the child is still running' ($seenLiveBoth -and $stillRunning -and $openReadRejected -and $h.Process.ExitCode -eq 0 -and (Get-LogPath $finalText) -eq $activeLog -and $outCountCon -eq 1 -and $outCountLog -eq 1) "(seenLive=$seenLiveBoth, stillRunning=$stillRunning, openReadRejected=$openReadRejected, exit=$($h.Process.ExitCode), activeLog='$activeLog', conCount=$outCountCon, logCount=$outCountLog)"
+      Check 'live stdout and stderr stream once to console and active gate-mark log while the child is still running' ($liveExited -and $seenLiveBoth -and $stillRunning -and $openReadRejected -and $h.Process.ExitCode -eq 0 -and (Get-LogPath $finalText) -eq $activeLog -and $outCountCon -eq 1 -and $outCountLog -eq 1) "(exited=$liveExited, seenLive=$seenLiveBoth, stillRunning=$stillRunning, openReadRejected=$openReadRejected, exit=$($h.Process.ExitCode), activeLog='$activeLog', conCount=$outCountCon, logCount=$outCountLog)"
     } finally {
       if (-not $h.Process.HasExited) { $h.Process.Kill($true) }
       $h.Process.Dispose()
@@ -536,15 +545,13 @@ switch ($Mode) {
       } 15000
       $midLogPath = $midState.Log
       if ($midReady) { Set-Content -LiteralPath $midFlag -Value 'go' }
-      $null = $hMid.Process.WaitForExit(15000)
-      if (-not $hMid.Process.HasExited) { $hMid.Process.Kill($true) }
-      $hMid.Process.WaitForExit()
+      $midExited = Wait-GateExit $hMid.Process 15000
       $midText = Get-AsyncText $hMid
       $midChildPid = if (Test-Path -LiteralPath $midChildPidFile) { [int](Get-Content -LiteralPath $midChildPidFile -Raw).Trim() } else { 0 }
       $midMarksLeft = @(Get-ChildItem -LiteralPath $midMarks -Filter '*.json' -ErrorAction Ignore)
-      Check 'mid-run log write failure exits 1, names the partial log, stops the active job, removes the gate mark, and runs no later step' ($midReady -and
+      Check 'mid-run log write failure exits 1, names the partial log, stops the active job, removes the gate mark, and runs no later step' ($midExited -and $midReady -and
         $hMid.Process.ExitCode -eq 1 -and $midText -match [regex]::Escape($midLogPath) -and $midText -match 'failed to write run log' -and
-        $midChildPid -gt 0 -and (Wait-Gone $midChildPid) -and $midMarksLeft.Count -eq 0 -and -not (Test-Path -LiteralPath $midAfterFlag)) "(ready=$midReady, exit=$($hMid.Process.ExitCode), child=$midChildPid, marks=$($midMarksLeft.Count), after=$(Test-Path -LiteralPath $midAfterFlag): $midText)"
+        $midChildPid -gt 0 -and (Wait-Gone $midChildPid) -and $midMarksLeft.Count -eq 0 -and -not (Test-Path -LiteralPath $midAfterFlag)) "(exited=$midExited, ready=$midReady, exit=$($hMid.Process.ExitCode), child=$midChildPid, marks=$($midMarksLeft.Count), after=$(Test-Path -LiteralPath $midAfterFlag): $midText)"
     } finally {
       if (-not $hMid.Process.HasExited) { $hMid.Process.Kill($true) }
       $hMid.Process.Dispose()
@@ -610,51 +617,72 @@ exit $LASTEXITCODE
   $env:BOSUN_GATE_MARK_DIR = $qLiveMarks
   $env:BOSUN_SCRATCH = $qLiveLogs
   try {
-    $hQ = Start-GateAsync @('-StepFile', $qLiveSteps, '-StepMinutes', '1', '-QueueMinutes', '1')
-    try {
-      $qState = @{ Log = $null }
-      $sawWaiting = Wait-Condition {
-        $mf = Get-ChildItem -LiteralPath $qLiveMarks -Filter '*.json' -ErrorAction Ignore | Select-Object -First 1
-        if (-not $mf) { return $false }
-        try { $qState.Log = (Get-Content -LiteralPath $mf.FullName -Raw | ConvertFrom-Json).output } catch { return $false }
-        if (-not $qState.Log -or -not (Test-Path -LiteralPath $qState.Log)) { return $false }
-        $lt = Get-Content -LiteralPath $qState.Log -Raw -ErrorAction Ignore
-        $ct = Get-AsyncText $hQ
-        ($lt -match 'waiting queued-live: queued for a build slot' -and $ct -match 'waiting queued-live: queued for a build slot')
-      } 15000
-      $qLog = $qState.Log
-      $waitSw = [Diagnostics.Stopwatch]::StartNew()
-      Start-Sleep -Milliseconds 1200
-      $noStartedBeforeSlot = ((Get-AsyncText $hQ) -notmatch 'started queued-live:') -and ($qLog -and (Get-Content -LiteralPath $qLog -Raw -ErrorAction Ignore) -notmatch 'started queued-live:')
-      Set-Content -LiteralPath $slotFlag -Value 'go'
-      $sawStarted = Wait-Condition {
-        $lt = Get-Content -LiteralPath $qLog -Raw -ErrorAction Ignore
-        $ct = Get-AsyncText $hQ
-        ($lt -match 'started queued-live: got build slot after (\d+\.\d) s' -and $ct -match 'started queued-live: got build slot after (\d+\.\d) s')
-      } 15000
-      $stillRunningAfterStarted = -not $hQ.Process.HasExited
-      $maxExpectedWait = $waitSw.Elapsed.TotalSeconds + 2.5
-      $mWait = [regex]::Match((Get-AsyncText $hQ), 'started queued-live: got build slot after (\d+\.\d) s')
-      $reportedWait = if ($mWait.Success) { [double]::Parse($mWait.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) } else { -1.0 }
-      Set-Content -LiteralPath $childFlag -Value 'go'
-      $null = $hQ.Process.WaitForExit(15000)
-      $hQ.Process.WaitForExit()
-      Check 'queued step emits waiting before slot release and started before child exit with matching duration in console and log' ($sawWaiting -and $noStartedBeforeSlot -and $sawStarted -and $stillRunningAfterStarted -and $hQ.Process.ExitCode -eq 0 -and $reportedWait -ge 0.8 -and $reportedWait -le $maxExpectedWait) "(waiting=$sawWaiting, noBefore=$noStartedBeforeSlot, started=$sawStarted, stillRunning=$stillRunningAfterStarted, reported=$reportedWait, max=$maxExpectedWait, exit=$($hQ.Process.ExitCode))"
-    } finally {
-      if (-not $hQ.Process.HasExited) { $hQ.Process.Kill($true) }
-      $hQ.Process.Dispose()
+    # Exercise two distinct controlled hold times so no hardcoded duration can pass, comparing console and log values.
+    $reportedWaits = @()
+    $liveQueueAllOk = $true
+    $liveQueueDetail = @()
+    foreach ($holdMs in @(300, 2400)) {
+      Remove-Item -LiteralPath $slotFlag, $childFlag -ErrorAction Ignore
+      $hQ = Start-GateAsync @('-StepFile', $qLiveSteps, '-StepMinutes', '1', '-QueueMinutes', '1')
+      try {
+        $qState = @{ Log = $null }
+        $sawWaiting = Wait-Condition {
+          $mf = Get-ChildItem -LiteralPath $qLiveMarks -Filter '*.json' -ErrorAction Ignore | Select-Object -First 1
+          if (-not $mf) { return $false }
+          try { $qState.Log = (Get-Content -LiteralPath $mf.FullName -Raw | ConvertFrom-Json).output } catch { return $false }
+          if (-not $qState.Log -or -not (Test-Path -LiteralPath $qState.Log)) { return $false }
+          $lt = Get-Content -LiteralPath $qState.Log -Raw -ErrorAction Ignore
+          $ct = Get-AsyncText $hQ
+          ($lt -match 'waiting queued-live: queued for a build slot' -and $ct -match 'waiting queued-live: queued for a build slot')
+        } 15000
+        $qLog = $qState.Log
+        Start-Sleep -Milliseconds $holdMs
+        $noStartedBeforeSlot = ((Get-AsyncText $hQ) -notmatch 'started queued-live:') -and ($qLog -and (Get-Content -LiteralPath $qLog -Raw -ErrorAction Ignore) -notmatch 'started queued-live:')
+        Set-Content -LiteralPath $slotFlag -Value 'go'
+        $sawStarted = Wait-Condition {
+          $lt = Get-Content -LiteralPath $qLog -Raw -ErrorAction Ignore
+          $ct = Get-AsyncText $hQ
+          ($lt -match 'started queued-live: got build slot after (\d+\.\d) s' -and $ct -match 'started queued-live: got build slot after (\d+\.\d) s')
+        } 15000
+        $stillRunningAfterStarted = -not $hQ.Process.HasExited
+        $mCon = [regex]::Match((Get-AsyncText $hQ), 'started queued-live: got build slot after (\d+\.\d) s')
+        $mLog = [regex]::Match((Get-Content -LiteralPath $qLog -Raw -ErrorAction Ignore), 'started queued-live: got build slot after (\d+\.\d) s')
+        $conVal = if ($mCon.Success) { [double]::Parse($mCon.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) } else { -1.0 }
+        $logVal = if ($mLog.Success) { [double]::Parse($mLog.Groups[1].Value, [Globalization.CultureInfo]::InvariantCulture) } else { -2.0 }
+        Set-Content -LiteralPath $childFlag -Value 'go'
+        $qExited = Wait-GateExit $hQ.Process 15000
+        $reportedWaits += $conVal
+        if (-not ($qExited -and $sawWaiting -and $noStartedBeforeSlot -and $sawStarted -and $stillRunningAfterStarted -and $hQ.Process.ExitCode -eq 0 -and $conVal -eq $logVal -and $conVal -ge ($holdMs / 1000.0 - 0.1))) {
+          $liveQueueAllOk = $false
+        }
+        $liveQueueDetail += "hold=${holdMs}ms(exited=$qExited,wait=$sawWaiting,noBefore=$noStartedBeforeSlot,started=$sawStarted,alive=$stillRunningAfterStarted,con=$conVal,log=$logVal,exit=$($hQ.Process.ExitCode))"
+      } finally {
+        if (-not $hQ.Process.HasExited) { $hQ.Process.Kill($true) }
+        $hQ.Process.Dispose()
+      }
     }
+    $waitDelta = if ($reportedWaits.Count -eq 2) { $reportedWaits[1] - $reportedWaits[0] } else { -1.0 }
+    Check 'queued step emits waiting before slot release and started before child exit with matching duration in console and log' ($liveQueueAllOk -and $waitDelta -ge 1.5) "($($liveQueueDetail -join '; '), delta=$waitDelta)"
 
-    # Fast-exit StartedPath branch: step starts immediately and finishes fast (tests Measure-Job post-loop StartedPath check)
+    # Fast-exit StartedPath branch: deterministically prove Measure-Job fires -OnStarted in the post-loop check when
+    # the child creates StartedPath and exits within the first 200 ms poll (0 in-loop ticks).
+    . (Join-Path $repo 'scripts/lib/job-measure.ps1')
+    $postLoopMark = Join-Path $qLiveDir 'post-loop.started'
+    $postLoopState = @{ StartedCount = 0; InLoopTicks = 0; FinalTicks = 0 }
+    $postRes = Measure-Job -FilePath 'cmd.exe' -ArgumentList @('/c', 'echo', 'ok', '>', 'post-loop.started') -WorkingDirectory $qLiveDir -StartedPath $postLoopMark -QueueSeconds 10 -TimeoutSeconds 10 -OnStarted { param($w) $postLoopState.StartedCount++ } -OnTick { param($f) if ($f) { $postLoopState.FinalTicks++ } else { $postLoopState.InLoopTicks++ } }
+    Remove-Item -LiteralPath $postLoopMark -Force -ErrorAction Ignore
+
     Remove-Item Env:BOSUN_TEST_SLOT_FLAG -ErrorAction Ignore
     $fastSteps = Join-Path $qLiveDir 'fast-steps.json'
     ConvertTo-Json -InputObject @(@{ name = 'queued-fast'; file = 'cmd.exe'; args = @('/c', 'echo fast-done'); queue = $true }) -Depth 4 | Set-Content -LiteralPath $fastSteps
     $rFast = Invoke-Gate @('-StepFile', $fastSteps, '-StepMinutes', '1', '-QueueMinutes', '1')
     $fastLog = Get-LogPath $rFast.Text
     $fastLogText = if ($fastLog -and (Test-Path -LiteralPath $fastLog)) { Get-Content -LiteralPath $fastLog -Raw } else { '' }
-    Check 'a fast queued step still emits both waiting and started in console and log' ($rFast.Exit -eq 0 -and
-      $rFast.Text -match 'waiting queued-fast: queued for a build slot' -and $rFast.Text -match 'started queued-fast: got build slot after \d+\.\d s' -and
-      $fastLogText -match 'started queued-fast: got build slot after \d+\.\d s') "(exit $($rFast.Exit): $($rFast.Text))"
+    Check 'a fast queued step still emits both waiting and started in console and log' ($postRes.ExitCode -eq 0 -and
+      $postLoopState.InLoopTicks -eq 0 -and $postLoopState.StartedCount -eq 1 -and $postLoopState.FinalTicks -eq 1 -and
+      $rFast.Exit -eq 0 -and $rFast.Text -match 'waiting queued-fast: queued for a build slot' -and
+      $rFast.Text -match 'started queued-fast: got build slot after \d+\.\d s' -and
+      $fastLogText -match 'started queued-fast: got build slot after \d+\.\d s') "(postLoop=$($postLoopState.StartedCount)/inLoop=$($postLoopState.InLoopTicks)/final=$($postLoopState.FinalTicks), exit $($rFast.Exit): $($rFast.Text))"
   } finally {
     $env:PATH = $savedPathQ
     Remove-Item Env:BOSUN_TEST_SLOT_FLAG, Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore
@@ -706,10 +734,12 @@ exit 0
     $logD2Text = if ($logD2 -and (Test-Path -LiteralPath $logD2)) { Get-Content -LiteralPath $logD2 -Raw } else { '' }
     $sdkMatchesCon = [regex]::Matches($rD2.Text, '(?m)^dotnet-sdk: 10\.0\.199\r?$').Count
     $sdkMatchesLog = [regex]::Matches($logD2Text, '(?m)^dotnet-sdk: 10\.0\.199\r?$').Count
+    $sdkBeforeCon = $rD2.Text.IndexOf('dotnet-sdk: 10.0.199') -ge 0 -and $rD2.Text.IndexOf('---- dotnet-build:') -gt $rD2.Text.IndexOf('dotnet-sdk: 10.0.199')
+    $sdkBeforeLog = $logD2Text.IndexOf('dotnet-sdk: 10.0.199') -ge 0 -and $logD2Text.IndexOf('---- dotnet-build:') -gt $logD2Text.IndexOf('dotnet-sdk: 10.0.199')
     $resolvedRepo = (Resolve-Path -LiteralPath $repo).ProviderPath
     Check 'from outside $repo, dotnet --version runs once in $repo before two .NET steps and logs the exact SDK once' ($rD2.Exit -eq 0 -and
       $calls2.Count -eq 3 -and $calls2[0] -eq "$resolvedRepo|--version" -and $calls2[1] -eq "$resolvedRepo|build Bosun.slnx" -and $calls2[2] -eq "$resolvedRepo|test --solution Bosun.slnx" -and
-      $sdkMatchesCon -eq 1 -and $sdkMatchesLog -eq 1) "(exit=$($rD2.Exit), calls=$($calls2 -join ' ; '), conMatches=$sdkMatchesCon, logMatches=$sdkMatchesLog)"
+      $sdkMatchesCon -eq 1 -and $sdkMatchesLog -eq 1 -and $sdkBeforeCon -and $sdkBeforeLog) "(exit=$($rD2.Exit), calls=$($calls2 -join ' ; '), conMatches=$sdkMatchesCon, logMatches=$sdkMatchesLog, beforeCon=$sdkBeforeCon, beforeLog=$sdkBeforeLog)"
 
     Remove-Item -LiteralPath $dotnetCalls -ErrorAction Ignore
     $rD0 = Invoke-Gate @('-StepFile', $dotnetNoSteps)
