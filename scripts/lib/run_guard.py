@@ -895,6 +895,38 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
     return json.dumps({"decision": "continue", "reason": reason}) if reason else ""
 
 
+# How long one Antigravity hook may take: its host gives it 60 seconds (.agents/hooks.json), and a hook the host stops
+# says nothing at all, so every subprocess the guard starts under it is bounded to what is left (D00 T03 §30).
+HOOK_SECONDS = 45
+_deadline: float | None = None
+
+
+def failure_notice(error: object) -> str:
+    """What a failed Antigravity hook prints: an `errorMessage` whose `userMessage` the operator sees and the model
+    does not (`agy changelog`), with no `decision`, so the session is not held."""
+    return json.dumps({"errorMessage": {"userMessage": f"Run guard failed and is not holding this run: {error}; "
+                                                       "see python scripts/run-guard.py status"}})
+
+
+def hook_antigravity_answer(read_input: Callable[[], str], session: str, env: Env | None = None, path: Path = STATE,
+                            seconds: float = HOOK_SECONDS) -> str:
+    """One Antigravity hook, fail-open: its input is read inside, and any failure (bad input, the hook raising, a run
+    state that can't be read or saved) is recorded for `status` and said to the operator in one notice. The failures
+    are cleared only by a hook that succeeded. Every subprocess is bounded to `seconds` from the start."""
+    global _deadline
+    _deadline = time.monotonic() + seconds
+    try:
+        output = hook_antigravity(read_input(), session, env, path)
+    except Exception as error:  # fail open, and say so: a broken guard must never wedge a session or pass unseen
+        log(f"antigravity hook failed open: {error!r}", path)
+        record_hook_failure(f"antigravity: {error!r}", path)  # never raises: the notice goes out either way
+        return failure_notice(error)
+    finally:
+        _deadline = None
+    clear_hook_failures(path)
+    return output
+
+
 # The world, on this machine.
 
 
@@ -903,6 +935,10 @@ def hidden() -> dict:
 
 
 def run(*args: str, cwd: Path = ROOT, timeout: float = 20) -> subprocess.CompletedProcess:
+    """A subprocess the guard waits for, stopped at `timeout`, or sooner at the running hook's deadline (`_deadline`),
+    so a stalled read is read as unknown and the hook still answers in its host's time."""
+    if _deadline is not None:
+        timeout = max(0.5, min(timeout, _deadline - time.monotonic()))
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=timeout, stdin=subprocess.DEVNULL, **hidden())
 

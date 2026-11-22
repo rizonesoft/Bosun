@@ -1242,15 +1242,69 @@ class AntigravityRuns(unittest.TestCase):
             self.assertEqual(answer["decision"], "continue")
         self.assertTrue(state["active"])
 
-    def test_through_the_cli_malformed_input_answers_nothing_and_is_recorded(self):
-        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8"}
+    def assert_notice(self, done):
+        """One `errorMessage` notice for the operator, no `decision`, exit 0 (D00 T03 §30)."""
+        self.assertEqual(done.returncode, 0)
+        lines = [line for line in done.stdout.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1, done.stdout)
+        answer = json.loads(lines[0])
+        self.assertNotIn("decision", answer, "a failed guard held the session")
+        self.assertTrue(answer["errorMessage"]["userMessage"].startswith("Run guard failed and is not holding this run: "), answer)
+        self.assertIn("python scripts/run-guard.py status", answer["errorMessage"]["userMessage"])
+
+    def test_through_the_cli_malformed_input_is_said_and_recorded_until_a_clean_hook(self):
+        env = {**os.environ, "RUN_GUARD_STATE": str(self.path), "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8",
+               "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build")}
         script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "hook", "--runner", "antigravity"]
+        status = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "status", "--json"]
         done = subprocess.run(script, env=env, input="{not json", capture_output=True, text=True, encoding="utf-8", timeout=120)
-        self.assertEqual((done.returncode, done.stdout.strip()), (0, ""))
+        self.assert_notice(done)
         self.assertIn("antigravity", json.dumps(guard.hook_failures(self.path)))
+        shown = subprocess.run(status, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertIn("antigravity", json.dumps(json.loads(shown.stdout)["hook_failures"]), "status lost the failure before a clean hook")
         done = subprocess.run(script, env=env, input=json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}),
                               capture_output=True, text=True, encoding="utf-8", timeout=120)
         self.assertEqual((done.returncode, done.stdout.strip()), (0, ""), "a Stop with no active run was answered")
+        self.assertEqual(guard.hook_failures(self.path), [], "a clean hook left the old failure")
+
+    def test_every_failure_of_the_hook_is_said_once_and_holds_nothing(self):
+        # D00 T03 §30: a raising hook, a run state that is a folder, and a save that fails, each through the real CLI
+        # or the same function it calls; a failure record that cannot be written still lets the notice out.
+        env = {**os.environ, "BOSUN_RUN_SESSION": self.SESSION, "PYTHONIOENCODING": "utf-8", "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build")}
+        script = [sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "hook", "--runner", "antigravity"]
+        stop = json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"})
+        folder = Path(self.folder.name) / "state-is-a-folder"
+        folder.mkdir()
+        self.assert_notice(subprocess.run(script, env={**env, "RUN_GUARD_STATE": str(folder)}, input=stop, capture_output=True,
+                                          text=True, encoding="utf-8", timeout=120))
+        guard.save(self.run_state(), self.path)
+        def broken(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+        for patch in ("on_antigravity_stop", "save_retrying"):
+            with self.subTest(patch), unittest.mock.patch.object(guard, patch, broken), \
+                    unittest.mock.patch.object(guard, "record_hook_failure", lambda *a, **k: None):
+                state = self.run_state()
+                guard.set_wait(state, "reviewer-unavailable", time.time() + 600)  # a save is due
+                guard.save(state, self.path)
+                said = guard.hook_antigravity_answer(lambda: stop, self.SESSION, self.env(), self.path)
+                answer = json.loads(said)
+                self.assertNotIn("decision", answer)
+                self.assertIn("No space left on device", answer["errorMessage"]["userMessage"])
+
+    def test_a_stalled_read_is_stopped_at_the_hook_deadline(self):
+        # D00 T03 §30: the host gives the hook 60 seconds; a read that stalls is stopped and read as unknown.
+        def stalled_finish():
+            out = guard.run(sys.executable, "-c", "import time; time.sleep(120)", timeout=120)
+            return {"state": "unknown", "detail": str(out.returncode)}
+        world = World(rows=())
+        env = guard.replace(self.env(world), finish=stalled_finish)
+        guard.save(self.run_state(), self.path)
+        stop = json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"})
+        started = time.monotonic()
+        said = guard.hook_antigravity_answer(lambda: stop, self.SESSION, env, self.path, seconds=3)
+        self.assertLess(time.monotonic() - started, 6, "the hook outlived its deadline")
+        self.assertTrue(said, "the hook said nothing")
+        self.assertIsNone(guard._deadline, "the deadline outlived the hook")
 
     def test_start_and_end_through_the_cli(self):
         # A build folder of its own: the writer's own reviews and CI gates in flight would read as waits here.

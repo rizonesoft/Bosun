@@ -78,13 +78,9 @@ def main() -> int:
     if args.command == "hook" and args.runner == "antigravity":
         import os
 
-        try:
-            output = guard.hook_antigravity(sys.stdin.buffer.read().decode("utf-8", "replace"), os.environ.get("BOSUN_RUN_SESSION", ""))
-        except Exception as error:  # fail open and print nothing: Antigravity reads only a decision, and none is given
-            guard.log(f"antigravity hook failed open: {error!r}")
-            guard.record_hook_failure(f"antigravity: {error!r}")
-            return 0
-        guard.clear_hook_failures()
+        # Fail-open, its notice and its deadline live in the library (D00 T03 §30), input reading included.
+        output = guard.hook_antigravity_answer(lambda: sys.stdin.buffer.read().decode("utf-8", "replace"),
+                                               os.environ.get("BOSUN_RUN_SESSION", ""))
         if output:
             say(output)
         return 0
