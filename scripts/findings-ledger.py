@@ -207,8 +207,12 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
     if kind == "Scheduled":
         if not refs:
             return "Scheduled names no DNN TNN §N"
-        if len(set(refs)) > 1:
-            return "Scheduled names %d sections (%s): schedule it to one owner" % (len(set(refs)), ", ".join(refs))
+        # Exactly one section, counted by its mark, so the short form (`and §99`) can't add an owner the reference
+        # scan never resolves (round 1 of D00 T06 §5). A note in parentheses is not an owner: base line 48 says
+        # `Scheduled: D00 T03 §32 (moved from §30 by its plan review)`.
+        marks = re.findall(r"§\s*\d+", re.sub(r"\([^()]*\)", "", detail))
+        if len(marks) > 1:
+            return "Scheduled names %d sections (%s): schedule it to one owner" % (len(marks), ", ".join(marks))
         code, body = resolver(refs[0], root)
         if code == 3:
             # Stamped since it was scheduled: the owner shipped it. Scheduling into a section already stamped when the

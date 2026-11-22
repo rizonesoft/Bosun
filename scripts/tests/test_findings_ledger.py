@@ -232,6 +232,9 @@ class FindingsLedgerTest(unittest.TestCase):
             # The plan review of D00 T06 §5: a valid first owner never vouches for what follows it.
             "scheduled with a second, unresolved owner": "Scheduled: D09 T01 §1, then D09 T01 §9.",
             "a second disposition after the first": "Scheduled: D09 T01 §1. Declined: not worth doing after all, really.",
+            # Round 1 of D00 T06 §5: a second owner in the short form, which the reference scan doesn't see.
+            "scheduled with a second owner in short form": "Scheduled: D09 T01 §1 and §99.",
+            "scheduled with a second owner after a note": "Scheduled: D09 T01 §1 (the fix) and §99.",
         }
         for name, first in cases.items():
             with self.subTest(name):
