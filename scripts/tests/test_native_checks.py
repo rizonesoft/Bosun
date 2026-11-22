@@ -99,8 +99,8 @@ class Images(unittest.TestCase):
             """A file that counts what is asked of it, standing in for one far larger than memory."""
             asked, largest = 0, 0
 
-            def read(self, size=-1):
-                assert size >= 0, "the whole file was asked for"
+            def read(self, size: int | None = -1):
+                assert size is not None and size >= 0, "the whole file was asked for"
                 Counted.asked += size
                 Counted.largest = max(Counted.largest, size)
                 return super().read(size)

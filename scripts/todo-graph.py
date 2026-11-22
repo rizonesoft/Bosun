@@ -28,6 +28,7 @@ import datetime
 import json
 from pathlib import Path
 import re
+import io
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -132,7 +133,7 @@ def main():
             print("TODO refused: no section reference in input: " + args.ref, file=sys.stderr)
             return 2
         if code == 1:
-            print("TODO refused: no such section: " + ref, file=sys.stderr)
+            print(f"TODO refused: no such section: {ref}", file=sys.stderr)
             return 1
         row = rows[ref]
         unmet = [d for d in row.depends if not settled(d, rows)]
@@ -212,8 +213,9 @@ def main():
 
 if __name__ == "__main__":
     # The output is a contract other programs parse; JSON is UTF-8, whatever the console's code page.
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    for stream in (sys.stdout, sys.stderr):  # a console or a pipe; a replaced stream keeps its own encoding
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     try:
         sys.exit(main())
     except (Refused, OSError, ValueError) as exc:

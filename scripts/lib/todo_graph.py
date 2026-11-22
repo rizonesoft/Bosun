@@ -89,6 +89,14 @@ def require(condition, message):
         raise Refused(message)
 
 
+def present[T](value: T | None, message: str) -> T:
+    """`value`, or the refusal `message` when it is None: `require(value is not None, ...)` as one call whose result the
+    type checker knows is present, so what follows uses it without a second check (D00 T07 §2)."""
+    if value is None:
+        raise Refused(message)
+    return value
+
+
 def read_text(path):
     return Path(path).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
 
@@ -110,8 +118,7 @@ def atomic(path, data):
 
 
 def normalize(value, domain, todo):
-    m = REF.fullmatch(value.strip().strip("`"))
-    require(m is not None, f"invalid section reference: {value}")
+    m = present(REF.fullmatch(value.strip().strip("`")), f"invalid section reference: {value}")
     return f"D{m['d'] or domain} T{m['t'] or todo} §{m['s']}"
 
 
@@ -180,8 +187,8 @@ def front_matter(text, relative):
     require(len(parts) == 3 and not parts[0], f"missing frontmatter: {relative}")
     front = {}
     for line in parts[1].splitlines():
-        m = re.fullmatch(r"([a-z_]+):\s*(.+)", line)
-        require(m is not None and m[1] not in front, f"invalid or duplicate frontmatter: {relative}")
+        m = present(re.fullmatch(r"([a-z_]+):\s*(.+)", line), f"invalid or duplicate frontmatter: {relative}")
+        require(m[1] not in front, f"invalid or duplicate frontmatter: {relative}")
         front[m[1]] = m[2].strip().strip('"')
     return front, parts[2]
 
@@ -237,9 +244,10 @@ def review_dispatch():
         if not DISPATCHER.is_file():
             raise Refused(f"{DISPATCHER} is missing: stamps run through this repository's review dispatcher, "
                           "so restore it from git (git checkout -- scripts/review-dispatch.py)")
-        spec = importlib.util.spec_from_file_location("review_dispatch", DISPATCHER)
+        spec = present(importlib.util.spec_from_file_location("review_dispatch", DISPATCHER), f"{DISPATCHER} cannot be loaded")
+        loader = present(spec.loader, f"{DISPATCHER} has no loader")
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        loader.exec_module(module)
         _REVIEW_DISPATCH.append(module)
     return _REVIEW_DISPATCH[0]
 
@@ -392,8 +400,7 @@ def section_findings(root, ref):
     """The section's own findings file, `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`, the domain being the one
     `todo/<NN-domain>/` folder its domain number names. A section `unstamp` reopened n times reviews its repair in a
     fresh file, `D<NN>-T<NN>-s<N>-cycle<n+1>.md`: the earlier cycle's passes ran on work that regressed."""
-    m = re.fullmatch(r"D(\d{2}) T(\d{2}) §([1-9]\d*)", ref)
-    require(m is not None, f"not a full section reference: {ref}")
+    m = present(re.fullmatch(r"D(\d{2}) T(\d{2}) §([1-9]\d*)", ref), f"not a full section reference: {ref}")
     domains = sorted(d.name for d in (Path(root) / "todo").iterdir() if d.is_dir() and d.name.startswith(f"{m[1]}-"))
     require(len(domains) == 1, f"no single todo/{m[1]}-<domain> folder for: {ref}")
     files = sorted((Path(root) / "todo" / domains[0]).glob(f"TODO-{m[2]}-*.md"))
@@ -473,6 +480,7 @@ def schedule_ok(root, data, ref, surface):
     require(isinstance(surface, bool), f"the section's Surface is needed to check the review schedule: {ref}")
     dispatch = review_dispatch()
     schedule = data["schedule"]
+    policy = None  # read below when the schedule orders completion last, the only case that uses it
     if schedule.get("completion_order") == "last":
         own = data["plan"]["report"]
         require(data["completion"]["report"] == own and all(r["report"] == own for r in data["reviews"]),
@@ -496,9 +504,10 @@ def schedule_ok(root, data, ref, surface):
         got = (recorded["effort"], list(recorded["lenses"] or []))
         effort = expected["effort"]
         if schedule.get("completion_order") == "last":
-            route = policy["routes"].get(recorded.get("writer"))
+            read = present(policy, f"current-policy lineage was not read: {ref}")
+            route = read["routes"].get(recorded.get("writer"))
             if route:
-                effort = dispatch.effective_effort(policy["reviewers"][route[0]], effort)
+                effort = dispatch.effective_effort(read["reviewers"][route[0]], effort)
         want = (effort, expected["lenses"])
         position = f" (position {expected['position']}{', escalated' if expected['escalated'] else ''})" \
             if expected["position"] else ""
@@ -582,14 +591,15 @@ def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=Non
                         f"{report} holds {len(reviewed)} returned reviews, over the {cap}-round cap: {ref}")
                 claimed = sorted((r for r in rounds if r["report"] == report), key=lambda r: r["round"])
                 for r in claimed:
-                    e = reviewed.get(r["round"])
-                    last = ([x.strip() for x in e["review"].splitlines() if x.strip()] or [""])[-1] if e else ""
-                    require(e is not None and e["writer"] in dispatch.WRITER_FAMILY
+                    unmatched = (f"round {r['round']} is not a review returned by another model family with a verdict "
+                                 f"matching {r['verdict']} (clean needs OVERALL: approve, any other needs-attention) in "
+                                 f"{report}: {ref}")
+                    e = present(reviewed.get(r["round"]), unmatched)
+                    last = ([x.strip() for x in e["review"].splitlines() if x.strip()] or [""])[-1]
+                    require(e["writer"] in dispatch.WRITER_FAMILY
                             and dispatch.FAMILY.get(e["cli"]) not in (None, dispatch.WRITER_FAMILY[e["writer"]])
                             and last == ("OVERALL: approve" if r["verdict"] == "clean" else "OVERALL: needs-attention"),
-                            f"round {r['round']} is not a review returned by another model family with a verdict "
-                            f"matching {r['verdict']} (clean needs OVERALL: approve, any other needs-attention) in "
-                            f"{report}: {ref}")
+                            unmatched)
                     # A severity stop is for a round whose findings are all P3 or advisory. The reviewer, who tags each
                     # finding (an untagged one counts as P1), declares the highest on the line before OVERALL; reading
                     # severities back out of free prose would guess where the reviewer already said.
@@ -711,8 +721,7 @@ def adjacency_of(body, relative, domain, todo):
                 require(owner is not None, f"adjacency owner does not parse ({entry}): {relative}")
             result[key] = ("applicable", owner)
             continue
-        m = re.fullmatch(r"([a-z]+)=not-applicable\s*\(([^)]+)\)", entry)
-        require(m is not None, f"adjacency entry malformed ({entry}): {relative}")
+        m = present(re.fullmatch(r"([a-z]+)=not-applicable\s*\(([^)]+)\)", entry), f"adjacency entry malformed ({entry}): {relative}")
         key = m[1]
         require(key in ADJACENCY_KEYS and key not in result,
                 f"adjacency key unknown or duplicated ({key}): {relative}")
@@ -749,8 +758,7 @@ def graph(root=ROOT):
     for path in paths:
         require(not path.is_symlink(), f"symlink TODO: {path}")
         relative = path.relative_to(root).as_posix()
-        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name)
-        require(name is not None, f"invalid TODO filename: {relative}")
+        name = present(re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name), f"invalid TODO filename: {relative}")
         d, t = path.parent.name[:2], name[1]
         front, body = front_matter(read_text(path), relative)
         required = {"schema_version", "id", "domain", "status", "title"}
@@ -870,8 +878,8 @@ def graph(root=ROOT):
             if done:
                 require(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}")
                 require(not set(needs) & WAITING, f"stamped section has a waiting Need: {ref}")
-                m = re.fullmatch(r"\d{4}-\d{2}-\d{2} \| §" + str(n) + r" \| ([0-9a-f]{40})", stamp_line)
-                require(m is not None, f"invalid stamp: {ref}")
+                m = present(re.fullmatch(r"\d{4}-\d{2}-\d{2} \| §" + str(n) + r" \| ([0-9a-f]{40})", stamp_line),
+                            f"invalid stamp: {ref}")
                 if head_commits is None:
                     head_commits = _head_commits(root)
                 data = receipt_ok(root, receipt, ref, m[1], head_commits, surface=surface == "yes")
@@ -1387,8 +1395,7 @@ def clear_need(root, ref, need, date, rows=None):
     if need not in row.needs:
         return False
     left = [n for n in row.needs if n != need]
-    match = re.search(r"^\*\*Needs:\*\* .*$", row.body, re.M)
-    require(match, f"no Needs line in {ref}")
+    match = present(re.search(r"^\*\*Needs:\*\* .*$", row.body, re.M), f"no Needs line in {ref}")
     body = row.body[:match.start()] + f"**Needs:** {', '.join(left) if left else 'none'}" + row.body[match.end():]
     body += f"\n\n> **Woken:** {date}: its `{need}` check in {WAKES} passed"
     return rewrite_section(root, row, body)
@@ -1560,8 +1567,8 @@ def adjacency_report(root=ROOT, rows=None):
     for path in sorted((Path(root) / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
         relative = path.relative_to(root).as_posix()
         _, body = front_matter(read_text(path), relative)
-        parsed = adjacency_of(body, relative, path.parent.name[:2],
-                              re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name)[1])
+        name = present(re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name), f"invalid TODO filename: {relative}")
+        parsed = adjacency_of(body, relative, path.parent.name[:2], name[1])
         report[relative] = {key: (state if owner is None else f"{state} @ {owner}")
                              for key, (state, owner) in parsed.items()}
     return report
@@ -1650,7 +1657,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     require_open_targets(rows, data["completion"]["filed"], ref)
     data["rounds_spent"] = rounds_recorded(root, reviews)
     if stopped:
-        data["cap_outcome"] = cap_outcome.strip()
+        data["cap_outcome"] = present(cap_outcome, "--cap-outcome is required with a stopped verdict").strip()
     data["plan"] = plan_record(root, plan, ref, start=build_start(root, row.path, row.body, ref))
     dispatch = review_dispatch()
     current = dispatch.load_pin(root / PIN)

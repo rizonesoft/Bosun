@@ -52,6 +52,7 @@ class Prompts(unittest.TestCase):
             note = guard.on_prompt(state, {"prompt": prompt, "session_id": "me", "permission_mode": "acceptEdits"}, World().env())
             self.assertTrue(state.get("active"), prompt)
             self.assertEqual(state["session_id"], "me")
+            assert note is not None, "process plan answers with a note"
             self.assertIn("CronCreate", note)
             self.assertNotIn("install", note)  # no scheduled task: nothing resumes a run
 
@@ -83,6 +84,7 @@ class Prompts(unittest.TestCase):
         for prompt in ("Please stop the run after the current section", "can you cancel this for now"):
             state = active()
             note = guard.on_prompt(state, {"prompt": prompt, "session_id": "me"}, World().env())
+            assert note is not None, "a less plain stop is answered with the way to halt"
             self.assertIn("halt --ground operator", note, prompt)
             self.assertTrue(state["active"])
         self.assertIsNone(guard.on_prompt(active(), {"prompt": "what is next", "session_id": "me"}, World().env()))
@@ -93,6 +95,7 @@ class Prompts(unittest.TestCase):
     def test_a_second_session_cannot_take_a_live_run(self):
         state = active()
         note = guard.on_prompt(state, {"prompt": "process plan", "session_id": "other"}, World(alive=["me"]).env())
+        assert note is not None, "a second session is told of the two writers"
         self.assertIn("two writers", note)
         self.assertEqual(state["session_id"], "me")
 
@@ -113,6 +116,7 @@ class Stops(unittest.TestCase):
 
     def test_runnable_rows_send_the_turn_back_naming_the_next(self):
         reason = guard.on_stop(active(), {"session_id": "me", "stop_hook_active": True}, World().env())
+        assert reason is not None, "runnable rows send the turn back"
         self.assertIn("D01 T02 §4", reason)
         self.assertIn("Do not stop", reason)
 
@@ -165,7 +169,9 @@ class SessionEvents(unittest.TestCase):
         self.assertTrue(state["active"])
 
     def test_only_the_runs_own_session_is_told_to_continue(self):
-        self.assertIn("Continue process-plan", guard.on_session_start(active(), {"session_id": "me"}))
+        note = guard.on_session_start(active(), {"session_id": "me"})
+        assert note is not None, "a session of the run is told to continue process-plan"
+        self.assertIn("Continue process-plan", note)
         state = active()
         self.assertIsNone(guard.on_session_start(state, {"session_id": "new"}))
         self.assertEqual(state["session_id"], "me")
@@ -195,11 +201,15 @@ class SessionEvents(unittest.TestCase):
 
     def test_the_heartbeat_is_recorded_and_its_absence_is_said(self):
         state = active()
-        self.assertIn("not armed", guard.on_stop(state, {"session_id": "me"}, World().env()))
+        held = guard.on_stop(state, {"session_id": "me"}, World().env())
+        assert held is not None, "an unarmed heartbeat is said in the stop answer"
+        self.assertIn("not armed", held)
         guard.on_cron_created(state, {"session_id": "other"})
         self.assertNotIn("heartbeat_at", state)
         guard.on_cron_created(state, {"session_id": "me"})
-        self.assertNotIn("not armed", guard.on_stop(state, {"session_id": "me"}, World(signature="two").env()))
+        held = guard.on_stop(state, {"session_id": "me"}, World(signature="two").env())
+        assert held is not None, "the stop hook still answers once the heartbeat is recorded"
+        self.assertNotIn("not armed", held)
 
 
 class Rows(unittest.TestCase):
@@ -215,6 +225,7 @@ class Rows(unittest.TestCase):
         rows = [{"ref": "D01 T02 §1", "state": "needs-repair"}, {"ref": "D01 T02 §2", "state": "parked"}]
         self.assertEqual(guard.runnable(rows), ["D01 T02 §1"])
         reason = guard.on_stop(active(), {"session_id": "me", "stop_hook_active": True}, World(rows=guard.runnable(rows)).env())
+        assert reason is not None, "repairable rows send the turn back"
         self.assertIn("D01 T02 §1", reason)
 
     def test_a_display_session_row_runs_with_a_desktop_and_waits_without_one(self):
@@ -285,6 +296,7 @@ class HookEntry(unittest.TestCase):
             "p=pathlib.Path(sys.argv[2]); l=g.locked(p); l.__enter__(); print('held', flush=True); time.sleep(20)"
         )
         holder = subprocess.Popen([sys.executable, "-c", code, str(Path(guard.__file__).parent), str(self.path)], stdout=subprocess.PIPE)
+        assert holder.stdout is not None, "stdout=PIPE gives the holder a stdout pipe"
         self.addCleanup(holder.stdout.close)
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
@@ -392,7 +404,9 @@ class ReviewInFlight(unittest.TestCase):
         self.assertIsNone(guard.review_in_flight(self.root), "a dead or expired mark held the run")
         self.assertIsNotNone(guard.on_stop(active(), {"session_id": "me"}, self.env()), "the turn wasn't sent back")
         self.mark(os.getpid(), time.time() + 600, "live")
-        self.assertIn("live", guard.review_in_flight(self.root))
+        flight = guard.review_in_flight(self.root)
+        assert flight is not None, "a live review is named while it runs"
+        self.assertIn("live", flight)
         self.assertIsNone(guard.on_stop(active(), {"session_id": "me"}, self.env()))
 
     def test_repeated_stops_during_a_review_keep_the_idle_budget(self):
@@ -405,7 +419,9 @@ class ReviewInFlight(unittest.TestCase):
         self.assertEqual((state["idle"], state["yields"], state["active"]), (1, 1, True))
         for path in self.marks.iterdir():
             path.unlink()
-        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, env))
+        held = guard.on_stop(state, {"session_id": "me"}, env)
+        assert held is not None, "a stop with rows left is answered"
+        self.assertIn("Unattended run is active", held)
 
 
 class CiInFlight(unittest.TestCase):
@@ -436,7 +452,9 @@ class CiInFlight(unittest.TestCase):
         (self.root / "build" / "ci-gate.json").write_text("{bad", encoding="utf-8")
         self.assertIsNone(guard.ci_in_flight(self.root))
         self.record(os.getpid(), time.time())
-        self.assertIn("a" * 12, guard.ci_in_flight(self.root))
+        flight = guard.ci_in_flight(self.root)
+        assert flight is not None, "a running CI gate is named while it runs"
+        self.assertIn("a" * 12, flight)
 
     def test_the_turn_may_end_while_the_gate_polls(self):
         world = World()
@@ -447,7 +465,9 @@ class CiInFlight(unittest.TestCase):
             self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, env), "the Stop hook sent the turn to the next row")
         self.assertEqual((state["idle"], state["active"]), (1, True))
         (self.root / "build" / "ci-gate.json").write_text(json.dumps({"proven": "a" * 40}), encoding="utf-8")
-        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, env))
+        held = guard.on_stop(state, {"session_id": "me"}, env)
+        assert held is not None, "a stop with rows left is answered"
+        self.assertIn("Unattended run is active", held)
 
     def test_the_limit_is_the_gates_own(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -478,6 +498,7 @@ class UsageLimits(unittest.TestCase):
         self.assertEqual(guard.reset_time("Your limit resets in 3 hours.", now), now + 3 * 3600)
         self.assertEqual(guard.reset_time("Limit will reset in 45 minutes", now), now + 45 * 60)
         at = guard.reset_time("Your limit will reset at 5pm (Africa/Johannesburg).", now)
+        assert at is not None, "a 5pm reset in a named zone is a time"
         clock = time.localtime(at)
         self.assertEqual((clock.tm_hour, clock.tm_min), (17, 0))
         self.assertTrue(now < at <= now + 86400)
@@ -509,7 +530,9 @@ class UsageLimits(unittest.TestCase):
             self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, world.env()))
         self.assertEqual((state["idle"], state["yields"], state["active"]), (3, 2, True))
         state["wait_until"] = time.time() - 1  # the limit reset
-        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, world.env()))
+        held = guard.on_stop(state, {"session_id": "me"}, world.env())
+        assert held is not None, "a stop with rows left is answered"
+        self.assertIn("Unattended run is active", held)
         self.assertNotIn("wait_until", state)
         self.assertEqual((state["idle"], state["yields"]), (1, 0), "the wait didn't give a fresh budget")
 
@@ -923,7 +946,9 @@ class EndStates(unittest.TestCase):
             self.assertEqual((state["active"], state["wait_reason"]), (True, "rows-waiting"))
             state["wait_until"] = time.time() - 1
         world.rows = ("D00 T02 §3",)  # the person answered: the row is ready
-        self.assertIn("D00 T02 §3", guard.on_stop(state, self.STOP, env))
+        held = guard.on_stop(state, self.STOP, env)
+        assert held is not None, "a stop with a wake pending is answered"
+        self.assertIn("D00 T02 §3", held)
         self.assertNotIn("wait_until", state)
 
     def test_a_passing_wake_sends_a_waiting_run_on_before_its_deadline(self):
@@ -934,6 +959,7 @@ class EndStates(unittest.TestCase):
         # The Need is still on the section, so nothing is runnable yet: applying the wake is the work.
         env = self.env(world, {"state": "waiting"}, wakes=[{"section": "D00 T02 §3", "need": "third-party"}])
         reason = guard.on_stop(state, self.STOP, env)
+        assert reason is not None, "a pending wake sends the turn back"
         self.assertIn("todo-graph.py wake --apply", reason)
         self.assertNotIn("wait_until", state)
         # A run waiting on anything else is not woken by it.
@@ -951,13 +977,17 @@ class EndStates(unittest.TestCase):
         for kind, words in (("needs-push", "push the finished work"), ("needs-ci-repair", "red-first policy")):
             with self.subTest(kind):
                 world, state = World(rows=()), active()
-                self.assertIn(words, guard.on_stop(state, self.STOP, self.env(world, {"state": kind})))
+                held = guard.on_stop(state, self.STOP, self.env(world, {"state": kind}))
+                assert held is not None, "each end state is answered with what it waits on"
+                self.assertIn(words, held)
 
     def test_recovery_to_green_ends_complete(self):
         world, state = World(rows=()), active()
         answers = iter([{"state": "needs-ci-repair"}, {"state": "ci-pending"}, {"state": "complete", "report": "x"}])
         env = self.env(world, lambda: next(answers))
-        self.assertIn("red-first policy", guard.on_stop(state, self.STOP, env))
+        held = guard.on_stop(state, self.STOP, env)
+        assert held is not None, "a stop with a policy hold is answered"
+        self.assertIn("red-first policy", held)
         self.assertIsNone(guard.on_stop(state, self.STOP, env))
         self.assertEqual(state["wait_reason"], "ci-pending")
         state["wait_until"] = time.time() - 1
@@ -994,13 +1024,17 @@ class Waits(unittest.TestCase):
         for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 4):
             # The wait passes, the turn is sent back, and the reviewer is still down: the dispatcher sets the next wait.
             guard.set_wait(state, "reviewer-unavailable", time.time() - 1)
-            self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, world.env()))
+            held = guard.on_stop(state, {"session_id": "me"}, world.env())
+            assert held is not None, "a stop with rows left is answered"
+            self.assertIn("Unattended run is active", held)
         self.assertTrue(state["active"])
 
     def test_a_recovered_reviewer_lets_the_run_go_on(self):
         world, state = World(), active()
         guard.set_wait(state, "reviewer-unavailable", time.time() - 1)
-        self.assertIn("D01 T02 §4", guard.on_stop(state, {"session_id": "me"}, world.env()))
+        held = guard.on_stop(state, {"session_id": "me"}, world.env())
+        assert held is not None, "a stop with rows left is answered"
+        self.assertIn("D01 T02 §4", held)
         self.assertNotIn("wait_until", state)
         self.assertIn("last_wait_ended", state)
 
@@ -1125,6 +1159,7 @@ class AntigravityRuns(unittest.TestCase):
 
     def test_rows_left_send_the_session_on_without_heartbeat_advice(self):
         answer, state = self.stop(self.run_state(signature="one"))
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertEqual(answer["decision"], "continue")
         self.assertIn("Unattended run is active", answer["reason"])
         self.assertNotIn("CronCreate", answer["reason"])
@@ -1151,6 +1186,7 @@ class AntigravityRuns(unittest.TestCase):
         guard.set_wait(state, "rows-waiting", time.time() + 3600)
         env = guard.replace(self.env(world, ci="abc123, gate pid 2"), wakes=lambda: [{"ref": "D00 T01 §1"}])
         answer, saved = self.stop(state, env)
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assert_watch_answer(answer["reason"], "a CI gate in flight (abc123, gate pid 2)")
         self.assertEqual(saved.get("look_for"), ["a CI gate in flight (abc123, gate pid 2)"], "the hook did not keep what it named for look")
         self.assertNotIn("rows-waiting", answer["reason"])
@@ -1158,6 +1194,7 @@ class AntigravityRuns(unittest.TestCase):
         state = self.run_state()
         guard.set_wait(state, "rows-waiting", time.time() + 3600)
         answer, _ = self.stop(state, guard.replace(self.env(world), wakes=lambda: [{"ref": "D00 T01 §1"}]))
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertIn("wake --apply", answer["reason"])
 
     def test_every_wait_is_answered_with_one_watch_loop(self):
@@ -1172,6 +1209,7 @@ class AntigravityRuns(unittest.TestCase):
             if timed:
                 guard.set_wait(state, "reviewer-unavailable", until, "the reviewer is rate limited")
             answer, _ = self.stop(state, self.env(**kwargs))
+            assert answer is not None, "the stop hook must answer the turn, not let it end"
             self.assertEqual(answer["decision"], "continue")
             self.assert_watch_answer(answer["reason"], *waits)
 
@@ -1179,12 +1217,14 @@ class AntigravityRuns(unittest.TestCase):
         state = self.run_state(signature="one")
         guard.set_wait(state, "reviewer-unavailable", time.time() + 1800, "the reviewer is rate limited")
         answer, kept = self.stop(state)
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertIn("the wait for reviewer-unavailable until", answer["reason"])
         self.assertIn(guard.stamp(state["wait_until"]), answer["reason"])
         self.assert_watch_answer(answer["reason"])
         self.assertIn("wait_until", kept, "the wait was dropped before it passed")
         kept["wait_until"] = time.time() - 1
         answer, after = self.stop(kept)
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertIn("Unattended run is active", answer["reason"])
         self.assertNotIn("wait_until", after)
 
@@ -1198,6 +1238,7 @@ class AntigravityRuns(unittest.TestCase):
 
     def test_a_turn_antigravity_ended_itself_is_recorded_not_left_active(self):
         answer, state = self.stop(self.run_state(), termination="EXECUTOR_TERMINATION_REASON_NO_TOOL_CALL")
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertEqual(answer["decision"], "continue")
         self.assertTrue(state["active"])
         answer, state = self.stop(self.run_state(), termination="USER_CANCELED", said="stop")
@@ -1219,8 +1260,10 @@ class AntigravityRuns(unittest.TestCase):
         self.assertEqual((state["active"], state["status"], state["why"]), (False, "halted", "operator: stop"))
         state = self.run_state(signature="one")
         answer, state = self.stop(state, said="Finish the plan; if asked, run run-guard.py halt")
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertNotIn("mentions stopping", answer["reason"], "the opening prompt's own words were taken for the operator's")
         answer, _ = self.stop(state, said="please stop after this section")
+        assert answer is not None, "the stop hook must answer the turn, not let it end"
         self.assertEqual(answer["decision"], "continue")
         self.assertIn("mentions stopping", answer["reason"])
 
@@ -1240,6 +1283,7 @@ class AntigravityRuns(unittest.TestCase):
         for n in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
             world.sig = f"sig-{n}"  # a commit or a change to the tree each time
             answer, state = self.stop(state, self.env(world))
+            assert answer is not None, "the stop hook must answer the turn, not let it end"
             self.assertEqual(answer["decision"], "continue")
         self.assertTrue(state["active"])
 
@@ -1343,8 +1387,8 @@ class AntigravityRuns(unittest.TestCase):
         # Completion review of D00 T03 §30: a replaced byte must not let a broken event pass as a clean one.
         guard.save(self.run_state(), self.path)
         done = self.hook_cli(b'{"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL", "lastUserInput": "go \xff on"}')
-        done.stdout = done.stdout.decode("utf-8")
-        self.assert_notice(done)
+        said = subprocess.CompletedProcess(done.args, done.returncode, done.stdout.decode("utf-8"), done.stderr)
+        self.assert_notice(said)
         self.assertIn("UnicodeDecodeError", json.dumps(guard.hook_failures(self.path)))
 
     def test_a_raising_hook_and_a_failing_save_are_said_through_the_cli(self):
@@ -1357,9 +1401,9 @@ class AntigravityRuns(unittest.TestCase):
                 state.pop("wait_set", None)
                 guard.save(state, self.path)
                 done = self.hook_cli(stop, BOSUN_TEST_HOOK_FAULT=fault)
-                done.stdout = done.stdout.decode("utf-8")
-                self.assert_notice(done)
-                self.assertIn(said, json.loads(done.stdout)["errorMessage"]["userMessage"])
+                decoded = subprocess.CompletedProcess(done.args, done.returncode, done.stdout.decode("utf-8"), done.stderr)
+                self.assert_notice(decoded)
+                self.assertIn(said, json.loads(decoded.stdout)["errorMessage"]["userMessage"])
 
     def test_a_record_that_cannot_be_written_or_cleared_is_said_in_the_log(self):
         # Completion review of D00 T03 §30: no temporary record left behind, and a clear that fails is logged.
@@ -1502,7 +1546,9 @@ class LocalGates(unittest.TestCase):
     def test_only_a_mark_of_the_process_still_running_counts(self):
         self.assertIsNone(guard.gate_in_flight(self.root))
         self.mark(**self.live(since="2026-01-01T00:00:00Z"))  # older than any step's limit: age is not what ends it
-        self.assertIn("check-all, pid", guard.gate_in_flight(self.root))
+        flight = guard.gate_in_flight(self.root)
+        assert flight is not None, "a running local gate is named while it runs"
+        self.assertIn("check-all, pid", flight)
         (self.marks / "1.json").unlink()
         dead = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True).stdout)
         for doc in ({"pid": dead, "started": 1, "what": "gone"}, {**self.live(), "started": 1}, {"what": "no pid"}):
@@ -1517,6 +1563,7 @@ class LocalGates(unittest.TestCase):
         self.mark("a.json", **self.live(what="check-all"))
         self.mark("b.json", pid=holder.pid, started=guard.process_started(holder.pid), what="measure-build baseline")
         both = guard.gate_in_flight(self.root)
+        assert both is not None, "two gates in flight are named"
         self.assertIn("check-all, pid", both)
         self.assertIn(f"measure-build baseline, pid {holder.pid}", both)
         holder.kill()
@@ -1532,19 +1579,23 @@ class LocalGates(unittest.TestCase):
         for _ in range(guard.MAX_IDLE_BLOCKS * guard.MAX_YIELDS * 2):
             self.assertIsNone(guard.on_stop(state, {"session_id": "me"}, self.env(world, "check-all, pid 1")))
         self.assertEqual((state["idle"], state["yields"], state["active"]), (1, 1, True))
-        self.assertIn("Unattended run is active", guard.on_stop(state, {"session_id": "me"}, self.env(world, None)))
+        held = guard.on_stop(state, {"session_id": "me"}, self.env(world, None))
+        assert held is not None, "a stop with rows left is answered"
+        self.assertIn("Unattended run is active", held)
 
     def test_an_antigravity_session_is_sent_to_wait_for_the_gate(self):
         state = {}
         env = guard.replace(World().env(), process_alive=lambda pid, started: True, gating=lambda: "measure-build x, pid 7")
         guard.start(state, "agy", env, runner="antigravity", owner_pid=7, owner_started=1)
         reason = guard.on_antigravity_stop(state, {"session_id": "agy", "termination": "NO_TOOL_CALL", "last_user_input": ""}, env)
+        assert reason is not None, "a local gate in flight is waited on in the answer"
         self.assertIn("waiting for a local gate in flight (measure-build x, pid 7)", reason)
         for action in AntigravityRuns.WATCH_ACTIONS:
             self.assertIn(action, reason)
         # A review beside the local gate is in the same answer, so watching one never hides the other.
         env = guard.replace(env, reviewing=lambda: "astra, dispatcher pid 8")
         reason = guard.on_antigravity_stop(state, {"session_id": "agy", "termination": "NO_TOOL_CALL", "last_user_input": ""}, env)
+        assert reason is not None, "a review and a gate in flight are both named in the answer"
         self.assertIn("a review in flight (astra, dispatcher pid 8); a local gate in flight (measure-build x, pid 7)", reason)
 
     def test_status_waits_for_each_thing_in_flight_and_is_active_after(self):
@@ -1606,6 +1657,8 @@ class LegacyHoldIsNotTouched(unittest.TestCase):
                            "SUB_VIDEO/VIDEOIDLE": {"AC": 7200, "DC": 180}}}
 
     def setUp(self):
+        if sys.platform != "win32":
+            raise unittest.SkipTest("the legacy hold is Windows' powercfg and registry")
         import winreg
         self.winreg = winreg
         self.folder = tempfile.TemporaryDirectory()
@@ -1627,6 +1680,8 @@ class LegacyHoldIsNotTouched(unittest.TestCase):
         self.hold = [shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-File", str(guard.ROOT / "scripts" / "campaign-hold.ps1")]
 
     def run_in(self, argv, stdin=""):
+        if sys.platform != "win32":
+            raise unittest.SkipTest("the legacy hold is Windows' powercfg and registry")
         return subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", env=self.env, timeout=180,
                               creationflags=subprocess.CREATE_NO_WINDOW)
 
@@ -1634,10 +1689,14 @@ class LegacyHoldIsNotTouched(unittest.TestCase):
         return self.run_in([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), *args], stdin)
 
     def lock(self):
+        if sys.platform != "win32":
+            raise unittest.SkipTest("the legacy hold is Windows' powercfg and registry")
         with self.winreg.OpenKey(self.winreg.HKEY_CURRENT_USER, self.subkey) as key:
             return self.winreg.QueryValueEx(key, "ScreenSaverIsSecure")[0]
 
     def test_no_guard_path_writes_a_setting_and_a_manual_restore_puts_the_values_back(self):
+        if sys.platform != "win32":
+            raise unittest.SkipTest("the legacy hold is Windows' powercfg and registry")
         # A legacy hold, as §24's -Apply left it on a machine: the plan's timeouts at 0, the lock off, the record kept.
         held = {"scheme": self.ORIGINAL["scheme"], "values": {k: {"AC": 0, "DC": 0} for k in self.ORIGINAL["values"]}}
         legacy = {"Scheme": self.ORIGINAL["scheme"], "Lock": "1",
@@ -1881,7 +1940,9 @@ class Look(unittest.TestCase):
                 raise PermissionError(13, "Access is denied", str(path))
             return real(path)
         with unittest.mock.patch.object(guard.os, "listdir", refuse):
-            self.assertTrue(guard.gate_in_flight().startswith(guard.CANT_TELL))
+            held = guard.gate_in_flight()
+            assert held is not None, "an unreadable gate folder is said, not skipped"
+            self.assertTrue(held.startswith(guard.CANT_TELL))
 
     def test_a_state_turning_unreadable_as_a_gate_ends_stays_listed(self):
         reads = iter([{}, None])

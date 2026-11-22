@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("tool_guard", ROOT / "scripts" / "tool-guard.py")
+assert spec is not None and spec.loader is not None, "the script file must be loadable as a module"
 tg = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tg)
 

@@ -594,7 +594,9 @@ class Gate(Base):
         with ci_status.gate_lock(self.state()):
             ci_status.write_gate(self.state(), {"waiting": newer})
         self.assertEqual(ci_status.gate_action(ci_status.EXIT_PENDING, SHA, self.state(), 2_100.0), ("wait", None))
-        self.assertEqual(json.loads(self.record())["waiting"], newer)
+        record = self.record()
+        assert record is not None, "the gate left its record"
+        self.assertEqual(json.loads(record)["waiting"], newer)
 
     def test_a_verdict_leaves_no_wait_behind(self):
         self.gate(FakeGh())
@@ -1499,7 +1501,9 @@ class Gate(Base):
             self.assertTrue(ci_status.lock_held(self.state()))  # and the inner one does not release it
             self.assertTrue(ci_status.write_gate(self.state(), {"proven": SHA}))
         self.assertFalse(ci_status.lock_held(self.state()))
-        self.assertEqual(json.loads(self.record()), {"proven": SHA})
+        record = self.record()
+        assert record is not None, "the saved record is on disk"
+        self.assertEqual(json.loads(record), {"proven": SHA})
         marker = self.root / ci_status.CLEARED  # the marker exists for when the record can't be changed
         self.assertTrue(ci_status.write_gate(marker, {"proven": SHA, "at": 1.0}))
 
@@ -1512,9 +1516,11 @@ class Gate(Base):
         self.assertEqual(self.record(), before)
         action, why = ci_status.gate_action(ci_status.EXIT_PENDING, SHA, self.state(), 60.0)
         self.assertEqual(action, "unverified")
+        assert isinstance(why, str), "an unverified answer says why"
         self.assertIn("couldn't be saved", why)
         action, why = ci_status.gate_action(ci_status.EXIT_RED, SHA, self.state(), 60.0)
         self.assertEqual(action, "unverified")  # a repair that can't be counted is not handed out
+        assert isinstance(why, str), "an unverified answer says why"
         self.assertIn("couldn't be saved", why)
         self.assertEqual(self.record(), before)
         # A green still proceeds, through the marker kept for a record that can't be changed.
@@ -1534,11 +1540,13 @@ class Gate(Base):
             (self.root / ci_status.LOCK).write_text("", encoding="utf-8")  # another gate has it for the cleanup
             return real(path, 0.1)
 
-        result = {"workflows": [{"workflow": "build.yml", "verdict": "none"}]}
+        result: dict[str, list[dict[str, str]] | dict[str, str]] = {"workflows": [{"workflow": "build.yml", "verdict": "none"}]}
         with mock.patch.object(ci_status, "gate_lock", once):
             ci_status.recover(gh, result, "main", SHA, True, self.state())
         (self.root / ci_status.LOCK).unlink()
-        self.assertIn("gh workflow run exited", result["start_refused"]["build.yml"])
+        refused = result["start_refused"]
+        assert isinstance(refused, dict), "recover records why the start was refused"
+        self.assertIn("gh workflow run exited", refused["build.yml"])
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})  # kept, never rewritten unlocked
 
     def test_a_lock_left_by_a_dead_gate_is_taken_over(self):

@@ -716,6 +716,7 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
         raise ValueError(f"runner must be one of: {', '.join(RUNNERS)}")
     if runner == "antigravity" and (not owner_pid or owner_started is None):
         raise ValueError("an Antigravity run needs its owner process (--owner-pid), and that process must be running")
+    pid = int(owner_pid) if owner_pid else 0  # an Antigravity run has one, refused just above if not
     owner = state.get("session_id")
     now = time.time() if now is None else now
     # A Claude Code session claimed a moment ago may not be running yet: inside its grace it holds the run as if it were.
@@ -730,7 +731,7 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
         state.pop(key, None)
     state.update(session_id=session, started_at=now)
     if runner == "antigravity":
-        state.update(runner=runner, owner_pid=int(owner_pid), owner_started=owner_started)
+        state.update(runner=runner, owner_pid=pid, owner_started=owner_started)
 
 
 END_STATES = ("complete", "parked", "stalled", "halted", "ended", "stopped", "drained")
@@ -1095,7 +1096,7 @@ class Job:
                 self.kernel.CloseHandle(wintypes.HANDLE(target))
 
     def stop(self) -> None:
-        if self.handle is None:
+        if sys.platform != "win32" or self.handle is None:  # a job object exists on Windows only
             stop_tree(self.pid)
             return
         from ctypes import wintypes
@@ -1103,7 +1104,7 @@ class Job:
         self.kernel.TerminateJobObject(wintypes.HANDLE(self.handle), 1)
 
     def close(self) -> None:
-        if self.handle is not None:
+        if sys.platform == "win32" and self.handle is not None:
             from ctypes import wintypes
 
             self.kernel.CloseHandle(wintypes.HANDLE(self.handle))
@@ -1417,8 +1418,8 @@ def record_hook_failure(error: str, path: Path = STATE) -> None:
         except Exception:
             tmp.unlink(missing_ok=True)  # no temporary file is left behind a write that failed
             raise
-    except Exception as error:  # noqa: BLE001 - the hook is already failing open; this record is best effort by design
-        log(f"a hook failure could not be recorded: {error!r}", path)
+    except Exception as failure:  # noqa: BLE001 - the hook is already failing open; this record is best effort by design
+        log(f"a hook failure could not be recorded: {failure!r}", path)
 
 
 def clear_hook_failures(path: Path = STATE) -> None:

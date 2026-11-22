@@ -31,7 +31,9 @@ class HookInterpreter(unittest.TestCase):
             stub.write_text('#!/bin/sh\necho "ran: $1"\n', newline="\n")
             stub.chmod(0o755)
             env = dict(os.environ, PATH=tmp, CLAUDE_PROJECT_DIR="project")
-            return subprocess.run([find_bash(), "-c", command], env=env, capture_output=True, text=True, timeout=30)
+            bash = find_bash()
+            assert bash is not None, "the class runs only where bash is found"
+            return subprocess.run([bash, "-c", command], env=env, capture_output=True, text=True, timeout=30)
 
     def test_every_hook_starts_under_either_name(self):
         commands = hook_commands()
@@ -57,7 +59,9 @@ class HookInterpreter(unittest.TestCase):
                                  ({"command": review, "run_in_background": True}, 0), ({"command": "git status"}, 0)):
             payload = json.dumps({"tool_name": "Bash", "tool_input": tool_input})
             with self.subTest(tool_input):
-                done = subprocess.run([find_bash(), "-c", command], input=payload, env=env, capture_output=True, text=True, timeout=60)
+                bash = find_bash()
+                assert bash is not None, "the class runs only where bash is found"
+                done = subprocess.run([bash, "-c", command], input=payload, env=env, capture_output=True, text=True, timeout=60)
                 self.assertEqual(done.returncode, code, done.stderr)
 
 

@@ -490,7 +490,7 @@ def scheduled(schedule, kind, rounds, surface):
     followup = last is not None and (last.get("effort") == "low" or
         ((last.get("effort") is None or schedule["rotation"].get("effort") is None)
          and len(returned) > len(schedule["rounds"])))
-    if followup and highest(last.get("review")) == "P1":
+    if followup and last is not None and highest(last.get("review")) == "P1":
         step, escalated = schedule["escalation"], True
     elif position <= len(schedule["rounds"]):
         step, escalated = schedule["rounds"][position - 1], False
@@ -545,7 +545,10 @@ def section_findings(record):
                       f"no reviewer ran") from None
     siblings = [path.with_name(name) for name in names if name.endswith(path.suffix)]
     files.update(p for p in siblings if (m := SECTION_STEM.fullmatch(p.stem)) and m[1] == match[1] and m[2])
-    return sorted(files, key=lambda p: int(SECTION_STEM.fullmatch(p.stem)[2] or 1))
+    def cycle(p):  # every file here matched SECTION_STEM on the way in, the record by `match` and each sibling by `m`
+        found = SECTION_STEM.fullmatch(p.stem)
+        return int(found[2] or 1) if found else 1
+    return sorted(files, key=cycle)
 
 
 def settled_items(record, with_sources=False):
@@ -723,14 +726,15 @@ def run(argv, stdin_text, timeout, watched, stderr_path=None):
     """Run one reviewer in its own process group, watching the size of every file it writes while it runs, so neither
     a hang nor a flood of output can take the dispatcher or the disk down. The group is ended afterwards whatever
     happened. Returns (exit code, None) or (None, the reason it returned no review)."""
-    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     stdout_path = watched[0]
     with open(stdout_path, "wb") as output, \
             (open(stderr_path, "wb") if stderr_path else open(os.devnull, "wb")) as errors:
         try:
             process = subprocess.Popen(argv, cwd=ROOT,
                                        stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                                       stdout=output, stderr=errors, **group)
+                                       stdout=output, stderr=errors,
+                                       creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+                                       start_new_session=sys.platform != "win32")
         except (OSError, ValueError) as exc:
             return None, f"could not start: {getattr(exc, 'strerror', None) or type(exc).__name__}"
         try:
@@ -784,7 +788,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=(), about=None)
         else:
             effort = None
     lenses = plan["lenses"] if plan else []
-    if lenses:
+    if plan and lenses:
         prompt = prompt.rstrip("\n") + lens_block({**plan, "effort": effort})
     if settled:
         prompt = prompt.rstrip("\n") + settled_block(settled)
@@ -850,7 +854,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=(), about=None)
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "execution": "returned", "attempt_reviewer": name, "attempt_model": reviewer["model"],
             "attempt_cli": reviewer["cli"],
-            "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {}),
+            "effort": effort, "failover": [], "review": (text or "").strip(), **({"lenses": lenses} if plan else {}),
             "seconds": seconds}
 
 
@@ -1675,8 +1679,8 @@ def main(argv=None):
         # Read before any attempt is counted, so a findings file that hides its settled items refuses without a run.
         settled = settled_items(args.record, with_sources=True) if args.record else []
         key = entry = None
+        position = args.kind
         if args.record:
-            position = args.kind
             if args.kind == "round":
                 known = read_rounds(existing_findings(Path(args.record), "round")) or []
                 position = f"round {len(known) + 1}"  # the number record gives the next round

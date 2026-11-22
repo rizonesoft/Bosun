@@ -378,6 +378,7 @@ class ScriptedCi(unittest.TestCase):
     def test_calls_made_at_once_are_all_recorded_whole(self):
         # Run 3 lost a record to two appends at the same offset; each call now writes its own file.
         gh = shutil.which("gh", path=self.seeded["env"]["PATH"])
+        assert gh is not None, "the faked gh is on the test's PATH"
         folder = self.seeded["fakes"] / "gh-calls"
         before = len(read_calls(folder))
         procs = [subprocess.Popen([gh, "auth", "status"], cwd=self.clone, env=self.seeded["env"], stdout=subprocess.DEVNULL,
@@ -440,6 +441,7 @@ class DisposableCampaign(unittest.TestCase):
         log = open(self.work / f"session-{len(self.sessions) + 1}.log", "w", encoding="utf-8")
         self.addCleanup(log.close)
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        assert self.claude is not None, "the test checks that claude is on PATH before it starts a session"
         session = subprocess.Popen([self.claude, "-p", "process plan", "--permission-mode", "bypassPermissions"], cwd=self.clone,
                                    env=self.env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                    creationflags=flags, start_new_session=os.name != "nt")
@@ -456,7 +458,9 @@ class DisposableCampaign(unittest.TestCase):
 
     def section_text(self, ref):
         """The body of one section, from its TODO file in the clone."""
-        domain, file, number = re.fullmatch(r"D(\d\d) T(\d\d) §(\d+)", ref).groups()
+        parts = re.fullmatch(r"D(\d\d) T(\d\d) §(\d+)", ref)
+        assert parts is not None, f"{ref} is a section reference"
+        domain, file, number = parts.groups()
         for path in (self.clone / "todo").glob(f"{domain}-*/TODO-{file}-*.md"):
             found = re.search(rf"^## {number}\. .*?(?=^## |\Z)", path.read_text(encoding="utf-8"), re.M | re.S)
             if found:
@@ -530,7 +534,9 @@ class DisposableCampaign(unittest.TestCase):
             return next((c for c in commits if c[0] >= after and re.search(pattern, c[2])), None)
 
         def started(n):
-            return first_commit(rf"{REF} §{n}\b")
+            began = first_commit(rf"{REF} §{n}\b")
+            assert began is not None, f"§{n} was never started"
+            return began
 
         # Every e2e section was stamped.
         for n in range(1, 6):
@@ -547,6 +553,7 @@ class DisposableCampaign(unittest.TestCase):
         self.assertTrue(any(c["answer"] == "failure" for c in two), "CI on §2 never read red")
         repair = next((c for c in commits if "e2e/repaired-2.txt" in c[3]), None)
         self.assertIsNotNone(repair, "no commit repaired §2's red CI")
+        assert repair is not None, "a commit repaired §2's red CI"
         self.assertTrue(any(c["sha"] == repair[1] and c["answer"] == "success" for c in two), "the repair was never rechecked")
         green_two = min(c["at"] for c in two if c["sha"] == repair[1] and c["answer"] == "success")
         self.assertGreaterEqual(started(3)[0], int(green_two), "§3 started before the repair of §2's CI read green")
@@ -580,6 +587,7 @@ class DisposableCampaign(unittest.TestCase):
         self.assertRegex(guard_log, r"status: ended session \S+ is gone", "the guard log doesn't show the run ending with its session")
         after_kill = next((c for c in commits if c[0] >= killed_at), None)
         self.assertIsNotNone(after_kill, "nothing was committed after the kill")
+        assert after_kill is not None, "the next session committed after the kill"
         self.assertTrue(re.search(rf"{REF} §2\b|e2e: write two", after_kill[2]) or "e2e/two.txt" in after_kill[3],
                         f"the next session's first commit wasn't §2's next step: {after_kill[2]}")
         self.assertEqual(self.git("status", "--porcelain").strip(), "", "the run left something uncommitted")

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shlex
+import io
 import sys
 import tempfile
 from pathlib import Path
@@ -79,7 +80,7 @@ def resolve_targets(token: str, cwd: str | None) -> list[str]:
     if cwd is UNKNOWN and not os.path.isabs(windows_path(raw)):
         raise Refusal(f"it deletes {token} after changing to a folder this hook can't follow: delete by full path")
     raw = windows_path(raw)
-    full = raw if os.path.isabs(raw) else os.path.join(cwd, raw)
+    full = raw if os.path.isabs(raw) or cwd is None else os.path.join(cwd, raw)  # a None cwd refused above unless absolute
     if not re.search(r"[*?\[]", full):
         return [canonical(full)]
     parts = re.split(r"[\\/]", full)
@@ -336,7 +337,7 @@ def strip_prefixes(words: list[str]) -> tuple:
     return words, seen, chdir
 
 
-def inner_command(words: list[str]) -> tuple | None:
+def inner_command(words: list[str]) -> tuple[str, bool] | None:
     """(the command a wrapper runs, whether it is PowerShell) for `bash -c` (and `-lc`), `pwsh -Command`, `cmd /c` and
     `Invoke-Expression`, or None."""
     if not words:
@@ -458,7 +459,7 @@ def follow_cd(words: list[str], cwd: str | None) -> str | None:
     if target == "-" or re.search(r"\$|%[A-Za-z_]+%", target) or cwd is UNKNOWN and not os.path.isabs(windows_path(target)):
         return UNKNOWN
     target = windows_path(target)
-    folder = os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
+    folder = os.path.realpath(target if os.path.isabs(target) or cwd is None else os.path.join(cwd, target))  # likewise
     return folder if os.path.isdir(folder) else UNKNOWN  # a failed cd leaves the shell where it was
 
 
@@ -574,7 +575,8 @@ def main() -> int:
     if sys.argv[1:] == ["--self-test"]:
         return self_test()
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8")
+        if isinstance(stream, io.TextIOWrapper):  # a console or a pipe; a replaced stream keeps its own encoding
+            stream.reconfigure(encoding="utf-8")
     out = hook(sys.stdin.buffer.read().decode("utf-8", "replace"))
     if out:
         print(out)

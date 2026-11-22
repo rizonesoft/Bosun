@@ -228,6 +228,34 @@ class Kinds(Repo):
         self.commit("relax")
         self.assertEqual(self.signals(), (1, [f"warning-relaxed {CMAKE}:L1", f"warning-relaxed {CMAKE}:L2", f"warning-relaxed {SOURCE}:L2"]))
 
+    def test_the_type_checker_lowered_is_reported(self):
+        # D00 T07 §2: zero pyright errors must not be bought by switching a rule off, a blanket ignore, a path dropped
+        # from what it checks or its mode lowered; a stricter setting is no signal.
+        config = '{\n  "include": ["scripts", "tests"],\n  "exclude": ["build"]\n}\n'
+        self.write("pyrightconfig.json", config)
+        self.base = self.commit("the checker's settings")
+        for name, change, expected in (
+                ("a rule switched off", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
+                                                         '"exclude": ["build"],\n  "reportOptionalSubscript": false'),
+                 ["warning-relaxed pyrightconfig.json:L1"]),
+                ("a blanket ignore hiding a known error", lambda: self.edit(SOURCE, "    return 1", "    return None[0]  # pyright: ignore"),
+                 [f"warning-relaxed {SOURCE}:L2"]),
+                ("a file put on basic", lambda: self.edit(SOURCE, "def run", "# pyright: basic\ndef run"),
+                 [f"warning-relaxed {SOURCE}:L1"]),
+                ("a path dropped", lambda: self.edit("pyrightconfig.json", '["scripts", "tests"]', '["scripts"]'),
+                 ["warning-relaxed pyrightconfig.json:L1"]),
+                ("the mode lowered", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
+                                                       '"exclude": ["build"],\n  "typeCheckingMode": "basic"'),
+                 ["warning-relaxed pyrightconfig.json:L1"]),
+                ("a stricter mode", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
+                                                      '"exclude": ["build"],\n  "typeCheckingMode": "strict"'),
+                 [])):
+            with self.subTest(name):
+                change()
+                head = self.commit(name)
+                self.assertEqual(self.signals(head)[1], expected)
+                self.git("reset", "-q", "--hard", self.base)
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")

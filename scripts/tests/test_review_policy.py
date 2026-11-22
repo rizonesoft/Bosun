@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # so test_todo_graph imports however the suite is run
 spec = importlib.util.spec_from_file_location('policy_dispatch', ROOT / 'scripts/review-dispatch.py')
+assert spec is not None and spec.loader is not None, 'scripts/review-dispatch.py must load as a module with a loader'
 d = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(d)
 
@@ -39,7 +40,7 @@ def historical_pin():
     return pin
 
 
-def entry(kind='round', clean=False):
+def entry(kind='round', clean=False) -> dict[str, str | int | list[str] | None]:
     review = 'HIGHEST: none\nOVERALL: approve' if clean else 'HIGHEST: P2\nOVERALL: needs-attention'
     if kind == 'plan':
         review = 'HIGHEST: none\nPLAN: complete\nOVERALL: approve'
@@ -410,7 +411,9 @@ def recurring_round(times, clean=False, cite=True):
     its mark citing rounds 1 to times - 1 unless `cite` is False."""
     e = entry('round', clean=clean)
     if times is not None:
-        head, overall = e['review'].rsplit('\n', 1)
+        review = e['review']
+        assert isinstance(review, str), 'an entry carries its review as text'
+        head, overall = review.rsplit('\n', 1)
         mark = ', '.join(f'round {n}' for n in range(1, times))
         finding = f"1. P2 a defect (recurring: {mark})\n" if cite and times > 1 else "1. P2 a new defect\n"
         e['review'] = f"{finding}{head}\nRECURRING: {'none' if times == 1 else times}\n{overall}"
@@ -420,7 +423,7 @@ def recurring_round(times, clean=False, cite=True):
 class RecurringFindings(unittest.TestCase):
     """A finding the fixes keep bringing back ends a cycle's rounds; new findings at the same severity never do."""
 
-    def schedule(self, cap=3):
+    def schedule(self, cap: int | str | None = 3):
         return {**policy(), 'max_low_rounds': 32, **({'recurrence_cap': cap} if cap else {})}
 
     def found(self, *times, last_clean=False):
@@ -429,7 +432,7 @@ class RecurringFindings(unittest.TestCase):
             rounds[-1] = recurring_round(times[-1], clean=True)
         return dict(plans=[entry('plan')], rounds=rounds, completions=[])
 
-    def check(self, kind, found, cap=3):
+    def check(self, kind, found, cap: int | str | None = 3):
         d.check_sequence(self.schedule(cap), kind, found, 'codex', 'gpt-6.2-astra')
 
     def test_the_cap_is_validated(self):
@@ -460,11 +463,15 @@ class RecurringFindings(unittest.TestCase):
         found = self.found(1, 1)
         found['rounds'].append(recurring_round(3, cite=False))  # three new P2 findings, an unsupported count of 3
         self.check('round', found)
-        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('a new defect', 'a defect (recurring: round 2, round 2)')
+        last = found['rounds'][-1]
+        assert isinstance(last['review'], str), 'a round carries its review as text'
+        last['review'] = last['review'].replace('a new defect', 'a defect (recurring: round 2, round 2)')
         self.check('round', found)  # one earlier round cited twice is two rounds, not three
-        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('round 2, round 2', 'round 2, round 7')
+        assert isinstance(last['review'], str), 'a round carries its review as text'
+        last['review'] = last['review'].replace('round 2, round 2', 'round 2, round 7')
         self.check('round', found)  # a later round can't be cited
-        found['rounds'][-1]['review'] = found['rounds'][-1]['review'].replace('round 2, round 7', 'round 1, round 2')
+        assert isinstance(last['review'], str), 'a round carries its review as text'
+        last['review'] = last['review'].replace('round 2, round 7', 'round 1, round 2')
         with self.assertRaisesRegex(d.Refused, 'recurrence_cap 3'):
             self.check('round', found)
 
@@ -485,7 +492,9 @@ class RecurringFindings(unittest.TestCase):
         self.check('round', self.found(1, 2, 3, 4), cap=None)
         self.check('round', self.found(1, 2, None))
         doubled = self.found(1, 2, 3)
-        doubled['rounds'][-1]['review'] = doubled['rounds'][-1]['review'].replace('RECURRING: 3', 'RECURRING: 3\nRECURRING: 1')
+        last = doubled['rounds'][-1]
+        assert isinstance(last['review'], str), 'a round carries its review as text'
+        last['review'] = last['review'].replace('RECURRING: 3', 'RECURRING: 3\nRECURRING: 1')
         self.check('round', doubled)
 
     def test_the_graph_reads_a_stalled_cycle_as_a_dead_end(self):
@@ -498,6 +507,7 @@ class RecurringFindings(unittest.TestCase):
             plan.update(attempt_reviewer='carbon', attempt_model=plan['model'], attempt_cli='agy', failover=[],
                         effort='medium', lenses=['plan'])
             dispatch.record_completion(path, plan, '2026-11-06T00:00:00Z', 'b'*40, 'plan')
+            why: str | None = None
             for n, times in enumerate((1, 2, 3)):
                 e = recurring_round(times)
                 e.update(attempt_reviewer='carbon', attempt_model=e['model'], attempt_cli='agy', failover=[],
@@ -508,6 +518,7 @@ class RecurringFindings(unittest.TestCase):
                         patch.object(dispatch, 'record_policy', return_value=(pin, 'a'*40)):
                     why = fixtures.tg.review_dead_end(Path(folder), 'D00 T01 §1')
                 self.assertEqual(why is not None, times == 3, why)
+            assert why is not None, 'the third recurrence of a finding must end the cycle with a reason'
             self.assertIn('recurred in 3', why)
 
     def test_the_round_prompt_asks_for_the_line_and_names_the_record(self):

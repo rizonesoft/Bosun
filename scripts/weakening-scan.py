@@ -19,8 +19,10 @@ Line patterns are read in code only (scripts, sources, workflows, build files), 
                          file than before, or a condition that became a bare $true)
     skip-added           skipTest, unittest.skip, continue-on-error, or a -Skip switch on a test in the gate or CI
     ci-step-removed      a `run:` line gone from a workflow
-    warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore or warning
-                         pragma put in
+    warning-relaxed      warnings-as-errors or /W4 taken out or turned off, or a noqa, type: ignore, pyright:
+                         ignore, file-level pyright mode or rule or warning pragma put in, or a pyrightconfig.json
+                         change that drops an include path, adds an exclude or ignore one, lowers typeCheckingMode
+                         or sets a report rule below an error
     error-swallowed      an `except` whose body is only `pass` or `...`, a `catch` whose braces hold nothing or
                          only a comment, or a `contextlib.suppress` put in; whether the handler is new or an
                          existing one whose body was emptied, by a replacement or by deleting it
@@ -55,6 +57,7 @@ import argparse
 import ast
 from collections import Counter, defaultdict
 import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -87,7 +90,8 @@ SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-err
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
-RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
+RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off|report\w+\s*=\s*false)"
+                   r"|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
 OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
 EXCEPT_INLINE = re.compile(r"^\s*except\b.*:\s*(pass|\.\.\.)\s*(#.*)?$")
@@ -103,6 +107,39 @@ HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 class CannotRead(Exception):
     """The range, or a file in it, could not be read (exit 2)."""
+
+
+MODES = {"off": 0, "basic": 1, "standard": 2, "strict": 3}  # pyright's typeCheckingMode, weakest first
+WEAK_RULE = (False, "none", "information", "warning")  # a report* setting that no longer fails the check
+
+
+def relaxed_checker(old, new):
+    """How a change to pyrightconfig.json lowers what pyright checks, one reason each: an `include` path dropped, an
+    `exclude` or `ignore` path added, `typeCheckingMode` lowered, or a `report*` rule set below an error. Unreadable
+    JSON on either side is itself a reason, since the checker would then run without it."""
+    def load(lines):
+        if lines is None:
+            return {}
+        try:
+            data = json.loads("\n".join(lines))
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+    before, after = load(old), load(new)
+    if before is None or after is None:
+        return ["pyrightconfig.json does not parse"]
+    reasons = []
+    if set(before.get("include") or []) - set(after.get("include") or []):
+        reasons.append("include path dropped")
+    for key in ("exclude", "ignore"):
+        if set(after.get(key) or []) - set(before.get(key) or []):
+            reasons.append(f"{key} path added")
+    if MODES.get(after.get("typeCheckingMode", "standard"), 0) < MODES.get(before.get("typeCheckingMode", "standard"), 0):
+        reasons.append("typeCheckingMode lowered")
+    for key, value in after.items():
+        if key.startswith("report") and value in WEAK_RULE and before.get(key) != value:
+            reasons.append(f"{key} lowered")
+    return reasons
 
 
 def line_id(lines, number):
@@ -430,6 +467,12 @@ def scan(changes):
                 signals.append(Signal("assertion-removed", path, powershell_case(text) or line_id(change.new, number)))
 
     for path, change in sorted(files.items()):
+        if path == "pyrightconfig.json":
+            # What the type checker reads, compared as settings rather than lines: a path dropped from what it checks,
+            # one put out of its reach, its mode or a rule lowered (D00 T07 §2: zero errors must not be bought here).
+            for _ in relaxed_checker(change.old, change.new):
+                signals.append(Signal("warning-relaxed", path, line_id(change.new or change.old or [""], 1)))
+            continue
         if not CODE.search(path):
             continue  # prose that mentions a pattern is not code that uses it
         if path in SELF:
@@ -541,13 +584,15 @@ def apply_answers(signals, given):
         here = LINE_ID.match(str(signal))
         if signal.reason or not here:
             continue
+        line = int(here[3])
         take(signal, lambda entry: entry[2] is not None and entry[2][3] is None
-             and entry[2][:3] == (signal.kind, signal.path, int(here[3])))
+             and entry[2][:3] == (signal.kind, signal.path, line))
     for signal in signals:
         here = LINE_ID.match(str(signal))
         if signal.reason or not here or not here[4]:
             continue
-        take(signal, lambda entry: entry[2] is not None and entry[2][3] == here[4]
+        fingerprint = here[4]
+        take(signal, lambda entry: entry[2] is not None and entry[2][3] == fingerprint
              and entry[2][:2] == (signal.kind, signal.path))
 
 

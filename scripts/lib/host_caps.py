@@ -18,6 +18,8 @@ UOI_NAME = 2
 
 def session_active():
     """True when this process's session is connected and active, so not disconnected or waiting at a sign-in screen."""
+    if sys.platform != "win32":  # a Windows session state; nowhere else has one to read
+        return False
     api = ctypes.windll.wtsapi32
     buffer, size = ctypes.c_void_p(), ctypes.c_ulong()
     api.WTSQuerySessionInformationW.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
@@ -27,13 +29,16 @@ def session_active():
                                            ctypes.byref(size)):
         return False
     try:
-        return ctypes.c_int.from_address(buffer.value).value == WTS_ACTIVE
+        address = buffer.value
+        return address is not None and ctypes.c_int.from_address(address).value == WTS_ACTIVE
     finally:
         api.WTSFreeMemory(buffer)
 
 
 def input_desktop():
     """The name of the desktop receiving input, or None when it can't be opened, as on a locked screen."""
+    if sys.platform != "win32":
+        return None
     user32 = ctypes.windll.user32
     user32.OpenInputDesktop.restype = ctypes.c_void_p
     user32.OpenInputDesktop.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
@@ -64,10 +69,9 @@ def display_session(on_windows=None, active=session_active, desktop=input_deskto
 
 def registered_paths(name):
     """Where Windows says an application is, per user and per machine, the way Office and LibreOffice install."""
-    try:
-        import winreg
-    except ImportError:
+    if sys.platform != "win32":  # App Paths is a Windows registry key
         return []
+    import winreg
     found = []
     for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
         try:

@@ -17,6 +17,7 @@ import todo_graph as tg  # noqa: E402
 from test_todo_graph import Tree, todo_file  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("dotnet_final", ROOT / "scripts" / "dotnet-final-available.py")
+assert spec is not None and spec.loader is not None, "the script file must be loadable as a module"
 dotnet = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dotnet)
 
@@ -90,6 +91,7 @@ class Evidence(unittest.TestCase):
         self.close()
         text = tg.reopen_in_index(self.root, self.path)
         self.assertIsNotNone(text)
+        assert text is not None, "reopening a closed file must hand back the index text"
         active, completed = text.split("## Completed TODOs")
         self.assertIn("TODO-01-a.md", active)
         self.assertNotIn("TODO-01-a.md", completed)
@@ -134,10 +136,13 @@ class CloseOutWork(Tree):
         with mock.patch.object(tg, "pending_closeouts", return_value=(["todo/00-x/TODO-01-a.md"], [0])):
             first = tg.next_work(rows, {}, self.root)
             items = tg.work_items(self.root, rows)
+        assert first is not None, "a stamped file with a close-out pending has work left"
         self.assertEqual(first["state"], "needs-verification")
         self.assertEqual([i["state"] for i in items], ["needs-verification", "needs-closeout"])
         with mock.patch.object(tg, "pending_closeouts", return_value=([], [0])):
-            self.assertEqual(tg.next_work(rows, {}, self.root)["ref"], "phase 0")
+            phase_work = tg.next_work(rows, {}, self.root)
+            assert phase_work is not None, "a pending phase close-out is work"
+            self.assertEqual(phase_work["ref"], "phase 0")
         with mock.patch.object(tg, "pending_closeouts", return_value=([], [])):
             self.assertIsNone(tg.next_work(rows, {}, self.root))
 
@@ -214,6 +219,7 @@ class WakeToGoOn(WakeTree):
         self.assertEqual(rows(), [])  # waiting on its third-party Need
         state.update(wait_until=time.time() + 1800, wait_reason="rows-waiting")
         told = guard.on_stop(state, {"session_id": "me"}, env)  # a wake passed before the deadline
+        assert told is not None, "a wake that passed before the deadline sends the turn back"
         self.assertIn("todo-graph.py wake --apply", told)
         self.assertNotIn("wait_until", state)
         applied = tg.wake_apply(self.root, "2026-11-08", run)  # the session does as it was told
@@ -303,8 +309,12 @@ class CrashAfterTheLastStamp(Evidence):
                         write_acceptance=lambda kind, text: written.append(kind) or "docs/acceptance/x.md")
         state = {"active": True, "status": "active", "session_id": "me"}
         self.assertEqual(rows(), [f"file {self.path}", "phase 0"])
-        self.assertIn(f"file {self.path}", guard.on_stop(state, {"session_id": "me"}, env))
-        did.append(tg.next_work(self.rows, {}, self.root)["state"])  # the session takes the close-out work query next gives it
+        told = guard.on_stop(state, {"session_id": "me"}, env)
+        assert told is not None, "the turn is sent back to the close-out"
+        self.assertIn(f"file {self.path}", told)
+        work = tg.next_work(self.rows, {}, self.root)
+        assert work is not None, "close-out work is left for the session to take"
+        did.append(work["state"])  # the session takes the close-out work query next gives it
         self.close()
         self.assertEqual(did, ["needs-verification"])
         self.assertEqual(rows(), [])

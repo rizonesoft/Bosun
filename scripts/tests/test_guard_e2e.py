@@ -35,6 +35,7 @@ class UnattendedSession(unittest.TestCase):
     def test_an_unattended_session_writes_builds_through_bosun_and_commits_with_no_prompt(self):
         claude = shutil.which("claude")
         self.assertIsNotNone(claude, "claude is not on PATH")
+        assert claude is not None, "claude is on PATH"
         self.assertTrue(BOSUN.is_file(), f"no bosun at {BOSUN}: set BOSUN_EXE, or put bosun on PATH")
         self.repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-"))
         self.addCleanup(lambda: shutil.rmtree(self.repo, ignore_errors=True))
@@ -134,6 +135,7 @@ class BackgroundReview(unittest.TestCase):
     def session(self, mode):
         claude = shutil.which("claude")
         self.assertIsNotNone(claude, "claude is not on PATH")
+        assert claude is not None, "claude is on PATH"
         repo = Path(tempfile.mkdtemp(prefix="bosun-e2e-review-"))
         self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
         subprocess.run(["git", "init", "-q", str(repo)], check=True)

@@ -14,6 +14,7 @@ import time
 import tomllib
 import unittest
 import unittest.mock
+from collections.abc import Set as AbstractSet
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
@@ -45,7 +46,7 @@ def descendants(pid):
     return set(tree[1:])
 
 
-def kill_tree(pid, existing=frozenset()):
+def kill_tree(pid, existing: AbstractSet[int] = frozenset()):
     """Stops pid and every descendant. On Linux that includes any orphan re-parented to this process since `existing`
     was taken, which a walk from pid alone would miss once pid's own process has exited."""
     if os.name == "nt":
@@ -57,6 +58,22 @@ def kill_tree(pid, existing=frozenset()):
             os.kill(member, 9)
         except OSError:
             pass  # already gone
+
+
+def load_module(name, path, register=False):
+    """Import the script at path under name. register puts it in sys.modules while it runs, for a module that
+    dataclasses or pickling look up by name."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None, f"{path} is not importable"
+    module = importlib.util.module_from_spec(spec)
+    if register:
+        sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if register:
+            del sys.modules[name]
+    return module
 
 
 def run_tree(argv, timeout, **kwargs):
@@ -213,6 +230,12 @@ class Harness(unittest.TestCase):
         summary = json.loads(result.stdout) if result.stdout.strip().startswith("{") else None
         return result, summary
 
+    def dispatch_json(self, *args, cwd=None, **modes):
+        """dispatch for a test that reads the JSON on stdout: no JSON there fails the test with what was printed."""
+        result, summary = self.dispatch(*args, cwd=cwd, **modes)
+        assert summary is not None, f"the dispatcher printed no JSON object: {result.stdout!r} {result.stderr!r}"
+        return result, summary
+
     def calls(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
@@ -231,10 +254,7 @@ class Harness(unittest.TestCase):
             path.write_text(json.dumps(data), encoding="utf-8")
 
     def module(self):
-        spec = importlib.util.spec_from_file_location("dispatch_under_test", self.repo / "scripts/review-dispatch.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return load_module("dispatch_under_test", self.repo / "scripts/review-dispatch.py")
 
 
 def still_running(pid, wait=5):
@@ -299,7 +319,7 @@ class Dispatch(Harness):
               "failover": []}
 
     def test_sol_reviews_claude_work_read_only(self):
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((summary["reviewer"], summary["model"], summary["failover"]), ("sol", "gpt-6.1-sol", []))
         self.assertIn("(codex)", summary["review"])
@@ -316,7 +336,7 @@ class Dispatch(Harness):
         for mode, reason in (("fail", "exited 3"), ("empty", "returned no review")):
             with self.subTest(mode):
                 self.log.unlink(missing_ok=True)
-                result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex=mode)
+                result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), codex=mode)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIsNone(summary["reviewer"])
                 self.assertIsNone(summary["review"])
@@ -326,7 +346,7 @@ class Dispatch(Harness):
     def test_a_reviewer_that_could_not_reach_the_candidate_returned_no_review(self):
         # A reply ending OVERALL: blocked says the reviewer never saw the work (a sandbox that cannot read the
         # repository): it is not a review.
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="blocked")
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), codex="blocked")
         self.assertEqual(result.returncode, 1)
         self.assertIsNone(summary["review"])
         self.assertTrue(summary["failover"][0]["reason"].startswith("could not review: "), summary["failover"])
@@ -334,12 +354,12 @@ class Dispatch(Harness):
 
     def test_a_missing_cli_is_no_review(self):
         self.codex.unlink()
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 1)
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "codex is not installed"}])
 
     def test_a_timeout_is_no_review(self):
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "2",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "2",
                                         codex="sleep")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "timed out"}])
@@ -347,7 +367,7 @@ class Dispatch(Harness):
     def test_no_review_is_never_an_approval(self):
         # A failed attempt writes nothing to the findings file: it is kept in build/, apart from the tree's reviews.
         record = self.repo / "docs/reviews/round.md"
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                         codex="fail")
         self.assertEqual(result.returncode, 1)
         self.assertIsNone(summary["reviewer"])
@@ -380,12 +400,12 @@ class Dispatch(Harness):
         record.parent.mkdir(parents=True)
         record.write_text("# Findings\n", encoding="utf-8")
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
-        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+        _, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                    codex="fail")
         self.assertNotIn("round", summary)  # nothing was recorded
         self.assertNotIn("## Round 2", record.read_text())
         self.elapse()
-        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        _, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         text = record.read_text()
         self.assertEqual(summary["round"], 2)
         self.assertTrue(text.startswith("# Findings\n"))
@@ -506,7 +526,7 @@ class Dispatch(Harness):
         record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), codex="fail")
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         (only,) = listing["records"]
         self.assertEqual(only["path"], "docs/reviews/00-design/D00-T01-s1.md")
@@ -523,20 +543,20 @@ class Dispatch(Harness):
         old.parent.mkdir(parents=True)
         old.write_text("## Round 1: gemini (`gemini-4-carbon-medium` via `agy`)\n\n- Writer: claude\n"
                        "- Run: 2026-10-21T00:00:00Z\n- Skipped: astra (exited 3)\n\nReview.\n", encoding="utf-8")
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         (round_,) = listing["records"][0]["rounds"]
         self.assertEqual((round_["reviewer"], round_["cli"], round_["skipped"]),
                          ("gemini", "agy", [{"reviewer": "astra", "reason": "exited 3"}]))
 
     def test_list_rounds_with_no_records_and_with_an_unreadable_heading(self):
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual((result.returncode, listing), (0, {"records": []}))
         good = self.repo / "docs/reviews/a.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
         bad = self.repo / "docs/reviews/b.md"
         bad.write_text("# Findings\n\n## Round two: sol\n\n- Writer: claude\n", encoding="utf-8")
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/a.md"])
         self.assertEqual(listing["unreadable"], ["docs/reviews/b.md"])
@@ -548,13 +568,13 @@ class Dispatch(Harness):
         # A review quoting `## Round ...` lines, one a whole fake round in a fence, round-trips through record.
         record = self.repo / "docs/reviews/r.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), codex="headings")
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.assertEqual(summary["round"], 2, "record counted review text as a round")
         text = record.read_text(encoding="utf-8")
         # Stored byte for byte: no escape inside or outside the fence.
         self.assertIn("\n## Round trip serialization\n", text)
         self.assertIn("```\n## Round 9: none\n", text)
-        _, listing = self.dispatch("--list-rounds", "--json")
+        _, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual([r["number"] for r in listing["records"][0]["rounds"]], [1, 2])
         self.assertNotIn("unreadable", listing)
 
@@ -603,7 +623,7 @@ class Dispatch(Harness):
             body = re.sub(r"- Lines: \d+", "- Lines: " + value, recorded)
             self.assertNotEqual(body, recorded, name)
             (self.repo / "docs/reviews" / name).write_text(body, encoding="utf-8")
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
         self.assertEqual(sorted(listing["unreadable"]), ["docs/reviews/huge.md", "docs/reviews/superscript.md"])
@@ -654,7 +674,7 @@ class Dispatch(Harness):
         bad.parent.mkdir(parents=True)
         body = "# Findings\n\n## Round two: sol\n\n- Writer: claude\n"
         bad.write_bytes(body.encode("utf-8"))
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertEqual(bad.read_bytes(), body.encode("utf-8"), "record appended to a file it cannot read")
         self.assertIn("calc.py:2 subtracts", summary["review"])
@@ -676,7 +696,7 @@ class Dispatch(Harness):
         result, _ = self.dispatch("--check-pin", "--json", cwd=self.repo)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)["clis"]["codex"], "a codex in the working directory counted as on PATH")
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), cwd=self.repo)
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), cwd=self.repo)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse(marker.exists(), "the planted codex in the working directory ran as the reviewer")
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "codex is not installed"}])
@@ -719,11 +739,11 @@ class Dispatch(Harness):
         body = "## Round " + "9" * 5000 + ": none\n\n- Writer: claude\n- Run: 2026-10-20T00:00:00Z\n"
         bad.write_bytes(body.encode("utf-8"))
         self.assertIsNone(self.module().read_rounds(body))
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("calc.py:2 subtracts", summary["review"])
         self.assertEqual(bad.read_bytes(), body.encode("utf-8"))
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual((result.returncode, listing["unreadable"]), (0, ["docs/reviews/huge-number.md"]))
 
     def test_the_largest_review_record_writes_is_one_its_reader_reads(self):
@@ -739,7 +759,7 @@ class Dispatch(Harness):
         good = self.repo / "docs/reviews/good.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
         os.symlink("loop.md", self.repo / "docs/reviews/loop.md")
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
         self.assertEqual(listing["unreadable"], ["docs/reviews/loop.md"])
@@ -759,7 +779,7 @@ class Dispatch(Harness):
         (self.repo / "docs/reviews/not-utf8.md").write_bytes(recorded.replace("claude", "claud\udcff", 1)
                                                               .encode("utf-8", "surrogateescape"))
         (self.repo / "docs/reviews/folder.md").mkdir()  # a path that cannot be read as a file
-        result, listing = self.dispatch("--list-rounds", "--json")
+        result, listing = self.dispatch_json("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
         self.assertEqual(sorted(listing["unreadable"]), sorted(
@@ -767,7 +787,7 @@ class Dispatch(Harness):
 
     def test_a_runaway_reviewer_is_stopped_while_it_runs(self):
         started = time.monotonic()
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40",
                                         codex="flood")
         self.assertLess(time.monotonic() - started, 30, "the cap was only applied at the timeout")
         self.assertEqual(result.returncode, 1)
@@ -775,14 +795,14 @@ class Dispatch(Harness):
 
     def test_codex_flooding_its_message_file_is_stopped_while_it_runs(self):
         started = time.monotonic()
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40",
                                         codex="floodfile")
         self.assertLess(time.monotonic() - started, 30, "the cap was only applied at the timeout")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "returned more than 2000000 bytes"}])
 
     def test_a_file_still_held_after_the_reviewer_exits_does_not_cost_the_round(self):
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="linger")
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), codex="linger")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary["reviewer"], "sol")
         self.assertIn("(codex)", summary["review"])
@@ -793,7 +813,7 @@ class Dispatch(Harness):
         # Larger than any pipe buffer: a blocking write here would hang past the timeout.
         self.prompt.write_text("Review this.\n" + "x" * 1_000_000, encoding="utf-8")
         started = time.monotonic()
-        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "3", codex="noread")
+        _, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "3", codex="noread")
         self.assertLess(time.monotonic() - started, 20)
         self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "timed out"}])
 
@@ -806,7 +826,7 @@ class Dispatch(Harness):
 
     @unittest.skipIf(os.name == "nt", "Windows cannot reach a child once its reviewer has exited (see kill_tree)")
     def test_a_reviewers_children_do_not_outlive_it(self):
-        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="orphan")
+        _, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), codex="orphan")
         self.assertEqual(summary["reviewer"], "sol")
         pid = int((Path(self._tmp.name) / "child.pid").read_text())
         for _ in range(50):
@@ -838,7 +858,7 @@ class Dispatch(Harness):
             subprocess.run(["icacls", str(target), "/deny", "*S-1-1-0:(X)"], capture_output=True, check=True)
         else:
             write_launcher(self.bin, "codex", "unused").write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 1)
         self.assertTrue(summary["failover"][0]["reason"].startswith("could not start"), summary["failover"])
 
@@ -876,9 +896,14 @@ class Dispatch(Harness):
         return self.dispatch("--kind", "completion", "--candidate", self.CANDIDATE, "--writer", "claude", "--prompt",
                              str(self.prompt), "--record", str(record), *extra, **modes)
 
+    def complete_json(self, record, *extra, **modes):
+        result, summary = self.complete(record, *extra, **modes)
+        assert summary is not None, f"the dispatcher printed no JSON object: {result.stdout!r} {result.stderr!r}"
+        return result, summary
+
     def test_a_completion_review_is_recorded_as_its_own_section_and_not_counted_as_a_round(self):
         record = self.repo / "docs/reviews/00-workspace/D00-T01-s1.md"
-        result, summary = self.complete(record, codex="completion")
+        result, summary = self.complete_json(record, codex="completion")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((summary["kind"], summary["candidate"], summary["recorded"]),
                          ("completion", self.CANDIDATE, True))
@@ -887,7 +912,7 @@ class Dispatch(Harness):
         self.assertIn(f"\n- Candidate: {self.CANDIDATE}\n", text)
         self.assertNotRegex(text, r"(?m)^## Round 1:")
         # The first regular round after it is round 1, and the round quoted inside the completion review is not one.
-        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        _, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.assertEqual(summary["round"], 1)
         module = self.module()
         found = module.read_findings(record.read_bytes().decode("utf-8"))
@@ -896,7 +921,7 @@ class Dispatch(Harness):
         self.assertEqual((completion["reviewer"], completion["model"], completion["candidate"], completion["writer"]),
                          ("sol", "gpt-6.1-sol", self.CANDIDATE, "claude"))
         self.assertTrue(completion["review"].endswith("COMPLETION: gaps"))
-        _, listing = self.dispatch("--list-rounds", "--json")
+        _, listing = self.dispatch_json("--list-rounds", "--json")
         (entry,) = listing["records"]
         self.assertEqual(([r["number"] for r in entry["rounds"]], len(entry["completions"])), ([1], 1))
 
@@ -914,7 +939,7 @@ class Dispatch(Harness):
         result, _ = self.complete(record, codex="completion")
         self.assertEqual(result.returncode, 0, result.stderr)
         before = record.read_bytes()
-        result, summary = self.complete(record, codex="completion")
+        result, summary = self.complete_json(record, codex="completion")
         self.assertEqual(result.returncode, 2)
         self.assertIn("already holds a completion review", result.stderr)
         self.assertFalse(summary["recorded"])
@@ -924,7 +949,7 @@ class Dispatch(Harness):
         record = self.repo / "docs/reviews/c.md"
         result, _ = self.complete(record, codex="say", say="1. Open file: present.")
         self.assertIn("## Completion review: sol", record.read_text(encoding="utf-8"), "the attempt is recorded")
-        result, summary = self.complete(record, codex="completion")
+        result, summary = self.complete_json(record, codex="completion")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(summary["recorded"], "a reply without COMPLETION: is not the pass, so the retry is recorded")
         entries = self.module().read_completions(record.read_text(encoding="utf-8"))
@@ -1035,6 +1060,11 @@ class Attempts(Harness):
         record = record or self.repo / "docs/reviews/r.md"
         return self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), **modes)
 
+    def go_json(self, record=None, **modes):
+        result, summary = self.go(record, **modes)
+        assert summary is not None, f"the dispatcher printed no JSON object: {result.stdout!r} {result.stderr!r}"
+        return result, summary
+
     def outside_build(self):
         return sorted((str(p.relative_to(self.repo)), p.read_bytes()) for p in self.repo.rglob("*")
                       if p.is_file() and "build" not in p.relative_to(self.repo).parts)
@@ -1060,7 +1090,7 @@ class Attempts(Harness):
 
     def test_a_planted_key_never_reaches_the_failure_file(self):
         key = "sk-proj-" + "A1b2C3d4E5f6G7h8I9j0" * 2
-        result, summary = self.go(codex="stderr", stderr=f"ERROR: something broke, api_key={key}\nBearer {key}\n")
+        result, summary = self.go_json(codex="stderr", stderr=f"ERROR: something broke, api_key={key}\nBearer {key}\n")
         self.assertEqual(result.returncode, 1)
         kept = self.repo / summary["attempt"]["failure"]
         text = kept.read_text(encoding="utf-8")
@@ -1110,7 +1140,7 @@ class Attempts(Harness):
         self.assertTrue(key.endswith("|round|round 2"), key)
         data["passes"][key]["wait_until"] = 0  # the wait has passed
         path.write_text(json.dumps(data), encoding="utf-8")
-        result, summary = self.go(record)
+        result, summary = self.go_json(record)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary["round"], 2)
         self.assertEqual(self.attempts(), {})
@@ -1128,8 +1158,8 @@ class Attempts(Harness):
         module = self.module()
         clock = [1000.0]
         slept = []
-        module.CLOCK = lambda: clock[0]
-        module.SLEEP = lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s))
+        setattr(module, "CLOCK", lambda: clock[0])
+        setattr(module, "SLEEP", lambda s: (slept.append(s), clock.__setitem__(0, clock[0] + s)))
         key = "docs/reviews/r.md|round|round 1"
         module.save_attempts({key: {"count": 1, "not_before": 1120.0}})
         entry = module.before_attempt(key)
@@ -1161,7 +1191,7 @@ class Attempts(Harness):
         for say, cls in (("", "other"),):  # under this legacy pin a reply with no verdict line is still a review
             with self.subTest(say=say):
                 record = self.repo / f"docs/reviews/q{len(say)}.md"
-                result, summary = self.go(record, codex="quiet", stderr="note: the sandbox refused the repository\n", say=say)
+                result, summary = self.go_json(record, codex="quiet", stderr="note: the sandbox refused the repository\n", say=say)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 text = (self.repo / summary["attempt"]["failure"]).read_text(encoding="utf-8")
                 self.assertIn("the sandbox refused the repository", text)
@@ -1172,10 +1202,14 @@ class Attempts(Harness):
         env = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
                "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), "FAKE_CODEX": "sleep", **system_root,
                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
-        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
-        process = subprocess.Popen([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), "--writer", "claude",
-                                    "--prompt", str(self.prompt), "--record", str(record)], env=env,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)
+        argv = [sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), "--writer", "claude",
+                "--prompt", str(self.prompt), "--record", str(record)]
+        if os.name == "nt":
+            process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            process = subprocess.Popen(argv, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
         try:
             deadline = time.monotonic() + 30
             while not self.calls() and time.monotonic() < deadline:  # the CLI started, so the reservation is saved
@@ -1208,7 +1242,7 @@ class Attempts(Harness):
         self.assertEqual(self.attempts(), before, "a failed save changed the saved count")
 
     def test_a_reviewer_flooding_stderr_is_stopped(self):
-        result, summary = self.go(codex="floodstderr")
+        result, summary = self.go_json(codex="floodstderr")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("returned more than", summary["failover"][0]["reason"])
 
@@ -1216,11 +1250,11 @@ class Attempts(Harness):
         module = self.module()
         order = []
         real_save = module.save_attempts
-        module.save_attempts = lambda passes: (order.append("saved"), real_save(passes))
+        setattr(module, "save_attempts", lambda passes: (order.append("saved"), real_save(passes)))
         for saved, said in ((True, "The run waits."), (False, "No run is waiting")):
             with self.subTest(saved):
                 order.clear()
-                module.guard_wait = lambda until, detail, s=saved: (order.append("guard"), (s, "no active run"))[1]
+                setattr(module, "guard_wait", lambda until, detail, s=saved: (order.append("guard"), (s, "no active run"))[1])
                 message = module.start_wait({}, "k", {"last_class": "auth", "count": 1}, 5000.0)
                 self.assertEqual(order, ["saved", "guard"])
                 self.assertIn(said, message)
@@ -1250,9 +1284,11 @@ class InFlightMarks(Harness):
         sys.path.insert(0, str(SCRIPTS / "lib"))
         import run_guard
         module = self.module()
-        module.IN_FLIGHT = self.repo / "build" / "review-in-flight"
+        setattr(module, "IN_FLIGHT", self.repo / "build" / "review-in-flight")
         with module.in_flight("sol", 60):
-            self.assertIn("sol", run_guard.review_in_flight(self.repo))
+            held = run_guard.review_in_flight(self.repo)
+            assert held is not None, "the guard saw no review in flight while the dispatcher held its mark"
+            self.assertIn("sol", held)
         self.assertIsNone(run_guard.review_in_flight(self.repo))
 
     def test_a_mark_that_cant_be_written_runs_no_reviewer(self):
@@ -1300,7 +1336,7 @@ class Schedule(Harness):
 
     def round(self, say="OVERALL: approve", *extra):
         self.log.unlink(missing_ok=True)
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record",
                                         str(self.findings), *extra, codex="say", say=say)
         self.assertIn(result.returncode, (0, 1), result.stderr)
         return summary, self.calls()
@@ -1312,7 +1348,7 @@ class Schedule(Harness):
         pin = SCHEDULED_PIN.replace("[schedule]\n", "[schedule]\nrecurrence_cap = 3\n", 1)
         (self.repo / ".conclave/reviewers.toml").write_text(pin, encoding="utf-8")
         (self.repo / "docs/reviews").mkdir(parents=True)
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record",
                                         "reviews/r.md", cwd=str(self.repo / "docs"), codex="say",
                                         say="HIGHEST: P2\nRECURRING: none\nOVERALL: needs-attention")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1344,7 +1380,7 @@ class Schedule(Harness):
     def test_an_outage_round_does_not_move_the_position(self):
         self.round()
         self.log.unlink(missing_ok=True)
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record",
                                         str(self.findings), codex="fail")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(summary["position"], 2)
@@ -1404,7 +1440,7 @@ class Schedule(Harness):
 
     def test_the_plan_review_is_one_pass_recorded_with_its_lens(self):
         candidate = "a" * 40
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--kind", "plan",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--kind", "plan",
                                         "--candidate", candidate, "--record", str(self.findings), codex="say",
                                         say="1. Ctrl+K reach: missing.\n\nPLAN: gaps\nOVERALL: needs-attention")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -1418,7 +1454,7 @@ class Schedule(Harness):
         (plan,) = self.module().read_plans(text)
         self.assertEqual((plan["candidate"], plan["lenses"], plan["effort"]), (candidate, ["plan"], "medium"))
         self.assertEqual(self.module().read_rounds(text), [], "a plan review is not a round")
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--kind", "plan",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--kind", "plan",
                                         "--candidate", candidate, "--record", str(self.findings))
         self.assertEqual(result.returncode, 2)
         self.assertIn("already holds a plan review", result.stderr)
@@ -1430,7 +1466,7 @@ class Schedule(Harness):
         plan = ("--writer", "claude", "--prompt", str(self.prompt), "--kind", "plan", "--candidate", candidate,
                 "--record", str(self.findings))
         self.dispatch(*plan, codex="say", say="1. Keyboard reach: missing.\n\nOVERALL: needs-attention")
-        result, summary = self.dispatch(*plan, codex="say", say="1. Gap.\n\nPLAN: gaps\nOVERALL: needs-attention")
+        result, summary = self.dispatch_json(*plan, codex="say", say="1. Gap.\n\nPLAN: gaps\nOVERALL: needs-attention")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(summary["recorded"], "a reply without PLAN: is not the pass, so the retry is recorded")
         entries = self.module().read_plans(self.findings.read_text(encoding="utf-8"))
@@ -1447,7 +1483,7 @@ class Schedule(Harness):
                 self.assertIn("--kind plan needs --candidate", result.stderr)
 
     def test_the_completion_review_takes_its_scheduled_effort_and_no_lenses(self):
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--kind", "completion",
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--kind", "completion",
                                         "--candidate", "b" * 40, codex="say", say="COMPLETION: complete")
         self.assertEqual(result.returncode, 0, result.stderr)
         (call,) = self.calls()
@@ -1463,7 +1499,7 @@ class Schedule(Harness):
         self.assertNotIn("position", summary)
 
     def test_check_pin_reports_the_schedule(self):
-        result, summary = self.dispatch("--check-pin", "--json")
+        result, summary = self.dispatch_json("--check-pin", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary["schedule"]["severity_stop_after"], 3)
 
@@ -1527,7 +1563,7 @@ class MultiCli(Harness):
         self.assertEqual(self.calls(), [])
 
     def test_astra_reviews_gemini_work(self):
-        result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
+        result, summary = self.dispatch_json("--writer", "gemini", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary["reviewer"], "astra")
         (call,) = self.calls()
@@ -1561,16 +1597,12 @@ class MultiCli(Harness):
 
 class RepositoryPin(unittest.TestCase):
     def test_the_repository_pin_loads_under_the_dispatchers_rules(self):
-        spec = importlib.util.spec_from_file_location("dispatch_pin_check", SCRIPTS / "review-dispatch.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module("dispatch_pin_check", SCRIPTS / "review-dispatch.py")
         pin = module.load_pin(REPO_PIN)
         self.assertTrue(pin["routes"], "the repository pin routes no writer")
 
     def test_a_committed_pin_drops_a_retired_writer_and_the_live_pin_refuses_it(self):
-        spec = importlib.util.spec_from_file_location("dispatch_pin_retired", SCRIPTS / "review-dispatch.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module("dispatch_pin_retired", SCRIPTS / "review-dispatch.py")
         text = REPO_PIN.read_text(encoding="utf-8").replace('gemini = ["astra"]', 'gemini = ["astra"]\nretired = ["astra"]')
         pin = module.load_pin(REPO_PIN, data=text.encode("utf-8"))
         self.assertNotIn("retired", pin["routes"])
@@ -1603,13 +1635,7 @@ class RepositoryPin(unittest.TestCase):
         with open(REPO_PIN, "rb") as handle:
             if "schedule" not in tomllib.load(handle):
                 self.skipTest("the repository pin has no [schedule]")
-        spec = importlib.util.spec_from_file_location("todo_graph_cutoff", SCRIPTS / "lib" / "todo_graph.py")
-        todo_graph = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = todo_graph
-        try:
-            spec.loader.exec_module(todo_graph)
-        finally:
-            del sys.modules[spec.name]
+        todo_graph = load_module("todo_graph_cutoff", SCRIPTS / "lib" / "todo_graph.py", register=True)
         with open(REPO_PIN, "rb") as handle:
             pin = tomllib.load(handle)
         self.assertEqual(pin["schedule"]["severity_stop_after"], todo_graph.SEVERITY_CUTOFF_ROUND)
@@ -1627,10 +1653,7 @@ class RepairCycles(unittest.TestCase):
 
     def module(self):
         import importlib.util
-        spec = importlib.util.spec_from_file_location("review_dispatch_repair", Path(__file__).resolve().parents[1] / "review-dispatch.py")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
+        return load_module("review_dispatch_repair", Path(__file__).resolve().parents[1] / "review-dispatch.py")
 
     def schedule(self, repairs):
         pin = self.module().load_pin(Path(__file__).resolve().parents[2] / ".conclave" / "reviewers.toml")
@@ -1701,6 +1724,7 @@ class ChangeReviews(Harness):
         self.changes = self.repo / "docs/reviews/changes"
         # The dispatcher asks git whether the candidate is a commit: a launcher for the real git on the test's PATH.
         real_git = shutil.which("git")
+        assert real_git is not None, "these tests need git on PATH"
         if os.name == "nt":
             (self.bin / "git.cmd").write_text(f'@"{real_git}" %*\r\n', encoding="utf-8")
         else:
@@ -1833,6 +1857,7 @@ class ChangeReviews(Harness):
         # CI: the runner's temp folder is spelled RUNNER~1 while the dispatcher's root is the long name, and a correct
         # record was refused as being elsewhere.
         import ctypes
+        assert sys.platform == "win32", "the skip above leaves this test to Windows"
         self.changes.mkdir(parents=True)
         buffer = ctypes.create_unicode_buffer(1024)
         ctypes.windll.kernel32.GetShortPathNameW(str(self.changes), buffer, 1024)
@@ -1959,7 +1984,7 @@ class Settled(Harness):
                     record = self.folder / "D00-T01-s2-cycle2.md"
                     record.write_text("# Cycle 2\n\n- Settled: carried from this cycle too\n", encoding="utf-8")
                     extra = () if kind == "round" else ("--candidate", "c" * 40)
-                    result, summary = self.dispatch("--writer", writer, "--prompt", str(self.prompt), "--kind", kind,
+                    result, summary = self.dispatch_json("--writer", writer, "--prompt", str(self.prompt), "--kind", kind,
                                                     *extra, "--record", str(record))
                     self.assertEqual(result.returncode, 0, result.stderr)
                     (call,) = self.calls()
@@ -2078,7 +2103,7 @@ class Settled(Harness):
         record = self.folder / "D00-T01-s2.md"
         self.seed(record, self.SETTLED_LINE)
         before = record.read_text(encoding="utf-8")
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                         codex="fail")
         self.assertEqual(result.returncode, 1)
         self.assertIsNone(summary["reviewer"])
@@ -2089,7 +2114,7 @@ class Settled(Harness):
         # Completion review gap 1: a failure is never in the findings file and a wait never reaches stdout, so the
         # attempt history in build/review-attempts.json holds the duration.
         record = self.folder / "D00-T01-s2.md"
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
                                         codex="fail")
         self.assertEqual(result.returncode, 1)
         (entry,) = self.attempts().values()
@@ -2113,7 +2138,7 @@ class Settled(Harness):
         record = self.folder / "D00-T01-s2.md"
         self.seed(record)
         before = record.read_bytes()
-        module.find_cli = lambda name: str(self.codex)
+        setattr(module, "find_cli", lambda name: str(self.codex))
 
         def fake_run(argv, stdin_text, timeout, watched, stderr_path=None):
             watched[1].write_text("1. P3 x.\n\nHIGHEST: P3\nOVERALL: approve", encoding="utf-8")
@@ -2122,7 +2147,8 @@ class Settled(Harness):
         def full_disk(path, existing, lines):
             raise OSError(28, "No space left on device")
 
-        module.run, module.append_findings = fake_run, full_disk
+        setattr(module, "run", fake_run)
+        setattr(module, "append_findings", full_disk)
         out, err = io.StringIO(), io.StringIO()
         with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", err):
             code = module.main(["--writer", "claude", "--prompt", str(self.prompt), "--record", str(record)])
@@ -2137,14 +2163,14 @@ class Settled(Harness):
 
     def test_a_returned_pass_records_a_positive_duration_read_back_everywhere(self):
         record = self.folder / "D00-T01-s2.md"
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        result, summary = self.dispatch_json("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertGreaterEqual(summary["seconds"], 1)
         text = record.read_text(encoding="utf-8")
         self.assertIn(f"- Seconds: {summary['seconds']}\n", text)
         (entry,) = self.module().read_rounds(text)
         self.assertEqual(entry["seconds"], summary["seconds"])
-        _, listing = self.dispatch("--list-rounds", "--json", "--records", str(self.repo / "docs/reviews"))
+        _, listing = self.dispatch_json("--list-rounds", "--json", "--records", str(self.repo / "docs/reviews"))
         (listed,) = listing["records"]
         self.assertEqual(listed["rounds"][0]["seconds"], summary["seconds"])
 
@@ -2156,16 +2182,16 @@ class Settled(Harness):
         # Through review itself: the clock around the reviewer's run is what is recorded, in stdout's dict, the
         # findings file and its read-back.
         pin = module.load_pin(str(self.repo / ".conclave/reviewers.toml"))
-        module.find_cli = lambda name: str(self.codex)
+        setattr(module, "find_cli", lambda name: str(self.codex))
 
         def fake_run(argv, stdin_text, timeout, watched, stderr_path=None):
             watched[1].write_text("1. P3 x.\n\nOVERALL: approve", encoding="utf-8")
             return 0, None
 
-        module.run = fake_run
+        setattr(module, "run", fake_run)
         for ticks, want in (((100.0, 100.2), 1), ((100.0, 102.4), 3)):
             with self.subTest(ticks=ticks):
-                module.MONOTONIC = iter(ticks).__next__
+                setattr(module, "MONOTONIC", iter(ticks).__next__)
                 result = module.review(pin, "claude", str(self.prompt), 60)
                 self.assertEqual(result["seconds"], want)
                 record = self.folder / f"timed-{want}.md"

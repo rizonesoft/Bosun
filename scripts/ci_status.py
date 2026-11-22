@@ -69,11 +69,13 @@ None of these changes a verdict, the exit code or the action. A run answers for 
 import argparse
 import contextlib
 import json
+from typing import Any
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import io
 import sys
 import threading
 import time
@@ -187,14 +189,15 @@ def path_rule(pattern):
     return re.compile(out + r"\Z")
 
 
-def push_filters(workflow_text):
+def push_filters(workflow_text) -> tuple[list[str] | None, list[str] | None] | None:
     """The (paths, paths-ignore) lists under on.push, or None when they can't be read with confidence."""
     lines = [line.rstrip() for line in workflow_text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     index = next((i for i, line in enumerate(lines) if re.fullmatch(r"['\"]?on['\"]?:", line)), None)
     if index is None:
         return None
-    filters = {"paths": None, "paths-ignore": None}
+    filters: dict[str, list[str] | None] = {"paths": None, "paths-ignore": None}
     in_push, push_indent, key, key_indent = False, 0, None, 0
+    entries: list[str] = []  # the list of the key being read, the one `filters[key]` holds
     for line in lines[index + 1:]:
         indent = len(line) - len(line.lstrip())
         if indent == 0:
@@ -207,12 +210,12 @@ def push_filters(workflow_text):
         if indent <= push_indent:
             break
         if key and indent > key_indent and text.startswith("- "):
-            filters[key].append(text[2:].strip().strip("'\""))
+            entries.append(text[2:].strip().strip("'\""))
             continue
         name = text.rstrip(":")
         if text.endswith(":") and name in filters:
             key, key_indent = name, indent
-            filters[key] = []
+            entries = filters[key] = []
         elif text.endswith(":") or ":" in text:
             key = None
         else:
@@ -246,10 +249,13 @@ def skip_reason(git, workflow, sha, base, base_proven=False):
     if not changed:
         return "no file differs from the last proven commit" if base_proven else None
     paths, ignore = filters
-    rules = [path_rule(p) for p in (paths if paths is not None else ignore)]
+    chosen = paths if paths is not None else ignore
+    if chosen is None:  # neither list: already refused above, said again for the checker (D00 T07 §2)
+        return None
+    rules = [path_rule(p) for p in chosen]
     if not rules or None in rules:
         return None
-    matched = [any(rule.match(name) for rule in rules) for name in changed]
+    matched = [any(rule is not None and rule.match(name) for rule in rules) for name in changed]
     if paths is not None and not any(matched):
         return f"none of the {len(changed)} changed files match its paths filter"
     if ignore is not None and all(matched):
@@ -279,7 +285,7 @@ def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, bas
         reason = "this commit is already recorded as proven" if same else skip_reason(git, workflow, sha, base, base_proven)
         if reason:
             entry.update(verdict="skipped", reason=reason)
-    if verdict == "red":
+    if verdict == "red" and decisive is not None:  # a red verdict is read from a decisive run
         entry["failed_jobs"] = failed_jobs(runner, decisive.get("databaseId"))
     return entry
 
@@ -576,16 +582,16 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
         result["recovery_error"] = "; ".join(errors)
 
 
-def read_gate(path):
+def read_gate(path) -> dict[str, Any]:  # parsed JSON, as written by write_gate
     """The gate's record; an unreadable one reads as nothing known, with one line saying so. A cleared marker means a
     green that couldn't rewrite this file, so its attempts are over."""
-    state = {}
+    state: dict[str, Any] = {}
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(state, dict):
             raise ValueError("wrong shape")
     except FileNotFoundError:
-        state = {}
+        state: dict[str, Any] = {}
     except (OSError, ValueError) as exc:
         print(f"warning: {path} is unreadable ({exc}); counting no repairs used", file=sys.stderr)
         # Nothing known is the right reading for repairs, but not for starts: a workflow may already have been started
@@ -977,6 +983,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     if held:
         result["start_held"] = {"seconds": int(held_for), "workflows": sorted(held)}
     result["api_calls"] = calls[0]
+    attempt = None  # set by the gate, the only reader of it below
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
@@ -1017,5 +1024,6 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
 
 
 if __name__ == "__main__":
-    sys.stdout.reconfigure(encoding="utf-8")
+    if isinstance(sys.stdout, io.TextIOWrapper):  # a console or a pipe; a replaced stream keeps its own encoding
+        sys.stdout.reconfigure(encoding="utf-8")
     sys.exit(main())

@@ -473,6 +473,7 @@ class TrayIconsTest(unittest.TestCase):
         at = (int(centre), int(centre + radius / 3))
         under = self.image("tray-normal.ico", 32).getpixel(at)
         drawn = self.image("tray-pressure.ico", 32).getpixel(at)
+        assert isinstance(under, tuple) and isinstance(drawn, tuple), "an RGB(A) icon reads back as a pixel tuple"
         half = tuple(round(0x80 / 255 * c + (1 - 0x80 / 255) * u) for c, u in zip((0xFF, 0xB5, 0x47), under[:3]))
         self.assertTrue(near(drawn, half, 3), f"half-strength amber over the icon is {half}, drawn {drawn[:3]}")
         self.assertFalse(near(drawn, (0x80, 0xFF, 0xB5), 40), "not the colour SVG reads from the same eight digits")

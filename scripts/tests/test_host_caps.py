@@ -51,7 +51,7 @@ class NativeCalls(unittest.TestCase):
         self.value = value
         return mock.MagicMock(wtsapi32=api)
 
-    def desktop(self, handle=123, name="Default", ok=True):
+    def desktop(self, handle: int | None = 123, name="Default", ok=True):
         api = mock.MagicMock()
         api.OpenInputDesktop.return_value = handle
 
@@ -117,6 +117,7 @@ class Registered(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "reads the Windows registry")
     def test_real_registry_reads_both_hives(self):
+        assert sys.platform == "win32", "the skip decorator keeps this test on Windows"
         import winreg
         opened = []
         real = winreg.OpenKey

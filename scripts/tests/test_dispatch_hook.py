@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("dispatch_hook", ROOT / "scripts" / "dispatch_hook.py")
+assert spec is not None and spec.loader is not None, "the script file must be loadable as a module"
 hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 

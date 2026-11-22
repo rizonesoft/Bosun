@@ -101,6 +101,14 @@ jobs:
           python-version: '3.14'
       - name: Icon generator packages
         run: python -m pip install --disable-pip-version-check -r scripts/requirements-icons.txt
+      # Pinned, so only a change here turns this red, never a new pyright release (D00 T07 §2). One step per platform:
+      # PowerShell exits with its last command's code, so two checks in one step would hide the first one's failure.
+      - name: Pyright (pinned)
+        run: python -m pip install --disable-pip-version-check pyright==1.1.414
+      - name: Pyright over the scripts, as on Windows
+        run: pyright --pythonplatform Windows scripts
+      - name: Pyright over the scripts, as on Linux
+        run: pyright --pythonplatform Linux scripts
       - name: Build
         run: pwsh scripts\build.ps1
       - name: Build the .NET solution

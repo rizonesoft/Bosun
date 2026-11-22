@@ -1,5 +1,6 @@
 """Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
 import contextlib
+import functools
 import importlib.util
 import io
 import json
@@ -846,7 +847,9 @@ class Dispositions(Tree):
         self.assertEqual(self.text(), before)  # a restart reads it the same and spends no repair cycle
         self.assertEqual(self.disposed()[0], "needs-filing")
         rows = tg.graph(self.root)
-        self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-filing")
+        work = tg.next_work(rows, self.CAPS, self.root)
+        assert work is not None, "a row that needs filing is work"
+        self.assertEqual(work["state"], "needs-filing")
 
     def test_a_first_cycle_with_gaps_after_a_clean_round_needs_filing(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
@@ -994,15 +997,19 @@ class Dispositions(Tree):
         self.write(todo_file([(1, "A", 0, "display-session", "--"), (2, "B", 3, "none", "--")]))
         rows = tg.graph(self.root)
         work = tg.next_work(rows, self.CAPS, self.root)
+        assert work is not None, "the row past the host-blocked one is work"
         self.assertEqual((work["ref"], work["phase"], work["state"]), ("D00 T01 §2", 3, "ready"))
         with_desktop = tg.next_work(rows, {**self.CAPS, "display-session": True}, self.root)
+        assert with_desktop is not None, "with a desktop the earlier row is work"
         self.assertEqual(with_desktop["ref"], "D00 T01 §1")
 
     def test_next_work_counts_a_repairable_row_and_is_none_when_nothing_can_run(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.exhaust()
         rows = tg.graph(self.root)
-        self.assertEqual(tg.next_work(rows, self.CAPS, self.root)["state"], "needs-repair")
+        work = tg.next_work(rows, self.CAPS, self.root)
+        assert work is not None, "an exhausted row that can be repaired is work"
+        self.assertEqual(work["state"], "needs-repair")
         self.write(todo_file([(1, "A", 0, "attended", "--")]))
         rows = tg.graph(self.root)
         self.assertIsNone(tg.next_work(rows, self.CAPS, self.root))
@@ -1188,7 +1195,7 @@ class Stamp(Tree):
         return self.head()
 
     def write_plan(self, review="1. Controls: all present.\n\nHIGHEST: none\n\nPLAN: complete\n\nOVERALL: approve",
-                   reviewer="astra", cli="codex", writer="claude", effort="medium", lenses=("plan",), candidate=None,
+                   reviewer: str | None = "astra", cli="codex", writer="claude", effort="medium", lenses=("plan",), candidate=None,
                    path=None, keep=False):
         """A plan review as scripts/review-dispatch.py --kind plan records it (keep: after the attempts already there;
         otherwise the earlier plan reviews are dropped and the file's rounds stay)."""
@@ -1202,7 +1209,7 @@ class Stamp(Tree):
         tg.review_dispatch().record_completion(target, result, "2026-10-22T00:00:00Z", candidate or self.start,
                                                kind="plan")
 
-    def write_completion(self, review="1. Open file: present.\n\nCOMPLETION: complete", notes="", reviewer="sol",
+    def write_completion(self, review="1. Open file: present.\n\nCOMPLETION: complete", notes="", reviewer: str | None = "sol",
                          candidate=None, path=None, effort="medium", keep=False):
         """A completion review as scripts/review-dispatch.py --kind completion records it, then the writer's notes."""
         target = self.root / (path or self.COMPLETION)
@@ -2377,11 +2384,13 @@ class Stamp(Tree):
 
     def test_a_plan_review_must_be_one_returned_by_another_model_family(self):
         family = "must hold exactly one plan review returned by another model family"
-        for kwargs in ({"reviewer": "opus", "cli": "claude"}, {"reviewer": None},
-                       {"review": "1. ok.\n\nHIGHEST: none\n\nOVERALL: approve"},
-                       {"review": "1. ok.\n\nOVERALL: approve\n\nPLAN: complete"}):
-            with self.subTest(kwargs=kwargs):
-                self.write_plan(**kwargs)
+        write = functools.partial
+        cases = (write(self.write_plan, reviewer="opus", cli="claude"), write(self.write_plan, reviewer=None),
+                 write(self.write_plan, review="1. ok.\n\nHIGHEST: none\n\nOVERALL: approve"),
+                 write(self.write_plan, review="1. ok.\n\nOVERALL: approve\n\nPLAN: complete"))
+        for case in cases:
+            with self.subTest(kwargs=case.keywords):
+                case()
                 self.stamp_refuses(family)
         self.write_plan()
         path = self.root / self.PLAN
@@ -2426,6 +2435,7 @@ class Stamp(Tree):
         # D00 T03 §26: a change outside every section is reviewed once, under docs/reviews/changes/; it never stands
         # in for a section's plan review or a round.
         spec = importlib.util.spec_from_file_location("dispatch_for_stamp", pathlib.Path(__file__).resolve().parents[1] / "review-dispatch.py")
+        assert spec is not None and spec.loader is not None, "review-dispatch.py must be loadable as a module"
         dispatch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(dispatch)
         change = "docs/reviews/changes/tool-tweak.md"
@@ -2505,6 +2515,7 @@ class Stamp(Tree):
         def record(line):
             text = (self.root / path).read_text(encoding="utf-8")
             two = tg.section_text(text, 2)
+            assert two is not None, "the file holds a section 2"
             two_now = re.sub(r"(?m)^> \*\*Started:\*\* .*\n\n", "", two)
             two_now = two_now.replace("**Test checkpoint:**", line + "\n\n**Test checkpoint:**", 1)
             (self.root / path).write_text(text.replace(two, two_now), encoding="utf-8")
@@ -2618,6 +2629,7 @@ class Repository(unittest.TestCase):
     def test_the_stamp_command_reads_completion_as_findings_file_and_verdict(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("todo_graph_cli", REPO / "scripts/todo-graph.py")
+        assert spec is not None and spec.loader is not None, "todo-graph.py must be loadable as a module"
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
         self.assertEqual(cli.completion_review("docs/reviews/00-workspace/D00-T01-s1.md:filed"),

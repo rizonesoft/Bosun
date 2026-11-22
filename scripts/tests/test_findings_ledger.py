@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("findings_ledger", ROOT / "scripts" / "findings-ledger.py")
@@ -366,13 +367,11 @@ class FindingsLedgerTest(unittest.TestCase):
             raise ledger_refused("TODO refused: unknown dependency D09 T09 §9")
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
         original = ledger.check
-        ledger.check = lambda base, first, last, **options: original(self.base, first, last, root=self.root, resolver=refusing, **options)
-        try:
+        refused_check = lambda base, first, last, **options: original(self.base, first, last, root=self.root, resolver=refusing, **options)
+        with mock.patch.object(ledger, "check", refused_check):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = ledger.main(["--base", self.base, "--lines", "5-8"])
-        finally:
-            ledger.check = original
         self.assertEqual(code, 2, out.getvalue())
         self.assertIn("cannot check: TODO refused", out.getvalue())
 

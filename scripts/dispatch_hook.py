@@ -54,6 +54,8 @@ VALUED = {"-X", "-W", "--check-hash-based-pycs"}  # Python options that take the
 def _parser():
     """The deny list's own tokenizer and wrapper reader (scripts/tool-guard.py), so both hooks read words alike."""
     spec = importlib.util.spec_from_file_location("tool_guard", Path(__file__).with_name("tool-guard.py"))
+    if spec is None or spec.loader is None:
+        raise ImportError("scripts/tool-guard.py cannot be loaded")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -63,6 +65,14 @@ try:
     PARSER = _parser()
 except (OSError, ImportError, SyntaxError) as error:  # a hook that can't start says so, and lets the call through
     PARSER, PARSER_ERROR = None, f"{type(error).__name__}: {error}"
+
+
+def parser():
+    """The deny list's parser. main() lets a call through before anything here when it failed to load, so a None
+    here is a defect in the order of the checks, said as one (D00 T07 §2)."""
+    if PARSER is None:
+        raise RuntimeError(f"scripts/tool-guard.py did not load: {PARSER_ERROR}")
+    return PARSER
 
 
 def starts_no_reviewer(words: list[str]) -> bool:
@@ -173,7 +183,7 @@ def parse(text: str, powershell: bool) -> list[tuple]:
     while i < len(text):
         char = text[i]
         if not powershell and quote is None and text.startswith("$'", i):
-            end = PARSER.ansi_c_end(text, i)
+            end = parser().ansi_c_end(text, i)
             current.extend(text[i:end])  # $'...' is one quoted word, whatever its escapes hold
             i, start = end, False
             continue
@@ -248,10 +258,10 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
     detachment."""
     found = []
     for command, background in commands(line, powershell):
-        words = PARSER.tokens_of(command, powershell)
+        words = parser().tokens_of(command, powershell)
         here = detached or background
         while words:
-            words, seen, _ = PARSER.strip_prefixes(words)
+            words, seen, _ = parser().strip_prefixes(words)
             here = here or bool(DETACHING_PREFIXES & set(seen))
             if not words or words[0] not in KEYWORDS:
                 break
@@ -260,9 +270,10 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
             continue
         if "disown" in (w.lower() for w in words):
             here = True
-        inner = PARSER.inner_command(words)
+        inner = parser().inner_command(words)
         if inner and inner[0]:
-            found.extend(runs(*inner, here))
+            line, powershell = inner  # the inner command and whether PowerShell runs it
+            found.extend(runs(line, powershell, here))
             continue
         if powershell and words[0].lower() in LAUNCHERS:
             if any(os.path.basename(w.strip("{}()'\"")).lower() == "review-dispatch.py" or "review-dispatch.py" in w for w in words) \

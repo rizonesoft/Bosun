@@ -129,7 +129,7 @@ def check_mark(mark: Path) -> None:
     except Exception as error:  # the renderer failing on it (completion review of D00 T03 §31)
         raise BadgeFailure(5, f"the renderer failed on {mark} ({error!r}): report it with that mark and the renderer's version") from error
     try:
-        drawn = Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3][1] > 0
+        drawn = Image.open(io.BytesIO(png)).convert("RGBA").getchannel("A").getbbox() is not None  # any pixel not transparent
     except Exception as error:  # the decoder failing on the renderer's own output
         raise BadgeFailure(5, f"the renderer's image of {mark} can't be decoded ({error!r}): report it with that mark") from error
     if not drawn:
