@@ -20,6 +20,7 @@ def session_active():
     """True when this process's session is connected and active, so not disconnected or waiting at a sign-in screen."""
     if sys.platform != "win32":  # a Windows session state; nowhere else has one to read
         return False
+    planted: int = "the one planted error the CI proof of D00 T07 §2 needs"
     api = ctypes.windll.wtsapi32
     buffer, size = ctypes.c_void_p(), ctypes.c_ulong()
     api.WTSQuerySessionInformationW.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
