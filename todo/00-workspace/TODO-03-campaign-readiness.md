@@ -1130,6 +1130,8 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 42, complet
 
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 43 to 45, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py`, and says to install the icon packages whatever made the render fail; an unchanged rerun renders both icons again; neither shortcut has a hotkey.
 
+**Corrected 2026-11-22 (validation before the build):** checked against `scripts/start-run.ps1` and `scripts/build-icons.py`: a badge render runs `build-icons.py --badge-fill` and takes its last output line, exit 1 for every cause (a missing `resvg-py` raises `ImportError` with a traceback, a malformed mark is `check_mark`'s `ValueError`, a refused write is `write_atomic`'s `OSError`). The distinct exit codes are built here for the badge path and are the ones `D02 T05 §4` reuses for the app icon. `-Hotkey` gives `Ctrl+Alt+Shift+C` to the Claude campaign and `Ctrl+Alt+Shift+G` to the Gemini one (Windows honours a shortcut's hotkey only on the desktop or in the Start menu, where `-InstallShortcut` writes them).
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
