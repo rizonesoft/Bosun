@@ -1,0 +1,109 @@
+{
+  "ref": "D00 T03 \u00a731",
+  "title": "Shortcut install says one fix for each way a badge fails",
+  "implementation_sha": "54bf86320ed3f4205335aff798cc0a5383252f76",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts.tests.test_build_icons -> Ran 26 tests, OK",
+    "pwsh tests/start_run_test.ps1 -> 95 passed",
+    "python scripts/build-icons.py --check -> the committed icons match the masters",
+    "mutations: every cause exit 1, the sharing-violation remedy removed, Path.exists for the mark -> each fails its test",
+    "CI full gate at 54bf863: build.yml: green at 54bf86320ed3 (https://github.com/rizonesoft/Bosun/actions/runs/45002901111); plan.yml green https://github.com/rizonesoft/Bosun/actions/runs/45002901017"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+    "verdict": "completed",
+    "candidate": "5077593676a984e495bc50ade128ad7c3284e887",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s31.md",
+    "candidate": "3d40528879a4cc7308384588ed871b2d9274281d",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "3d40528879a4cc7308384588ed871b2d9274281d",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
