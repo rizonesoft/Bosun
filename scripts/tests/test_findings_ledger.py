@@ -77,6 +77,42 @@ class FindingsLedgerTest(unittest.TestCase):
                     self.assertEqual(code, 1)
                     self.assertIn("base line 5: D09 T01 §1 was already stamped when this was scheduled to it", out.getvalue())
 
+    def checked(self, resolver=fake_resolve, **options):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ledger.check(self.base, 5, 8, root=self.root, resolver=resolver, **options)
+        return code, out.getvalue()
+
+    def test_an_owner_must_cite_the_findings_own_base_line(self):
+        # D00 T06 §3's plan review: two findings on one file each need their own item, which naming the file can't show.
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        for body, settled in (("Fix `scripts/a.py` (base line 5) so the first finding holds.", True),
+                              ("Fix `scripts/a.py` (base lines 3 to 6).", True),
+                              ("Fix `scripts/a.py` (base lines 4 and 5).", True),
+                              ("Fix `scripts/a.py` (base line 50) for another finding.", False),
+                              ("Fix `scripts/a.py` so the first finding holds.", False)):
+            with self.subTest(body=body):
+                resolver = lambda ref, root, body=body: (0, body) if ref == "D09 T01 §1" else fake_resolve(ref, root)
+                code, out = self.checked(resolver, cite_lines=True)
+                self.assertEqual(code, 0 if settled else 1, out)
+                if not settled:
+                    self.assertIn("base line 5: D09 T01 §1 does not cite base line 5", out)
+        code, out = self.checked()  # without --cite-lines, naming the file is enough, as before
+        self.assertEqual(code, 0, out)
+
+    def test_the_classification_must_agree_with_every_strike(self):
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        record = self.root / "classification.md"
+        for lines, settled, says in (
+                (["- 5: Scheduled: D09 T01 §1 (item 2).", "- 6: Declined: one-off.", "- 8: Done: D09 T01 §3."], True, ""),
+                (["- 5: Scheduled: D09 T01 §1.", "- 8: Done: D09 T01 §3."], False, "base line 6: has no classification line"),
+                (["- 5: Scheduled: D09 T01 §2.", "- 6: Declined: x.", "- 8: Done: D09 T01 §3."], False, "base line 5: is classified as ('Scheduled', 'D09 T01 §2')")):
+            with self.subTest(lines=lines):
+                record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
+                code, out = self.checked(record=record)
+                self.assertEqual(code, 0 if settled else 1, out)
+                self.assertIn(says, out)
+
     def settle(self, first, second, fourth):
         lines = BASE.splitlines()
         lines[4] = "- ~~`scripts/a.py:1`: the first finding.~~ " + first
@@ -177,7 +213,7 @@ class FindingsLedgerTest(unittest.TestCase):
             raise ledger_refused("TODO refused: unknown dependency D09 T09 §9")
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
         original = ledger.check
-        ledger.check = lambda base, first, last: original(self.base, first, last, root=self.root, resolver=refusing)
+        ledger.check = lambda base, first, last, **options: original(self.base, first, last, root=self.root, resolver=refusing, **options)
         try:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):

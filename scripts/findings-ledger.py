@@ -66,8 +66,39 @@ def resolve(ref, root):
     row = rows[found]
     return todo_graph.disposition(row, rows), row.body
 
-def problem(entry, disposition, root, resolver=resolve, line=0):
-    """Why a struck entry's disposition does not settle it, or None."""
+def cited_lines(text):
+    """The base lines a section's text cites: `base line 12`, `base lines 41 and 47`, `base lines 52 to 54`."""
+    found = set()
+    for run in re.findall(r"base lines? ((?:\d+|to|and|,|\s)+)", text):
+        for first, last in re.findall(r"(\d+)\s+to\s+(\d+)", run):
+            found.update(range(int(first), int(last) + 1))
+        found.update(int(n) for n in re.findall(r"\d+", run))
+    return found
+
+
+def settled_key(disposition):
+    """What a disposition settles to, for comparing a strike with its classification line: its kind and the first
+    section or commit it names."""
+    m = re.match(r"\s*(%s):\s*(.*)" % "|".join(KINDS), disposition)
+    if not m:
+        return None
+    refs = REF.findall(m.group(2)) or re.findall(r"\b[0-9a-f]{7,40}\b", m.group(2))
+    return m.group(1), refs[0] if refs else None
+
+
+def record_lines(path):
+    """The classification's `- N: <disposition> ...` lines, by base line."""
+    lines = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        m = re.match(r"- (\d+): (.+)", line)
+        if m:
+            lines.setdefault(int(m.group(1)), m.group(2))
+    return lines
+
+
+def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False):
+    """Why a struck entry's disposition does not settle it, or None. With `cite_lines`, a scheduled owner must cite
+    the finding's own base line, not only name its file, so two findings on one file each have their own item."""
     m = re.match(r"(%s): (.+)" % "|".join(KINDS), disposition.strip())
     if not m:
         return "no disposition (one of %s) after the strike" % ", ".join(KINDS)
@@ -89,6 +120,8 @@ def problem(entry, disposition, root, resolver=resolve, line=0):
         key = finding_file(entry)
         if key and key not in body.replace("\\", "/"):
             return "%s does not name %s, so it does not visibly own this finding" % (refs[0], key)
+        if cite_lines and line not in cited_lines(body):
+            return "%s does not cite base line %d, so no item of it visibly owns this finding" % (refs[0], line)
         if not key and not re.search(r"findings base line %d(?!\d)" % line, body):
             return "the finding names no file, and %s does not cite `findings base line %d`" % (refs[0], line)
     elif kind == "Fixed":
@@ -120,7 +153,7 @@ def finding_file(entry):
     return word.replace("\\", "/")
 
 
-def check(base, first, last, root=ROOT, resolver=resolve):
+def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, record=None):
     if first < 1 or first > last:
         print("findings-ledger: the range %d-%d is empty or reversed; give first-last with first at least 1" % (first, last))
         return 2
@@ -135,6 +168,7 @@ def check(base, first, last, root=ROOT, resolver=resolve):
     open_entries = [(n, then[n - 1][2:]) for n in range(first, min(last, len(then)) + 1)
                     if then[n - 1].startswith("- ") and not then[n - 1].startswith("- ~~")]
     now = (root / FINDINGS).read_text(encoding="utf-8").splitlines()
+    classified = record_lines(record) if record else None
     bad = 0
     for n, text in open_entries:
         struck = "- ~~%s~~" % text
@@ -145,7 +179,13 @@ def check(base, first, last, root=ROOT, resolver=resolve):
         elif len(hits) != 1:
             why = "struck %d times (the text must be kept exactly, once)" % len(hits) if hits else "missing (deleted or its text changed)"
         else:
-            why = problem(text, hits[0][len(struck):], root, resolver, n)
+            why = problem(text, hits[0][len(struck):], root, resolver, n, cite_lines)
+            if not why and classified is not None:
+                # The classification must say what the strike says (D00 T06 §3's plan review).
+                if n not in classified:
+                    why = "has no classification line (- %d: ...) in %s" % (n, record)
+                elif settled_key(classified[n]) != settled_key(hits[0][len(struck):]):
+                    why = "is classified as %s in %s, but struck as %s" % (settled_key(classified[n]), record, settled_key(hits[0][len(struck):]))
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))
@@ -160,6 +200,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Check that a range of todo/findings.md was settled.")
     parser.add_argument("--base", required=True, help="the commit the range was counted at")
     parser.add_argument("--lines", required=True, help="first-last, 1-based, inclusive")
+    parser.add_argument("--cite-lines", action="store_true", help="a scheduled owner must cite the finding's base line")
+    parser.add_argument("--record", help="the classification whose `- N: <disposition>` lines must agree with each strike")
     args = parser.parse_args(argv)
     m = re.fullmatch(r"(\d+)-(\d+)", args.lines)
     if not m:
@@ -167,7 +209,7 @@ def main(argv=None):
     sys.path.insert(0, str(ROOT / "scripts" / "lib"))
     from todo_graph import Refused
     try:
-        return check(args.base, int(m.group(1)), int(m.group(2)))
+        return check(args.base, int(m.group(1)), int(m.group(2)), cite_lines=args.cite_lines, record=args.record)
     except (Refused, OSError, ValueError) as exc:  # an invalid plan or an unreadable file: incomplete, as todo-graph.py has it
         print("findings-ledger: cannot check: %s" % exc)
         return 2
