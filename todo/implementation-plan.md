@@ -68,7 +68,7 @@ Sections: 68 | Checklist items: 578
 | [x]    | D00 T06 §2  | Open findings, part 2 of 6                                                             | none        | 8     |
 | [x]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 9     |
 | [x]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
-| [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 9     |
+| [x]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 9     |
 | [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 8     |
 | [ ]    | D00 T07 §1  | Graph loads once per command                                                           | none        | 4     |
 | [ ]    | D00 T07 §2  | Pyright clean over the scripts                                                         | none        | 5     |
@@ -238,6 +238,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 113/183 verified sections, 47 ready to run now.
+Progress: 114/183 verified sections, 46 ready to run now.
 
-Checklist: 1068/1393 items completed (includes Commit items).
+Checklist: 1069/1393 items completed (includes Commit items).
