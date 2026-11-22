@@ -86,14 +86,47 @@ def settled_key(disposition):
     return m.group(1), refs[0] if refs else None
 
 
+def item_citations(body):
+    """The base lines a section's checklist items cite, one item at a time: a citation in the section's introduction
+    owns nothing (round 1 of D00 T06 §3)."""
+    found = set()
+    for line in body.splitlines():
+        if re.match(r"\s*- \[[ x]\] ", line):
+            found |= cited_lines(line)
+    return found
+
+
+# A classification line: `- N: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`
+RECORD_LINE = re.compile(r"- (\d+): (.+?) \(([^()]+(?:\([^()]*\)[^()]*)*)\)\. Inspected `([^`]+)`: (.+)\.$")
+
+
 def record_lines(path):
-    """The classification's `- N: <disposition> ...` lines, by base line."""
+    """The classification's lines by base line, each as (its line number, its disposition, its evidence, its full
+    text): a base line classified twice, or a line without its evidence, is refused by `check` (round 1 of §3)."""
     lines = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
         m = re.match(r"- (\d+): (.+)", line)
         if m:
-            lines.setdefault(int(m.group(1)), m.group(2))
+            lines.setdefault(int(m.group(1)), []).append((number, line))
     return lines
+
+
+def record_problem(n, entries, struck, record):
+    """Why the classification of base line `n` does not stand beside its strike, or None."""
+    if not entries:
+        return "has no classification line (- %d: ...) in %s" % (n, record)
+    if len(entries) > 1:
+        return "is classified %d times in %s (lines %s)" % (len(entries), record, ", ".join(str(at) for at, _ in entries))
+    at, line = entries[0]
+    m = RECORD_LINE.match(line)
+    if not m:
+        return ("has a classification line without its evidence in %s (line %d): it must read "
+                "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
+    if settled_key(m.group(2)) != settled_key(struck):
+        return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
+    if m.group(2).startswith("Scheduled") and not re.match(r"items? \d", m.group(3)):
+        return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
+    return None
 
 
 def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False):
@@ -120,8 +153,8 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
         key = finding_file(entry)
         if key and key not in body.replace("\\", "/"):
             return "%s does not name %s, so it does not visibly own this finding" % (refs[0], key)
-        if cite_lines and line not in cited_lines(body):
-            return "%s does not cite base line %d, so no item of it visibly owns this finding" % (refs[0], line)
+        if cite_lines and line not in item_citations(body):
+            return "%s has no checklist item citing base line %d, so no item of it visibly owns this finding" % (refs[0], line)
         if not key and not re.search(r"findings base line %d(?!\d)" % line, body):
             return "the finding names no file, and %s does not cite `findings base line %d`" % (refs[0], line)
     elif kind == "Fixed":
@@ -181,11 +214,8 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
         else:
             why = problem(text, hits[0][len(struck):], root, resolver, n, cite_lines)
             if not why and classified is not None:
-                # The classification must say what the strike says (D00 T06 §3's plan review).
-                if n not in classified:
-                    why = "has no classification line (- %d: ...) in %s" % (n, record)
-                elif settled_key(classified[n]) != settled_key(hits[0][len(struck):]):
-                    why = "is classified as %s in %s, but struck as %s" % (settled_key(classified[n]), record, settled_key(hits[0][len(struck):]))
+                # The classification must say what the strike says, once, with its evidence (D00 T06 §3).
+                why = record_problem(n, classified.get(n, []), hits[0][len(struck):], record)
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))

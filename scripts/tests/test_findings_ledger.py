@@ -86,27 +86,36 @@ class FindingsLedgerTest(unittest.TestCase):
     def test_an_owner_must_cite_the_findings_own_base_line(self):
         # D00 T06 §3's plan review: two findings on one file each need their own item, which naming the file can't show.
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
-        for body, settled in (("Fix `scripts/a.py` (base line 5) so the first finding holds.", True),
-                              ("Fix `scripts/a.py` (base lines 3 to 6).", True),
-                              ("Fix `scripts/a.py` (base lines 4 and 5).", True),
-                              ("Fix `scripts/a.py` (base line 50) for another finding.", False),
-                              ("Fix `scripts/a.py` so the first finding holds.", False)):
+        intro = "From `scripts/a.py` (base lines 3 to 8).\n\n"  # a section introduction owns nothing (round 1 of §3)
+        for body, settled in ((intro + "- [ ] Fix `scripts/a.py` (base line 5) so the first finding holds.", True),
+                              (intro + "- [x] Fix `scripts/a.py` (base lines 3 to 6).", True),
+                              (intro + "- [ ] Fix `scripts/a.py` (base lines 4 and 5).", True),
+                              (intro + "- [ ] Fix `scripts/a.py` (base line 50) for another finding.", False),
+                              (intro + "- [ ] Fix `scripts/a.py` so the first finding holds.", False)):
             with self.subTest(body=body):
                 resolver = lambda ref, root, body=body: (0, body) if ref == "D09 T01 §1" else fake_resolve(ref, root)
                 code, out = self.checked(resolver, cite_lines=True)
                 self.assertEqual(code, 0 if settled else 1, out)
                 if not settled:
-                    self.assertIn("base line 5: D09 T01 §1 does not cite base line 5", out)
+                    self.assertIn("base line 5: D09 T01 §1 has no checklist item citing base line 5", out)
         code, out = self.checked()  # without --cite-lines, naming the file is enough, as before
         self.assertEqual(code, 0, out)
 
     def test_the_classification_must_agree_with_every_strike(self):
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
         record = self.root / "classification.md"
+        good = {5: "- 5: Scheduled: D09 T01 §1 (item 2, the fix). Inspected `scripts/a.py:1`: the first finding is still true.",
+                6: "- 6: Declined: one-off (a one-off script nobody runs again). Inspected `scripts/b.py`: it runs once.",
+                8: "- 8: Done: D09 T01 §3 (shipped it). Inspected `scripts/d.py`: it does it now."}
         for lines, settled, says in (
-                (["- 5: Scheduled: D09 T01 §1 (item 2).", "- 6: Declined: one-off.", "- 8: Done: D09 T01 §3."], True, ""),
-                (["- 5: Scheduled: D09 T01 §1.", "- 8: Done: D09 T01 §3."], False, "base line 6: has no classification line"),
-                (["- 5: Scheduled: D09 T01 §2.", "- 6: Declined: x.", "- 8: Done: D09 T01 §3."], False, "base line 5: is classified as ('Scheduled', 'D09 T01 §2')")):
+                ([good[5], good[6], good[8]], True, ""),
+                ([good[5], good[8]], False, "base line 6: has no classification line"),
+                ([good[5].replace("§1 (", "§2 ("), good[6], good[8]], False, "base line 5: is classified as ('Scheduled', 'D09 T01 §2')"),
+                # Round 1 of D00 T06 §3: a second line for one base line, a line stripped of its evidence, and a
+                # scheduled line naming no item.
+                ([good[5], good[6], good[8], "- 6: Scheduled: D09 T01 §1 (item 1, other). Inspected `x`: y."], False, "base line 6: is classified 2 times"),
+                (["- 5: Scheduled: D09 T01 §1.", good[6], good[8]], False, "base line 5: has a classification line without its evidence"),
+                ([good[5].replace("item 2, the fix", "the fix"), good[6], good[8]], False, "base line 5: is scheduled in")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(record=record)
