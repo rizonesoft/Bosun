@@ -100,42 +100,43 @@ Sections: 11 | Checklist items: 76
 
 ### Phase 2: Shell and brand
 
-Sections: 32 | Checklist items: 281
+Sections: 33 | Checklist items: 284
 
-| Status | Reference   | Deliverable                                                               | Needs           | Items |
-| ------ | ----------- | ------------------------------------------------------------------------- | --------------- | ----- |
-| [x]    | D02 T01 §1  | Generate the theme from tokens                                            | none            | 7     |
-| [x]    | D02 T01 §2  | Contrast and stray colour tests                                           | none            | 4     |
-| [x]    | D02 T01 §5  | App icon ICO from the masters                                             | none            | 8     |
-| [x]    | D02 T01 §3  | Tray state icons and the icon drift gate                                  | none            | 7     |
-| [x]    | D02 T02 §3  | Process runner                                                            | none            | 9     |
-| [x]    | D02 T02 §8  | Pollers that stop when nothing is looking                                 | none            | 6     |
-| [x]    | D02 T02 §9  | Off-screen page rendering for review                                      | none            | 9     |
-| [x]    | D02 T01 §4  | Control templates                                                         | none            | 25    |
-| [x]    | D02 T02 §1  | Startup, single instance and crash handling                               | none            | 16    |
-| [x]    | D02 T02 §2  | View model base and accessibility helpers                                 | none            | 7     |
-| [x]    | D02 T02 §4  | Window chrome, rail and activity pane                                     | none            | 23    |
-| [x]    | D02 T02 §5  | Settings store and theme switching                                        | none            | 16    |
-| [x]    | D02 T02 §7  | Tray icon and notifications                                               | none            | 12    |
-| [x]    | D02 T02 §10 | End-to-end smoke through UI Automation                                    | display-session | 14    |
-| [x]    | D02 T03 §1  | Elevation and motion tokens                                               | none            | 8     |
-| [x]    | D02 T03 §2  | Mica backdrop with a solid fallback                                       | display-session | 9     |
-| [x]    | D02 T03 §3  | Lucide icon map and rail marker                                           | display-session | 9     |
-| [x]    | D02 T03 §4  | Status pill and segmented control                                         | display-session | 8     |
-| [x]    | D02 T03 §5  | Gauge, sparkline and stacked bar                                          | display-session | 8     |
-| [x]    | D02 T03 §6  | Queue slot visuals                                                        | none            | 3     |
-| [x]    | D02 T03 §7  | Skeleton and page transitions                                             | none            | 12    |
-| [x]    | D02 T03 §8  | Command palette                                                           | display-session | 11    |
-| [x]    | D02 T03 §9  | In-window toasts                                                          | display-session | 8     |
-| [x]    | D02 T03 §10 | High contrast theme and renders                                           | none            | 11    |
-| [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                        | display-session | 4     |
-| [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen            | display-session | 7     |
-| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named | none            | 4     |
-| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests             | display-session | 3     |
-| [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                | none            | 3     |
-| [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray         | none            | 3     |
-| [ ]    | D02 T05 §5  | Icons checked at every scale and under colour-vision simulation           | display-session | 4     |
-| [ ]    | D02 T05 §6  | Process runner measured against asynchronous pipes                        | none            | 3     |
+| Status | Reference   | Deliverable                                                               | Needs                     | Items |
+| ------ | ----------- | ------------------------------------------------------------------------- | ------------------------- | ----- |
+| [x]    | D02 T01 §1  | Generate the theme from tokens                                            | none                      | 7     |
+| [x]    | D02 T01 §2  | Contrast and stray colour tests                                           | none                      | 4     |
+| [x]    | D02 T01 §5  | App icon ICO from the masters                                             | none                      | 8     |
+| [x]    | D02 T01 §3  | Tray state icons and the icon drift gate                                  | none                      | 7     |
+| [x]    | D02 T02 §3  | Process runner                                                            | none                      | 9     |
+| [x]    | D02 T02 §8  | Pollers that stop when nothing is looking                                 | none                      | 6     |
+| [x]    | D02 T02 §9  | Off-screen page rendering for review                                      | none                      | 9     |
+| [x]    | D02 T01 §4  | Control templates                                                         | none                      | 25    |
+| [x]    | D02 T02 §1  | Startup, single instance and crash handling                               | none                      | 16    |
+| [x]    | D02 T02 §2  | View model base and accessibility helpers                                 | none                      | 7     |
+| [x]    | D02 T02 §4  | Window chrome, rail and activity pane                                     | none                      | 23    |
+| [x]    | D02 T02 §5  | Settings store and theme switching                                        | none                      | 16    |
+| [x]    | D02 T02 §7  | Tray icon and notifications                                               | none                      | 12    |
+| [x]    | D02 T02 §10 | End-to-end smoke through UI Automation                                    | display-session           | 14    |
+| [x]    | D02 T03 §1  | Elevation and motion tokens                                               | none                      | 8     |
+| [x]    | D02 T03 §2  | Mica backdrop with a solid fallback                                       | display-session           | 9     |
+| [x]    | D02 T03 §3  | Lucide icon map and rail marker                                           | display-session           | 9     |
+| [x]    | D02 T03 §4  | Status pill and segmented control                                         | display-session           | 8     |
+| [x]    | D02 T03 §5  | Gauge, sparkline and stacked bar                                          | display-session           | 8     |
+| [x]    | D02 T03 §6  | Queue slot visuals                                                        | none                      | 3     |
+| [x]    | D02 T03 §7  | Skeleton and page transitions                                             | none                      | 12    |
+| [x]    | D02 T03 §8  | Command palette                                                           | display-session           | 11    |
+| [x]    | D02 T03 §9  | In-window toasts                                                          | display-session           | 8     |
+| [x]    | D02 T03 §10 | High contrast theme and renders                                           | none                      | 11    |
+| [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                        | display-session           | 4     |
+| [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen            | display-session           | 7     |
+| [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named | none                      | 4     |
+| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests             | display-session           | 3     |
+| [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                | none                      | 3     |
+| [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray         | none                      | 3     |
+| [ ]    | D02 T05 §5  | Icons checked at every scale and under colour-vision simulation           | display-session           | 4     |
+| [ ]    | D02 T05 §6  | Process runner measured against asynchronous pipes                        | none                      | 3     |
+| [ ]    | D02 T05 §7  | Runner badges and the tray cue recognised by people at a glance           | display-session, attended | 3     |
 
 ### Phase 3: Monitoring
 
@@ -218,6 +219,6 @@ Sections: 6 | Checklist items: 28
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 106/163 verified sections, 35 ready to run now.
+Progress: 106/164 verified sections, 35 ready to run now.
 
-Checklist: 1028/1264 items completed (includes Commit items).
+Checklist: 1028/1267 items completed (includes Commit items).

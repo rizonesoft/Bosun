@@ -37,6 +37,7 @@ title: "TODO-05 -- Shell follow-ups"
 | 4 | §4 | Icon build failures in one line, and an attention cue on the tray | -- | [ ] |
 | 5 | §5 | Icons checked at every scale and under colour-vision simulation | §4 | [ ] |
 | 6 | §6 | Process runner measured against asynchronous pipes | -- | [ ] |
+| 7 | §7 | Runner badges and the tray cue recognised by people at a glance | §4, §5 | [ ] |
 
 ## 1. Contrast holds on hovered rows and every drawn pair, with the token named
 
@@ -114,7 +115,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 70 and 74,
 2. Add the cue. Done when: the `needs` icon carries an attention mark that reads at 16 and 20 px.
 
 - [ ] Catch a missing master, a renderer error and a write failure in `main` of `scripts/build-icons.py`, each printing one line with the path, the cause, that the old icon is kept and the fix, with its own exit code (base line 70). Done when: a test in `scripts/tests/` drives all three and reads each line and the old icon unchanged.
-- [ ] Draw an attention cue inside the `needs` disc (an exclamation mark, from `design/icon/`), keeping the decided disc, and render it at 16 and 20 px in both themes (base line 74). Done when: the frames are in `build/renders/`, the `needs` state is told apart from the others by the existing state test, and the cue is legible at 16 px in the render.
+- [ ] Draw an attention cue inside the `needs` disc (an exclamation mark, from `design/icon/`), keeping the decided disc, and render it at 16 and 20 px in both themes (base line 74). Done when: the frames are in `build/renders/`, the `needs` state is told apart from the others by the existing state test, and the cue is legible at 16 px in the render. Whether a first-time user reads it without hovering is `§7`'s.
 - [ ] Commit: `icons: build failures in one line, and an attention cue on the tray (D02 T05 §4)`
 
 **Test checkpoint:** `python scripts/run-tests.py test_build_icons` exits 0, with the missing-master test failing against the unhandled `build` call.
@@ -139,7 +140,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 46 and 71,
 
 - [ ] Write `scripts/check-icons.py` to capture `resources/bosun.ico` and both runner badges at 100%, 125%, 150% and 200% scaling on a light and a dark background in a real display session, into `build/renders/icons/` (base line 71). Done when: the 16 captures are written with the commit they came from.
 - [ ] Compare each capture with an ImageMagick `icon:auto-resize` baseline of the same master, and record the per-frame difference here (base line 71). Done when: each frame's difference is recorded, and a frame worse than the baseline is fixed or filed with its numbers.
-- [ ] Simulate protanopia, deuteranopia and tritanopia on the badge captures and measure the colour difference between the two runners' badges (base line 46), keeping the decided design. Done when: the difference is recorded for each simulation and scale, and a pair below a ΔE of 20 is fixed or filed with its numbers.
+- [ ] Simulate protanopia, deuteranopia and tritanopia on the badge captures and measure the colour difference between the two runners' badges (base line 46), keeping the decided design. Done when: the difference is recorded for each simulation and scale, and a pair below a ΔE of 20 is fixed or filed with its numbers. Whether a person tells them apart within two seconds is `§7`'s.
 - [ ] Commit: `icons: checked at every scale and under colour-vision simulation (D02 T05 §5)`
 
 **Test checkpoint:** `python scripts/check-icons.py` exits 0 and writes its 16 captures and its table; it fails when a badge is swapped for the other runner's.
@@ -167,6 +168,30 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 75, complet
 - [ ] Commit: `core: the process runner measured against asynchronous pipes (D02 T05 §6)`
 
 **Test checkpoint:** `dotnet test tests/Bosun.Core.Tests --filter ProcessRunner` exits 0, and the benchmark table is in this section.
+
+## 7. Runner badges and the tray cue recognised by people at a glance
+
+Filed 2026-11-22 by the completion review of `D00 T06 §2` from `todo/findings.md` (base lines 46 and 74): the two targets only people can judge. `§5` measures the colour difference between the runner badges from `scripts/build-icons.py`, and `§4` draws the tray's attention cue, but neither says whether a person tells the runners apart within two seconds, or whether a first-time user reads the cue as "action needed" without hovering.
+
+**Phase:** 2
+**Needs:** display-session,attended
+**Surface:** yes
+
+**Build order:**
+
+1. Time the runner identification. Done when: viewers name each runner's badge within two seconds at every scale, background and simulation.
+2. Ask first-time users about the cue. Done when: first-time users say what the `needs` icon means without hovering.
+
+- [ ] Show each runner badge capture from `§5` (100%, 150% and 200%, light and dark, each colour-vision simulation) for two seconds, in random order, to at least three viewers, and record how many name the runner correctly (base line 46). Done when: the results table is in this section, and any capture under three correct of three is fixed in `scripts/build-icons.py` and shown again.
+- [ ] Show the tray's `needs` icon from `§4` at 16 and 20 px, in both themes, to at least three people who have not used Bosun, and ask what it asks of them, without hovering (base line 74). Done when: their answers are recorded here, and the cue is redrawn and asked again if fewer than three say it needs their action.
+- [ ] Commit: `icons: runner badges and the tray cue recognised at a glance (D02 T05 §7)`
+
+**Test checkpoint:** the results tables in this section show three correct of three for every capture and every icon size, and `python scripts/check-icons.py` still exits 0 on the final icons.
+
+**Fidelity:** the captures from `§5` and the tray icons from `§4`.
+**Job:** the operator knows which runner a shortcut starts, and that the tray needs them, at a glance.
+**Treatment:** a timed showing with real viewers. Cheaper substitute that fails: a colour-difference number standing in for recognition.
+**Chrome:** the icons from `scripts/build-icons.py`; nothing new drawn for the test.
 
 ## Verification
 
