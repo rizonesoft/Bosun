@@ -585,6 +585,64 @@ switch ($Mode) {
     } finally {
       $pStall.Dispose()
     }
+
+    # 7. Regression (R4 F1 & F2): a 4 MiB burst into a stalled stdout pipe drains quickly without per-chunk 50 ms stalls,
+    #    and a transient reader pause recovers once the reader resumes so summary and log: <path> are still delivered.
+    $burstLogs = Join-Path $liveDir 'burst-logs'
+    New-Item -ItemType Directory -Path $burstLogs | Out-Null
+    $env:BOSUN_SCRATCH = $burstLogs
+    $burstScript = Join-Path $liveDir 'burst.ps1'
+    Set-Content -LiteralPath $burstScript -Value '$chunk = "B" * 65536; for ($i = 0; $i -lt 64; $i++) { [Console]::Out.WriteLine($chunk) }'
+    $burstSteps = Join-Path $liveDir 'burst-steps.json'
+    ConvertTo-Json -InputObject @(@{ name = 'burst'; file = 'pwsh'; args = @('-NoProfile', '-File', $burstScript) }) -Depth 4 | Set-Content -LiteralPath $burstSteps
+    $psiBurst = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $psiBurst.WorkingDirectory = $repo
+    $psiBurst.UseShellExecute = $false
+    $psiBurst.RedirectStandardOutput = $true
+    $psiBurst.RedirectStandardError = $true
+    $psiBurst.CreateNoWindow = $true
+    foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $burstSteps)) { $psiBurst.ArgumentList.Add($arg) }
+    $burstClock = [Diagnostics.Stopwatch]::StartNew()
+    $pBurst = [Diagnostics.Process]::Start($psiBurst)
+    try {
+      $burstExited = $pBurst.WaitForExit(10000)
+      $burstElapsed = $burstClock.Elapsed.TotalSeconds
+      if (-not $burstExited) { $pBurst.Kill($true); $pBurst.WaitForExit() }
+      $burstLog = Get-ChildItem -LiteralPath $burstLogs -Filter 'bosun-check-all-*.log' | Select-Object -First 1
+      $burstLogLen = if ($burstLog) { $burstLog.Length } else { 0 }
+      Check 'a 4 MiB burst with a stalled stdout pipe finishes quickly without per-chunk waits and keeps all bytes in the log' ($burstExited -and
+        $pBurst.ExitCode -eq 0 -and $burstElapsed -lt 8.0 -and $burstLogLen -ge 4194304) "(exited=$burstExited, exit=$($pBurst.ExitCode), elapsed=$burstElapsed s, logBytes=$burstLogLen)"
+    } finally { $pBurst.Dispose() }
+
+    $pauseFlag = Join-Path $liveDir 'pause-step2.flag'
+    $pauseSteps = Join-Path $liveDir 'pause-steps.json'
+    ConvertTo-Json -InputObject @(
+      @{ name = 'burst1'; file = 'pwsh'; args = @('-NoProfile', '-File', $burstScript) }
+      @{ name = 'step2'; file = 'pwsh'; args = @('-NoProfile', '-File', $liveStepScript, 'live-hold', $pauseFlag) }
+    ) -Depth 4 | Set-Content -LiteralPath $pauseSteps
+    $psiPause = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $psiPause.WorkingDirectory = $repo
+    $psiPause.UseShellExecute = $false
+    $psiPause.RedirectStandardOutput = $true
+    $psiPause.RedirectStandardError = $true
+    $psiPause.CreateNoWindow = $true
+    foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $pauseSteps)) { $psiPause.ArgumentList.Add($arg) }
+    $pPause = [Diagnostics.Process]::Start($psiPause)
+    try {
+      # Pause reading for 1.5 s while burst1 fills the pipe, then resume reading and release step2.
+      Start-Sleep -Milliseconds 1500
+      $pauseCap = [BosunTestAsyncCapture]::new()
+      $pauseCap.Attach($pPause)
+      Start-Sleep -Milliseconds 500
+      Set-Content -LiteralPath $pauseFlag -Value 'go'
+      $pauseExited = Wait-GateExit $pPause 15000
+      $pauseOut = $pauseCap.GetText()
+      Check 'after a transient stdout pause, resuming reads still delivers the final summary and log: <path>' ($pauseExited -and
+        $pPause.ExitCode -eq 0 -and $pauseOut -match 'all 2 steps passed' -and (Get-LogPath $pauseOut)) "(exited=$pauseExited, exit=$($pPause.ExitCode), log='$(Get-LogPath $pauseOut)')"
+    } finally {
+      if (-not $pPause.HasExited) { $pPause.Kill($true) }
+      $pPause.Dispose()
+    }
   } finally {
     Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore
     $env:BOSUN_SCRATCH = $defaultLogRoot

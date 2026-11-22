@@ -141,6 +141,7 @@ namespace Bosun {
     private readonly ManualResetEventSlim _idle = new ManualResetEventSlim(true);
     private int _pending;
     private int _stalled;
+    private int _broken;
     private int _closed;
 
     public ConsolePump() {
@@ -150,6 +151,7 @@ namespace Bosun {
     }
 
     public bool Stalled { get { return Volatile.Read(ref _stalled) != 0; } }
+    public bool Broken { get { return Volatile.Read(ref _broken) != 0; } }
 
     private void Run() {
       try {
@@ -157,15 +159,19 @@ namespace Bosun {
           try {
             _stdout.Write(chunk, 0, chunk.Length);
             _stdout.Flush();
+            // A completed stdout write proves the consumer is draining again.
+            Volatile.Write(ref _stalled, 0);
           } finally {
             if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
           }
         }
       } catch (IOException) {
         // Broken or closed stdout pipe: stop pumping console output without affecting scratch logging.
+        Volatile.Write(ref _broken, 1);
         Volatile.Write(ref _stalled, 1);
       } catch (ObjectDisposedException) {
         // Stdout stream closed during teardown.
+        Volatile.Write(ref _broken, 1);
         Volatile.Write(ref _stalled, 1);
       } finally {
         _idle.Set();
@@ -173,13 +179,15 @@ namespace Bosun {
     }
 
     public void Enqueue(byte[] data, int count) {
-      if (data == null || count <= 0 || _closed != 0) return;
+      if (data == null || count <= 0 || _closed != 0 || Broken) return;
+      // While stalled, try non-blockingly (0 ms) so draining megabytes into the scratch log pays zero wait per chunk.
+      int waitMs = Stalled ? 0 : 50;
       byte[] copy = new byte[count];
       Buffer.BlockCopy(data, 0, copy, 0, count);
       Interlocked.Increment(ref _pending);
       _idle.Reset();
       try {
-        if (!_queue.TryAdd(copy, 50)) {
+        if (!_queue.TryAdd(copy, waitMs)) {
           Volatile.Write(ref _stalled, 1);
           if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
         }
@@ -189,16 +197,14 @@ namespace Bosun {
     }
 
     public bool WaitIdle(int waitMs) {
-      if (Stalled) return false;
-      bool idle = _idle.Wait(waitMs);
-      if (!idle) Volatile.Write(ref _stalled, 1);
-      return idle;
+      if (Broken) return false;
+      return _idle.Wait(waitMs);
     }
 
     public void Close(int waitMs) {
       if (Interlocked.Exchange(ref _closed, 1) != 0) return;
       _queue.CompleteAdding();
-      _worker.Join(Stalled ? 0 : waitMs);
+      _worker.Join((Stalled || Broken) ? 0 : waitMs);
     }
 
     public void Dispose() { Close(2000); }
@@ -218,7 +224,9 @@ function Write-ConsoleBytes([byte[]]$Bytes, [int]$Count = -1) {
 }
 function Write-ConsoleLine([string]$Line) {
   # Emit gate lines through PowerShell's output stream so in-process callers (`$r = & scripts/check-all.ps1 ...`)
-  # capture them just like `-List`, while avoiding blocking when the stdout pipe is already stalled.
+  # capture them just like `-List`. Wait briefly for any queued step bytes so output stays ordered; if the console
+  # consumer is currently stalled (WaitIdle returns false), skip Write-Output for this line without permanently
+  # suppressing later lines once the consumer catches up.
   if (-not $consolePump.WaitIdle(200)) { return }
   Write-Output $Line
 }
