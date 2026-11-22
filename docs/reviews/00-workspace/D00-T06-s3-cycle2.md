@@ -136,3 +136,29 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 5: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:39:24Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: source-defect
+- Seconds: 52
+- Lines: 9
+- Digest: 4063a44119336ef5
+
+## source-defect
+
+**needs-attention**
+
+1. **P2** `docs/reviews/00-workspace/D00-T06-s3.md:64` cites only a TODO file as evidence for base line 108. The section contract at `todo/00-workspace/TODO-06-findings-triage.md:117` requires the current code or test inspected, with a `file:line` citation. To reproduce, run `rg -n '^- 108:' docs/reviews/00-workspace/D00-T06-s3.md`. The record establishes that the component sections were stamped, but gives no implementation or test evidence for its conclusion that frame timing was never measured. Cite the relevant animation test or timing harness and identify what it measures.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention
