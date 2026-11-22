@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from unittest import mock
 from pathlib import Path
 
@@ -1150,6 +1151,7 @@ class AntigravityRuns(unittest.TestCase):
         env = guard.replace(self.env(world, ci="abc123, gate pid 2"), wakes=lambda: [{"ref": "D00 T01 §1"}])
         answer, saved = self.stop(state, env)
         self.assert_watch_answer(answer["reason"], "a CI gate in flight (abc123, gate pid 2)")
+        self.assertEqual(saved.get("look_for"), ["a CI gate in flight (abc123, gate pid 2)"], "the hook did not keep what it named for look")
         self.assertNotIn("rows-waiting", answer["reason"])
         self.assertNotIn("wait_until", saved, "the woken hold was left for look to wait out")
         state = self.run_state()
@@ -1535,7 +1537,7 @@ class Look(unittest.TestCase):
         looker = threading.Thread(target=lambda: result.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
         looker.start()
         self.assertTrue(both.wait(10), "look never saw both gates live")
-        time.sleep(1.5)
+        time.sleep(3)
         self.assertTrue(looker.is_alive(), "look returned while both gates were live")
         first.kill(); first.wait()
         ended = time.monotonic()
@@ -1548,9 +1550,11 @@ class Look(unittest.TestCase):
 
     def test_with_nothing_live_it_returns_at_once_and_at_its_limit_with_all_of_it(self):
         started = time.monotonic()
+        said = guard.look(guard.replace(World().env()), lambda: {}, 30)
+        self.assertEqual(said, "nothing to wait for")
+        self.assertLess(time.monotonic() - started, 1, "with nothing live look must return within a second")
         out = self.look().communicate(timeout=30)[0]
         self.assertEqual(out.strip(), "nothing to wait for")
-        self.assertLess(time.monotonic() - started, 5)
         gate = self.gate()
         started = time.monotonic()
         out = self.look("--max-seconds", "2").communicate(timeout=30)[0]
@@ -1579,7 +1583,9 @@ class Look(unittest.TestCase):
         clock = iter(range(100))
         said = guard.look(self.fake([None]), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
         self.assertEqual(said, "ended: the run state, which can't be read now; still waiting: nothing")
-        env = {**self.env, "RUN_GUARD_STATE": str(guard.ROOT / "scripts")}  # a folder: reading it fails
+        unreadable = Path(self.folder.name) / "state-is-a-folder"  # a folder: reading it fails; its lock and log stay here
+        unreadable.mkdir()
+        env = {**self.env, "RUN_GUARD_STATE": str(unreadable)}
         out = subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", "--max-seconds", "1"], env=env,
                              capture_output=True, text=True, encoding="utf-8", timeout=60, **guard.hidden()).stdout
         self.assertEqual(out.strip(), "still waiting: the run state, which can't be read now")
@@ -1616,24 +1622,111 @@ class Look(unittest.TestCase):
         env = guard.replace(World().env(), reviewing=lambda: guard.review_in_flight(root), gating=gating)
         review = f"a review in flight (astra, dispatcher pid {dispatcher.pid})"
 
+        result_box, ended_at = {}, []
+
         def look_until(end_it):
-            result = {}
-            looker = threading.Thread(target=lambda: result.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
+            result_box.clear()
+            looker = threading.Thread(target=lambda: result_box.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
             looker.start()
             end_it()
             looker.join(30)
-            return result.get("said")
+            return result_box.get("said")
 
         def end_gate():
             self.assertTrue(both.wait(10), "look never saw the review and the gate live together")
+            time.sleep(3)  # still blocked three seconds on
+            self.assertNotIn("said", result_box, "look returned while the review and the gate were live")
             gate.kill(); gate.wait()
+            ended_at.append(time.monotonic())
 
         def end_review():
             time.sleep(1.5)  # look is blocked on the review alone
             dispatcher.kill(); dispatcher.wait()
 
         self.assertEqual(look_until(end_gate), f"ended: a local gate in flight (check-all, pid {gate.pid}); still waiting: {review}")
+        self.assertLess(time.monotonic() - ended_at[0], 5, "the gate's end was reported more than five seconds late")
         self.assertEqual(look_until(end_review), f"ended: {review}; still waiting: nothing")
+
+    def test_a_tool_the_hook_named_that_ended_before_look_is_reported_at_once(self):
+        # Completion review of D00 T03 §29: what the hook named is where look starts, and what is left is kept.
+        a, b = "a local gate in flight (check-all, pid 9)", "a local gate in flight (measure-build, pid 10)"
+        kept = []
+        started = time.monotonic()
+        said = guard.look(self.fake(["measure-build, pid 10"]), lambda: {"active": True, "look_for": [a, b]}, 30, keep=kept.append)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(said, f"ended: {a}; still waiting: {b}")
+        self.assertEqual(kept, [[b]])
+
+    def test_two_reviews_are_each_seen_and_the_second_ending_first_is_reported(self):
+        root = Path(self.folder.name) / "two"
+        (root / "build" / "review-in-flight").mkdir(parents=True)
+        dispatchers = []
+        for n in (1, 2):
+            process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+            self.addCleanup(lambda p=process: p.poll() is None and (p.kill(), p.wait()))
+            (root / "build" / "review-in-flight" / f"{n}-{process.pid}.json").write_text(
+                json.dumps({"pid": process.pid, "deadline": time.time() + 600, "reviewer": f"astra{n}"}), encoding="utf-8")
+            dispatchers.append(process)
+        first, second = dispatchers
+        both = f"astra1, dispatcher pid {first.pid}; astra2, dispatcher pid {second.pid}"
+        self.assertEqual(guard.review_in_flight(root), both)
+        env = guard.replace(World().env(), reviewing=lambda: guard.review_in_flight(root))
+        result = {}
+        looker = threading.Thread(target=lambda: result.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
+        looker.start()
+        time.sleep(2)
+        second.kill(); second.wait()
+        looker.join(10)
+        self.assertEqual(result.get("said"), f"ended: a review in flight (astra2, dispatcher pid {second.pid}); "
+                                             f"still waiting: a review in flight (astra1, dispatcher pid {first.pid})")
+
+    def test_a_reader_that_cannot_tell_keeps_the_wait_and_status_does_not_hold_on_it(self):
+        gate = "check-all, pid 9"
+        readings = [gate, f"{guard.CANT_TELL}: access denied", gate, None]
+        taken = []
+        def gating():
+            taken.append(1)
+            return readings[min(len(taken), len(readings)) - 1]
+        env = guard.replace(World().env(), gating=gating)
+        clock = iter(range(100))
+        said = guard.look(env, lambda: {}, 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, f"ended: a local gate in flight ({gate}); still waiting: nothing")
+        self.assertEqual(len(taken), 4, "the reading that could not tell was taken as the gate ending")
+        held = guard.replace(World().env(), gating=lambda: f"{guard.CANT_TELL}: access denied")
+        self.assertIsNone(guard.in_flight(held), "status held the run on a gate it could not see")
+        denied = Path(self.folder.name) / "denied"
+        denied.mkdir()
+        os.environ["BOSUN_GATE_MARK_DIR"] = str(denied)
+        self.addCleanup(os.environ.pop, "BOSUN_GATE_MARK_DIR", None)
+        real = os.listdir
+        def refuse(path):
+            if Path(path) == denied:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real(path)
+        with unittest.mock.patch.object(guard.os, "listdir", refuse):
+            self.assertTrue(guard.gate_in_flight().startswith(guard.CANT_TELL))
+
+    def test_a_state_turning_unreadable_as_a_gate_ends_stays_listed(self):
+        reads = iter([{}, None])
+        clock = iter(range(100))
+        said = guard.look(self.fake(["check-all, pid 9", None]), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, f"ended: a local gate in flight (check-all, pid 9); still waiting: {guard.UNREADABLE_STATE}")
+
+    def test_a_halt_ends_the_look_without_sending_the_session_on(self):
+        held = time.time() + 3600
+        reads = iter([{"active": True, "wait_until": held, "wait_reason": "reviewer-unavailable"},
+                      {"active": False, "status": "halted", "wait_until": held, "wait_reason": "reviewer-unavailable"}])
+        clock = iter(range(100))
+        said = guard.look(self.fake(["check-all, pid 9"]), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, "the run is no longer active (halted): stop waiting, and do not continue process-plan")
+        self.assertIn("On `the run is no longer active`, stop: do not continue process-plan.", guard.wait_in_session(["x"]))
+
+    def test_an_unbounded_budget_is_refused_before_any_look(self):
+        for bad in ("inf", "1e309", "nan", "-1", "541"):
+            done = subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", "--max-seconds", bad], env=self.env,
+                                  capture_output=True, text=True, encoding="utf-8", timeout=30, **guard.hidden())
+            self.assertEqual(done.returncode, 2, bad)
+            self.assertIn("--max-seconds must be a number from 0 to 540", done.stdout, bad)
 
     def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
         held = {"wait_until": 1_800_000_100.0, "wait_reason": "reviewer-unavailable"}

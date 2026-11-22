@@ -334,24 +334,47 @@ def pid_alive(pid: int) -> bool:
     return process_started(pid) is not None
 
 
+# What a reader says of a mark or a process it could not inspect (a denied folder, a locked file, a process query
+# refused). `status` and the Claude Code stop take it as nothing in flight, as before, so a broken folder never holds
+# a run; `look` takes it as "as last seen", so it never reads as an end (completion review of D00 T03 §29).
+CANT_TELL = "can't tell"
+
+
+def known(which: object) -> str | None:
+    """A reader's answer without its can't-tell entries, or None when nothing is known to be in flight."""
+    entries = [one for one in str(which).split("; ") if not one.startswith(CANT_TELL)] if which else []
+    return "; ".join(entries) or None
+
+
 def review_in_flight(root: Path | None = None) -> str | None:
-    """A reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/, or None. A
-    mark counts only while its process lives and its deadline hasn't passed, so a crashed dispatcher's leftover never
-    holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
+    """Every reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/ (one per
+    review), or None. A mark counts only while its process lives and its deadline hasn't passed, so a crashed
+    dispatcher's leftover never holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
     folder = build_dir(root) / "review-in-flight"
     try:
         names = sorted(os.listdir(folder))
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as error:
+        return f"{CANT_TELL}: {error}"
+    live = []
     for name in names:
         try:
             doc = json.loads((folder / name).read_text(encoding="utf-8"))
             pid, deadline = int(doc["pid"]), float(doc["deadline"])
-        except (OSError, ValueError, KeyError, TypeError):
+        except FileNotFoundError:
+            continue  # removed as its review ended
+        except OSError as error:
+            live.append(f"{CANT_TELL}: {name} ({error})")
             continue
-        if pid > 0 and time.time() <= deadline and pid_alive(pid):
-            return f"{doc.get('reviewer', 'reviewer')}, dispatcher pid {pid}"
-    return None
+        except (ValueError, KeyError, TypeError):
+            continue  # not a mark: the dispatcher writes them whole
+        try:
+            if pid > 0 and time.time() <= deadline and pid_alive(pid):
+                live.append(f"{doc.get('reviewer', 'reviewer')}, dispatcher pid {pid}")
+        except OSError as error:
+            live.append(f"{CANT_TELL}: dispatcher pid {pid} ({error})")
+    return "; ".join(live) or None
 
 
 CI_WAIT_LIMIT = 2 * 60 * 60  # scripts/ci_status.py WAIT_LIMIT_SECONDS: past it the gate answers `unverified`
@@ -364,10 +387,17 @@ def ci_in_flight(root: Path | None = None) -> str | None:
     try:
         waiting = json.loads((build_dir(root) / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
         sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        return f"{CANT_TELL}: {error}"
+    except (ValueError, KeyError, TypeError, AttributeError):
         return None  # no wait, or one from a gate too old to name its pid: nothing is polling
-    if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
-        return f"{sha[:12]}, gate pid {pid}"
+    try:
+        if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
+            return f"{sha[:12]}, gate pid {pid}"
+    except OSError as error:
+        return f"{CANT_TELL}: gate pid {pid} ({error})"
     return None
 
 
@@ -386,27 +416,34 @@ def gate_in_flight(root: Path | None = None) -> str | None:
     folder = gate_mark_dir(root)
     try:
         names = sorted(os.listdir(folder))
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as error:
+        return f"{CANT_TELL}: {error}"
     live = []
     for name in names:
         try:
             doc = json.loads((folder / name).read_text(encoding="utf-8-sig"))
             pid, started = int(doc["pid"]), int(doc["started"])
-        except (OSError, ValueError, KeyError, TypeError):
+        except FileNotFoundError:
+            continue  # removed as its gate ended
+        except OSError as error:
+            live.append(f"{CANT_TELL}: {name} ({error})")
             continue
+        except (ValueError, KeyError, TypeError):
+            continue  # not a mark: gate-mark.ps1 writes them whole
         try:
             if pid > 0 and process_started(pid) == started:
                 live.append(f"{doc.get('what') or 'a gate'}, pid {pid}")  # every one: two gates can run at once
-        except OSError:
-            continue  # can't tell: holding the run on it would be holding it on nothing seen
+        except OSError as error:
+            live.append(f"{CANT_TELL}: pid {pid} ({error})")
     return "; ".join(live) or None
 
 
 def in_flight(env: Env) -> str | None:
     """Everything the run waits for in flight now, for `status`: a review, a CI gate and a local gate, or None."""
     found = [f"{what} in flight ({which})" for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting),
-                                                             ("a local gate", env.gating)) if (which := read())]
+                                                             ("a local gate", env.gating)) if (which := known(read()))]
     return "; ".join(found) or None
 
 
@@ -450,7 +487,7 @@ def on_stop(state: dict, data: dict, env: Env) -> str | None:
     now = time.time()
     # A run waiting on its rows goes on early when a wake's check passes: the session applies the wake.
     woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
-    if (waiting(state, now) and not woken) or env.reviewing() or env.ci_waiting() or env.gating():
+    if (waiting(state, now) and not woken) or known(env.reviewing()) or known(env.ci_waiting()) or known(env.gating()):
         # The turn may end, and it isn't idleness: nothing can be done until a wait passes, a review in flight must not
         # have the tree change under it, a CI `wait` starts no next row, and a long local gate is still deciding.
         # Its notification, or the heartbeat, takes the row up again.
@@ -676,51 +713,100 @@ def woken_now(state: dict, env: Env, now: float | None = None) -> bool:
     return waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
 
 
+UNREADABLE_STATE = "the run state, which can't be read now"
+TOOL_KINDS = (("a review", "reviewing"), ("a CI gate", "ci_waiting"), ("a local gate", "gating"))
+NO_LONGER_ACTIVE = "the run is no longer active ({}): stop waiting, and do not continue process-plan"
+
+
+def kind_of(item: str) -> str:
+    return item.split(" in flight (", 1)[0]
+
+
+def is_tool(item: str) -> bool:
+    return kind_of(item) in {what for what, _ in TOOL_KINDS}
+
+
+def tool_waits(env: Env) -> tuple[list[str], set[str]]:
+    """The reviews, CI gates and local gates in flight now, one entry each, and the kinds whose reader could not tell
+    (`CANT_TELL`), which `look` keeps as last seen."""
+    items, unsure = [], set()
+    for what, field in TOOL_KINDS:
+        which = getattr(env, field)()
+        for one in (str(which).split("; ") if which else []):
+            if one.startswith(CANT_TELL):
+                unsure.add(what)
+            else:
+                items.append(f"{what} in flight ({one})")
+    return items, unsure
+
+
+def timed_wait(state: dict, now: float | None = None) -> list[str]:
+    if not waiting(state, now):
+        return []
+    detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
+    return [f"the wait for {state.get('wait_reason')} until {stamp(state['wait_until'])}{detail}"]
+
+
 def waits_now(env: Env, state: dict | None, now: float | None = None) -> list[str]:
     """Each thing the run waits for now, one entry each: a review, a CI gate, every local gate, a timed wait that
-    hasn't passed, and a run state that can't be read (`None`), which is never taken as nothing to wait for. `look`
-    compares these, so an entry's text stays the same while it lasts. A rows-waiting hold whose wake has come is ended
-    in the state by the Stop hook (`on_antigravity_stop`), so `look` never runs the wake checks itself."""
-    items = []
-    for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting), ("a local gate", env.gating)):
-        which = read()
-        if which:
-            items.extend(f"{what} in flight ({one})" for one in str(which).split("; "))
-    if state is None:
-        items.append("the run state, which can't be read now")
-    elif waiting(state, now):
-        detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
-        items.append(f"the wait for {state.get('wait_reason')} until {stamp(state['wait_until'])}{detail}")
-    return items
+    hasn't passed, and a run state that can't be read (`None`), which is never taken as nothing to wait for. A
+    rows-waiting hold whose wake has come is ended in the state by the Stop hook (`on_antigravity_stop`), so `look`
+    never runs the wake checks itself."""
+    return tool_waits(env)[0] + ([UNREADABLE_STATE] if state is None else timed_wait(state, now))
 
 
 def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SECONDS,
          clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
-         wall: Callable[[], float] = time.time) -> str:
+         wall: Callable[[], float] = time.time, keep: Callable[[list[str]], None] = lambda left: None) -> str:
     """`run-guard.py look`: wait in the session on everything the run waits for, looking every second, and say what
-    changed as soon as anything ends (D00 T03 §29). Everything seen live during the look counts, so a gate that starts
-    and ends within one look is an end too. It starts nothing and leaves nothing running: an Antigravity session has no
-    heartbeat, and nothing outside a run's own session may act for it."""
+    changed as soon as anything ends (D00 T03 §29).
+
+    It starts from the tools the Stop hook or the last look named (`look_for` in the state), so one that ended between
+    them is reported at once, and everything seen live during the look counts too. A reader that can't tell keeps that
+    kind as last seen, and a state that can't be read is a wait of its own until a read succeeds, so neither reads as
+    an end (its completion review). A run that is no longer active, a halt, ends the look. `keep` is given the tools
+    still waiting when it returns, for the next look. It starts nothing and leaves nothing running."""
+
+    def finish(ended: list[str], left: list[str]) -> str:
+        keep([w for w in left if is_tool(w)])
+        return f"ended: {'; '.join(ended)}; still waiting: {'; '.join(left) or 'nothing'}"
+
     start = clock()
     state = load_state()
-    seen = waits_now(env, state, wall())
+    if state and state.get("active") is False:
+        return NO_LONGER_ACTIVE.format(state.get("status") or "ended")
+    tools, unsure = tool_waits(env)
+    named = [w for w in (state or {}).get("look_for") or [] if isinstance(w, str) and is_tool(w)]
+    gone = [w for w in named if w not in tools and kind_of(w) not in unsure]
+    current = tools + [w for w in named if kind_of(w) in unsure and w not in tools]
+    current += [UNREADABLE_STATE] if state is None else timed_wait(state, wall())
+    if gone:
+        return finish(gone, current)
+    seen = current
     if not seen:
+        keep([])
         return "nothing to wait for"
     while True:
-        left = start + limit - clock()
-        if left <= 0:
+        if clock() - start >= limit:
+            keep([w for w in seen if is_tool(w)])
             return "still waiting: " + "; ".join(seen)
-        sleep(min(1.0, left))
-        # A read that fails mid-look keeps the state last read, so a passing error never looks like an end; only a
-        # state never read at all is the wait 'the run state, which can't be read now'.
+        sleep(min(1.0, max(0.0, start + limit - clock())))
         fresh = load_state()
-        state = state if fresh is None else fresh
-        now = waits_now(env, state, wall())
+        if fresh and fresh.get("active") is False:
+            keep([])
+            return NO_LONGER_ACTIVE.format(fresh.get("status") or "ended")
+        if fresh is not None:
+            state = fresh
+        tools, unsure = tool_waits(env)
+        now = tools + [w for w in seen if is_tool(w) and kind_of(w) in unsure and w not in tools]  # as last seen
+        now += [UNREADABLE_STATE] if fresh is None else []
+        now += timed_wait(state, wall()) if state is not None else []
         ended = [w for w in seen if w not in now]
         if ended:
-            return f"ended: {'; '.join(ended)}; still waiting: {'; '.join(now) or 'nothing'}"
-        seen += [w for w in now if w not in seen]
-
+            return finish(ended, now)
+        # A read failing mid-look is listed if something else ends meanwhile, but its recovery is no news: only a
+        # state never read at all is a wait of its own.
+        seen += [w for w in now if w not in seen and w != UNREADABLE_STATE]
 
 def wait_in_session(items: list[str]) -> str:
     """What the Antigravity Stop hook answers while the run waits for anything: one loop on `look`, the same for a
@@ -733,7 +819,8 @@ def wait_in_session(items: list[str]) -> str:
         "named here or in a `look` line has a result to read once it is gone, whether `look` says `ended:` or it was "
         "already gone: read that tool's own result (the review dispatcher's final output and exit code, the action the "
         "CI gate printed, or the local gate's printed result) and act on it as process-plan says, then run `look` again "
-        "while its line says anything is still waiting. Start no new row while anything is still waiting, except as "
+        "while its line says anything is still waiting. On `the run is no longer active`, stop: do not continue "
+        "process-plan. Start no new row while anything is still waiting, except as "
         "process-phase allows: a CI gate on a stamp commit that touches only todo/, docs/reviews/ and docs/phase-runs/, "
         "after its candidate's own CI was green, lets the next row start, and a repair it prints comes first. On `nothing "
         "to wait for`, read the result of each one named that you have not read yet, then continue process-plan."
@@ -768,6 +855,9 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
     items = waits_now(env, {} if woken else state, now)
     if woken and items:  # the session will `look` on what is in flight: the hold it no longer has is ended for it
         end_wait(state, now, env.signature())
+    # The tools named here are where the next look starts, so one that ends before it is still reported (completion
+    # review of D00 T03 §29).
+    state["look_for"] = [w for w in items if is_tool(w)]
     if items:
         return wait_in_session(items)
     reason = on_stop(state, data, env)

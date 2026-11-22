@@ -54,7 +54,8 @@ def main() -> int:
     hook.add_argument("--runner", choices=guard.RUNNERS, default="claude")
     commands.add_parser("uninstall")
     looker = commands.add_parser("look", help="wait in this session until anything the run waits for ends (it starts nothing)")
-    looker.add_argument("--max-seconds", type=float, default=guard.LOOK_SECONDS)
+    looker.add_argument("--max-seconds", type=float, default=guard.LOOK_SECONDS,
+                        help=f"0 to {guard.LOOK_SECONDS}: one look stays under the shell tool's ten-minute limit")
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true", help="print only the JSON")
     wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
@@ -102,12 +103,30 @@ def main() -> int:
     if args.command == "uninstall":
         return uninstall()
     if args.command == "look":
+        import math
+
+        if not (math.isfinite(args.max_seconds) and 0 <= args.max_seconds <= guard.LOOK_SECONDS):
+            say(f"--max-seconds must be a number from 0 to {guard.LOOK_SECONDS}, not {args.max_seconds}")
+            return 2
+
         def current() -> dict | None:
             try:
                 return guard.load()
             except (OSError, ValueError):
-                return None  # look keeps the state it last read
-        say(guard.look(guard.REAL, current, max(0.0, args.max_seconds)))
+                return None  # look keeps the state it last read, and says it can't be read
+
+        def keep(left: list[str]) -> None:
+            """The tools still waiting, where the next look starts; a lock or a save that fails leaves the last list."""
+            try:
+                with guard.locked():
+                    state = guard.load()
+                    if state.get("active"):
+                        state["look_for"] = left
+                        guard.save(state)
+            except (OSError, ValueError) as error:  # look's answer stands; the next look may name a tool already read
+                guard.log(f"look: the tools still waiting could not be kept: {error!r}")
+
+        say(guard.look(guard.REAL, current, args.max_seconds, keep=keep))
         return 0
 
     if args.command == "status":
