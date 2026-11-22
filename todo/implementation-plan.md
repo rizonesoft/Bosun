@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 67 | Checklist items: 574
+Sections: 68 | Checklist items: 577
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -53,8 +53,9 @@ Sections: 67 | Checklist items: 574
 | [x]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 7     |
 | [x]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 6     |
 | [x]    | D00 T03 §29 | Antigravity waits see their result within seconds                                      | none        | 4     |
-| [ ]    | D00 T03 §30 | Guard status names a gate's stage, and Antigravity sees a failed guard                 | none        | 4     |
+| [ ]    | D00 T03 §30 | Antigravity sees a failed guard, within the hook's time                                | none        | 3     |
 | [ ]    | D00 T03 §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey             | none        | 4     |
+| [ ]    | D00 T03 §32 | Guard status names each wait's stage, elapsed time and output                          | none        | 4     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
 | [x]    | D00 T05 §3  | One sync command for both repositories                                                 | none        | 9     |
@@ -208,7 +209,7 @@ Sections: 8 | Checklist items: 36
 
 ### Phase 99: Manual, operator only
 
-Sections: 6 | Checklist items: 28
+Sections: 6 | Checklist items: 29
 
 | Status | Reference  | Deliverable                            | Needs                    | Items |
 | ------ | ---------- | -------------------------------------- | ------------------------ | ----- |
@@ -217,8 +218,8 @@ Sections: 6 | Checklist items: 28
 | [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 3     |
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
-| [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
+| [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 108/164 verified sections, 33 ready to run now.
+Progress: 108/165 verified sections, 34 ready to run now.
 
-Checklist: 1033/1267 items completed (includes Commit items).
+Checklist: 1033/1271 items completed (includes Commit items).
