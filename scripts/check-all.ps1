@@ -30,7 +30,9 @@ param(
   [ValidateRange(0.01, 720)][double]$StepMinutes = 30,
   [ValidateRange(0, 1440)][double]$QueueMinutes = 120,
   # For tests/check_all_test.ps1: a JSON file of stand-in steps ([{ "name", "file", "args" }]) run in place of the real ones.
-  [string]$StepFile
+  [string]$StepFile,
+  # For tests/check_all_test.ps1: fail log writes after this many successful writes (0 disables).
+  [int]$FailLogAfterWrites = 0
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -111,33 +113,95 @@ if ($unknown) { "check-all: no step named $($unknown -join ', '). The steps are:
 if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 
 # Each execution creates a distinct run log under the scratch root before the gate mark and before any step runs,
-# streaming all gate lines and step stdout/stderr to both console and log incrementally (D00 T07 §4).
+# holding the write handle open for the whole run (so external readers cannot acquire an incompatible lock mid-build)
+# and streaming all gate lines and step stdout/stderr to the log first and console via a bounded non-blocking pump (D00 T07 §4).
 $scratchRoot = Get-BosunScratchRoot
 $logName = "bosun-check-all-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).log"
 $logPath = Join-Path $scratchRoot $logName
+$logStream = $null
 try {
-  $initStream = [IO.File]::Open($logPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-  $initStream.Dispose()
+  $logStream = [IO.File]::Open($logPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
 } catch {
   "check-all: could not create run log '$logPath': $($_.Exception.Message)"
   exit 1
 }
 
+if (-not ('Bosun.ConsolePump' -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Concurrent;
+using System.IO;
+using System.Threading;
+
+namespace Bosun {
+  public sealed class ConsolePump : IDisposable {
+    private readonly BlockingCollection<byte[]> _queue = new BlockingCollection<byte[]>(64);
+    private readonly Stream _stdout;
+    private readonly Thread _worker;
+    private int _closed;
+
+    public ConsolePump() {
+      _stdout = Console.OpenStandardOutput();
+      _worker = new Thread(Run) { IsBackground = true, Name = "bosun-console-pump" };
+      _worker.Start();
+    }
+
+    private void Run() {
+      try {
+        foreach (byte[] chunk in _queue.GetConsumingEnumerable()) {
+          _stdout.Write(chunk, 0, chunk.Length);
+          _stdout.Flush();
+        }
+      } catch (IOException) {
+        // Broken or closed stdout pipe: stop pumping console output without affecting scratch logging.
+      } catch (ObjectDisposedException) {
+        // Stdout stream closed during teardown.
+      }
+    }
+
+    public void Enqueue(byte[] data, int count) {
+      if (data == null || count <= 0 || _closed != 0) return;
+      byte[] copy = new byte[count];
+      Buffer.BlockCopy(data, 0, copy, 0, count);
+      try { _queue.TryAdd(copy, 50); } catch (InvalidOperationException) { return; }
+    }
+
+    public void Close(int waitMs) {
+      if (Interlocked.Exchange(ref _closed, 1) != 0) return;
+      _queue.CompleteAdding();
+      _worker.Join(waitMs);
+    }
+
+    public void Dispose() { Close(2000); }
+  }
+}
+'@
+}
+
 $utf8 = [Text.UTF8Encoding]::new($false)
-$stdout = [Console]::OpenStandardOutput()
-function Write-ConsoleBytes([byte[]]$Bytes) {
-  if (-not $Bytes -or $Bytes.Length -eq 0) { return }
-  $stdout.Write($Bytes, 0, $Bytes.Length)
-  $stdout.Flush()
+$consolePump = [Bosun.ConsolePump]::new()
+$logWriteState = @{ Count = 0 }
+function Write-ConsoleBytes([byte[]]$Bytes, [int]$Count = -1) {
+  if (-not $Bytes) { return }
+  $len = if ($Count -ge 0) { $Count } else { $Bytes.Length }
+  if ($len -le 0) { return }
+  $consolePump.Enqueue($Bytes, $len)
 }
 function Write-ConsoleLine([string]$Line) {
-  Write-ConsoleBytes ($utf8.GetBytes($Line + [Environment]::NewLine))
+  $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
+  Write-ConsoleBytes $bytes $bytes.Length
 }
-function Write-LogBytes([byte[]]$Bytes) {
-  if (-not $Bytes -or $Bytes.Length -eq 0) { return }
+function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1) {
+  if (-not $Bytes) { return }
+  $len = if ($Count -ge 0) { $Count } else { $Bytes.Length }
+  if ($len -le 0) { return }
   try {
-    $fs = [IO.File]::Open($logPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-    try { $fs.Write($Bytes, 0, $Bytes.Length); $fs.Flush() } finally { $fs.Dispose() }
+    if ($FailLogAfterWrites -gt 0 -and $logWriteState.Count -ge $FailLogAfterWrites) {
+      throw [IO.IOException]::new("simulated log write failure after $FailLogAfterWrites write(s)")
+    }
+    $logStream.Write($Bytes, 0, $len)
+    $logStream.Flush()
+    $logWriteState.Count++
   } catch {
     $err = [InvalidOperationException]::new("check-all: failed to write run log '$logPath': $($_.Exception.Message)", $_.Exception)
     $err.Data['BosunLogWriteFailure'] = $true
@@ -146,18 +210,21 @@ function Write-LogBytes([byte[]]$Bytes) {
 }
 function Write-GateLine([string]$Line) {
   $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
-  Write-ConsoleBytes $bytes
-  Write-LogBytes $bytes
+  Write-LogBytes $bytes $bytes.Length
+  Write-ConsoleBytes $bytes $bytes.Length
 }
 
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1) and surfaces $logPath.
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
+$gateMark = $null
 try {
   $gateMark = Enter-GateMark 'check-all' $logPath
 } catch {
   $msg = "check-all: $($_.Exception.Message)"
   try { Write-GateLine $msg } catch { Write-ConsoleLine $msg; Write-ConsoleLine $_.Exception.Message }
   Write-ConsoleLine "log: $logPath"
+  $consolePump.Close(2000)
+  if ($logStream) { $logStream.Dispose() }
   exit 1
 }
 $savedWslenv = $env:WSLENV
@@ -206,27 +273,28 @@ foreach ($step in $steps) {
   }
   Write-GateLine "---- $($step.Name): $(Format-Command $step)"
   $stepOut = Join-Path $scratchRoot "bosun-check-all-step-$PID-$([guid]::NewGuid().ToString('N').Substring(0, 8)).out"
-  $streamState = @{ Offset = [long]0 }
+  $streamState = @{ Offset = [long]0; Buf = [byte[]]::new(16384) }
   $drainOutput = {
+    param([bool]$Final = $false)
     if (-not (Test-Path -LiteralPath $stepOut)) { return }
-    $chunks = [Collections.Generic.List[byte[]]]::new()
+    # Cap work per poll tick (256 KiB) so a noisy child cannot starve deadline enforcement or buffer unbounded RAM.
+    $budget = if ($Final) { [long]::MaxValue } else { [long]262144 }
+    $readThisTick = [long]0
     $rs = [IO.File]::Open($stepOut, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
     try {
-      if ($rs.Length -gt $streamState.Offset) {
-        $rs.Position = $streamState.Offset
-        $buf = [byte[]]::new(16384)
-        while (($n = $rs.Read($buf, 0, $buf.Length)) -gt 0) {
-          $slice = [byte[]]::new($n)
-          [Array]::Copy($buf, 0, $slice, 0, $n)
-          $chunks.Add($slice)
-          $streamState.Offset += $n
-        }
+      if ($rs.Length -le $streamState.Offset) { return }
+      $rs.Position = $streamState.Offset
+      $buf = $streamState.Buf
+      while ($readThisTick -lt $budget) {
+        $toRead = [int][Math]::Min([long]$buf.Length, $budget - $readThisTick)
+        $n = $rs.Read($buf, 0, $toRead)
+        if ($n -le 0) { break }
+        $streamState.Offset += $n
+        $readThisTick += $n
+        Write-LogBytes $buf $n
+        Write-ConsoleBytes $buf $n
       }
     } finally { $rs.Dispose() }
-    foreach ($slice in $chunks) {
-      Write-ConsoleBytes $slice
-      Write-LogBytes $slice
-    }
   }
   $measure = @{
     WorkingDirectory = $repo
@@ -291,4 +359,6 @@ exit 0
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
   Exit-GateMark $gateMark
+  if ($consolePump) { $consolePump.Close(2000) }
+  if ($logStream) { $logStream.Dispose() }
 }

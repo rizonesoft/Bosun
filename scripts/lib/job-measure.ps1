@@ -338,17 +338,17 @@ function Measure-Job {
         $waiting = $false; $began = $elapsed
         if ($OnStarted) { & $OnStarted $began }
       }
-      if ($OnTick) { & $OnTick }
       if ($waiting) { if ($QueueSeconds -gt 0 -and $elapsed -ge $QueueSeconds) { $timedOut = $true; break } }
       elseif ($TimeoutSeconds -gt 0 -and ($elapsed - $began) -ge $TimeoutSeconds) { $timedOut = $true; break }
       if ($StopWhen) { $why = & $StopWhen; if ($why) { $stoppedBy = "$why"; $timedOut = $true; break } }
+      if ($OnTick) { & $OnTick $false }
     }
     if (-not $timedOut -and $waiting -and (Test-Path -LiteralPath $StartedPath)) {
       $waiting = $false; $began = $run.ElapsedSeconds
       if ($OnStarted) { & $OnStarted $began }
     }
     $result = $run.Finish($timedOut)
-    if ($OnTick) { & $OnTick }
+    if ($OnTick) { & $OnTick $true }
     $result | Add-Member -NotePropertyName StoppedBy -NotePropertyValue $stoppedBy -Force
     if ($StartedPath) {
       $result.QueuedSeconds = [Math]::Round($(if ($waiting) { $result.Seconds } else { $began }), 2)

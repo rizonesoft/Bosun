@@ -414,6 +414,10 @@ switch ($Mode) {
       } 15000
       $activeLog = $liveState.Log
       $stillRunning = -not $h.Process.HasExited
+      # Regression (R1 F3): the gate holds its log write handle open continuously, so OpenRead (FileShare.Read)
+      # cannot acquire a conflicting lock mid-run and abort a healthy build.
+      $openReadRejected = $false
+      try { $tmpFs = [IO.File]::OpenRead($activeLog); $tmpFs.Dispose() } catch [IO.IOException] { $openReadRejected = $true }
       Set-Content -LiteralPath $releaseLive -Value 'go'
       $null = $h.Process.WaitForExit(15000)
       $h.Process.WaitForExit()
@@ -421,7 +425,7 @@ switch ($Mode) {
       $finalLogText = if ($activeLog -and (Test-Path -LiteralPath $activeLog)) { Get-Content -LiteralPath $activeLog -Raw } else { '' }
       $outCountCon = [regex]::Matches($finalText, 'LIVE-STDOUT-MARKER').Count
       $outCountLog = [regex]::Matches($finalLogText, 'LIVE-STDOUT-MARKER').Count
-      Check 'live stdout and stderr stream once to console and active gate-mark log while the child is still running' ($seenLiveBoth -and $stillRunning -and $h.Process.ExitCode -eq 0 -and (Get-LogPath $finalText) -eq $activeLog -and $outCountCon -eq 1 -and $outCountLog -eq 1) "(seenLive=$seenLiveBoth, stillRunning=$stillRunning, exit=$($h.Process.ExitCode), activeLog='$activeLog', conCount=$outCountCon, logCount=$outCountLog)"
+      Check 'live stdout and stderr stream once to console and active gate-mark log while the child is still running' ($seenLiveBoth -and $stillRunning -and $openReadRejected -and $h.Process.ExitCode -eq 0 -and (Get-LogPath $finalText) -eq $activeLog -and $outCountCon -eq 1 -and $outCountLog -eq 1) "(seenLive=$seenLiveBoth, stillRunning=$stillRunning, openReadRejected=$openReadRejected, exit=$($h.Process.ExitCode), activeLog='$activeLog', conCount=$outCountCon, logCount=$outCountLog)"
     } finally {
       if (-not $h.Process.HasExited) { $h.Process.Kill($true) }
       $h.Process.Dispose()
@@ -513,7 +517,8 @@ switch ($Mode) {
       @{ name = 'one'; file = 'pwsh'; args = @('-NoProfile', '-File', $liveStepScript, 'midrun-fail', $midFlag, $midChildPidFile) }
       @{ name = 'two'; file = 'pwsh'; args = @('-NoProfile', '-Command', "Set-Content -LiteralPath '$midAfterFlag' -Value ran") }
     ) -Depth 4 | Set-Content -LiteralPath $midStepsFile
-    $hMid = Start-GateAsync @('-StepFile', $midStepsFile)
+    # Write 1 is '---- one: ...'; write 2 is 'MIDRUN-MARKER-1'; write 3 ('MIDRUN-MARKER-2') triggers the mid-run IOException.
+    $hMid = Start-GateAsync @('-StepFile', $midStepsFile, '-FailLogAfterWrites', '2')
     $midState = @{ Log = $null }
     try {
       $midReady = Wait-Condition {
@@ -524,10 +529,7 @@ switch ($Mode) {
         (Get-Content -LiteralPath $midState.Log -Raw -ErrorAction Ignore) -match 'MIDRUN-MARKER-1'
       } 15000
       $midLogPath = $midState.Log
-      if ($midReady -and $midLogPath) {
-        [IO.File]::SetAttributes($midLogPath, [IO.FileAttributes]::ReadOnly)
-        Set-Content -LiteralPath $midFlag -Value 'go'
-      }
+      if ($midReady) { Set-Content -LiteralPath $midFlag -Value 'go' }
       $null = $hMid.Process.WaitForExit(15000)
       if (-not $hMid.Process.HasExited) { $hMid.Process.Kill($true) }
       $hMid.Process.WaitForExit()
@@ -538,9 +540,37 @@ switch ($Mode) {
         $hMid.Process.ExitCode -eq 1 -and $midText -match [regex]::Escape($midLogPath) -and $midText -match 'failed to write run log' -and
         $midChildPid -gt 0 -and (Wait-Gone $midChildPid) -and $midMarksLeft.Count -eq 0 -and -not (Test-Path -LiteralPath $midAfterFlag)) "(ready=$midReady, exit=$($hMid.Process.ExitCode), child=$midChildPid, marks=$($midMarksLeft.Count), after=$(Test-Path -LiteralPath $midAfterFlag): $midText)"
     } finally {
-      if ($midState.Log -and (Test-Path -LiteralPath $midState.Log)) { [IO.File]::SetAttributes($midState.Log, [IO.FileAttributes]::Normal) }
       if (-not $hMid.Process.HasExited) { $hMid.Process.Kill($true) }
       $hMid.Process.Dispose()
+    }
+
+    # 6. Regression (R1 F1 & F2): a noisy child with a stalled stdout pipe still hits -StepMinutes and logs the timeout
+    $stallLogs = Join-Path $liveDir 'stall-logs'
+    New-Item -ItemType Directory -Path $stallLogs | Out-Null
+    $env:BOSUN_SCRATCH = $stallLogs
+    Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore
+    $noisyScript = Join-Path $liveDir 'noisy.ps1'
+    Set-Content -LiteralPath $noisyScript -Value '$line = "X" * 4096; while ($true) { [Console]::Out.WriteLine($line); Start-Sleep -Milliseconds 10 }'
+    $stallSteps = Join-Path $liveDir 'stall-steps.json'
+    ConvertTo-Json -InputObject @(@{ name = 'noisy'; file = 'pwsh'; args = @('-NoProfile', '-File', $noisyScript) }) -Depth 4 | Set-Content -LiteralPath $stallSteps
+    $psiStall = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+    $psiStall.WorkingDirectory = $repo
+    $psiStall.UseShellExecute = $false
+    $psiStall.RedirectStandardOutput = $true
+    $psiStall.RedirectStandardError = $true
+    $psiStall.CreateNoWindow = $true
+    foreach ($arg in @('-NoProfile', '-File', $gate, '-StepFile', $stallSteps, '-StepMinutes', '0.05')) { $psiStall.ArgumentList.Add($arg) }
+    $pStall = [Diagnostics.Process]::Start($psiStall)
+    try {
+      # Intentionally do NOT read StandardOutput while waiting: the pipe fills, yet the gate must still time out cleanly.
+      $exitedOnTime = $pStall.WaitForExit(20000)
+      if (-not $exitedOnTime) { $pStall.Kill($true); $pStall.WaitForExit() }
+      $stallLog = Get-ChildItem -LiteralPath $stallLogs -Filter 'bosun-check-all-*.log' | Select-Object -First 1
+      $stallLogText = if ($stallLog) { Get-Content -LiteralPath $stallLog.FullName -Raw } else { '' }
+      Check 'a stalled stdout pipe with a noisy child still enforces -StepMinutes and records timeout in the scratch log' ($exitedOnTime -and
+        $pStall.ExitCode -eq 1 -and $stallLogText -match 'FAIL noisy: stopped at its 0\.05 minute limit') "(exitedOnTime=$exitedOnTime, exit=$($pStall.ExitCode), log=$($stallLog.FullName))"
+    } finally {
+      $pStall.Dispose()
     }
   } finally {
     Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore
