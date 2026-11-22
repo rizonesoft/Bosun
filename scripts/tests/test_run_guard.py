@@ -1280,9 +1280,14 @@ class AntigravityRuns(unittest.TestCase):
         guard.save(self.run_state(), self.path)
         def broken(*args, **kwargs):
             raise OSError(28, "No space left on device")
+        real_replace = guard.os.replace
+        def full_disk_for_failures(source, target, *args, **kwargs):  # the real recorder runs; only its write fails
+            if Path(target).name == guard.HOOK_FAILURES:
+                raise OSError(28, "No space left on device")
+            return real_replace(source, target, *args, **kwargs)
         for patch in ("on_antigravity_stop", "save_retrying"):
             with self.subTest(patch), unittest.mock.patch.object(guard, patch, broken), \
-                    unittest.mock.patch.object(guard, "record_hook_failure", lambda *a, **k: None):
+                    unittest.mock.patch.object(guard.os, "replace", full_disk_for_failures):
                 state = self.run_state()
                 guard.set_wait(state, "reviewer-unavailable", time.time() + 600)  # a save is due
                 guard.save(state, self.path)
@@ -1327,7 +1332,9 @@ class AntigravityRuns(unittest.TestCase):
 
     def test_a_stalled_read_is_stopped_at_the_hook_deadline(self):
         # D00 T03 §30: the host gives the hook 60 seconds; a read that stalls is stopped and read as unknown.
+        entered = []
         def stalled_finish():
+            entered.append(1)
             out = guard.run(sys.executable, "-c", "import time; time.sleep(120)", timeout=120)
             return {"state": "unknown", "detail": str(out.returncode)}
         world = World(rows=())
@@ -1337,7 +1344,11 @@ class AntigravityRuns(unittest.TestCase):
         started = time.monotonic()
         said = guard.hook_antigravity_answer(lambda: stop, self.SESSION, env, self.path, seconds=3)
         self.assertLess(time.monotonic() - started, 6, "the hook outlived its deadline")
-        self.assertTrue(said, "the hook said nothing")
+        self.assertEqual(entered, [1], "the stalled read was never taken")
+        # The stalled read is read as unknown (snapshot), not as a failure, so the hook answers as it would for an
+        # unknown finish line: a valid answer, said within the deadline (round 3 of D00 T03 §30).
+        answer = json.loads(said)
+        self.assertTrue("decision" in answer or "errorMessage" in answer, answer)
         self.assertIsNone(guard._deadline, "the deadline outlived the hook")
 
     def test_start_and_end_through_the_cli(self):
