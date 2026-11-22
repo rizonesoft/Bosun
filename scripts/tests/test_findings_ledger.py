@@ -168,7 +168,7 @@ class FindingsLedgerTest(unittest.TestCase):
         self.assertIn("does not name .private/config.toml", why)
         # Round 2 of D00 T06 §6: a path given bare stays beside a backticked one, never replaced by it.
         bare = "- D00 T05 §4 review: one setup command, scripts/setup-clone.ps1 checking the hook. Also check `scripts/leak-scan.ps1`."
-        self.assertEqual(ledger.finding_files(bare), ["scripts/leak-scan.ps1", "scripts/setup-clone.ps1"])
+        self.assertCountEqual(ledger.finding_files(bare), ["scripts/setup-clone.ps1", "scripts/leak-scan.ps1"])
         entry = "- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."
         for body, settled in (("Fix `src/app.cpp`.\n\n- [ ] Fix it (base line 5).", False),
                               ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix both (base line 5).", True)):
@@ -196,6 +196,7 @@ class FindingsLedgerTest(unittest.TestCase):
                  8: "- 8: Done: D09 T01 §3 shipped it (it does it now). Inspected `scripts/d.py:1`: {} it does it now."}
         for words, classify, settled, says in (
                 (("a defect,", "a suggestion,", "already fixed,"), True, True, ""),
+                (("a defect,", "a suggestion,", "superseded,"), True, True, ""),  # round 3 of D00 T06 §6: each of the four is accepted
                 (("", "a suggestion,", "already fixed,"), True, False, "base line 5: does not say what it is"),
                 (("maybe a bug,", "a suggestion,", "already fixed,"), True, False, "base line 5: does not say what it is"),
                 (("", "", ""), False, True, "")):
