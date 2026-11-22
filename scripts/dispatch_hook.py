@@ -272,8 +272,8 @@ def runs(line: str, powershell: bool, detached: bool = False) -> list[tuple]:
             here = True
         inner = parser().inner_command(words)
         if inner and inner[0]:
-            line, powershell = inner  # the inner command and whether PowerShell runs it
-            found.extend(runs(line, powershell, here))
+            inner_line, inner_powershell = inner  # its own shell; this line's `powershell` stays as it is (round 1 of §2)
+            found.extend(runs(inner_line, inner_powershell, here))
             continue
         if powershell and words[0].lower() in LAUNCHERS:
             if any(os.path.basename(w.strip("{}()'\"")).lower() == "review-dispatch.py" or "review-dispatch.py" in w for w in words) \

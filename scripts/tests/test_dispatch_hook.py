@@ -42,6 +42,14 @@ class Clean(unittest.TestCase):
             with self.subTest(command):
                 self.assertIn("not detached", hook.verdict(payload(command, tool, background=True)))
 
+    def test_an_inner_command_does_not_change_the_outer_shell(self):
+        # Round 1 of D00 T07 §2: unpacking an inner `bash -c` into the loop's own `powershell` made every later
+        # command on the line read as Bash, so a PowerShell Start-Process review after it went unseen.
+        start = "Start-Process python -ArgumentList 'scripts/review-dispatch.py --prompt p.md'"
+        for prefix in ("", "bash -c 'true'; ", "pwsh -Command 'Get-Date'; "):
+            with self.subTest(prefix=prefix):
+                self.assertIn("not detached", hook.verdict(payload(prefix + start, "PowerShell", background=True)))
+
     def test_a_foreground_review_is_refused_and_a_background_one_passes(self):
         self.assertIn("run_in_background", hook.verdict(payload(REVIEW)))
         self.assertIsNone(hook.verdict(payload(REVIEW, background=True)))

@@ -90,7 +90,7 @@ SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-err
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
-RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off|report\w+\s*=\s*false)"
+RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off|report\w+\s*=\s*(false|none|information|warning))"
                    r"|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
 OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
@@ -136,9 +136,22 @@ def relaxed_checker(old, new):
             reasons.append(f"{key} path added")
     if MODES.get(after.get("typeCheckingMode", "standard"), 0) < MODES.get(before.get("typeCheckingMode", "standard"), 0):
         reasons.append("typeCheckingMode lowered")
-    for key, value in after.items():
-        if key.startswith("report") and value in WEAK_RULE and before.get(key) != value:
-            reasons.append(f"{key} lowered")
+    def rules(data, where=""):
+        """Every report* setting, at the top level and in each executionEnvironments entry, by where it applies."""
+        found = {f"{where}{k}": v for k, v in data.items() if k.startswith("report")}
+        for n, env in enumerate(data.get("executionEnvironments") or []):
+            if isinstance(env, dict):
+                found.update(rules(env, f"executionEnvironments[{env.get('root', n)}]."))
+        return found
+    old_rules, new_rules = rules(before), rules(after)
+    for key, value in new_rules.items():
+        if value in WEAK_RULE and old_rules.get(key) != value:
+            reasons.append(f"{key}={json.dumps(value)} lowered")
+    for key in ("exclude", "ignore"):  # name each path, so two exceptions are two answers (round 1 of §2)
+        reasons = [r for r in reasons if r != f"{key} path added"] + [
+            f"{key} path added: {p}" for p in sorted(set(after.get(key) or []) - set(before.get(key) or []))]
+    reasons = [r for r in reasons if r != "include path dropped"] + [
+        f"include path dropped: {p}" for p in sorted(set(before.get("include") or []) - set(after.get("include") or []))]
     return reasons
 
 
@@ -470,8 +483,10 @@ def scan(changes):
         if path == "pyrightconfig.json":
             # What the type checker reads, compared as settings rather than lines: a path dropped from what it checks,
             # one put out of its reach, its mode or a rule lowered (D00 T07 §2: zero errors must not be bought here).
-            for _ in relaxed_checker(change.old, change.new):
-                signals.append(Signal("warning-relaxed", path, line_id(change.new or change.old or [""], 1)))
+            for reason in relaxed_checker(change.old, change.new):
+                # Fingerprinted by the setting and its value, not the file's first line, so one answer covers one
+                # weakening and never a different one made later in the range (round 1 of D00 T07 §2).
+                signals.append(Signal("warning-relaxed", path, f"L1#{hashlib.sha1(reason.encode('utf-8')).hexdigest()[:6]}"))
             continue
         if not CODE.search(path):
             continue  # prose that mentions a pattern is not code that uses it

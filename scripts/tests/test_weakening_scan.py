@@ -249,12 +249,35 @@ class Kinds(Repo):
                  ["warning-relaxed pyrightconfig.json:L1"]),
                 ("a stricter mode", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
                                                       '"exclude": ["build"],\n  "typeCheckingMode": "strict"'),
-                 [])):
+                 []),
+                # Round 1 of D00 T07 §2: a file-level rule set to a severity, and a rule lowered for one folder.
+                ("a file-level rule set to none", lambda: self.edit(SOURCE, "def run", "# pyright: reportAssignmentType=none\ndef run"),
+                 [f"warning-relaxed {SOURCE}:L1"]),
+                ("a rule lowered for one folder", lambda: self.edit("pyrightconfig.json", '"exclude": ["build"]',
+                                                                    '"exclude": ["build"],\n  "executionEnvironments": [{"root": "scripts", "reportAssignmentType": "none"}]'),
+                 ["warning-relaxed pyrightconfig.json:L1"])):
             with self.subTest(name):
                 change()
                 head = self.commit(name)
                 self.assertEqual(self.signals(head)[1], expected)
                 self.git("reset", "-q", "--hard", self.base)
+
+    def test_each_checker_weakening_is_answered_on_its_own(self):
+        # Round 1 of D00 T07 §2: every config weakening had the file's first-line id, so an answer given for one (an
+        # ignored test) also covered a different one made later in the range (a rule switched off).
+        self.write("pyrightconfig.json", '{\n  "include": ["scripts"]\n}\n')
+        self.base = self.commit("the checker's settings")
+        self.edit("pyrightconfig.json", '"include": ["scripts"]', '"include": ["scripts"],\n  "ignore": ["scripts/tests/test_x.py"]')
+        first = self.commit("ignore one test")
+        code, text = self.run_scan("--base", self.base, "--head", first)
+        ignored = [line.split()[2] for line in text.splitlines() if line.strip().startswith("unanswered")][0]
+        self.edit("pyrightconfig.json", '"include": ["scripts"],', '"include": ["scripts"],\n  "reportAssignmentType": "none",')
+        self.commit("switch a rule off",
+                    f"Weakening scan: warning-relaxed {ignored} -- the test is generated and checked on its own")
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        self.assertEqual(code, 1, text)  # the rule switched off is its own signal, still unanswered
+        self.assertEqual(sum(line.strip().startswith("unanswered") for line in text.splitlines()), 1, text)
+        self.assertEqual(sum(line.strip().startswith("answered") for line in text.splitlines()), 1, text)
 
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
