@@ -1128,6 +1128,8 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 42, complet
 
 ## 31. Shortcut install says one fix for each way a badge fails
 
+> **Started:** 2026-11-22T07:42:00Z
+
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 43, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py --badge-fill` and takes its last output line; every cause exits 1, a missing `resvg-py` or Pillow and a refused write end in a Python traceback, `check_mark` turns a mark it cannot read into the same `ValueError` as a malformed one, and the launcher always advises installing the icon packages.
 
 **Corrected 2026-11-22 (plan review of §31):** the plan review in `docs/reviews/00-workspace/D00-T03-s31.md` returned ten gaps (9 P1, 1 P2). Base lines 44 and 45 are declined and struck from this section: an unchanged rerun of `-InstallShortcut` measured 0.89 s against a cold 1.97 s on 2026-11-22, already under the finding's one-second target, so a digest cache would add four P1s of staleness and damaged-output cases to save nothing; and a hotkey, held system-wide by any application, honoured only from the desktop or Start menu, and an install-only switch that would start a campaign on its own, is not worth its four gaps for a campaign the owner starts by hand. Gaps 1 to 3 are built below: the launcher's own two failures, a shared exit-code map that `D02 T05 §4` reuses, and the builder tested directly.
