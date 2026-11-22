@@ -240,6 +240,8 @@ class FindingsLedgerTest(unittest.TestCase):
             # Round 1 of D00 T06 §5: a second owner in the short form, which the reference scan doesn't see.
             "scheduled with a second owner in short form": "Scheduled: D09 T01 §1 and §99.",
             "scheduled with a second owner after a note": "Scheduled: D09 T01 §1 (the fix) and §99.",
+            # The completion review of D00 T06 §5: an old owner in a note never vouches for an unresolved current one.
+            "scheduled to an unresolved owner after a note naming a good one": "Scheduled: (formerly D09 T01 §1) D09 T01 §9.",
         }
         for name, first in cases.items():
             with self.subTest(name):

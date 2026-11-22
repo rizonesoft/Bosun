@@ -484,8 +484,8 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 165 and 16
 
 **Build order:**
 
-1. Cache. Done when: the compiled lock is reused until its source changes, within 100 ms at p95.
-2. Inspect. Done when: one read-only command names the holder and the waiters.
+1. Cache the `Add-Type` of `scripts/capture-window.ps1`. Done when: `tests/capture_window_test.ps1` reads the compiled lock reused until its source changes, within 100 ms at p95. (**corrected 2026-11-22, the completion review of `D00 T06 §5`**)
+2. Inspect `scripts/lib/DesktopLock.cs` with one read-only command. Done when: `DesktopLockTests` reads the holder and the waiters from it. (**corrected 2026-11-22, the completion review of `D00 T06 §5`**)
 
 - [ ] Cache the desktop lock that `scripts/capture-window.ps1` compiles (its `Add-Type` of `scripts/lib/DesktopLock.cs`) as an assembly keyed by the source's hash, keeping one source for both callers, for under 100 ms of added lock overhead at p95 across 30 fresh uncontended captures (base line 165). Done when: `tests/capture_window_test.ps1` reads the cached assembly reused, and rebuilt when the source changes, and the p95 over 30 captures is recorded here under 100 ms. Cheaper substitute: a second copy of the source, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Add one read-only command for `scripts/lib/DesktopLock.cs` that reports, from another terminal, the desktop's holder, how many wait and the oldest wait, without touching the desktop, as `bosun status` reports the queue's waiters (base line 166). Done when: `tests/Bosun.Panel.E2E/DesktopLockTests.cs` holds the lock with two waiting and reads the holder, the count 2 and the oldest wait from the command. Cheaper substitute: the holder record alone, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
@@ -503,8 +503,8 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 173 and 17
 
 **Build order:**
 
-1. Look first. Done when: a locked or recently used desk starts no build or discovery.
-2. Point at reports. Done when: -Status gives each failed test's TRX and log paths.
+1. Look first in the nightly admission of `scripts/smoke-input.ps1`. Done when: `tests/smoke_input_test.ps1` reads no build or discovery started on a locked or recently used desk. (**corrected 2026-11-22, the completion review of `D00 T06 §5`**)
+2. Point at reports from `scripts/smoke-input.ps1 -Status`. Done when: `tests/smoke_input_test.ps1` reads each failed test's TRX and log paths. (**corrected 2026-11-22, the completion review of `D00 T06 §5`**)
 
 - [ ] Look at the desk's lock and idle time in `scripts/smoke-input.ps1` before the build in the nightly admission, so a desk locked or used within 15 minutes makes zero build or discovery launches, keeping the guarded recheck after the watcher (base line 173). Done when: `tests/smoke_input_test.ps1` runs a scheduled admission on a locked desk and on a recently used one and reads no build or discovery started, and the recheck kept. Cheaper substitute: the single check after the build, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Have `scripts/smoke-input.ps1 -Status` name each failed real-input test and print the path to its retained TRX report and class log, in one call (base line 174). Done when: `tests/smoke_input_test.ps1` fails a test, calls `-Status`, and reads the test's name and both paths, each file present. Cheaper substitute: the names only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).

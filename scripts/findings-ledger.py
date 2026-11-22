@@ -76,13 +76,19 @@ def cited_lines(text):
     return found
 
 
+def current(text):
+    """A disposition without its parenthesised notes, so a note such as `(moved from §30)` or `(formerly D03 T02 §14)`
+    never stands for the owner: the one place the owner is read from (the completion review of D00 T06 §5)."""
+    return re.sub(r"\([^()]*\)", "", text)
+
+
 def settled_key(disposition):
     """What a disposition settles to, for comparing a strike with its classification line: its kind and the first
     section or commit it names."""
     m = re.match(r"\s*(%s):\s*(.*)" % "|".join(KINDS), disposition)
     if not m:
         return None
-    refs = REF.findall(m.group(2)) or re.findall(r"\b[0-9a-f]{7,40}\b", m.group(2))
+    refs = REF.findall(current(m.group(2))) or re.findall(r"\b[0-9a-f]{7,40}\b", current(m.group(2)))
     return m.group(1), refs[0] if refs else None
 
 
@@ -180,7 +186,7 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
             return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
         if resolver is not None:
             # The item named must be the finding's own: it cites this base line (round 2 of D00 T06 §3).
-            ref = REF.findall(m.group(2))[0]
+            ref = REF.findall(current(m.group(2)))[0]
             items = checklist(resolver(ref, root)[1])
             numbers = named
             # Every item named must exist and be the finding's own (round 3 of D00 T06 §3), not one of several.
@@ -202,7 +208,7 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
     again = re.search(r"\b(%s):" % "|".join(KINDS), detail)
     if again:
         return "has a second disposition (%s:) after %s: give one" % (again.group(1), kind)
-    refs = REF.findall(detail)
+    refs = REF.findall(current(detail))
     shas = [s for s in re.findall(r"`?\b([0-9a-f]{7,40})\b`?", detail)]
     if kind == "Scheduled":
         if not refs:
@@ -210,7 +216,7 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
         # Exactly one section, counted by its mark, so the short form (`and §99`) can't add an owner the reference
         # scan never resolves (round 1 of D00 T06 §5). A note in parentheses is not an owner: base line 48 says
         # `Scheduled: D00 T03 §32 (moved from §30 by its plan review)`.
-        marks = re.findall(r"§\s*\d+", re.sub(r"\([^()]*\)", "", detail))
+        marks = re.findall(r"§\s*\d+", current(detail))
         if len(marks) > 1:
             return "Scheduled names %d sections (%s): schedule it to one owner" % (len(marks), ", ".join(marks))
         code, body = resolver(refs[0], root)
