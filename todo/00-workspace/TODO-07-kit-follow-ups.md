@@ -110,13 +110,61 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 2. Fix them at their source. Done when: both platforms report 0 errors, with nothing suppressed.
 3. Keep them out. Done when: the weakening scan refuses a suppression, and CI fails on a new error.
 
-- [ ] Run the pinned pyright in the environment above on each platform and record here the total, the count by rule and the count by file, the rule and file totals each summing to the run's total, with the pyright and Python versions and the commit (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tables are written and reconcile.
+- [x] Run the pinned pyright in the environment above on each platform and record here the total, the count by rule and the count by file, the rule and file totals each summing to the run's total, with the pyright and Python versions and the commit (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tables are written and reconcile.
 - [ ] Give every group of errors a source disposition here: a missing narrowing (an early return or an `assert` with its reason), an incorrect inferred or declared type (as `scripts/ci_status.py:196`, a dictionary made with `None` values that later holds lists), a wrong call signature, platform code (a `sys.platform` check pyright reads), a missing import in the environment, or a real fault (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: every group in the tables has one.
 - [ ] Fix each real fault with a regression test that drives the affected behaviour through its caller, and record its name, its failure on the original code and its pass with the fix (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: each real fault has the three recorded here. Cheaper substitute: a test named but not run against the old code, which the Done when refuses.
 - [ ] Fix every other error at its source by the disposition above, never by a `# type: ignore`, a `# pyright: ignore`, a file-level `# pyright:` comment or a change to `pyrightconfig.json` that lowers what it checks. Done when: `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors` in the environment above, and an error planted inside a `sys.platform == "win32"` branch and one inside the other branch each fail their platform's run, recorded here. Cheaper substitute: lowering `pyrightconfig.json`'s strictness, which the Done when refuses.
 - [ ] Extend `scripts/weakening-scan.py` to report a `# pyright: ignore`, a file-level `# pyright:` comment and a `pyrightconfig.json` change that turns a rule off, lowers `typeCheckingMode` or drops a path from what it checks, as it reports a `type: ignore` today, with cases in `scripts/tests/test_weakening_scan.py` (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tests pass, and fail on a diff that disables a rule and on one that adds a blanket ignore hiding a known error.
 - [ ] Run the pinned pyright on both platforms in the scripts job of `.github/workflows/build.yml`, with no `continue-on-error`, so a new error fails the job and the workflow and a new pyright release cannot (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: a `workflow_dispatch` run on a branch holding one planted error shows the scripts job and the workflow failed, and a run after removing only that error shows both green, the pyright version and invocation the same in both, their URLs recorded here.
 - [ ] Commit: `scripts: pyright reports no errors (D00 T07 §2)`
+
+**Baseline 2026-11-22 (pyright 1.1.414, Python 3.14.10, `scripts/requirements-icons.txt` installed, at `662b5b0`):** 385 errors on Windows and 402 on Linux, in 25 files each; the rule totals and the file totals each sum to the run's total.
+
+| Rule | Windows | Linux |
+| ---- | ------- | ----- |
+| `reportOptionalSubscript` | 145 | 145 |
+| `reportArgumentType` | 146 | 135 |
+| `reportOptionalMemberAccess` | 44 | 44 |
+| `reportAttributeAccessIssue` | 21 | 49 |
+| `reportCallIssue` | 13 | 13 |
+| `reportPossiblyUnboundVariable` | 5 | 5 |
+| `reportGeneralTypeIssues` | 3 | 3 |
+| `reportIndexIssue` | 3 | 3 |
+| `reportOperatorIssue` | 2 | 2 |
+| `reportIncompatibleMethodOverride` | 1 | 1 |
+| `reportAssignmentType` | 1 | 1 |
+| `reportOptionalOperand` | 1 | 1 |
+| total | 385 | 402 |
+
+| File | Windows | Linux |
+| ---- | ------- | ----- |
+| `scripts/tests/test_review_dispatch.py` | 137 | 133 |
+| `scripts/tests/test_run_guard.py` | 52 | 68 |
+| `scripts/tests/test_review_policy.py` | 34 | 34 |
+| `scripts/lib/todo_graph.py` | 27 | 27 |
+| `scripts/tests/test_todo_graph.py` | 24 | 24 |
+| `scripts/ci_status.py` | 16 | 16 |
+| `scripts/review-dispatch.py` | 19 | 13 |
+| `scripts/tests/test_campaign_e2e.py` | 14 | 14 |
+| `scripts/tests/test_finish.py` | 10 | 10 |
+| `scripts/dispatch_hook.py` | 8 | 8 |
+| `scripts/tests/test_ci_status.py` | 6 | 6 |
+| `scripts/tool-guard.py` | 5 | 5 |
+| `scripts/lib/host_caps.py` | 1 | 7 |
+| `scripts/lib/run_guard.py` | 3 | 5 |
+| `scripts/tests/test_build_icons.py` | 4 | 4 |
+| `scripts/tests/test_guard_e2e.py` | 4 | 4 |
+| `scripts/tests/test_hook_commands.py` | 4 | 4 |
+| `scripts/tests/test_dispatch_hook.py` | 3 | 3 |
+| `scripts/tests/test_tool_guard.py` | 3 | 3 |
+| `scripts/todo-graph.py` | 3 | 3 |
+| `scripts/tests/test_host_caps.py` | 1 | 4 |
+| `scripts/build-icons.py` | 2 | 2 |
+| `scripts/tests/test_findings_ledger.py` | 2 | 2 |
+| `scripts/weakening-scan.py` | 2 | 2 |
+| `scripts/tests/test_native_checks.py` | 1 | 1 |
+| total | 385 | 402 |
+
 
 **Test checkpoint:** in the environment above, `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors`; `python -m unittest scripts.tests.test_weakening_scan` exits 0 with its disabled-rule and blanket-ignore cases; `python scripts/run-tests.py` exits 0; and the two `workflow_dispatch` runs are recorded here (**corrected 2026-11-22, the plan review of `D00 T07 §2`**).
 
