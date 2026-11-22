@@ -129,7 +129,7 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
                 "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
-    if m.group(2).startswith("Scheduled"):
+    if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
         named = re.match(r"items? ((?:\d+|and|,|\s)+)", m.group(3))
         if not named:
             return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
@@ -138,7 +138,8 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
             ref = REF.findall(m.group(2))[0]
             items = checklist(resolver(ref, root)[1])
             numbers = [int(k) for k in re.findall(r"\d+", named.group(1))]
-            if not any(1 <= k <= len(items) and n in cited_lines(items[k - 1]) for k in numbers):
+            # Every item named must exist and be the finding's own (round 3 of D00 T06 §3), not one of several.
+            if not numbers or not all(1 <= k <= len(items) and n in cited_lines(items[k - 1]) for k in numbers):
                 return "is scheduled in %s to %s item %s, which does not cite base line %d (line %d)" % (
                     record, ref, " and ".join(str(k) for k in numbers), n, at)
     return None

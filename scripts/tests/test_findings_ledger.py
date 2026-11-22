@@ -119,7 +119,11 @@ class FindingsLedgerTest(unittest.TestCase):
                 (["- 5: Scheduled: D09 T01 §1.", good[6], good[8]], False, "base line 5: has a classification line without its evidence"),
                 ([good[5].replace("item 2, the fix", "the fix"), good[6], good[8]], False, "base line 5: is scheduled in"),
                 # Round 2 of D00 T06 §3: an item number that names another finding's item.
-                ([good[5].replace("item 2,", "item 1,"), good[6], good[8]], False, "base line 5: is scheduled in")):
+                ([good[5].replace("item 2,", "item 1,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                # Round 3 of D00 T06 §3: spaces before the kind, and a wrong item named beside the right one.
+                ([good[5].replace("- 5: Scheduled", "- 5:  Scheduled").replace("item 2,", "item 1,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                ([good[5].replace("item 2,", "items 1 and 2,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                ([good[5].replace("item 2,", "item 7,"), good[6], good[8]], False, "base line 5: is scheduled in")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)
