@@ -96,6 +96,10 @@ POLL_SECONDS = 60
 # while it waits for that (D00 T03 §22).
 START_GRACE_SECONDS = 90
 GRACE_POLL_SECONDS = 10
+# While a run for the commit is open the gate looks every OPEN_POLL_SECONDS, timed from each look's start, so a finished
+# run is seen within that; after a look in which a read failed it waits ERROR_PAUSE_SECONDS (D00 T03 §27).
+OPEN_POLL_SECONDS = 15
+ERROR_PAUSE_SECONDS = 120
 WAIT_LIMIT_SECONDS = 2 * 60 * 60
 REPAIRS = Path("build") / "ci-gate.json"
 CLEARED = Path("build") / "ci-gate.cleared"
@@ -266,7 +270,9 @@ def workflow_status(runner, workflow, branch, sha=None, base=None, git=None, bas
              and (decisive is None or str(r.get("createdAt") or "") > str(decisive.get("createdAt") or ""))]
     verdict = "pending" if newer else verdict_of(decisive)
     entry = {"workflow": workflow, "verdict": verdict, "latest_completed": brief(latest),
-             "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer)}
+             "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer),
+             # The commit's newest run, whatever its state: what the waiting line names, never an older finished one.
+             "newest_run": brief(runs[0]) if runs else None}
     if verdict == "none" and sha and git:
         # A commit already recorded as proven stays so, unless a real run has since said otherwise, as above.
         same = base_proven and sha == base
@@ -410,9 +416,17 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     been read, not before: that lookup can be slow, and a hold decided before it could outlast the grace (round 1). Verdicts, the exit code and the action are not its
     to change: a started run answers on a later look, through its own headSha."""
     missing = [e["workflow"] for e in result["workflows"] if e["verdict"] == "none"]
-    for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error", "holding"):
+    for key in ("recovery", "started", "moved_to", "not_pushed", "recovery_error", "holding", "start_refused",
+                "start_unanswered"):
         result.pop(key, None)
     if not missing:
+        # Every workflow has a run now; one the gate started is named with the run it became (D00 T03 §27).
+        if gate and sha:
+            record = started_record(read_gate(path), sha)
+            dispatched = {e["workflow"] for e in result["workflows"] if (e.get("newest_run") or {}).get("event") == "workflow_dispatch"}
+            tied = [name for name in record["workflows"] if name in dispatched and name not in record["unanswered"]]
+            if tied:
+                result["started"] = tied
         return
     if not sha:
         # Judging the branch itself, so whatever it holds is what should run.
@@ -442,7 +456,7 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
     if hold():
         result["holding"] = missing
         return
-    errors = []
+    errors, refused, unanswered = [], {}, {}
     for name in missing:
         if expired():
             errors.append(f"the wait ran out before {name} could be started")
@@ -485,7 +499,7 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
                 record["workflows"] = [w for w in record["workflows"] if w != name]
                 state["started"] = record
                 write_gate(path, state)
-            errors.append(f"{name} could not be started: gh workflow run exited {code}: {why}")
+            refused[name] = f"gh workflow run exited {code}: {why}"
         else:
             # No answer either way: GitHub may have accepted it. Starting again could run it twice, so it stays recorded,
             # with what was said, so every later look and a restart still report that it was never confirmed.
@@ -497,13 +511,23 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
                 state["started"] = record
                 unsaved = not write_gate(path, state)
             if unsaved:
-                errors.append(unanswered_text(name, why, branch))
+                unanswered[name] = why
     record = started_record(read_gate(path), sha)
     # Reported for as long as the workflow still has no run, on this look and every later one.
-    errors.extend(unanswered_text(name, why, branch) for name, why in record["unanswered"].items()
-                  if name in missing and unanswered_text(name, why, branch) not in errors)
-    if record["workflows"]:
-        result["started"] = [name for name in record["workflows"] if name in missing]
+    for name, why in record["unanswered"].items():
+        if name in missing:
+            unanswered.setdefault(name, why)
+    # Each outcome apart (D00 T03 §27): a start GitHub accepted, one it never answered (never started again, never
+    # called started), one it refused; `recovery_error` keeps only the causes where no start was tried.
+    dispatched = {e["workflow"] for e in result["workflows"] if (e.get("newest_run") or {}).get("event") == "workflow_dispatch"}
+    confirmed = [name for name in record["workflows"] if name not in record["unanswered"] and name not in unanswered
+                 and (name in missing or name in dispatched)]
+    if confirmed:
+        result["started"] = confirmed
+    if refused:
+        result["start_refused"] = refused
+    if unanswered:
+        result["start_unanswered"] = {name: unanswered_text(name, why, branch) for name, why in unanswered.items()}
     if errors:
         result["recovery_error"] = "; ".join(errors)
 
@@ -658,6 +682,24 @@ def _gate_action(code, sha, path, now):
     return "repair", repairs_tried + 1
 
 
+def progress(runner, entry):
+    """One workflow on the waiting line: its verdict, and for an open run its newest run's URL and its current job,
+    `queued` when it has none yet, or `job unknown (<why>)` when the job read fails; the verdict is never changed here."""
+    run = entry.get("newest_run") or {}
+    if not run.get("url") or run.get("status") == "completed":
+        return f"{entry['workflow']} {entry['verdict']}"
+    try:
+        view = gh_json(runner, ["run", "view", str(run.get("databaseId")), "--json", "jobs"])
+        jobs = view.get("jobs") if isinstance(view, dict) else None
+        if not isinstance(jobs, list):
+            raise Unavailable("gh run view returned no job list")
+        active = next((j for j in jobs if isinstance(j, dict) and j.get("status") == "in_progress"), None)
+        job = f"job {active.get('name')}" if active else "queued"
+    except Unavailable as exc:
+        job = f"job unknown ({str(exc)[:MAX_MESSAGE]})"
+    return f"{entry['workflow']} {entry['verdict']} ({run['url']}, {job})"
+
+
 def describe(entry):
     if entry["verdict"] == "unavailable":
         return [f"{entry['workflow']}: unavailable: {entry['error']}"]
@@ -760,7 +802,13 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
             return tool(arguments, min(left, default))
         return call
 
-    ask = bounded(run_gh) if runner is run_gh else runner
+    base_ask = bounded(run_gh) if runner is run_gh else runner
+    calls = [0]
+
+    def ask(arguments):
+        """Every gh call this gate makes, counted where it is made, failed ones included (`api_calls` in the JSON)."""
+        calls[0] += 1
+        return base_ask(arguments)
     # The git runner stays read-only here, and test runners take only arguments.
     git_call = bounded(lambda arguments, timeout: run_tool("git", arguments, cwd=root, timeout=timeout)) if git_default else git
     sha = base = None
@@ -784,6 +832,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
                 result["action"], why = gate_action(EXIT_UNAVAILABLE, key, root / REPAIRS, wall())
                 if why:
                     result["reason"] = why
+            result["api_calls"] = calls[0]
             print(json.dumps(result, indent=2) if args.json else f"unavailable: {exc}" + (f"\nreason: {result['reason']}" if result.get("reason") else "") + (f"\naction: {result['action']}" if args.gate else ""))
             return EXIT_UNAVAILABLE
         if not sha:
@@ -797,7 +846,8 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         deadline = min(deadline, clock() + max(left, 0))
         if left <= 0:  # the limit has passed, so this launches nothing more
             action, why = gate_action(EXIT_UNAVAILABLE, sha, root / REPAIRS, wall())
-            result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action, "reason": why}
+            result = {"branch": args.branch, "sha": sha, "base": None, "workflows": [], "exit": EXIT_UNAVAILABLE, "action": action, "reason": why,
+                      "api_calls": calls[0]}
             print(json.dumps(result, indent=2) if args.json else f"reason: {why}\naction: {action}")
             return EXIT_UNAVAILABLE
     proven_commit = peek_proven(root / REPAIRS) if args.use_proven else (read_gate(root / REPAIRS).get("proven") if args.gate else None)
@@ -809,6 +859,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         except Unavailable:
             base = None
     base_proven = bool(base) and not args.base
+    look_started = clock()
     result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
 
     def hold_left():
@@ -841,16 +892,28 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     # none), stays unanswered however long this waits: say where the branch went now, the commit to gate instead.
     while (args.gate and args.wait_minutes and code in (EXIT_UNAVAILABLE, EXIT_PENDING, EXIT_NONE) and remaining() > 0
            and not result.get("moved_to")):
-        states = ", ".join(f"{e['workflow']} {e['verdict']}" for e in result["workflows"])
+        states = ", ".join(progress(ask, e) for e in result["workflows"])
         holding = result.get("holding")
         note = (f"; holding the start of {', '.join(holding)} for {int(hold_left())}s more in case the push's own run is "
                 "about to be listed") if holding else ""
         print(f"waiting: {states}; {int(clock() - started)}s elapsed, {int(remaining())}s left{note}", file=sys.stderr)
-        # While a start is held the gate looks often, so the push's run is seen as soon as it is listed.
-        # A held start that has come due meanwhile is looked at again at once, never after a whole poll.
-        sleep(min(min(GRACE_POLL_SECONDS, hold_left()) if holding else POLL_SECONDS, remaining()))
+        # The pace, timed from this look's start (D00 T03 §27): a held start's grace first, so the push's run is seen
+        # as soon as it is listed, and a held start come due is looked at again at once; then a pause after a look in
+        # which a read failed; then OPEN_POLL_SECONDS while a run for the commit is open; never past the deadline.
+        # A hold interrupted by a failed read keeps the grace's pace while the window is open, since catching the
+        # push's own run is the window's job; a failed read with nothing held takes the error pause.
+        if holding or (held and hold_left() > 0 and any(e["verdict"] in ("none", "unavailable") for e in result["workflows"])):
+            pace = min(GRACE_POLL_SECONDS, hold_left())
+        elif any(e["verdict"] == "unavailable" for e in result["workflows"]):
+            pace = ERROR_PAUSE_SECONDS
+        elif any(e["verdict"] in ("pending", "none") for e in result["workflows"]):
+            pace = OPEN_POLL_SECONDS
+        else:
+            pace = POLL_SECONDS
+        sleep(min(max(pace - (clock() - look_started), 0), remaining()))
         if remaining() <= 0:  # no tool may start now, so the last real answer stands
             break
+        look_started = clock()
         result, code = report(ask, workflows, args.branch, sha, base, git_call, base_proven)
         look_after()
     if held_since is not None:  # the wait ran out while a start was still held
@@ -858,6 +921,7 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
     result.pop("holding", None)
     if held:
         result["start_held"] = {"seconds": int(held_for), "workflows": sorted(held)}
+    result["api_calls"] = calls[0]
     if args.gate:
         action, attempt = gate_action(code, sha, root / REPAIRS, wall())
         result["action"] = action
@@ -873,8 +937,16 @@ def main(argv=None, runner=run_gh, root=ROOT, git=None, clock=time.monotonic, sl
         if result.get("recovery"):
             # The preflight reads this line and passes it on as the fix.
             print(f"to get a real run: {result['recovery']}")
-        if result.get("started"):
-            print(f"started for this commit: {', '.join(result['started'])}")
+        # Each start outcome on a line of its own, naming its workflow (D00 T03 §27).
+        newest = {e["workflow"]: e.get("newest_run") or {} for e in result["workflows"]}
+        for name in result.get("started", []):
+            run = newest.get(name, {})
+            tied = run.get("event") == "workflow_dispatch" and run.get("url")
+            print(f"started {name}: {run['url']}" if tied else f"started {name}; its run is not listed yet")
+        for name, text in result.get("start_unanswered", {}).items():
+            print(f"start not answered: {name} ({text})")
+        for name, why in result.get("start_refused", {}).items():
+            print(f"start refused: {name}: {why}")
         if result.get("moved_to"):
             print(f"{args.branch} has moved on to {result['moved_to']}: gate that commit (--sha {result['moved_to']})")
         if result.get("not_pushed"):

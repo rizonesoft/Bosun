@@ -866,12 +866,13 @@ class Gate(Base):
         self.assertEqual(data["action"], "wait")
         lines = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
         # No run is ever listed: the start is held for 90 s with a look every 10 s (D00 T03 §22), then made, and the
-        # last half minute of the wait is one ordinary poll.
-        self.assertEqual(len(lines), 10)
+        # last half minute is looked at every 15 s while the started runs are still not listed (D00 T03 §27).
+        self.assertEqual(len(lines), 11)
         self.assertIn("build.yml none", lines[0])
         self.assertIn("0s elapsed, 120s left", lines[0])
         self.assertIn("10s elapsed, 110s left", lines[1])
         self.assertIn("90s elapsed, 30s left", lines[9])
+        self.assertIn("105s elapsed, 15s left", lines[10])
         self.assertEqual(clock.t, 120)
 
     def test_the_wait_is_a_real_bound(self):
@@ -1035,7 +1036,7 @@ class Gate(Base):
         code, text = self.go(["--gate", "--sha", "HEAD"], gh, FakeGit(["README.md"]))
         lines = text.strip().splitlines()
         self.assertEqual((code, lines[-1]), (ci_status.EXIT_NONE, "action: wait"))
-        self.assertEqual(lines[-2], "started for this commit: build.yml")
+        self.assertEqual(lines[-2], "started build.yml; its run is not listed yet")  # each outcome its own line (D00 T03 §27)
         self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
         self.assertIn(f"recovery: started build.yml on main at {SHA}", self.stderr)
         self.assertNotIn("to get a real run", text)  # nobody is asked to run a command
@@ -1101,8 +1102,8 @@ class Gate(Base):
         self.assertEqual(gh.started, [])  # no second run
         self.assertNotIn("started", json.loads(self.state().read_text(encoding="utf-8")))
         self.assertNotIn("recovery: started", self.stderr)
-        # A look every 10 s while the start is held, then ordinary polling once nothing is held.
-        self.assertEqual(times, [0, 10, 70, 130])
+        # A look every 10 s while the start is held, then every 15 s while the run is open (D00 T03 §27).
+        self.assertEqual(times, [0, 10, 25, 40])
         self.assertEqual(data["start_held"], {"seconds": 10, "workflows": ["build.yml", "plan.yml"]})
         waiting = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
         self.assertTrue(waiting[0].endswith("; holding the start of build.yml, plan.yml for 90s more in case the push's own run is about to be listed"), waiting[0])
@@ -1129,7 +1130,8 @@ class Gate(Base):
         code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "5"], ask, FakeGit(["README.md"]),
                             clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
         data = json.loads(out)
-        self.assertEqual(times, [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 150, 210, 270])
+        # Every 10 s through the grace, then every 15 s while the started runs are still not listed (D00 T03 §27).
+        self.assertEqual(times, list(range(0, 91, 10)) + list(range(105, 300, 15)))
         self.assertEqual(made, [(90, "build.yml", True), (90, "plan.yml", True)])
         self.assertEqual(gh.started, [["build.yml", "--ref", "main"], ["plan.yml", "--ref", "main"]])
         self.assertEqual((data["action"], data["started"]), ("wait", ["build.yml", "plan.yml"]))
@@ -1173,8 +1175,9 @@ class Gate(Base):
         self.assertEqual(at, [90, 90])
 
     def test_a_hold_interrupted_by_a_failed_look_counts_all_the_time_it_held(self):
-        # Completion review: no run at 0 s, GitHub unreachable at 10 s, no run again at 70 and 80 s, the run listed at
-        # 90 s. The start was held from 0 to 10 and from 70 to 90: 30 seconds, where the report had said 10.
+        # Completion review: no run at 0 s, GitHub unreachable at 10 s, no run again at 20 and 30 s, the run listed at
+        # 40 s. A failed read inside the grace looks again at the grace's pace (D00 T03 §27). The start was held from 0
+        # to 10 and from 20 to 40: 30 seconds, where the report had once said 10.
         clock = _Clock()
         gh = FakeGh({})
         ask, times = self.looks(gh, clock)
@@ -1192,7 +1195,7 @@ class Gate(Base):
         code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], ask, FakeGit(["README.md"]),
                             clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
         data = json.loads(out)
-        self.assertEqual(times, [0, 10, 70, 80, 90])
+        self.assertEqual(times, [0, 10, 20, 30, 40])
         self.assertEqual((code, data["action"]), (0, "proceed"))
         self.assertEqual(gh.started, [])
         self.assertEqual(data["start_held"], {"seconds": 30, "workflows": ["build.yml", "plan.yml"]})
@@ -1243,7 +1246,7 @@ class Gate(Base):
         self.assertIn("recovery: started build.yml", first[2])
         second = self.fresh(["--gate", "--sha", "HEAD"])
         self.assertNotIn("recovery: started", second[2])
-        self.assertIn("started for this commit: build.yml, plan.yml", second[1])
+        self.assertIn("started build.yml; its run is not listed yet\nstarted plan.yml; its run is not listed yet", second[1])
 
     def test_a_new_commit_gets_its_own_start(self):
         self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
@@ -1314,7 +1317,7 @@ class Gate(Base):
         code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
         data = json.loads(raw)
         self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
-        self.assertIn("build.yml could not be started: gh workflow run exited 1: HTTP 422", data["recovery_error"])
+        self.assertIn("gh workflow run exited 1: HTTP 422", data["start_refused"]["build.yml"])  # its own outcome (D00 T03 §27)
         self.assertNotIn("started", data)
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": []})
         ok = FakeGh(dict(self.NO_BUILD))  # so the next look may try again
@@ -1330,25 +1333,25 @@ class Gate(Base):
                 code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit(["README.md"]))
                 data = json.loads(raw)
                 self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
-                self.assertIn("got no clear answer", data["recovery_error"])
-                self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+                self.assertIn("got no clear answer", data["start_unanswered"]["build.yml"])
+                self.assertIn("gh workflow run build.yml --ref main", data["start_unanswered"]["build.yml"])
                 self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"], "unanswered": {"build.yml": fails}})
                 # A restart, then a whole wait of polling: nothing is started again, and each look still says the
                 # start was never confirmed and how to make it by hand.
                 again = FakeGh(dict(self.NO_BUILD))
                 _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], again, FakeGit(["README.md"]))
                 self.assertEqual(again.started, [])  # a second start could run it twice
-                self.assertIn("got no clear answer", json.loads(raw)["recovery_error"])
+                self.assertIn("got no clear answer", json.loads(raw)["start_unanswered"]["build.yml"])
                 clock = _Clock()
                 polled = FakeGh(dict(self.NO_BUILD))
                 _, raw = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "30"], polled, FakeGit(["README.md"]),
                                  clock=clock.now, sleep=clock.sleep, wall=lambda: self.wall_now() + clock.t)
                 data = json.loads(raw)
                 self.assertEqual((polled.started, clock.t), ([], 1800))
-                self.assertIn(f"got no clear answer ({fails})", data["recovery_error"])
-                self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+                self.assertIn(f"got no clear answer ({fails})", data["start_unanswered"]["build.yml"])
+                self.assertIn("gh workflow run build.yml --ref main", data["start_unanswered"]["build.yml"])
                 _, text = self.go(["--gate", "--sha", "HEAD"], FakeGh(dict(self.NO_BUILD)), FakeGit(["README.md"]))
-                self.assertIn("no run was started: the start of build.yml got no clear answer", text)
+                self.assertIn("start not answered: build.yml (the start of build.yml got no clear answer", text)
                 # Once the run appears there is nothing left to warn about.
                 _, raw = self.go(["--gate", "--sha", "HEAD", "--json"], self.green(), FakeGit(["README.md"]))
                 self.assertNotIn("recovery_error", json.loads(raw))
@@ -1368,7 +1371,7 @@ class Gate(Base):
         self.assertEqual(gh.started, [])  # not started a second time
         self.assertEqual((code, data["action"]), (ci_status.EXIT_NONE, "wait"))
         self.assertIn("could not be read since the last green", data["recovery_error"])
-        self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])
+        self.assertIn("gh workflow run build.yml --ref main", data["recovery_error"])  # no start was tried: its own wording
         # The record is readable again by now (the gate has saved over it), and the start is still held back.
         self.assertTrue(json.loads(self.state().read_text(encoding="utf-8"))[ci_status.HISTORY_LOST])
         later = FakeGh(dict(self.NO_BUILD))
@@ -1410,7 +1413,7 @@ class Gate(Base):
             return FakeGh(dict(self.NO_BUILD))(args)
 
         code, raw = self.go(["--gate", "--sha", "HEAD", "--json"], lost, FakeGit(["README.md"]))
-        self.assertIn("got no clear answer (gh could not run: timed out)", json.loads(raw)["recovery_error"])
+        self.assertIn("got no clear answer (gh could not run: timed out)", json.loads(raw)["start_unanswered"]["build.yml"])
         self.assertEqual(self.started_record()["workflows"], ["build.yml"])
 
     def test_only_a_refusal_github_answered_counts_as_one(self):
@@ -1520,7 +1523,7 @@ class Gate(Base):
         with mock.patch.object(ci_status, "gate_lock", once):
             ci_status.recover(gh, result, "main", SHA, True, self.state())
         (self.root / ci_status.LOCK).unlink()
-        self.assertIn("build.yml could not be started", result["recovery_error"])
+        self.assertIn("gh workflow run exited", result["start_refused"]["build.yml"])
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})  # kept, never rewritten unlocked
 
     def test_a_lock_left_by_a_dead_gate_is_taken_over(self):
@@ -1632,7 +1635,7 @@ class Gate(Base):
 
     def test_after_a_fresh_clone_a_real_run_decides(self):
         first = self.fresh(["--gate", "--sha", "HEAD"])
-        self.assertIn("started for this commit: build.yml, plan.yml", first[1])
+        self.assertIn("started build.yml; its run is not listed yet\nstarted plan.yml; its run is not listed yet", first[1])
         code, out, _ = self.fresh(["--gate", "--sha", "HEAD"], {"build.yml": [run()], "plan.yml": [run()]})
         self.assertEqual((code, out.strip().splitlines()[-1]), (0, "action: proceed"))
 
@@ -1763,7 +1766,7 @@ class Gate(Base):
         pending = FakeGh({"build.yml": [run("queued", None)], "plan.yml": [run()]})
         code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "3"], pending, clock=clock.now, sleep=clock.sleep)
         self.assertEqual((code, out.strip().splitlines()[-1]), (4, "action: wait"))
-        self.assertEqual(clock.sleeps, 3)
+        self.assertEqual(clock.sleeps, 12)  # a look every 15 s while a run is open (D00 T03 §27)
 
     def test_pending_turning_green_proceeds(self):
         clock = _Clock()
@@ -1831,9 +1834,189 @@ class Policy(unittest.TestCase):
         # The gate starts a missing run itself, so the policy no longer hands the run a command: it says that, and what
         # to do when the gate reports the branch moved or the start failed.
         for word in ("--gate", "proceed", "wait", "repair", "exhausted", "unverified", "add-todo",
-                     "starts that workflow itself", "has moved on to", "--sha <that commit>", "no run was started"):
+                     "starts that workflow itself", "has moved on to", "--sha <that commit>", "no run was started",
+                     "start refused", "start not answered"):
             self.assertIn(word, text)
         self.assertNotIn("gh workflow run", text)
+
+
+class _Slow:
+    """A FakeGh whose every call takes `cost` seconds on the fake clock, with jobs and starts set per workflow."""
+
+    def __init__(self, gh, clock, cost=3):
+        self.gh, self.clock, self.cost, self.calls, self.looks = gh, clock, cost, [], []
+        self.jobs, self.job_fails, self.dispatch = {}, {}, {}
+
+    def __call__(self, args):
+        self.calls.append(args)
+        if "--workflow" in args and args[args.index("--workflow") + 1] == "build.yml":
+            self.looks.append(self.clock.t)
+        self.clock.t += self.cost
+        if args[:2] == ["run", "view"]:
+            run_id = args[2]
+            if run_id in self.job_fails:
+                return 1, "", self.job_fails[run_id]
+            return 0, json.dumps({"jobs": self.jobs.get(run_id, [])}), ""
+        if args[:2] == ["workflow", "run"] and args[2] in self.dispatch:
+            outcome = self.dispatch[args[2]]
+            if outcome != "ok":
+                return 1, "", outcome
+            self.gh.started.append(args[2:])
+            return 0, "", ""
+        return self.gh(args)
+
+
+class OpenRuns(Base):
+    """D00 T03 §27: the gate looks every 15 s while a run is open, says what it waits on, counts its calls, and words
+    each start outcome apart."""
+
+    state = Gate.state  # the gate's record, as Gate's own tests read it
+
+    def gate(self, slow, clock, minutes="30", sleep=None, json_out=True):
+        argv = ["--gate", "--sha", "HEAD", "--wait-minutes", minutes] + (["--json"] if json_out else [])
+        return self.go(argv, slow, FakeGit(["src/a.cpp"]), clock=clock.now, sleep=sleep or clock.sleep,
+                       wall=lambda: 1_000_000.0 + clock.t)
+
+    def test_a_run_finishing_just_after_a_look_is_seen_by_the_next_within_fifteen_seconds(self):
+        clock = _Clock()
+        gh = FakeGh({"build.yml": [run("in_progress", None, run_id=2)], "plan.yml": [run()]})
+        slow = _Slow(gh, clock)
+        slow.jobs["2"] = [{"name": "Build", "status": "in_progress"}]
+        real = clock.sleep
+
+        def sleep(seconds):
+            real(seconds)
+            if clock.sleeps == 2:  # it finishes during the pause after the second look
+                gh.runs["build.yml"] = [run(run_id=2)]
+        code, out = self.gate(slow, clock, sleep=sleep)
+        data = json.loads(out)
+        self.assertEqual((code, data["action"]), (0, "proceed"))
+        self.assertEqual(slow.looks, [0, 15, 30], "each look starts 15 s after the last one started, whatever it took")
+        self.assertEqual(data["api_calls"], len(slow.calls))
+
+    def test_a_failed_read_pauses_two_minutes_then_the_pace_returns(self):
+        clock = _Clock()
+        gh = FakeGh({"build.yml": [run("in_progress", None, run_id=2)], "plan.yml": [run("in_progress", None, run_id=3)]})
+        slow = _Slow(gh, clock, cost=0)
+        real = clock.sleep
+
+        def sleep(seconds):
+            real(seconds)
+            gh.fail = {"build.yml": "connection reset"} if clock.sleeps == 1 else {}
+            if clock.sleeps == 3:
+                gh.runs = {"build.yml": [run(run_id=2)], "plan.yml": [run(run_id=3)]}
+        code, out = self.gate(slow, clock, sleep=sleep)
+        self.assertEqual(json.loads(out)["action"], "proceed")
+        self.assertEqual(slow.looks, [0, 15, 135, 150])
+
+    def test_the_calls_stay_inside_github_s_hourly_limit(self):
+        clock = _Clock()
+        gh = FakeGh({"build.yml": [run("in_progress", None, run_id=2)], "plan.yml": [run("in_progress", None, run_id=3)]})
+        slow = _Slow(gh, clock, cost=0)
+        slow.jobs.update({"2": [{"name": "Build", "status": "in_progress"}], "3": [{"name": "Plan", "status": "in_progress"}]})
+        code, out = self.gate(slow, clock, minutes="10")
+        data = json.loads(out)
+        self.assertEqual(data["api_calls"], len(slow.calls))
+        self.assertLess(data["api_calls"] / clock.t * 3600, 1000, f"{data['api_calls']} calls in {clock.t} s")
+        # Any other gate counts what it made, none included (a commit already proven asks nothing).
+        for gh in (FakeGh(self.green_runs()), FakeGh(self.green_runs())):
+            data = json.loads(self.go(["--gate", "--sha", "HEAD", "--json"], gh, FakeGit())[1])
+            self.assertEqual(data["api_calls"], len(gh.calls))
+
+    def green_runs(self):
+        return {"build.yml": [run()], "plan.yml": [run()]}
+
+    def test_the_waiting_line_names_the_newest_run_and_its_job(self):
+        clock = _Clock()
+        older, newer = run(created="2026-11-07T10:00:00Z", run_id=1), run("queued", None, "2026-11-07T11:00:00Z", run_id=2)
+        gh = FakeGh({"build.yml": [older, newer], "plan.yml": [run(run_id=5)]})
+        slow = _Slow(gh, clock, cost=0)
+        real = clock.sleep
+
+        def sleep(seconds):
+            real(seconds)
+            if clock.sleeps == 1:
+                slow.jobs["2"] = [{"name": "Build", "status": "in_progress"}]
+            if clock.sleeps == 2:
+                slow.job_fails["2"] = "HTTP 502: Bad Gateway"
+            if clock.sleeps == 3:
+                gh.runs["build.yml"] = [older, run(created="2026-11-07T11:00:00Z", run_id=2)]
+        code, out = self.gate(slow, clock, sleep=sleep)
+        data = json.loads(out)  # one object, untouched by progress
+        self.assertEqual(data["action"], "proceed")
+        waiting = [line for line in self.stderr.splitlines() if line.startswith("waiting:")]
+        self.assertIn("build.yml pending (https://x/2, queued)", waiting[0])
+        self.assertNotIn("https://x/1", waiting[0], "the older finished run is never the one named")
+        self.assertIn("build.yml pending (https://x/2, job Build)", waiting[1])
+        self.assertIn("build.yml pending (https://x/2, job unknown (", waiting[2])
+
+    def outcomes(self, dispatch, listed=None):
+        """A gate on a commit neither workflow has run for, each start answered as `dispatch` says; `listed` lists a
+        workflow_dispatch run for a workflow once it is started."""
+        clock = _Clock()
+        gh = FakeGh({})
+        slow = _Slow(gh, clock, cost=0)
+        slow.dispatch.update(dispatch)
+
+        def on_dispatch(_gh, name):
+            if listed and name in listed:
+                gh.runs[name] = [dict(run("in_progress", None, run_id=9), event="workflow_dispatch")]
+        gh.on_dispatch = on_dispatch
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0"], slow, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_000_000.0 + clock.t)
+        return out.splitlines(), self.stderr, gh
+
+    def test_each_start_outcome_has_its_own_line(self):
+        cases = {
+            "started, not yet listed": ({"build.yml": "ok", "plan.yml": "ok"}, None,
+                                        ["started build.yml; its run is not listed yet", "started plan.yml; its run is not listed yet"]),
+            "refused": ({"build.yml": "HTTP 422: Workflow does not have 'workflow_dispatch' trigger", "plan.yml": "ok"}, None,
+                        ["start refused: build.yml: gh workflow run exited 1: HTTP 422: Workflow does not have 'workflow_dispatch' trigger",
+                         "started plan.yml; its run is not listed yet"]),
+            "not answered": ({"build.yml": "error connecting to api.github.com", "plan.yml": "ok"}, None,
+                             ["start not answered: build.yml (the start of build.yml got no clear answer (error connecting to api.github.com)",
+                              "started plan.yml; its run is not listed yet"]),
+        }
+        for name, (dispatch, listed, want) in cases.items():
+            with self.subTest(name):
+                self.state().unlink(missing_ok=True)
+                lines, err, gh = self.outcomes(dispatch, listed)
+                outcome = [l for l in lines if l.startswith(("started ", "start refused:", "start not answered:"))]
+                self.assertEqual(len(outcome), len(want), outcome)
+                for line in want:
+                    self.assertEqual(sum(1 for l in outcome if l.startswith(line)), 1, (line, outcome))
+                for wf in ("build.yml", "plan.yml"):
+                    said = [l for l in outcome if f" {wf}" in l]
+                    self.assertEqual(len(said), 1, f"{wf} is said once: {said}")
+                    started_on_stderr = f"recovery: started {wf}" in err
+                    self.assertEqual(started_on_stderr, said[0].startswith("started "), f"stderr and stdout agree on {wf}")
+                self.assertFalse([l for l in lines if l.startswith("no run was started:")], "a start was tried")
+
+    def test_a_start_tied_to_its_run_names_the_run(self):
+        lines, _, _ = self.outcomes({"build.yml": "ok", "plan.yml": "ok"})
+        self.state().unlink(missing_ok=True)
+        clock = _Clock()
+        gh = FakeGh({})
+        slow = _Slow(gh, clock, cost=0)
+        slow.dispatch.update({"build.yml": "ok", "plan.yml": "ok"})
+        real = clock.sleep
+
+        def sleep(seconds):
+            real(seconds)
+            if gh.started:
+                for name in ("build.yml", "plan.yml"):
+                    gh.runs[name] = [dict(run("in_progress", None, run_id=9), event="workflow_dispatch")]
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "2"], slow, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
+        self.assertIn("started build.yml: https://x/9", out.splitlines())
+        self.assertIn("started plan.yml: https://x/9", out.splitlines())
+
+    def test_a_restart_finding_an_unanswered_start_neither_starts_it_nor_calls_it_started(self):
+        self.outcomes({"build.yml": "error connecting to api.github.com", "plan.yml": "ok"})
+        lines, err, gh = self.outcomes({"build.yml": "ok", "plan.yml": "ok"})
+        self.assertNotIn(["build.yml", "--ref", "main"], gh.started, "a second start could run it twice")
+        self.assertFalse([l for l in lines if l.startswith("started build.yml")])
+        self.assertTrue([l for l in lines if l.startswith("start not answered: build.yml")])
 
 
 if __name__ == "__main__":

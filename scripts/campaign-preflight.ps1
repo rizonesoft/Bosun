@@ -379,7 +379,8 @@ function Test-Ci {
       # ci_status.py offers the command only while the remote branch is at HEAD, and says so when it is not.
       $how = if ($start) { "start a run: $($start -join '; ')" }
       elseif ($r.Out -match 'has moved on to') { 'git pull --ff-only' }
-      elseif ($r.Out -match 'no run was started:') { '`gh auth status`' }
+      # Each start outcome has its own words (D00 T03 §27); any of them means gh could not start a run here.
+      elseif ($r.Out -match 'no run was started:|start refused:|start not answered:') { '`gh auth status`' }
       else { 'push HEAD so CI runs on it' }
       Fail "CI has no run for HEAD: $why" "$how, then run the preflight again"
     }
