@@ -1,0 +1,97 @@
+{
+  "ref": "D00 T07 \u00a73",
+  "title": "Test fixtures in the scratch folder",
+  "implementation_sha": "67568542b9ffab78affaa928a920e5103c64a2d5",
+  "date": "2026-11-23",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T07-s3.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "CI build.yml -> green at 67568542b9ff (https://github.com/rizonesoft/Bosun/actions/runs/45075165955)",
+    "CI plan.yml -> green at 67568542b9ff (https://github.com/rizonesoft/Bosun/actions/runs/45075165995)",
+    "pwsh tests/scratch_test.ps1 -> all scratch helper checks passed (exit 0)",
+    "pwsh tests/check_all_test.ps1 -> all checks passed including real -Wsl guest step (exit 0)",
+    "python scripts/run-tests.py -> Ran 947 tests in 108 classes in 389s (skipped=8): OK",
+    "WSL python3 -B tests/test_bosun_log.py -> Ran 136 tests OK (native and forwarded BOSUN_SCRATCH/p)",
+    "pyright --pythonplatform Windows/Linux scripts -> 0 errors, 0 warnings, 0 informations"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s3.md",
+    "verdict": "completed",
+    "candidate": "2ef53ae483e80ec71b59c9c46e08f688b47713bd",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 P3 (assert single selected-root call on scratch creation failure) fixed in 2ef53ae",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s3.md",
+    "candidate": "9b0d4bde3363b432145ac423001e3a733b4b4cc1",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "9b0d4bde3363b432145ac423001e3a733b4b4cc1",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

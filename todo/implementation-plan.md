@@ -72,7 +72,7 @@ Sections: 81 | Checklist items: 630
 | [x]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 15    |
 | [x]    | D00 T07 §1  | Graph loads once per command                                                           | none        | 6     |
 | [x]    | D00 T07 §2  | Pyright clean over the scripts                                                         | none        | 7     |
-| [ ]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 5     |
+| [x]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 5     |
 | [ ]    | D00 T07 §4  | check-all keeps a log and says its waits and SDK                                       | none        | 4     |
 | [ ]    | D00 T07 §5  | Weakening scan reads blobs in one batch and shows lines                                | none        | 3     |
 | [ ]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 5     |
@@ -254,6 +254,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 117/199 verified sections, 59 ready to run now.
+Progress: 118/199 verified sections, 58 ready to run now.
 
-Checklist: 1101/1472 items completed (includes Commit items).
+Checklist: 1102/1472 items completed (includes Commit items).
