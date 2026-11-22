@@ -29,3 +29,30 @@ OVERALL: needs-attention
 
 - Planned: gaps 1 and 6 in D02 T05 §11 (crash dumps through the local gate and CI with the dump kept as an artefact, proved by a deliberate crash; the smoke measured keeping one panel per test), gap 2 by scheduling base line 80 into D02 T05 §1 (two of four contrast themes proved), gaps 3 and 7 in the section (every batch with both checks, the breakdown corrected), all in the correction commit
 - Planned: gaps 4 and 5 as the ledger's own checks (an inspected path must be a file of the repository; a row struck before the base must stay as it was), with the directory citations of base lines 89, 105 and 106 made files, in the correction commit
+
+## Round 1: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:23:47Z
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: adversarial
+- Seconds: 73
+- Lines: 10
+- Digest: 384a94d023fc03f6
+
+## adversarial
+
+**needs-attention**
+
+1. **P2** `scripts/findings-ledger.py:131` passes a path from the review record directly to `is_file()`. On Windows, a UNC citation makes the reviewer probe a network share during a local checkpoint. An absolute path also bypasses the checkout root, and a link can lead outside it. I reproduced the missing repository boundary locally by replacing base line 76’s inspected path with `.git/HEAD` in memory. The full checkpoint accepted Git metadata as source evidence and reported all 35 entries settled. Validate the citation against repository-relative tracked files before probing the filesystem, and reject links that escape the checkout.
+2. **P1** `scripts/findings-ledger.py:130` strips the cited line number before validation. I changed only the positive evidence citation for base line 76 from `RenderCatalog.cs:782` to `RenderCatalog.cs:782000` in memory. The full `76-111` checkpoint returned `0` and reported all 35 entries settled, although the cited line does not exist. A mistyped or stale line number therefore passes the evidence check. Validate each supplied line or range against the cited file’s actual bounds.
+
+HIGHEST: P1  
+RECURRING: none  
+OVERALL: needs-attention

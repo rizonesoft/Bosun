@@ -116,6 +116,30 @@ def checklist(body):
     return [line for line in body.splitlines() if re.match(r"\s*- \[[ x]\] ", line)]
 
 
+_TRACKED = {}
+
+
+def citation_problem(cited, root):
+    """Why a classification's `path[:line[-line]]` is not evidence, or None: it must name a file git tracks in this
+    checkout, by its repository-relative path (so no absolute, network or `..` path is ever probed, and no metadata or
+    untracked file counts), and any line it gives must be in that file (cycle 2 of D00 T06 §3)."""
+    m = re.fullmatch(r"([^:]+?)(?::(\d+)(?:-(\d+))?)?", cited)
+    if not m:
+        return "not a path[:line] citation"
+    path, first, last = m.group(1), m.group(2), m.group(3)
+    if root not in _TRACKED:
+        listed = git("ls-files", "-z", root=root)
+        _TRACKED[root] = set(listed.stdout.split("\0")) if listed.returncode == 0 else set()
+    if path not in _TRACKED[root]:
+        return "not a file git tracks in this checkout (give its repository-relative path)"
+    if first:
+        count = len((Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines())
+        lines = [int(first)] + ([int(last)] if last else [])
+        if any(k < 1 or k > count for k in lines) or (last and int(last) < int(first)):
+            return "line %s is not in it (%d lines)" % ("-".join(str(k) for k in lines), count)
+    return None
+
+
 def record_problem(n, entries, struck, record, resolver=None, root=None):
     """Why the classification of base line `n` does not stand beside its strike, or None."""
     if not entries:
@@ -127,9 +151,10 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     if not m:
         return ("has a classification line without its evidence in %s (line %d): it must read "
                 "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
-    inspected = Path(root or ROOT) / re.sub(r":\d+(-\d+)?$", "", m.group(4))
-    if root is not None and not inspected.is_file():  # a folder or a path that isn't there proves nothing (cycle 2)
-        return "cites `%s` in %s (line %d), which is not a file of the repository: name the file inspected" % (m.group(4), record, at)
+    if root is not None:
+        cited = citation_problem(m.group(4), root)
+        if cited:
+            return "cites `%s` in %s (line %d): %s" % (m.group(4), record, at, cited)
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)

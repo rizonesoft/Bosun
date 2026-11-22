@@ -138,8 +138,13 @@ class FindingsLedgerTest(unittest.TestCase):
                 ([good[5].replace("item 2,", "item 2, 3,"), good[6], good[8]], False, "base line 5: is scheduled in"),
                 ([good[5].replace("item 2,", "items 2 and 3,"), good[6], good[8]], True, ""),
                 # Cycle 2 of D00 T06 §3: a folder, or a path that isn't there, proves nothing.
-                ([good[5].replace("`scripts/a.py:1`", "`scripts`"), good[6], good[8]], False, "which is not a file of the repository"),
-                ([good[5].replace("`scripts/a.py:1`", "`scripts/gone.py:3`"), good[6], good[8]], False, "which is not a file of the repository")):
+                ([good[5].replace("`scripts/a.py:1`", "`scripts`"), good[6], good[8]], False, "not a file git tracks"),
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/gone.py:3`"), good[6], good[8]], False, "not a file git tracks"),
+                # Cycle 2, round 1: git metadata, an absolute or network path, and a line the file does not have.
+                ([good[5].replace("`scripts/a.py:1`", "`.git/HEAD`"), good[6], good[8]], False, "not a file git tracks"),
+                ([good[5].replace("`scripts/a.py:1`", "`\\\\server\\share\\a.py`"), good[6], good[8]], False, "not a file git tracks"),
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py:782000`"), good[6], good[8]], False, "line 782000 is not in it"),
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py:1-1`"), good[6], good[8]], True, "")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)
