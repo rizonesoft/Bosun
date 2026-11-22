@@ -87,6 +87,17 @@ def todo_file(rows, *, ident="alpha", domain="00-workspace", status="active", de
             + table + "\n\n" + bodies + "\n## Verification\n\n- v\n")
 
 
+class Grammar(unittest.TestCase):
+    def test_the_scripts_parse_as_python_3_11(self):
+        # The completion review of D00 T07 §2: a PEP 695 generic made the TODO CLI fail to import on Python 3.11,
+        # which every other script still parses as.
+        import ast
+        root = pathlib.Path(__file__).resolve().parents[1]
+        for path in sorted(root.rglob("*.py")):
+            with self.subTest(path=path.relative_to(root).as_posix()):
+                ast.parse(path.read_text(encoding="utf-8"), feature_version=(3, 11))
+
+
 class Tree(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

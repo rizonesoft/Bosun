@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from typing import TypeVar
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = "todo/implementation-plan.md"
@@ -89,7 +90,10 @@ def require(condition, message):
         raise Refused(message)
 
 
-def present[T](value: T | None, message: str) -> T:
+_T = TypeVar("_T")
+
+
+def present(value: _T | None, message: str) -> _T:
     """`value`, or the refusal `message` when it is None: `require(value is not None, ...)` as one call whose result the
     type checker knows is present, so what follows uses it without a second check (D00 T07 §2)."""
     if value is None:

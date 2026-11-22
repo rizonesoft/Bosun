@@ -322,6 +322,32 @@ class Kinds(Repo):
         self.edit("scripts/probe.py", "y: int = 'a'  # pyright: ignore\n", "y: int = 'a'  # type: ignore\n")
         self.assertIn("warning-relaxed scripts/probe.py:L3", self.signals(self.commit("a broken file"))[1])
 
+    def test_the_completion_gaps_of_d00_t07_s2(self):
+        # A mode anywhere in a directive's list relaxes checking; strict and an error-level rule do not.
+        self.assertTrue(scan.RELAX.search("# pyright: reportAssignmentType=error, basic"))
+        self.assertFalse(scan.RELAX.search("# pyright: reportAssignmentType=error, strict"))
+        # A fixture string made live by removing its quotes, the directive's own line unchanged.
+        self.write("scripts/probe.py", 'X = """\n# pyright: reportAssignmentType=none\n"""\n')
+        self.base = self.commit("a fixture string")
+        self.edit("scripts/probe.py", 'X = """\n# pyright: reportAssignmentType=none\n"""\n',
+                  "X = 1\n# pyright: reportAssignmentType=none\n")
+        head = self.commit("the quotes taken off")
+        self.assertEqual(self.signals(head)[1], ["warning-relaxed scripts/probe.py:L2"])
+        self.base = head
+        # A compiler flag in a Python command string is still a flag.
+        self.edit("scripts/probe.py", "X = 1\n", 'X = 1\nCMD = "clang -Wno-unused-variable"\n')
+        head = self.commit("a build command")
+        self.assertEqual(self.signals(head)[1], ["warning-relaxed scripts/probe.py:L2"])
+        self.base = head
+        # The scan's own test, broken, still has its real directive read.
+        self.write(self.OWN_TEST, "x = (1\ny = 2  # pyright: ignore\n")
+        self.assertIn(f"warning-relaxed {self.OWN_TEST}:L2", self.signals(self.commit("a broken own test"))[1])
+        # The config's final newline alone is a change.
+        self.write("pyrightconfig.json", "{}\n")
+        self.base = self.commit("a config")
+        self.write("pyrightconfig.json", "{}")
+        self.assertEqual(self.signals(self.commit("its last newline"))[1], ["warning-relaxed pyrightconfig.json:L1"])
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")

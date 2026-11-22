@@ -90,11 +90,15 @@ SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-err
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
-# A pyright directive lowers checking when it is ignore, basic or off, or names a rule below an error anywhere in its
-# comma-separated list (round 3 of D00 T07 §2: only the first rule was read).
-RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off)\b"
-                   r"|#\s*pyright:[^#\n]*\breport\w+\s*=\s*(false|none|information|warning)\b"
-                   r"|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
+# A pyright directive lowers checking when it is ignore, or names basic or off or a rule below an error anywhere in
+# its comma-separated list (round 3 of D00 T07 §2: only the first rule was read; its completion review: only the first
+# mode). A comment in Python is read by the tokenizer; a compiler flag is read on the line wherever it is, a command
+# string in a Python build script included (FLAG, its completion review).
+RELAX_COMMENT = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*ignore\b"
+                           r"|#\s*pyright:[^#\n]*?(?<![\w=])(basic|off)\b"
+                           r"|#\s*pyright:[^#\n]*\breport\w+\s*=\s*(false|none|information|warning)\b")
+FLAG = re.compile(r"#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
+RELAX = re.compile(f"{RELAX_COMMENT.pattern}|{FLAG.pattern}")
 OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
 EXCEPT_INLINE = re.compile(r"^\s*except\b.*:\s*(pass|\.\.\.)\s*(#.*)?$")
@@ -236,19 +240,38 @@ def enclosing_case(lines, number):
     return None
 
 
-def own_relaxations(lines, added):
-    """The added lines of a Python file whose real comment relaxes a check (a noqa, type: ignore or pyright
-    directive), found by the tokenizer and so never in a string, as in the fixtures of the scan's own tests (round 7 of
-    D00 T07 §2: those files were not checked for it at all). None for a file that does not tokenize, which the
-    caller then reads line by line instead (round 9 of §2: every Python file is read this way)."""
-    found = set()
+def relaxing_comments(lines):
+    """[(line number, the line's whitespace-normalised text)] for each real comment in Python `lines` that relaxes a
+    check, found by the tokenizer and so never inside a string; None when the text does not tokenize."""
+    found = []
     try:
         for token in tokenize.generate_tokens(io.StringIO("\n".join(lines or []) + "\n").readline):
-            if token.type == tokenize.COMMENT and token.start[0] in added and RELAX.search(token.string):
-                found.add(token.start[0])
+            if token.type == tokenize.COMMENT and RELAX_COMMENT.search(token.string):
+                found.append((token.start[0], " ".join(lines[token.start[0] - 1].split())))
     except (tokenize.TokenError, SyntaxError):
         return None
-    return sorted(found)
+    return found
+
+
+def own_relaxations(old, new):
+    """The lines of a Python file whose real relaxing comment is new: one the old text did not have as a comment on
+    the same code, so an edit that turns a fixture string into a live directive (removing the quotes around it, the
+    line itself unchanged) is caught as surely as an added line (rounds 7 and 9 of D00 T07 §2, its completion review).
+    A line the edit only moved is not new. None when the new text does not tokenize, so the caller reads its added
+    lines with the line pattern instead; an old text that does not tokenize counts as having no such comment."""
+    now = relaxing_comments(new)
+    if now is None:
+        return None
+    before = {}
+    for _, text in relaxing_comments(old) or []:
+        before[text] = before.get(text, 0) + 1
+    fresh = []
+    for number, text in now:
+        if before.get(text, 0):
+            before[text] -= 1
+        else:
+            fresh.append(number)
+    return fresh
 
 
 def own_skips(lines, added):
@@ -460,8 +483,9 @@ def scan(changes):
             # distinct edit is answered on its own and no answer covers another. Judging which edits weaken pyright
             # (paths, modes, rules, environments and their order, comments) reopened in four review rounds of
             # D00 T07 §2, so the scan no longer judges: a stricter edit is answered as briefly as it is made.
-            if change.old != change.new:
-                digest = hashlib.sha1("\n".join(change.new or []).encode("utf-8")).hexdigest()[:6]
+            exact = getattr(change.new, "raw", "\n".join(change.new or []))
+            if getattr(change.old, "raw", change.old) != getattr(change.new, "raw", change.new):
+                digest = hashlib.sha1(exact.encode("utf-8")).hexdigest()[:6]
                 signals.append(Signal("warning-relaxed", path, f"L1#{digest}"))
             continue
         if not CODE.search(path):
@@ -473,16 +497,21 @@ def scan(changes):
             # applies to them as to any test.
             for number in own_skips(change.new, {number for number, _ in change.added}):
                 signals.append(Signal("skip-added", path, line_id(change.new, number)))
-            for number in own_relaxations(change.new, {number for number, _ in change.added}) or []:
+            relaxed = own_relaxations(change.old, change.new)
+            if relaxed is None:  # it does not tokenize: its added lines are read by the pattern, as anywhere else
+                relaxed = [number for number, text in change.added if RELAX_COMMENT.search(text)]
+            for number in relaxed:
                 signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
             continue
         # In Python only a real comment relaxes a check, so a directive held in a string is not one (round 9 of
         # D00 T07 §2); a file that does not tokenize is read line by line, so nothing in it goes unread.
-        relaxed = own_relaxations(change.new, {number for number, _ in change.added}) if path.endswith(".py") else None
+        relaxed = own_relaxations(change.old, change.new) if path.endswith(".py") else None
+        for number in sorted(set(relaxed or [])):
+            signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):
                 signals.append(Signal("skip-added", path, line_id(change.new, number)))
-            if (number in relaxed) if relaxed is not None else RELAX.search(text):
+            if FLAG.search(text) if relaxed is not None else RELAX.search(text):
                 signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
         for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):
@@ -505,11 +534,20 @@ def scan(changes):
     return sorted({signal.key: signal for signal in signals}.values(), key=lambda s: (s.path, order[s.key]))
 
 
+class Text(list):
+    """A file's lines, keeping its exact text for a check that must see every byte, a final newline included
+    (the completion review of D00 T07 §2: a config edit to its last newline alone was not seen)."""
+
+    def __init__(self, raw):
+        super().__init__(raw.splitlines())
+        self.raw = raw
+
+
 def show(root, rev, path):
     """A file's lines at a revision. The diff says whether the file exists on a side, so this is only asked for one
     that does, and a failure here is a failure to read (a timeout, a disk error), never taken for an absent file:
     the checks that need the text would otherwise pass in silence."""
-    return run_git(root, ["show", f"{rev}:{path}"]).splitlines()
+    return Text(run_git(root, ["show", f"{rev}:{path}"]))
 
 
 def committed(root, base, head):
@@ -522,7 +560,7 @@ def committed(root, base, head):
 
 def working_text(root, path):
     try:
-        return (Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines()
+        return Text((Path(root) / path).read_text(encoding="utf-8", errors="replace"))
     except OSError as exc:
         raise CannotRead(f"{path} can't be read: {exc}") from None
 
