@@ -22,6 +22,7 @@ title: "TODO-02 -- Instances and queue"
 - -> XREF: D02 T03 §4 -- consumed by this file
 - -> XREF: D02 T03 §6 -- consumed by this file
 - -> XREF: D02 T03 §7 -- consumed by this file
+- -> XREF: D01 T02 §4 -- consumed by this file
 
 ## Outcome
 

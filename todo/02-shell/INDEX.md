@@ -5,6 +5,7 @@ Brand, theme and the application shell every page lives in.
 | File | Scope | Status |
 | ---- | ----- | ------ |
 | TODO-02-application-shell.md | Window, navigation, settings, tray, one desktop owner for the smoke, real-input smoke opt-in and nightly | active |
+| TODO-05-shell-follow-ups.md | Contrast on every drawn pair, build tool output, icon checks and the process runner | active |
 
 ## Completed
 

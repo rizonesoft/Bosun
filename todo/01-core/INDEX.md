@@ -4,6 +4,7 @@ What bosun.exe and the logger must report so that nothing has to scrape it.
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-02-core-follow-ups.md | Job lines, warnings, status detail, history bounds and live limits after the contract | active |
 
 ## Completed
 

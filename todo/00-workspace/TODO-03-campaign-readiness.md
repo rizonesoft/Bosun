@@ -67,6 +67,9 @@ title: "TODO-03 -- Campaign readiness"
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [x] |
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [x] |
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [x] |
+| 29 | §29 | Antigravity waits see their result within a minute | -- | [ ] |
+| 30 | §30 | Guard status names a gate's stage, and Antigravity sees a failed guard | -- | [ ] |
+| 31 | §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey | -- | [ ] |
 
 ## 1. CI status that proves the commit
 
@@ -1061,6 +1064,67 @@ Filed 2026-11-21 by the completion review of `§24` (`docs/reviews/00-workspace/
 
 > **Verified:** 2026-11-22 | §28 | 97e56f1903db14ef267aef7f5a0ecb55548de230
 > **Review:** `docs/reviews/d00-t03-s28.json`
+
+## 29. Antigravity waits see their result within a minute
+
+Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47, completion reviews of `§19` and `§21`). An Antigravity run has no heartbeat, so while a review, a CI gate or a local gate is in flight its session sleeps in steps of `WAIT_SLICE_MINUTES = 10` (`scripts/lib/run_guard.py`, `wait_for_flight`), and can see the result up to ten minutes late. Nothing may resume a run from outside its session (the owner's rule of 2026-11-12), so the fix is a shorter wait inside the session, never a watchdog.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure the delay. Done when: the time from a fake gate ending to the session's next look is recorded here, before and after.
+2. Look again sooner. Done when: a review or CI gate is seen within 60 seconds and a local gate within 5 seconds of ending, with no process outside the session.
+
+- [ ] Write a test in `scripts/tests/test_run_guard.py` that ends a fake review, a fake CI gate and a fake local gate under `wait_for_flight` and measures when the Antigravity session is told to look again. Done when: it fails at today's ten-minute step (base line 41) and records the measured delay.
+- [ ] Have `wait_for_flight` in `scripts/lib/run_guard.py` give a review or CI wait steps of at most 60 seconds, and a local gate (`build/gate-in-flight/`) a wait on its own process that returns within 5 seconds of it ending (base line 47), keeping each step under the tool's own limit. Done when: the test passes for all three, and no scheduled task, watchdog or detached process is started (checked by the same test). Cheaper substitute: lowering `WAIT_SLICE_MINUTES` to one minute for every wait, which leaves a local gate up to a minute late.
+- [ ] Update the Antigravity wait wording in `.agents/skills/process-plan/SKILL.md` and `.agents/skills/process-phase/SKILL.md` (and the `.claude/` and `.codex/` mirrors) to the new steps. Done when: the three mirrors match and name the new limits.
+- [ ] Commit: `run-guard: Antigravity waits see their result within a minute (D00 T03 §29)`
+
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the new delay test fails with `WAIT_SLICE_MINUTES = 10` restored for reviews.
+
+## 30. Guard status names a gate's stage, and Antigravity sees a failed guard
+
+Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 42 and 48, completion reviews of `§19` and `§21`). `scripts/run-guard.py` fails open on an Antigravity hook error and prints nothing (`hook --runner antigravity`), recording the failure only for `status`; and `status` says a gate is in flight (`in_flight` in `scripts/lib/run_guard.py`) without its stage, elapsed time or output location.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Tell an Antigravity session its guard failed. Done when: a failed Antigravity hook prints one notice Antigravity shows.
+2. Name a running gate. Done when: `status` gives its stage, elapsed time and output path.
+
+- [ ] Find which output an Antigravity Stop hook can show its session (the hook contract in `.agents/hooks.json` and Antigravity's documentation) and record it here. Done when: the mechanism is named with its source, or this item records that none exists and why.
+- [ ] Have `scripts/run-guard.py` (`hook --runner antigravity`) give that notice once when the guard fails open, naming the failure and `python scripts/run-guard.py status` (base line 42), keeping it fail-open. Done when: a test in `scripts/tests/test_run_guard.py` makes the hook raise and reads the notice, and the session is not held. Cheaper substitute: a log line nobody reads.
+- [ ] Have `in_flight` in `scripts/lib/run_guard.py` read each gate's own record (`build/gate-in-flight/`, `build/review-in-flight/`, the CI gate's wait record) for its current stage, start and output location, and have `status` print them in one line per gate (base line 48). Done when: a test seeds each kind and reads its stage, elapsed seconds and path from one `status` call.
+- [ ] Commit: `run-guard: status names a gate's stage, and Antigravity sees a failed guard (D00 T03 §30)`
+
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the notice test fails with the notice removed.
+
+## 31. Shortcut install: one fix per failure, a fast rerun and an optional hotkey
+
+Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 43 to 45, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py`, and says to install the icon packages whatever made the render fail; an unchanged rerun renders both icons again; neither shortcut has a hotkey.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Say the right fix. Done when: a missing package, a malformed mark and a denied write each get their own fix.
+2. Skip unchanged work. Done when: an unchanged rerun takes under a second and leaves the icons byte-identical.
+3. Offer a hotkey. Done when: `-Hotkey` sets one on each shortcut, off by default.
+
+- [ ] Have `scripts/build-icons.py` exit with a distinct code and one line for a missing package, a malformed mark and a write that is refused, and have `scripts/start-run.ps1` (`-InstallShortcut`) print the fix for that cause (base line 43). Done when: `tests/start_run_test.ps1` drives all three and reads each fix. Cheaper substitute: today's one pip advice for every failure.
+- [ ] Measure a cold `-InstallShortcut` and an unchanged rerun and record both here, then skip a badge whose inputs (master, mark, fill, renderer version) are unchanged since it was written, keyed by a digest beside the icon (base line 44). Done when: the rerun is under a second, the icons are byte-identical, and a changed mark renders again, each proven in `tests/start_run_test.ps1`.
+- [ ] Add `-Hotkey` to `scripts/start-run.ps1` (`-InstallShortcut`), off by default, giving each runner's shortcut its own chord that collides with no other shortcut in the folder (base line 45). Done when: the test reads both chords back from the `.lnk` files, and a chord already taken is refused by name. Cheaper substitute: one fixed chord for both.
+- [ ] Commit: `campaign: shortcut install says one fix per failure, reruns fast and takes a hotkey (D00 T03 §31)`
+
+**Test checkpoint:** `pwsh tests/start_run_test.ps1` exits 0, and the rerun timing and the three failure fixes are read in it.
 
 ## Verification
 
