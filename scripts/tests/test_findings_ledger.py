@@ -179,6 +179,7 @@ class FindingsLedgerTest(unittest.TestCase):
                 code, out = self.checked()
                 self.assertEqual(code, 1, out)
                 self.assertIn("base line 7: settled before the base, and changed or removed since", out)
+                self.assertIn("1 of 4 entries on lines 5 to 8", out)  # the settled row counted in the total, never 1 of 0
         self.findings.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def settle(self, first, second, fourth):

@@ -83,3 +83,30 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:30:53Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: quality
+- Seconds: 35
+- Lines: 10
+- Digest: 69186921064f1681
+
+## quality
+
+**needs-attention**
+
+1. **P2** `scripts/findings-ledger.py:282` counts changed, previously settled rows as failures but excludes them from the total. To reproduce, change only the disposition of base line 98 in a disposable checkout and run `python -B scripts/findings-ledger.py --base b8c4e0b3 --lines 98-98`. The failure summary reports `1 of 0 entries`. Report preservation failures separately or include preserved rows in the total. The regression test checks the row diagnostic but misses the contradictory summary.
+2. **P3** `scripts/findings-ledger.py:104` documents a four-field tuple for `record_lines()`. Inspect its append at line 110 and the unpacking in `record_problem()` to reproduce the mismatch. Each tuple contains only the line number and raw text. Update the docstring to match what callers receive.
+
+HIGHEST: P2  
+RECURRING: none  
+OVERALL: needs-attention

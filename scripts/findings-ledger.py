@@ -101,8 +101,8 @@ RECORD_LINE = re.compile(r"- (\d+): (.+?) \(([^()]+(?:\([^()]*\)[^()]*)*)\)\. In
 
 
 def record_lines(path):
-    """The classification's lines by base line, each as (its line number, its disposition, its evidence, its full
-    text): a base line classified twice, or a line without its evidence, is refused by `check` (round 1 of §3)."""
+    """The classification's lines by base line, each a list of (its line number in the file, the line's text): a base
+    line classified twice, or a line without its evidence, is refused by `record_problem` (round 1 of §3)."""
     lines = {}
     for number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
         m = re.match(r"- (\d+): (.+)", line)
@@ -279,7 +279,8 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
             bad += 1
             print("findings-ledger: base line %d: settled before the base, and changed or removed since" % n)
     if bad:
-        print("findings-ledger: %d of %d entries on lines %d to %d (at %s) are not settled" % (bad, len(open_entries), first, last, base))
+        # The total counts the rows settled before the base too, so a changed one never reads as `1 of 0` (cycle 2, round 3).
+        print("findings-ledger: %d of %d entries on lines %d to %d (at %s) are not settled" % (bad, len(open_entries) + len(kept), first, last, base))
         return 1
     print("findings-ledger: all %d entries on lines %d to %d (at %s) settled" % (len(open_entries), first, last, base))
     return 0
