@@ -239,14 +239,15 @@ def enclosing_case(lines, number):
 def own_relaxations(lines, added):
     """The added lines of a Python file whose real comment relaxes a check (a noqa, type: ignore or pyright
     directive), found by the tokenizer and so never in a string, as in the fixtures of the scan's own tests (round 7 of
-    D00 T07 §2: those files were not checked for it at all). A file that does not tokenize reports none here."""
+    D00 T07 §2: those files were not checked for it at all). None for a file that does not tokenize, which the
+    caller then reads line by line instead (round 9 of §2: every Python file is read this way)."""
     found = set()
     try:
         for token in tokenize.generate_tokens(io.StringIO("\n".join(lines or []) + "\n").readline):
             if token.type == tokenize.COMMENT and token.start[0] in added and RELAX.search(token.string):
                 found.add(token.start[0])
     except (tokenize.TokenError, SyntaxError):
-        return []
+        return None
     return sorted(found)
 
 
@@ -472,13 +473,16 @@ def scan(changes):
             # applies to them as to any test.
             for number in own_skips(change.new, {number for number, _ in change.added}):
                 signals.append(Signal("skip-added", path, line_id(change.new, number)))
-            for number in own_relaxations(change.new, {number for number, _ in change.added}):
+            for number in own_relaxations(change.new, {number for number, _ in change.added}) or []:
                 signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
             continue
+        # In Python only a real comment relaxes a check, so a directive held in a string is not one (round 9 of
+        # D00 T07 §2); a file that does not tokenize is read line by line, so nothing in it goes unread.
+        relaxed = own_relaxations(change.new, {number for number, _ in change.added}) if path.endswith(".py") else None
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):
                 signals.append(Signal("skip-added", path, line_id(change.new, number)))
-            if RELAX.search(text):
+            if (number in relaxed) if relaxed is not None else RELAX.search(text):
                 signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
         for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):

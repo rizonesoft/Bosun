@@ -311,6 +311,17 @@ class Kinds(Repo):
                   "FIXTURE = 'x = 1  # pyright: ignore'\nOTHER = 'y = 2  # type: ignore'\nprobe: int = 'bad'  # pyright: ignore\n")
         self.assertEqual(self.signals(self.commit("suppress in the scan's own test"))[1], [f"warning-relaxed {own}:L3"])
 
+    def test_a_python_directive_counts_only_as_a_real_comment(self):
+        # Round 9 of D00 T07 §2: a directive held in a string was reported like a real one. A file that does not
+        # tokenize is still read line by line, so a broken file hides nothing.
+        self.write("scripts/probe.py", "x = 1\n")
+        self.base = self.commit("a module")
+        self.edit("scripts/probe.py", "x = 1\n", "x = 1\nFIXTURE = '# pyright: ignore'\ny: int = 'a'  # pyright: ignore\n")
+        self.assertEqual(self.signals(self.commit("a directive and a string"))[1], ["warning-relaxed scripts/probe.py:L3"])
+        self.edit("scripts/probe.py", "x = 1\n", "x = (1\n")  # an unclosed bracket: the tokenizer gives up
+        self.edit("scripts/probe.py", "y: int = 'a'  # pyright: ignore\n", "y: int = 'a'  # type: ignore\n")
+        self.assertIn("warning-relaxed scripts/probe.py:L3", self.signals(self.commit("a broken file"))[1])
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")
