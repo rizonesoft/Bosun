@@ -554,8 +554,11 @@ function Test-Lock {
     $timeout = Get-RegValue $LockPolicyKey 'ScreenSaveTimeOut'; if ($null -eq $timeout) { $timeout = Get-RegValue $LockKey 'ScreenSaveTimeOut' }
   }
   catch { Fail "the screen saver settings can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
-  # An absent timeout is Windows' default (900 s); a zero one never starts the saver (round 4 of D00 T03 §28).
-  if ("$active" -eq '1' -and "$secure" -eq '1' -and "$timeout" -ne '0') {
+  # The saver locks only when all three hold: it is on, it locks on resume, and it has a timeout to start at. Windows
+  # starts no saver whose timeout is absent or 0 (Microsoft KB 2616727; rounds 4 and 5 of D00 T03 §28).
+  $starts = 0
+  if (-not [int]::TryParse("$timeout", [ref]$starts)) { $starts = 0 }
+  if ("$active" -eq '1' -and "$secure" -eq '1' -and $starts -gt 0) {
     Fail 'the screen saver locks the desktop on resume, and a campaign''s hold keeps the display on but cannot stop the screen saver' "turn off 'On resume, display logon screen' (Settings > Personalization > Lock screen > Screen saver), or the screen saver itself" 'owner'
     return
   }

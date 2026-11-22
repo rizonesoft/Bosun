@@ -600,6 +600,7 @@ try {
   Check ($r.Code -eq 1 -and $r.Text -match "a hold record an older version left can't be read" -and $r.Text -match 'Move-Item -LiteralPath') 'an unreadable record fails with what to move aside'
   Remove-Item -LiteralPath $holdRecord
   # The screen saver that locks on resume: the owner's setting, refused; an inactive or a non-secure one passes.
+  Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaveTimeOut -Value '600'
   foreach ($case in @(@{ Active = '1'; Secure = '1'; Fails = $true }, @{ Active = '0'; Secure = '1'; Fails = $false }, @{ Active = '1'; Secure = '0'; Fails = $false })) {
     Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaveActive -Value $case.Active
     Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaverIsSecure -Value $case.Secure
@@ -618,6 +619,13 @@ try {
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveTimeOut -Value '0'
   $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
   Check ($r.Code -eq 0 -and $r.Text -match 'no screen saver that locks on resume') 'a secure screen saver with a zero timeout passes, since it never starts'
+  # Nor does one with no timeout set anywhere (Microsoft KB 2616727; round 5 of D00 T03 §28).
+  $fresh = "$lockKey\Fresh"
+  New-Item -Path $fresh -Force | Out-Null
+  Set-ItemProperty -LiteralPath $fresh -Name ScreenSaveActive -Value '1'
+  Set-ItemProperty -LiteralPath $fresh -Name ScreenSaverIsSecure -Value '1'
+  $r = Preflight $system @('-Only', 'lock', '-LockKey', $fresh, '-InactivityKey', $lockKey, '-LockPolicyKey', "$fresh\NoPolicy")
+  Check ($r.Code -eq 0 -and $r.Text -match 'no screen saver that locks on resume') 'a secure screen saver with no timeout set passes, since it never starts'
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveActive -Value '0'
 
 
