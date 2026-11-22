@@ -11,6 +11,8 @@ Nothing here restarts or resumes a run: a run starts only when the operator star
                              --runner antigravity --owner-pid <pid> for one that lives while that process does
   end --session <id>         record that session's run ended, as the launcher does once the CLI it started returns
   wait --reason R            hold the active run until a time, as review-dispatch.py does for a reviewer
+  look [--max-seconds N]     wait in this session until anything the run waits for ends (a review, a CI gate, a
+                             local gate or a timed wait), looking every second; an Antigravity session's way to wait
   halt --ground G --reason R record a halt (data-loss, credentials, shared-infrastructure, wrong-calculation, operator)
   uninstall                  remove the scheduled task an older version installed ("<folder> run watchdog")
 """
@@ -51,6 +53,8 @@ def main() -> int:
     hook = commands.add_parser("hook")
     hook.add_argument("--runner", choices=guard.RUNNERS, default="claude")
     commands.add_parser("uninstall")
+    looker = commands.add_parser("look", help="wait in this session until anything the run waits for ends (it starts nothing)")
+    looker.add_argument("--max-seconds", type=float, default=guard.LOOK_SECONDS)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true", help="print only the JSON")
     wait = commands.add_parser("wait", help="hold the active run until a time, as review-dispatch.py does for a reviewer")
@@ -97,6 +101,14 @@ def main() -> int:
         return 0
     if args.command == "uninstall":
         return uninstall()
+    if args.command == "look":
+        def current() -> dict | None:
+            try:
+                return guard.load()
+            except (OSError, ValueError):
+                return None  # look keeps the state it last read
+        say(guard.look(guard.REAL, current, max(0.0, args.max_seconds)))
+        return 0
 
     if args.command == "status":
         unreadable = None

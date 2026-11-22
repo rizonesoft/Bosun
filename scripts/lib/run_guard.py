@@ -635,7 +635,9 @@ def halt(state: dict, ground: str, reason: str) -> None:
 
 # --- Antigravity ------------------------------------------------------------------------------------------------
 
-WAIT_SLICE_MINUTES = 10  # how long one sleep in a waiting Antigravity session may be, under its tool's own limits
+# One `run-guard.py look`'s limit, under the shell tool's ten minutes; it returns sooner as soon as a wait ends.
+LOOK_SECONDS = 540
+LOOK_COMMAND = "python scripts/run-guard.py look"
 # The terminationReason values (agy 1.5.7) that end a turn with no way on but the operator's.
 ANTIGRAVITY_ENDS = {
     "ERROR": "the turn failed",
@@ -668,22 +670,53 @@ def antigravity_event(raw: str, session: str) -> dict:
     }
 
 
-def wait_in_session(state: dict) -> str:
-    until = stamp(state["wait_until"])
-    detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
-    return (
-        f"The unattended run waits for {state.get('wait_reason')} until {until}{detail}. Nothing wakes this session "
-        f"once its turn ends, so wait in it: sleep in steps of at most {WAIT_SLICE_MINUTES} minutes (for example "
-        f"`python -c \"import time; time.sleep({WAIT_SLICE_MINUTES * 60})\"`) until {until}, then continue process-plan. "
-        "Build nothing meanwhile."
-    )
+def waits_now(env: Env, state: dict, now: float | None = None) -> list[str]:
+    """Each thing the run waits for now, one entry each: a review, a CI gate, every local gate, and a timed wait that
+    hasn't passed. `look` compares these, so an entry's text stays the same while it lasts."""
+    items = []
+    for what, read in (("a review", env.reviewing), ("a CI gate", env.ci_waiting), ("a local gate", env.gating)):
+        which = read()
+        if which:
+            items.extend(f"{what} in flight ({one})" for one in str(which).split("; "))
+    if waiting(state, now):
+        detail = f": {state['wait_detail']}" if state.get("wait_detail") else ""
+        items.append(f"the wait for {state.get('wait_reason')} until {stamp(state['wait_until'])}{detail}")
+    return items
 
 
-def wait_for_flight(flying: str) -> str:
+def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SECONDS,
+          clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> str:
+    """`run-guard.py look`: wait in the session on everything the run waits for, looking every second, and say what
+    changed as soon as anything ends (D00 T03 §29). It starts nothing and leaves nothing running: an Antigravity
+    session has no heartbeat, and nothing outside a run's own session may act for it. A state that can't be read is
+    taken as it last read, so a passing read error never looks like a wait that ended."""
+    state = load_state() or {}
+    first = waits_now(env, state)
+    if not first:
+        return "nothing to wait for"
+    end = clock() + limit
+    while True:
+        left = end - clock()
+        if left <= 0:
+            return "still waiting: " + "; ".join(first)
+        sleep(min(1.0, left))
+        state = load_state() or state
+        now = waits_now(env, state)
+        ended = [w for w in first if w not in now]
+        if ended:
+            return f"ended: {'; '.join(ended)}; still waiting: {'; '.join(now) or 'nothing'}"
+
+
+def wait_in_session(items: list[str]) -> str:
+    """What the Antigravity Stop hook answers while the run waits for anything: one loop on `look`, the same for a
+    timed wait, work in flight, or both at once."""
     return (
-        f"The unattended run is waiting for {flying}. Nothing wakes this session once its turn ends, so "
-        f"wait for it in this session: sleep in steps of at most {WAIT_SLICE_MINUTES} minutes and look again, build "
-        "nothing and change nothing in the tree meanwhile, then act on its result and continue process-plan."
+        f"The unattended run is waiting for {'; '.join(items)}. Nothing wakes this session once its turn ends, so "
+        f"wait in it: run `{LOOK_COMMAND}` in the foreground (it returns as soon as anything ends, at most "
+        f"{LOOK_SECONDS // 60} minutes later). On `still waiting:`, run it again. On `ended:`, read that tool's own "
+        "result (the review dispatcher's final output and exit code, the action the CI gate printed, or the local "
+        "gate's printed result) and act on it as process-plan says, then run it again while its line says anything is "
+        "still waiting. Start no new row while anything is still waiting. On `nothing to wait for`, continue process-plan."
     )
 
 
@@ -709,15 +742,14 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
         return None
     now = time.time()
     woken = waiting(state, now) and state.get("wait_reason") == "rows-waiting" and bool(env.wakes())
-    if waiting(state, now) and not woken:
-        return wait_in_session(state)
-    flying = in_flight(env)
-    if flying:
-        return wait_for_flight(flying)
+    # A timed wait and work in flight are one answer, so neither hides the other (round 1 of D00 T03 §29's plan review).
+    items = waits_now(env, {} if woken else state, now)
+    if items:
+        return wait_in_session(items)
     reason = on_stop(state, data, env)
     if reason is None and state.get("active"):
         if waiting(state, time.time()):
-            return wait_in_session(state)  # what is left can only wait (settle set the wait)
+            return wait_in_session(waits_now(env, state))  # what is left can only wait (settle set the wait)
         # The idle limit let a Claude Code turn end for its heartbeat to take up; with none, the run goes on until the
         # yield limit calls it stalled.
         reason = send_back(env.rows() or None, state) + " Nothing has changed across several attempts: if this row is blocked, record why and take the next one."

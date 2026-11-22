@@ -837,7 +837,8 @@ class NoAutoResume(unittest.TestCase):
         # Read from the usage line, never by running them: what the scheduled task ran, and what scheduled it.
         usage = cli("--help").stdout
         commands = usage[usage.index("{") + 1:usage.index("}")].split(",")
-        self.assertEqual(sorted(commands), ["end", "halt", "hook", "start", "status", "uninstall", "wait"])
+        # `look` waits in the session and starts nothing (D00 T03 §29, proved by the Look tests); `watch` stays retired.
+        self.assertEqual(sorted(commands), ["end", "halt", "hook", "look", "start", "status", "uninstall", "wait"])
         shown = cli("status")
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertEqual(shown.stdout.splitlines()[0], "ended")
@@ -1127,20 +1128,40 @@ class AntigravityRuns(unittest.TestCase):
         self.assertNotIn("CronCreate", answer["reason"])
         self.assertTrue(state["active"])
 
-    def test_a_review_or_a_ci_gate_in_flight_is_waited_for_in_the_session(self):
-        for kwargs, what in (({"reviewing": "astra, dispatcher pid 1"}, "a review"), ({"ci": "abc123, gate pid 2"}, "a CI gate")):
-            answer, _ = self.stop(self.run_state(), self.env(**kwargs))
+    WATCH_ACTIONS = ("run `python scripts/run-guard.py look` in the foreground", "On `still waiting:`, run it again.",
+                     "On `ended:`, read that tool's own result", "Start no new row while anything is still waiting.",
+                     "On `nothing to wait for`, continue process-plan.")
+
+    def assert_watch_answer(self, reason, *waits):
+        for action in self.WATCH_ACTIONS:
+            self.assertIn(action, reason)
+        for what in waits:
+            self.assertIn(what, reason)
+        self.assertNotIn("10 minutes", reason)
+        self.assertNotIn("time.sleep", reason)
+
+    def test_every_wait_is_answered_with_one_watch_loop(self):
+        # D00 T03 §29: a timed wait, work in flight, or both, get the same runnable loop, neither hiding the other.
+        until = time.time() + 1800
+        cases = (({"reviewing": "astra, dispatcher pid 1"}, False, ["a review in flight (astra, dispatcher pid 1)"]),
+                 ({"ci": "abc123, gate pid 2"}, False, ["a CI gate in flight (abc123, gate pid 2)"]),
+                 ({}, True, ["the wait for reviewer-unavailable until"]),
+                 ({"ci": "abc123, gate pid 2"}, True, ["a CI gate in flight (abc123, gate pid 2)", "the wait for reviewer-unavailable until"]))
+        for kwargs, timed, waits in cases:
+            state = self.run_state()
+            if timed:
+                guard.set_wait(state, "reviewer-unavailable", until, "the reviewer is rate limited")
+            answer, _ = self.stop(state, self.env(**kwargs))
             self.assertEqual(answer["decision"], "continue")
-            self.assertIn(f"waiting for {what} in flight", answer["reason"])
-            self.assertIn("wait for it in this session", answer["reason"])
+            self.assert_watch_answer(answer["reason"], *waits)
 
     def test_a_timed_wait_is_answered_with_its_end_then_the_ordinary_continuation(self):
         state = self.run_state(signature="one")
         guard.set_wait(state, "reviewer-unavailable", time.time() + 1800, "the reviewer is rate limited")
         answer, kept = self.stop(state)
-        self.assertIn("waits for reviewer-unavailable until", answer["reason"])
+        self.assertIn("the wait for reviewer-unavailable until", answer["reason"])
         self.assertIn(guard.stamp(state["wait_until"]), answer["reason"])
-        self.assertIn("sleep in steps of at most 10 minutes", answer["reason"])
+        self.assert_watch_answer(answer["reason"])
         self.assertIn("wait_until", kept, "the wait was dropped before it passed")
         kept["wait_until"] = time.time() - 1
         answer, after = self.stop(kept)
@@ -1323,7 +1344,12 @@ class LocalGates(unittest.TestCase):
         guard.start(state, "agy", env, runner="antigravity", owner_pid=7, owner_started=1)
         reason = guard.on_antigravity_stop(state, {"session_id": "agy", "termination": "NO_TOOL_CALL", "last_user_input": ""}, env)
         self.assertIn("waiting for a local gate in flight (measure-build x, pid 7)", reason)
-        self.assertIn("wait for it in this session", reason)
+        for action in AntigravityRuns.WATCH_ACTIONS:
+            self.assertIn(action, reason)
+        # A review beside the local gate is in the same answer, so watching one never hides the other.
+        env = guard.replace(env, reviewing=lambda: "astra, dispatcher pid 8")
+        reason = guard.on_antigravity_stop(state, {"session_id": "agy", "termination": "NO_TOOL_CALL", "last_user_input": ""}, env)
+        self.assertIn("a review in flight (astra, dispatcher pid 8); a local gate in flight (measure-build x, pid 7)", reason)
 
     def test_status_waits_for_each_thing_in_flight_and_is_active_after(self):
         state = active()
@@ -1450,6 +1476,82 @@ class LegacyHoldIsNotTouched(unittest.TestCase):
         self.assertEqual(self.lock(), "1")
         self.assertFalse(self.record.exists())
 
+
+class Look(unittest.TestCase):
+    """`run-guard.py look` (D00 T03 §29): it blocks while anything the run waits for is live, returns within seconds
+    of one ending with what is left, at once with nothing, and at its limit with all of it; it starts nothing."""
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.marks = Path(self.folder.name) / "marks"
+        self.marks.mkdir()
+        self.env = {**os.environ, "BOSUN_GATE_MARK_DIR": str(self.marks), "RUN_GUARD_STATE": str(Path(self.folder.name) / "state.json"),
+                    "RUN_GUARD_BUILD": str(Path(self.folder.name) / "build"), "PYTHONIOENCODING": "utf-8"}
+
+    def gate(self, what="check-all"):
+        """A live local gate: a real process whose mark names it, as scripts/lib/gate-mark.ps1 writes one."""
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+        self.addCleanup(lambda: (process.kill(), process.wait()))
+        mark = self.marks / f"{process.pid}.json"
+        mark.write_text(json.dumps({"pid": process.pid, "started": guard.process_started(process.pid), "what": what}), encoding="utf-8")
+        return process
+
+    def look(self, *args):
+        return subprocess.Popen([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", *args], env=self.env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", **guard.hidden())
+
+    def test_it_blocks_on_a_live_gate_and_returns_within_seconds_of_it_ending(self):
+        first, second = self.gate("check-all"), self.gate("measure-build")
+        looker = self.look()
+        self.addCleanup(lambda: looker.poll() is None and (looker.kill(), looker.wait()))
+        time.sleep(3)
+        self.assertIsNone(looker.poll(), "look returned while both gates were live")
+        first.kill(); first.wait()
+        ended = time.monotonic()
+        out, _ = looker.communicate(timeout=30)
+        self.assertLess(time.monotonic() - ended, 5)
+        self.assertIn(f"ended: a local gate in flight (check-all, pid {first.pid})", out)
+        self.assertIn(f"still waiting: a local gate in flight (measure-build, pid {second.pid})", out)
+        second.kill(); second.wait()
+        out = self.look().communicate(timeout=30)[0]
+        self.assertEqual(out.strip(), "nothing to wait for")
+
+    def test_with_nothing_live_it_returns_at_once_and_at_its_limit_with_all_of_it(self):
+        started = time.monotonic()
+        out = self.look().communicate(timeout=30)[0]
+        self.assertEqual(out.strip(), "nothing to wait for")
+        self.assertLess(time.monotonic() - started, 5)
+        gate = self.gate()
+        started = time.monotonic()
+        out = self.look("--max-seconds", "2").communicate(timeout=30)[0]
+        took = time.monotonic() - started
+        self.assertEqual(out.strip(), f"still waiting: a local gate in flight (check-all, pid {gate.pid})")
+        self.assertGreaterEqual(took, 2)
+
+    def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
+        reads = iter([{"wait_until": time.time() + 3600, "wait_reason": "reviewer-unavailable"}, None, {"wait_until": 0, "wait_reason": "reviewer-unavailable"}])
+        clock = iter(range(100))
+        said = guard.look(guard.replace(World().env()), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertTrue(said.startswith("ended: the wait for reviewer-unavailable until"), said)
+        self.assertTrue(said.endswith("still waiting: nothing"), said)
+
+
+class AntigravityWaitWording(unittest.TestCase):
+    """The six process-plan and process-phase skill files tell an Antigravity session to wait on `look`, never to
+    sleep ten minutes or end its turn on a local gate (D00 T03 §29)."""
+
+    FILES = [guard.ROOT / tool / "skills" / skill / "SKILL.md" for tool in (".claude", ".agents", ".codex") for skill in ("process-plan", "process-phase")]
+
+    def test_each_antigravity_wait_paragraph_names_look(self):
+        for path in self.FILES:
+            text = path.read_text(encoding="utf-8")
+            paragraphs = [p for p in text.split("\n") if "An Antigravity run has no heartbeat" in p]  # the wait instruction itself
+            self.assertTrue(paragraphs, f"{path} has no Antigravity wait paragraph")
+            for p in paragraphs:
+                self.assertIn("python scripts/run-guard.py look", p, path)
+                self.assertNotIn("ten minutes", p, path)
+                self.assertNotRegex(p, r"(?i)antigravity[^.]*end the turn[^.]*local gate", path)
 
 if __name__ == "__main__":
     unittest.main()
