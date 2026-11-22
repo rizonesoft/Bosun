@@ -1306,17 +1306,24 @@ class AntigravityRuns(unittest.TestCase):
         self.addCleanup(lambda: guard.process_started(grandchild) is not None and guard.stop_tree(grandchild))
         self.assertIsNone(guard.process_started(grandchild), "the grandchild outlived the timed-out read")
 
-    def test_a_cancelled_turn_is_recorded_without_the_slow_reads(self):
-        # Round 1 of D00 T03 §30: a stalled git read must not cost the operator's cancel.
+    def test_every_stop_the_event_decides_is_recorded_without_the_slow_reads(self):
+        # Rounds 1 and 2 of D00 T03 §30: a stalled git read must not cost a cancel, a turn Antigravity ended, or a
+        # typed stop; each is decided from the event alone.
         def stalled():
             raise subprocess.TimeoutExpired("git status --porcelain", 20)
         env = guard.replace(self.env(), signature=stalled, rows=stalled)
-        guard.save(self.run_state(), self.path)
-        cancel = json.dumps({"hookEventName": "Stop", "terminationReason": "USER_CANCELED"})
-        said = guard.hook_antigravity_answer(lambda: cancel, self.SESSION, env, self.path)
-        self.assertEqual(said, "")
-        saved = guard.load(self.path)
-        self.assertEqual((saved["active"], saved["status"]), (False, "stopped"), "the cancel was lost to a stalled read")
+        for event, status in (({"terminationReason": "USER_CANCELED"}, "stopped"),
+                              ({"terminationReason": "ERROR"}, "ended"),
+                              ({"terminationReason": "NO_TOOL_CALL", "lastUserInput": "stop"}, "halted")):
+            with self.subTest(event=event):
+                guard.save(self.run_state(), self.path)
+                said = guard.hook_antigravity_answer(lambda: json.dumps({"hookEventName": "Stop", **event}), self.SESSION, env, self.path)
+                self.assertEqual(said, "")
+                saved = guard.load(self.path)
+                self.assertEqual((saved["active"], saved["status"]), (False, status), "the stop was lost to a stalled read")
+        guard.save(self.run_state(), self.path)  # an ordinary end of turn still reads the world, and says its failure
+        said = guard.hook_antigravity_answer(lambda: json.dumps({"hookEventName": "Stop", "terminationReason": "NO_TOOL_CALL"}), self.SESSION, env, self.path)
+        self.assertIn("errorMessage", json.loads(said))
 
     def test_a_stalled_read_is_stopped_at_the_hook_deadline(self):
         # D00 T03 §30: the host gives the hook 60 seconds; a read that stalls is stopped and read as unknown.

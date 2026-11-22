@@ -875,6 +875,14 @@ def on_antigravity_stop(state: dict, data: dict, env: Env) -> str | None:
     return reason
 
 
+def decided_by_event(data: dict) -> bool:
+    """Whether the Stop event alone decides the turn, with no world to read: a turn the operator cancelled or
+    Antigravity ended itself, or a typed stop. `on_antigravity_stop` decides these before anything slow, so the hook
+    takes no slow reads for them, and a stalled git or CI read can never cost an operator's stop (rounds 1 and 2 of
+    D00 T03 §30: the class, not one case)."""
+    return data.get("termination") != "NO_TOOL_CALL" or is_stop(data.get("last_user_input") or "")
+
+
 def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path = STATE) -> str:
     """One Antigravity hook event. Returns what the hook prints: `{"decision": "continue", "reason": ...}` or nothing."""
     env = REAL if env is None else env
@@ -882,9 +890,7 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
     if data["hook_event_name"] != "Stop":
         return ""
     peek = load(path)
-    # Only a turn the guard may send on needs the slow reads; a cancelled or ended turn is recorded without them, so a
-    # stalled git or CI read can never cost the operator's cancel (round 1 of D00 T03 §30).
-    if peek.get("active") and peek.get("session_id") == session and data.get("termination") == "NO_TOOL_CALL":
+    if peek.get("active") and peek.get("session_id") == session and not decided_by_event(data):
         env = snapshot(env, state=peek)  # the slow reads, before the lock
     with locked(path):
         state = load(path)
