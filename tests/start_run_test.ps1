@@ -104,6 +104,23 @@ try {
   $keptEnvPath = $env:Path
   $noPython = ($env:Path -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'python.exe')) -and -not (Test-Path -LiteralPath (Join-Path $_ 'python.cmd')) }) -join ';'
   Install-Case 'no python' { $env:Path = $noPython } { $env:Path = $keptEnvPath } 'python is not on PATH: install Python 3' (Join-Path $work 'icons-nopy')
+  # Round 1 of D00 T03 §31: a drive that is not there, a builder that exits without a word, and a caller that makes
+  # native exits throw, each still leave both shortcuts with the plain icon.
+  $free = [char[]](70..90) | Where-Object { -not (Test-Path "$($_):\") } | Select-Object -First 1
+  Install-Case 'a drive that is not there' {} {} "the icon folder $($free):\no-such-folder can't be made" "$($free):\no-such-folder"
+  $silent = Join-Path $work 'silent-python'
+  New-Item -ItemType Directory -Force $silent | Out-Null
+  Set-Content -LiteralPath (Join-Path $silent 'python.cmd') -Value '@exit /b 9' -Encoding ascii
+  Install-Case 'a builder that exits without a word' { $env:Path = "$silent;$noPython" } { $env:Path = $keptEnvPath } 'the badge builder exited 9 and said nothing' (Join-Path $work 'icons-silent')
+  $badIcons2 = Join-Path $work 'icons-badmark-native'
+  New-Item -ItemType Directory -Force (Join-Path $badIcons2 'marks') | Out-Null
+  Set-Content -LiteralPath (Join-Path $badIcons2 'marks\claude.svg') -Value '<svg this is truncated'
+  $nativeDir = Join-Path $work 'case-native'
+  New-Item -ItemType Directory -Force $nativeDir | Out-Null
+  $said = (& $pwsh -NoProfile -Command "`$PSNativeCommandUseErrorActionPreference = `$true; & '$script' -InstallShortcut -ShortcutDir '$nativeDir' -IconDir '$badIcons2'" 2>&1) -join "`n"
+  $nativeLink = Join-Path $nativeDir 'Bosun Claude campaign.lnk'
+  $nativeIcon = if (Test-Path -LiteralPath $nativeLink) { $shell.CreateShortcut($nativeLink).IconLocation } else { 'missing' }
+  Check ($said -match 'mend or remove it' -and $nativeIcon -eq $plainIcon) "with native exits made to throw, a failed badge still falls back to the plain icon ($nativeIcon)"
 
   $state = Join-Path $work 'state.json'
   $env:RUN_GUARD_STATE = $state

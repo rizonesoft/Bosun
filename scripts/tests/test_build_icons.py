@@ -167,10 +167,21 @@ class BadgedIconTest(unittest.TestCase):
         self.assertEqual(list(self.tmp.glob("*.tmp")), [])
         for bad in (["--badge-fill", "#4C8DF6"],  # the default --out is the committed icon
                     ["--out", str(ROOT / "build" / "x.ico"), "--badge-fill", "#4C8DF6"],
-                    ["--out", str(out), "--badge-fill", "blue"],
                     ["--out", str(out), "--badge-mark", str(self.mark)]):
             with self.subTest(bad=bad), self.assertRaises(SystemExit):
                 icons.main(bad)
+        # A fill that is not a colour, empty included, is the badge path's code 4 in one line, and never reaches the
+        # app icon's build (round 1 of D00 T03 §31).
+        out.write_bytes(b"the icon from before")
+        for fill in ("blue", ""):
+            with self.subTest(fill=fill), mock.patch.object(icons, "write_atomic", side_effect=AssertionError("something was written")):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = icons.main(["--out", str(out), "--badge-fill", fill])
+                lines = [line for line in err.getvalue().splitlines() if line.strip()]
+                self.assertEqual((code, len(lines)), (4, 1), lines)
+                self.assertIn("--badge-fill must be a colour like #D97757", lines[0])
+        self.assertEqual(out.read_bytes(), b"the icon from before")
         self.assertEqual(icons.main(["--check"]), 0, "the committed icon was touched")
 
     def test_a_mark_that_cant_be_drawn_is_refused_and_nothing_is_written(self):
@@ -183,6 +194,15 @@ class BadgedIconTest(unittest.TestCase):
                 self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(bad)]), 4)  # not valid
                 self.assertEqual(out.read_bytes(), b"the icon from before")
         self.assertEqual(icons.main(["--out", str(out), "--badge-fill", "#D97757", "--badge-mark", str(self.mark)]), 0, "a good mark was refused")
+
+    def broken_masters(self) -> Path:
+        """A copy of the masters with one truncated, for the renderer's own parse error (round 1 of D00 T03 §31)."""
+        folder = self.tmp / "broken-masters"
+        if not folder.exists():
+            shutil.copytree(self.masters, folder)
+            first = sorted(folder.glob("*.svg"))[0]
+            first.write_text("<svg xmlns='http://www.w3.org/2000/svg'><g>", encoding="utf-8")
+        return folder
 
     def badge_run(self, *extra, out=None):
         """main on the badge path: its exit code, its stderr lines and its stdout."""
@@ -215,6 +235,7 @@ class BadgedIconTest(unittest.TestCase):
             ("a mark malformed", 4, contextlib.nullcontext(), ("--badge-mark", str(bad)), out, "mend or remove it"),
             ("a master missing", 3, contextlib.nullcontext(), ("--masters", str(empty)), out, "must exist and be readable"),
             ("the renderer failing", 5, mock.patch.object(icons, "render", renderer_breaks), (), out, "report it"),
+            ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "restore it with git checkout"),
         )
         for name, code, context, extra, target, fix in cases:
             with self.subTest(name):

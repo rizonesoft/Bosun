@@ -70,6 +70,9 @@ param(
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and this session''s own heartbeat takes the run up again.'
 )
 $ErrorActionPreference = 'Stop'
+# Native commands report through $LASTEXITCODE here, read after each: a caller's preference to throw on their nonzero
+# exit would skip that reading (round 1 of D00 T03 §31).
+$PSNativeCommandUseErrorActionPreference = $false
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
 if ($PSBoundParameters.ContainsKey('Minutes') -and ($Minutes -lt 1 -or $Minutes -gt 10080)) {
@@ -160,7 +163,7 @@ if ($InstallShortcut) {
   $shell = New-Object -ComObject WScript.Shell
   $failed = 0
   foreach ($l in $launchers) {
-    $icon = Join-Path $IconDir $l.Icon
+    $icon = $null
     # One fix for each cause (D00 T03 §31): the builder says its own (scripts/build-icons.py, FAILURES), and the two
     # this script meets before it starts are said here.
     $said = $null
@@ -168,16 +171,21 @@ if ($InstallShortcut) {
       $said = 'python is not on PATH: install Python 3 (winget install Python.Python.3.14), then run this again'
     } else {
       try {
+        # The paths too: a drive that is not there throws from Join-Path itself (round 1 of D00 T03 §31).
+        $icon = Join-Path $IconDir $l.Icon
+        $markPath = Join-Path $IconDir "marks\$($l.Mark)"
         New-Item -ItemType Directory -Force -Path $IconDir -ErrorAction Stop | Out-Null
         # New-Item -Force takes a file already at that path without complaint: the folder must really be one.
         if (-not (Test-Path -LiteralPath $IconDir -PathType Container)) { throw "a file is already at that path" }
       } catch { $said = "the icon folder $IconDir can't be made ($($_.Exception.Message)): choose another -IconDir, or move what is in its way" }
     }
     if (-not $said) {
-      $said = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark (Join-Path $IconDir "marks\$($l.Mark)") 2>&1 | Select-Object -Last 1)
-      if (-not $LASTEXITCODE) { $said = $null }
+      $last = (& $python (Join-Path $PSScriptRoot 'build-icons.py') --out $icon --badge-fill $l.Fill --badge-mark $markPath 2>&1 | Select-Object -Last 1)
+      $built = $LASTEXITCODE
+      # The exit code decides, so a builder that ends without a word still falls back (round 1 of D00 T03 §31).
+      if ($built) { $said = if ("$last".Trim()) { "$last" } else { "the badge builder exited $built and said nothing: run python scripts/build-icons.py --out <icon> --badge-fill $($l.Fill) to see why" } }
     }
-    if ($said) {
+    if ($said -or -not $icon) {
       "the badged icon for '$($l.Name)' could not be rendered, so the shortcut carries the plain Bosun icon: $said"
       $icon = $plain
     }

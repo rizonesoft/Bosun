@@ -44,7 +44,10 @@ FRAMES = {16: 16, 20: 16, 24: 24, 32: 32, 40: 256, 48: 256, 64: 256, 256: 256}
 def render(master: Path, size: int) -> bytes:
     import resvg_py
 
-    png = resvg_py.svg_to_bytes(svg_path=str(master), width=size, height=size)
+    try:
+        png = resvg_py.svg_to_bytes(svg_path=str(master), width=size, height=size)
+    except ValueError as error:  # resvg's parse error: the master is not valid SVG, a fix of its own (round 1 of §31)
+        raise BadgeFailure(4, f"the master {master} is not valid SVG ({error}): restore it with git checkout -- {master}") from error
     return bytes(png)
 
 
@@ -341,9 +344,12 @@ def main(argv=None) -> int:
     parser.add_argument("--badge-fill", help="write a campaign launcher's icon: the badge's colour, as #RRGGBB")
     parser.add_argument("--badge-mark", type=Path, help="the runner's mark, an SVG file on this PC, drawn white in the badge")
     args = parser.parse_args(argv)
-    if args.badge_fill:
+    # Given at all, even empty, it is the badge path: an empty fill must not fall through to the app icon's build
+    # (round 1 of D00 T03 §31), and a fill that is not a colour is an input that is not valid, said in one line.
+    if args.badge_fill is not None:
         if not re.fullmatch(r"#[0-9A-Fa-f]{6}", args.badge_fill):
-            parser.error(f"--badge-fill must look like #D97757, not {args.badge_fill}")
+            print(f"--badge-fill must be a colour like #D97757, not {args.badge_fill!r}; the old icon, if any, is kept", file=sys.stderr)
+            return 4
         if args.check or args.out.resolve().is_relative_to(ROOT):
             parser.error("a badged icon is a per-machine file: give --out a path outside the repository, without --check")
     elif args.badge_mark:
@@ -351,7 +357,7 @@ def main(argv=None) -> int:
     # A mark that is not there is a badge with colour only (the marks are trademarks, kept outside the repository);
     # one that is there but can't be read is a failure of its own.
     mark = args.badge_mark if args.badge_mark and (args.badge_mark.exists() or args.badge_mark.is_symlink()) else None
-    if args.badge_fill:
+    if args.badge_fill is not None:
         return badge(args.masters, args.badge_fill, mark, args.out)
     # The app icon, and with it the tray's three state icons: beside it in resources/ by default, or where --tray-out
     # says. With --out alone only the app icon is built or checked, as before the tray icons existed.
