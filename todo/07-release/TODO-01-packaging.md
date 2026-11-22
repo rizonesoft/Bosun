@@ -133,7 +133,7 @@ Page-level tests prove each page. This walks them all, so a gap can't hide betwe
 - [ ] Check live regions on Activity and status changes. Done when: a status change announces, in a test.
 - [ ] Commit: `release: accessibility audit`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~AccessibilityAudit` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*AccessibilityAudit*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found).
 
 ## 5. Performance budget
 

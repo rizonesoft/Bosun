@@ -150,7 +150,7 @@ The first real items, chosen because they are the ones this machine has already 
 - [ ] Draw each finding value the Optimise page can't read (a counter, a WSL cap whose `.wslconfig` can't be read or parsed) as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`). **Corrected 2026-11-19** (completion review of `D05 T02 §1`): the cap is the configured one, read from the file with WSL never started, so WSL stopped is no reason it is unavailable; it said "with WSL stopped". Done when: a test with WSL stopped and `memory=12GB` shows 12,288 MB, and one whose `.wslconfig` holds a bad value shows "Not available" with its reason, never 0. Cheaper substitute: a blank cell.
 - [ ] Commit: `optimise: page, WSL cap, startup entries`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~OptimisePage` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*OptimisePage*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found).
 
 ## 4. Service checks for Dev Drive and Defender
 
@@ -169,7 +169,7 @@ These are later speedups rather than memory fixes, so they are reported, not pus
 - [ ] Label them as build speed, not memory, per `docs/specs/2026-11-07-bosun-design.md`. Done when: the wording test passes.
 - [ ] Commit: `optimise: build speed information`
 
-**Test checkpoint:** `bosun run -- dotnet test Bosun.slnx --filter FullyQualifiedName~BuildSpeedInfo` exits 0, and fails if the change is reverted.
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*BuildSpeedInfo*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found).
 
 ## 5. Pressure monitor: queued jobs throttled under pressure
 

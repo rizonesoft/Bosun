@@ -469,4 +469,4 @@ Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141
 ## Verification
 
 - Every section's Test checkpoint passes on the stamped candidate, and `python scripts/todo-graph.py validate` passes.
-- `dotnet test tests/Bosun.Panel.Tests --filter ThemeContrast` passes in both themes.
+- `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ThemeContrast*"` passes in both themes (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments).
