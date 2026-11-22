@@ -162,3 +162,72 @@ OVERALL: needs-attention
 HIGHEST: P2  
 RECURRING: none  
 OVERALL: needs-attention
+
+## Round 6: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:42:19Z
+- Effort: low
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Lenses: optimization
+- Seconds: 78
+- Lines: 7
+- Digest: 319a962a039bbdfe
+
+## optimization
+
+**approve**. The 35-entry checkpoint took 24.19 seconds end to end. That timing includes the existing graph load. I found no measured performance target that the added checks miss.
+
+HIGHEST: none  
+RECURRING: none  
+OVERALL: approve
+
+## Completion review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-22T11:45:22Z
+- Candidate: feb93bb244ff5c4c9105b04b07de7c385174a6fb
+- Effort: medium
+- Writer model: claude-opus-5-5
+- Policy: a36d6a73c1869d0017f8b86cc64ccb2242c787e2
+- Execution: returned
+- Attempt reviewer: astra
+- Attempt model: gpt-6.2-astra
+- Attempt cli: codex
+- Seconds: 161
+- Lines: 25
+- Digest: 63b32ce2d6844bf6
+
+## Part 1. Completeness
+
+1. **present**. The pinned candidate accounts for all 35 open findings. I ran the §3 checkpoint and it reported all 35 settled. Plan validation reported `valid: 175 sections`. The classifications are at `docs/reviews/00-workspace/D00-T06-s3.md:33` through line 67. The breakdown by owner is at `todo/00-workspace/TODO-06-findings-triage.md:130`.
+2. **missing-in-scope**. The classification summary still tells the reader that finding 80 “is already built.” Its own entry says only two of four contrast themes have been proved and schedules the remaining work. A reader deciding whether to pick up that work gets conflicting answers from the same record. `docs/reviews/00-workspace/D00-T06-s3.md:31` and `:37`.
+3. **missing-in-scope**. Nine entries give a file without the required line number: 81, 82, 88, 89, 91, 92, 93, 103 and 111. This matters particularly for absence claims. For example, the entry for 93 cites `PageFrame.xaml` for a claim about clipboard use throughout the panel. Give the inspected location and, where the conclusion depends on a wider search, its scope. The contract requires `file:line` at `todo/00-workspace/TODO-06-findings-triage.md:117`, but `scripts/findings-ledger.py:137` skips the line check when the number is omitted. The live checkpoint passed all nine.
+4. **present**. The two CLI options reach the checker, and §4 through §6 each supply their own record. Tests cover a wrong base line, a missing or duplicate classification, a mismatched scheduled owner, and a cited file removed from the working tree. `scripts/findings-ledger.py:299`, `scripts/tests/test_findings_ledger.py:89`, `:107` and `:154`, and `todo/00-workspace/TODO-06-findings-triage.md:158`, `:182` and `:206`.
+5. **missing-in-scope**. For later batches, `--record` can approve contradictory reasons for declining the same finding. In a read-only probe, `record_problem` accepted “keep this feature for release” against “remove this feature from release.” Both reduce to `("Declined", None)`. The same comparison drops the test command from a `Fixed` disposition. Compare the evidence-bearing fields for each disposition and cover disagreements with regression tests. `scripts/findings-ledger.py:86` and `:160`.
+6. **missing-in-scope**. Several new owner items omit the concrete implementation target and the required `Cheaper substitute:` for UI or write work. For example, the crash-report action has a clipboard assertion but names no implementation symbol, and the theme-preview item leaves its required shortcut check unstated. These are handoff requirements for the sections created by §3. `todo/README.md:75`, `todo/02-shell/TODO-05-shell-follow-ups.md:267` and `:386`.
+7. **present**. The strikes, owner items and record persist in Git, and the ledger reads them back against the pinned base. Git history provides the reverse path. The verifier reads these files without changing them, so interruption or a full disk during verification leaves no partial triage update. The candidate preserves the original strike on line 98. Malformed ranges and unreadable inputs have refusal paths. `scripts/findings-ledger.py:242`, `:277` and `:303`, and `scripts/tests/test_findings_ledger.py:170`, `:295` and `:307`. I inspected the fixture tests without rerunning them because they create temporary repositories. A downstream .NET checkpoint probe stopped at the read-only sandbox’s temporary-directory restriction.
+
+## Part 2. Excellence
+
+**Strongest alternative: GitHub Issues with linked sub-issues.** A reviewer can retrieve a finding, its state, its parent and its follow-up work by stable issue number in one `gh issue view` call. Bosun falls short on two parts of that review experience. [GitHub CLI documentation](https://cli.github.com/manual/gh_issue_view)
+
+1. **suggestion**. Make a successful settlement inspectable in one command. Today the ledger prints a total and the reviewer opens the classification and owner checklist separately. Target one local query by base commit and line that returns the finding, disposition, owner item and evidence location.
+2. **suggestion**. Keep an owner reference valid when a checklist is reordered. The current record identifies an owner by item number, so inserting a preceding item makes a valid settlement fail verification. Target zero classification edits when an unrelated checklist item is inserted above the owner.
+
+## Gaps
+
+1. **missing-in-scope**. Reconcile the summary for finding 80 with its scheduled four-theme verification.
+2. **missing-in-scope**. Supply and enforce the nine missing evidence line numbers, with search scope for broader absence claims.
+3. **missing-in-scope**. Make `--record` reject conflicting disposition reasons and fixed-test commands.
+4. **missing-in-scope**. Complete the new owner items’ implementation targets and required shortcut checks.
+
+COMPLETION: gaps
+
+- Completed: gap 1 (finding 80's summary) and gap 2 (every citation gives its line, the nine entries cite theirs with the search scope, and the ledger refuses a citation with no line), gap 3 (a disposition must be its strike's word for word, so a different reason or test fails), gap 4 (every new owner item in D02 T05 names its target and its cheaper substitute), in the completion fix commit
+- Settled: Part 2's two suggestions are in todo/findings.md

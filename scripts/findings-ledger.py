@@ -134,6 +134,8 @@ def citation_problem(cited, root):
         return "not a file git tracks in this checkout (give its repository-relative path)"
     if not (Path(root) / path).is_file():  # tracked, but renamed or removed in the working tree (cycle 2, round 2)
         return "tracked, but not in the working tree (renamed or removed): cite the file as it is now"
+    if not first:  # where it was looked, for a claim of absence too (the completion review of D00 T06 §3)
+        return "gives no line: cite `path:line`, the place inspected"
     if first:
         count = len((Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines())
         lines = [int(first)] + ([int(last)] if last else [])
@@ -157,8 +159,11 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
         cited = citation_problem(m.group(4), root)
         if cited:
             return "cites `%s` in %s (line %d): %s" % (m.group(4), record, at, cited)
-    if settled_key(m.group(2)) != settled_key(struck):
-        return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
+    # The disposition is the strike's, word for word: a different reason to decline, or a fix with another test,
+    # is a disagreement, not the same settlement (the completion review of D00 T06 §3).
+    said, done = " ".join(m.group(2).split()).rstrip("."), " ".join(struck.split()).rstrip(".")
+    if said != done:
+        return "is classified as `%s` in %s, but struck as `%s`" % (said, record, done)
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
         # A closed grammar, not a parser of the spellings seen so far (rounds 3 to 5 of D00 T06 §3, one class): the
         # evidence begins with exactly `item N` or `items N and M`, then a comma before a word or its end, and names no item

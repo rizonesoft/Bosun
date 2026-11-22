@@ -110,12 +110,12 @@ class FindingsLedgerTest(unittest.TestCase):
         owner = "Fix `scripts/a.py`.\n\n- [ ] Something else (base line 9).\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Test it (base line 5).\n- [ ] Commit: x"
         resolver = lambda ref, root: (0, owner) if ref == "D09 T01 §1" else fake_resolve(ref, root)
         good = {5: "- 5: Scheduled: D09 T01 §1 (item 2, the fix). Inspected `scripts/a.py:1`: the first finding is still true.",
-                6: "- 6: Declined: one-off (a one-off script nobody runs again). Inspected `scripts/b.py`: it runs once.",
-                8: "- 8: Done: D09 T01 §3 (shipped it). Inspected `scripts/d.py`: it does it now."}
+                6: "- 6: Declined: a one-off script nobody runs again (no use after it). Inspected `scripts/b.py:1`: it runs once.",
+                8: "- 8: Done: D09 T01 §3 shipped it (it does it now). Inspected `scripts/d.py:1`: it does it now."}
         for lines, settled, says in (
                 ([good[5], good[6], good[8]], True, ""),
                 ([good[5], good[8]], False, "base line 6: has no classification line"),
-                ([good[5].replace("§1 (", "§2 ("), good[6], good[8]], False, "base line 5: is classified as ('Scheduled', 'D09 T01 §2')"),
+                ([good[5].replace("§1 (", "§2 ("), good[6], good[8]], False, "base line 5: is classified as `Scheduled: D09 T01 §2`"),
                 # Round 1 of D00 T06 §3: a second line for one base line, a line stripped of its evidence, and a
                 # scheduled line naming no item.
                 ([good[5], good[6], good[8], "- 6: Scheduled: D09 T01 §1 (item 1, other). Inspected `x`: y."], False, "base line 6: is classified 2 times"),
@@ -144,7 +144,10 @@ class FindingsLedgerTest(unittest.TestCase):
                 ([good[5].replace("`scripts/a.py:1`", "`.git/HEAD`"), good[6], good[8]], False, "not a file git tracks"),
                 ([good[5].replace("`scripts/a.py:1`", "`\\\\server\\share\\a.py`"), good[6], good[8]], False, "not a file git tracks"),
                 ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py:782000`"), good[6], good[8]], False, "line 782000 is not in it"),
-                ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py:1-1`"), good[6], good[8]], True, "")):
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py:1-1`"), good[6], good[8]], True, ""),
+                # The completion review of D00 T06 §3: a citation with no line, and a reason that disagrees with the strike.
+                ([good[5].replace("`scripts/a.py:1`", "`scripts/a.py`"), good[6], good[8]], False, "gives no line"),
+                ([good[5], good[6].replace("a one-off script nobody runs again", "keep it for release, it matters"), good[8]], False, "base line 6: is classified as")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)
@@ -161,8 +164,8 @@ class FindingsLedgerTest(unittest.TestCase):
         for cited in ("`scripts/a.py`", "`scripts/a.py:1`"):
             with self.subTest(cited=cited):
                 record.write_text("# C\n\n- 5: Scheduled: D09 T01 §1 (item 1, the fix). Inspected " + cited + ": it is gone.\n"
-                                  "- 6: Declined: one-off (a one-off). Inspected `scripts/b.py`: it runs once.\n"
-                                  "- 8: Done: D09 T01 §3 (shipped it). Inspected `scripts/d.py`: done.\n", encoding="utf-8")
+                                  "- 6: Declined: a one-off script nobody runs again (no use after it). Inspected `scripts/b.py:1`: it runs once.\n"
+                                  "- 8: Done: D09 T01 §3 shipped it (it does it now). Inspected `scripts/d.py:1`: done.\n", encoding="utf-8")
                 ledger._TRACKED.clear()
                 code, out = self.checked(resolver, record=record)
                 self.assertEqual(code, 1, out)
