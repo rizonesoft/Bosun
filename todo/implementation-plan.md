@@ -50,7 +50,7 @@ Sections: 64 | Checklist items: 561
 | [x]    | D00 T03 §24 | Campaign hold restores itself and shows its state                                      | none        | 10    |
 | [x]    | D00 T03 §25 | Preflight shows progress, times its checks and ends with one fix list                  | none        | 6     |
 | [x]    | D00 T03 §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | none        | 7     |
-| [ ]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 7     |
+| [x]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 7     |
 | [ ]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 5     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
@@ -203,6 +203,6 @@ Sections: 6 | Checklist items: 27
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
-Progress: 104/148 verified sections, 24 ready to run now.
+Progress: 105/148 verified sections, 23 ready to run now.
 
-Checklist: 1014/1209 items completed (includes Commit items).
+Checklist: 1015/1209 items completed (includes Commit items).

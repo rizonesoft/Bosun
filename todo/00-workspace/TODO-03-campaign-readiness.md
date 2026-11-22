@@ -65,7 +65,7 @@ title: "TODO-03 -- Campaign readiness"
 | 24 | §24 | Campaign hold restores itself and shows its state | -- | [x] |
 | 25 | §25 | Preflight shows progress, times its checks and ends with one fix list | -- | [x] |
 | 26 | §26 | Review dispatcher shows round times and settled sources, and takes non-section reviews | -- | [x] |
-| 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [ ] |
+| 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [x] |
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [ ] |
 
 ## 1. CI status that proves the commit
@@ -1020,13 +1020,16 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 18, 19 and
 - [x] Show, for each workflow in the `waiting:` line on stderr, its newest run for the commit (never an older finished one), its URL and its current job (or `queued` when it has none yet); a job read that fails shows `job unknown (<why>)` and leaves the verdict as it was; stdout stays one JSON object under `--json`. Done when: the test with an older green run and a newer queued run with no job reads the newer run's URL and `queued` on one look and its active job on the next, a failed job read reads `job unknown` with the pending verdict kept, and `--json` output parses as one object. (findings base line 19)
 - [x] Word the start outcomes apart, each naming its workflow: `started <workflow>: GitHub accepted it at <time>; its run shows on its line once listed` for a start GitHub accepted (**Corrected 2026-11-22 (the completion review, a redesign):** this item paired a start with a `workflow_dispatch` run created after it, a guess that twice named the wrong run, since GitHub's dispatch returns no run identity; no run is credited to a start now, and the run's URL is on its workflow's own line), `start not answered: <workflow> (<what to check>)` for a start that got no answer, and `start refused: <workflow>: <why>`; a restart that finds an unanswered start in the gate's state neither starts it again nor calls it started. The causes where no start was tried (an unreadable remote head, a held lock, an unwritable state) keep `no run was started: <why>`, which `scripts/campaign-preflight.ps1` reads, and the `wait` action in `.claude/skills/process-phase/SKILL.md`, its mirrors in `.agents/skills/` and `.codex/skills/`, and their policy test say the new wording. Done when: golden-output tests for each outcome alone and for a mixed result read each outcome once, tied to its workflow, with no line on stdout contradicting one on stderr; the restart case starts nothing; the preflight's consumer still reads its line; the three skill copies match. (findings base line 20)
 - [x] Measure the delay on a real gate after the change, as before it. Done when: both measurements are in the run file, side by side.
-- [ ] Commit: `ci: the gate sees a finished run sooner and says what it waits on (D00 T03 §27)`
+- [x] Commit: `ci: the gate sees a finished run sooner and says what it waits on (D00 T03 §27)`
 
 **Evidence 2026-11-22:** `python -m unittest scripts.tests.test_ci_status` -> Ran 150 tests, OK, with `OpenRuns` (fake calls of 3 s each: a run finishing just after a look is seen by a look starting 15 s after the last one started, exit 0 and `proceed`; a failed read pauses 120 s and the 15 s pace returns; `api_calls` equals the fake's own record and stays under 1,000 an hour for two workflows with job reads; the waiting line names the newer run, `queued` then its job, then `job unknown`; each start outcome once, tied to its workflow, stdout and stderr agreeing; a start tied to its listed run names it; a restart with an unanswered start neither starts it nor calls it started). The existing pace and wording tests were updated to the new contract. `pwsh tests/preflight_test.ps1` -> 163 passed (its consumer reads the new start lines too). The `process-phase` policy test passes with the new wording in all three copies. Mutation caught: the 15 s pace removed fails seven tests.
 
 **Evidence 2026-11-22 (completion review):** the six gaps are fixed (a finished sibling's URL kept; no run credited to a start, a redesign; an unrecorded acceptance still a start; a lost record or unanswered start never offered again in a read-only look; a refusal tried once per gate; the preflight's lookup naming the SHA). `python -m unittest scripts.tests.test_ci_status` -> Ran 158 tests, OK; `pwsh tests/preflight_test.ps1` -> 164 passed. Mutations caught: a refusal retried each look, a lost record offering a start, an unrecorded acceptance called unanswered.
 
 **Test checkpoint:** `python scripts/run-tests.py test_ci_status` exits 0, and with the 15-second pace removed the schedule test fails.
+
+> **Verified:** 2026-11-22 | §27 | 28f4873f62d887356a3665339cc40ca0c55f5664
+> **Review:** `docs/reviews/d00-t03-s27.json`
 
 ## 28. Campaign hold as a Windows power request the run's process holds
 
