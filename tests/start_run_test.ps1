@@ -208,7 +208,16 @@ exit ([int]$env:FAKE_WRITER_EXIT)
   }
   function Wait-Done($shell, [int]$seconds = 60) {
     $deadline = (Get-Date).AddSeconds($seconds); $seen = @()
-    while ((Get-Date) -lt $deadline) { $line = $shell.StandardOutput.ReadLine(); if ($null -eq $line) { break }; $seen += $line; if ($line -eq 'LAUNCHER-DONE') { break } }
+    $pending = $null
+    while ($true) {
+      $left = [int]($deadline - (Get-Date)).TotalMilliseconds
+      if ($left -le 0) { break }
+      if (-not $pending) { $pending = $shell.StandardOutput.ReadLineAsync() }
+      if (-not $pending.Wait($left)) { break }
+      $line = $pending.Result; $pending = $null
+      if ($null -eq $line) { break }
+      $seen += $line; if ($line -eq 'LAUNCHER-DONE') { break }
+    }
     $seen
   }
   $holdState = Join-Path $holdDir 'state.json'

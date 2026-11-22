@@ -57,8 +57,30 @@ try {
   $env:BOSUN_TEST_HOLD_FAIL = '1'
   try { $h = Start-Holder $parent.Id (Join-Path $work 'd.json') } finally { Remove-Item Env:BOSUN_TEST_HOLD_FAIL }
   $line = $h.StandardOutput.ReadLine()
+  # It lives until released, as a held one does, so its record stays this run's while the writer runs (round 1 of
+  # D00 T03 §28), and records the release it is given.
+  $alive = -not $h.WaitForExit(1500)
+  $h.StandardInput.Close()
   $null = $h.WaitForExit(5000)
-  Check ($line -match '^failed: SetThreadExecutionState refused' -and $h.ExitCode -eq 3 -and (Get-Content -LiteralPath (Join-Path $work 'd.json') -Raw | ConvertFrom-Json).acquired -eq $false) "a refused request says failed and exits 3 ($line)"
+  $saved = Get-Content -LiteralPath (Join-Path $work 'd.json') -Raw | ConvertFrom-Json
+  Check ($line -match '^failed: SetThreadExecutionState refused' -and $alive -and $h.ExitCode -eq 3 -and $saved.acquired -eq $false -and $saved.released_because -eq 'its launcher released it') "a refused request says failed, lives until released, records it and exits 3 ($line)"
+  # A record it cannot write is said on its line, since the preflight would read an older run's record instead.
+  $locked = Join-Path $work 'e.json'
+  New-Item -ItemType Directory -Path $locked | Out-Null  # a path the replace cannot take
+  $h = Start-Holder $parent.Id $locked
+  $line = $h.StandardOutput.ReadLine()
+  $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
+  Check ($line -match "^held; but .*e\.json could not be written") "a record that cannot be written is said on the holder's line ($line)"
+  # The case round 1 named: an older run's released record left read-only.
+  $readOnly = Join-Path $work 'f.json'
+  [IO.File]::WriteAllText($readOnly, '{"pid": 1, "released": "2026-11-21T00:00:00Z"}')
+  (Get-Item -LiteralPath $readOnly).IsReadOnly = $true
+  $h = Start-Holder $parent.Id $readOnly
+  $line = $h.StandardOutput.ReadLine()
+  $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
+  $kept = [IO.File]::ReadAllText($readOnly)
+  (Get-Item -LiteralPath $readOnly).IsReadOnly = $false
+  Check ($line -match '^held; but .*f\.json could not be written' -and $kept -match '2026-11-21') "a read-only older record is said, not silently replaced ($line)"
 }
 finally {
   foreach ($p in $started) { if (-not $p.HasExited) { & taskkill /T /F /PID $p.Id 2>&1 | Out-Null } }

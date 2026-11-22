@@ -28,7 +28,9 @@ function Save-Hold([hashtable]$fields) {
   $text = $fields | ConvertTo-Json -Compress
   $tmp = "$Record.$PID.tmp"
   [IO.File]::WriteAllText($tmp, $text, [Text.UTF8Encoding]::new($false))
-  Move-Item -LiteralPath $tmp -Destination $Record -Force
+  # File.Move, not Move-Item -Force: that one overwrites a read-only record and moves into a directory of its name,
+  # so a record it did not write would read as written.
+  try { [IO.File]::Move($tmp, $Record, $true) } catch { Remove-Item -LiteralPath $tmp -ErrorAction Ignore; throw }
 }
 
 if (-not ('BosunAwake.Power' -as [type])) {
@@ -62,10 +64,14 @@ $acquired = $previous -ne 0
 $why = if ($acquired) { $null } else { "SetThreadExecutionState refused the request (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" }
 $fields = @{ pid = $PID; parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
 if ($why) { $fields.why = $why }
-try { Save-Hold $fields } catch { $fields.record_error = "$($_.Exception.Message)" }
-[Console]::Out.WriteLine($(if ($acquired) { 'held' } else { "failed: $why" }))
+$unrecorded = $null
+try { Save-Hold $fields } catch { $unrecorded = "$($_.Exception.Message)" }
+# One line for the launcher: held or failed, and a record that could not be written, since a reader (the preflight)
+# would then see an older run's record.
+$said = if ($acquired) { 'held' } else { "failed: $why" }
+if ($unrecorded) { $said += "; but $Record could not be written ($unrecorded)" }
+[Console]::Out.WriteLine($said)
 [Console]::Out.Flush()
-if (-not $acquired) { exit 3 }
 
 $parent = Get-Process -Id $ParentPid -ErrorAction Ignore
 $deadline = if ($Minutes -gt 0) { [datetime]::UtcNow.AddMinutes($Minutes) } else { [datetime]::MaxValue }
@@ -77,9 +83,11 @@ while ($true) {
   if ([datetime]::UtcNow -ge $deadline) { $why = "its $Minutes minute(s) ran out"; break }
   [void]$released.Wait(200)
 }
-[void][BosunAwake.Power]::SetThreadExecutionState([uint32]2147483648)  # ES_CONTINUOUS alone: the request ends now
+# A failed holder waits as a held one does, so its record reads as this run's until its writer returns or its window
+# closes, and is then marked released like any other.
+if ($acquired) { [void][BosunAwake.Power]::SetThreadExecutionState([uint32]2147483648) }  # ES_CONTINUOUS alone: the request ends now
 $fields.released = [datetime]::UtcNow.ToString('o'); $fields.released_because = $why
 # The request has ended either way; a release that could not be recorded is said, since the record would still read
 # as a live hold to a reader that does not check the holder's process.
 try { Save-Hold $fields } catch { [Console]::Error.WriteLine("hold released ($why), but $Record could not be updated: $($_.Exception.Message)") }
-exit 0
+exit $(if ($acquired) { 0 } else { 3 })

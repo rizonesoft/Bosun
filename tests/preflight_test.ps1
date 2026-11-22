@@ -567,9 +567,23 @@ try {
   } finally { $held.StandardInput.Close(); $null = $held.WaitForExit(3000); if (-not $held.HasExited) { & taskkill /T /F /PID $held.Id 2>&1 | Out-Null } }
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a released hold (a timed one ended, or its writer returned) passes as no run holding'
-  [IO.File]::WriteAllText($runHold, (@{ pid = 999999; parent = $PID; acquired = $false; why = 'SetThreadExecutionState refused the request (error 5)' } | ConvertTo-Json))
+  # A failed holder lives until its writer returns: failing while it does, passing once it is released (round 1 of
+  # D00 T03 §28), even with the launcher's window still open.
+  $env:BOSUN_TEST_HOLD_FAIL = '1'
+  try { $held = [Diagnostics.Process]::Start($holder) } finally { Remove-Item Env:BOSUN_TEST_HOLD_FAIL }
+  try {
+    $null = $held.StandardOutput.ReadLine()
+    $r = Preflight $system $holdArgs
+    Check ($r.Code -eq 1 -and $r.Text -match "the run's hold failed: SetThreadExecutionState refused the request") 'a live run whose holder failed fails with its reason'
+  } finally { $held.StandardInput.Close(); $null = $held.WaitForExit(3000); if (-not $held.HasExited) { & taskkill /T /F /PID $held.Id 2>&1 | Out-Null } }
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match "the run's hold failed: SetThreadExecutionState refused the request \(error 5\)") 'a live run whose holder failed fails with its reason'
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a failed hold whose writer returned passes, its shell still open'
+  # A run's record that cannot be read fails with what to move aside, never as no run.
+  foreach ($bad in '{ not json', '"just text"') {
+    [IO.File]::WriteAllText($runHold, $bad)
+    $r = Preflight $system $holdArgs
+    Check ($r.Code -eq 1 -and $r.Text -match "the run's hold record at .* can't be read" -and $r.Text -match 'Move-Item') "an unreadable run hold record ($bad) fails with what to move aside"
+  }
   Remove-Item -LiteralPath $runHold
   # A record an older version left: put back by hand; one that cannot be read: moved aside.
   . (Join-Path $repo 'scripts\lib\campaign.ps1')
@@ -585,10 +599,19 @@ try {
   foreach ($case in @(@{ Active = '1'; Secure = '1'; Fails = $true }, @{ Active = '0'; Secure = '1'; Fails = $false }, @{ Active = '1'; Secure = '0'; Fails = $false })) {
     Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaveActive -Value $case.Active
     Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaverIsSecure -Value $case.Secure
-    $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey)
+    $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
     if ($case.Fails) { Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume' -and $r.Text -match "On resume, display logon screen") 'a screen saver that locks on resume fails with the owner''s fix' }
     else { Check ($r.Code -eq 0 -and $r.Text -match 'no screen saver that locks on resume') "a screen saver active $($case.Active), secure $($case.Secure) passes" }
-  }
+  }  # A managed account's policy wins over the desktop's own values (round 1 of D00 T03 §28); the test key's teardown
+  # removes it.
+  Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaveActive -Value '0'
+  New-Item -Path "$lockKey\Policy" -Force | Out-Null
+  Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveActive -Value '1'
+  Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaverIsSecure -Value '1'
+  $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
+  Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume') 'a screen saver lock enforced by policy fails though the desktop''s own values say off'
+  Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveActive -Value '0'
+
 
   $policy = "HKCU:\Software\BosunTest\preflight-$PID\AU"
   $store = Join-Path $work 'tasks.json'

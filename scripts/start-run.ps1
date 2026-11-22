@@ -95,8 +95,9 @@ function Start-Hold {
     "hold: the holder could not start ($($_.Exception.Message)), so the machine may sleep during the run"
     return $null
   }
-  if ($said -eq 'held') {
+  if ($said -like 'held*') {
     "hold: the machine stays awake and its display on $(if ($Minutes) { "for $Minutes minute(s)" } else { 'while the writer runs' })"
+    if ($said -ne 'held') { "hold: $($said.Substring(6)), so the preflight cannot see this hold" }
   } else {
     "hold: $said, so the machine may sleep during the run"
   }

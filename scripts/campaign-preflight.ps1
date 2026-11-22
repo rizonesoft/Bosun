@@ -35,7 +35,9 @@ param(
   [string]$PowerCfg = ($env:BOSUN_HOLD_POWERCFG ? $env:BOSUN_HOLD_POWERCFG : (Join-Path $env:SystemRoot 'System32\powercfg.exe')),
   [string]$LockKey = ($env:BOSUN_HOLD_LOCKKEY ? $env:BOSUN_HOLD_LOCKKEY : 'HKCU:\Control Panel\Desktop'),
   # The hold the run's launcher records (scripts/lib/hold-awake.ps1, D00 T03 §28), in the run guard's build folder.
-  [string]$RunHold = (Join-Path ($env:RUN_GUARD_BUILD ? $env:RUN_GUARD_BUILD : (Join-Path (Split-Path $PSScriptRoot) 'build')) 'run-hold.json'),
+  # The screen saver policy a managed account is given: where a value is set, it wins over the desktop's own.
+  [string]$LockPolicyKey = 'HKCU:\Software\Policies\Microsoft\Windows\Control Panel\Desktop',
+  [string]$RunHold =(Join-Path ($env:RUN_GUARD_BUILD ? $env:RUN_GUARD_BUILD : (Join-Path (Split-Path $PSScriptRoot) 'build')) 'run-hold.json'),
   [string]$PolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU',
   [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
   [string]$DotnetDir = '',
@@ -439,11 +441,21 @@ function Test-Hold {
   # execution state, which any process can hold.
   $hold = $null
   if (Test-Path -LiteralPath $RunHold) {
-    try { $hold = Get-Content -LiteralPath $RunHold -Raw | ConvertFrom-Json -ErrorAction Stop } catch { $hold = $null }
+    # The holder replaces its record whole, so a read that meets the replace is tried again before it counts.
+    $why = $null
+    foreach ($try in 1..3) {
+      try { $hold = Get-Content -LiteralPath $RunHold -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop; $why = $null; break }
+      catch { $why = $_.Exception.Message; Start-Sleep -Milliseconds 150 }
+    }
+    if ($why -or $hold -isnot [pscustomobject] -or -not ($hold.pid -is [long] -or $hold.pid -is [int])) {
+      Fail "the run's hold record at $RunHold can't be read$(if ($why) { ": $why" } else { ' (it is not a holder''s record)' })" "close any run, then move it aside (``Move-Item -LiteralPath '$RunHold' -Destination '$RunHold.damaged'``)"
+      return
+    }
   }
-  $live = $hold -and $hold.pid -and -not $hold.released -and [bool](Get-Process -Id ([int]$hold.pid) -ErrorAction Ignore)
+  # A holder lives, held or failed, until its writer returns or its window closes, then marks its record released.
+  $live = $hold -and -not $hold.released -and [bool](Get-Process -Id ([int]$hold.pid) -ErrorAction Ignore)
   if ($live -and $hold.acquired -eq $true) { Pass "the machine is held awake by run $($hold.pid)"; return }
-  if ($live -or ($hold -and $hold.acquired -eq $false -and $hold.parent -and (Get-Process -Id ([int]$hold.parent) -ErrorAction Ignore))) {
+  if ($live) {
     Fail "the run's hold failed: $($hold.why)" 'start the run again from its shortcut; if the hold fails again, the machine may sleep during the run'
     return
   }
@@ -530,7 +542,10 @@ function Test-Lock {
   }
   # The run's power request keeps the display on but does not stop the screen saver (Microsoft documents it), so a
   # saver that locks on resume locks the desktop mid-run: the owner's setting, which the campaign never writes.
-  try { $active = Get-RegValue $LockKey 'ScreenSaveActive'; $secure = Get-RegValue $LockKey 'ScreenSaverIsSecure' }
+  try {
+    $active = Get-RegValue $LockPolicyKey 'ScreenSaveActive'; if ($null -eq $active) { $active = Get-RegValue $LockKey 'ScreenSaveActive' }
+    $secure = Get-RegValue $LockPolicyKey 'ScreenSaverIsSecure'; if ($null -eq $secure) { $secure = Get-RegValue $LockKey 'ScreenSaverIsSecure' }
+  }
   catch { Fail "the screen saver settings can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
   if ("$active" -eq '1' -and "$secure" -eq '1') {
     Fail 'the screen saver locks the desktop on resume, and a campaign''s hold keeps the display on but cannot stop the screen saver' "turn off 'On resume, display logon screen' (Settings > Personalization > Lock screen > Screen saver), or the screen saver itself" 'owner'
