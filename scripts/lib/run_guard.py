@@ -23,7 +23,6 @@ guard must never wedge a session.
 from __future__ import annotations
 
 import hashlib
-import calendar
 import json
 import math
 import os
@@ -108,12 +107,6 @@ class Env:
     gating: Callable[[], object] = lambda: None
     # Whether the process with this id still runs and started at this time (an Antigravity run's owner).
     process_alive: Callable[[int, object], bool] = lambda pid, started: process_started(pid) == started
-    # The campaign hold's record (D00 T03 §24): {"applied", "expires", "restore_tried"} as epoch seconds (the last
-    # None when never tried), None with no hold, or {"error": why} when it can't be read.
-    hold: Callable[[], dict | None] = lambda: None
-    # Run `campaign-hold.ps1 -Restore -Auto -Applied <mark>` for the hold named by its mark: {"exit": its code, or None
-    # when it could not start or was stopped, "output"}.
-    restore_hold: Callable[[str], dict] = lambda mark: {"exit": 0, "output": ""}
 
 
 def stamp(now: float | None = None) -> str:
@@ -303,11 +296,8 @@ def on_prompt(state: dict, data: dict, env: Env) -> str | None:
     if state.get("active") and state.get("session_id") not in (None, session) and run_alive(state, env):
         return f"Another session ({state['session_id']}) owns the active run. Never run two writers on one tree: stop and say so."
     if not state.get("active"):
-        kept = state.get("hold_restore")  # the machine's, not the run's: a new run keeps it (completion review of D00 T03 §24)
         state.clear()
         state.update(active=True, status="active", started=stamp(), changed_at=time.time())
-        if kept:
-            state["hold_restore"] = kept
     state.pop("started_at", None)  # the session is here, so it is judged like any other from now on
     for key in OWNER_KEYS:
         state.pop(key, None)  # a Claude Code session owns it now, judged by its own record, not a former owner's process
@@ -451,24 +441,6 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
         lines.append(f"waiting for {state['wait_reason']} until {data['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
     if word == "waiting" and flying:
         lines.append(f"waiting for {flying}")
-    hold = read_hold(env)
-    manual = "restore by hand: `pwsh scripts/campaign-hold.ps1 -Restore`"
-    if hold and hold.get("error"):
-        data["hold"] = {"error": hold["error"]}
-        lines.append(f"hold: {hold['error']}; {manual}")
-    elif hold:
-        data["hold"] = {"applied": stamp(hold["applied"]), "expires": None if hold["expires"] is None else stamp(hold["expires"]),
-                        "restore_tried": None if hold["restore_tried"] is None else stamp(hold["restore_tried"])}
-        age = max(0, int(time.time() - hold["applied"]))
-        lines.append(f"hold: applied {age // 3600} h {age % 3600 // 60} min ago, restored at the first hook event or status read after the run ends" + (f" or after {stamp(hold['expires'])}" if hold['expires'] is not None else " (it has no expiry)"))
-        if hold["restore_tried"] is not None:
-            lines.append(f"hold: an automatic restore was tried at {stamp(hold['restore_tried'])} and left it in place; {manual}")
-    tried = state.get("hold_restore")
-    if tried:
-        data["hold_restore"] = tried
-        # Only a failure of the hold in place now asks for a manual restore: an older one's would undo a new hold.
-        if tried.get("exit") != 0 and hold and not hold.get("error") and tried.get("applied") == hold_mark(hold):
-            lines.append(f"hold: the automatic restore at {tried.get('at')} ({tried.get('why')}) failed: {tried.get('output')}; {manual}")
     return word, data, lines
 
 
@@ -603,11 +575,8 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
         who = f"the {state.get('runner', 'claude')} session {owner}"
         raise ValueError(f"{who} owns the active run and is alive or about to start; never run two writers on one tree")
     if not state.get("active"):
-        kept = state.get("hold_restore")  # a hold's restore is the machine's, not the run's: a new run keeps it
         state.clear()
         state.update(active=True, status="active", started=stamp(now), changed_at=now)
-        if kept:
-            state["hold_restore"] = kept
     for key in OWNER_KEYS:
         state.pop(key, None)
     state.update(session_id=session, started_at=now)
@@ -616,65 +585,6 @@ def start(state: dict, session: str, env: Env, now: float | None = None, runner:
 
 
 END_STATES = ("complete", "parked", "stalled", "halted", "ended", "stopped", "drained")
-# The automatic restore's budget: inside the 10 seconds Claude Code gives the shortest hook (SessionEnd).
-HOLD_RESTORE_SECONDS = 7.0
-
-
-def read_hold(env: Env) -> dict | None:
-    """`env.hold()`, with a failure to read it kept as the error it is."""
-    try:
-        return env.hold()
-    except Exception as error:  # noqa: BLE001 - shown in status, never raised: a hook must not fail on it
-        return {"error": repr(error)}
-
-
-def hold_mark(hold: dict) -> str:
-    """The one name of a hold, for the run that claims it and the restore that tries it: when it was applied."""
-    return stamp(hold["applied"])
-
-
-def claim_hold(state: dict, hold: dict | None) -> bool:
-    """An active run claims the hold it sees, so that only its end restores that hold (D00 T03 §24). A run whose
-    session died before a hold was applied never sees it, and its end, however late it is recorded, leaves the hold
-    for the next run. Returns whether the claim changed the state."""
-    if not state.get("active") or not hold or hold.get("error") or hold.get("restore_tried") is not None:
-        return False
-    if state.get("hold_for") == hold_mark(hold):
-        return False
-    state["hold_for"] = hold_mark(hold)
-    return True
-
-
-def hold_due(state: dict, hold: dict | None, now: float) -> str | None:
-    """Why the campaign hold is to be restored now, or None. A hold is restored once: the script marks the record
-    before it changes anything, and the guard's own attempt (`hold_restore`) names the hold it tried, so a restore that
-    failed before it could mark the record is not tried again either. It is restored when it has expired, or when the
-    run that claimed it has ended."""
-    if not hold or hold.get("error") or hold.get("restore_tried") is not None:
-        return None
-    if (state.get("hold_restore") or {}).get("applied") == hold_mark(hold):
-        return None
-    if hold["expires"] is not None and now >= hold["expires"]:
-        return "the hold expired"
-    if not state.get("active") and state.get("status") in END_STATES and state.get("hold_for") == hold_mark(hold):
-        return "the run it was applied for ended"
-    return None
-
-
-def release_hold(state: dict, env: Env, now: float | None = None) -> bool:
-    """Restore the hold when it is due, keeping the result in `hold_restore`. Called under the state lock by every path
-    that ends or reads a run, so two never restore at once; the claim is made apart (`claim_hold`), only for the run's
-    own session, since a foreign hook or a stale launcher must never claim a fresh hold for a dead run. Returns whether
-    it changed the state."""
-    now = time.time() if now is None else now
-    hold = read_hold(env)
-    why = hold_due(state, hold, now)
-    if not why or hold is None:
-        return False
-    result = env.restore_hold(hold_mark(hold))
-    state["hold_restore"] = {"at": stamp(now), "applied": hold_mark(hold), "why": why,
-                             "exit": result.get("exit"), "output": str(result.get("output", ""))[:500]}
-    return True
 
 
 def end(state: dict, session: str, reason: str) -> bool:
@@ -832,10 +742,7 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
         state = load(path)
         before = json.dumps(state, sort_keys=True)
         merge_pending_wait(state, path, time.time())
-        if state.get("session_id") == session:  # only the run's own session claims for it
-            claim_hold(state, read_hold(env))  # before the stop, which may be the one that ends the run
         reason = on_antigravity_stop(state, data, env)
-        release_hold(state, env)
         if json.dumps(state, sort_keys=True) != before:
             save_retrying(state, path)
             log(f"antigravity Stop: {state.get('status')} {state.get('why', '')}".rstrip(), path)
@@ -1086,91 +993,8 @@ def write_acceptance(kind: str, text: str, root: Path = ROOT, today: str | None 
     return path.relative_to(root).as_posix()
 
 
-def hold_record_path() -> Path | None:
-    """The campaign hold's record, as scripts/campaign-hold.ps1 names it. A guard pointed at another state
-    (RUN_GUARD_STATE or RUN_GUARD_BUILD, as its tests are) is not this machine's run, so the machine's hold is not its
-    to restore: it reads one only when BOSUN_HOLD_RECORD names it."""
-    named = os.environ.get("BOSUN_HOLD_RECORD")
-    if named:
-        return Path(named)
-    if os.environ.get("RUN_GUARD_STATE") or os.environ.get("RUN_GUARD_BUILD") or not os.environ.get("LOCALAPPDATA"):
-        return None
-    return Path(os.environ["LOCALAPPDATA"]) / "Bosun" / "campaign-hold.json"
-
-
-def hold_time(value: object) -> float | None:
-    """Epoch seconds of a time the hold script writes (ISO 8601, PowerShell's seven fraction digits included), or None."""
-    m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?", str(value).strip())
-    if not m:
-        return None
-    try:
-        whole = calendar.timegm(time.strptime(m[1], "%Y-%m-%dT%H:%M:%S"))
-    except ValueError:
-        return None
-    offset = 0 if m[3] in (None, "Z") else (1 if m[3][0] == "+" else -1) * (int(m[3][1:3]) * 3600 + int(m[3][4:6]) * 60)
-    return whole - offset + (float("0." + m[2]) if m[2] else 0.0)
-
-
-def real_hold(path: Path | None = None) -> dict | None:
-    """The hold record's life, read as scripts/campaign-hold.ps1 reads it (Get-HoldLife): a record from before these
-    fields began when its file was written and has no expiry (None): only the end of its run restores it."""
-    path = hold_record_path() if path is None else path
-    if path is None or not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-        written = path.stat().st_mtime
-    except (OSError, ValueError) as error:
-        return {"error": f"{path.name} can't be read: {error}"}
-    if not isinstance(data, dict):
-        return {"error": f"{path.name} holds no record"}
-    applied = hold_time(data["Applied"]) if "Applied" in data else written
-    expires = hold_time(data["Expires"]) if "Expires" in data else None
-    tried = None if data.get("RestoreTried") is None else hold_time(data["RestoreTried"])
-    if applied is None or ("Expires" in data and expires is None) or (data.get("RestoreTried") is not None and tried is None):
-        return {"error": f"{path.name} has a time field that is not a time"}
-    return {"applied": applied, "expires": expires, "restore_tried": tried}
-
-
-def stop_tree(pid: int) -> None:
-    """Stop a process and every process it started (a powercfg the hold script is waiting on, for one)."""
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=10, **hidden())
-    else:
-        try:
-            os.killpg(pid, 9)
-        except ProcessLookupError:  # the group has already gone: there is nothing left to stop
-            return
-
-
-def real_restore_hold(mark: str = "", argv: list[str] | None = None, limit: float = HOLD_RESTORE_SECONDS) -> dict:
-    """Run the hold's automatic restore of the hold applied at `mark`, stopped with its whole tree past `limit`
-    seconds. The script refuses a record that is not that hold, so a manual restore and a new apply in the meantime
-    are never undone by an old decision."""
-    argv = argv or ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(ROOT / "scripts" / "campaign-hold.ps1"),
-                    "-Restore", "-Auto", "-ForHold", mark, "-ProbeSeconds", "2"]
-    extra = hidden() if os.name == "nt" else {"start_new_session": True}
-    try:
-        process = subprocess.Popen(argv, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL, **extra)
-    except OSError as error:
-        return {"exit": None, "output": f"the restore could not start: {error}"}
-    try:
-        out, _ = process.communicate(timeout=limit)
-    except subprocess.TimeoutExpired:
-        stop_tree(process.pid)
-        try:
-            process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-        return {"exit": None, "output": f"the restore was stopped, with its process tree, after {limit:g} s"}
-    lines = out.decode("utf-8", "replace").strip().splitlines()
-    return {"exit": process.returncode, "output": "\n".join(lines[:6])}
-
-
 REAL = Env(rows=real_rows, signature=real_signature, alive=real_alive, finish=real_finish, wakes=real_wakes,
-           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight, gating=gate_in_flight,
-           hold=real_hold, restore_hold=real_restore_hold)
+           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight, gating=gate_in_flight)
 
 
 def health(state: dict, path: Path = STATE, now: float | None = None) -> dict:
@@ -1179,25 +1003,19 @@ def health(state: dict, path: Path = STATE, now: float | None = None) -> dict:
 
 
 def settle_gone(env: Env = REAL, path: Path = STATE, now: float | None = None) -> dict:
-    """The state as `status` shows it, after recording a run whose session is gone as ended and restoring a hold that
-    is due (`release_hold`). A lock or a state that can't be written leaves it as read: the next look tries again."""
+    """The state as `status` shows it, after recording a run whose session is gone as ended. A lock or a state that
+    can't be written leaves it as read: the next look tries again."""
     peek = load(path)
     now = time.time() if now is None else now
-    closing = close_if_gone(dict(peek), env, now)  # on a copy: the slow read of every session record is before the lock
-    if not closing and not hold_due(peek, read_hold(env), now):
+    if not close_if_gone(dict(peek), env, now):  # on a copy: the slow read of every session record is before the lock
         return peek
     with locked(path):
         state = load(path)
-        changed = False
-        if closing and state.get("session_id") == peek.get("session_id") and close_if_gone(state, replace(env, alive=lambda session: False), now):
-            changed = True
-            log(f"status: {state.get('status')} {state.get('why', '')}".rstrip(), path)
-        if release_hold(state, env, now):
-            changed = True
-            log(f"status: hold restore exit {state['hold_restore'].get('exit')} ({state['hold_restore'].get('why')})", path)
-        if changed:
+        if state.get("session_id") == peek.get("session_id") and close_if_gone(state, replace(env, alive=lambda session: False), now):
             save_retrying(state, path)
+            log(f"status: {state.get('status')} {state.get('why', '')}".rstrip(), path)
         return state
+
 
 def hook_failures(path: Path = STATE) -> list:
     try:
@@ -1246,8 +1064,6 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
     state = load(path)
     before = json.dumps(state, sort_keys=True)
     merge_pending_wait(state, path, time.time())
-    if data.get("session_id") == state.get("session_id"):  # only the run's own session claims for it
-        claim_hold(state, read_hold(env))  # before the event, which may be the one that ends the run
     output = ""
     if event == "UserPromptSubmit":
         note = on_prompt(state, data, env)
@@ -1269,7 +1085,6 @@ def handle_event(event: str | None, data: dict, env: Env, path: Path) -> str:
         on_cron_created(state, data)
     elif event == "StopFailure":
         on_stop_failure(state, data)
-    release_hold(state, env)  # every event, whether the run changed or not: a hold can expire on a quiet run
     if json.dumps(state, sort_keys=True) != before:
         try:
             save_retrying(state, path)

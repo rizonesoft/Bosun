@@ -150,17 +150,9 @@ def main() -> int:
     if args.command == "end":
         with guard.locked():
             state = guard.load()
-            if state.get("session_id") == args.session:
-                guard.claim_hold(state, guard.read_hold(guard.REAL))  # the run's own hold, while it is still active
-            ended = guard.end(state, args.session, args.reason)
-            if ended:
-                guard.log(f"end: {state.get('why')}")
-            tried = state.get("hold_restore")
-            changed = guard.release_hold(state, guard.REAL)  # the launcher's end is the run's end: no hook may follow it
-            if state.get("hold_restore") is not tried:
-                guard.log(f"end: hold restore exit {state['hold_restore'].get('exit')}")
-            if ended or changed:
+            if guard.end(state, args.session, args.reason):
                 guard.save(state)
+                guard.log(f"end: {state.get('why')}")
         say(state.get("status") or ("active" if state.get("active") else "inactive"))
         return 0
     with guard.locked():
@@ -175,14 +167,11 @@ def main() -> int:
                     return 1
             try:
                 guard.start(state, args.session, guard.REAL, runner=args.runner, owner_pid=args.owner_pid, owner_started=started)
-                guard.claim_hold(state, guard.read_hold(guard.REAL))  # the hold in force at launch is this run's, before any hook
             except (ValueError, OSError) as error:
                 say(str(error))
                 return 1
         else:
-            guard.claim_hold(state, guard.read_hold(guard.REAL))  # the run's own hold, while it is still active
             guard.halt(state, args.ground, args.reason)
-            guard.release_hold(state, guard.REAL)  # a halt ends the run: its hold goes back now, not at a later hook
         guard.save(state)
     say(state.get("status", ""))
     if args.command == "halt":

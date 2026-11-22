@@ -1374,215 +1374,10 @@ class LocalGates(unittest.TestCase):
         self.assertEqual(cli("status").stdout.splitlines()[0], "active", "the wait outlived the gate's mark")
 
 
-class FakeHold:
-    """A campaign hold record and its automatic restore, as the guard sees them (D00 T03 §24)."""
-
-    def __init__(self, applied, expires=None, ok=True):
-        self.record = {"applied": applied, "expires": applied + 86400 if expires is None else expires, "restore_tried": None}
-        self.ok, self.restores = ok, 0
-
-    def hold(self):
-        return None if self.record is None else dict(self.record)
-
-    def restore(self, mark=""):
-        self.marks = getattr(self, "marks", []) + [mark]
-        self.restores += 1
-        if self.ok:
-            self.record = None
-            return {"exit": 0, "output": "restored every held value; record removed"}
-        self.record["restore_tried"] = time.time()
-        return {"exit": 1, "output": "FAIL restore left the record"}
-
-    def env(self, world=None):
-        return guard.replace((world or World()).env(), hold=self.hold, restore_hold=self.restore)
-
-
-class CampaignHold(unittest.TestCase):
-    """D00 T03 §24: the hold is restored once, by whichever path ends the run it was applied for, or at its expiry."""
-
-    def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.addCleanup(self.folder.cleanup)
-        self.path = Path(self.folder.name) / "state.json"
-        self.now = time.time()
-
-    def run_state(self, **extra):
-        return {**active(started_at=self.now - 3600, started=guard.stamp(self.now - 3600)), **extra}
-
-    def test_each_hook_path_that_ends_a_run_restores_once(self):
-        cases = {"SessionEnd": ({"hook_event_name": "SessionEnd", "session_id": "me", "reason": "other"}, World()),
-                 "the Stop hook's drain": ({"hook_event_name": "Stop", "session_id": "me"}, World(rows=()))}
-        for name, (event, world) in cases.items():
-            with self.subTest(name):
-                fake = FakeHold(applied=self.now - 600)
-                guard.save(self.run_state(), self.path)
-                guard.hook(json.dumps(event), fake.env(world), self.path)
-                state = guard.load(self.path)
-                self.assertFalse(state["active"])
-                self.assertEqual(fake.restores, 1)
-                self.assertEqual(state["hold_restore"]["why"], "the run it was applied for ended")
-                guard.hook(json.dumps({"hook_event_name": "SessionStart", "session_id": "next"}), fake.env(world), self.path)
-                self.assertEqual(fake.restores, 1, "a restored hold is not restored again")
-
-    def test_an_antigravity_run_that_ends_restores_its_hold(self):
-        session = "4a6e0b1c-agy0-4000-8000-000000000024"
-        fake = FakeHold(applied=self.now - 600)
-        env = guard.replace(fake.env(), process_alive=lambda pid, started: (pid, started) == (4242, 777))
-        state = {}
-        guard.start(state, session, env, runner="antigravity", owner_pid=4242, owner_started=777)
-        guard.save(state, self.path)
-        raw = json.dumps({"hookEventName": "Stop", "conversationId": "c-1", "cwd": str(guard.ROOT), "terminationReason": "USER_CANCELED",
-                          "continuation_active": True, "lastUserInput": "process plan"})
-        guard.hook_antigravity(raw, session, env, self.path)
-        self.assertFalse(guard.load(self.path)["active"])
-        self.assertEqual(fake.restores, 1)
-
-    def test_a_hold_applied_after_a_run_ended_waits_for_the_next_run_to_end(self):
-        fake = FakeHold(applied=self.now)
-        ended = {"active": False, "status": "ended", "session_id": "old", "ended": guard.stamp(self.now - 86400)}
-        guard.save(ended, self.path)
-        guard.settle_gone(fake.env(), self.path, now=self.now + 1)  # the status read before launch
-        self.assertEqual(fake.restores, 0)
-        state = guard.load(self.path)
-        guard.start(state, "me", fake.env(), now=self.now + 2)
-        guard.save(state, self.path)
-        guard.hook(json.dumps({"hook_event_name": "Stop", "session_id": "me"}), fake.env(World(alive=("me",))), self.path)
-        self.assertEqual(fake.restores, 0, "a live run's ordinary stop restores nothing")
-        guard.hook(json.dumps({"hook_event_name": "SessionEnd", "session_id": "me", "reason": "other"}), fake.env(), self.path)
-        self.assertEqual(fake.restores, 1)
-
-    def test_a_run_that_died_before_the_hold_never_restores_it(self):
-        # Round 1: a window closed with no SessionEnd, a hold applied for the next campaign, then a status read
-        # recorded the old run's end, later than the hold, and undid it.
-        fake = FakeHold(applied=self.now)
-        guard.save(self.run_state(), self.path)  # the old run, still recorded active, its session gone
-        state = guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now + 60)
-        self.assertFalse(state["active"])
-        self.assertEqual(fake.restores, 0)
-        self.assertIsNotNone(fake.record)
-
-    def test_a_restore_that_failed_before_marking_the_record_is_not_tried_again(self):
-        # Round 1: the script could fail before writing RestoreTried (an unwritable folder), and every read retried.
-        fake = FakeHold(applied=self.now - 600, expires=self.now - 1)
-        fake.restore = lambda mark: (setattr(fake, "restores", fake.restores + 1), {"exit": 1, "output": "FAIL cannot write"})[1]
-        guard.save(self.run_state(), self.path)
-        world = World(alive=("me",))
-        guard.settle_gone(fake.env(world), self.path, now=self.now)
-        guard.settle_gone(fake.env(world), self.path, now=self.now + 30)
-        guard.hook(json.dumps({"hook_event_name": "Stop", "session_id": "me"}), fake.env(world), self.path)
-        self.assertEqual(fake.restores, 1)
-
-    def test_an_older_holds_failure_does_not_ask_to_undo_a_new_hold(self):
-        # Round 1: a failed restore, a manual restore, a fresh hold: status asked to restore the fresh one.
-        fake = FakeHold(applied=self.now)
-        state = self.run_state(hold_restore={"at": guard.stamp(self.now - 3600), "applied": guard.stamp(self.now - 7200),
-                                             "why": "the hold expired", "exit": 1, "output": "FAIL"})
-        word, data, lines = guard.status_view(state, fake.env())
-        self.assertFalse([line for line in lines if "failed" in line], lines)
-        self.assertEqual(data["hold_restore"]["exit"], 1, "the old attempt is still in the JSON")
-
-    def test_only_the_runs_own_session_claims_its_hold(self):
-        # Completion review: a foreign session's hook claimed a fresh hold for a dead run, and the next status undid it.
-        fake = FakeHold(applied=self.now)
-        guard.save(self.run_state(), self.path)
-        guard.hook(json.dumps({"hook_event_name": "Stop", "session_id": "someone-else"}), fake.env(World(alive=("me",))), self.path)
-        self.assertNotIn("hold_for", guard.load(self.path))
-        guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now + 60)
-        self.assertEqual(fake.restores, 0, "a hold no event of its run ever saw is left for the next run")
-
-    def test_a_claimed_run_that_crashes_is_restored_with_the_hold_it_saw(self):
-        fake = FakeHold(applied=self.now - 60)
-        state = self.run_state()
-        self.assertTrue(guard.claim_hold(state, fake.hold()))  # as the launcher's start claims it, before any hook
-        guard.save(state, self.path)
-        guard.settle_gone(fake.env(World(alive=())), self.path, now=self.now)
-        self.assertEqual(fake.restores, 1)
-        self.assertEqual(fake.marks, [guard.stamp(self.now - 60)], "the restore names the hold it was chosen for")
-
-    def test_a_quiet_live_run_restores_at_expiry_on_a_status_read(self):
-        fake = FakeHold(applied=self.now - 600, expires=self.now + 100)
-        guard.save(self.run_state(), self.path)
-        world = World(alive=("me",))
-        guard.settle_gone(fake.env(world), self.path, now=self.now + 99)
-        self.assertEqual(fake.restores, 0)
-        state = guard.settle_gone(fake.env(world), self.path, now=self.now + 100)
-        self.assertEqual(fake.restores, 1)
-        self.assertTrue(state["active"], "an expired hold goes back; the run goes on")
-        self.assertEqual(guard.load(self.path)["hold_restore"]["why"], "the hold expired")
-
-    def test_another_sessions_end_leaves_the_hold(self):
-        fake = FakeHold(applied=self.now - 600)
-        state = self.run_state()
-        self.assertFalse(guard.end(state, "other", "a stale launcher"))
-        guard.release_hold(state, fake.env(), self.now)  # the run still active claims its hold, and restores nothing
-        self.assertEqual(fake.restores, 0)
-        self.assertTrue(state["active"])
-
-    def test_a_failed_restore_is_tried_once_and_kept_across_a_new_run(self):
-        fake = FakeHold(applied=self.now - 600, ok=False)
-        guard.save(self.run_state(), self.path)
-        guard.hook(json.dumps({"hook_event_name": "SessionEnd", "session_id": "me", "reason": "other"}), fake.env(), self.path)
-        self.assertEqual(fake.restores, 1)
-        state = guard.load(self.path)
-        guard.start(state, "next", fake.env(), now=self.now + 5)
-        self.assertEqual(state["hold_restore"]["exit"], 1, "a new run keeps the failed restore for status")
-        guard.save(state, self.path)
-        guard.hook(json.dumps({"hook_event_name": "SessionEnd", "session_id": "next", "reason": "other"}), fake.env(), self.path)
-        self.assertEqual(fake.restores, 1, "the record's mark stops a second automatic restore")
-        word, data, lines = guard.status_view(guard.load(self.path), fake.env())
-        self.assertIn("restore_tried", data["hold"])
-        self.assertTrue(any("failed" in line and "campaign-hold.ps1 -Restore" in line for line in lines), lines)
-        self.assertTrue(any("tried at" in line for line in lines), lines)
-
-    def test_status_shows_a_hold_and_nothing_without_one(self):
-        fake = FakeHold(applied=self.now - 7200)
-        word, data, lines = guard.status_view(self.run_state(), fake.env())
-        self.assertEqual(sorted(data["hold"]), ["applied", "expires", "restore_tried"])
-        self.assertTrue(any(line.startswith("hold: applied 2 h 0 min ago, restored at the first hook event or status read") for line in lines), lines)
-        fake.record = None
-        word, data, lines = guard.status_view(self.run_state(), fake.env())
-        self.assertNotIn("hold", data)
-        self.assertFalse([line for line in lines if line.startswith("hold:")])
-
-    def test_a_slow_restore_is_stopped_at_its_budget_with_its_tree(self):
-        pid_file = Path(self.folder.name) / "child.pid"
-        code = ("import subprocess, sys, time; "
-                "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
-                f"open(r'{pid_file}', 'w').write(str(c.pid)); time.sleep(9)")
-        began = time.monotonic()
-        result = guard.real_restore_hold("", [sys.executable, "-c", code])
-        took = time.monotonic() - began
-        self.assertIsNone(result["exit"])
-        self.assertIn("stopped, with its process tree, after 7 s", result["output"])
-        self.assertLess(took, 9.5)
-        child = int(pid_file.read_text())
-        time.sleep(0.5)
-        self.assertFalse(guard.pid_alive(child), "the restore's child outlived it")
-
-    def test_the_real_reader_reads_the_scripts_record(self):
-        record = Path(self.folder.name) / "campaign-hold.json"
-        record.write_text(json.dumps({"Scheme": "x", "Power": [], "Lock": None, "Applied": "2026-11-21T10:00:00.1234567Z",
-                                      "Expires": "2026-11-22T10:00:00.1234567Z"}), encoding="utf-8")
-        hold = guard.real_hold(record)
-        self.assertEqual(guard.stamp(hold["applied"]), "2026-11-21T10:00:00Z")
-        self.assertEqual(hold["expires"] - hold["applied"], 86400)
-        self.assertIsNone(hold["restore_tried"])
-        record.write_text(json.dumps({"Scheme": "x", "Power": [], "Lock": None}), encoding="utf-8")
-        os.utime(record, (1763712000, 1763712000))
-        # An old record has no expiry: a day from its write time restored a live campaign's hold on 2026-11-21.
-        self.assertEqual(guard.real_hold(record), {"applied": 1763712000, "expires": None, "restore_tried": None})
-        self.assertIsNone(guard.hold_due({**active()}, guard.real_hold(record), time.time()))
-        record.write_text(json.dumps({"Scheme": "x", "Applied": "soon"}), encoding="utf-8")
-        self.assertIn("error", guard.real_hold(record))
-        with mock.patch.dict(os.environ, {"RUN_GUARD_STATE": "x"}, clear=False):
-            os.environ.pop("BOSUN_HOLD_RECORD", None)
-            self.assertIsNone(guard.hold_record_path(), "a guard on another state never reads the machine's hold")
-
-
-@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "the hold is Windows' powercfg and registry")
-class CampaignHoldEndToEnd(unittest.TestCase):
-    """The real guard command ends a run and the real hold script restores the fixture, with no -Restore or status
-    call from the test (D00 T03 §24)."""
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh"), "the legacy hold is Windows' powercfg and registry")
+class LegacyHoldIsNotTouched(unittest.TestCase):
+    """D00 T03 §28: the guard writes no setting on any path; a record an older version left (§24's power-plan edits) is
+    left exactly as it is, and put back only by `campaign-hold.ps1 -Restore` by hand."""
 
     ORIGINAL = {"scheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
                 "values": {"SUB_SLEEP/HIBERNATEIDLE": {"AC": 0, "DC": 10800}, "SUB_SLEEP/STANDBYIDLE": {"AC": 1800, "DC": 600},
@@ -1599,7 +1394,7 @@ class CampaignHoldEndToEnd(unittest.TestCase):
         cmd = work / "powercfg.cmd"
         cmd.write_text(f'@"{sys.executable}" "{guard.ROOT / "tests" / "fakes" / "powercfg.py"}" %*\r\n', encoding="ascii")
         self.record = work / "campaign-hold.json"
-        self.subkey = f"Software\\BosunTest\\guard-hold-{os.getpid()}"
+        self.subkey = f"Software\\BosunTest\\guard-legacy-{os.getpid()}"
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, self.subkey) as key:
             winreg.SetValueEx(key, "ScreenSaverIsSecure", 0, winreg.REG_SZ, "1")
         self.addCleanup(lambda: winreg.DeleteKey(winreg.HKEY_CURRENT_USER, self.subkey))
@@ -1607,39 +1402,53 @@ class CampaignHoldEndToEnd(unittest.TestCase):
                     "RUN_GUARD_BUILD": str(work / "build"), "BOSUN_FAKE_POWERCFG": str(self.power),
                     "BOSUN_HOLD_RECORD": str(self.record), "BOSUN_HOLD_POWERCFG": str(cmd),
                     "BOSUN_HOLD_LOCKKEY": f"HKCU:\\{self.subkey}"}
+        self.hold = [shutil.which("pwsh"), "-NoProfile", "-NonInteractive", "-File", str(guard.ROOT / "scripts" / "campaign-hold.ps1")]
 
-    def cli(self, *args):
-        return subprocess.run([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), *args], capture_output=True,
-                              text=True, encoding="utf-8", env=self.env, timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
+    def run_in(self, argv, stdin=""):
+        return subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding="utf-8", env=self.env, timeout=180,
+                              creationflags=subprocess.CREATE_NO_WINDOW)
+
+    def cli(self, *args, stdin=""):
+        return self.run_in([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), *args], stdin)
 
     def lock(self):
         with self.winreg.OpenKey(self.winreg.HKEY_CURRENT_USER, self.subkey) as key:
             return self.winreg.QueryValueEx(key, "ScreenSaverIsSecure")[0]
 
-    def apply(self):
-        held = subprocess.run(["pwsh", "-NoProfile", "-File", str(guard.ROOT / "scripts" / "campaign-hold.ps1"), "-Apply"],
-                              capture_output=True, text=True, env=self.env, timeout=120, creationflags=subprocess.CREATE_NO_WINDOW)
-        self.assertEqual(held.returncode, 0, held.stdout + held.stderr)
-        self.assertEqual(self.lock(), "0")
-
-    def test_ending_or_halting_the_run_restores_the_machine(self):
-        for how in ("end", "halt"):
-            with self.subTest(how):
-                self.apply()
-                self.assertEqual(self.cli("start", "--session", "me").returncode, 0)
-                self.assertIn("hold_for", json.loads(Path(self.env["RUN_GUARD_STATE"]).read_text(encoding="utf-8")), "the launcher's start claims the hold in force")
-                stale = self.cli("end", "--session", "someone-else", "--reason", "a stale launcher")
-                self.assertEqual(stale.returncode, 0, stale.stdout)
-                self.assertTrue(self.record.exists(), "another session's end restored the hold")
-                began = time.monotonic()
-                done = self.cli(*(("end", "--session", "me", "--reason", "test") if how == "end" else ("halt", "--ground", "operator", "--reason", "test")))
-                took = time.monotonic() - began
-                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-                self.assertEqual(json.loads(self.power.read_text(encoding="utf-8"))["values"], self.ORIGINAL["values"])
-                self.assertEqual(self.lock(), "1")
-                self.assertFalse(self.record.exists())
-                self.assertLess(took, 5, f"the end, its restore included, took {took:.1f} s")
-                Path(self.env["RUN_GUARD_STATE"]).unlink()
+    def test_no_guard_path_writes_a_setting_and_a_manual_restore_puts_the_values_back(self):
+        # A legacy hold, as §24's -Apply left it on a machine: the plan's timeouts at 0, the lock off, the record kept.
+        held = {"scheme": self.ORIGINAL["scheme"], "values": {k: {"AC": 0, "DC": 0} for k in self.ORIGINAL["values"]}}
+        legacy = {"Scheme": self.ORIGINAL["scheme"], "Lock": "1",
+                  # In the order the hold script records them (`$HoldPower` in scripts/lib/campaign.ps1).
+                  "Power": [{"Sub": k.split("/")[0], "Setting": k.split("/")[1], **self.ORIGINAL["values"][k]}
+                            for k in ("SUB_SLEEP/STANDBYIDLE", "SUB_SLEEP/HIBERNATEIDLE", "SUB_VIDEO/VIDEOIDLE")]}
+        self.power.write_text(json.dumps(held), encoding="utf-8")
+        with self.winreg.OpenKey(self.winreg.HKEY_CURRENT_USER, self.subkey, 0, self.winreg.KEY_SET_VALUE) as key:
+            self.winreg.SetValueEx(key, "ScreenSaverIsSecure", 0, self.winreg.REG_SZ, "0")
+        self.record.write_text(json.dumps(legacy), encoding="utf-8")
+        record, power = self.record.read_bytes(), self.power.read_bytes()
+        self.assertEqual(self.cli("start", "--session", "me").returncode, 0)
+        for event in ({"hook_event_name": "Stop", "session_id": "me"}, {"hook_event_name": "SessionEnd", "session_id": "me", "reason": "other"}):
+            self.assertEqual(self.cli("hook", stdin=json.dumps(event)).returncode, 0)
+        self.assertEqual(self.cli("status").returncode, 0)
+        self.assertEqual(self.cli("start", "--session", "again").returncode, 0)
+        self.assertEqual(self.cli("end", "--session", "again", "--reason", "test").returncode, 0)
+        self.assertEqual(self.cli("start", "--session", "third").returncode, 0)
+        self.assertEqual(self.cli("halt", "--ground", "operator", "--reason", "test").returncode, 0)
+        self.assertEqual(self.record.read_bytes(), record, "a guard path touched the legacy record")
+        self.assertEqual(self.power.read_bytes(), power, "a guard path wrote a power setting")
+        self.assertEqual(self.lock(), "0", "a guard path wrote the lock")
+        # A failed read-back leaves the record for a retry; then the manual restore puts every value back.
+        failed = subprocess.run(
+            self.hold + ["-Restore"], capture_output=True, text=True, env={**self.env, "BOSUN_FAKE_POWERCFG_FAIL": "1"},
+            timeout=180, creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertTrue(self.record.exists(), "a failed restore removed the record its retry needs")
+        done = self.run_in(self.hold + ["-Restore"])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(json.loads(self.power.read_text(encoding="utf-8"))["values"], self.ORIGINAL["values"])
+        self.assertEqual(self.lock(), "1")
+        self.assertFalse(self.record.exists())
 
 
 if __name__ == "__main__":

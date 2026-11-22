@@ -308,6 +308,9 @@ sys.exit(int(os.environ.get('FAKE_AGY_EXIT') or 0))
       $saved = AgyState
       Check ($seen -and $seen.session -eq $saved.session_id -and $saved.runner -eq 'antigravity' -and $saved.owner_pid -gt 0) "agy gets the run's id in BOSUN_RUN_SESSION, and the guard was claimed for the window's process (exit $exit)"
       Check (@($seen.args) -notcontains '--settings' -and (@($seen.args) -join ' ') -notmatch 'maxStopHookContinuations' -and @($seen.args)[-1] -like '/goal Finish the Bosun*') "agy gets its /goal prompt with no unknown --settings (exit $exit)"
+      # D00 T03 §28: the Antigravity writer is held for too, and released when agy returns.
+      $agyHold = Get-Content -LiteralPath (Join-Path $env:RUN_GUARD_BUILD 'run-hold.json') -Raw | ConvertFrom-Json
+      Check ($out -match 'hold: the machine stays awake' -and $agyHold.acquired -and $agyHold.released_because -eq 'its launcher released it' -and -not (Get-Process -Id $agyHold.pid -ErrorAction Ignore)) "the Antigravity run is held while agy runs, and released when agy returns with $exit"
       Check ($code -eq $exit -and $saved.status -eq 'ended' -and -not $saved.active -and $saved.why -match "agy returned \(exit $exit\)") "when agy returns with $exit, the run is recorded ended though the window lives on ($($saved.status): $($saved.why))"
     }
     Remove-Item Env:FAKE_AGY_EXIT
