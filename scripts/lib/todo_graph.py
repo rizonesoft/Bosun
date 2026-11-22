@@ -1418,11 +1418,9 @@ def wake_apply_rows(root, date, run=subprocess.run, rows=None):
             applied.append(wake)
             rows = after
             seen = inputs_fingerprint(root)
-    # The checks can run for a minute each, and another command may change the tree meanwhile: rows read before them
-    # would then sync an old plan over a newer one, so a changed input is a new state, built again (round 1 of §1).
-    if inputs_fingerprint(root) != seen:
-        rows = graph(root)
-        seen = inputs_fingerprint(root)
+    # The checks can run for a minute each, and another command may change the tree meanwhile or after: the caller
+    # passes these rows and `seen` to `current_rows` immediately before it writes, which builds again on any change
+    # (rounds 1 to 3 of D00 T07 §1).
     return applied, rows, seen
 
 

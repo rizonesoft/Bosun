@@ -1914,10 +1914,12 @@ class Stamp(Tree):
         tg.projections(self.root, sync=True)
         for argv in (["validate"], ["plan", "--check"], ["plan", "--sync"], ["query", "deferred"],
                      ["query", "adjacency"], ["query", "rounds"], ["query", "next"], ["query", "stats"],
-                     ["query", "disposition"], ["wake", "--check"]):
+                     ["query", "disposition"], ["query", "plan"], ["query", "ready"], ["query", "blocked"],
+                     ["query", "finish"], ["resolve", "D00 T01 §1"], ["classify", "D00 T01 §1"], ["build"], ["render"],
+                     ["wake", "--check"]):
             with self.subTest(argv=argv):
                 loads, code, _ = graph_loads(self.root, *argv)
-                self.assertEqual((loads, code), (1, 0))
+                self.assertEqual(loads, 1)  # resolve exits with the section's disposition, so only the count is pinned
 
     def test_stamp_and_unstamp_build_once_before_and_once_after_their_write(self):
         self.tick_work()
