@@ -159,7 +159,7 @@ try {
 finally {
   Remove-Item Env:BOSUN_FAKE_POWERCFG -ErrorAction Ignore
   Remove-Item -LiteralPath $keyPath -Recurse -ErrorAction Ignore
-  Remove-Item -Recurse -Force $work -ErrorAction Ignore
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }
 if ($failed) { "$failed failed"; exit 1 }
 'all passed'

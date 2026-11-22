@@ -106,7 +106,17 @@ try {
     $null -eq $returned -and $errText -like "*$lockedDir*" -and $newInTemp.Count -eq 0
   ) "(returned='$returned', err='$errText', newInTemp=$($newInTemp.Count))"
 
-  # 6. Caller cleanup removes the folder.
+  # 6. Bracketed parent cleanup removes the exact allocated child when addressed with -LiteralPath.
+  $bracketParent = Join-Path $fakeRoot 'Scratch [CI]'
+  $null = New-Item -ItemType Directory -Path $bracketParent
+  $env:BOSUN_SCRATCH = $bracketParent
+  $bracketChild = New-BosunScratchFolder -Name 'brackets'
+  $created.Add($bracketChild)
+  $hadChild = Test-Path -LiteralPath $bracketChild -PathType Container
+  Remove-Item -LiteralPath $bracketChild -Recurse -Force
+  Check 'bracketed parent cleanup removes the exact allocated child' ($hadChild -and -not (Test-Path -LiteralPath $bracketChild)) "($bracketChild)"
+
+  # 7. Caller cleanup removes the folder.
   Remove-Item -LiteralPath $a -Recurse -Force
   Check 'caller cleanup removes the created folder' (-not (Test-Path -LiteralPath $a))
 } finally {

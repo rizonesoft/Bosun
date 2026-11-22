@@ -15,5 +15,5 @@ try {
   if ($installer -match '\$repoWsl') { throw 'install.ps1 still runs the WSL side from the repo folder' }
   'stage_wsl_test ok'
 } finally {
-  if (Test-Path $work) { Remove-Item $work -Recurse -Force }
+  if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 }

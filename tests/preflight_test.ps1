@@ -833,7 +833,7 @@ finally {
   Remove-Item -LiteralPath "HKCU:\Software\BosunTest\preflight-$PID" -Recurse -ErrorAction Ignore
   Remove-Item -LiteralPath "HKCU:\Software\BosunTest\preflight-env-$PID" -Recurse -ErrorAction Ignore
   Remove-Item Env:FAKE_CLAUDE_STATUS, Env:FAKE_CLAUDE_MUTE, Env:CLAUDE_CODE_OAUTH_TOKEN, Env:ANTHROPIC_API_KEY -ErrorAction Ignore
-  Remove-Item -Recurse -Force $work -ErrorAction Ignore
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }
 if ($failed) { "$failed failed"; exit 1 }
 'all passed'

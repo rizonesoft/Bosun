@@ -9,6 +9,7 @@ $sleeper = Join-Path $Build 'test_sleeper.exe'
 $ns = "BosunTest$PID"
 . (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
 $work = New-BosunScratchFolder -Name 'queue-test'
+try {
 # The slot records go to a home of the test's own (D01 T01 §1), so none of this machine's own jobs is read or touched.
 $env:LOCALAPPDATA = Join-Path $work 'home'
 # The namespace's folder: upper-case letters as %XX (dm::ns_dir), so names differing only in case stay apart.
@@ -969,6 +970,8 @@ if ($SkipWsl) {
   }
 }
 
-Remove-Item -LiteralPath $work -Recurse -Force
+} finally {
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
+}
 if ($fail) { "$fail failed"; exit 1 }
 'all passed'

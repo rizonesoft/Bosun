@@ -194,7 +194,7 @@ Add-Content '$sdks' "`$Version [`$InstallDir\sdk]"
 finally {
   Remove-Item Env:BOSUN_TEST_FAIL_AFTER_CHANGES, Env:BOSUN_FAKE_INSTALL_FAIL -ErrorAction Ignore
   Remove-Item -LiteralPath "HKCU:\Software\BosunTest\admin-$PID" -Recurse -ErrorAction Ignore  # AU and AU2
-  Remove-Item -Recurse -Force $work -ErrorAction Ignore
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }
 if ($failed) { "$failed failed"; exit 1 }
 'all passed'

@@ -231,7 +231,7 @@ class Instances(unittest.TestCase):
     """The WSL instance scanner (D03 T02 §1) over a fixture /proc: the rules of src/core.hpp, from Linux's own files."""
 
     def setUp(self):
-        self.root = _posix_scratch_dir("log-root")
+        self.root = str(scratch_dir("log-root"))
         self.proc = os.path.join(self.root, "proc")
         self.home = os.path.join(self.root, "home")
         os.makedirs(self.proc)
@@ -475,7 +475,9 @@ class Instances(unittest.TestCase):
     def test_a_repo_that_can_t_be_told_is_said_on_its_row_in_the_written_report(self):
         # D03 T02 §7: an agent in a folder (its name holding the byte 0xff) under one this user may not enter: its .git
         # can't be checked, the walk stops there, and the checkout above it is not taken for its repo.
-        outer = os.path.join(self.root, "outer")
+        perm_root = _posix_scratch_dir("log-perm")
+        self.addCleanup(shutil.rmtree, perm_root, True)
+        outer = os.path.join(perm_root, "outer")
         shut = os.path.join(outer, "shut")
         work = os.path.join(shut, "work-\udcff")
         os.makedirs(os.path.join(outer, ".git"))
@@ -592,7 +594,11 @@ class Instances(unittest.TestCase):
         self.assertEqual((repo, why), ("", f"{stuck} could not be looked up: no thread for it (can't start new thread)"))
         # Round 12: a FIFO among the marks is not a file and never holds the reader; and a later scan in the same process
         # starts no second worker on what an earlier one still waits for.
-        fifo = os.path.join(self.repo, "build", "review-in-flight", "stuck.json")
+        fifo_repo = os.path.join(perm_root, "fifo-repo")
+        os.makedirs(os.path.join(fifo_repo, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(fifo_repo, "build", "review-in-flight"), exist_ok=True)
+        self.process(401, "codex", 1, 1024, 7100, cwd=fifo_repo)
+        fifo = os.path.join(fifo_repo, "build", "review-in-flight", "stuck.json")
         os.mkfifo(fifo)
         try:
             began = time.monotonic()
@@ -841,14 +847,19 @@ class HostReading(unittest.TestCase):
 
 def setUpModule():
     # The throttles under test take their locks under a root of their own, never the running service's /run/user/<uid>.
-    global _RUN_USER_ROOT
-    _RUN_USER_ROOT = str(scratch_dir("run-user"))
-    for uid in (1000, 1001, os.getuid() if hasattr(os, "getuid") else 1000):
-        os.makedirs(os.path.join(_RUN_USER_ROOT, str(uid)), exist_ok=True)
+    global _RUN_USER_ROOT, _CGROUP_ROOT
+    run_user = str(scratch_dir("run-user"))
+    try:
+        for uid in (1000, 1001, os.getuid() if hasattr(os, "getuid") else 1000):
+            os.makedirs(os.path.join(run_user, str(uid)), exist_ok=True)
+        cgroup_root = str(scratch_dir("cgroup"))
+    except BaseException:
+        shutil.rmtree(run_user, ignore_errors=True)
+        raise
+    _RUN_USER_ROOT = run_user
     dl.RUN_USER = _RUN_USER_ROOT
     # No throttle under test reads the machine's real control groups, unless it is given them (the real-slice tests).
-    global _CGROUP_ROOT
-    _CGROUP_ROOT = str(scratch_dir("cgroup"))
+    _CGROUP_ROOT = cgroup_root
     dl.CGROUP_ROOT = _CGROUP_ROOT
 
 
@@ -863,7 +874,7 @@ class ThrottleCase(unittest.TestCase):
     LIMIT = 2 * GB   # the policy's job limit, 2048 MB
 
     def setUp(self):
-        self.dir = _posix_scratch_dir("throttle")
+        self.dir = str(scratch_dir("throttle"))
         self.addCleanup(shutil.rmtree, self.dir, True)
         patch = unittest.mock.patch.object(dl, "meminfo", lambda: {"MemTotal": 16 * 1024 * 1024})  # a 16 GB guest
         patch.start()
@@ -1952,9 +1963,11 @@ class ThrottleReviewRound9(ThrottleCase):
         self.assertIn("your own cap belongs on bosun.slice", self.status()["detail"])
 
     def test_a_fifo_at_each_input_path_is_refused_at_once(self):
+        fifo_dir = _posix_scratch_dir("throttle-fifo")
+        self.addCleanup(shutil.rmtree, fifo_dir, True)
         for name in (dl.POLICY_FILE, "current-windows.json", self.throttle.state_name):
             with self.subTest(name):
-                path = os.path.join(self.dir, name)
+                path = os.path.join(fifo_dir, name)
                 if os.path.exists(path):
                     os.remove(path)
                 os.mkfifo(path)
@@ -1975,11 +1988,13 @@ class ThrottleReviewRound9(ThrottleCase):
                     os.remove(path)
 
     def test_the_throttle_with_a_fifo_policy_returns_at_once_and_says_why(self):
-        path = os.path.join(self.dir, dl.POLICY_FILE)
-        os.remove(path)
+        fifo_dir = _posix_scratch_dir("throttle-fifo")
+        self.addCleanup(shutil.rmtree, fifo_dir, True)
+        throttle = dl.Throttle(fifo_dir, self.slice, unit="bosun-jobs.slice", distro="alpha", cgroup_root=self.cgroups)
+        path = os.path.join(fifo_dir, dl.POLICY_FILE)
         os.mkfifo(path)
         result = {}
-        worker = threading.Thread(target=lambda: result.update(r=self.throttle.run_once(now=NOW)), daemon=True)
+        worker = threading.Thread(target=lambda: result.update(r=throttle.run_once(now=NOW)), daemon=True)
         worker.start()
         worker.join(5)
         try:
@@ -2100,6 +2115,48 @@ class ThrottleOnARealSlice(unittest.TestCase):
         self.assertEqual(tick(4097)["state"], "restored")
         self.assertEqual(open(os.path.join(child_cgroup, "memory.high"), encoding="ascii").read().strip(), original)
         self.assertEqual(self.kernel_limit(), cap)                  # and after the restore the operator's cap is still there
+
+
+class ScratchPlacement(unittest.TestCase):
+    """Ordinary logger fixtures stay under BOSUN_SCRATCH even when POSIX probe is false, and partial setup cleans up."""
+
+    def test_ordinary_fixtures_stay_under_bosun_scratch_when_posix_probe_is_false(self):
+        fake = str(scratch_dir("fake-nonposix"))
+        self.addCleanup(shutil.rmtree, fake, True)
+        with unittest.mock.patch.dict(os.environ, {"BOSUN_SCRATCH": fake}), \
+             unittest.mock.patch.object(sys.modules[__name__], "_supports_posix_fs", return_value=False):
+            ordinary = str(scratch_dir("throttle"))
+            self.addCleanup(shutil.rmtree, ordinary, True)
+            self.assertEqual(os.path.realpath(os.path.dirname(ordinary)), os.path.realpath(fake))
+            posix_only = _posix_scratch_dir("throttle-fifo")
+            self.addCleanup(shutil.rmtree, posix_only, True)
+            self.assertEqual(os.path.realpath(os.path.dirname(posix_only)), os.path.realpath(tempfile.gettempdir()))
+
+    def test_setup_module_cleans_up_first_fixture_when_second_allocation_fails(self):
+        mod = sys.modules[__name__]
+        saved_run_user, saved_cgroup = _RUN_USER_ROOT, _CGROUP_ROOT
+        saved_dl_run, saved_dl_cgroup = dl.RUN_USER, dl.CGROUP_ROOT
+        real_scratch_dir = scratch_dir
+        created: list[str] = []
+
+        def fake_scratch_dir(name="test", **kwargs):
+            if not created:
+                first = real_scratch_dir(name, **kwargs)
+                created.append(str(first))
+                return first
+            raise OSError("simulated disk full on second fixture")
+
+        try:
+            with unittest.mock.patch.object(mod, "scratch_dir", side_effect=fake_scratch_dir):
+                with self.assertRaises(OSError):
+                    setUpModule()
+            self.assertEqual(len(created), 1)
+            self.assertFalse(os.path.exists(created[0]), "first module fixture was leaked after second allocation failed")
+        finally:
+            mod._RUN_USER_ROOT, mod._CGROUP_ROOT = saved_run_user, saved_cgroup
+            dl.RUN_USER, dl.CGROUP_ROOT = saved_dl_run, saved_dl_cgroup
+            for path in created:
+                shutil.rmtree(path, ignore_errors=True)
 
 
 if __name__ == "__main__":

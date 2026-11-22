@@ -268,6 +268,17 @@ try {
     $seenNoWslLines = @(Get-Content -LiteralPath $wslSeen -ErrorAction Ignore)
     $seenNoWsl = if ($seenNoWslLines.Count -ge 1) { $seenNoWslLines[0].Trim() } else { '' }
     Check 'without -Wsl, WSLENV is not modified' ($rNoWsl.Exit -eq 0 -and $seenNoWsl -eq 'LOCALAPPDATA') "(exit $($rNoWsl.Exit), WSLENV='$seenNoWsl')"
+    # End-to-end through the real -Wsl entry point when Ubuntu is available: a Linux fixture lands under the Windows scratch dir.
+    $distros = if (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore) { @((wsl.exe -l -q 2>$null) -replace "`0", '' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
+    if ($distros -contains 'Ubuntu') {
+      $wslRealSteps = Join-Path $work 'wsl-real-steps.json'
+      $pyCmd = "import sys; sys.path.insert(0, 'scripts/lib'); import scratch; print(scratch.scratch_dir('wsl-gate-e2e'))"
+      ConvertTo-Json -InputObject @(@{ name = 'wsl-scratch'; file = 'wsl.exe'; args = @('-d', 'Ubuntu', '--cd', $repo, 'python3', '-B', '-c', $pyCmd) }) -Depth 4 | Set-Content -LiteralPath $wslRealSteps
+      $rRealWsl = Invoke-Gate @('-StepFile', $wslRealSteps, '-Wsl')
+      $landed = @(Get-ChildItem -LiteralPath $work -Directory -Filter 'bosun-wsl-gate-e2e-*' -ErrorAction Ignore)
+      Check '-Wsl real guest step creates its fixture beneath the configured Windows BOSUN_SCRATCH' ($rRealWsl.Exit -eq 0 -and $landed.Count -eq 1) "(exit $($rRealWsl.Exit), landed=$($landed.Count): $($rRealWsl.Text))"
+      foreach ($d in $landed) { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Ignore }
+    }
   } finally {
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
     if ($null -eq $savedWslenv) { Remove-Item Env:WSLENV -ErrorAction Ignore } else { $env:WSLENV = $savedWslenv }
