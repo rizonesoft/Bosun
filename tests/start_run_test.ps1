@@ -237,10 +237,24 @@ exit ([int]$env:FAKE_WRITER_EXIT)
       $record = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
       # Timed from the writer's own exit to the holder's recorded release, not from when this test saw the end.
       $exited = [datetime]::Parse((Get-Content -LiteralPath (Join-Path $build 'done.txt') -Raw).Trim(), $null, 'RoundtripKind')
-      $gap = (([datetime]$record.released).ToUniversalTime() - $exited.ToUniversalTime()).TotalSeconds  # ConvertFrom-Json gives a DateTime already
+      # ConvertFrom-Json gives a DateTime already; a release never recorded is a failure, not a throw.
+      $gap = if ($record.released) { (([datetime]$record.released).ToUniversalTime() - $exited.ToUniversalTime()).TotalSeconds } else { -1 }
       Check ($record.released_because -eq 'its launcher released it' -and $gap -ge 0 -and $gap -le 1) "$($case.Name): the hold is released within a second of the writer's exit ($([math]::Round($gap, 2)) s)"
       Check ($saw -match '^alive \d+$' -and ($said -match '^hold: the machine stays awake') -and -not (Get-Process -Id $record.pid -ErrorAction Ignore) -and -not $shell.HasExited) "$($case.Name): the holder held before the writer started and was gone within a second of it returning, the shell still open ($saw)"
     }
+    # A writer that fails to start (here a claude.exe Windows will not run) releases the hold at once, the shell kept
+    # open (round 7 of D00 T03 §28): the failure follows the hold's answer, so the release is timed from it.
+    $build = Join-Path $holdDir 'build-nostart'
+    $broken = Join-Path $holdDir 'broken'
+    New-Item -ItemType Directory -Force $build, $broken | Out-Null
+    [IO.File]::WriteAllText((Join-Path $broken 'claude.exe'), 'not a program')
+    $env:RUN_GUARD_BUILD = $build
+    Remove-Item -LiteralPath $holdState -ErrorAction Ignore
+    $env:Path = "$broken;$holdDir;$path"
+    try { $shell = Invoke-Kept @(); $shells += $shell; $said = Wait-Done $shell } finally { $env:Path = "$holdDir;$path" }
+    $record = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
+    $gap = if ($record.released) { (([datetime]$record.released).ToUniversalTime() - ([datetime]$record.at).ToUniversalTime()).TotalSeconds } else { -1 }
+    Check (($said -match 'claude could not start') -and $record.acquired -and $record.released_because -eq 'its launcher released it' -and $gap -ge 0 -and $gap -le 1 -and -not (Get-Process -Id $record.pid -ErrorAction Ignore) -and -not $shell.HasExited) "a writer that fails to start releases the hold within a second ($([math]::Round($gap, 2)) s), its shell still open"
     # A holder that does not answer is stopped at its bound and the writer starts anyway (round 2 of D00 T03 §28).
     $build = Join-Path $holdDir 'build-stall'
     New-Item -ItemType Directory -Force $build | Out-Null
