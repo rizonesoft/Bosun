@@ -180,6 +180,11 @@ class BadgedIconTest(unittest.TestCase):
         # A fill that is not a colour, empty included, is the badge path's code 4 in one line, and never reaches the
         # app icon's build (round 1 of D00 T03 §31).
         out.write_bytes(b"the icon from before")
+        err = io.StringIO()  # a bare --badge-fill, no value at all: the badge path's code 4, not argparse's 2
+        with contextlib.redirect_stderr(err):
+            code = icons.main(["--out", str(out), "--badge-fill"])
+        lines = [line for line in err.getvalue().splitlines() if line.strip()]
+        self.assertEqual((code, len(lines)), (4, 1), lines)
         for fill in ("blue", ""):
             with self.subTest(fill=fill), mock.patch.object(icons, "write_atomic", side_effect=AssertionError("something was written")):
                 err = io.StringIO()
@@ -210,6 +215,15 @@ class BadgedIconTest(unittest.TestCase):
             first = sorted(folder.glob("*.svg"))[0]
             first.write_text("<svg xmlns='http://www.w3.org/2000/svg'><g>", encoding="utf-8")
         return folder
+
+    def denied_stat(self):
+        """os.stat refusing the mark, as a lookup that is denied (completion review of D00 T03 §31)."""
+        real_stat = os.stat
+        def stat(path, *args, **kwargs):
+            if Path(path) == self.mark:
+                raise PermissionError(13, "Access is denied", str(path))
+            return real_stat(path, *args, **kwargs)
+        return stat
 
     def denied_master(self):
         """Path.read_text refusing the first master, as a file another process holds exclusively (round 4 of §31)."""
@@ -254,6 +268,11 @@ class BadgedIconTest(unittest.TestCase):
             ("the renderer failing", 5, mock.patch("resvg_py.svg_to_bytes", renderer_breaks), (), out, f"the renderer failed on {sorted(self.masters.glob('*.svg'))[0]}"),
             ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "repair its SVG"),
             ("a master held or denied", 3, mock.patch.object(Path, "read_text", self.denied_master()), (), out, "must exist and be readable"),
+            # The completion review of D00 T03 §31: a mark that can't even be looked at, the renderer failing on a
+            # valid mark, and the badge failing to composite onto a master.
+            ("a mark whose lookup is denied", 3, mock.patch.object(icons.os, "stat", self.denied_stat()), ("--badge-mark", str(self.mark)), out, "can't be looked at"),
+            ("the renderer failing on a valid mark", 5, mock.patch("resvg_py.svg_to_bytes", renderer_breaks), ("--badge-mark", str(self.mark)), out, f"the renderer failed on {self.mark}"),
+            ("the badge failing to composite", 5, mock.patch.object(icons, "badged", renderer_breaks), (), out, f"the badge could not be drawn onto {sorted(self.masters.glob('*.svg'))[0]}"),
         )
         for name, code, context, extra, target, fix in cases:
             with self.subTest(name):

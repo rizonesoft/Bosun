@@ -112,8 +112,19 @@ try {
   Install-Case 'a drive that is not there' {} {} "the icon folder $($free):\no-such-folder can't be made" "$($free):\no-such-folder"
   $silent = Join-Path $work 'silent-python'
   New-Item -ItemType Directory -Force $silent | Out-Null
-  Set-Content -LiteralPath (Join-Path $silent 'python.cmd') -Value '@exit /b 9' -Encoding ascii
+  $argsSeen = Join-Path $silent 'args.txt'
+  Set-Content -LiteralPath (Join-Path $silent 'python.cmd') -Value "@echo %*>>`"%~dp0args.txt`"`r`n@exit /b 9" -Encoding ascii
   Install-Case 'a builder that exits without a word' { $env:Path = "$silent;$noPython" } { $env:Path = $keptEnvPath } 'the badge builder exited 9 and said nothing' (Join-Path $work 'icons-silent')
+  # The retry it prints, run as printed, reaches the builder with the very same arguments (completion review of §31).
+  $env:Path = "$silent;$noPython"
+  try {
+    $retryOut = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir (Join-Path $work 'case-retry') -IconDir (Join-Path $work 'icons-retry') 2>&1) -join "`n"
+    $retry = [regex]::Match($retryOut, 'run (& .+?) to see why').Groups[1].Value
+    $before = @(Get-Content -LiteralPath $argsSeen)
+    & $pwsh -NoProfile -Command $retry 2>&1 | Out-Null
+    $after = @(Get-Content -LiteralPath $argsSeen)
+  } finally { $env:Path = $keptEnvPath }
+  Check ($retry -and $after.Count -eq $before.Count + 1 -and $after[-1] -eq $before[-2] -and $after[-1] -match '--badge-mark') "the printed retry runs as pasted, with the same output, fill and mark ($($after[-1]))"
   # A python Windows will not start (round 4 of D00 T03 §31): a python.exe on PATH that is not a program.
   $refused = Join-Path $work 'refused-python'
   New-Item -ItemType Directory -Force $refused | Out-Null

@@ -189,7 +189,12 @@ if ($InstallShortcut) {
         $built = -1
       }
       # The exit code decides, so a builder that ends without a word still falls back (round 1 of D00 T03 §31).
-      if ($built) { $said = if ("$last".Trim()) { "$last" } else { "the badge builder exited $built and said nothing: run python scripts/build-icons.py --out <icon> --badge-fill $($l.Fill) to see why" } }
+      if ($built) {
+        # The very command it ran, single-quoted for PowerShell, so it can be pasted to see why (completion review of §31).
+        $q = { param($v) "'" + "$v".Replace("'", "''") + "'" }
+        $retry = "& $(& $q $python) $(& $q (Join-Path $PSScriptRoot 'build-icons.py')) --out $(& $q $icon) --badge-fill $(& $q $l.Fill) --badge-mark $(& $q $markPath)"
+        $said = if ("$last".Trim()) { "$last" } else { "the badge builder exited $built and said nothing: run $retry to see why" }
+      }
     }
     if ($said -or -not $icon) {
       "the badged icon for '$($l.Name)' could not be rendered, so the shortcut carries the plain Bosun icon: $said"

@@ -124,9 +124,14 @@ def check_mark(mark: Path) -> None:
         raise BadgeFailure(3, f"the mark {mark} can't be read ({error.strerror or error}): it must exist and be readable") from error
     try:
         png = bytes(resvg_py.svg_to_bytes(svg_string=text, width=64, height=64))
-        drawn = Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3][1] > 0
-    except Exception as error:  # the renderer and the decoder raise their own types for a file they can't read
+    except ValueError as error:  # resvg's parse error: the mark is not valid SVG
         raise BadgeFailure(4, f"the mark {mark} can't be drawn ({error}): mend or remove it") from error
+    except Exception as error:  # the renderer failing on it (completion review of D00 T03 §31)
+        raise BadgeFailure(5, f"the renderer failed on {mark} ({error!r}): report it with that mark and the renderer's version") from error
+    try:
+        drawn = Image.open(io.BytesIO(png)).convert("RGBA").getextrema()[3][1] > 0
+    except Exception as error:  # the decoder failing on the renderer's own output
+        raise BadgeFailure(5, f"the renderer's image of {mark} can't be decoded ({error!r}): report it with that mark") from error
     if not drawn:
         raise BadgeFailure(4, f"the mark {mark} draws nothing: mend or remove it")
 
@@ -278,7 +283,14 @@ def build(masters: Path, badge_fill: str | None = None, badge_mark: Path | None 
         if not master.is_file():
             raise FileNotFoundError(f"missing master {master}")
         png = render(master, size)
-        frames.append((size, badged(png, size, badge_fill, badge_mark) if badge_fill else png))
+        if badge_fill:
+            try:
+                png = badged(png, size, badge_fill, badge_mark)
+            except (BadgeFailure, ImportError):
+                raise
+            except Exception as error:  # compositing the badge onto this master's frame (completion review of §31)
+                raise BadgeFailure(5, f"the badge could not be drawn onto {master} at {size} px ({error!r}): report it with that master and the renderer's version") from error
+        frames.append((size, png))
     return ico(frames)
 
 
@@ -356,7 +368,7 @@ def main(argv=None) -> int:
     parser.add_argument("--tokens", type=Path, default=TOKENS, help="the token file the tray overlays take their colours from")
     parser.add_argument("--tray-out", type=Path, help="the folder for tray-normal.ico, tray-pressure.ico and tray-needs.ico "
                         "(default resources/, beside the app icon; with --out alone they are not built)")
-    parser.add_argument("--badge-fill", help="write a campaign launcher's icon: the badge's colour, as #RRGGBB")
+    parser.add_argument("--badge-fill", nargs="?", const="", help="write a campaign launcher's icon: the badge's colour, as #RRGGBB")
     parser.add_argument("--badge-mark", type=Path, help="the runner's mark, an SVG file on this PC, drawn white in the badge")
     args = parser.parse_args(argv)
     # Given at all, even empty, it is the badge path: an empty fill must not fall through to the app icon's build
@@ -370,7 +382,16 @@ def main(argv=None) -> int:
         parser.error("--badge-mark needs --badge-fill")
     # A mark that is not there is a badge with colour only (the marks are trademarks, kept outside the repository);
     # one that is there but can't be read is a failure of its own.
-    mark = args.badge_mark if args.badge_mark and (args.badge_mark.exists() or args.badge_mark.is_symlink()) else None
+    mark = None
+    if args.badge_mark:
+        try:
+            os.stat(args.badge_mark)  # Path.exists() reads a denied lookup as absent (completion review of §31)
+            mark = args.badge_mark
+        except FileNotFoundError:
+            mark = None
+        except OSError as error:
+            if args.badge_fill is not None:
+                return say_failure(3, f"the mark {args.badge_mark} can't be looked at ({error.strerror or error}): it must exist and be readable")
     if args.badge_fill is not None:
         return badge(args.masters, args.badge_fill, mark, args.out)
     # The app icon, and with it the tray's three state icons: beside it in resources/ by default, or where --tray-out
