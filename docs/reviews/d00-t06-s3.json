@@ -1,0 +1,107 @@
+{
+  "ref": "D00 T06 \u00a73",
+  "title": "Open findings, part 3 of 6",
+  "implementation_sha": "774dace4c1ba43f03d13ee74f90cef18438d6a31",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/findings-ledger.py --base b8c4e0b3 --lines 76-111 --cite-lines --record docs/reviews/00-workspace/D00-T06-s3.md -> all 35 entries on lines 76 to 111 (at b8c4e0b3) settled",
+    "python -m unittest scripts.tests.test_findings_ledger -> Ran 13 tests, OK",
+    "CI build.yml green at 774dace (https://github.com/rizonesoft/Bosun/actions/runs/45019505007); plan.yml green (https://github.com/rizonesoft/Bosun/actions/runs/45019505083)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+    "verdict": "completed",
+    "candidate": "feb93bb244ff5c4c9105b04b07de7c385174a6fb",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T06-s3-cycle2.md",
+    "candidate": "a36d6a73c1869d0017f8b86cc64ccb2242c787e2",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "a36d6a73c1869d0017f8b86cc64ccb2242c787e2",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

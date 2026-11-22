@@ -66,7 +66,7 @@ Sections: 68 | Checklist items: 577
 | [x]    | D00 T05 §8  | Machine paths and personal names scrubbed from public files                            | none        | 11    |
 | [x]    | D00 T06 §1  | Open findings, part 1 of 6                                                             | none        | 9     |
 | [x]    | D00 T06 §2  | Open findings, part 2 of 6                                                             | none        | 8     |
-| [ ]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 9     |
+| [x]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 9     |
 | [ ]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
 | [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 8     |
 | [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 8     |
@@ -230,6 +230,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 111/175 verified sections, 41 ready to run now.
+Progress: 112/175 verified sections, 40 ready to run now.
 
-Checklist: 1051/1316 items completed (includes Commit items).
+Checklist: 1052/1316 items completed (includes Commit items).
