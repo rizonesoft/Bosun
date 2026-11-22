@@ -1940,7 +1940,12 @@ class StatusNamesEachWait(unittest.TestCase):
     """`status` names each item in flight, how long it has run from its own start, and where its output goes
     (D00 T03 §32), from one reading, with the readers' identities, which `look` compares, unchanged."""
 
-    NOW = calendar.timegm((2026, 11, 22, 10, 5, 0, 0, 0, 0))
+    # The present, whole seconds: the CI scan checks a wait's age against the real clock, so the fixed clock the view
+    # is given must be today's (round 1 of D00 T03 §32), with every start written relative to it.
+    NOW = float(int(time.time()))
+
+    def at(self, ago: int) -> str:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.NOW - ago))
 
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -1980,9 +1985,9 @@ class StatusNamesEachWait(unittest.TestCase):
         return guard.status_view(active(), env, path=self.root / "state.json", now=self.NOW)
 
     def test_each_item_says_its_elapsed_time_from_its_own_start_and_its_output(self):
-        first = self.review("astra", "2026-11-22T10:01:00Z", **{"pass": "round 2", "record": "docs/reviews/x.md"})
-        second = self.review("sol", "2026-11-22T10:04:00Z", **{"pass": "completion", "record": "docs/reviews/y.md"})
-        gate = self.gate("check-all", "2026-11-22T10:00:00Z", output="the console that started it")
+        first = self.review("astra", self.at(240), **{"pass": "round 2", "record": "docs/reviews/x.md"})
+        second = self.review("sol", self.at(60), **{"pass": "completion", "record": "docs/reviews/y.md"})
+        gate = self.gate("check-all", self.at(300), output="the console that started it")
         older = self.gate("measure-build old")  # an older mark: no since, no output
         self.ci(self.NOW - 180, output="gh run list --commit " + "a" * 40)
         word, data, lines = self.view()
@@ -2017,8 +2022,19 @@ class StatusNamesEachWait(unittest.TestCase):
         self.assertEqual((word, data["in_flight"]), ("waiting", "a local gate in flight (check-all, pid 9)"))
         self.assertEqual(len(data["waits"]), 1)
 
+    def test_a_start_no_clock_can_show_is_unknown_and_the_rest_still_show(self):
+        # Round 1 of D00 T03 §32: an unrepresentable CI start must not stop status naming the other waits.
+        for bad in (1e309, float("nan"), True):
+            with self.subTest(bad=bad):
+                self.assertIsNone(guard.start_seconds(bad))
+        once = [{"kind": "a CI gate", "what": "aaaa, gate pid 1", "pass": None, "since": guard.start_seconds(1e309), "output": None},
+                {"kind": "a local gate", "what": "check-all, pid 9", "pass": None, "since": self.NOW - 5, "output": "x"}]
+        env = guard.replace(World().env(), details=lambda: once)
+        word, data, lines = guard.status_view(active(), env, path=self.root / "state.json", now=self.NOW)
+        self.assertEqual([w["elapsed_seconds"] for w in data["waits"]], [None, 5])
+
     def test_elapsed_is_never_the_process_start_or_the_file_time(self):
-        gate = self.gate("check-all", "2026-11-22T10:04:30Z")
+        gate = self.gate("check-all", self.at(30))
         word, data, lines = self.view()
         self.assertEqual(data["waits"][0]["elapsed_seconds"], 30)
 

@@ -466,6 +466,18 @@ def gate_in_flight(root: Path | None = None) -> str | None:
     return "; ".join(text for text, _ in scan_gates(root)) or None
 
 
+def start_seconds(value: object) -> float | None:
+    """A start time as epoch seconds, or None when it is not one a clock can show: a record holding `1e309` or
+    `nan` must not stop `status` naming the other waits (round 1 of D00 T03 §32)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        time.gmtime(value)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
 def utc_seconds(text: object) -> float | None:
     """A `yyyy-mm-ddThh:mm:ssZ` time as epoch seconds, or None when it is not one."""
     try:
@@ -480,7 +492,7 @@ def real_wait_details(root: Path | None = None) -> list[dict]:
     mark's file time) and where its output goes, each None when an older mark lacks it."""
     found = []
     for kind, scan, start in (("a review", scan_reviews, lambda d: utc_seconds(d.get("started"))),
-                              ("a CI gate", scan_ci, lambda d: float(d["since"]) if isinstance(d.get("since"), (int, float)) else None),
+                              ("a CI gate", scan_ci, lambda d: start_seconds(d.get("since"))),
                               ("a local gate", scan_gates, lambda d: utc_seconds(d.get("since")))):
         for text, doc in scan(root):
             if text.startswith(CANT_TELL):
