@@ -84,14 +84,16 @@ class ScratchHelperTests(unittest.TestCase):
         sys_temp = Path(tempfile.gettempdir())
         before = set(sys_temp.glob("bosun-failcase-*"))
         with mock.patch.dict(os.environ, {"BOSUN_SCRATCH": str(selected)}):
-            with mock.patch.object(tempfile, "mkdtemp", side_effect=PermissionError("denied")):
+            with mock.patch.object(tempfile, "mkdtemp", side_effect=PermissionError("denied")) as mkdtemp_mock:
                 with self.assertRaises(OSError) as ctx:
                     scratch.scratch_dir("failcase")
                 self.assertIn(str(selected.resolve()), str(ctx.exception))
-            with mock.patch.object(tempfile, "TemporaryDirectory", side_effect=PermissionError("denied")):
+                mkdtemp_mock.assert_called_once_with(prefix="bosun-failcase-", dir=str(selected.resolve()))
+            with mock.patch.object(tempfile, "TemporaryDirectory", side_effect=PermissionError("denied")) as td_mock:
                 with self.assertRaises(OSError) as ctx:
                     scratch.scratch_tempdir("failcase")
                 self.assertIn(str(selected.resolve()), str(ctx.exception))
+                td_mock.assert_called_once_with(prefix="bosun-failcase-", dir=str(selected.resolve()))
         after = set(sys_temp.glob("bosun-failcase-*"))
         self.assertEqual(after - before, set())
 
