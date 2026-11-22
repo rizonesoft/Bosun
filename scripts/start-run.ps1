@@ -117,7 +117,9 @@ function Stop-Hold($holder) {
   if (-not $holder -or $holder.HasExited) { return }
   # A holder whose input is already gone is ended below by the kill, so a failed close needs nothing more.
   try { $holder.StandardInput.Close() } catch [System.IO.IOException], [System.ObjectDisposedException] { }
-  if (-not $holder.WaitForExit(2000)) { $holder.Kill($true) }
+  # A second, the contract's bound (round 6 of D00 T03 §28): the request has already ended before the holder records
+  # its release, and one whose record write stalls is ended here; the preflight then reads its dead pid as no hold.
+  if (-not $holder.WaitForExit(1000)) { $holder.Kill($true) }
 }
 # One launcher for each runner, named as the owner's other campaigns are ("<project> <runner> campaign").
 $launchers = @(
