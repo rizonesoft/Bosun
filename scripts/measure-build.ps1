@@ -226,15 +226,16 @@ if ($DecideOnly) {
 . (Join-Path $PSScriptRoot 'lib\gate-mark.ps1')
 # Where its output goes, for run-guard.py status (D00 T03 §32): a run that queues itself names the queued run's own
 # mark, and one that measures here names its log (and the .linger and .warm logs beside it).
-$markOutput = if (-not $env:BOSUN_MEASURE_QUEUED -and (Get-Command bosun -CommandType Application -ErrorAction Ignore)) {
-  'queued through bosun run: the measurement it starts has a mark of its own, naming its log'
-} else { "$(Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"), with its .linger and .warm logs beside it" }
+# Decided once, for the mark and for the run (round 2 of D00 T03 §32).
+$willQueue = -not $env:BOSUN_MEASURE_QUEUED -and [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
+$log = Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"
+$markOutput = if ($willQueue) { 'queued through bosun run: the measurement it starts has a mark of its own, naming its log' } else { "$log, with its .linger and .warm logs beside it" }
 try { $gateMark = Enter-GateMark "measure-build $Label" $markOutput } catch { "measure-build: $($_.Exception.Message): nothing was measured"; exit 1 }
 try {
 # Take a turn in the queue, once: the wait for a slot happens here, before any step is timed.
 if (-not $env:BOSUN_MEASURE_QUEUED) {
   $env:BOSUN_MEASURE_QUEUED = '1'
-  if (Get-Command bosun -CommandType Application -ErrorAction Ignore) {
+  if ($willQueue) {
     # Every parameter this run was given goes to the queued one, so none is silently reset to its default there.
     $forward = foreach ($parameter in $PSBoundParameters.GetEnumerator()) {
       if ($parameter.Value -is [switch]) { if ($parameter.Value) { "-$($parameter.Key)" } }
@@ -249,7 +250,6 @@ if (-not $env:BOSUN_MEASURE_QUEUED) {
 $BuildArgs = @($BuildArgs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $DotnetOutputs = @($DotnetOutputs | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
-$log = Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"
 $results = [ordered]@{}
 $envCache = $false
 
