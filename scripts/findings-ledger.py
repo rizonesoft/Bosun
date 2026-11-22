@@ -270,6 +270,10 @@ def finding_file(entry):
     return word.replace("\\", "/")
 
 
+# The extensions that make a name a file, for `finding_files`.
+EXTENSIONS = "cs|cpp|hpp|h|py|ps1|psm1|js|mjs|ts|json|md|xaml|toml|ya?ml|txt|slnx|csproj|props|targets|sh|cmd|bat|ico|png|svg"
+
+
 def finding_files(entry):
     """Every file a finding names: each path-like backticked name anywhere in it (`src/app.cpp` and `wsl/bosun_log.py`
     for base line 205; `scripts/lib/overlay.ps1` and, in its text, `.private/config.toml` for base line 208), else its
@@ -280,8 +284,12 @@ def finding_files(entry):
     # A path, or a name with a file's extension; a token such as `light.Accent` or `.git` is not a file, while a
     # dot-prefixed path such as `.private/config.toml` is.
     files = [n for n in named if " " not in n and (
-        "/" in n or re.search(r"\.(cs|cpp|hpp|h|py|ps1|psm1|js|mjs|ts|json|md|xaml|toml|ya?ml|txt|slnx|csproj|props|targets|sh|cmd|bat|ico|png|svg)$", n))]
-    return list(dict.fromkeys(files)) or ([finding_file(entry)] if finding_file(entry) else [])
+        "/" in n or re.search(r"\.(%s)$" % EXTENSIONS, n))]
+    # Bare paths too, beside the backticked ones and never instead of them, so a second name in backticks cannot
+    # drop a path the finding gives plainly (round 2 of D00 T06 §6: base line 213 names `scripts/setup-clone.ps1` bare).
+    bare = [w.replace("\\", "/") for w in re.findall(r"(?<![\w`/.-])(?:\.?[\w-]+[/\\])+[\w.-]+\.(?:%s)\b(?![`/])" % EXTENSIONS, re.sub(r"`[^`]*`", " ", text))]
+    found = list(dict.fromkeys(files + bare))
+    return found or ([finding_file(entry)] if finding_file(entry) else [])
 
 
 def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, record=None, classify=False):

@@ -166,6 +166,9 @@ class FindingsLedgerTest(unittest.TestCase):
         why = ledger.problem("- `scripts/lib/overlay.ps1`: list the keys in `.private/config.toml`.", "Scheduled: D09 T01 §1.",
                              str(self.root), lambda ref, root: (0, "- [ ] Update `scripts/lib/overlay.ps1` (base line 5)."), line=5, cite_lines=True)
         self.assertIn("does not name .private/config.toml", why)
+        # Round 2 of D00 T06 §6: a path given bare stays beside a backticked one, never replaced by it.
+        bare = "- D00 T05 §4 review: one setup command, scripts/setup-clone.ps1 checking the hook. Also check `scripts/leak-scan.ps1`."
+        self.assertEqual(ledger.finding_files(bare), ["scripts/leak-scan.ps1", "scripts/setup-clone.ps1"])
         entry = "- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."
         for body, settled in (("Fix `src/app.cpp`.\n\n- [ ] Fix it (base line 5).", False),
                               ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix both (base line 5).", True)):
