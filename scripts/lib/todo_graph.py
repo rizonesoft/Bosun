@@ -1399,6 +1399,13 @@ def wake_apply(root, date, run=subprocess.run, rows=None):
     return wake_apply_rows(root, date, run, rows)[0]
 
 
+def current_rows(root, rows, seen):
+    """The rows to write the plan from now: `rows` while what `graph` reads is still as `seen` found it, else built
+    again. Asked immediately before a write, so a tree changed after the rows were built is never synced from them
+    (rounds 1 and 2 of D00 T07 §1)."""
+    return rows if inputs_fingerprint(root) == seen else graph(root)
+
+
 def wake_apply_rows(root, date, run=subprocess.run, rows=None):
     """Clear every Need whose wake passes now, returning what was cleared and the graph as it then stands, each state
     built once: the rows a write validated are the next Need's (D00 T07 §1)."""
@@ -1415,7 +1422,8 @@ def wake_apply_rows(root, date, run=subprocess.run, rows=None):
     # would then sync an old plan over a newer one, so a changed input is a new state, built again (round 1 of §1).
     if inputs_fingerprint(root) != seen:
         rows = graph(root)
-    return applied, rows
+        seen = inputs_fingerprint(root)
+    return applied, rows, seen
 
 
 def inputs_fingerprint(root):

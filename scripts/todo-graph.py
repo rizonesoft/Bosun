@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from host_caps import capabilities  # noqa: E402
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition, next_work, park, repair, section_disposition, unpark,  # noqa: E402
                         extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
-                        suspects, unstamp_rows, finish, work_items, wake_check, wake_apply_rows)
+                        suspects, unstamp_rows, finish, work_items, wake_check, wake_apply_rows, current_rows)
 
 
 def review_round(value):
@@ -187,9 +187,11 @@ def main():
         if args.check:
             print(json.dumps(wake_check(ROOT, rows), indent=2))
         else:
-            applied, current = wake_apply_rows(ROOT, datetime.date.today().isoformat(), rows=rows)
+            applied, current, seen = wake_apply_rows(ROOT, datetime.date.today().isoformat(), rows=rows)
             print(json.dumps(applied, indent=2))
-            projections(ROOT, sync=True, rows=current)  # always: a retry after an interrupted apply repairs the plan too
+            # always: a retry after an interrupted apply repairs the plan too; the rows are checked against the tree
+            # immediately before the write, so a change made after the wakes finished is built again (round 2 of §1)
+            projections(ROOT, sync=True, rows=current_rows(ROOT, current, seen))
     elif args.command == "build":
         atomic(ROOT / "build/todo-cache.json",
                json.dumps([r.public() for r in ordered(rows)], indent=2, ensure_ascii=False) + "\n")

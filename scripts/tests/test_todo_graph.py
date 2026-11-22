@@ -2640,6 +2640,22 @@ class GraphLoadsWake(Tree):
         self.assertIn("- [x] Work.", todo.read_text(encoding="utf-8"))
         tg.projections(self.root)  # the plan matches the changed tree, not the rows read before the check
 
+    def test_a_tree_changed_after_the_wakes_finish_is_built_again_before_the_plan_syncs(self):
+        # Round 2 of D00 T07 §1: the change lands after the wake loop has returned, just before the CLI's final sync.
+        self.write(todo_file([(1, "A", 0, "owner-decision", "--")]))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        tg.projections(self.root, sync=True)
+        real = tg.wake_apply_rows
+
+        def then_edit(*args, **kwargs):
+            result = real(*args, **kwargs)
+            todo.write_text(todo.read_text(encoding="utf-8").replace("- [ ] Work.", "- [x] Work.", 1), encoding="utf-8")
+            return result
+        with mock.patch.object(cli(), "wake_apply_rows", then_edit):
+            loads, code, out = graph_loads(self.root, "wake", "--apply")
+        self.assertEqual((loads, code), (2, 0), out)
+        tg.projections(self.root)  # the plan matches the tree as it was at the write
+
 if __name__ == "__main__":
     unittest.main()
 
