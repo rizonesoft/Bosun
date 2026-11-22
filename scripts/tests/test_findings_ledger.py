@@ -104,6 +104,8 @@ class FindingsLedgerTest(unittest.TestCase):
     def test_the_classification_must_agree_with_every_strike(self):
         self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
         record = self.root / "classification.md"
+        owner = "Fix `scripts/a.py`.\n\n- [ ] Something else (base line 9).\n- [ ] Fix `scripts/a.py` (base line 5).\n- [ ] Commit: x"
+        resolver = lambda ref, root: (0, owner) if ref == "D09 T01 §1" else fake_resolve(ref, root)
         good = {5: "- 5: Scheduled: D09 T01 §1 (item 2, the fix). Inspected `scripts/a.py:1`: the first finding is still true.",
                 6: "- 6: Declined: one-off (a one-off script nobody runs again). Inspected `scripts/b.py`: it runs once.",
                 8: "- 8: Done: D09 T01 §3 (shipped it). Inspected `scripts/d.py`: it does it now."}
@@ -115,10 +117,12 @@ class FindingsLedgerTest(unittest.TestCase):
                 # scheduled line naming no item.
                 ([good[5], good[6], good[8], "- 6: Scheduled: D09 T01 §1 (item 1, other). Inspected `x`: y."], False, "base line 6: is classified 2 times"),
                 (["- 5: Scheduled: D09 T01 §1.", good[6], good[8]], False, "base line 5: has a classification line without its evidence"),
-                ([good[5].replace("item 2, the fix", "the fix"), good[6], good[8]], False, "base line 5: is scheduled in")):
+                ([good[5].replace("item 2, the fix", "the fix"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                # Round 2 of D00 T06 §3: an item number that names another finding's item.
+                ([good[5].replace("item 2,", "item 1,"), good[6], good[8]], False, "base line 5: is scheduled in")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
-                code, out = self.checked(record=record)
+                code, out = self.checked(resolver, record=record)
                 self.assertEqual(code, 0 if settled else 1, out)
                 self.assertIn(says, out)
 

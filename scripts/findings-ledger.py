@@ -111,7 +111,12 @@ def record_lines(path):
     return lines
 
 
-def record_problem(n, entries, struck, record):
+def checklist(body):
+    """A section's checklist items, in order (item 1 first)."""
+    return [line for line in body.splitlines() if re.match(r"\s*- \[[ x]\] ", line)]
+
+
+def record_problem(n, entries, struck, record, resolver=None, root=None):
     """Why the classification of base line `n` does not stand beside its strike, or None."""
     if not entries:
         return "has no classification line (- %d: ...) in %s" % (n, record)
@@ -124,8 +129,18 @@ def record_problem(n, entries, struck, record):
                 "`- %d: <disposition> (<the owning item, or the evidence>). Inspected `<path>`: <what it shows>.`" % (record, at, n))
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
-    if m.group(2).startswith("Scheduled") and not re.match(r"items? \d", m.group(3)):
-        return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
+    if m.group(2).startswith("Scheduled"):
+        named = re.match(r"items? ((?:\d+|and|,|\s)+)", m.group(3))
+        if not named:
+            return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
+        if resolver is not None:
+            # The item named must be the finding's own: it cites this base line (round 2 of D00 T06 §3).
+            ref = REF.findall(m.group(2))[0]
+            items = checklist(resolver(ref, root)[1])
+            numbers = [int(k) for k in re.findall(r"\d+", named.group(1))]
+            if not any(1 <= k <= len(items) and n in cited_lines(items[k - 1]) for k in numbers):
+                return "is scheduled in %s to %s item %s, which does not cite base line %d (line %d)" % (
+                    record, ref, " and ".join(str(k) for k in numbers), n, at)
     return None
 
 
@@ -215,7 +230,7 @@ def check(base, first, last, root=ROOT, resolver=resolve, cite_lines=False, reco
             why = problem(text, hits[0][len(struck):], root, resolver, n, cite_lines)
             if not why and classified is not None:
                 # The classification must say what the strike says, once, with its evidence (D00 T06 §3).
-                why = record_problem(n, classified.get(n, []), hits[0][len(struck):], record)
+                why = record_problem(n, classified.get(n, []), hits[0][len(struck):], record, resolver, root)
         if why:
             bad += 1
             print("findings-ledger: base line %d: %s" % (n, why))
