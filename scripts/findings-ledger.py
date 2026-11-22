@@ -237,6 +237,13 @@ def problem(entry, disposition, root, resolver=resolve, line=0, cite_lines=False
         for named in finding_files(entry):
             if named not in body.replace("\\", "/"):
                 return "%s does not name %s, so it does not visibly own this finding" % (refs[0], named)
+        if cite_lines:
+            # Every file on the items that own it, not anywhere in the section: an introduction naming both platforms
+            # beside an item fixing one passed (the completion review of D00 T06 §6).
+            owning = "\n".join(i for i in checklist(body) if line in cited_lines(i)).replace("\\", "/")
+            for named in finding_files(entry):
+                if owning and named not in owning:
+                    return "%s: no item citing base line %d names %s" % (refs[0], line, named)
         if cite_lines and line not in item_citations(body):
             return "%s has no checklist item citing base line %d, so no item of it visibly owns this finding" % (refs[0], line)
         if not key and not re.search(r"findings base line %d(?!\d)" % line, body):
@@ -287,7 +294,7 @@ def finding_files(entry):
         "/" in n or re.search(r"\.(%s)$" % EXTENSIONS, n))]
     # Bare paths too, beside the backticked ones and never instead of them, so a second name in backticks cannot
     # drop a path the finding gives plainly (round 2 of D00 T06 §6: base line 213 names `scripts/setup-clone.ps1` bare).
-    bare = [w.replace("\\", "/") for w in re.findall(r"(?<![\w`/.-])(?:\.?[\w-]+[/\\])+[\w.-]+\.(?:%s)\b(?![`/])" % EXTENSIONS, re.sub(r"`[^`]*`", " ", text))]
+    bare = [w.replace("\\", "/") for w in re.findall(r"(?<![\w`/.-])(?:\.?[\w-]+[/\\])*[\w-][\w.-]*\.(?:%s)\b(?![`/\w])" % EXTENSIONS, re.sub(r"`[^`]*`", " ", text))]
     found = list(dict.fromkeys(files + bare))
     return found or ([finding_file(entry)] if finding_file(entry) else [])
 

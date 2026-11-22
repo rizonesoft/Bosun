@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 79 | Checklist items: 622
+Sections: 81 | Checklist items: 624
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -82,15 +82,17 @@ Sections: 79 | Checklist items: 622
 | [ ]    | D00 T07 §10 | Plan workflow checks first and states its policy                                       | none        | 5     |
 | [ ]    | D00 T07 §11 | The overlay says where a value came from, and lists its keys                           | none        | 3     |
 | [ ]    | D00 T07 §12 | Sync previews what it would pull, and receipts each change                             | none        | 3     |
-| [ ]    | D00 T07 §13 | A leak refusal names its fix and its commit                                            | none        | 3     |
+| [ ]    | D00 T07 §13 | A leak refusal for a ref name says to rename the ref                                   | none        | 2     |
 | [ ]    | D00 T07 §14 | The token: a process-scoped launch and one vault read                                  | none        | 3     |
 | [ ]    | D00 T07 §15 | Campaign preflight shows the required checks beside its flags                          | none        | 2     |
 | [ ]    | D00 T07 §16 | Review rounds list their verdicts, and a lookup by commit                              | none        | 2     |
 | [ ]    | D00 T07 §17 | The CI gate's report latency measured, its active step shown                           | none        | 2     |
-| [ ]    | D00 T07 §18 | The run start: a cold hold measured, and default badges shipped                        | none        | 3     |
+| [ ]    | D00 T07 §18 | The run hold's cold start measured against Awake                                       | none        | 2     |
 | [ ]    | D00 T07 §19 | The run guard: a quicker look, suspended reads and a watch view                        | none        | 4     |
 | [ ]    | D00 T07 §20 | The findings ledger: one lookup, derived totals, stable owners                         | none        | 6     |
 | [ ]    | D00 T07 §21 | A stamped section's text stays as stamped                                              | none        | 2     |
+| [ ]    | D00 T07 §22 | Machine-path findings name the commit that introduced them                             | none        | 2     |
+| [ ]    | D00 T07 §23 | Default campaign badges shipped for a machine without Python                           | none        | 2     |
 
 ### Phase 1: Core data contract
 
@@ -252,6 +254,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 114/197 verified sections, 60 ready to run now.
+Progress: 114/199 verified sections, 62 ready to run now.
 
-Checklist: 1083/1464 items completed (includes Commit items).
+Checklist: 1083/1466 items completed (includes Commit items).

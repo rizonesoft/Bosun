@@ -169,14 +169,18 @@ class FindingsLedgerTest(unittest.TestCase):
         # Round 2 of D00 T06 §6: a path given bare stays beside a backticked one, never replaced by it.
         bare = "- D00 T05 §4 review: one setup command, scripts/setup-clone.ps1 checking the hook. Also check `scripts/leak-scan.ps1`."
         self.assertCountEqual(ledger.finding_files(bare), ["scripts/setup-clone.ps1", "scripts/leak-scan.ps1"])
+        # The completion review of D00 T06 §6: a bare root filename is a file too.
+        self.assertCountEqual(ledger.finding_files("- AGENTS.md and todo/README.md both apply, as e.g. says."), ["AGENTS.md", "todo/README.md"])
         entry = "- `src/app.cpp` and `wsl/bosun_log.py` (`.git` probes): a check."
         for body, settled in (("Fix `src/app.cpp`.\n\n- [ ] Fix it (base line 5).", False),
-                              ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix both (base line 5).", True)):
+                              # The completion review of D00 T06 §6: both files in the introduction, one on the item.
+                              ("Fix `src/app.cpp` and `wsl/bosun_log.py`.\n\n- [ ] Fix `src/app.cpp` (base line 5).", False),
+                              ("Fix them.\n\n- [ ] Fix `src/app.cpp` and `wsl/bosun_log.py` (base line 5).", True)):
             with self.subTest(body=body):
                 why = ledger.problem(entry, "Scheduled: D09 T01 §1.", str(self.root), lambda ref, root: (0, body), line=5, cite_lines=True)
                 self.assertEqual(why is None, settled, why)
                 if not settled:
-                    self.assertIn("does not name wsl/bosun_log.py", why)
+                    self.assertIn("wsl/bosun_log.py", why)  # named missing, by the section or by its owning items
 
     def test_classify_without_a_record_is_refused(self):
         # Round 1 of D00 T06 §6: --classify alone checked nothing and passed.
