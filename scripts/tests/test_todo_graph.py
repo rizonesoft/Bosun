@@ -117,7 +117,26 @@ class Tree(unittest.TestCase):
         self.assertIn(fragment, str(ctx.exception))
 
 
+BASELINE = pathlib.Path(__file__).parent / "fixtures" / "plan-baseline.md"
+
+
+def baseline_tree(tree):
+    """A fixed tree in two domains, with phases, Needs, a dependency and ticked items, whose generated plan was pinned
+    in `fixtures/plan-baseline.md` by the generator as it stood before D00 T07 §1 changed how the graph is loaded."""
+    tree.write(todo_file([(1, "Late", 1, "none", "--"), (2, "Early", 0, "none", "--"),
+                          (3, "After early", 0, "windows-host", "§2")]).replace("- [ ] Work.", "- [x] Work.", 1))
+    tree.write(todo_file([(1, "Shell", 2, "display-session", "--"), (2, "More shell", 2, "none", "§1")],
+                         ident="beta", domain="02-shell"), domain="02-shell")
+
+
 class Graph(Tree):
+    def test_generated_plan_matches_the_pinned_baseline_byte_for_byte(self):
+        # D00 T07 §1: the baseline was written before the graph's loading changed, so the revised generator is held to
+        # bytes it did not produce; a changed newline or a trailing byte fails here.
+        baseline_tree(self)
+        tg.projections(self.root, sync=True)
+        self.assertEqual((self.root / tg.PLAN).read_bytes(), BASELINE.read_bytes())
+
     def test_valid_tree_orders_by_phase_and_dependency(self):
         self.write(todo_file([(1, "Late", 1, "none", "--"), (2, "Early", 0, "none", "--"),
                               (3, "After early", 0, "windows-host", "§2")]))
