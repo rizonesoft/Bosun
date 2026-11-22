@@ -1,4 +1,6 @@
 # Known gitleaks false positives in this repository's history, one fingerprint per line (commit:file:rule:line), each
 # under a comment naming why it is not a secret (D00 T05 §6). scripts/leak-scan.ps1 prints the fingerprint of every
 # secret finding (".gitleaksignore fingerprint: ..."), for the patch scan and the objects it scans beside it alike.
-# None so far.
+
+# D00 T06 §2: the placeholder `Authorization: Bearer TEST_ONLY` in a TODO item's test (a job run with an explicit label must
+# leave this marker out of the job history), and round 1's review quoting it; no credential./01-core/TODO-02-core-follow-ups.md:curl-auth-header:58/reviews/00-workspace/D00-T06-s2.md:curl-auth-header:93
