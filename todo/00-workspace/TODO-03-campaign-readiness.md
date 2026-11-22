@@ -1067,7 +1067,9 @@ Filed 2026-11-21 by the completion review of `§24` (`docs/reviews/00-workspace/
 
 ## 29. Antigravity waits see their result within a minute
 
-Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47, completion reviews of `§19` and `§21`). An Antigravity run has no heartbeat, so while a review, a CI gate or a local gate is in flight its session sleeps in steps of `WAIT_SLICE_MINUTES = 10` (`scripts/lib/run_guard.py`, `wait_for_flight`), and can see the result up to ten minutes late. Nothing may resume a run from outside its session (the owner's rule of 2026-11-12), so the fix is a shorter wait inside the session, never a watchdog.
+Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47, completion reviews of `§19` and `§21`). An Antigravity run has no heartbeat, so while a review, a CI gate or a local gate is in flight its Stop hook answers with `wait_for_flight` in `scripts/lib/run_guard.py`, which tells the session to sleep in steps of `WAIT_SLICE_MINUTES = 10` and look again; the session can see the result up to ten minutes late. Nothing may resume a run from outside its session (the owner's rule of 2026-11-12), so the fix is a shorter wait inside the session, never a watchdog.
+
+**Corrected 2026-11-22 (validation before the build):** the section said to measure "when the session is told to look again" with fake gates; the guard only answers with an instruction and the session does the sleeping, so what bounds the delay is the step that instruction gives, and a local gate is watched by a command the session runs. The items below say so. Timed waits (`wait_in_session`) end at a known time and are not in this section.
 
 **Phase:** 0
 **Needs:** none
@@ -1075,16 +1077,15 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47,
 
 **Build order:**
 
-1. Measure the delay. Done when: the time from a fake gate ending to the session's next look is recorded here, before and after.
-2. Look again sooner. Done when: a review or CI gate is seen within 60 seconds and a local gate within 5 seconds of ending, with no process outside the session.
+1. Shorten the step for reviews and CI gates. Done when: the instruction for a review or CI gate in flight gives steps of at most 60 seconds.
+2. Watch a local gate. Done when: the instruction for a local gate names an in-session command that returns within 5 seconds of the gate's process ending.
 
-- [ ] Write a test in `scripts/tests/test_run_guard.py` that ends a fake review, a fake CI gate and a fake local gate under `wait_for_flight` and measures when the Antigravity session is told to look again. Done when: it fails at today's ten-minute step (base line 41) and records the measured delay.
-- [ ] Have `wait_for_flight` in `scripts/lib/run_guard.py` give a review or CI wait steps of at most 60 seconds, and a local gate (`build/gate-in-flight/`) a wait on its own process that returns within 5 seconds of it ending (base line 47), keeping each step under the tool's own limit. Done when: the test passes for all three, and no scheduled task, watchdog or detached process is started (checked by the same test). Cheaper substitute: lowering `WAIT_SLICE_MINUTES` to one minute for every wait, which leaves a local gate up to a minute late.
-- [ ] Update the Antigravity wait wording in `.agents/skills/process-plan/SKILL.md` and `.agents/skills/process-phase/SKILL.md` (and the `.claude/` and `.codex/` mirrors) to the new steps. Done when: the three mirrors match and name the new limits.
+- [ ] Give `wait_for_flight` in `scripts/lib/run_guard.py` a step of `FLIGHT_LOOK_SECONDS = 60` for a review or a CI gate in flight, keeping `WAIT_SLICE_MINUTES` for timed waits (base line 41). Done when: a test in `scripts/tests/test_run_guard.py` drives the Antigravity Stop hook with a review in flight and with a CI gate in flight and reads a step of 60 seconds in each answer, failing at today's ten minutes.
+- [ ] Add `python scripts/run-guard.py watch-gate [--max-seconds N]` (default 540, under the shell tool's ten-minute limit): it looks at `gate_in_flight` every second and returns as soon as no local gate is live, saying so, or at its limit saying the gate still runs; it starts nothing and leaves nothing running. Have `wait_for_flight` name it when a local gate is what is in flight (base line 47). Done when: a test starts a fake gate that writes its mark (`BOSUN_GATE_MARK_DIR`) and exits after 2 seconds, runs `watch-gate`, and reads that it returned within 5 seconds of the gate's exit; a second run with `--max-seconds 2` against a gate that lives on returns at its limit; and the Stop hook's answer for a local gate names `watch-gate`. Cheaper substitute: lowering `WAIT_SLICE_MINUTES` to one minute for every wait, which leaves a local gate up to a minute late.
+- [ ] Update the Antigravity wait wording in `.agents/skills/process-plan/SKILL.md` and `.agents/skills/process-phase/SKILL.md` (and the `.claude/` and `.codex/` mirrors) to the new steps and `watch-gate`. Done when: the three mirrors match and name the new limits.
 - [ ] Commit: `run-guard: Antigravity waits see their result within a minute (D00 T03 §29)`
 
-**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the new delay test fails with `WAIT_SLICE_MINUTES = 10` restored for reviews.
-
+**Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the step test fails with `FLIGHT_LOOK_SECONDS` set back to 600.
 ## 30. Guard status names a gate's stage, and Antigravity sees a failed guard
 
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 42 and 48, completion reviews of `§19` and `§21`). `scripts/run-guard.py` fails open on an Antigravity hook error and prints nothing (`hook --runner antigravity`), recording the failure only for `status`; and `status` says a gate is in flight (`in_flight` in `scripts/lib/run_guard.py`) without its stage, elapsed time or output location.
