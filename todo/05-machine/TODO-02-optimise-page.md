@@ -363,5 +363,5 @@ A helper's result outlives a panel that closed or crashed after the prompt was a
 
 ## Verification
 
-- `dotnet test Bosun.slnx` passes.
+- `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).
 - A disposable item round-trips: preview, apply, verify, undo. A real item round-trips in `D99 T01 §5`.

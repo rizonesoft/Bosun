@@ -598,4 +598,4 @@ Decisions, each with what reversing it costs:
 ## Verification
 
 - The end-to-end smoke passes in a desktop session.
-- `dotnet test Bosun.slnx` passes.
+- `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).

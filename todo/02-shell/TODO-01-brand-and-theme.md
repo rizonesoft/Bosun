@@ -243,4 +243,4 @@ Filed and built 2026-11-12 on the owner's request: the "Bosun unattended run" de
 ## Verification
 
 - `python scripts/build-theme.py --check` and `python scripts/build-icons.py --check` pass.
-- `dotnet test Bosun.slnx` passes.
+- `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).

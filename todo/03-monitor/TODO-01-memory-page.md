@@ -284,5 +284,5 @@ Filed 2026-11-16 by the plan review of `§3` (`docs/reviews/03-monitor/D03-T01-s
 
 ## Verification
 
-- `dotnet test Bosun.slnx` passes.
+- `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).
 - A render of each page state exists under `build/renders`.
