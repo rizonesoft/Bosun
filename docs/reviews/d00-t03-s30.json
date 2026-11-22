@@ -1,0 +1,92 @@
+{
+  "ref": "D00 T03 \u00a730",
+  "title": "Antigravity sees a failed guard, within the hook's time",
+  "implementation_sha": "e63f1396a553fd5703ad50d2e6a3bd2394ff6922",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T03-s30.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T03-s30.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T03-s30.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest scripts.tests.test_run_guard -> Ran 135 tests, OK",
+    "mutations: the notice removed, the deadline clamp removed, child-only kill, slow reads on a cancel, typed stop left out, no job object, a start past the deadline, lenient decoding -> each fails its test",
+    "CI full gate at e63f139: build.yml: green at e63f1396a553 (https://github.com/rizonesoft/Bosun/actions/runs/44997590261); plan.yml green https://github.com/rizonesoft/Bosun/actions/runs/44997590242"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T03-s30.md",
+    "verdict": "completed",
+    "candidate": "e78f497aa18c2875791f3cf647897981a966104b",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T03-s30.md",
+    "candidate": "4976b5299de9102d1ed0c33afb6aa60f167bed7c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "4976b5299de9102d1ed0c33afb6aa60f167bed7c",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

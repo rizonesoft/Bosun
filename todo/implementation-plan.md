@@ -53,7 +53,7 @@ Sections: 68 | Checklist items: 577
 | [x]    | D00 T03 §27 | CI gate sees a finished run sooner and says what it is waiting on                      | none        | 7     |
 | [x]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 6     |
 | [x]    | D00 T03 §29 | Antigravity waits see their result within seconds                                      | none        | 4     |
-| [ ]    | D00 T03 §30 | Antigravity sees a failed guard, within the hook's time                                | none        | 3     |
+| [x]    | D00 T03 §30 | Antigravity sees a failed guard, within the hook's time                                | none        | 3     |
 | [ ]    | D00 T03 §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey             | none        | 4     |
 | [ ]    | D00 T03 §32 | Guard status names each wait's stage, elapsed time and output                          | none        | 4     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
@@ -220,6 +220,6 @@ Sections: 6 | Checklist items: 29
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 108/165 verified sections, 34 ready to run now.
+Progress: 109/165 verified sections, 33 ready to run now.
 
-Checklist: 1035/1271 items completed (includes Commit items).
+Checklist: 1036/1271 items completed (includes Commit items).

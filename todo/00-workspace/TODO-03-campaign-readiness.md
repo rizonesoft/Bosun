@@ -68,7 +68,7 @@ title: "TODO-03 -- Campaign readiness"
 | 27 | §27 | CI gate sees a finished run sooner and says what it is waiting on | -- | [x] |
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [x] |
 | 29 | §29 | Antigravity waits see their result within seconds | -- | [x] |
-| 30 | §30 | Antigravity sees a failed guard, within the hook's time | -- | [ ] |
+| 30 | §30 | Antigravity sees a failed guard, within the hook's time | -- | [x] |
 | 31 | §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey | -- | [ ] |
 | 32 | §32 | Guard status names each wait's stage, elapsed time and output | -- | [ ] |
 
@@ -1117,11 +1117,14 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 42, complet
 
 - [x] Move the Antigravity hook's fail-open from `scripts/run-guard.py` into `scripts/lib/run_guard.py` (`hook_antigravity_answer`), with reading standard input inside it, and on any failure (bad input, the hook raising, the run state unreadable, a save that fails, as after ending a woken hold or recording what `look` starts from) print `{"errorMessage": {"userMessage": "Run guard failed and is not holding this run: <error>; see python scripts/run-guard.py status"}}` with no `decision`, record the failure, and clear the failures only after a hook that succeeded (base line 42; the `agy changelog` line on `errorMessage` is the source). Done when: tests in `scripts/tests/test_run_guard.py` drive malformed input, a raising hook, a state that is a folder, and a failing save through the real CLI, and each exits 0 with that one notice and no `decision`, `status --json` shows the failure until a clean hook, and a failure record that cannot be written still prints the notice. Cheaper substitute: a log line nobody reads.
 - [x] Give the hook a deadline inside the host's 60 seconds (`.agents/hooks.json`): `HOOK_SECONDS = 45`, set by `hook_antigravity_answer`, which the guard's `run` helper honours by bounding every subprocess it starts to what is left, so a `query finish`, git, CI or wake check that stalls is stopped and read as unknown, and the hook answers. Done when: a test stalls a reader's subprocess (a child that sleeps 120 seconds) under a 3-second deadline and reads the hook's answer within 5 seconds, with the child stopped. Cheaper substitute: lowering only `real_finish`'s timeout, which leaves the wake and git reads unbounded.
-- [ ] Commit: `run-guard: Antigravity sees a failed guard, within the hook's time (D00 T03 §30)`
+- [x] Commit: `run-guard: Antigravity sees a failed guard, within the hook's time (D00 T03 §30)`
 
 **Evidence 2026-11-22:** `python -m unittest scripts.tests.test_run_guard` -> 135 tests OK after the completion review (strict UTF-8 input, a failure record that cannot be written or cleared logged and leaving no temporary file, nothing started past the deadline, a Windows job object stopping a descendant whose parent exited, and a raising hook and a failing save through the real CLI; each fails its mutation); 130 at round 3 (128 at the build; rounds 1 to 3 added a timed-out read stopping its whole tree, every stop the event decides taking no slow reads, and the real failure recorder failing its write). Through the real CLI, malformed input and a run state that is a folder each print one `errorMessage` notice with no `decision` and exit 0, and `status --json` keeps the failure until a clean hook clears it; a raising hook and a failing save, with the failure record unwritable, still give the notice. A reader's subprocess sleeping 120 s under a 3-second deadline is stopped and the hook answers within 6 s, the deadline cleared after. Mutations: the notice removed, and the deadline clamp removed, each fail their test.
 
 **Test checkpoint:** `python scripts/run-tests.py test_run_guard` exits 0, and the notice tests fail with the hook's notice removed.
+
+> **Verified:** 2026-11-22 | §30 | e63f1396a553fd5703ad50d2e6a3bd2394ff6922
+> **Review:** `docs/reviews/d00-t03-s30.json`
 
 ## 31. Shortcut install: one fix per failure, a fast rerun and an optional hotkey
 
