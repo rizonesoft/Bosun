@@ -29,6 +29,7 @@ if ($mode -like 'child-*') {
 }
 # What a step sees of the gate's own mark while it runs (D00 T03 §21).
 if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'marks.txt') -Value @(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore).Count }
+if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'mark-outputs.txt') -Value ((@(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore) | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).output }) -join '|') }
 switch ($mode) {
   'fail' { exit 3 }
   'child-fail' { exit 5 }
@@ -59,6 +60,10 @@ try {
       Remove-Item -LiteralPath (Join-Path $work 'marks.txt') -ErrorAction Ignore
       $r = Invoke-Gate @('-StepFile', $stepFile)
       $seen = @(Get-Content -LiteralPath (Join-Path $work 'marks.txt') -ErrorAction Ignore)
+      # D00 T03 §32: the mark says where the gate's output goes, read by run-guard.py status.
+      $outputs = @(Get-Content -LiteralPath (Join-Path $work 'mark-outputs.txt') -ErrorAction Ignore)
+      Check "the gate's mark names its output while it runs ($($case.Says))" ($outputs.Count -ge 1 -and -not ($outputs | Where-Object { $_ -ne 'the console that started it' })) "(outputs: $($outputs -join ', '))"
+      Remove-Item -LiteralPath (Join-Path $work 'mark-outputs.txt') -ErrorAction Ignore
       $left = @(Get-ChildItem -LiteralPath $marks -Filter '*.json' -ErrorAction Ignore)
       Check "the gate's mark is there while each step runs and gone after $($case.Says), exit $($case.Exit) kept" ($r.Exit -eq $case.Exit -and $seen.Count -eq 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $($r.Exit), seen: $($seen -join ','), left: $($left.Count))"
     }

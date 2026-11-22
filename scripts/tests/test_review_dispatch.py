@@ -106,7 +106,9 @@ FAKE_CLI = textwrap.dedent('''\
     marks = os.path.join(os.getcwd(), "build", "review-in-flight")
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file,
-                              "in_flight": sorted(os.listdir(marks)) if os.path.isdir(marks) else []}) + "\\n")
+                              "in_flight": sorted(os.listdir(marks)) if os.path.isdir(marks) else [],
+                              "in_flight_docs": [json.load(open(os.path.join(marks, n), encoding="utf-8"))
+                                                 for n in sorted(os.listdir(marks))] if os.path.isdir(marks) else []}) + "\\n")
     if mode == "fail":
         sys.exit(3)
     if mode == "quiet":
@@ -1239,6 +1241,9 @@ class InFlightMarks(Harness):
                 (call,) = self.calls()
                 self.assertEqual(len(call["in_flight"]), 1, "the reviewer ran without its mark")
                 self.assertRegex(call["in_flight"][0], r"^\d+-sol\.json$")
+                # D00 T03 §32: what the mark runs and where its result goes, for run-guard.py status.
+                doc = call["in_flight_docs"][0]
+                self.assertEqual((doc.get("pass"), doc.get("record")), ("round", "not recorded"), doc)
                 self.assertEqual(self.marks(), [], "the mark outlived the review")
 
     def test_the_guard_reads_a_running_dispatcher_s_mark_as_live(self):

@@ -567,6 +567,15 @@ class Gate(Base):
         code, out = self.go(["--gate", "--sha", "HEAD"], FakeGh(), wall=lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS)
         self.assertIn("action: unverified", out)
 
+    def test_a_wait_names_where_its_runs_are_listed_from_its_first_look(self):
+        # D00 T03 §32: before any run is listed, the wait already says where to look.
+        def killed(args):
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            self.go(["--gate", "--sha", "HEAD"], killed, wall=lambda: 1_000_000.0)
+        waiting = json.loads(self.state().read_text())["waiting"]
+        self.assertEqual(waiting.get("output"), f"gh run list --commit {waiting['sha']}")
+
     def test_a_wait_names_the_gate_polling_it(self):
         # The run guard holds the next row only while this process lives (scripts/lib/run_guard.py ci_in_flight).
         self.gate(FakeGh())
@@ -748,7 +757,7 @@ class Gate(Base):
         self.waiting(0)
         wall = lambda: 1_000_000.0 + ci_status.WAIT_LIMIT_SECONDS
         code, out = self.go(["--gate", "--sha", "c" * 40], FakeGh(), _Named("c" * 40), wall=wall)
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": "c" * 40, "since": wall(), "pid": os.getpid()})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": "c" * 40, "since": wall(), "pid": os.getpid(), "output": "gh run list --commit " + "c" * 40})
         self.assertIn("action: wait", out)
 
     def fresh(self, argv, runs=None, changed=("README.md",), wall=1_000_000.0):
@@ -1004,7 +1013,7 @@ class Gate(Base):
         data = json.loads(out.getvalue())
         self.assertEqual(data["action"], "unverified")
         self.assertIn("ran out", data["error"])
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0, "pid": os.getpid()})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": SHA, "since": 1_000_000.0, "pid": os.getpid(), "output": f"gh run list --commit {SHA}"})
 
     def test_a_new_full_sha_gets_its_own_wait_after_an_older_one_expired(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)
@@ -1674,7 +1683,7 @@ class Gate(Base):
         with mock.patch.object(ci_status, "run_tool", tool), contextlib.redirect_stdout(out):
             ci_status.main(["--gate", "--sha", "HEAD"], root=self.root, wall=expired)
         self.assertIn("action: wait", out.getvalue())
-        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": git("rev-parse", "HEAD"), "since": expired(), "pid": os.getpid()})
+        self.assertEqual(json.loads(self.state().read_text())["waiting"], {"sha": git("rev-parse", "HEAD"), "since": expired(), "pid": os.getpid(), "output": "gh run list --commit " + git("rev-parse", "HEAD")})
 
     def test_a_slow_git_with_one_second_left_costs_only_that_second(self):
         self.go(["--gate", "--sha", SHA], FakeGh(), wall=lambda: 1_000_000.0)

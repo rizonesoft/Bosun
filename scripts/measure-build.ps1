@@ -224,7 +224,12 @@ if ($DecideOnly) {
 # From here to the end, the run guard reads this measurement as a wait, its queue wait included
 # (scripts/lib/gate-mark.ps1).
 . (Join-Path $PSScriptRoot 'lib\gate-mark.ps1')
-try { $gateMark = Enter-GateMark "measure-build $Label" } catch { "measure-build: $($_.Exception.Message): nothing was measured"; exit 1 }
+# Where its output goes, for run-guard.py status (D00 T03 §32): a run that queues itself names the queued run's own
+# mark, and one that measures here names its log (and the .linger and .warm logs beside it).
+$markOutput = if (-not $env:BOSUN_MEASURE_QUEUED -and (Get-Command bosun -CommandType Application -ErrorAction Ignore)) {
+  'queued through bosun run: the measurement it starts has a mark of its own, naming its log'
+} else { "$(Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"), with its .linger and .warm logs beside it" }
+try { $gateMark = Enter-GateMark "measure-build $Label" $markOutput } catch { "measure-build: $($_.Exception.Message): nothing was measured"; exit 1 }
 try {
 # Take a turn in the queue, once: the wait for a slot happens here, before any step is timed.
 if (-not $env:BOSUN_MEASURE_QUEUED) {

@@ -22,6 +22,7 @@ guard must never wedge a session.
 
 from __future__ import annotations
 
+import calendar
 import hashlib
 import json
 import math
@@ -105,6 +106,9 @@ class Env:
     ci_waiting: Callable[[], object] = lambda: None
     # Which long local gate (check-all, a build measurement) is running now, or None (`gate_in_flight`).
     gating: Callable[[], object] = lambda: None
+    # Each item in flight with its start and output, read once (`real_wait_details`), or None to build it from the
+    # three readers above with nothing known of either (D00 T03 §32).
+    details: Callable[[], list] | None = None
     # Whether the process with this id still runs and started at this time (an Antigravity run's owner).
     process_alive: Callable[[int, object], bool] = lambda pid, started: process_started(pid) == started
 
@@ -348,17 +352,20 @@ def known(which: object) -> str | None:
     return "; ".join(entries) or None
 
 
-def review_in_flight(root: Path | None = None) -> str | None:
-    """Every reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/ (one per
-    review), or None. A mark counts only while its process lives and its deadline hasn't passed, so a crashed
-    dispatcher's leftover never holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
+def published(names: list[str]) -> list[str]:
+    """The marks themselves, not a temporary file a writer is about to put in place (`<name>.<id>.tmp`)."""
+    return [name for name in names if name.endswith(".json")]
+
+
+def scan_reviews(root: Path | None = None) -> list[tuple[str, dict]]:
+    """Every review in flight, as (its identity, its mark): see `review_in_flight`."""
     folder = build_dir(root) / "review-in-flight"
     try:
-        names = sorted(os.listdir(folder))
+        names = published(sorted(os.listdir(folder)))
     except FileNotFoundError:
-        return None
+        return []
     except OSError as error:
-        return f"{CANT_TELL}: {error}"
+        return [(f"{CANT_TELL}: {error}", {})]
     live = []
     for name in names:
         try:
@@ -367,40 +374,52 @@ def review_in_flight(root: Path | None = None) -> str | None:
         except FileNotFoundError:
             continue  # removed as its review ended
         except OSError as error:
-            live.append(f"{CANT_TELL}: {name} ({error})")
+            live.append((f"{CANT_TELL}: {name} ({error})", {}))
             continue
         except (ValueError, KeyError, TypeError):
             continue  # not a mark: the dispatcher writes them whole
         try:
             if pid > 0 and time.time() <= deadline and pid_alive(pid):
-                live.append(f"{doc.get('reviewer', 'reviewer')}, dispatcher pid {pid}")
+                live.append((f"{doc.get('reviewer', 'reviewer')}, dispatcher pid {pid}", doc))
         except OSError as error:
-            live.append(f"{CANT_TELL}: dispatcher pid {pid} ({error})")
-    return "; ".join(live) or None
+            live.append((f"{CANT_TELL}: dispatcher pid {pid} ({error})", {}))
+    return live
+
+
+def review_in_flight(root: Path | None = None) -> str | None:
+    """Every reviewer scripts/review-dispatch.py is running now, from its marks under build/review-in-flight/ (one per
+    review), or None. A mark counts only while its process lives and its deadline hasn't passed, so a crashed
+    dispatcher's leftover never holds a run. Ported from Recto (its `scripts/campaign_guard.py`)."""
+    return "; ".join(text for text, _ in scan_reviews(root)) or None
 
 
 CI_WAIT_LIMIT = 2 * 60 * 60  # scripts/ci_status.py WAIT_LIMIT_SECONDS: past it the gate answers `unverified`
+
+
+def scan_ci(root: Path | None = None) -> list[tuple[str, dict]]:
+    """The CI gate polling now, as (its identity, its wait): see `ci_in_flight`."""
+    try:
+        waiting = json.loads((build_dir(root) / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
+        sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        return [(f"{CANT_TELL}: {error}", {})]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return []  # no wait, or one from a gate too old to name its pid: nothing is polling
+    try:
+        if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
+            return [(f"{sha[:12]}, gate pid {pid}", waiting)]
+    except OSError as error:
+        return [(f"{CANT_TELL}: gate pid {pid} ({error})", {})]
+    return []
 
 
 def ci_in_flight(root: Path | None = None) -> str | None:
     """The commit a CI gate (`scripts/ci_status.py --gate`) is polling now, from its wait in build/ci-gate.json, or None.
     process-phase holds the next row on a `wait`, so this does too. It counts only while the gate that wrote it lives
     and within the gate's own limit, so a killed gate's record never holds a run."""
-    try:
-        waiting = json.loads((build_dir(root) / "ci-gate.json").read_text(encoding="utf-8")).get("waiting")
-        sha, since, pid = str(waiting["sha"]), float(waiting["since"]), int(waiting["pid"])
-    except FileNotFoundError:
-        return None
-    except OSError as error:
-        return f"{CANT_TELL}: {error}"
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return None  # no wait, or one from a gate too old to name its pid: nothing is polling
-    try:
-        if pid > 0 and time.time() - since < CI_WAIT_LIMIT and pid_alive(pid):
-            return f"{sha[:12]}, gate pid {pid}"
-    except OSError as error:
-        return f"{CANT_TELL}: gate pid {pid} ({error})"
-    return None
+    return "; ".join(text for text, _ in scan_ci(root)) or None
 
 
 def gate_mark_dir(root: Path | None = None) -> Path:
@@ -410,18 +429,15 @@ def gate_mark_dir(root: Path | None = None) -> Path:
     return Path(override) if override and root is None else build_dir(root) / "gate-in-flight"
 
 
-def gate_in_flight(root: Path | None = None) -> str | None:
-    """The long local gate running now (scripts/check-all.ps1, scripts/measure-build.ps1), from the marks it keeps
-    (scripts/lib/gate-mark.ps1, `gate_mark_dir`), or None. A mark counts while the process that wrote it runs, judged
-    by its pid and start time, however long that is: a gate limits its steps and queue waits apart, so there is no
-    deadline to keep, and a gate that was killed or crashed holds nothing."""
+def scan_gates(root: Path | None = None) -> list[tuple[str, dict]]:
+    """Every local gate running now, as (its identity, its mark): see `gate_in_flight`."""
     folder = gate_mark_dir(root)
     try:
-        names = sorted(os.listdir(folder))
+        names = published(sorted(os.listdir(folder)))
     except FileNotFoundError:
-        return None
+        return []
     except OSError as error:
-        return f"{CANT_TELL}: {error}"
+        return [(f"{CANT_TELL}: {error}", {})]
     live = []
     for name in names:
         try:
@@ -430,17 +446,77 @@ def gate_in_flight(root: Path | None = None) -> str | None:
         except FileNotFoundError:
             continue  # removed as its gate ended
         except OSError as error:
-            live.append(f"{CANT_TELL}: {name} ({error})")
+            live.append((f"{CANT_TELL}: {name} ({error})", {}))
             continue
         except (ValueError, KeyError, TypeError):
             continue  # not a mark: gate-mark.ps1 writes them whole
         try:
             if pid > 0 and process_started(pid) == started:
-                live.append(f"{doc.get('what') or 'a gate'}, pid {pid}")  # every one: two gates can run at once
+                live.append((f"{doc.get('what') or 'a gate'}, pid {pid}", doc))  # every one: two gates can run at once
         except OSError as error:
-            live.append(f"{CANT_TELL}: pid {pid} ({error})")
-    return "; ".join(live) or None
+            live.append((f"{CANT_TELL}: pid {pid} ({error})", {}))
+    return live
 
+
+def gate_in_flight(root: Path | None = None) -> str | None:
+    """The long local gate running now (scripts/check-all.ps1, scripts/measure-build.ps1), from the marks it keeps
+    (scripts/lib/gate-mark.ps1, `gate_mark_dir`), or None. A mark counts while the process that wrote it runs, judged
+    by its pid and start time, however long that is: a gate limits its steps and queue waits apart, so there is no
+    deadline to keep, and a gate that was killed or crashed holds nothing."""
+    return "; ".join(text for text, _ in scan_gates(root)) or None
+
+
+def utc_seconds(text: object) -> float | None:
+    """A `yyyy-mm-ddThh:mm:ssZ` time as epoch seconds, or None when it is not one."""
+    try:
+        return float(calendar.timegm(time.strptime(str(text), "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, OverflowError):
+        return None
+
+
+def real_wait_details(root: Path | None = None) -> list[dict]:
+    """Each item in flight, read once, for `status` (D00 T03 §32): its kind and identity (as the readers give it, which
+    `look` compares), its pass for a review, when it began (the gate's own start, never the process start or the
+    mark's file time) and where its output goes, each None when an older mark lacks it."""
+    found = []
+    for kind, scan, start in (("a review", scan_reviews, lambda d: utc_seconds(d.get("started"))),
+                              ("a CI gate", scan_ci, lambda d: float(d["since"]) if isinstance(d.get("since"), (int, float)) else None),
+                              ("a local gate", scan_gates, lambda d: utc_seconds(d.get("since")))):
+        for text, doc in scan(root):
+            if text.startswith(CANT_TELL):
+                continue
+            found.append({"kind": kind, "what": text, "pass": doc.get("pass"), "since": start(doc),
+                          "output": doc.get("record") if kind == "a review" else doc.get("output")})
+    return found
+
+
+def wait_details(env: Env) -> list[dict]:
+    """The items in flight, read once: the world's own reading when it has one (`env.details`), else built from the
+    readers alone, with nothing known of their start or output."""
+    if env.details is not None:
+        return env.details()
+    return [{"kind": what, "what": one, "pass": None, "since": None, "output": None}
+            for what, field in (("a review", "reviewing"), ("a CI gate", "ci_waiting"), ("a local gate", "gating"))
+            for one in (known(getattr(env, field)()) or "").split("; ") if one]
+
+
+def flying_text(details: list[dict]) -> str | None:
+    """The `in_flight` string, as `in_flight` gives it: one part per kind, its items joined."""
+    parts = []
+    for kind in ("a review", "a CI gate", "a local gate"):
+        items = [d["what"] for d in details if d["kind"] == kind]
+        if items:
+            parts.append(f"{kind} in flight ({'; '.join(items)})")
+    return "; ".join(parts) or None
+
+
+def took(seconds: float | None) -> str:
+    if seconds is None:
+        return "unknown"
+    seconds = max(0, int(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours} h {minutes} min" if hours else f"{minutes} min {secs} s" if minutes else f"{secs} s"
 
 def in_flight(env: Env) -> str | None:
     """Everything the run waits for in flight now, for `status`: a review, a CI gate and a local gate, or None."""
@@ -453,10 +529,15 @@ STATUS_FIELDS = ("session_id", "runner", "why", "started", "ended", "yields", "l
                  "last_api_failure", "wait_reason", "wait_detail")
 
 
-def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path = STATE) -> tuple[str, dict, list[str]]:
+def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path = STATE,
+                now: float | None = None) -> tuple[str, dict, list[str]]:
     """What `status` shows: its first word, its JSON and the lines between them. A run waits while a wait is set or a
-    review, a CI gate or a local gate is in flight, so the heartbeat never takes the next row under one."""
-    flying = in_flight(env) if state.get("active") and not unreadable else None
+    review, a CI gate or a local gate is in flight, so the heartbeat never takes the next row under one. The items in
+    flight are read once, and the word, the `in_flight` string, the lines and the JSON all come from that one reading,
+    so an item ending between two reads can't leave `waiting` with nothing named (D00 T03 §32)."""
+    now = time.time() if now is None else now
+    details = wait_details(env) if state.get("active") and not unreadable else []
+    flying = flying_text(details)
     if unreadable:
         word = "unreadable"
     elif state.get("active"):
@@ -469,6 +550,9 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
     data.update(health(state, path))
     if flying:
         data["in_flight"] = flying
+        data["waits"] = [{"kind": d["kind"], "what": d["what"], "pass": d["pass"], "since": stamp(d["since"]) if d["since"] is not None else None,
+                          "elapsed_seconds": None if d["since"] is None else max(0, int(now - d["since"])), "output": d["output"]}
+                         for d in details]
     if unreadable:
         data["state_error"] = unreadable
     lines = []
@@ -480,6 +564,9 @@ def status_view(state: dict, env: Env, unreadable: str | None = None, path: Path
         lines.append(f"waiting for {state['wait_reason']} until {data['wait_until']}" + (f": {state['wait_detail']}" if state.get("wait_detail") else ""))
     if word == "waiting" and flying:
         lines.append(f"waiting for {flying}")
+        for d in details:  # one line each: what it is, how long it has run, where its output goes
+            what = f"{d['kind']} ({d['what']})" + (f", {d['pass']}" if d["pass"] else "")
+            lines.append(f"  {what}: {took(None if d['since'] is None else now - d['since'])} so far; output: {d['output'] or 'unknown'}")
     return word, data, lines
 
 
@@ -1259,7 +1346,8 @@ def write_acceptance(kind: str, text: str, root: Path = ROOT, today: str | None 
 
 
 REAL = Env(rows=real_rows, signature=real_signature, alive=real_alive, finish=real_finish, wakes=real_wakes,
-           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight, gating=gate_in_flight)
+           write_acceptance=write_acceptance, reviewing=review_in_flight, ci_waiting=ci_in_flight, gating=gate_in_flight,
+           details=real_wait_details)
 
 
 def health(state: dict, path: Path = STATE, now: float | None = None) -> dict:

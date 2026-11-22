@@ -677,7 +677,8 @@ def _begin_wait(path, sha, now):
             waiting["pid"] = os.getpid()
             write_gate(path, state)
         return waiting["since"]
-    state["waiting"] = {"sha": sha, "since": now, "pid": os.getpid()}
+    # Where its runs are listed, for `run-guard.py status` (D00 T03 §32), even before the first look finds one.
+    state["waiting"] = {"sha": sha, "since": now, "pid": os.getpid(), "output": f"gh run list --commit {sha}"}
     write_gate(path, state)
     return now
 

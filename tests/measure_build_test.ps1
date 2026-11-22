@@ -97,6 +97,7 @@ $touched = (Get-Item -LiteralPath (Join-Path $here 'source.cpp')).LastWriteTimeU
 $stamp = Join-Path $here 'built.txt'
 $work = $Fresh -or -not (Test-Path -LiteralPath $stamp) -or $touched -gt (Get-Item -LiteralPath $stamp).LastWriteTimeUtc
 if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'marks.txt') -Value @(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore).Count }
+if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'mark-outputs.txt') -Value ((@(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore) | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).output }) -join '|') }
 if ($mode -eq 'fail-fresh' -and $Fresh) { 'error: it broke'; exit 3 }
 if ($mode -eq 'hang-fresh' -and $Fresh) { Start-Sleep 120 }
 if ($mode -eq 'always-work') { $work = $true }
@@ -129,6 +130,9 @@ exit 0
       $text = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $markOut -Label 'mark-check' -Decision 'kept' -Samples 1 2>&1 | Out-String
       $code = $LASTEXITCODE
       $seen = @(Get-Content -LiteralPath (Join-Path $dir 'marks.txt') -ErrorAction Ignore)
+# D00 T03 §32: a measurement that measures here names its log, and the .linger and .warm logs beside it.
+$outputs = @(Get-Content -LiteralPath (Join-Path $dir 'mark-outputs.txt') -ErrorAction Ignore)
+Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($outputs | Where-Object { $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger and \.warm logs beside it$' })) "($($outputs | Select-Object -First 1))"
       $left = @(Get-ChildItem -LiteralPath $marks -Filter '*.json' -ErrorAction Ignore)
       $exitKept = if ($case.Pass) { $code -eq 0 } else { $code -eq 1 -and $text -match "step 'fresh build'" }
       Check "the measurement's mark is there while each build runs and gone after a $(if ($case.Pass) { 'pass' } else { 'failure' }), its exit kept" ($exitKept -and $seen.Count -ge 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $code, seen: $($seen -join ','), left: $($left.Count))"

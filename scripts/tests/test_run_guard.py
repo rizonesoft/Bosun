@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import shutil
@@ -1934,6 +1935,101 @@ class AntigravityWaitWording(unittest.TestCase):
                 self.assertIn("python scripts/run-guard.py look", p, path)
                 self.assertNotIn("ten minutes", p, path)
                 self.assertNotRegex(p, r"(?i)antigravity[^.]*end the turn[^.]*local gate", path)
+
+class StatusNamesEachWait(unittest.TestCase):
+    """`status` names each item in flight, how long it has run from its own start, and where its output goes
+    (D00 T03 §32), from one reading, with the readers' identities, which `look` compares, unchanged."""
+
+    NOW = calendar.timegm((2026, 11, 22, 10, 5, 0, 0, 0, 0))
+
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        for sub in ("review-in-flight", "gate-in-flight"):
+            (self.root / "build" / sub).mkdir(parents=True)
+
+    def live(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+        self.addCleanup(lambda: (process.kill(), process.wait()))
+        return process
+
+    def review(self, reviewer, started, **extra):
+        process = self.live()
+        doc = {"pid": process.pid, "reviewer": reviewer, "started": started, "deadline": time.time() + 600, **extra}
+        (self.root / "build" / "review-in-flight" / f"{process.pid}-{reviewer}.json").write_text(json.dumps(doc), encoding="utf-8")
+        return process
+
+    def gate(self, what, since=None, **extra):
+        process = self.live()
+        doc = {"pid": process.pid, "started": guard.process_started(process.pid), "what": what, **extra}
+        if since:
+            doc["since"] = since
+        mark = self.root / "build" / "gate-in-flight" / f"{process.pid}.json"
+        mark.write_text(json.dumps(doc), encoding="utf-8")
+        os.utime(mark, (self.NOW - 3000, self.NOW - 3000))  # a file time that is neither start
+        # A temporary copy a writer is about to put in place is not a second gate.
+        (mark.parent / f"{mark.name}.0123.tmp").write_text(json.dumps(doc), encoding="utf-8")
+        return process
+
+    def ci(self, since, **extra):
+        (self.root / "build" / "ci-gate.json").write_text(json.dumps({"waiting": {"sha": "a" * 40, "since": since, "pid": os.getpid(), **extra}}), encoding="utf-8")
+
+    def view(self):
+        env = guard.replace(World().env(), details=lambda: guard.real_wait_details(self.root))
+        return guard.status_view(active(), env, path=self.root / "state.json", now=self.NOW)
+
+    def test_each_item_says_its_elapsed_time_from_its_own_start_and_its_output(self):
+        first = self.review("astra", "2026-11-22T10:01:00Z", **{"pass": "round 2", "record": "docs/reviews/x.md"})
+        second = self.review("sol", "2026-11-22T10:04:00Z", **{"pass": "completion", "record": "docs/reviews/y.md"})
+        gate = self.gate("check-all", "2026-11-22T10:00:00Z", output="the console that started it")
+        older = self.gate("measure-build old")  # an older mark: no since, no output
+        self.ci(self.NOW - 180, output="gh run list --commit " + "a" * 40)
+        word, data, lines = self.view()
+        self.assertEqual(word, "waiting")
+        text = "\n".join(lines)
+        self.assertIn(f"a review (astra, dispatcher pid {first.pid}), round 2: 4 min 0 s so far; output: docs/reviews/x.md", text)
+        self.assertIn(f"a review (sol, dispatcher pid {second.pid}), completion: 1 min 0 s so far; output: docs/reviews/y.md", text)
+        self.assertIn(f"a local gate (check-all, pid {gate.pid}): 5 min 0 s so far; output: the console that started it", text)
+        self.assertIn(f"a local gate (measure-build old, pid {older.pid}): unknown so far; output: unknown", text)
+        self.assertIn("a CI gate (" + "a" * 12 + f", gate pid {os.getpid()}): 3 min 0 s so far; output: gh run list --commit", text)
+        waits = data["waits"]
+        self.assertEqual(len(waits), 5, waits)  # one each: no temporary copy, nothing collapsed
+        self.assertEqual(len({w["what"] for w in waits}), 5)
+        self.assertEqual({w["what"]: w["elapsed_seconds"] for w in waits}[f"check-all, pid {gate.pid}"], 300)
+        # The in_flight string its callers read is the readers' own, unchanged.
+        self.assertEqual(data["in_flight"], guard.in_flight(guard.replace(World().env(),
+                         reviewing=lambda: guard.review_in_flight(self.root), ci_waiting=lambda: guard.ci_in_flight(self.root),
+                         gating=lambda: guard.gate_in_flight(self.root))))
+
+    def test_a_legacy_and_a_new_ci_wait_and_one_reading_for_every_view(self):
+        self.ci(self.NOW - 60)  # a legacy wait: no output
+        word, data, lines = self.view()
+        self.assertEqual((data["waits"][0]["elapsed_seconds"], data["waits"][0]["output"]), (60, None))
+        self.assertIn("output: unknown", "\n".join(lines))
+        self.ci(self.NOW - 60, output="gh run list --commit " + "a" * 40)
+        word, data, lines = self.view()
+        self.assertEqual(data["waits"][0]["output"], "gh run list --commit " + "a" * 40)
+        # One reading: the word, the string and the lines agree even if the readers would now say the item ended.
+        once = [{"kind": "a local gate", "what": "check-all, pid 9", "pass": None, "since": self.NOW - 10, "output": "x"}]
+        env = guard.replace(World().env(), details=lambda: once, gating=lambda: None)
+        word, data, lines = guard.status_view(active(), env, path=self.root / "state.json", now=self.NOW)
+        self.assertEqual((word, data["in_flight"]), ("waiting", "a local gate in flight (check-all, pid 9)"))
+        self.assertEqual(len(data["waits"]), 1)
+
+    def test_elapsed_is_never_the_process_start_or_the_file_time(self):
+        gate = self.gate("check-all", "2026-11-22T10:04:30Z")
+        word, data, lines = self.view()
+        self.assertEqual(data["waits"][0]["elapsed_seconds"], 30)
+
+    def test_look_still_compares_identities_only(self):
+        # A live gate whose details change keeps look waiting: look reads the readers, never the details.
+        reads = iter([[{"kind": "a local gate", "what": "check-all, pid 9", "pass": None, "since": 1.0, "output": "a"}],
+                      [{"kind": "a local gate", "what": "check-all, pid 9", "pass": None, "since": 2.0, "output": "b"}]] * 10)
+        env = guard.replace(World().env(), gating=lambda: "check-all, pid 9", details=lambda: next(reads))
+        clock = iter(range(100))
+        said = guard.look(env, lambda: {}, 5, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        self.assertEqual(said, "still waiting: a local gate in flight (check-all, pid 9)")
 
 if __name__ == "__main__":
     unittest.main()

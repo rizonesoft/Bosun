@@ -18,7 +18,7 @@ function Get-GateMarkDir {
 # Writes this process's mark, by a temporary file then a replace, and returns its path. A mark that can't be written
 # (a full disk, a denied folder) throws, naming the folder: an unmarked gate would let the run guard send its session
 # on to a next row while the gate still runs, so the gate stops before its first step instead.
-function Enter-GateMark([string]$What) {
+function Enter-GateMark([string]$What, [string]$Output = 'the console that started it') {
   try {
     $dir = Get-GateMarkDir
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -28,6 +28,8 @@ function Enter-GateMark([string]$What) {
       started = (Get-Process -Id $PID).StartTime.ToFileTimeUtc()  # as process_started reads it: a reused pid differs
       what    = $What
       since   = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+      # Where its output goes, for `run-guard.py status` (D00 T03 §32): written once with the mark, never rewritten.
+      output  = $Output
     } | ConvertTo-Json -Compress
     $temp = "$path.$([guid]::NewGuid().ToString('N')).tmp"
     [IO.File]::WriteAllText($temp, $doc, [Text.UTF8Encoding]::new($false))

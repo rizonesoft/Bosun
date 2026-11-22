@@ -739,7 +739,7 @@ def run(argv, stdin_text, timeout, watched, stderr_path=None):
     return process.returncode, None
 
 
-def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
+def review(pin, writer, prompt_path, timeout, plan=None, settled=(), about=None):
     """Run the writer's one reviewer. Returns the summary dict: `reviewer` is None when no review came back, and
     `failover` then names the reviewer and why (there is no fallback). `plan` is the scheduled step (see `scheduled`):
     its effort replaces the reviewer's, and its lenses are appended to the prompt and recorded. `settled` are the
@@ -815,7 +815,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, settled=()):
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
         # stderr is watched too: a reviewer looping on errors must not fill the disk either.
         started = MONOTONIC()
-        with in_flight(name, timeout):
+        with in_flight(name, timeout, about):
             _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path], stderr_path)
         seconds = elapsed_seconds(started, MONOTONIC())
         if problem is None:
@@ -1059,11 +1059,13 @@ class in_flight:
     finishing never hides another. Ported from Recto (its `scripts/review-dispatch.py`), with one
     change: a mark that can't be written refuses the review, since an unprotected one is what the mark prevents."""
 
-    def __init__(self, reviewer, timeout):
+    def __init__(self, reviewer, timeout, about=None):
         self.path = IN_FLIGHT / f"{os.getpid()}-{reviewer}.json"
         self.doc = {"pid": os.getpid(), "reviewer": reviewer,
                     "started": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "deadline": time.time() + timeout + 60}
+        # What it runs and where its result goes, for `run-guard.py status` (D00 T03 §32): written once, never rewritten.
+        self.doc.update({k: v for k, v in (about or {}).items() if v})
 
     def __enter__(self):
         try:
@@ -1665,7 +1667,9 @@ def main(argv=None):
                 position = f"round {len(known) + 1}"  # the number record gives the next round
             key = attempt_key(args.record, args.kind, position)
             entry = before_attempt(key)
-        result = review(pin, args.writer, args.prompt, args.timeout, plan, settled)
+        pass_name = position if args.record else args.kind
+        result = review(pin, args.writer, args.prompt, args.timeout, plan, settled,
+                        about={"pass": pass_name, "record": args.record or "not recorded"})
         if args.writer_model:
             result["writer_model"] = args.writer_model
         if policy_sha:
