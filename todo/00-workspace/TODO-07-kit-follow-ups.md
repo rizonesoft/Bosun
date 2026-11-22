@@ -41,6 +41,17 @@ title: "TODO-07 -- Kit follow-ups"
 | 8 | §8 | Build script stops configuring on every run | §7 | [ ] |
 | 9 | §9 | One documented .NET test command with progress | -- | [ ] |
 | 10 | §10 | Plan workflow checks first and states its policy | -- | [ ] |
+| 11 | §11 | The overlay says where a value came from, and lists its keys | -- | [ ] |
+| 12 | §12 | Sync previews what it would pull, and receipts each change | -- | [ ] |
+| 13 | §13 | A leak refusal names its fix and its commit | -- | [ ] |
+| 14 | §14 | The token: a process-scoped launch and one vault read | -- | [ ] |
+| 15 | §15 | Campaign preflight shows the required checks beside its flags | -- | [ ] |
+| 16 | §16 | Review rounds list their verdicts, and a lookup by commit | -- | [ ] |
+| 17 | §17 | The CI gate's report latency measured, its active step shown | -- | [ ] |
+| 18 | §18 | The run start: a cold hold measured, and default badges shipped | -- | [ ] |
+| 19 | §19 | The run guard: a quicker look, suspended reads and a watch view | -- | [ ] |
+| 20 | §20 | The findings ledger: one lookup, derived totals, stable owners | -- | [ ] |
+| 21 | §21 | A stamped section's text stays as stamped | -- | [ ] |
 
 ## 1. Graph loads once per command
 
@@ -143,7 +154,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 26 and 27,
 
 ## 6. Clone setup and pre-commit say what they did
 
-Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 22 and 23, raised by the completion review of `D00 T01 §4`). `scripts/setup-clone.ps1` shows the earlier `core.hooksPath` only in its first run's undo line and keeps it nowhere, so the undo is lost with the terminal; `scripts/hooks/pre-commit` runs the plan check with no word before or after, and the comment above it claims a saving nobody measured.
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 22 and 23, raised by the completion review of `D00 T01 §4`). `scripts/setup-clone.ps1` shows the earlier `core.hooksPath` only in its first run's undo line and keeps it nowhere, so the undo is lost with the terminal; `scripts/hooks/pre-commit` runs the plan check with no word before or after, and the comment above it claims a saving nobody measured. Extended 2026-11-22 by `D00 T06 §6` (base lines 209 and 213).
 
 **Phase:** 0
 **Needs:** none
@@ -156,6 +167,8 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 22 and 23,
 
 - [ ] Store the earlier `core.hooksPath` in the clone's own config (`bosun.previousHooksPath`) when `scripts/setup-clone.ps1` replaces it, and print the one undo command on every run, `already on` included; `-Undo` puts it back and removes the key. Done when: `tests/setup_clone_test.ps1` reads the undo on a second run and the earlier value restored by `-Undo`. Cheaper substitute: printing the undo on the first run only.
 - [ ] Print `pre-commit: checking the plan...` before the plan check in `scripts/hooks/pre-commit` and its elapsed seconds after; measure a plan commit with and without the check and replace the comment's claimed saving with the measured one. Done when: a test commit in a scratch clone reads both lines, and the comment cites the measurement.
+- [ ] Add one documented operation to `scripts/setup-clone.ps1` that turns overlay updates off and back on, keeping every local branch, stash and ignored owner file (base line 209). Done when: `tests/setup_clone_test.ps1` turns updates off and on and reads the branches, stash and ignored files kept. Cheaper substitute: the manual undo line, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Check the pre-push hook and gitleaks together in one setup command of `scripts/setup-clone.ps1` on Windows and WSL (findings base line 213, from the completion review of `D00 T05 §4`). Done when: `tests/setup_clone_test.ps1` runs it with gitleaks missing and reads the refusal naming it, and with both present reads one pass. Cheaper substitute: checking the hook alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `setup: the earlier hooks path is kept, and pre-commit says its check (D00 T07 §6)`
 
 **Test checkpoint:** `pwsh tests/setup_clone_test.ps1` exits 0, and with the stored key removed the second-run undo test fails.
@@ -221,7 +234,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 35 and 36,
 
 ## 10. Plan workflow checks first and states its policy
 
-Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 32 and 33, raised by the completion review of `D00 T01 §7`). `.github/workflows/plan.yml` sets up Node and the icon packages before its two plan checks, so a stale plan fails later than it could; and its header says it runs on every change without saying that, by the owner's trunk-based choice, no required check stops a direct push to `main`.
+Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 32 and 33, raised by the completion review of `D00 T01 §7`). `.github/workflows/plan.yml` sets up Node and the icon packages before its two plan checks, so a stale plan fails later than it could; and its header says it runs on every change without saying that, by the owner's trunk-based choice, no required check stops a direct push to `main`. Extended 2026-11-22 by `D00 T06 §6` (base lines 216 and 217, at `3f36a14`).
 
 **Phase:** 0
 **Needs:** none
@@ -234,9 +247,209 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 32 and 33,
 
 - [ ] Move `todo-graph.py validate` and `plan --check` straight after Python is set up in the `plan-gates` job of `.github/workflows/plan.yml`, and measure a stale-plan push before and after. Done when: a pushed stale-plan fixture fails before the Node step, with both times recorded here.
 - [ ] Say in the workflow header that it runs on every change but stops no direct push to `main` (no required checks, the owner's trunk-based choice), and have `scripts/campaign-preflight.ps1` read back the branch's required checks and fail if the documents claim one that is not set. Done when: `tests/preflight_test.ps1` with a fake protection that lacks a claimed required check fails, and passes when none is claimed.
+- [ ] Keep one durable, redacted record per distinct secret finding from the full-history scan of `.github/workflows/plan.yml` (its introducing commit and the rule), beside GitHub's alerts (findings base line 216, at `3f36a14`, from the completion review of `D00 T05 §6`). Done when: `tests/ci/secret_history_selftest.ps1` plants a finding and reads one redacted record with its commit and rule, the secret absent. Cheaper substitute: the finding in that run's log only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Schedule a reviewed gitleaks pin update in `.github/workflows/plan.yml` and a full-history rescan for each adopted rules release (findings base line 217, at `3f36a14`, from the completion review of `D00 T05 §6`). Done when: the workflow holds a scheduled trigger running the rescan, and `tests/ci/secret_history_selftest.ps1` reads it. Cheaper substitute: a rescan only on push, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `ci: plan checks first and the push policy stated (D00 T07 §10)`
 
-**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and the stale-plan run's failure is recorded before the Node step.
+**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0, and the stale-plan run's failure is recorded before the Node step. `pwsh tests/ci/secret_history_selftest.ps1` exits 0 (**corrected 2026-11-22 by `D00 T06 §6`**).
+
+## 11. The overlay says where a value came from, and lists its keys
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 207 and 208). `scripts/lib/overlay.ps1` (`Get-BosunOverlayValue`) returns which source won without its line, and nothing lists the keys of `.private/config.toml`.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Say and list in `scripts/lib/overlay.ps1`. Done when: `tests/overlay_test.ps1` reads the source with its line and the key names, never a value.
+
+- [ ] Add one documented call to `scripts/lib/overlay.ps1` (`Get-BosunOverlayValue`) that reports which source won, the variable name or the file and line, without the value (base line 207). Done when: `tests/overlay_test.ps1` reads the variable or the file and line for each source and no value in the output. Cheaper substitute: the source word alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Add a names-only listing of the keys in `.private/config.toml` to `scripts/lib/overlay.ps1`, under the same validation as a lookup, so a misspelled key is seen (base line 208). Done when: `tests/overlay_test.ps1` lists a config's keys and reads the names only, and a misspelled key refused. Cheaper substitute: printing the file, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `overlay: it says where a value came from, and lists its keys`
+
+**Test checkpoint:** `pwsh tests/overlay_test.ps1` exits 0.
+
+## 12. Sync previews what it would pull, and receipts each change
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 210 and 211). `scripts/sync.ps1` prints a fixed line per repository, with no preview of pending commits and no before and after IDs.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Preview and receipt in `scripts/sync.ps1`. Done when: `tests/sync_test.ps1` reads the preview's IDs and commits and each receipt's branch and IDs.
+
+- [ ] Add an optional preview to `scripts/sync.ps1` listing each repository's local and upstream short commit IDs and up to five pending commits, keeping the default check (base line 210). Done when: `tests/sync_test.ps1` runs the preview over a repository behind by seven and reads both IDs and five commits. Cheaper substitute: a count of commits only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Give `scripts/sync.ps1` one receipt per changed repository naming the destination branch and the before and after short IDs, never a URL or a remote name (base line 211). Done when: `tests/sync_test.ps1` reads each receipt's branch and IDs and no URL. Cheaper substitute: the fixed text, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `sync: it previews what it would pull, and receipts each change`
+
+**Test checkpoint:** `pwsh tests/sync_test.ps1` exits 0.
+
+## 13. A leak refusal names its fix and its commit
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 214, and base line 223 at `3f36a14`). `scripts/leak-scan.ps1` always says to rewrite the commits, even for findings in ref names only, and `scripts/machine-path-check.ps1` names a finding's file and line, not the commit that introduced it.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Name the fix and commit in `scripts/leak-scan.ps1` and `scripts/machine-path-check.ps1`. Done when: their tests read the rename advice and the abbreviated commit.
+
+- [ ] Have a refusal of `scripts/leak-scan.ps1` whose only findings are in ref names tell the owner to rename the ref, not to rewrite commits (findings base line 214, from the completion review of `D00 T05 §4`). Done when: `tests/leak_scan_test.ps1` pushes a ref whose name holds a finding and reads the rename advice and no rewrite advice. Cheaper substitute: one message for every finding, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Name the abbreviated commit that introduced a machine-path finding in `scripts/machine-path-check.ps1` (`Add-Entry`), as gitleaks does (findings base line 223, at `3f36a14`, from the completion review of `D00 T05 §8`). Done when: `tests/machine_path_test.ps1` adds a path over two commits and reads the first commit's short ID beside the file and line. Cheaper substitute: the file and line alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `scripts: a leak refusal names its fix and its commit`
+
+**Test checkpoint:** `pwsh tests/leak_scan_test.ps1` and `pwsh tests/machine_path_test.ps1` exit 0.
+
+## 14. The token: a process-scoped launch and one vault read
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 219 and 221 at `3f36a14`). `scripts/store-claude-token.ps1` stores the token as a user variable and reads the vault twice (the token, then the item's dates).
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Launch and read in `scripts/store-claude-token.ps1` and `scripts/start-run.ps1`. Done when: `tests/start_run_test.ps1` and `tests/preflight_test.ps1` read the scoped launch and one vault call.
+
+- [ ] Offer an optional process-scoped launch through `op run` with a secret reference in `scripts/start-run.ps1`, so a campaign can run without the token in a user variable (findings base line 219, at `3f36a14`, from the completion review of `D00 T05 §7`). Done when: `tests/start_run_test.ps1` runs the launch with a fake `op` and reads the token given to the child only, no user variable written. Cheaper substitute: the persistent user variable alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Keep the token's issue day as a field of its 1Password recovery item and read both in one vault call in `scripts/store-claude-token.ps1` (findings base line 221, at `3f36a14`, from the completion review of `D00 T03 §23`). Done when: `tests/preflight_test.ps1` runs it with a fake `op` and reads one call for the token and the issue day. Cheaper substitute: a second call for the item's dates, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `scripts: the token launches process-scoped and is read in one call`
+
+**Test checkpoint:** `pwsh tests/start_run_test.ps1` and `pwsh tests/preflight_test.ps1` exit 0.
+
+## 15. Campaign preflight shows the required checks beside its flags
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 226 at `3f36a14`). `scripts/campaign-preflight.ps1` reads three protection flags and never the required checks or their app pins.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Read back the checks in `scripts/campaign-preflight.ps1` (`Test-Protection`). Done when: `tests/preflight_test.ps1` reads each required check and its app pin.
+
+- [ ] Show every required check and its app pin beside the three campaign flags in the protection read-back of `scripts/campaign-preflight.ps1` (`Test-Protection`), so a missing check is seen before a run (base line 226, at `3f36a14`). Done when: `tests/preflight_test.ps1` reads each required check and app pin, and refuses a branch with a check missing. Cheaper substitute: the three flags alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `scripts: campaign preflight shows the required checks`
+
+**Test checkpoint:** `pwsh tests/preflight_test.ps1` exits 0.
+
+## 16. Review rounds list their verdicts, and a lookup by commit
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 227 at `3f36a14`). `scripts/review-dispatch.py --list-rounds` prints the reviewer, candidate, run and seconds of each change review, with no verdict and no lookup by commit.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. List verdicts in `scripts/review-dispatch.py`. Done when: `scripts/tests/test_review_dispatch.py` reads each round's verdict and a lookup by full SHA.
+
+- [ ] Show each returned change review's terminal verdict on its `--list-rounds` line of `scripts/review-dispatch.py`, and give one read-only lookup by full SHA (base line 227, at `3f36a14`). Done when: a new case of `scripts/tests/test_review_dispatch.py` (`python -m unittest scripts.tests.test_review_dispatch`) reads the verdicts and the rounds of one SHA. Cheaper substitute: the verdict read from the findings file by hand, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `review-dispatch: rounds list their verdicts, and a lookup by commit`
+
+**Test checkpoint:** `python -m unittest scripts.tests.test_review_dispatch` exits 0.
+
+## 17. The CI gate's report latency measured, its active step shown
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 228 at `3f36a14`). `scripts/ci_status.py` shows the active job, not its step, with an extra call per run, and its completion-to-report latency is unmeasured.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure and show the step in `scripts/ci_status.py`. Done when: `scripts/tests/test_ci_status.py` reads the step from one call, and the latency is recorded here.
+
+- [ ] Measure the completion-to-report latency of `scripts/ci_status.py --gate` against `gh run watch` on the same live runs (median and 95th percentile), and show the active step from the one call it makes (base line 228, at `3f36a14`). Done when: a new case of `scripts/tests/test_ci_status.py` reads the step from one `gh` call, and the measured latencies are recorded here. Cheaper substitute: the job name from a second call, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `ci-status: the gate's latency measured, its active step shown`
+
+**Test checkpoint:** `python -m unittest scripts.tests.test_ci_status` exits 0, and the measurement is in this section.
+
+## 18. The run start: a cold hold measured, and default badges shipped
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 229 and 234 at `3f36a14`). `scripts/lib/hold-awake.ps1` compiles its code on every start, unmeasured, and `scripts/start-run.ps1` renders campaign badges only where Python and its packages are.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure the hold and ship the badges for `scripts/start-run.ps1` and `scripts/lib/hold-awake.ps1`. Done when: their tests read the badges used without Python, and the cold start is recorded here.
+
+- [ ] Measure the cold start of the hold in `scripts/start-run.ps1` and `scripts/lib/hold-awake.ps1` (invocation to a confirmed `held`, p95 over 30 launches) against the standalone Awake tool (base line 229, at `3f36a14`). Done when: `tests/hold_awake_test.ps1` passes and the p95 and the comparison are recorded here. Cheaper substitute: one warm launch, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Ship the two default colour-only campaign badges, built from the masters, for `scripts/start-run.ps1` (`-InstallShortcut`), so a machine without Python or the icon packages still gets distinct runner icons (base line 234, at `3f36a14`). Done when: `tests/start_run_test.ps1` installs the shortcut with Python missing and reads a distinct shipped badge. Cheaper substitute: the plain icon, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `scripts: the run start's cold hold measured, default badges shipped`
+
+**Test checkpoint:** `pwsh tests/hold_awake_test.ps1` and `pwsh tests/start_run_test.ps1` exit 0, and the measurement is in this section.
+
+## 19. The run guard: a quicker look, suspended reads and a watch view
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 232, 233 and 235 at `3f36a14`). `scripts/lib/run_guard.py` (`look`) polls once a second, starts each read before assigning it to its job, and `scripts/run-guard.py status` prints once.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Look, start and watch in `scripts/lib/run_guard.py` and `scripts/run-guard.py`. Done when: `scripts/tests/test_run_guard.py` reads each.
+
+- [ ] Bring a gate that exits just after a poll to `look` in `scripts/lib/run_guard.py` within 250 ms at p95, waiting on a file change instead of a one-second poll, with 90% fewer reads (base line 232, at `3f36a14`). Done when: a new case of `scripts/tests/test_run_guard.py` (`python -m unittest scripts.tests.test_run_guard`) ends a wait and reads `look` report within 250 ms, and the read count is recorded here. Cheaper substitute: a shorter poll interval, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Start each read of `run` in `scripts/lib/run_guard.py` suspended and assign it to its job before it runs (`CREATE_SUSPENDED`, then resume), so no descendant escapes, and measure the whole hook answer against its deadline (base line 233, at `3f36a14`). Done when: a new case of `scripts/tests/test_run_guard.py` starts a read whose first act starts a child and reads zero survivors after a timeout, in the parent-alive and parent-exited cases. Cheaper substitute: assigning after start, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Add an opt-in watch view to `scripts/run-guard.py status` that redraws the waits every few seconds and exits when they clear, beside `look`, and a concise human view naming each wait once, the JSON kept (base line 235, at `3f36a14`). Done when: a new case of `scripts/tests/test_run_guard.py` runs the watch over a clearing wait and reads it exit with each wait named once. Cheaper substitute: a loop around status in a shell, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `run-guard: a quicker look, suspended reads and a watch view`
+
+**Test checkpoint:** `python -m unittest scripts.tests.test_run_guard` exits 0.
+
+## 20. The findings ledger: one lookup, derived totals, stable owners
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 224, 225, 230, 236, 237 and 239 to 242 at `3f36a14`). `scripts/findings-ledger.py` reports failures and one total; a disposition is plain text (`todo/findings.md`), the classification repeats it word for word, an owner is found by its ordinal, and nothing shows a finding beside its owner in one view (`docs/reviews/00-workspace/D00-T06-s2.md` and the later records).
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Derive and look up in `scripts/findings-ledger.py`. Done when: `scripts/tests/test_findings_ledger.py` reads the lookup, the totals, the stable owner and the derived disposition.
+
+- [ ] Make each scheduled disposition's section in `todo/findings.md` a link to its owning checklist in rendered Markdown, which `scripts/findings-ledger.py` still parses (base line 224, at `3f36a14`). Done when: a new case of `scripts/tests/test_findings_ledger.py` (`python -m unittest scripts.tests.test_findings_ledger`) settles a linked disposition and refuses a link to another section. Cheaper substitute: plain text, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Report the disposition counts and the scheduled findings grouped by owning section in the success line of `scripts/findings-ledger.py`, derived from the classification lines so no evidence carries a hand-kept subtotal (base lines 225 and 239, at `3f36a14`, which repeat each other). Done when: a new case reads the counts and the per-section groups equal to the classification's. Cheaper substitute: a total alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Add one query to `scripts/findings-ledger.py` by base commit and line that prints the finding, its disposition, the owning item with its decisive check and thresholds, and the evidence location, so a triage record such as `docs/reviews/00-workspace/D00-T06-s2.md` need not be read beside it (base lines 230, 236 and 240, at `3f36a14`, which repeat each other). Done when: a new case queries a scheduled line and reads all four, the item's threshold among them. Cheaper substitute: three files read by hand, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Find the owning item in `scripts/findings-ledger.py` (`record_problem`) by the base line it cites rather than by its ordinal, so inserting an unrelated item needs no classification edit (base lines 237 and 242, at `3f36a14`, which repeat each other). Done when: a new case inserts an item above the owner and reads the settlement still valid with no edit. Cheaper substitute: the ordinal, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Make the strike's owner the one authoritative edit in `scripts/findings-ledger.py`, the classification's disposition derived from it, so a reassignment is one change (base line 241, at `3f36a14`). Done when: a new case reassigns a strike and reads the classification follow with no second edit. Cheaper substitute: repeating the disposition word for word, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `findings-ledger: one lookup, derived totals, stable owners`
+
+**Test checkpoint:** `python -m unittest scripts.tests.test_findings_ledger` exits 0.
+
+## 21. A stamped section's text stays as stamped
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 238 at `3f36a14`). `scripts/todo-graph.py stamp` (`scripts/lib/todo_graph.py`) records no digest of the section's text, so a replace across a TODO file rewrote stamped `D00 T06 §3` unseen (restored in `e7ae9dc`).
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Digest at the stamp in `scripts/lib/todo_graph.py`. Done when: `scripts/tests/test_todo_graph.py` reads a changed stamped section refused.
+
+- [ ] Record the section's digest at the stamp in `scripts/lib/todo_graph.py` (excluding the lines `stamp`, `unstamp` and `repair` append) and have `scripts/todo-graph.py validate` refuse a stamped section whose text changed (base line 238, at `3f36a14`). Done when: a new case of `scripts/tests/test_todo_graph.py` (`python -m unittest scripts.tests.test_todo_graph`) changes a stamped section's build step and reads `validate` refuse it, and appends a `Repair cycle` note and reads it accepted. Cheaper substitute: a check of the checklist only, which misses the replace that hit §3, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `todo-graph: a stamped section's text stays as stamped`
+
+**Test checkpoint:** `python -m unittest scripts.tests.test_todo_graph` exits 0.
 
 ## Verification
 

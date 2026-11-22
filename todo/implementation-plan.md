@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 68 | Checklist items: 585
+Sections: 79 | Checklist items: 622
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -75,11 +75,22 @@ Sections: 68 | Checklist items: 585
 | [ ]    | D00 T07 §3  | Test fixtures in the scratch folder                                                    | none        | 3     |
 | [ ]    | D00 T07 §4  | check-all keeps a log and says its waits and SDK                                       | none        | 4     |
 | [ ]    | D00 T07 §5  | Weakening scan reads blobs in one batch and shows lines                                | none        | 3     |
-| [ ]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 3     |
+| [ ]    | D00 T07 §6  | Clone setup and pre-commit say what they did                                           | none        | 5     |
 | [ ]    | D00 T07 §7  | Build measurement compares against a baseline                                          | none        | 5     |
 | [ ]    | D00 T07 §8  | Build script stops configuring on every run                                            | none        | 3     |
 | [ ]    | D00 T07 §9  | One documented .NET test command with progress                                         | none        | 3     |
-| [ ]    | D00 T07 §10 | Plan workflow checks first and states its policy                                       | none        | 3     |
+| [ ]    | D00 T07 §10 | Plan workflow checks first and states its policy                                       | none        | 5     |
+| [ ]    | D00 T07 §11 | The overlay says where a value came from, and lists its keys                           | none        | 3     |
+| [ ]    | D00 T07 §12 | Sync previews what it would pull, and receipts each change                             | none        | 3     |
+| [ ]    | D00 T07 §13 | A leak refusal names its fix and its commit                                            | none        | 3     |
+| [ ]    | D00 T07 §14 | The token: a process-scoped launch and one vault read                                  | none        | 3     |
+| [ ]    | D00 T07 §15 | Campaign preflight shows the required checks beside its flags                          | none        | 2     |
+| [ ]    | D00 T07 §16 | Review rounds list their verdicts, and a lookup by commit                              | none        | 2     |
+| [ ]    | D00 T07 §17 | The CI gate's report latency measured, its active step shown                           | none        | 2     |
+| [ ]    | D00 T07 §18 | The run start: a cold hold measured, and default badges shipped                        | none        | 3     |
+| [ ]    | D00 T07 §19 | The run guard: a quicker look, suspended reads and a watch view                        | none        | 4     |
+| [ ]    | D00 T07 §20 | The findings ledger: one lookup, derived totals, stable owners                         | none        | 6     |
+| [ ]    | D00 T07 §21 | A stamped section's text stays as stamped                                              | none        | 2     |
 
 ### Phase 1: Core data contract
 
@@ -153,7 +164,7 @@ Sections: 45 | Checklist items: 362
 
 ### Phase 3: Monitoring
 
-Sections: 34 | Checklist items: 241
+Sections: 35 | Checklist items: 257
 
 | Status | Reference   | Deliverable                                                                  | Needs           | Items |
 | ------ | ----------- | ---------------------------------------------------------------------------- | --------------- | ----- |
@@ -184,31 +195,34 @@ Sections: 34 | Checklist items: 241
 | [ ]    | D03 T02 §8  | A terminal at a share when Windows Terminal is missing                       | none            | 2     |
 | [ ]    | D03 T02 §9  | VS Code forks placed by their windows                                        | none            | 3     |
 | [ ]    | D03 T02 §10 | A WSL terminal opened at the row's own guest folder                          | none            | 2     |
-| [ ]    | D03 T02 §11 | Repo lookup gaps left by §7                                                  | none            | 7     |
-| [ ]    | D03 T02 §12 | The Monitor pages mark what changed and are measured                         | display-session | 8     |
+| [ ]    | D03 T02 §11 | Repo lookup gaps left by §7                                                  | none            | 11    |
+| [ ]    | D03 T02 §12 | The Monitor pages mark what changed and are measured                         | display-session | 9     |
 | [ ]    | D03 T02 §13 | Monitor reads say exactly what failed, and what each figure counts           | display-session | 6     |
 | [ ]    | D03 T02 §14 | The Memory page: a chart to inspect, a decision that shows its evidence      | display-session | 13    |
-| [ ]    | D03 T02 §15 | The Instances page filters, keeps its place and tells instances apart        | display-session | 4     |
+| [ ]    | D03 T02 §15 | The Instances page filters, keeps its place and tells instances apart        | display-session | 9     |
 | [ ]    | D03 T02 §16 | The Queue page searches its history, finds a limit and says where it is read | display-session | 5     |
 | [ ]    | D03 T02 §17 | The Overview says each sample's age, keeps focus, and gives one install step | display-session | 4     |
+| [ ]    | D03 T02 §18 | The editor reporter installs from the page and says its own failures         | display-session | 6     |
 
 ### Phase 5: Machine
 
-Sections: 11 | Checklist items: 68
+Sections: 13 | Checklist items: 79
 
-| Status | Reference   | Deliverable                                                   | Needs | Items |
-| ------ | ----------- | ------------------------------------------------------------- | ----- | ----- |
-| [x]    | D05 T02 §1  | Diagnostics                                                   | none  | 6     |
-| [x]    | D05 T02 §2  | Preview, apply, verify, undo framework                        | none  | 8     |
-| [x]    | D05 T02 §5  | Pressure monitor: queued jobs throttled under pressure        | none  | 7     |
-| [x]    | D05 T02 §6  | Elevated change helper                                        | none  | 8     |
-| [ ]    | D05 T02 §7  | Changes made before Bosun, with honest baselines              | none  | 7     |
-| [ ]    | D05 T02 §8  | Low memory priority for listed apps during pressure           | none  | 8     |
-| [ ]    | D05 T02 §9  | Pressure automation settings, previewed before enabling       | none  | 6     |
-| [ ]    | D05 T02 §10 | Elevation boundary: elevated start, tracking and Undo binding | none  | 4     |
-| [ ]    | D05 T02 §11 | Helper outcome recovered after the panel restarts             | none  | 2     |
-| [ ]    | D05 T02 §3  | Optimise page, WSL cap and startup entries                    | none  | 9     |
-| [ ]    | D05 T02 §4  | Service checks for Dev Drive and Defender                     | none  | 3     |
+| Status | Reference   | Deliverable                                                        | Needs | Items |
+| ------ | ----------- | ------------------------------------------------------------------ | ----- | ----- |
+| [x]    | D05 T02 §1  | Diagnostics                                                        | none  | 6     |
+| [x]    | D05 T02 §2  | Preview, apply, verify, undo framework                             | none  | 8     |
+| [x]    | D05 T02 §5  | Pressure monitor: queued jobs throttled under pressure             | none  | 7     |
+| [x]    | D05 T02 §6  | Elevated change helper                                             | none  | 8     |
+| [ ]    | D05 T02 §7  | Changes made before Bosun, with honest baselines                   | none  | 7     |
+| [ ]    | D05 T02 §8  | Low memory priority for listed apps during pressure                | none  | 8     |
+| [ ]    | D05 T02 §9  | Pressure automation settings, previewed before enabling            | none  | 6     |
+| [ ]    | D05 T02 §10 | Elevation boundary: elevated start, tracking and Undo binding      | none  | 5     |
+| [ ]    | D05 T02 §11 | Helper outcome recovered after the panel restarts                  | none  | 2     |
+| [ ]    | D05 T02 §3  | Optimise page, WSL cap and startup entries                         | none  | 14    |
+| [ ]    | D05 T02 §4  | Service checks for Dev Drive and Defender                          | none  | 3     |
+| [ ]    | D05 T02 §12 | A registry change that fails part way rolls itself back            | none  | 2     |
+| [ ]    | D05 T02 §13 | The WSL pressure throttle measured, and idle while it owes nothing | none  | 3     |
 
 ### Phase 7: Release
 
@@ -238,6 +252,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 114/183 verified sections, 46 ready to run now.
+Progress: 114/197 verified sections, 60 ready to run now.
 
-Checklist: 1071/1400 items completed (includes Commit items).
+Checklist: 1083/1464 items completed (includes Commit items).

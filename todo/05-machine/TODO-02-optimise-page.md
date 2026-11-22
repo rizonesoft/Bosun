@@ -46,6 +46,8 @@ title: "TODO-02 -- Optimise"
 | 9 | §9 | Pressure automation settings, previewed before enabling | §5, §8 | [ ] |
 | 10 | §10 | Elevation boundary: elevated start, tracking and Undo binding | §6 | [ ] |
 | 11 | §11 | Helper outcome recovered after the panel restarts | §6 | [ ] |
+| 12 | §12 | A registry change that fails part way rolls itself back | -- | [ ] |
+| 13 | §13 | The WSL pressure throttle measured, and idle while it owes nothing | -- | [ ] |
 
 ## 1. Diagnostics
 
@@ -124,7 +126,7 @@ Machine changes are the panel's riskiest actions, so all of them go through one 
 > **Review:** `docs/reviews/d05-t02-s2.json`
 
 ## 3. Optimise page, WSL cap and startup entries
-
+ Extended 2026-11-22 by `D00 T06 §6` (base lines 182 to 185 and 191).
 The first real items, chosen because they are the ones this machine has already needed.
 
 **Phase:** 5
@@ -148,9 +150,14 @@ The first real items, chosen because they are the ones this machine has already 
 - [ ] Register each row's Preview, Apply and Undo in the page's Ctrl+K commands (`PageBase.PaletteCommands`) on `§2`'s one eligibility result (**Added 2026-11-19** from the plan review of `D05 T02 §2`; -> XREF: D05 T02 §2): an Apply chosen before its Preview says why it can't run, and one chosen after uses the same confirmation and proposal as the row's button. Done when: a page test runs Apply from the palette before and after Preview and reads the same reason and target as the row.
 - [ ] Show what a waiting row waits for and until when, in `Views/OptimiseView.xaml`. Done when: a fixture row reads its date in words.
 - [ ] Draw each finding value the Optimise page can't read (a counter, a WSL cap whose `.wslconfig` can't be read or parsed) as a `NotAvailable` with why, through the `Value` style (**Added 2026-11-16** from the completion review of `D02 T03 §7`). **Corrected 2026-11-19** (completion review of `D05 T02 §1`): the cap is the configured one, read from the file with WSL never started, so WSL stopped is no reason it is unavailable; it said "with WSL stopped". Done when: a test with WSL stopped and `memory=12GB` shows 12,288 MB, and one whose `.wslconfig` holds a bad value shows "Not available" with its reason, never 0. Cheaper substitute: a blank cell.
+- [ ] Show each active pagefile's current allocation and peak beside its configured range in `src/Bosun.Core/Optimise/Diagnostics.cs` (`Pagefile`), so a sizing decision reads what is used (base line 182). Done when: a new `DiagnosticsTests` case (`dotnet test --project tests/Bosun.Core.Tests --filter-class "*DiagnosticsTests"`) reads a fixture's allocation and peak beside its range. Cheaper substitute: the configured range alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Have an inconclusive RAM result in `src/Bosun.Core/Optimise/Diagnostics.cs` (`RamFinding`) say which of its four reasons holds, with the slot and evidence (base line 183). Done when: a new `DiagnosticsTests` case reads each of the four reasons from four fixtures. Cheaper substitute: one generic inconclusive word, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Name the Run-key scope read in the startup result of `src/Bosun.Panel/Optimise/WindowsDiagnostics.cs` (`StartupInventory` in `src/Bosun.Core/Optimise/Diagnostics.cs`), so an inventory that is not every logon source says so (base line 184). Done when: a new `WindowsDiagnosticsTests` case (`dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowsDiagnosticsTests"`) reads the scopes named in the result and the sources not read. Cheaper substitute: the scope in a comment only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Deliver the three fast facts of `Diagnostics.Read` in `src/Bosun.Core/Optimise/Diagnostics.cs` before a slow profile read finishes, the WSL fact after, none read on the UI thread (base line 185). Done when: a new `DiagnosticsTests` case holds the profile read and reads the other three delivered first, off the calling thread. Cheaper substitute: reading all four in order on a worker, which still holds three back, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Make the Optimise page of `src/Bosun.Panel/Optimise/` one action to open the exact preview, one to confirm and one Windows prompt where elevation is needed, focus back on the row and one announcement (base line 191). Done when: an `OptimisePageTests` case opens, confirms and reads one prompt raised, focus on the row and one announcement. Cheaper substitute: a dialog chain of several confirmations, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `optimise: page, WSL cap, startup entries`
 
-**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*OptimisePage*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found).
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*OptimisePage*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found). The facts' tests are selected too: `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*DiagnosticsTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*WindowsDiagnosticsTests"` exit 0 (**corrected 2026-11-22 by `D00 T06 §6`**).
 
 ## 4. Service checks for Dev Drive and Defender
 
@@ -324,7 +331,7 @@ The switch, the job limit and the listed apps on the Settings page, with what th
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*SettingsPageTests" --filter-class "*PressureSettingsTests"` exits 0, and fails if the change is reverted.
 
 ## 10. Elevation boundary: elevated start, tracking and Undo binding
-
+ Extended 2026-11-22 by `D00 T06 §6` (base line 190).
 Three cases at the edge of `§6`'s elevation boundary that its completion review found missing. Filed 2026-11-19 from that review (`docs/reviews/05-machine/D05-T02-s6.md`, gaps 1, 3 and 4): an ordinary panel started from an elevated terminal runs elevated; a caller that cancels after the prompt was accepted stops tracking a helper that can still change the machine; and an Undo is bound to its backup only through the name in the request, so a second valid backup with the same values can stand in for the confirmed one.
 
 **Phase:** 5
@@ -340,6 +347,7 @@ Three cases at the edge of `§6`'s elevation boundary that its completion review
 - [ ] Refuse to run the ordinary panel with an elevated token in `src/Bosun.Panel/Program.cs`: before `new App()`, an elevated token (helper mode excepted) relaunches the panel unelevated as the signed-in shell user, or, when that can't be done, shows one plain message saying to start Bosun Panel normally, and exits; nothing is read or written first. Done when: a Panel `ProgramTests` case with an elevated standing stand-in takes the relaunch-or-refuse path and constructs no `App`, and an unelevated one starts as now. Cheaper substitute that fails: a warning shown inside an elevated panel.
 - [ ] Follow a started helper to its end in `src/Bosun.Core/Optimise/ChangeCoordinator.cs`: once the prompt was accepted, cancelling the caller's wait no longer abandons the helper; the coordinator keeps its handle, reads the result when it exits, and reports the verified outcome (with its Undo) through `IChangeLog`, so the person sees what happened; the caller gets "Still applying: the outcome will be in Activity" at once. Done when: an `ElevatedHelperTests` case cancels after launch, lets the helper finish a change, and finds its Changed outcome and backup in the log with Undo offered. Cheaper substitute that fails: CouldNotVerify returned at the cancellation.
 - [ ] Bind an Undo to the backup confirmed in `src/Bosun.Core/Optimise/ElevatedHelper.cs` and `HelperProtocol.cs`: the request carries the confirmed backup's identity (its name and its record's digest), the helper refuses a backup whose record differs, and the panel checks the helper's undo backup names the backup it reversed. Done when: an `ElevatedHelperTests` case with two valid backups of the same values refuses the older one substituted in the request, writing nothing. Cheaper substitute that fails: comparing restore values only.
+- [ ] Keep `ElevatedAsync` in `src/Bosun.Core/Optimise/ChangeCoordinator.cs` off the WPF dispatcher before and after the prompt (its `WriteRequest` and `ReadNow` before the first await), with visible feedback within 100 ms at p95 (base line 190). Done when: an `ElevatedHelperTests` case runs it from a dispatcher thread and reads no file work on it, and the feedback time is recorded here. Cheaper substitute: awaiting a completed task first, which leaves the file work on the dispatcher, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `optimise: the elevation boundary's last cases`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ElevatedHelperTests"` and `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ProgramTests"` exit 0, and fail if the change is reverted.
@@ -360,6 +368,41 @@ A helper's result outlives a panel that closed or crashed after the prompt was a
 - [ ] Commit: `optimise: a helper's outcome survives a panel restart`
 
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*ElevatedHelperTests"` exits 0, and fails if the change is reverted.
+
+## 12. A registry change that fails part way rolls itself back
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base line 186). A transaction-capable change of several values that fails part way leaves the ones written (`src/Bosun.Core/Optimise/ChangeRunner.cs`), offering Undo instead of rolling back.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Roll back in `ChangeRunner` (`src/Bosun.Core/Optimise/ChangeRunner.cs`). Done when: `OptimisationFrameworkTests` reads a failed multi-value change restored to its original values.
+
+- [ ] Roll back a transaction-capable registry change of several values that fails part way in `src/Bosun.Core/Optimise/ChangeRunner.cs`, so no value is left changed, its result saying so (base line 186). Done when: a new `OptimisationFrameworkTests` case fails the second of three writes and reads all three at their original values and the result naming the rollback. Cheaper substitute: offering Undo after a partial write, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `optimise: a registry change that fails part way rolls itself back (D05 T02 §12)`
+
+**Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Core.Tests --filter-class "*OptimisationFrameworkTests"` exits 0, and fails with the rollback removed.
+
+## 13. The WSL pressure throttle measured, and idle while it owes nothing
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 188 and 189). The throttle of `wsl/bosun_log.py` reacts once per 30 s sample, unmeasured, and reads the Windows snapshot and meminfo each sample even when it owes nothing.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Measure and idle the throttle in `wsl/bosun_log.py`. Done when: `tests/test_bosun_log.py` reads no throttle reads while it owes nothing, and the reaction time is recorded here.
+
+- [ ] Measure from a below-floor Windows sample to the kernel limit changing under an active build in `wsl/bosun_log.py` (the pressure throttle), and bring it to 5 s at p95, starting no stopped distro (base line 188). Done when: a new case in `tests/test_bosun_log.py` (run by `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`) reads the limit changed within one short check after a below-floor sample, and the p95 under a build is recorded here. Cheaper substitute: a shorter sample for the whole logger, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Skip the throttle's Windows snapshot and meminfo reads in `wsl/bosun_log.py` (`run_once`) once the logger knows it owes no throttle and no recovery (base line 189). Done when: a new case in `tests/test_bosun_log.py` runs samples with the throttle off and reads `read_host` and `meminfo` not called. Cheaper substitute: a cache that still reads each sample, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `wsl: the pressure throttle measured, and idle while it owes nothing (D05 T02 §13)`
+
+**Test checkpoint:** `pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests` passes with the two new cases, and the measurement is in this section.
 
 ## Verification
 

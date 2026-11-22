@@ -54,6 +54,7 @@ title: "TODO-02 -- Instances and queue"
 | 15 | §15 | The Instances page filters, keeps its place and tells instances apart | -- | [ ] |
 | 16 | §16 | The Queue page searches its history, finds a limit and says where it is read | -- | [ ] |
 | 17 | §17 | The Overview says each sample's age, keeps focus, and gives one install step | -- | [ ] |
+| 18 | §18 | The editor reporter installs from the page and says its own failures | -- | [ ] |
 
 ## 1. Instance scanner
 
@@ -390,7 +391,7 @@ Open terminal for a WSL row reaches the folder through Windows: the working dire
 **Test checkpoint:** `bosun run -- dotnet test --project tests/Bosun.Panel.Tests --filter-class "*OpenCommandsTests"` exits 0, and fails if the change is reverted.
 
 ## 11. Repo lookup gaps left by §7
-
+ Extended 2026-11-22 by `D00 T06 §6` (base lines 201, 203, 205 and 206).
 The completion review of `D03 T02 §7` (`docs/reviews/03-monitor/D03-T02-s7.md`, gaps 1 to 6) found six places where a lookup that could not tell a repo is still shown as a repo, as no repo, or breaks the row or the report: the WSL launcher's own `.git` test, the running-distro query outside the scan's budget, the WSL root `/` never probed, an unplaceable editor root's reason kept off its row, one long reason refusing the whole report, and a reason holding a line break splitting a text row. Filed 2026-11-20.
 
 **Phase:** 3
@@ -409,13 +410,17 @@ The completion review of `D03 T02 §7` (`docs/reviews/03-monitor/D03-T02-s7.md`,
 - [ ] Carry an unplaceable editor root's reason onto its row (`dm::editor_rows` in `src/core.hpp`): an SSH or virtual workspace window gets `repo_why` with the parser's reason, so it groups under "Repo could not be told", while an empty window keeps none. Done when: `test_core.exe editor-windows` reads both rows, and `InstancesPageTests` shows the remote window in that group.
 - [ ] Cut a reason at the scanner, never at the reader (`dm::RepoAnswer` makers in `src/core.hpp` and `src/app.cpp`, `repo_answer` and `within` in `wsl/bosun_log.py`): at most 1,024 characters, on a character boundary, ending in `...`, so `InstanceDocs.Fault`'s 8,192 bound is never met by a scanner's own text. Done when: a fixture with a 9,000 character workspace path keeps every other Windows row on the page, and its own row reads a cut reason.
 - [ ] Show a reason's control characters escaped in both text forms (`dm::instances_text` in `src/core.hpp`, `instances_text` in `wsl/bosun_log.py`): a line break, a tab or another control character is written as `\n`, `\t` or `\xNN`, so each instance stays one line. Done when: `test_core.exe instances` and `tests/test_bosun_log.py` read a reason with a newline as one line.
+- [ ] Keep the case of a case-sensitive Windows folder (`fsutil file setCaseSensitiveInfo`) in the grouping key of `src/Bosun.Core/Instances/InstanceClient.cs:308`, so two checkouts differing only by case stay apart (base line 201). Done when: a new `InstanceClientTests` case (`dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClient*"`) groups a case-sensitive folder's `App` and `app` apart and a case-insensitive one's together. Cheaper substitute: lowercasing every key, which merges them, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Name the cause of a `log_folder` refusal in `wsl/bosun_log.py`: a read-only route apart from an absent drive or a guest file system over it (base line 203). Done when: a new case in `tests/test_bosun_log.py` reads each of the three refusals with its own cause. Cheaper substitute: one combined refusal, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Check that a linked worktree's `.git` file points at metadata that is there, in both `src/app.cpp` (`git_probe_at`) and `wsl/bosun_log.py` (`git_probe`), matching `git rev-parse` on a moved or damaged worktree (base line 205). Done when: a `repos` case of `tests/test_core.cpp` and a `RepoForDir` case of `tests/test_bosun_log.py` each read a dangling `gitdir:` refused and a sound one accepted, as `git rev-parse` does. Cheaper substitute: checking that `.git` exists, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Look up healthy local folders apart from a stalled mount's in both `src/app.cpp` (the scan's lookup deadline) and `wsl/bosun_log.py` (`repo_answer`), so one damaged mount never spends the budget the others needed (base line 206). Done when: `tests/instances_test.ps1`, a `repos` case of `tests/test_core.cpp` and a case of `tests/test_bosun_log.py` each stall one mount and read every local folder still looked up. Cheaper substitute: a longer shared budget, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `instances: repo lookup gaps left by §7 closed`
 
-**Test checkpoint:** `pwsh -NoProfile -File tests/instances_test.ps1` prints `all passed`, `build/Release/test_core.exe repos`, `instances` and `editor-windows` print `ok`, and the WSL logger tests pass (`pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`); each fails if its change is reverted.
+**Test checkpoint:** `pwsh -NoProfile -File tests/instances_test.ps1` prints `all passed`, `build/Release/test_core.exe repos`, `instances` and `editor-windows` print `ok`, and the WSL logger tests pass (`pwsh scripts/check-all.ps1 -Wsl -Only wsl:logger-tests`); each fails if its change is reverted. `pwsh scripts/build.ps1` runs first, so the native cases are fresh, and `dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClient*"` exits 0 (**corrected 2026-11-22 by `D00 T06 §6`**).
 
 ## 12. The Monitor pages mark what changed and are measured
 
-Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 111, completion reviews of `D02 T02 §8` and `D02 T03 §7`), which named `todo/03-monitor` for the Memory, Instances and Queue pages, now in `src/Bosun.Panel/Memory/MemoryPage.cs`, `src/Bosun.Panel/Instances/InstancesPage.cs` and `src/Bosun.Panel/Queue/QueuePage.cs`. Nothing marks what changed since the last refresh, and nothing measures how soon a page is readable. Extended 2026-11-22 by `D00 T06 §4` (base lines 117, 121, 122, 145 and 146).
+Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 111, completion reviews of `D02 T02 §8` and `D02 T03 §7`), which named `todo/03-monitor` for the Memory, Instances and Queue pages, now in `src/Bosun.Panel/Memory/MemoryPage.cs`, `src/Bosun.Panel/Instances/InstancesPage.cs` and `src/Bosun.Panel/Queue/QueuePage.cs`. Nothing marks what changed since the last refresh, and nothing measures how soon a page is readable. Extended 2026-11-22 by `D00 T06 §4` (base lines 117, 121, 122, 145 and 146). Extended 2026-11-22 by `D00 T06 §6` (base line 192).
 
 **Phase:** 3
 **Needs:** display-session
@@ -433,6 +438,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 11
 - [ ] Show the first side's rows within 500 ms at p95 in `src/Bosun.Core/Instances/InstanceClient.cs` (`ReadAsync`) and each other side as it arrives, instead of waiting for every side, the source still out marked pending (base lines 122 and 157, which repeat each other). Done when: a test holds the Windows scan back for 5 s and reads WSL's rows shown within 500 ms with the Windows side read as pending meanwhile, then both when the scan ends  Cheaper substitute: a spinner until every side is in, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Update rows in place in `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`), so the selected repo, the focused cell and the scroll survive a refresh, moving only when the repo goes (base line 145). Done when: a test selects, focuses and scrolls, refreshes, and reads all three kept, then removes the repo and reads the selection moved. Cheaper substitute: restoring the selection by index after clearing the rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Apply a refresh with 1,000 repo-side rows under 50 ms at p95 in `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`), with no repeated `Any` search (base line 146). Done when: a test times the refresh at 1,000 rows and the number is recorded here. Cheaper substitute: timing 100 rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Bring a root added in VS Code to the visible Instances page of `src/Bosun.Panel/Instances/InstancesPage.cs` within 2 s of its record changing at p95, with no scans while the page is hidden (base line 192). Done when: an `InstancesPageTests` case writes a new window record and reads the root shown within 2 s, and reads no scan while hidden. Cheaper substitute: a shorter refresh for every page, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `monitor: the pages mark what changed and are measured (D03 T02 §12)`
 
 **Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPage*" --filter-class "*InstancesPage*" --filter-class "*QueuePage*"` exits 0, and the measurements are in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses) `dotnet test --project tests/Bosun.Core.Tests --filter-class "*InstanceClient*"` also exits 0, the test of base lines 122 and 157 among them (**corrected 2026-11-22 by `D00 T06 §5`:** the checkpoint selected no test of `InstanceClient.cs`).
@@ -504,7 +510,7 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 147 to 155
 
 ## 15. The Instances page filters, keeps its place and tells instances apart
 
-Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158 and 159, the completion review of `D03 T02 §2`). The Instances page can't be filtered, rebuilds its rows on each refresh and labels two instances of one kind alike (`src/Bosun.Panel/Instances/InstancesPage.cs`, `src/Bosun.Panel/Instances/InstancesView.xaml`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one page each.
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158 and 159, the completion review of `D03 T02 §2`). The Instances page can't be filtered, rebuilds its rows on each refresh and labels two instances of one kind alike (`src/Bosun.Panel/Instances/InstancesPage.cs`, `src/Bosun.Panel/Instances/InstancesView.xaml`). Split 2026-11-22 from one section by round 2 of `D00 T06 §5`, one page each. Extended 2026-11-22 by `D00 T06 §6` (base lines 193, 194, 199, 202 and 204).
 
 **Phase:** 3
 **Needs:** display-session
@@ -519,6 +525,11 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 156, 158 a
 - [ ] Add Ctrl+F to `src/Bosun.Panel/Instances/InstancesView.xaml` to filter the instances by repo or process, 1,000 rows within 100 ms, the count said to a screen reader (base line 156). Done when: a test presses Ctrl+F, types a repo and then a process, and each time reads the 1,000 rows filtered under 100 ms and the count in a live region (**corrected 2026-11-22, the completion review of `D00 T06 §5`**). Cheaper substitute: the palette's search, which finds commands, not rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Update rows in place in `src/Bosun.Panel/Instances/InstancesPage.cs` (`Show`), under 50 ms on the UI thread for 1,000 rows, keeping focus, scroll and sort over an unchanged refresh (base line 158). Done when: a test with 1,000 rows refreshes unchanged and reads the same row objects, the focus, the scroll offset and the sort kept, and the refresh timed under 50 ms. Cheaper substitute: restoring the selection by key after clearing, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Give each instance in `src/Bosun.Panel/Instances/InstancesPage.cs` (`InstanceLine`) a short visible second label, so two of one kind in one repo are told apart without hovering (base line 159). Done when: a test with two editors in one repo reads two different visible labels. Cheaper substitute: the detail in the tooltip only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Tell two roots of one repo apart in `src/Bosun.Panel/Instances/InstancesView.xaml` with no hover, and announce the root and its distro once to a screen reader (base line 193). Done when: an `InstancesPageTests` case with two roots reads two visible labels and one announcement naming each root and distro. Cheaper substitute: the root in the tooltip only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Give a selected row in `src/Bosun.Panel/Instances/InstancesPage.cs` one discoverable keyboard gesture to a terminal at its exact root, beside the palette's command (base line 194). Done when: an `InstancesPageTests` case presses the gesture on a row and reads a terminal asked for at that root, and the gesture named in the row's help. Cheaper substitute: the palette command alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Give each notice in `src/Bosun.Panel/Instances/InstancesView.xaml` one keyboard action that copies its command, with its text announced (base line 199). Done when: an `InstancesPageTests` case reaches a notice by keyboard, copies it, and reads the clipboard equal to the command and one announcement. Cheaper substitute: a notice that takes no focus, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Show the age of a row's drive mapping in `src/Bosun.Panel/Instances/InstancesPage.cs` where Open folder and Open terminal are (base line 202). Done when: an `InstancesPageTests` case reads the mapping's age at both actions of a WSL row. Cheaper substitute: the age in a tooltip, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Show a short cause ("Access denied", "Distro stopped", "Timed out") on a repo-unknown row of `src/Bosun.Panel/Instances/InstancesPage.cs`, the full reason kept in the detail (base line 204). Done when: an `InstancesPageTests` case reads each of the three causes on its row. Cheaper substitute: the reason in the detail only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
 - [ ] Commit: `monitor: the Instances page filters, keeps its place and tells instances apart (D03 T02 §15)`
 
 **Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPage*"` exits 0, and the timings are in this section.
@@ -576,6 +587,33 @@ Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 179 to 181
 **Job:** the operator knows how fresh each figure is and what one install fixes.
 **Treatment:** stated ages, kept focus and one instruction. Cheaper substitute that fails: the instruction repeated per source.
 **Chrome:** the page's own cards and table; no new window.
+## 18. The editor reporter installs from the page and says its own failures
+
+Filed 2026-11-22 by `D00 T06 §6` from `todo/findings.md` (base lines 195 to 198 and 200, the completion review of `D03 T02 §5`). The "no window record" notice (`src/app.cpp`) and the page's notice only print a command; `scripts/install-editor-extension.ps1` reinstalls every profile each time; a new profile gets no reporter (`editors/bosun-windows/`); and a write failure is kept but never shown (`editors/bosun-windows/record.js`).
+
+**Phase:** 3
+**Needs:** display-session
+**Surface:** yes
+
+**Build order:**
+
+1. Install from the page with `scripts/install-editor-extension.ps1`. Done when: `InstancesPageTests` and `tests/editor_extension_test.ps1` read one action installing, verifying and showing the first placed window.
+2. Report in the editor through `editors/bosun-windows/record.js`. Done when: `node --test` reads a persistent failure shown and cleared.
+
+- [ ] Offer one action from the "no window record" notice of `src/app.cpp` that installs the reporter, verifies it and shows the first placed root on the same page (base line 195). Done when: an `InstancesPageTests` case and `tests/instances_test.ps1` read the action, the install verified and the first root shown. Cheaper substitute: the command printed for the person to type, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Show a persistent write failure of `editors/bosun-windows/record.js` in the editor, accessibly, cleared after the next successful write, without interrupting editing (base line 196). Done when: a case of `editors/bosun-windows/test/record.test.js` (run by `node --test`, driven by `tests/editor_extension_test.ps1`) fails writes and reads the warning shown, then a success and reads it cleared. Cheaper substitute: the error kept in a field nothing reads, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Offer one action from the page's notice that runs `scripts/install-editor-extension.ps1` for that editor and shows its first placed window (base line 197). Done when: an `InstancesPageTests` case runs it against a fake editor and reads the install run and the window shown. Cheaper substitute: a copied command, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Give a profile made after installation the reporter with no terminal call, its window placed on the next refresh, from `editors/bosun-windows/` (base line 198). Done when: `tests/editor_extension_test.ps1` adds a profile and reads the reporter active in it and its window placed on the next refresh. Cheaper substitute: a note asking the person to rerun the install, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Check a profile already at the packed version in `scripts/install-editor-extension.ps1` instead of reinstalling it, and say each profile's progress as it goes (base line 200). Done when: `tests/editor_extension_test.ps1` runs it twice and reads the second run install nothing and a line per profile. Cheaper substitute: a reinstall with --force, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §6`**).
+- [ ] Commit: `monitor: the editor reporter installs from the page and says its own failures (D03 T02 §18)`
+
+**Test checkpoint:** `pwsh tests/editor_extension_test.ps1` and `pwsh -NoProfile -File tests/instances_test.ps1` exit 0, and `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*InstancesPage*"` exits 0.
+
+**Fidelity:** `design/SPEC.md` (the Instances page) and its render with the install action.
+**Job:** the operator sets the reporter up and hears of its failures without a terminal.
+**Treatment:** one install action, a checked install and a failure shown in the editor. Cheaper substitute that fails: a command to copy.
+**Chrome:** the page's own notice and the editor's own warning; no new window.
+
 ## Verification
 
 - `dotnet test --solution Bosun.slnx` passes (**corrected 2026-11-22, the completion review of `D00 T06 §4`**).
