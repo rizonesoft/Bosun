@@ -103,6 +103,8 @@ depends_on: ["private-overlay"]
 
 ## 3. Open findings, part 3 of 6
 
+> **Started:** 2026-11-22T10:27:39Z
+
 `todo/findings.md` holds defects and suggestions noticed while building other sections. Unscheduled, they block nothing and are never built, so the plan is not complete while any stays open. This section settles the open findings on lines 76 to 111 (as of `b8c4e0b3`), 35 entries.
 
 **Corrected 2026-11-22 (plan review of §3):** the plan review in `docs/reviews/00-workspace/D00-T06-s3.md` returned three gaps. The ledger checks each strike against its owner by file name only, so two findings on one file (base lines 76 and 77, one `RenderCatalog.cs` method, two deliverables) both pass on an owner that builds one of them, and nothing reconciles the classification with the strikes; §2's completion review raised the same class. The fix is the ledger's, for every triage section from here: `--cite-lines` requires a `Scheduled:` owner to cite `base line N` itself, and `--record <file>` requires every base entry's classification line with the same disposition as its strike. The evidence is recorded in two stages (classification first, the owner item or the fix after the work exists), and the range holds 35 open entries: base line 98 was struck and scheduled before the base and stays as it is.
