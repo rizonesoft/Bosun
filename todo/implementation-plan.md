@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Repository and tooling
 
-Sections: 68 | Checklist items: 577
+Sections: 68 | Checklist items: 576
 
 | Status | Reference   | Deliverable                                                                            | Needs       | Items |
 | ------ | ----------- | -------------------------------------------------------------------------------------- | ----------- | ----- |
@@ -54,7 +54,7 @@ Sections: 68 | Checklist items: 577
 | [x]    | D00 T03 §28 | Campaign hold as a Windows power request the run's process holds                       | none        | 6     |
 | [x]    | D00 T03 §29 | Antigravity waits see their result within seconds                                      | none        | 4     |
 | [x]    | D00 T03 §30 | Antigravity sees a failed guard, within the hook's time                                | none        | 3     |
-| [ ]    | D00 T03 §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey             | none        | 4     |
+| [ ]    | D00 T03 §31 | Shortcut install says one fix for each way a badge fails                               | none        | 3     |
 | [ ]    | D00 T03 §32 | Guard status names each wait's stage, elapsed time and output                          | none        | 4     |
 | [x]    | D00 T05 §1  | Overlay folder, config lookup and the rule that admits it                              | none        | 8     |
 | [x]    | D00 T05 §2  | Overlay clone in setup and pull after merge                                            | none        | 11    |
@@ -222,4 +222,4 @@ Sections: 6 | Checklist items: 29
 
 Progress: 109/165 verified sections, 33 ready to run now.
 
-Checklist: 1036/1271 items completed (includes Commit items).
+Checklist: 1036/1270 items completed (includes Commit items).

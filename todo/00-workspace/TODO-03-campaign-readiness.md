@@ -69,7 +69,7 @@ title: "TODO-03 -- Campaign readiness"
 | 28 | §28 | Campaign hold as a Windows power request the run's process holds | §24 | [x] |
 | 29 | §29 | Antigravity waits see their result within seconds | -- | [x] |
 | 30 | §30 | Antigravity sees a failed guard, within the hook's time | -- | [x] |
-| 31 | §31 | Shortcut install: one fix per failure, a fast rerun and an optional hotkey | -- | [ ] |
+| 31 | §31 | Shortcut install says one fix for each way a badge fails | -- | [ ] |
 | 32 | §32 | Guard status names each wait's stage, elapsed time and output | -- | [ ] |
 
 ## 1. CI status that proves the commit
@@ -1126,11 +1126,11 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 42, complet
 > **Verified:** 2026-11-22 | §30 | e63f1396a553fd5703ad50d2e6a3bd2394ff6922
 > **Review:** `docs/reviews/d00-t03-s30.json`
 
-## 31. Shortcut install: one fix per failure, a fast rerun and an optional hotkey
+## 31. Shortcut install says one fix for each way a badge fails
 
-Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 43 to 45, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py`, and says to install the icon packages whatever made the render fail; an unchanged rerun renders both icons again; neither shortcut has a hotkey.
+Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 43, completion review of `§20`). `scripts/start-run.ps1 -InstallShortcut` renders each runner's badged icon through `scripts/build-icons.py --badge-fill` and takes its last output line; every cause exits 1, a missing `resvg-py` or Pillow and a refused write end in a Python traceback, `check_mark` turns a mark it cannot read into the same `ValueError` as a malformed one, and the launcher always advises installing the icon packages.
 
-**Corrected 2026-11-22 (validation before the build):** checked against `scripts/start-run.ps1` and `scripts/build-icons.py`: a badge render runs `build-icons.py --badge-fill` and takes its last output line, exit 1 for every cause (a missing `resvg-py` raises `ImportError` with a traceback, a malformed mark is `check_mark`'s `ValueError`, a refused write is `write_atomic`'s `OSError`). The distinct exit codes are built here for the badge path and are the ones `D02 T05 §4` reuses for the app icon. `-Hotkey` gives `Ctrl+Alt+Shift+C` to the Claude campaign and `Ctrl+Alt+Shift+G` to the Gemini one (Windows honours a shortcut's hotkey only on the desktop or in the Start menu, where `-InstallShortcut` writes them).
+**Corrected 2026-11-22 (plan review of §31):** the plan review in `docs/reviews/00-workspace/D00-T03-s31.md` returned ten gaps (9 P1, 1 P2). Base lines 44 and 45 are declined and struck from this section: an unchanged rerun of `-InstallShortcut` measured 0.89 s against a cold 1.97 s on 2026-11-22, already under the finding's one-second target, so a digest cache would add four P1s of staleness and damaged-output cases to save nothing; and a hotkey, held system-wide by any application, honoured only from the desktop or Start menu, and an install-only switch that would start a campaign on its own, is not worth its four gaps for a campaign the owner starts by hand. Gaps 1 to 3 are built below: the launcher's own two failures, a shared exit-code map that `D02 T05 §4` reuses, and the builder tested directly.
 
 **Phase:** 0
 **Needs:** none
@@ -1138,17 +1138,14 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 43 to 45, 
 
 **Build order:**
 
-1. Say the right fix. Done when: a missing package, a malformed mark and a denied write each get their own fix.
-2. Skip unchanged work. Done when: an unchanged rerun takes under a second and leaves the icons byte-identical.
-3. Offer a hotkey. Done when: `-Hotkey` sets one on each shortcut, off by default.
+1. One exit code per cause. Done when: `build-icons.py --badge-fill` ends every failure in one line with its own code and fix, the old icon kept.
+2. One fix per cause in the launcher. Done when: each cause, the launcher's own two included, gets its fix and the plain-icon shortcut.
 
-- [ ] Have `scripts/build-icons.py` exit with a distinct code and one line for a missing package, a malformed mark and a write that is refused, and have `scripts/start-run.ps1` (`-InstallShortcut`) print the fix for that cause (base line 43). Done when: `tests/start_run_test.ps1` drives all three and reads each fix. Cheaper substitute: today's one pip advice for every failure.
-- [ ] Measure a cold `-InstallShortcut` and an unchanged rerun and record both here, then skip a badge whose inputs (master, mark, fill, renderer version) are unchanged since it was written, keyed by a digest beside the icon (base line 44). Done when: the rerun is under a second, the icons are byte-identical, and a changed mark renders again, each proven in `tests/start_run_test.ps1`.
-- [ ] Add `-Hotkey` to `scripts/start-run.ps1` (`-InstallShortcut`), off by default, giving each runner's shortcut its own chord that collides with no other shortcut in the folder (base line 45). Done when: the test reads both chords back from the `.lnk` files, and a chord already taken is refused by name. Cheaper substitute: one fixed chord for both.
-- [ ] Commit: `campaign: shortcut install says one fix per failure, reruns fast and takes a hotkey (D00 T03 §31)`
+- [ ] Define the exit-code map in `scripts/build-icons.py`, its docstring and a `FAILURES` table: 2 a package missing (`resvg-py` or Pillow: `python -m pip install -r scripts/requirements-icons.txt`), 3 an input that cannot be read (a master or the mark missing or denied: its path and that it must exist and be readable), 4 an input that is not valid (a malformed mark or master: mend or remove it), 5 the renderer failing on valid input (the file and the renderer's own words), 6 the output that cannot be written (the cause from the error: a full disk, a file another program holds, a denied folder, each with its own remedy, the old icon kept); have `check_mark` tell a mark it cannot read from one that is malformed; and have `main` catch each on the badge path and print one line to stderr (base line 43; `D02 T05 §4` reuses the map for the app icon). Done when: a test in `scripts/tests/` drives each cause with real inputs (Pillow and `resvg-py` hidden from the import, a mark denied and one malformed, a master missing, a renderer error, an existing ICO the replace cannot take) and reads its code, exactly one diagnostic line, and the old ICO unchanged. Cheaper substitute: one code for every cause.
+- [ ] Have `-InstallShortcut` in `scripts/start-run.ps1` print the fix for the builder's code, and give its own two failures their own: python not on `PATH` (install Python 3) and an `-IconDir` it cannot create (the folder and why). Done when: `tests/start_run_test.ps1` drives a missing package, a malformed mark, an unwritable icon, no python and an `-IconDir` it cannot create, and for each reads the one fix that applies (no pip advice where pip is not the cause) and reopens the `.lnk` to find the plain Bosun icon; every console child started with no window.
+- [ ] Commit: `campaign: shortcut install says one fix for each way a badge fails (D00 T03 §31)`
 
-**Test checkpoint:** `pwsh tests/start_run_test.ps1` exits 0, and the rerun timing and the three failure fixes are read in it.
-
+**Test checkpoint:** `python scripts/run-tests.py test_build_icons` and `pwsh tests/start_run_test.ps1` exit 0, and the builder test fails with every cause mapped to exit 1.
 ## 32. Guard status names each wait's stage, elapsed time and output
 
 Filed 2026-11-22 from `D00 T03 §30`'s plan review, which moved finding 48 here (`todo/findings.md`, base line 48, completion review of `§21`). `status` says a review, a CI gate or a local gate is in flight (`in_flight` in `scripts/lib/run_guard.py`) without its stage, elapsed time or output location, and no record holds a stage or an output: a review's mark (`scripts/review-dispatch.py`, `build/review-in-flight/`) has its pid, reviewer, `started` (UTC text) and deadline; a local gate's (`scripts/lib/gate-mark.ps1`, written by `scripts/check-all.ps1` and `scripts/measure-build.ps1`) its pid, `started` (a process FILETIME, for identity) and name; the CI gate's wait (`scripts/ci_status.py`, `build/ci-gate.json`, one `waiting` slot) its commit, `since` (epoch seconds) and pid.
