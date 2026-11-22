@@ -1499,21 +1499,33 @@ class Look(unittest.TestCase):
         return process
 
     def look(self, *args):
-        return subprocess.Popen([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", *args], env=self.env,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", **guard.hidden())
+        process = subprocess.Popen([sys.executable, str(guard.ROOT / "scripts" / "run-guard.py"), "look", *args], env=self.env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", **guard.hidden())
+        self.addCleanup(lambda: process.poll() is None and (process.kill(), process.wait()))  # round 3 of D00 T03 §29
+        return process
 
     def test_it_blocks_on_a_live_gate_and_returns_within_seconds_of_it_ending(self):
         first, second = self.gate("check-all"), self.gate("measure-build")
-        looker = self.look()
-        self.addCleanup(lambda: looker.poll() is None and (looker.kill(), looker.wait()))
-        time.sleep(3)
-        self.assertIsNone(looker.poll(), "look returned while both gates were live")
+        both = threading.Event()
+        def gating():  # the real reader on the real marks, noting when look has seen both live
+            said = guard.gate_in_flight()
+            if said and str(first.pid) in said and str(second.pid) in said:
+                both.set()
+            return said
+        os.environ["BOSUN_GATE_MARK_DIR"] = str(self.marks)
+        self.addCleanup(os.environ.pop, "BOSUN_GATE_MARK_DIR", None)
+        env = guard.replace(World().env(), gating=gating)
+        result = {}
+        looker = threading.Thread(target=lambda: result.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
+        looker.start()
+        self.assertTrue(both.wait(10), "look never saw both gates live")
+        time.sleep(1.5)
+        self.assertTrue(looker.is_alive(), "look returned while both gates were live")
         first.kill(); first.wait()
         ended = time.monotonic()
-        out, _ = looker.communicate(timeout=30)
+        looker.join(30)
         self.assertLess(time.monotonic() - ended, 5)
-        self.assertIn(f"ended: a local gate in flight (check-all, pid {first.pid})", out)
-        self.assertIn(f"still waiting: a local gate in flight (measure-build, pid {second.pid})", out)
+        self.assertEqual(result.get("said"), f"ended: a local gate in flight (check-all, pid {first.pid}); still waiting: a local gate in flight (measure-build, pid {second.pid})")
         second.kill(); second.wait()
         out = self.look().communicate(timeout=30)[0]
         self.assertEqual(out.strip(), "nothing to wait for")
@@ -1529,6 +1541,7 @@ class Look(unittest.TestCase):
         took = time.monotonic() - started
         self.assertEqual(out.strip(), f"still waiting: a local gate in flight (check-all, pid {gate.pid})")
         self.assertGreaterEqual(took, 2)
+        self.assertLess(took, 8, "look ran well past its --max-seconds")  # 2 s plus a process start
 
     def fake(self, gates, reviewing=None, wakes=()):
         """An env whose local gate reads come from `gates` in turn (None for none live), the last one repeated."""
@@ -1567,9 +1580,16 @@ class Look(unittest.TestCase):
         self.assertTrue(said.endswith("still waiting: the wait for rows-waiting until " + guard.stamp(held["wait_until"])), said)
 
     def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
-        reads = iter([{"wait_until": time.time() + 3600, "wait_reason": "reviewer-unavailable"}, None, {"wait_until": 0, "wait_reason": "reviewer-unavailable"}])
+        held = {"wait_until": 1_800_000_100.0, "wait_reason": "reviewer-unavailable"}
+        reads = [dict(held), None, dict(held), dict(held)]
+        taken = []
+        def load():
+            taken.append(1)
+            return reads[len(taken) - 1]
+        walls = iter([1_800_000_000.0, 1_800_000_050.0, 1_800_000_050.0, 1_800_000_200.0])  # past the deadline at the 4th read
         clock = iter(range(100))
-        said = guard.look(guard.replace(World().env()), lambda: next(reads), 30, clock=lambda: float(next(clock)), sleep=lambda s: None)
+        said = guard.look(guard.replace(World().env()), load, 30, clock=lambda: float(next(clock)), sleep=lambda s: None, wall=lambda: next(walls))
+        self.assertEqual(len(taken), 4, "look ended before the deadline passed (the failed read was taken as an end)")
         self.assertTrue(said.startswith("ended: the wait for reviewer-unavailable until"), said)
         self.assertTrue(said.endswith("still waiting: nothing"), said)
 

@@ -696,15 +696,17 @@ def waits_now(env: Env, state: dict | None, now: float | None = None, woken: boo
 
 
 def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SECONDS,
-         clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> str:
+         clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep,
+         wall: Callable[[], float] = time.time) -> str:
     """`run-guard.py look`: wait in the session on everything the run waits for, looking every second, and say what
     changed as soon as anything ends (D00 T03 §29). Everything seen live during the look counts, so a gate that starts
     and ends within one look is an end too. It starts nothing and leaves nothing running: an Antigravity session has no
     heartbeat, and nothing outside a run's own session may act for it."""
     start = clock()
     state = load_state()
-    woken, woken_at = (woken_now(state, env) if state else False), start
-    seen = waits_now(env, state, woken=woken)
+    at = wall()  # one reading of the wall clock per look, for the wake rule and the timed wait alike
+    woken, woken_at = (woken_now(state, env, at) if state else False), start
+    seen = waits_now(env, state, at, woken=woken)
     if not seen:
         return "nothing to wait for"
     while True:
@@ -716,9 +718,10 @@ def look(env: Env, load_state: Callable[[], dict | None], limit: float = LOOK_SE
         # state never read at all is the wait 'the run state, which can't be read now'.
         fresh = load_state()
         state = state if fresh is None else fresh
+        at = wall()
         if state and clock() - woken_at >= WAKE_LOOK_SECONDS:
-            woken, woken_at = woken_now(state, env), clock()
-        now = waits_now(env, state, woken=woken)
+            woken, woken_at = woken_now(state, env, at), clock()
+        now = waits_now(env, state, at, woken=woken)
         ended = [w for w in seen if w not in now]
         if ended:
             return f"ended: {'; '.join(ended)}; still waiting: {'; '.join(now) or 'nothing'}"
