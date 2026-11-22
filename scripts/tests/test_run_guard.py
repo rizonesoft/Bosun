@@ -1595,6 +1595,46 @@ class Look(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1)
         self.assertTrue(said.startswith("still waiting: a local gate in flight (check-all, pid 9); the wait for rows-waiting"), said)
 
+    def test_a_review_and_a_local_gate_each_end_in_turn_on_their_real_marks(self):
+        # Round 5 of D00 T03 §29: the review dispatcher's mark (build/review-in-flight/) and a local gate's mark, each
+        # read by its real reader: the gate ends first with the review still waiting, then the review ends.
+        root = Path(self.folder.name) / "root"
+        (root / "build" / "review-in-flight").mkdir(parents=True)
+        dispatcher = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], **guard.hidden())
+        self.addCleanup(lambda: dispatcher.poll() is None and (dispatcher.kill(), dispatcher.wait()))
+        (root / "build" / "review-in-flight" / f"{dispatcher.pid}-astra.json").write_text(
+            json.dumps({"pid": dispatcher.pid, "deadline": time.time() + 600, "reviewer": "astra"}), encoding="utf-8")
+        gate = self.gate("check-all")
+        os.environ["BOSUN_GATE_MARK_DIR"] = str(self.marks)
+        self.addCleanup(os.environ.pop, "BOSUN_GATE_MARK_DIR", None)
+        both = threading.Event()
+        def gating():  # the real reader, read after the review in each pass: set once one pass has seen both live
+            said = guard.gate_in_flight()
+            if said and guard.review_in_flight(root):
+                both.set()
+            return said
+        env = guard.replace(World().env(), reviewing=lambda: guard.review_in_flight(root), gating=gating)
+        review = f"a review in flight (astra, dispatcher pid {dispatcher.pid})"
+
+        def look_until(end_it):
+            result = {}
+            looker = threading.Thread(target=lambda: result.setdefault("said", guard.look(env, lambda: {}, 30)), daemon=True)
+            looker.start()
+            end_it()
+            looker.join(30)
+            return result.get("said")
+
+        def end_gate():
+            self.assertTrue(both.wait(10), "look never saw the review and the gate live together")
+            gate.kill(); gate.wait()
+
+        def end_review():
+            time.sleep(1.5)  # look is blocked on the review alone
+            dispatcher.kill(); dispatcher.wait()
+
+        self.assertEqual(look_until(end_gate), f"ended: a local gate in flight (check-all, pid {gate.pid}); still waiting: {review}")
+        self.assertEqual(look_until(end_review), f"ended: {review}; still waiting: nothing")
+
     def test_a_timed_wait_passing_is_an_end_and_a_failed_read_is_not(self):
         held = {"wait_until": 1_800_000_100.0, "wait_reason": "reviewer-unavailable"}
         reads = [dict(held), None, dict(held), dict(held)]
