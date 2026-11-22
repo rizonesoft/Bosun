@@ -165,6 +165,11 @@ class FindingsLedgerTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("base line 5:", out)
         self.assertIn("no disposition", out)
+        # Round 3 of D00 T06 §5: `check` reports the strike first and never reaches the record check, so call it
+        # directly, as any other caller could; without its guard this raised a TypeError.
+        why = ledger.record_problem(5, [(3, "- 5: Fine now (it is). Inspected `scripts/a.py:1`: it is.")], "Fine now.",
+                                    record, root=str(self.root))
+        self.assertIn("with no disposition", why)
 
     def test_a_tracked_file_gone_from_the_working_tree_is_said_not_crashed(self):
         # Cycle 2, round 2 of D00 T06 §3: tracked by git but renamed or removed on disk, with and without a line.
