@@ -882,7 +882,9 @@ def hook_antigravity(raw: str, session: str, env: Env | None = None, path: Path 
     if data["hook_event_name"] != "Stop":
         return ""
     peek = load(path)
-    if peek.get("active") and peek.get("session_id") == session:
+    # Only a turn the guard may send on needs the slow reads; a cancelled or ended turn is recorded without them, so a
+    # stalled git or CI read can never cost the operator's cancel (round 1 of D00 T03 §30).
+    if peek.get("active") and peek.get("session_id") == session and data.get("termination") == "NO_TOOL_CALL":
         env = snapshot(env, state=peek)  # the slow reads, before the lock
     with locked(path):
         state = load(path)
@@ -934,13 +936,36 @@ def hidden() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
+def stop_tree(pid: int) -> None:
+    """Stop a process and everything it started: a grandchild holding the captured pipes would otherwise keep the
+    wait going past its deadline (round 1 of D00 T03 §30)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, timeout=10, **hidden())
+    else:
+        try:
+            os.killpg(pid, 9)  # its own process group, from start_new_session
+        except ProcessLookupError:
+            pass
+
+
 def run(*args: str, cwd: Path = ROOT, timeout: float = 20) -> subprocess.CompletedProcess:
-    """A subprocess the guard waits for, stopped at `timeout`, or sooner at the running hook's deadline (`_deadline`),
-    so a stalled read is read as unknown and the hook still answers in its host's time."""
+    """A subprocess the guard waits for, stopped with its whole tree at `timeout`, or sooner at the running hook's
+    deadline (`_deadline`), so a stalled read is read as unknown and the hook still answers in its host's time."""
     if _deadline is not None:
         timeout = max(0.5, min(timeout, _deadline - time.monotonic()))
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    return subprocess.run(args, cwd=cwd, capture_output=True, env=env, timeout=timeout, stdin=subprocess.DEVNULL, **hidden())
+    process = subprocess.Popen(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=env,
+                               start_new_session=os.name != "nt", **hidden())
+    try:
+        out, err = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        stop_tree(process.pid)
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass  # the tree is stopped; what it left in the pipes is not waited for
+        raise
+    return subprocess.CompletedProcess(args, process.returncode, out, err)
 
 
 WORK_STATES = ("ready", "needs-repair", "needs-filing", "needs-verification", "needs-closeout")

@@ -1291,6 +1291,33 @@ class AntigravityRuns(unittest.TestCase):
                 self.assertNotIn("decision", answer)
                 self.assertIn("No space left on device", answer["errorMessage"]["userMessage"])
 
+    def test_a_timed_out_read_stops_its_whole_tree_and_returns_on_time(self):
+        # Round 1 of D00 T03 §30: a grandchild holding the captured pipes kept the wait going past its deadline.
+        marker = Path(self.folder.name) / "grandchild.pid"
+        parent = ("import subprocess, sys, time\n"
+                  f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                  f"open(r'{marker}', 'w').write(str(child.pid))\n"
+                  "time.sleep(60)\n")
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            guard.run(sys.executable, "-c", parent, timeout=2)
+        self.assertLess(time.monotonic() - started, 8, "the wait outlived its deadline")
+        grandchild = int(marker.read_text())
+        self.addCleanup(lambda: guard.process_started(grandchild) is not None and guard.stop_tree(grandchild))
+        self.assertIsNone(guard.process_started(grandchild), "the grandchild outlived the timed-out read")
+
+    def test_a_cancelled_turn_is_recorded_without_the_slow_reads(self):
+        # Round 1 of D00 T03 §30: a stalled git read must not cost the operator's cancel.
+        def stalled():
+            raise subprocess.TimeoutExpired("git status --porcelain", 20)
+        env = guard.replace(self.env(), signature=stalled, rows=stalled)
+        guard.save(self.run_state(), self.path)
+        cancel = json.dumps({"hookEventName": "Stop", "terminationReason": "USER_CANCELED"})
+        said = guard.hook_antigravity_answer(lambda: cancel, self.SESSION, env, self.path)
+        self.assertEqual(said, "")
+        saved = guard.load(self.path)
+        self.assertEqual((saved["active"], saved["status"]), (False, "stopped"), "the cancel was lost to a stalled read")
+
     def test_a_stalled_read_is_stopped_at_the_hook_deadline(self):
         # D00 T03 §30: the host gives the hook 60 seconds; a read that stalls is stopped and read as unknown.
         def stalled_finish():
