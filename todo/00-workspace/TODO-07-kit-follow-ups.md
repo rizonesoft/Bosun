@@ -106,7 +106,7 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 - [ ] Run pyright over `scripts/` and count the errors by rule and file, the 24 in `scripts/lib/run_guard.py` and its callers that base line 12 names among them (**corrected 2026-11-22, round 1 of `D00 T06 §6`:** the item never named that file), recording here which are platform noise (a POSIX module on Windows), which are missing narrowing and which are real faults. Done when: the table is written with the pyright version.
 - [ ] Fix each real fault with a regression test that fails before its fix. Done when: each has its test named here.
 - [ ] Narrow optional values where they are used (an early return or an `assert` with a reason), and mark the platform modules as platform code (`sys.platform` checks pyright understands), never a blanket `# type: ignore`. Done when: `pyright scripts` reports 0 errors and no new `type: ignore` is added. Cheaper substitute: lowering `pyrightconfig.json`'s strictness.
-- [ ] Run pyright in CI's scripts job in `.github/workflows/build.yml`, so a new error turns the run red. Done when: a pushed branch with one type error shows the step red, recorded here.
+- [ ] Run pyright in CI's scripts job in `.github/workflows/build.yml` at a pinned version (`pyright@1.1.414`, the one that measured 385 errors on 2026-11-22), so a new error turns the run red and a new pyright release cannot (**corrected 2026-11-22, before the plan review of `D00 T07 §2`**). Done when: a pushed branch with one type error shows the step red, recorded here.
 - [ ] Commit: `scripts: pyright reports no errors (D00 T07 §2)`
 
 **Test checkpoint:** `pyright scripts` prints `0 errors`, and `python scripts/run-tests.py` exits 0.
