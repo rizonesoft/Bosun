@@ -381,7 +381,7 @@ try {
   try { $timed = Stream "$slowGit;$system" @('-Only', 'tree,hold', '-ProbeSeconds', '3', '-HoldRecord', (Join-Path $work 'no-hold.json')) }
   finally { Get-CimInstance Win32_Process -Filter "Name = 'PING.EXE'" | Where-Object { $_.CommandLine -like "*$marker*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction Ignore } }
   $secs = { param($pattern) $hit = $timed.Lines | Where-Object { $_.Line -match $pattern } | Select-Object -First 1; if ($hit -and $hit.Line -match '\((\d+\.\d) s\)$') { [double]$Matches[1] } else { -1 } }
-  $treeSecs = & $secs '^FAIL .*(git|tree|status)'; $holdSecs = & $secs "^FAIL the hold isn't applied"
+  $treeSecs = & $secs '^FAIL .*(git|tree|status)'; $holdSecs = & $secs '^ok   no run holds the machine now'
   Check ($treeSecs -ge 2 -and $holdSecs -ge 0 -and $holdSecs -lt 1) "each result carries its own check's duration (tree $treeSecs s, then hold $holdSecs s)"
   # The protection read says the host, the repository and the limit before it ends.
   $origin = (git -C $repo remote get-url origin).Trim()
@@ -549,50 +549,46 @@ try {
   $lockKey = "HKCU:\Software\BosunTest\preflight-$PID\Desktop"
   New-Item -Path $lockKey -Force | Out-Null
   Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaverIsSecure -Value '1'
+  # D00 T03 §28: the hold is the run's own power request, said by its holder; a record an older version left still
+  # holds the power plan and is put back by hand; the lock the request cannot stop is the owner's screen saver setting.
   $holdRecord = Join-Path $work 'campaign-hold.json'
-  $holdArgs = @('-Only', 'hold', '-HoldRecord', $holdRecord, '-PowerCfg', $powercfg, '-LockKey', $lockKey)
-  $env:BOSUN_FAKE_POWERCFG = $powerState
+  $runHold = Join-Path $work 'run-hold.json'
+  $holdArgs = @('-Only', 'hold', '-HoldRecord', $holdRecord, '-RunHold', $runHold)
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match "the hold isn't applied" -and $r.Text -match 'campaign-hold.ps1 -Apply') 'no hold fails with its fix'
-  & $pwsh -NoProfile -File (Join-Path $repo 'scripts\campaign-hold.ps1') -Apply -Record $holdRecord -PowerCfg $powercfg -LockKey $lockKey | Out-Null
+  Check ($r.Code -eq 0 -and $r.Text -match "ok   no run holds the machine now; the run's launcher holds it awake while its writer runs") 'with no run, the hold check says what the launcher will do'
+  $holder = [Diagnostics.ProcessStartInfo]::new($pwsh)
+  foreach ($a in '-NoProfile', '-NonInteractive', '-File', (Join-Path $repo 'scripts\lib\hold-awake.ps1'), '-ParentPid', "$PID", '-Record', $runHold) { $holder.ArgumentList.Add($a) }
+  $holder.UseShellExecute = $false; $holder.CreateNoWindow = $true; $holder.RedirectStandardInput = $true; $holder.RedirectStandardOutput = $true
+  $held = [Diagnostics.Process]::Start($holder)
+  try {
+    $null = $held.StandardOutput.ReadLine()
+    $r = Preflight $system $holdArgs
+    Check ($r.Code -eq 0 -and $r.Text -match "ok   the machine is held awake by run $($held.Id)") 'a live run''s holder that holds passes, named'
+  } finally { $held.StandardInput.Close(); $null = $held.WaitForExit(3000); if (-not $held.HasExited) { & taskkill /T /F /PID $held.Id 2>&1 | Out-Null } }
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') 'an applied hold passes'
-# An expired hold whose values still match fails: the run guard would restore it at the run's first event (D00 T03 §24).
-$holdText = [IO.File]::ReadAllText($holdRecord)
-$expired = $holdText | ConvertFrom-Json
-$expired.Expires = [datetime]::UtcNow.AddMinutes(-1).ToString('o')
-[IO.File]::WriteAllText($holdRecord, ($expired | ConvertTo-Json -Depth 8))
-$r = Preflight $system $holdArgs
-Check ($r.Code -eq 1 -and $r.Text -match 'the hold expired at' -and $r.Text -match 'campaign-hold.ps1 -Restore`, then `pwsh scripts/campaign-hold.ps1 -Apply') 'an expired hold whose values match fails with restore then apply'
-[IO.File]::WriteAllText($holdRecord, $holdText)
-$r = Preflight $system $holdArgs
-Check ($r.Code -eq 0) 'and the same hold unexpired passes'
-# The preflight reads the hold where the hold script and the run guard do: BOSUN_HOLD_* first (round 2 of D00 T03 §24).
-$env:BOSUN_HOLD_RECORD = $holdRecord; $env:BOSUN_HOLD_POWERCFG = $powercfg; $env:BOSUN_HOLD_LOCKKEY = $lockKey
-try { $r = Preflight $system @('-Only', 'hold') } finally { Remove-Item Env:BOSUN_HOLD_RECORD, Env:BOSUN_HOLD_POWERCFG, Env:BOSUN_HOLD_LOCKKEY -ErrorAction Ignore }
-Check ($r.Code -eq 0 -and $r.Text -match 'ok   hold applied') "the BOSUN_HOLD_* variables name the hold the preflight checks ($(($r.Text -split "`n") -match 'hold' | Select-Object -First 1))"
-  & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 600
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a released hold (a timed one ended, or its writer returned) passes as no run holding'
+  [IO.File]::WriteAllText($runHold, (@{ pid = 999999; parent = $PID; acquired = $false; why = 'SetThreadExecutionState refused the request (error 5)' } | ConvertTo-Json))
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match 'the hold drifted: VIDEOIDLE AC is 600') 'a held value that drifted fails with its fix'
-  & $powercfg /setacvalueindex 381b4222-f694-41f0-9685-ff5bb260df2e SUB_VIDEO VIDEOIDLE 0
-  $fake = Get-Content $powerState -Raw | ConvertFrom-Json
-  $fake | Add-Member -NotePropertyName active -NotePropertyValue '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -Force
-  $fake | ConvertTo-Json -Depth 5 | Set-Content $powerState -Encoding utf8
+  Check ($r.Code -eq 1 -and $r.Text -match "the run's hold failed: SetThreadExecutionState refused the request \(error 5\)") 'a live run whose holder failed fails with its reason'
+  Remove-Item -LiteralPath $runHold
+  # A record an older version left: put back by hand; one that cannot be read: moved aside.
+  . (Join-Path $repo 'scripts\lib\campaign.ps1')
+  $legacy = [ordered]@{ Scheme = '381b4222-f694-41f0-9685-ff5bb260df2e'; Power = @($HoldPower | ForEach-Object { [ordered]@{ Sub = $_.Sub; Setting = $_.Setting; AC = 600; DC = 300 } }); Lock = '1' }
+  [IO.File]::WriteAllText($holdRecord, ($legacy | ConvertTo-Json -Depth 5))
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match 'the active power plan is 8c5e7fda' -and $r.Text -match 'powercfg /setactive 381b4222') 'another power plan made active after the hold fails, naming the held one'
-  $fake.PSObject.Properties.Remove('active')
-  $fake | ConvertTo-Json -Depth 5 | Set-Content $powerState -Encoding utf8
-  # A hold record that parses but is not whole, and a powercfg read that hangs.
-  $holdKept = [IO.File]::ReadAllText($holdRecord)
-  [IO.File]::WriteAllText($holdRecord, '{"Scheme": "381b4222-f694-41f0-9685-ff5bb260df2e", "Power": [], "Lock": "0"}')
+  Check ($r.Code -eq 1 -and $r.Text -match 'a hold record an older version left is at' -and $r.Text -match 'pwsh scripts/campaign-hold.ps1 -Restore') 'a record an older version left fails with the manual restore'
+  [IO.File]::WriteAllText($holdRecord, '{ not json')
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match 'is not a complete hold record \(Power does not hold') 'an incomplete hold record fails with the field that is wrong'
-  [IO.File]::WriteAllText($holdRecord, $holdKept)
-  $env:BOSUN_FAKE_POWERCFG_HANG = 'read'
-  try { $r = Preflight $system ($holdArgs + @('-ProbeSeconds', '2')) } finally { Remove-Item Env:BOSUN_FAKE_POWERCFG_HANG }
-  $hung = if (Test-Path "$powerState.hang.pid") { [int](Get-Content "$powerState.hang.pid") } else { 0 }
-  Check ($r.Code -eq 1 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $hung -and -not (Get-Process -Id $hung -ErrorAction Ignore)) "a hung powercfg read fails at -ProbeSeconds and is stopped (pid $hung)"
-  Remove-Item Env:BOSUN_FAKE_POWERCFG
+  Check ($r.Code -eq 1 -and $r.Text -match "a hold record an older version left can't be read" -and $r.Text -match 'Move-Item -LiteralPath') 'an unreadable record fails with what to move aside'
+  Remove-Item -LiteralPath $holdRecord
+  # The screen saver that locks on resume: the owner's setting, refused; an inactive or a non-secure one passes.
+  foreach ($case in @(@{ Active = '1'; Secure = '1'; Fails = $true }, @{ Active = '0'; Secure = '1'; Fails = $false }, @{ Active = '1'; Secure = '0'; Fails = $false })) {
+    Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaveActive -Value $case.Active
+    Set-ItemProperty -LiteralPath $lockKey -Name ScreenSaverIsSecure -Value $case.Secure
+    $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey)
+    if ($case.Fails) { Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume' -and $r.Text -match "On resume, display logon screen") 'a screen saver that locks on resume fails with the owner''s fix' }
+    else { Check ($r.Code -eq 0 -and $r.Text -match 'no screen saver that locks on resume') "a screen saver active $($case.Active), secure $($case.Secure) passes" }
+  }
 
   $policy = "HKCU:\Software\BosunTest\preflight-$PID\AU"
   $store = Join-Path $work 'tasks.json'

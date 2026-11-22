@@ -34,6 +34,8 @@ param(
   [string]$HoldRecord = ($env:BOSUN_HOLD_RECORD ? $env:BOSUN_HOLD_RECORD : (Join-Path $env:LOCALAPPDATA 'Bosun\campaign-hold.json')),
   [string]$PowerCfg = ($env:BOSUN_HOLD_POWERCFG ? $env:BOSUN_HOLD_POWERCFG : (Join-Path $env:SystemRoot 'System32\powercfg.exe')),
   [string]$LockKey = ($env:BOSUN_HOLD_LOCKKEY ? $env:BOSUN_HOLD_LOCKKEY : 'HKCU:\Control Panel\Desktop'),
+  # The hold the run's launcher records (scripts/lib/hold-awake.ps1, D00 T03 §28), in the run guard's build folder.
+  [string]$RunHold = (Join-Path ($env:RUN_GUARD_BUILD ? $env:RUN_GUARD_BUILD : (Join-Path (Split-Path $PSScriptRoot) 'build')) 'run-hold.json'),
   [string]$PolicyKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU',
   [string]$BinDir = (Join-Path $env:ProgramData 'Bosun\bin'),
   [string]$DotnetDir = '',
@@ -426,23 +428,26 @@ function Test-Space {
 }
 
 function Test-Hold {
-  $fix = '`pwsh scripts/campaign-hold.ps1 -Apply`'
-  try { $saved = Read-Json $HoldRecord; if ($saved) { Assert-Record $saved $HoldRecord 'hold' } } catch { Fail $_.Exception.Message $fix; return }
-  if (-not $saved) { Fail "the hold isn't applied (no record at $HoldRecord)" $fix; return }
-  # The same expiry the run guard reads: an expired hold is restored at the run's first hook event, mid-campaign.
-  $life = Get-HoldLife $saved $HoldRecord
-  $redo = '`pwsh scripts/campaign-hold.ps1 -Restore`, then `pwsh scripts/campaign-hold.ps1 -Apply`'
-  if ($life.Expires -and $life.Expires -le [datetime]::UtcNow) { Fail "the hold expired at $($life.Expires.ToString('u')), so the run guard would restore it at the run's first event" $redo; return }
-  if ($life.RestoreTried) { Fail "an automatic restore of this hold was tried at $($life.RestoreTried.ToString('u')) and left it in place" $redo; return }
-  # The values Windows obeys are the active plan's, so a plan switched to after the hold isn't held at all.
-  try { $active = Get-ActiveScheme $PowerCfg } catch { Fail "the active power plan can't be read: $($_.Exception.Message)" $fix; return }
-  if ($active -ne $saved.Scheme) { Fail "the active power plan is $active, not the held $($saved.Scheme), so its sleep and display timeouts apply" "``powercfg /setactive $($saved.Scheme)``, then run the preflight again"; return }
-  try { $now = Get-HoldState $PowerCfg $LockKey $saved.Scheme } catch { Fail "the held values can't be read: $($_.Exception.Message)" $fix; return }
-  $drift = @()
-  foreach ($p in $now.Power) { foreach ($line in 'AC', 'DC') { if ($p.$line -ne 0) { $drift += "$($p.Setting) $line is $($p.$line)" } } }
-  if ($now.Lock -ne '0') { $drift += "ScreenSaverIsSecure is $($now.Lock)" }
-  if ($drift) { Fail "the hold drifted: $($drift -join '; ')" $fix; return }
-  Pass 'hold applied: no sleep, hibernate or display timeout, no screen saver lock'
+  # A record an older version left (the power-plan edits of D00 T03 §24) still holds the plan's values: put it back.
+  if (Test-Path -LiteralPath $HoldRecord) {
+    try { $saved = Read-Json $HoldRecord; if ($saved) { Assert-Record $saved $HoldRecord 'hold' } }
+    catch { Fail "a hold record an older version left can't be read: $($_.Exception.Message)" "check what $HoldRecord holds, then move it aside (``Move-Item -LiteralPath '$HoldRecord' -Destination '$HoldRecord.damaged'``)"; return }
+    Fail "a hold record an older version left is at $HoldRecord, so the power plan's sleep and display timeouts and the screen saver lock are still held" "in this account: ``pwsh scripts/campaign-hold.ps1 -Restore``"
+    return
+  }
+  # The run's own hold (D00 T03 §28): held while its writer runs, said by its holder, never read from the machine's
+  # execution state, which any process can hold.
+  $hold = $null
+  if (Test-Path -LiteralPath $RunHold) {
+    try { $hold = Get-Content -LiteralPath $RunHold -Raw | ConvertFrom-Json -ErrorAction Stop } catch { $hold = $null }
+  }
+  $live = $hold -and $hold.pid -and -not $hold.released -and [bool](Get-Process -Id ([int]$hold.pid) -ErrorAction Ignore)
+  if ($live -and $hold.acquired -eq $true) { Pass "the machine is held awake by run $($hold.pid)"; return }
+  if ($live -or ($hold -and $hold.acquired -eq $false -and $hold.parent -and (Get-Process -Id ([int]$hold.parent) -ErrorAction Ignore))) {
+    Fail "the run's hold failed: $($hold.why)" 'start the run again from its shortcut; if the hold fails again, the machine may sleep during the run'
+    return
+  }
+  Pass 'no run holds the machine now; the run''s launcher holds it awake while its writer runs'
 }
 
 # The compliance deadline policies under the Windows Update policy key: one in force restarts the machine once it and its
@@ -523,7 +528,15 @@ function Test-Lock {
     Fail "a machine policy locks this PC after $secs seconds idle (InactivityTimeoutSecs)" "ask whoever manages this PC (Intune) to lift it, or set $InactivityKey InactivityTimeoutSecs to 0 in an elevated shell" 'owner'
     return
   }
-  Pass 'no machine inactivity lock'
+  # The run's power request keeps the display on but does not stop the screen saver (Microsoft documents it), so a
+  # saver that locks on resume locks the desktop mid-run: the owner's setting, which the campaign never writes.
+  try { $active = Get-RegValue $LockKey 'ScreenSaveActive'; $secure = Get-RegValue $LockKey 'ScreenSaverIsSecure' }
+  catch { Fail "the screen saver settings can't be read: $($_.Exception.Message)" 'run the preflight in a normal user shell'; return }
+  if ("$active" -eq '1' -and "$secure" -eq '1') {
+    Fail 'the screen saver locks the desktop on resume, and a campaign''s hold keeps the display on but cannot stop the screen saver' "turn off 'On resume, display logon screen' (Settings > Personalization > Lock screen > Screen saver), or the screen saver itself" 'owner'
+    return
+  }
+  Pass 'no machine inactivity lock, and no screen saver that locks on resume'
 }
 
 function Test-Owner {
