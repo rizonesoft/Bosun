@@ -23,13 +23,19 @@ function Start-Holder([int]$parent, [string]$record, [string[]]$extra = @()) {
   Start-Hidden $pwsh (@('-NoProfile', '-NonInteractive', '-File', $holder, '-ParentPid', "$parent", '-Record', $record) + $extra) -WithInput
 }
 function Gone-Within([Diagnostics.Process]$p, [int]$ms) { $p.WaitForExit($ms) }
+# The holder's one line, or a throw into the finally below that stops every process started here (round 3 of D00 T03 §28).
+function Read-Answer([Diagnostics.Process]$p, [int]$seconds = 20) {
+  $answer = $p.StandardOutput.ReadLineAsync()
+  if (-not $answer.Wait([TimeSpan]::FromSeconds($seconds))) { throw "holder $($p.Id) gave no line within $seconds seconds" }
+  $answer.Result
+}
 
 try {
   # It holds, and says so on its line and in its record.
   $parent = Start-Parent
   $record = Join-Path $work 'a.json'
   $h = Start-Holder $parent.Id $record
-  $line = $h.StandardOutput.ReadLine()
+  $line = (Read-Answer $h)
   $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
   Check ($line -eq 'held' -and $saved.acquired -eq $true -and $saved.pid -eq $h.Id -and $saved.parent -eq $parent.Id) "the holder says held and records its own pid and its parent ($line)"
   # Its parent ends: it lets go within a second.
@@ -40,14 +46,14 @@ try {
   # Its launcher releases it by closing its input.
   $parent = Start-Parent
   $h = Start-Holder $parent.Id (Join-Path $work 'b.json')
-  $null = $h.StandardOutput.ReadLine()
+  $null = (Read-Answer $h)
   $h.StandardInput.Close()
   Check (Gone-Within $h 1500) 'it is gone within a second of its launcher closing its input'
   Check ($h.ExitCode -eq 0) 'and exits 0'
 
   # A timed hold: still held just before its time, gone at it.
   $h = Start-Holder $parent.Id (Join-Path $work 'c.json') @('-Minutes', '0.05')  # three seconds
-  $null = $h.StandardOutput.ReadLine()
+  $null = (Read-Answer $h)
   Start-Sleep -Milliseconds 2200
   Check (-not $h.HasExited) 'a timed hold is still held just before its time'
   Check (Gone-Within $h 2500) 'and gone once its time has run out'
@@ -56,7 +62,7 @@ try {
   # A refused request says so, with exit 3.
   $env:BOSUN_TEST_HOLD_FAIL = '1'
   try { $h = Start-Holder $parent.Id (Join-Path $work 'd.json') } finally { Remove-Item Env:BOSUN_TEST_HOLD_FAIL }
-  $line = $h.StandardOutput.ReadLine()
+  $line = (Read-Answer $h)
   # It lives until released, as a held one does, so its record stays this run's while the writer runs (round 1 of
   # D00 T03 §28), and records the release it is given.
   $alive = -not $h.WaitForExit(1500)
@@ -68,7 +74,7 @@ try {
   $locked = Join-Path $work 'e.json'
   New-Item -ItemType Directory -Path $locked | Out-Null  # a path the replace cannot take
   $h = Start-Holder $parent.Id $locked
-  $line = $h.StandardOutput.ReadLine()
+  $line = (Read-Answer $h)
   $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
   Check ($line -match "^held; but .*e\.json could not be written") "a record that cannot be written is said on the holder's line ($line)"
   # The case round 1 named: an older run's released record left read-only.
@@ -76,7 +82,7 @@ try {
   [IO.File]::WriteAllText($readOnly, '{"pid": 1, "released": "2026-11-21T00:00:00Z"}')
   (Get-Item -LiteralPath $readOnly).IsReadOnly = $true
   $h = Start-Holder $parent.Id $readOnly
-  $line = $h.StandardOutput.ReadLine()
+  $line = (Read-Answer $h)
   $h.StandardInput.Close(); $null = $h.WaitForExit(5000)
   $kept = [IO.File]::ReadAllText($readOnly)
   (Get-Item -LiteralPath $readOnly).IsReadOnly = $false

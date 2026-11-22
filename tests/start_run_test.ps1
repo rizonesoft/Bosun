@@ -194,6 +194,7 @@ $record = Join-Path $env:RUN_GUARD_BUILD 'run-hold.json'
 $held = if (Test-Path $record) { $r = Get-Content $record -Raw | ConvertFrom-Json; if ($r.acquired -and (Get-Process -Id $r.pid -ErrorAction Ignore)) { "alive $($r.pid)" } else { 'gone' } } else { 'none' }
 Set-Content -LiteralPath (Join-Path $env:RUN_GUARD_BUILD 'writer-saw.txt') -Value $held
 Start-Sleep -Seconds ([int]$env:FAKE_WRITER_SECONDS)
+Set-Content -LiteralPath (Join-Path $env:RUN_GUARD_BUILD 'done.txt') -Value ([datetime]::UtcNow.ToString('o'))
 exit ([int]$env:FAKE_WRITER_EXIT)
 '@
   Set-Content (Join-Path $holdDir 'claude.cmd') "@`"$pwsh`" -NoProfile -File `"%~dp0writer.ps1`"" -Encoding ascii
@@ -234,7 +235,10 @@ exit ([int]$env:FAKE_WRITER_EXIT)
       $said = Wait-Done $shell
       $saw = "$(Get-Content -LiteralPath (Join-Path $build 'writer-saw.txt') -Raw -ErrorAction Ignore)".Trim()
       $record = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
-      Start-Sleep -Milliseconds 1000
+      # Timed from the writer's own exit to the holder's recorded release, not from when this test saw the end.
+      $exited = [datetime]::Parse((Get-Content -LiteralPath (Join-Path $build 'done.txt') -Raw).Trim(), $null, 'RoundtripKind')
+      $gap = (([datetime]$record.released).ToUniversalTime() - $exited.ToUniversalTime()).TotalSeconds  # ConvertFrom-Json gives a DateTime already
+      Check ($record.released_because -eq 'its launcher released it' -and $gap -ge 0 -and $gap -le 1) "$($case.Name): the hold is released within a second of the writer's exit ($([math]::Round($gap, 2)) s)"
       Check ($saw -match '^alive \d+$' -and ($said -match '^hold: the machine stays awake') -and -not (Get-Process -Id $record.pid -ErrorAction Ignore) -and -not $shell.HasExited) "$($case.Name): the holder held before the writer started and was gone within a second of it returning, the shell still open ($saw)"
     }
     # A holder that does not answer is stopped at its bound and the writer starts anyway (round 2 of D00 T03 §28).
@@ -260,8 +264,9 @@ exit ([int]$env:FAKE_WRITER_EXIT)
     Start-Sleep -Seconds 7
     $goneLater = -not (Get-Process -Id $record.pid -ErrorAction Ignore)
     $writerOn = -not (Test-Path (Join-Path $build 'done.txt')) -and -not $shell.HasExited
+    $timedOut = (Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json).released_because -match 'minute\(s\) ran out'
     $null = Wait-Done $shell
-    Check ($heldEarly -and $goneLater -and $writerOn -and $record.minutes -gt 0) "-Minutes 1 holds for its minute and lets go while the writer runs on (held early: $heldEarly, gone later: $goneLater, writer on: $writerOn, minutes recorded: $($record.minutes))"
+    Check ($heldEarly -and $goneLater -and $writerOn -and $timedOut -and $record.minutes -gt 0) "-Minutes 1 holds for its minute and lets go while the writer runs on (held early: $heldEarly, gone later: $goneLater, writer on: $writerOn, minutes recorded: $($record.minutes))"
     Remove-Item Env:BOSUN_TEST_MINUTE_SECONDS
     # Outside its range, -Minutes is refused before anything starts.
     foreach ($bad in '0', '10081') {
