@@ -169,6 +169,8 @@ depends_on: ["private-overlay"]
 
 ## 5. Open findings, part 5 of 6
 
+> **Started:** 2026-11-22T13:29:27Z
+
 `todo/findings.md` holds defects and suggestions noticed while building other sections. Unscheduled, they block nothing and are never built, so the plan is not complete while any stays open. This section settles the open findings on lines 147 to 181 (as of `b8c4e0b3`), 35 entries.
 
 **Phase:** 0
