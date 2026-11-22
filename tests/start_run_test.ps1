@@ -1,4 +1,4 @@
-﻿# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
+# scripts/start-run.ps1: the shortcuts it writes start the run from this checkout, each with its runner's icon; a dry
 # run changes nothing; and when the launcher's window process ends, nothing it started keeps running.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
@@ -178,6 +178,84 @@ Start-Sleep 120
     Remove-Item Env:RUN_GUARD_STATE
     Remove-Item Env:RUN_GUARD_BUILD -ErrorAction Ignore
     Remove-Item -LiteralPath $envKey -Recurse -Force
+  }
+
+  # D00 T03 §28: the launcher holds the machine awake while its writer runs, through a holder it starts before the
+  # writer and releases when the writer returns, the window (-NoExit) outliving it; -Minutes times the hold. Each case
+  # runs the launcher in a shell kept alive after it, as the shortcut's -NoExit is; every console child has no window.
+  $holdDir = Join-Path $work 'hold'
+  New-Item -ItemType Directory -Force $holdDir | Out-Null
+  $holdKey = "HKCU:\Software\BosunStartRunHold-$PID"
+  New-Item -Path $holdKey -Force | Out-Null
+  Set-ItemProperty -LiteralPath $holdKey -Name 'CLAUDE_CODE_OAUTH_TOKEN' -Value 'tok-hold-test'
+  # The fake writer says whether a holder held when it started, sleeps as long as asked, and exits as asked.
+  Set-Content (Join-Path $holdDir 'writer.ps1') @'
+$record = Join-Path $env:RUN_GUARD_BUILD 'run-hold.json'
+$held = if (Test-Path $record) { $r = Get-Content $record -Raw | ConvertFrom-Json; if ($r.acquired -and (Get-Process -Id $r.pid -ErrorAction Ignore)) { "alive $($r.pid)" } else { 'gone' } } else { 'none' }
+Set-Content -LiteralPath (Join-Path $env:RUN_GUARD_BUILD 'writer-saw.txt') -Value $held
+Start-Sleep -Seconds ([int]$env:FAKE_WRITER_SECONDS)
+exit ([int]$env:FAKE_WRITER_EXIT)
+'@
+  Set-Content (Join-Path $holdDir 'claude.cmd') "@`"$pwsh`" -NoProfile -File `"%~dp0writer.ps1`"" -Encoding ascii
+  function Invoke-Kept([string[]]$extra) {
+    # The launcher in a shell that stays alive after it, as the shortcut's -NoExit keeps the window; returns that shell.
+    # Plain, not quoted: a quoted '-Minutes' is a positional string to PowerShell, not a parameter name.
+    $quoted = $extra -join ' '
+    $info = [Diagnostics.ProcessStartInfo]::new($pwsh)
+    foreach ($a in '-NoProfile', '-NoExit', '-Command', "& '$script' -UserEnvKey '$holdKey' -Goal 'test goal' $quoted; 'LAUNCHER-DONE'") { $info.ArgumentList.Add($a) }
+    $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $info.RedirectStandardOutput = $true; $info.RedirectStandardInput = $true
+    [Diagnostics.Process]::Start($info)
+  }
+  function Wait-Done($shell, [int]$seconds = 60) {
+    $deadline = (Get-Date).AddSeconds($seconds); $seen = @()
+    while ((Get-Date) -lt $deadline) { $line = $shell.StandardOutput.ReadLine(); if ($null -eq $line) { break }; $seen += $line; if ($line -eq 'LAUNCHER-DONE') { break } }
+    $seen
+  }
+  $holdState = Join-Path $holdDir 'state.json'
+  $env:RUN_GUARD_STATE = $holdState
+  $env:Path = "$holdDir;$path"
+  $shells = @()
+  try {
+    foreach ($case in @(@{ Name = 'a writer that returns'; Exit = '0' }, @{ Name = 'a writer that fails at once'; Exit = '1' })) {
+      $build = Join-Path $holdDir "build-$($case.Exit)"
+      New-Item -ItemType Directory -Force $build | Out-Null
+      $env:RUN_GUARD_BUILD = $build; $env:FAKE_WRITER_SECONDS = '1'; $env:FAKE_WRITER_EXIT = $case.Exit
+      Remove-Item -LiteralPath $holdState -ErrorAction Ignore
+      $shell = Invoke-Kept @(); $shells += $shell
+      $said = Wait-Done $shell
+      $saw = "$(Get-Content -LiteralPath (Join-Path $build 'writer-saw.txt') -Raw -ErrorAction Ignore)".Trim()
+      $record = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
+      Start-Sleep -Milliseconds 1000
+      Check ($saw -match '^alive \d+$' -and ($said -match '^hold: the machine stays awake') -and -not (Get-Process -Id $record.pid -ErrorAction Ignore) -and -not $shell.HasExited) "$($case.Name): the holder held before the writer started and was gone within a second of it returning, the shell still open ($saw)"
+    }
+    # A timed hold, with a six-second minute: held, then gone while the writer runs on.
+    $build = Join-Path $holdDir 'build-timed'
+    New-Item -ItemType Directory -Force $build | Out-Null
+    $env:RUN_GUARD_BUILD = $build; $env:FAKE_WRITER_SECONDS = '16'; $env:FAKE_WRITER_EXIT = '0'; $env:BOSUN_TEST_MINUTE_SECONDS = '6'
+    Remove-Item -LiteralPath $holdState -ErrorAction Ignore
+    $shell = Invoke-Kept @('-Minutes', '1'); $shells += $shell
+    foreach ($i in 1..50) { if (Test-Path (Join-Path $build 'writer-saw.txt')) { break }; Start-Sleep -Milliseconds 200 }
+    $record = Get-Content -LiteralPath (Join-Path $build 'run-hold.json') -Raw | ConvertFrom-Json
+    $heldEarly = [bool](Get-Process -Id $record.pid -ErrorAction Ignore)
+    Start-Sleep -Seconds 7
+    $goneLater = -not (Get-Process -Id $record.pid -ErrorAction Ignore)
+    $writerOn = -not (Test-Path (Join-Path $build 'done.txt')) -and -not $shell.HasExited
+    $null = Wait-Done $shell
+    Check ($heldEarly -and $goneLater -and $writerOn -and $record.minutes -gt 0) "-Minutes 1 holds for its minute and lets go while the writer runs on (held early: $heldEarly, gone later: $goneLater, writer on: $writerOn, minutes recorded: $($record.minutes))"
+    Remove-Item Env:BOSUN_TEST_MINUTE_SECONDS
+    # Outside its range, -Minutes is refused before anything starts.
+    foreach ($bad in '0', '10081') {
+      $build = Join-Path $holdDir "build-bad-$bad"
+      New-Item -ItemType Directory -Force $build | Out-Null
+      $env:RUN_GUARD_BUILD = $build
+      $out = (& $pwsh -NoProfile -File $script -UserEnvKey $holdKey -Goal 'test goal' -Minutes $bad 2>&1) -join "`n"
+      Check ($LASTEXITCODE -eq 2 -and $out -match '-Minutes takes 1 to 10080' -and -not (Test-Path (Join-Path $build 'writer-saw.txt')) -and -not (Test-Path (Join-Path $build 'run-hold.json'))) "-Minutes $bad is refused with nothing started"
+    }
+  } finally {
+    foreach ($shell in $shells) { if (-not $shell.HasExited) { & taskkill /T /F /PID $shell.Id 2>&1 | Out-Null } }
+    $env:Path = $path
+    Remove-Item Env:RUN_GUARD_STATE, Env:RUN_GUARD_BUILD, Env:FAKE_WRITER_SECONDS, Env:FAKE_WRITER_EXIT, Env:BOSUN_TEST_MINUTE_SECONDS -ErrorAction Ignore
+    Remove-Item -LiteralPath $holdKey -Recurse -Force -ErrorAction Ignore
   }
 
   # The Antigravity run against a fake agy and a state file of its own (D00 T03 §19): the guard is claimed for this

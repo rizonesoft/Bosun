@@ -1,4 +1,4 @@
-﻿# Starts the unattended run (the campaign): an interactive session in this checkout, in this window, with every
+# Starts the unattended run (the campaign): an interactive session in this checkout, in this window, with every
 # permission prompt off, the run guard switched on for it, its model chosen and its goal set.
 #
 #   pwsh scripts/start-run.ps1                    start the campaign in Claude Code, in this window, at medium effort
@@ -12,6 +12,14 @@
 #                                                 campaign" and "Bosun Gemini campaign", each running one line above
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start Claude Code on another model
+#   pwsh scripts/start-run.ps1 -Minutes 90        hold the machine awake for 90 minutes (1 to 10080) instead of for as
+#                                                 long as the writer runs
+#
+# While the writer runs, the machine is held awake and its display on by a power request (scripts/lib/hold-awake.ps1,
+# D00 T03 §28), which Windows ends when the holder ends: the writer returning, its minutes running out, the window
+# closing or a crash. Nothing on the machine is changed. The request does not stop the screen saver (Microsoft:
+# https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate), so a saver that
+# locks on resume is the owner's setting to turn off, which `pwsh scripts/campaign-preflight.ps1` checks.
 #
 # A run starts only when you start it, and it lives in this window (the owner's rule of 2026-11-12). Closing the
 # window stops it, and everything it started stops with it: this process is put in a Windows job that ends its whole
@@ -54,11 +62,53 @@ param(
   [string]$Effort = 'medium',
   [string]$AgyModel = 'gemini-4-neon-medium',
   [string]$UserEnvKey = 'HKCU:\Environment',
+  # Minutes to hold the machine awake (1 to 10080); 0, the default, holds it for as long as the writer runs.
+  [int]$Minutes = 0,
+  # Where the holder records its hold (the preflight reads it): the run guard's build folder, which RUN_GUARD_BUILD moves
+  # for a test, so a test never writes the checkout's own.
+  [string]$HoldRecord = (Join-Path ($env:RUN_GUARD_BUILD ? $env:RUN_GUARD_BUILD : (Join-Path (Split-Path $PSScriptRoot) 'build')) 'run-hold.json'),
   [string]$Goal = 'Finish the Bosun implementation plan 100% complete and aim for excellence: it should be the best project in its class, better than what any large vendor would ship. Act autonomously under the Autonomy and ambition rules in AGENTS.md: decide and act instead of asking, heal what breaks at its owning layer, and improve the repo, its runners, tools and methods whenever they slow the work or let a defect through. Work it with the process-plan skill, as the prompt `process plan` does, without stopping between sections or phases. The goal is met only when `python scripts/todo-graph.py query next` prints null and `python scripts/todo-graph.py query stats` shows every section outside phase 99 verified, or parked and named in docs/acceptance/. While `python scripts/run-guard.py status` prints waiting, or a review or a CI gate is in flight, end the turn without building or using tools: that is waiting, not stopping, and this session''s own heartbeat takes the run up again.'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
+if ($PSBoundParameters.ContainsKey('Minutes') -and ($Minutes -lt 1 -or $Minutes -gt 10080)) {
+  "-Minutes takes 1 to 10080 (or leave it out to hold the machine for as long as the writer runs), not $Minutes"
+  exit 2
+}
+
+# The power request that keeps the machine awake while the writer runs (D00 T03 §28): a holder process of its own,
+# which says on its first line whether it holds, and lets go when its input closes, its minutes run out or this
+# process ends. A failed hold is said and the start goes on: a start is never blocked.
+function Start-Hold {
+  $info = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME 'pwsh.exe'))
+  # Test-only: a shorter minute, so a timed hold can be tested in seconds.
+  $length = if ($Minutes -and $env:BOSUN_TEST_MINUTE_SECONDS) { $Minutes * [double]$env:BOSUN_TEST_MINUTE_SECONDS / 60 } else { $Minutes }
+  foreach ($a in @('-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'lib\hold-awake.ps1'), '-ParentPid', "$PID",
+                   '-Record', $HoldRecord) + $(if ($Minutes) { '-Minutes', ([double]$length).ToString([Globalization.CultureInfo]::InvariantCulture) })) { $info.ArgumentList.Add($a) }  # one spelling, whatever the culture
+  $info.UseShellExecute = $false; $info.CreateNoWindow = $true
+  $info.RedirectStandardInput = $true; $info.RedirectStandardOutput = $true
+  try {
+    $holder = [Diagnostics.Process]::Start($info)
+    $said = $holder.StandardOutput.ReadLine()
+  } catch {
+    "hold: the holder could not start ($($_.Exception.Message)), so the machine may sleep during the run"
+    return $null
+  }
+  if ($said -eq 'held') {
+    "hold: the machine stays awake and its display on $(if ($Minutes) { "for $Minutes minute(s)" } else { 'while the writer runs' })"
+  } else {
+    "hold: $said, so the machine may sleep during the run"
+  }
+  $holder
+}
+function Stop-Hold($holder) {
+  # The writer has returned or never started, and the window (-NoExit) outlives it: the hold goes now.
+  if (-not $holder -or $holder.HasExited) { return }
+  # A holder whose input is already gone is ended below by the kill, so a failed close needs nothing more.
+  try { $holder.StandardInput.Close() } catch [System.IO.IOException], [System.ObjectDisposedException] { }
+  if (-not $holder.WaitForExit(2000)) { $holder.Kill($true) }
+}
 # One launcher for each runner, named as the owner's other campaigns are ("<project> <runner> campaign").
 $launchers = @(
   @{ Agent = 'claude'; Name = 'Bosun Claude campaign'; Icon = 'bosun-campaign-claude.ico'; Fill = '#D97757'; Mark = 'claude.svg'
@@ -165,12 +215,15 @@ if ($antigravity) {
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
   $env:BOSUN_RUN_SESSION = $session
   $code = 1
+  $hold = @(Start-Hold)
+  $hold | Where-Object { $_ -is [string] }
   try {
     & $agy @agyArgs
     $code = $LASTEXITCODE
   } catch {
     "agy could not start: $($_.Exception.Message)"
   } finally {
+    Stop-Hold ($hold | Where-Object { $_ -is [Diagnostics.Process] } | Select-Object -First 1)
     # The window outlives agy (-NoExit): its run ends here, unless it already ended (a halt, the plan done).
     & $python $guardScript end --session $session --reason "agy returned (exit $code); nothing resumes a run: start it again from its shortcut" | Out-Null
   }
@@ -216,4 +269,15 @@ Set-Location -LiteralPath $repo
 & $python (Join-Path $PSScriptRoot 'run-guard.py') start --session $session
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
 Join-WindowJob
-& $claude @arguments
+$hold = @(Start-Hold)
+$hold | Where-Object { $_ -is [string] }
+$code = 1
+try {
+  & $claude @arguments
+  $code = $LASTEXITCODE
+} catch {
+  "claude could not start: $($_.Exception.Message)"
+} finally {
+  Stop-Hold ($hold | Where-Object { $_ -is [Diagnostics.Process] } | Select-Object -First 1)
+}
+exit $code
