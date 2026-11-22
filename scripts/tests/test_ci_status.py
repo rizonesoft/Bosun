@@ -1998,8 +1998,6 @@ class OpenRuns(Base):
                 self.assertFalse([l for l in lines if l.startswith("no run was started:")], "a start was tried")
 
     def test_a_start_tied_to_its_run_names_the_run(self):
-        lines, _, _ = self.outcomes({"build.yml": "ok", "plan.yml": "ok"})
-        self.state().unlink(missing_ok=True)
         clock = _Clock()
         gh = FakeGh({})
         slow = _Slow(gh, clock, cost=0)
@@ -2009,11 +2007,11 @@ class OpenRuns(Base):
         def sleep(seconds):
             real(seconds)
             if gh.started:
-                for name in ("build.yml", "plan.yml"):
-                    gh.runs[name] = [dict(run("in_progress", None, run_id=9), event="workflow_dispatch")]
+                for name, run_id in (("build.yml", 8), ("plan.yml", 9)):  # each its own run, so a swap would show
+                    gh.runs[name] = [dict(run("in_progress", None, run_id=run_id), event="workflow_dispatch")]
         code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "2"], slow, FakeGit(["src/a.cpp"]),
                             clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
-        self.assertIn("started build.yml: https://x/9", out.splitlines())
+        self.assertIn("started build.yml: https://x/8", out.splitlines())
         self.assertIn("started plan.yml: https://x/9", out.splitlines())
 
     def test_round_1_a_cancelled_older_dispatch_is_not_the_run_a_new_start_became(self):
