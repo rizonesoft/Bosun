@@ -34,7 +34,7 @@ title: "TODO-07 -- Kit follow-ups"
 | 1 | §1 | Graph loads once per command | -- | [x] |
 | 2 | §2 | Pyright clean over the scripts | -- | [x] |
 | 3 | §3 | Test fixtures in the scratch folder | -- | [x] |
-| 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [ ] |
+| 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [x] |
 | 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [ ] |
 | 6 | §6 | Clone setup and pre-commit say what they did | -- | [ ] |
 | 7 | §7 | Build measurement compares against a baseline | -- | [ ] |
@@ -230,9 +230,12 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 25, 28 and
 - [x] Add live incremental run logging to `scripts/check-all.ps1` (using `Get-BosunScratchRoot` from `scripts/lib/scratch.ps1` with a unique filename per invocation): `-List` and unknown `-Only` (exit 2) create no log and print no `log:` line; a log-creation failure names the attempted path and reason and exits 1 before any step or mark; once created, pass the log path to `Enter-GateMark`, stream each step's stdout and stderr incrementally to both console and log during `Measure-Job` polling without losing output on failure/timeout, record gate-mark/missing-program/launch/step failures in the log and print `log: <path>` on pass and on every post-log failure; on a mid-run log write failure, stop the active job, remove the gate mark, print a console diagnostic naming the partial log, run no later step, and exit 1. Done when: `tests/check_all_test.ps1` proves live stdout+stderr markers in console and active-mark log while the child runs, post-timeout log retention of earlier step + markers + diagnosis, two distinct readable logs on one scratch root, no log on `-List`/unknown `-Only`, startup log-creation failure, post-log gate-mark failure recorded in log, and mid-run log write failure cleanup with non-zero exit. Cheaper substitute: buffering until the end, reusing one filename, or swallowing mid-run write errors, which the Done when refuses.
 - [x] Add `-OnStarted` and `-OnTick` hooks to `Measure-Job` in `scripts/lib/job-measure.ps1` (firing `-OnStarted` both during `Wait(200)` and in the post-loop `StartedPath` check for fast steps) and emit `waiting <step>: queued for a build slot` before a queued step starts and `started <step>: got build slot after <N.N> s` when its slot arrives in `scripts/check-all.ps1` (written to both console and log). Done when: `tests/check_all_test.ps1` holds the fake slot until `waiting` is observed in console and log, releases it and holds the child until `started` is observed in both with reported duration matching the controlled wait within tolerance, covers a fast step finishing between polls, and verifies `waiting` without `started` on queue timeout. Cheaper substitute: printing wait info only after exit or hardcoding a duration, which the Done when refuses.
 - [x] Before the first step whose program is `dotnet` in `scripts/check-all.ps1`, run `dotnet --version` once with working directory `$repo` (preserving `global.json`'s `"allowPrerelease": false` release-only selection), emit `dotnet-sdk: <version>` to console and log, and fail cleanly (recording the diagnostic in the log and printing `log: <path>`, running no build or later step) if `dotnet --version` exits non-zero. Done when: `tests/check_all_test.ps1` launched from outside `$repo` with a fake `dotnet` recording CWD and call order proves one `--version` probe in `$repo` before the first `.NET` step with exact version in console and log across two `.NET` steps, zero probes when no `.NET` step is selected, and probe failure diagnosed in the named log with no later step run. Cheaper substitute: running `dotnet --version` in the caller's CWD, printing it on every run, or ignoring a failing probe, which the Done when refuses.
-- [ ] Commit: `check-all: a log, queue waits and the SDK (D00 T07 §4)`
+- [x] Commit: `check-all: a log, queue waits and the SDK (D00 T07 §4)`
 
 **Test checkpoint:** `pwsh tests/check_all_test.ps1` exits 0 covering live stdout+stderr streaming, post-timeout retention, distinct logs, log-boundary and mid-run write-failure cleanup, live `waiting`/`started` queue transitions and fast-exit `StartedPath`, and out-of-repo `dotnet --version` probe order and failure; removing the `log:` line fails the failing-step test.
+
+> **Verified:** 2026-11-23 | §4 | 2267a86a87129f8722a746b5dd2e08efe61bf530
+> **Review:** `docs/reviews/d00-t07-s4.json`
 
 ## 5. Weakening scan reads blobs in one batch and shows lines
 

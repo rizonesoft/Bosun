@@ -1,0 +1,107 @@
+{
+  "ref": "D00 T07 \u00a74",
+  "title": "check-all keeps a log and says its waits and SDK",
+  "implementation_sha": "2267a86a87129f8722a746b5dd2e08efe61bf530",
+  "date": "2026-11-23",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "CI build.yml -> green at 2267a86a8712 (https://github.com/rizonesoft/Bosun/actions/runs/45083310520)",
+    "CI plan.yml -> green at 2267a86a8712 (https://github.com/rizonesoft/Bosun/actions/runs/45083310507)",
+    "pwsh tests/check_all_test.ps1 -> 65/65 checks passed (exit 0)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+    "verdict": "completed",
+    "candidate": "574477cf6bcb002ca4a7ac3b2e7af7e25271fe47",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s4.md",
+    "candidate": "5a15876f4ec9ad492aa647a83d92f3113d4a1824",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "5a15876f4ec9ad492aa647a83d92f3113d4a1824",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
