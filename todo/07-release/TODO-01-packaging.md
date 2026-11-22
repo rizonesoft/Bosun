@@ -117,11 +117,11 @@ Whatever install adds must come off, with logs left unless asked.
 **Test checkpoint:** `pwsh tests\uninstall_test.ps1` exits 0.
 
 ## 4. Keyboard and accessibility audit
-
+ Extended 2026-11-22 by `D00 T06 §5` (base lines 160 and 161).
 Page-level tests prove each page. This walks them all, so a gap can't hide between sections.
 
 **Phase:** 7
-**Needs:** none
+**Needs:** display-session
 **Surface:** no
 
 **Build order:**
@@ -131,9 +131,11 @@ Page-level tests prove each page. This walks them all, so a gap can't hide betwe
 
 - [ ] Assert names on icon-only controls, 32 px targets, tab order and no colour-only status, for all views. Done when: removing a name fails the audit. Cheaper substitute: an allowlist that grows.
 - [ ] Check live regions on Activity and status changes. Done when: a status change announces, in a test.
+- [ ] Render focus in `tests/Bosun.Panel.Tests/Render/PageRenderer.cs` at 100%, 125%, 150% and 200% scaling, the ring whole and crisp at each, and after a move between monitors (base line 160). Done when: `FocusOutlineTests` reads a whole, unblurred ring at each scale and after a DPI change. Cheaper substitute: rendering at 96 DPI only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Time a keyboard task in `tests/Bosun.Panel.E2E/KeyboardTests.cs` against WinUI's own controls, selected controls included: zero focus-location errors and a lower median time to find the focus (base line 161). Done when: the task's results for both are recorded here, zero errors and the panel's median lower. Cheaper substitute: the panel timed alone, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Commit: `release: accessibility audit`
 
-**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*AccessibilityAudit*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found).
+**Test checkpoint:** `bosun run -- dotnet test --solution Bosun.slnx --filter-class "*AccessibilityAudit*"` exits 0, and fails if the change is reverted (**corrected 2026-11-22, round 4 of `D00 T06 §4`:** written as VSTest arguments; until the tests exist it exits 8, no tests found). `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*FocusOutline*"` exits 0, and `pwsh scripts/smoke-input.ps1` exits 0 with the timed `KeyboardTests` task named in its log (**corrected 2026-11-22 by `D00 T06 §5`**, for base lines 160 and 161, which also made the section need a display session).
 
 ## 5. Performance budget
 

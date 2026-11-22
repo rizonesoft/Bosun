@@ -47,7 +47,8 @@ title: "TODO-05 -- Shell follow-ups"
 | 14 | §14 | Refresh says when and how it went, and a failure can be copied | -- | [ ] |
 | 15 | §15 | Settings preview a theme, save off the UI thread, and keep a snapshot | -- | [ ] |
 | 16 | §16 | The tray shows headroom and opens its menu beside the icon | -- | [ ] |
-| 17 | §17 | The palette and toasts by keyboard, and a palette that finds by word | -- | [ ] |
+| 17 | §17 | Keyboard reach: the palette, toasts, results, placeholders and the Activity list | -- | [ ] |
+| 18 | §18 | The smoke and the desktop lock: a cheap look first, an inspectable lock, kept reports | -- | [ ] |
 
 ## 1. Contrast holds on hovered rows and every drawn pair, with the token named
 
@@ -384,7 +385,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 93, 101, 1
 
 ## 15. Settings preview a theme, save off the UI thread, and keep a snapshot
 
-Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 94 to 96 and 100, completion reviews of `D02 T02 §5` and `§7`). A damaged `panel.json` falls back to the defaults (`src/Bosun.Core/PanelSettingsStore.cs`); a theme is seen only after Save (`src/Bosun.Panel/Settings/SettingsPage.cs`, `SelectedTheme`); `SaveAsync` writes, flushes, reads back and calls the registry on the UI thread; and the tray's first-close flag is saved on it too (`src/Bosun.Panel/Tray/TrayController.cs`, `NoticeWasShown`). Extended 2026-11-22 by `D00 T06 §4` (base lines 119, 127, 128 and 142).
+Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 94 to 96 and 100, completion reviews of `D02 T02 §5` and `§7`). A damaged `panel.json` falls back to the defaults (`src/Bosun.Core/PanelSettingsStore.cs`); a theme is seen only after Save (`src/Bosun.Panel/Settings/SettingsPage.cs`, `SelectedTheme`); `SaveAsync` writes, flushes, reads back and calls the registry on the UI thread; and the tray's first-close flag is saved on it too (`src/Bosun.Panel/Tray/TrayController.cs`, `NoticeWasShown`). Extended 2026-11-22 by `D00 T06 §4` (base lines 119, 127, 128 and 142). Extended 2026-11-22 by `D00 T06 §5` (base lines 162 and 163).
 
 **Phase:** 2
 **Needs:** display-session
@@ -402,6 +403,8 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 94 to 96 a
 - [ ] Say under the pressure threshold field of `src/Bosun.Panel/Settings/SettingsView.xaml`, not only in its tooltip, that it is Windows' available memory, how often it is checked (read from the interval `src/Bosun.Panel/Tray/PressureCheck.cs` uses, so the text stays true when base line 118's item brings detection to 2 s), with a 1 GB way back, checked at the window's least size and at 200 percent scaling (base line 119). Done when: a test reads the three facts in visible text under the field, changes the check's interval and reads the text follow it, and the renders at both sizes show it unclipped  Cheaper substitute: the text in the tooltip only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Give the theme choice in `src/Bosun.Panel/Settings/SettingsView.xaml` an access key, so one documented chord puts the keyboard on the chosen theme and one arrow moves it (base line 128). Done when: a test presses the chord, reads focus on the chosen option, presses an arrow and reads the next one chosen. Cheaper substitute: a chord that focuses the first option, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Add an optional in-app contrast preview selector to `src/Bosun.Panel/Settings/SettingsView.xaml`, two actions to switch into a contrast theme and one to restore, leaving the desktop's theme untouched, beside the start-time `BOSUN_PANEL_CONTRAST` of `src/Bosun.Panel/Theme/ContrastPreview.cs` (base line 142). Done when: a test switches in two actions, reads the contrast colours applied, restores in one, and reads the Windows theme unchanged. Cheaper substitute: a setting that needs a restart, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Step the pressure threshold of `src/Bosun.Panel/Settings/SettingsView.xaml` with Up and Down by a sensible increment within its 512 to 65536 MB range, as a NumberBox does, keeping explicit Save (base line 162). Done when: `ThresholdTests` presses Up and Down, reads the value stepped and held at both ends, and reads nothing saved before Save. Cheaper substitute: a step that saves at once, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Check the whole Settings form of `src/Bosun.Panel/Settings/SettingsView.xaml` at the least window size (960 x 600) and at 200% scaling with a long refusal: nothing clipped, its keyboard order and heading navigation checked (base line 163). Done when: `SettingsLayoutTests` renders both with a long refusal and reads no clipped element, the tab order and the headings in order. Cheaper substitute: the heading ranks alone, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Commit: `panel: settings preview a theme, save off the UI thread, and keep a snapshot (D02 T05 §15)`
 
 **Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Settings*" --filter-class "*Tray*"` and `dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStore*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
@@ -437,9 +440,9 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 97 and 99,
 **Treatment:** a fuller tooltip and an anchored menu. Cheaper substitute that fails: a tooltip that polls on its own.
 **Chrome:** the tray's own menu and tooltip; no new window.
 
-## 17. The palette and toasts by keyboard, and a palette that finds by word
+## 17. Keyboard reach: the palette, toasts, results, placeholders and the Activity list
 
-Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141, completion reviews of `D02 T03 §8` and `§9`). The palette matches a query as one substring (`src/Bosun.Core/CommandIndex.cs`, `MatchOf`), opens with no memory of the last action (`src/Bosun.Panel/Shell/CommandPalette.cs`, `Open`) and shows no keys (`PaletteRow` in `src/Bosun.Panel/Theme/Controls.xaml`); a toast can't be reached by a shortcut (`src/Bosun.Panel/Shell/ShellView.xaml.cs`, `OnShortcut`), links to no Activity line or Retry (`src/Bosun.Panel/Shell/ToastCard.cs`), and its overflow count clears on any dismiss (`src/Bosun.Panel/Shell/ToastHost.cs`, `Dismiss`).
+Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141, completion reviews of `D02 T03 §8` and `§9`). The palette matches a query as one substring (`src/Bosun.Core/CommandIndex.cs`, `MatchOf`), opens with no memory of the last action (`src/Bosun.Panel/Shell/CommandPalette.cs`, `Open`) and shows no keys (`PaletteRow` in `src/Bosun.Panel/Theme/Controls.xaml`); a toast can't be reached by a shortcut (`src/Bosun.Panel/Shell/ShellView.xaml.cs`, `OnShortcut`), links to no Activity line or Retry (`src/Bosun.Panel/Shell/ToastCard.cs`), and its overflow count clears on any dismiss (`src/Bosun.Panel/Shell/ToastHost.cs`, `Dismiss`). Extended 2026-11-22 by `D00 T06 §5` (base lines 167, 168, 171 and 172).
 
 **Phase:** 2
 **Needs:** display-session
@@ -458,14 +461,39 @@ Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141
 - [ ] Give a toast in `src/Bosun.Panel/Shell/ToastCard.cs` one keyboard action that shows its whole result or selects its line in the Activity pane (base line 139). Done when: a test presses it on a cut toast and reads the whole text, and on a logged one reads its Activity line selected. Cheaper substitute: the Show more button reached by Tab, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Keep the count of results not shown in `src/Bosun.Panel/Shell/ToastHost.cs` (`Dismiss`) until the Activity pane is visited, with one action to reach them, instead of clearing it on any dismiss (base line 140). Done when: a test overflows, dismisses one, reads the count kept, takes the action and reads the pane shown and the count cleared. Cheaper substitute: clearing the count when the window hides, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Reach the owning page's safe Retry, or the setting at fault, from a failed toast in `src/Bosun.Panel/Shell/ToastCard.cs` in one press, its confirmation kept (base line 141). Done when: a test fails an action, presses the toast's action and reads the retry run with its confirmation asked, or the setting focused. Cheaper substitute: a Retry that skips the confirmation, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
+- [ ] Give a toast's whole message a reading surface in `src/Bosun.Panel/Shell/ToastMessage.cs` whose text is selectable and read by character and line, keeping the expansion hold, as VS Code's Accessible View does for notifications, verified with Narrator or NVDA to the last character (base line 167). Done when: a test reads the text selectable, with a caret moving by character and by line to the last character, and the screen reader check is recorded here. Cheaper substitute: a scroll area of plain text, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Add a notification-reading command in `src/Bosun.Panel/Shell/ShellView.xaml.cs` that reaches the latest full result from any page in at most two keys, focus returned on the way out (base line 168). Done when: a test on each page presses the keys, reads the latest whole result focused, leaves, and reads focus where it was. Cheaper substitute: the newest toast only, gone once dismissed, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Name one built page in each placeholder of `src/Bosun.Panel/Shell/PlaceholderPage.cs` as a keyboard-reachable link, so the next step is one activation with no visit to another unfinished page (base line 171). Done when: `ShellTests` reads the link on the Optimise and About placeholders, activates it by keyboard, and reads a built page shown. Cheaper substitute: the fixed sentence, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Add one shortcut in `src/Bosun.Panel/Shell/ShellView.xaml.cs` that, from any page, puts the keyboard in the Activity list with its reading position kept, as VS Code's Ctrl+Shift+U does for Output (base line 172). Done when: `ShellTests` presses it on each page and reads focus in the Activity list at the kept anchor. Cheaper substitute: focus at the top of the list, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
 - [ ] Commit: `panel: the palette and toasts by keyboard, and a palette that finds by word (D02 T05 §17)`
 
-**Test checkpoint:** `dotnet test --project tests/Bosun.Core.Tests --filter-class "*CommandIndex*"` and `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*CommandPalette*" --filter-class "*Toast*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
+**Test checkpoint:** `dotnet test --project tests/Bosun.Core.Tests --filter-class "*CommandIndex*"` and `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*CommandPalette*" --filter-class "*Toast*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses) The shell's tests are selected too: `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ShellTests*"` exits 0 (**corrected 2026-11-22 by `D00 T06 §5`**, for base lines 171 and 172).
 
 **Fidelity:** `design/SPEC.md` (the command palette and the toasts) and their renders in the three themes.
 **Job:** the operator repeats, finds and follows up an action without the mouse.
 **Treatment:** word-prefix search, a remembered last action, visible keys and keyboard-reachable toasts. Cheaper substitute that fails: a toast reachable only by Tab.
 **Chrome:** the palette and the toast host; no new window.
+## 18. The smoke and the desktop lock: a cheap look first, an inspectable lock, kept reports
+
+Filed 2026-11-22 by `D00 T06 §5` from `todo/findings.md` (base lines 165, 166, 173 and 174, completion reviews of `D02 T02 §11` and `§12`). The desktop lock compiles its source on every capture (`scripts/capture-window.ps1`), nothing reports who holds or waits for it (`scripts/lib/DesktopLock.cs`), the nightly smoke builds before it looks at the desk, and its status names a failure without its report (`scripts/smoke-input.ps1`).
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Lock. Done when: the compiled lock is cached, and one command reports its holder and waiters.
+2. Smoke. Done when: the nightly admission looks first, and -Status points at each failure's reports.
+
+- [ ] Cache the desktop lock that `scripts/capture-window.ps1` compiles (its `Add-Type` of `scripts/lib/DesktopLock.cs`) as an assembly keyed by the source's hash, keeping one source for both callers, for under 100 ms of added lock overhead at p95 across 30 fresh uncontended captures (base line 165). Done when: `tests/capture_window_test.ps1` reads the cached assembly reused, and rebuilt when the source changes, and the p95 over 30 captures is recorded here under 100 ms. Cheaper substitute: a second copy of the source, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Add one read-only command for `scripts/lib/DesktopLock.cs` that reports, from another terminal, the desktop's holder, how many wait and the oldest wait, without touching the desktop, as `bosun status` reports the queue's waiters (base line 166). Done when: `tests/Bosun.Panel.E2E/DesktopLockTests.cs` holds the lock with two waiting and reads the holder, the count 2 and the oldest wait from the command. Cheaper substitute: the holder record alone, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Look at the desk's lock and idle time in `scripts/smoke-input.ps1` before the build in the nightly admission, so a desk locked or used within 15 minutes makes zero build or discovery launches, keeping the guarded recheck after the watcher (base line 173). Done when: `tests/smoke_input_test.ps1` runs a scheduled admission on a locked desk and on a recently used one and reads no build or discovery started, and the recheck kept. Cheaper substitute: the single check after the build, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Have `scripts/smoke-input.ps1 -Status` name each failed real-input test and print the path to its retained TRX report and class log, in one call (base line 174). Done when: `tests/smoke_input_test.ps1` fails a test, calls `-Status`, and reads the test's name and both paths, each file present. Cheaper substitute: the names only, as now, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §5`**).
+- [ ] Commit: `scripts: the smoke looks first, the desktop lock is cached and inspectable (D02 T05 §18)`
+
+**Test checkpoint:** `pwsh tests/capture_window_test.ps1` and `pwsh tests/smoke_input_test.ps1` exit 0, `dotnet test --project tests/Bosun.Panel.E2E --filter-class "*DesktopLock*"` exits 0, and the overhead is in this section.
+
 ## Verification
 
 - Every section's Test checkpoint passes on the stamped candidate, and `python scripts/todo-graph.py validate` passes.
