@@ -32,7 +32,7 @@ function Read-Text([string]$path) {
 }
 function Read-Rec([string]$name) { $text = Read-Text (Join-Path $recDir $name); if ($text) { $text | ConvertFrom-Json -DateKind String } }  # started_at stays the text written
 # The job log's lines (D01 T01 §2), read back from the test's home; -DateKind String keeps the times as written.
-function Job-Lines { @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -Filter 'jobs-*.jsonl' -ErrorAction Ignore | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json -DateKind String }) }
+function Job-Lines { @(Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -Filter 'jobs-*.jsonl' -ErrorAction Ignore | ForEach-Object { Get-Content -LiteralPath $_.FullName } | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json -DateKind String }) }
 function Job-Line([string]$like) { @(Job-Lines | Where-Object { $_.command -like $like }) }
 function Wait-Until([scriptblock]$ok, [int]$ms = 10000) { foreach ($i in 1..($ms / 100)) { if (& $ok) { return $true }; Start-Sleep -Milliseconds 100 }; [bool](& $ok) }
 $fail = 0
@@ -40,7 +40,7 @@ $fail = 0
 function Q($s) { "`"$s`"" }
 function Check($ok, $name) { if ($ok) { "ok   $name" } else { "FAIL $name"; $script:fail++ } }
 function MaxOverlap($file) {
-  $events = Get-Content $file | ForEach-Object { $p = $_ -split ' '; [pscustomobject]@{ T = [uint64]$p[1]; D = $(if ($p[0] -eq 'start') { 1 } else { -1 }) } }
+  $events = Get-Content -LiteralPath $file | ForEach-Object { $p = $_ -split ' '; [pscustomobject]@{ T = [uint64]$p[1]; D = $(if ($p[0] -eq 'start') { 1 } else { -1 }) } }
   $cur = 0; $max = 0
   foreach ($e in ($events | Sort-Object T, D)) { $cur += $e.D; if ($cur -gt $max) { $max = $cur } }
   $max
@@ -52,7 +52,7 @@ $jobs = 1..6 | ForEach-Object { Start-Process $bosun -ArgumentList 'run','--ns',
 $jobs | Wait-Process -Timeout 60
 $o = MaxOverlap $f
 Check ($o -eq 2) "6 jobs on 2 slots overlap by exactly 2 (got $o)"
-Check ((Get-Content $f | Where-Object { $_ -like 'end*' }).Count -eq 6) 'all 6 jobs finished'
+Check ((Get-Content -LiteralPath $f | Where-Object { $_ -like 'end*' }).Count -eq 6) 'all 6 jobs finished'
 
 # The memory gate holds slot 1 shut, so jobs run one at a time.
 $f = Join-Path $work 'gate.txt'
@@ -69,18 +69,18 @@ Check ($LASTEXITCODE -eq 37) "exit code passes through (got $LASTEXITCODE)"
 $bat = Join-Path $work 'echo.cmd'
 $marker = Join-Path $work 'injected.txt'
 # The batch quotes its own argument: an unquoted %~1 would inject inside the batch, whatever bosun does.
-Set-Content $bat '@echo "%~1"'
+Set-Content -LiteralPath $bat '@echo "%~1"'
 $out = & $bosun run --ns $ns -- $bat "x&echo hi>$marker" 2>&1 | Out-String
 $code = $LASTEXITCODE
-Check (-not (Test-Path $marker)) 'batch argument cannot inject a command'
+Check (-not (Test-Path -LiteralPath $marker)) 'batch argument cannot inject a command'
 Check ($code -eq 0) "batch file runs (exit $code)"
-Check ($out -like "*x&echo hi>$marker*") "batch argument arrives intact (got $($out.Trim()))"
+Check ($out.Contains("x&echo hi>$marker")) "batch argument arrives intact (got $($out.Trim()))"
 
 # A batch file in a folder with spaces launches, as npm.cmd in Program Files must.
 $spaced = Join-Path $work 'dir with spaces'
 New-Item -ItemType Directory -Path $spaced | Out-Null
 $spacedBat = Join-Path $spaced 'echo.cmd'
-Set-Content $spacedBat '@echo "%~1"'
+Set-Content -LiteralPath $spacedBat '@echo "%~1"'
 $out = & $bosun run --ns $ns -- $spacedBat 'hello world' 2>&1 | Out-String
 Check (($LASTEXITCODE -eq 0) -and ($out -like '*hello world*')) "batch file in a spaced path runs (got $($out.Trim()))"
 
@@ -89,7 +89,7 @@ $percentMarker = Join-Path $work 'percent.txt'
 [Environment]::SetEnvironmentVariable('DM_REVIEW^', "x&echo hi>$percentMarker", 'Process')
 [Environment]::SetEnvironmentVariable('DM_REVIEW', "x&echo hi>$percentMarker", 'Process')
 $out = & $bosun run --ns $ns -- $bat '%DM_REVIEW%' 2>&1 | Out-String
-Check (-not (Test-Path $percentMarker)) 'a percent expression cannot inject a command'
+Check (-not (Test-Path -LiteralPath $percentMarker)) 'a percent expression cannot inject a command'
 Check ($out -like '*%DM_REVIEW%*') "a percent expression stays literal (got $($out.Trim()))"
 [Environment]::SetEnvironmentVariable('DM_REVIEW^', $null, 'Process')
 [Environment]::SetEnvironmentVariable('DM_REVIEW', $null, 'Process')
@@ -97,7 +97,7 @@ Check ($out -like '*%DM_REVIEW%*') "a percent expression stays literal (got $($o
 # An embedded quote cannot end the quoting early.
 $quoteMarker = Join-Path $work 'quote.txt'
 $null = & $bosun run --ns $ns -- $bat "a`"&echo hi>$quoteMarker&`"b" 2>&1
-Check (-not (Test-Path $quoteMarker)) 'an embedded quote cannot inject a command'
+Check (-not (Test-Path -LiteralPath $quoteMarker)) 'an embedded quote cannot inject a command'
 
 # The logger attributes a process, and its child, to the git repo holding the working directory.
 $repoName = "bosuntestrepo$PID"
@@ -105,13 +105,21 @@ $repo = Join-Path $work $repoName
 New-Item -ItemType Directory -Path (Join-Path $repo '.git') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $repo 'sub') | Out-Null
 $sub = Join-Path $repo 'sub'
-$held = Start-Process $sleeper -ArgumentList (Q (Join-Path $work 'repo.txt')),'8000' -WorkingDirectory $sub -PassThru -WindowStyle Hidden
+function Start-HiddenIn([string]$file, [string[]]$arguments, [string]$cwd) {
+  $info = [Diagnostics.ProcessStartInfo]::new($file)
+  $info.Arguments = $arguments -join ' '
+  $info.WorkingDirectory = $cwd
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  [Diagnostics.Process]::Start($info)
+}
+$held = Start-HiddenIn $sleeper @((Q (Join-Path $work 'repo.txt')), '8000') $sub
 Start-Sleep -Milliseconds 500
 $savedLocal = $env:LOCALAPPDATA
 $env:LOCALAPPDATA = Join-Path $work 'local'
 & $bosun log --once
-$logFile = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Bosun\logs\windows-*.csv') | Select-Object -First 1
-$repoRow = Get-Content $logFile | Where-Object { $_ -match ",win,repo,[^,]*$repoName," }
+$logFile = Get-ChildItem -LiteralPath (Join-Path $env:LOCALAPPDATA 'Bosun\logs') -Filter 'windows-*.csv' | Select-Object -First 1
+$repoRow = Get-Content -LiteralPath $logFile | Where-Object { $_ -match ",win,repo,[^,]*$repoName," }
 $env:LOCALAPPDATA = $savedLocal
 Stop-Process -Id $held.Id -Force
 Check ([bool]$repoRow) "logger attributes a process to its git repo (row: $repoRow)"
@@ -148,16 +156,16 @@ Stop-Process -Id $holder.Id -Force
 
 # A nested run passes straight through instead of deadlocking on its own slot.
 $nested = Join-Path $work 'nested.cmd'
-Set-Content $nested "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested.txt`" 1"
+Set-Content -LiteralPath $nested "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested.txt`" 1"
 $job = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $nested) -PassThru -WindowStyle Hidden
 Check ($job.WaitForExit(10000)) 'nested run does not deadlock'
 Check ($job.ExitCode -eq 0) "nested run exits 0 (got $($job.ExitCode))"
-Check ((Get-Content "$work\nested.txt") -match '^end') 'the nested command really ran'
+Check ((Get-Content -LiteralPath "$work\nested.txt") -match '^end') 'the nested command really ran'
 
 # A child that writes without end is stopped at the write budget while the command itself sits idle, as a test suite
 # does while a fake reviewer it started floods a log: the shape that filled C: on 2026-11-08.
 $flood = Join-Path $work 'flood.py'
-Set-Content $flood @'
+Set-Content -LiteralPath $flood @'
 import subprocess, sys, time
 if sys.argv[1] == "child":
     # 4 GB at most, so a broken budget fails this test instead of filling the disk.
@@ -180,7 +188,7 @@ Check ($t -lt 60) "it is stopped well before the command's own 120 s (took $([in
 Check ($size -lt 3GB) "the runaway child was stopped near the budget ($([math]::Round($size / 1GB, 1)) GB written)"
 Start-Sleep -Milliseconds 500
 Check ((Get-Item (Join-Path $work 'flood.bin')).Length -eq $size) 'nothing is still writing after the job ends'
-Remove-Item (Join-Path $work 'flood.bin')
+Remove-Item -LiteralPath (Join-Path $work 'flood.bin')
 
 # --- The slot records (D01 T01 §1): who holds each slot and who waits, read from the real files ---
 Check (-not (Records)) "every job above left no record behind, the command that couldn't start and the one the write budget stopped included ($((Records).Name -join ', '))"
@@ -211,10 +219,10 @@ $null = Wait-Until { -not (Records) }
 # that times out runs without a slot and leaves nothing; and the waiter becomes the holder when the slot frees.
 $recRepo = Join-Path $work 'recrepo'
 New-Item -ItemType Directory -Path (Join-Path $recRepo '.git'), (Join-Path $recRepo 'sub') -Force | Out-Null
-$h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'rec1.txt')),'4000' -PassThru -WindowStyle Hidden -WorkingDirectory (Join-Path $recRepo 'sub')
+$h = Start-HiddenIn $bosun @('run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'rec1.txt')),'4000') (Join-Path $recRepo 'sub')
 $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
 $r = Read-Rec 'slot-0.json'
-Check ($r.kind -eq 'holder' -and $r.pid -eq $h.Id -and $r.slot -eq 0 -and $r.side -eq 'windows' -and $r.ns -eq $ns -and $r.repo -eq ($recRepo -replace '\\', '/') -and $r.command -like '*test_sleeper.exe*rec1.txt 4000' -and $r.process_start -gt 0 -and $r.started_at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$') "a holder's record names its pid, command, repo and side (want pid $($h.Id), repo $($recRepo -replace '\\', '/'); got $($r | ConvertTo-Json -Compress))"
+Check ($r.kind -eq 'holder' -and $r.pid -eq $h.Id -and $r.slot -eq 0 -and $r.side -eq 'windows' -and $r.ns -eq $ns -and $r.repo -eq ($recRepo -replace '\\', '/') -and $r.command -like '*test_sleeper.exe*rec1.txt* 4000' -and $r.process_start -gt 0 -and $r.started_at -match '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$') "a holder's record names its pid, command, repo and side (want pid $($h.Id), repo $($recRepo -replace '\\', '/'); got $($r | ConvertTo-Json -Compress))"
 $w = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','60','--',(Q $sleeper),(Q (Join-Path $work 'rec2.txt')),'500' -PassThru -WindowStyle Hidden
 $null = Wait-Until { @(Records | Where-Object Name -like "wait-$($w.Id)-*").Count -eq 1 }
 $waiter = @(Records | Where-Object Name -like 'wait-*')
@@ -228,10 +236,10 @@ Check ($null -ne $w.ExitCode -and -not (Records)) 'and once it ends, no record i
 
 # A run inside a slot writes no record and leaves the outer holder's as it was.
 $nestedRec = Join-Path $work 'nested-rec.cmd'
-Set-Content $nestedRec "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested-rec.txt`" 200`r`n@copy /y `"$($recDir -replace '%', '%%')\slot-0.json`" `"$work\outer-after-inner.json`" >nul" -Encoding ascii
+Set-Content -LiteralPath $nestedRec "@`"$bosun`" run --ns $ns --slots 1 --min-avail-mb 0 --max-wait 0 -- `"$sleeper`" `"$work\nested-rec.txt`" 200`r`n@copy /y `"$($recDir -replace '%', '%%')\slot-0.json`" `"$work\outer-after-inner.json`" >nul" -Encoding ascii
 $outer = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--',(Q $nestedRec) -PassThru -WindowStyle Hidden
 $null = $outer.WaitForExit(15000)
-$kept = if (Test-Path (Join-Path $work 'outer-after-inner.json')) { Get-Content (Join-Path $work 'outer-after-inner.json') -Raw | ConvertFrom-Json }
+$kept = if (Test-Path -LiteralPath (Join-Path $work 'outer-after-inner.json')) { Get-Content -LiteralPath (Join-Path $work 'outer-after-inner.json') -Raw | ConvertFrom-Json }
 Check ($kept.pid -eq $outer.Id -and -not (Records)) "a nested run leaves the outer holder's record as it was (outer $($outer.Id), read $($kept.pid))"
 
 # Cleanup by construction: a killed holder's record is replaced by the next holder's, and a reader's pass (status)
@@ -250,7 +258,7 @@ New-Item -ItemType Directory -Force -Path $recDir | Out-Null  # so a publisher t
 Set-Content -LiteralPath (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json") -Value (Waiter-Json $gone.Id $goneStart) -NoNewline
 Set-Content -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json") -Value (Waiter-Json $PID $liveStart) -NoNewline
 & $bosun status --ns $ns --slots 1 | Out-Null
-Check ((Read-Rec 'slot-0.json').pid -eq $b.Id -and -not (Test-Path (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json")) -and (Test-Path (Join-Path $recDir "wait-$PID-$liveStart.json"))) "a reader's pass removes a dead waiter's record only: the new holder's and a live waiter's stay (b $($b.Id); files: $((Records).Name -join ', '); holder $((Read-Rec 'slot-0.json').pid))"
+Check ((Read-Rec 'slot-0.json').pid -eq $b.Id -and -not (Test-Path -LiteralPath (Join-Path $recDir "wait-$($gone.Id)-$goneStart.json")) -and (Test-Path -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json"))) "a reader's pass removes a dead waiter's record only: the new holder's and a live waiter's stay (b $($b.Id); files: $((Records).Name -join ', '); holder $((Read-Rec 'slot-0.json').pid))"
 Remove-Item -LiteralPath (Join-Path $recDir "wait-$PID-$liveStart.json")
 $null = $b.WaitForExit(15000)
 
@@ -322,7 +330,7 @@ for _ in range(100):
     time.sleep(0.1)
 p = subprocess.Popen([bosun, 'run', '--ns', ns, '--slots', '1', '--min-avail-mb', '0', '--', sleeper, out, '1'],
                      creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)  # sharing this console, so the break reaches it
-mine = os.path.join(recdir, 'wait-%d-*.json' % p.pid)
+mine = os.path.join(glob.escape(recdir), 'wait-%d-*.json' % p.pid)
 for _ in range(100):
     if glob.glob(mine): break
     time.sleep(0.1)
@@ -961,6 +969,6 @@ if ($SkipWsl) {
   }
 }
 
-Remove-Item $work -Recurse -Force
+Remove-Item -LiteralPath $work -Recurse -Force
 if ($fail) { "$fail failed"; exit 1 }
 'all passed'

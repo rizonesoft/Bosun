@@ -251,19 +251,22 @@ try {
   # --- -Wsl forwards BOSUN_SCRATCH to WSL steps via WSLENV (D00 T07 §3) ---
   $wslProbe = Join-Path $work 'wslenv-probe.ps1'
   $wslSeen = Join-Path $work 'wslenv-seen.txt'
-  Set-Content -LiteralPath $wslProbe -Value 'Set-Content -LiteralPath (Join-Path $PSScriptRoot ''wslenv-seen.txt'') -Value ($env:WSLENV ?? '''')'
+  Set-Content -LiteralPath $wslProbe -Value 'Set-Content -LiteralPath (Join-Path $PSScriptRoot ''wslenv-seen.txt'') -Value (($env:WSLENV ?? '''') + "`n" + ($env:BOSUN_SCRATCH ?? ''''))'
   $wslStepFile = Join-Path $work 'wsl-steps.json'
   ConvertTo-Json -InputObject @(@{ name = 'probe'; file = 'pwsh'; args = @('-NoProfile', '-File', $wslProbe) }) -Depth 4 | Set-Content -LiteralPath $wslStepFile
   $savedScratch = $env:BOSUN_SCRATCH
   $savedWslenv = $env:WSLENV
   try {
-    $env:BOSUN_SCRATCH = $work
+    $env:BOSUN_SCRATCH = "  $work  "
     $env:WSLENV = 'LOCALAPPDATA'
     $r = Invoke-Gate @('-StepFile', $wslStepFile, '-Wsl')
-    $seenWslenv = (Get-Content -LiteralPath $wslSeen -Raw -ErrorAction Ignore).Trim()
-    Check '-Wsl adds BOSUN_SCRATCH/p to WSLENV when BOSUN_SCRATCH is an existing directory' ($r.Exit -eq 0 -and ($seenWslenv -split ':') -contains 'BOSUN_SCRATCH/p' -and ($seenWslenv -split ':') -contains 'LOCALAPPDATA') "(exit $($r.Exit), WSLENV='$seenWslenv')"
+    $seenLines = @(Get-Content -LiteralPath $wslSeen -ErrorAction Ignore)
+    $seenWslenv = if ($seenLines.Count -ge 1) { $seenLines[0].Trim() } else { '' }
+    $seenScratch = if ($seenLines.Count -ge 2) { $seenLines[1] } else { '' }
+    Check '-Wsl adds BOSUN_SCRATCH/p to WSLENV and normalizes trimmed BOSUN_SCRATCH' ($r.Exit -eq 0 -and ($seenWslenv -split ':') -contains 'BOSUN_SCRATCH/p' -and ($seenWslenv -split ':') -contains 'LOCALAPPDATA' -and $seenScratch -eq (Resolve-Path -LiteralPath $work).ProviderPath) "(exit $($r.Exit), WSLENV='$seenWslenv', BOSUN_SCRATCH='$seenScratch')"
     $rNoWsl = Invoke-Gate @('-StepFile', $wslStepFile)
-    $seenNoWsl = (Get-Content -LiteralPath $wslSeen -Raw -ErrorAction Ignore).Trim()
+    $seenNoWslLines = @(Get-Content -LiteralPath $wslSeen -ErrorAction Ignore)
+    $seenNoWsl = if ($seenNoWslLines.Count -ge 1) { $seenNoWslLines[0].Trim() } else { '' }
     Check 'without -Wsl, WSLENV is not modified' ($rNoWsl.Exit -eq 0 -and $seenNoWsl -eq 'LOCALAPPDATA') "(exit $($rNoWsl.Exit), WSLENV='$seenNoWsl')"
   } finally {
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }

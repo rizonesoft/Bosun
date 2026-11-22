@@ -113,12 +113,17 @@ if ($Only) { $steps = @($steps | Where-Object { $_.Name -in $Only }) }
 . (Join-Path $PSScriptRoot 'lib/gate-mark.ps1')
 try { $gateMark = Enter-GateMark 'check-all' } catch { "check-all: $($_.Exception.Message)"; exit 1 }
 $savedWslenv = $env:WSLENV
+$savedScratch = $env:BOSUN_SCRATCH
 $wslenvChanged = $false
-if ($Wsl -and $env:BOSUN_SCRATCH -and (Test-Path -LiteralPath $env:BOSUN_SCRATCH -PathType Container)) {
-  # Forward Windows BOSUN_SCRATCH to WSL steps in Linux path form (D00 T07 §3).
-  $parts = @($env:WSLENV -split ':' | Where-Object { $_ -and $_ -notmatch '^BOSUN_SCRATCH(/|$)' })
-  $env:WSLENV = ($parts + 'BOSUN_SCRATCH/p') -join ':'
-  $wslenvChanged = $true
+if ($Wsl -and -not [string]::IsNullOrWhiteSpace($env:BOSUN_SCRATCH)) {
+  $trimmedScratch = $env:BOSUN_SCRATCH.Trim()
+  if (Test-Path -LiteralPath $trimmedScratch -PathType Container) {
+    # Forward the normalized, resolved Windows BOSUN_SCRATCH to WSL steps in Linux path form (D00 T07 §3).
+    $env:BOSUN_SCRATCH = (Resolve-Path -LiteralPath $trimmedScratch).ProviderPath
+    $parts = @($env:WSLENV -split ':' | Where-Object { $_ -and $_ -notmatch '^BOSUN_SCRATCH(/|$)' })
+    $env:WSLENV = ($parts + 'BOSUN_SCRATCH/p') -join ':'
+    $wslenvChanged = $true
+  }
 }
 try {
 $queue = [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
@@ -163,6 +168,7 @@ exit 0
 } finally {
   if ($wslenvChanged) {
     if ($null -eq $savedWslenv) { Remove-Item Env:WSLENV -ErrorAction Ignore } else { $env:WSLENV = $savedWslenv }
+    if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
   Exit-GateMark $gateMark
 }
