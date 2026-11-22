@@ -117,7 +117,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 56 to 58, 
 - [ ] Measure `bosun status --json` end to end with ten jobs and one damaged record, p95 over 100 runs on Windows and through a running WSL guest, against 250 ms and 500 ms, and the CPU it costs when the panel polls it at its own cadence (`DispatcherRefreshDriver.Every` in `src/Bosun.Panel/Shell/DispatcherRefreshDriver.cs`) under the same ten-job, one-damaged-record load, within the panel's idle budget, under 1% average CPU for the whole panel while idle in the tray (`docs/specs/2026-11-07-control-panel-design.md`, enforced by `D07 T01 §5`) (base line 58; **corrected 2026-11-22, completion review of D00 T06 §2:** the CPU budget the finding names was left out), and record all three here. Done when: the numbers are written here with their commit, and a cost over target is fixed here or filed with its measurement.
 - [ ] Commit: `core: status JSON states its admission order and names skipped records (D01 T02 §4)`
 
-**Test checkpoint:** `pwsh scripts/check-all.ps1 -Only core-tests` exits 0, and the panel's tests (`dotnet test tests/Bosun.Panel.Tests`) pass with the new label.
+**Test checkpoint:** `pwsh scripts/check-all.ps1 -Only core-tests` exits 0, and the panel's tests (`dotnet test --project tests/Bosun.Panel.Tests`) pass with the new label. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 5. History within a size budget, a streamed report and a burst capture
 

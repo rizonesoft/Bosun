@@ -431,7 +431,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 103 and 11
 - [ ] Apply a refresh with 1,000 repo-side rows under 50 ms at p95 in `src/Bosun.Panel/Memory/MemoryPage.cs` (`Draw`), with no repeated `Any` search (base line 146). Done when: a test times the refresh at 1,000 rows and the number is recorded here. Cheaper substitute: timing 100 rows, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `monitor: the pages mark what changed and are measured (D03 T02 §12)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "MemoryPage|InstancesPage|QueuePage"` exits 0, and the measurements are in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPage*" --filter-class "*InstancesPage*" --filter-class "*QueuePage*"` exits 0, and the measurements are in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the Memory, Instances and Queue pages) and their renders with a change marked.
 **Job:** the operator sees at a glance what is new or gone since the last look.
@@ -457,7 +457,7 @@ Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 115, 116, 
 - [ ] Say what each figure on the Memory page counts in `src/Bosun.Panel/Memory/MemoryView.xaml`: private committed is not physical RAM, WSL rows are inside the VM's cost, and repo rows don't add up to Windows used, seen or reachable by keyboard (base line 144). Done when: a test reads the three statements, each reachable by keyboard. Cheaper substitute: a tooltip reachable by mouse only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `monitor: reads say exactly what failed, and what each figure counts (D03 T02 §13)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Core.Tests --filter "MemoryClient|InstanceDocs"` and `dotnet test tests/Bosun.Panel.Tests --filter "MemoryPage|InstancesPage"` exit 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Core.Tests --filter-class "*MemoryClient*" --filter-class "*InstanceDocs*"` and `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*MemoryPage*" --filter-class "*InstancesPage*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the Memory and Instances pages) and their renders with a reason shown.
 **Job:** the operator knows what a figure means and why a value is missing, without guessing.

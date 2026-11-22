@@ -72,7 +72,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 66, 68 and
 - [ ] Repeat the shown-window focus and selection checks of `tests/Bosun.Panel.E2E/ContrastTests.cs` with Desert (`hcwhite.theme`) and at 200 percent scaling, with no clipped label and no lost focus indicator (base line 143). Done when: the tests pass in Night sky and Desert at 100 and 200 percent and fail on a label clipped on purpose. Cheaper substitute: running Desert at 100 percent only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `theme: contrast holds on hovered rows and every drawn pair (D02 T05 §1)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter ThemeContrast` exits 0, and fails with the two tokens restored.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ThemeContrast*"` exits 0, and fails with the two tokens restored. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (text contrast) and the panel's rendered Queue and Memory pages in both themes.
 **Job:** the operator reads every caption and accent on a hovered row as easily as on a still one.
@@ -95,7 +95,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 67, complet
 - [ ] Reference the analyzer from `src/Bosun.Panel/Bosun.Panel.csproj` so a build and the editor both report it. Done when: a build with a raw colour added to a XAML file fails with the diagnostic, and the time from typing to the squiggle in Visual Studio is recorded here. Cheaper substitute: a pre-commit grep.
 - [ ] Commit: `panel: the colour rule as an analyzer, in the editor and the build (D02 T05 §2)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests` exits 0, with the analyzer test failing when the rule is removed.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests` exits 0, with the analyzer test failing when the rule is removed. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 3. Theme build says what it wrote and reports every bad token
 
@@ -182,7 +182,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 75, complet
 - [ ] When threads grow with idle calls, move `RunAsync` to overlapped (asynchronous) pipe reads and writes, keeping the job object containment and the output cap. Done when: the benchmark shows a flat worker-thread count, and the existing `ProcessRunner` tests pass, including the cap and containment ones. Cheaper substitute: raising the thread pool's minimum.
 - [ ] Commit: `core: the process runner measured against asynchronous pipes (D02 T05 §6)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Core.Tests --filter ProcessRunner` exits 0, and the benchmark table is in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Core.Tests --filter-class "*ProcessRunner*"` exits 0, and the benchmark table is in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 7. Runner badges and the tray cue recognised by people at a glance
 
@@ -227,7 +227,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 76 to 79, 
 - [ ] Report completed of total and each case's time as the catalog runs, keep a case's comparison pixels only while needed, and measure time to first picture and peak memory against an equal Verify run (base line 79). In `tests/Bosun.Panel.Tests/Render/RenderCatalog.cs`. Done when: the run prints its progress, and the before and after numbers are recorded here. Cheaper substitute: one progress line printed when the catalog ends, which the Done when refuses (**corrected 2026-11-22, the completion review of D00 T06 §3**).
 - [ ] Commit: `render: a review report, readable companions, progress and an honest Shows (D02 T05 §8)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Render` exits 0, with the three `Shows` fixtures failing against today's check.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Render*"` exits 0, with the three `Shows` fixtures failing against today's check. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 9. Controls measured, and motion through one helper
 
@@ -256,7 +256,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 81 to 83, 
 - [ ] Measure `WaitingRow.Read` (`src/Bosun.Panel/Controls/WaitingRow.cs`) on a realistic busy queue, document-to-display under 100 ms within the 150 MB and 1% CPU budget (base line 134). Done when: the numbers are recorded here with their commit and the queue's size. Cheaper substitute: an empty or one-job queue, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `panel: controls measured, and motion through one helper (D02 T05 §9)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "Motion|Controls"` exits 0, and the measurements are in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Motion*" --filter-class "*Controls*"` exits 0, and the measurements are in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (motion and tables) and the rendered table in both themes.
 **Job:** the operator's tables and lists answer at once and move the same way everywhere.
@@ -280,7 +280,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 84 and 86,
 - [ ] Ask with a task dialog whose buttons are Restart Bosun Panel and Close, each one keyboard activation, checked at 100%, 200% and in a contrast theme (base line 86). In `src/Bosun.Panel/Startup/CrashHandlers.cs`. Done when: a test reads both buttons and their results, and the renders are in `build/renders/`. Cheaper substitute: a message box with Yes and No, which the Done when refuses (**corrected 2026-11-22, the completion review of D00 T06 §3**).
 - [ ] Commit: `panel: the crash notice copies a redacted report and names its buttons (D02 T05 §10)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Crash` exits 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Crash*"` exits 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the crash notice) and its renders.
 **Job:** the operator who saw the panel fail can hand a report over in one step, and knows what each button does.
@@ -306,7 +306,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 89, 90, 10
 - [ ] Measure the smoke's cold and warm duration and its three slowest tests over five runs, keeping one panel per test as it runs now (base line 105). In `tests/Bosun.Panel.E2E/PanelProcess.cs`. Done when: the numbers are recorded here with their commit and that each test had a panel of its own. Cheaper substitute: sharing one panel across tests to make the numbers smaller, which the Done when refuses (**corrected 2026-11-22, the completion review of D00 T06 §3**).
 - [ ] Commit: `tests: the panel's host names a crash, leaves no error report, keeps a failed smoke's evidence (D02 T05 §11)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Crash` exits 0 with no new Application log error, a deliberate host crash leaves its dump locally and as a CI artefact, and the runs and timings are in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Crash*"` exits 0 with no new Application log error, a deliberate host crash leaves its dump locally and as a CI artefact, and the runs and timings are in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 12. Async commands say they are running and can be cancelled
 
@@ -325,7 +325,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 87 and 88,
 - [ ] Give a cancellable command a token and a Cancel command: one activation, immediate feedback, no failure shown for a cancel the person asked for, and a clean next run (base line 88). In `src/Bosun.Panel/Mvvm/AsyncCommand.cs`. Done when: a test cancels a running action and reads no failure and a clean second run. Cheaper substitute: a Cancel that hides the busy state while the work runs on, which the Done when refuses (**corrected 2026-11-22, the completion review of D00 T06 §3**).
 - [ ] Commit: `panel: async commands say they are running and can be cancelled (D02 T05 §12)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter AsyncCommand` exits 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*AsyncCommand*"` exits 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 ## 13. The panel starts fast, answers a hung first launch, and opens at a page
 
@@ -346,7 +346,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 85, 91 and
 - [ ] Measure a cold start to an interactive shell (target under 1 s at p95) and a page switch with 500 lines in the Activity pane (under 100 ms at p95) against PowerToys on one machine, within `D07 T01 §5`'s budget (base line 92). In `src/Bosun.Panel/Shell/ShellView.xaml`. Done when: the numbers are recorded here with their commit. Cheaper substitute: a warm start measured as the cold one, which the Done when refuses (**corrected 2026-11-22, the completion review of D00 T06 §3**).
 - [ ] Commit: `panel: starts fast, answers a hung first launch, and opens at a page (D02 T05 §13)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "SingleInstance|PanelStartup"` exits 0, and the measurements are in this section.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*StartupTests*"` exits 0, and the measurements are in this section. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` §1 (the shell) and the waiting feedback's render.
 **Job:** the operator who clicks twice, or follows a link to a page, is never left with nothing on screen.
@@ -375,7 +375,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 93, 101, 1
 - [ ] Give each queue job line (the Command column of `src/Bosun.Panel/Queue/QueueView.xaml`, styled by `src/Bosun.Panel/Theme/Controls.xaml`) one keyboard-reachable copy action that copies the whole command exactly (base line 133). Done when: a test reaches it by keyboard on a job whose command holds quotes and spaces and reads the clipboard equal to the command. Cheaper substitute: copying the visible, trimmed text, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `panel: refresh says when and how it went, and a failure can be copied (D02 T05 §14)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "Refresh|PageFrame|Skeleton"` exits 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Refresh*" --filter-class "*PageFrame*" --filter-class "*Skeleton*"` exits 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` §19 (loading and refresh) and the page frame's renders.
 **Job:** the operator knows a page is current, when it next tries, and can hand a failure over in one step.
@@ -404,7 +404,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 94 to 96 a
 - [ ] Add an optional in-app contrast preview selector to `src/Bosun.Panel/Settings/SettingsView.xaml`, two actions to switch into a contrast theme and one to restore, leaving the desktop's theme untouched, beside the start-time `BOSUN_PANEL_CONTRAST` of `src/Bosun.Panel/Theme/ContrastPreview.cs` (base line 142). Done when: a test switches in two actions, reads the contrast colours applied, restores in one, and reads the Windows theme unchanged. Cheaper substitute: a setting that needs a restart, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `panel: settings preview a theme, save off the UI thread, and keep a snapshot (D02 T05 §15)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter "Settings|Tray"` and `dotnet test tests/Bosun.Core.Tests --filter PanelSettingsStore` exit 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Settings*" --filter-class "*Tray*"` and `dotnet test --project tests/Bosun.Core.Tests --filter-class "*PanelSettingsStore*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the Settings page) and its renders in both themes.
 **Job:** the operator tries a theme without committing to it, and never loses settings to a damaged file.
@@ -430,7 +430,7 @@ Filed 2026-11-22 by `D00 T06 §3` from `todo/findings.md` (base lines 97 and 99,
 - [ ] Take a pressure notification's click to the Memory page in one step in `src/Bosun.Panel/Tray/TrayController.cs` (`Open`), keeping the unsaved-edits question, as `OpenQueueAsync` does for the Queue (base line 120). Done when: a test clicks the notification from another page and reads Memory shown, and with an unsaved edit reads the question first. Cheaper substitute: opening the panel without changing page, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `tray: headroom in the tooltip, and the menu beside the icon (D02 T05 §16)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Panel.Tests --filter Tray` exits 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*Tray*"` exits 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the tray) and the menu's position at each scale.
 **Job:** the operator sees memory headroom in one hover and finds the menu where the keyboard opened it.
@@ -460,7 +460,7 @@ Filed 2026-11-22 by `D00 T06 §4` from `todo/findings.md` (base lines 135 to 141
 - [ ] Reach the owning page's safe Retry, or the setting at fault, from a failed toast in `src/Bosun.Panel/Shell/ToastCard.cs` in one press, its confirmation kept (base line 141). Done when: a test fails an action, presses the toast's action and reads the retry run with its confirmation asked, or the setting focused. Cheaper substitute: a Retry that skips the confirmation, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `panel: the palette and toasts by keyboard, and a palette that finds by word (D02 T05 §17)`
 
-**Test checkpoint:** `dotnet test tests/Bosun.Core.Tests --filter CommandIndex` and `dotnet test tests/Bosun.Panel.Tests --filter "CommandPalette|Toast"` exit 0.
+**Test checkpoint:** `dotnet test --project tests/Bosun.Core.Tests --filter-class "*CommandIndex*"` and `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*CommandPalette*" --filter-class "*Toast*"` exit 0. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
 
 **Fidelity:** `design/SPEC.md` (the command palette and the toasts) and their renders in the three themes.
 **Job:** the operator repeats, finds and follows up an action without the mouse.
