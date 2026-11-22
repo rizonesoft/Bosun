@@ -126,7 +126,10 @@ class FindingsLedgerTest(unittest.TestCase):
                 ([good[5].replace("item 2,", "item 7,"), good[6], good[8]], False, "base line 5: is scheduled in"),
                 # Round 4: the word item repeated, so a parser reading one list would miss the second.
                 ([good[5].replace("item 2,", "item 2 and item 1,"), good[6], good[8]], False, "base line 5: is scheduled in"),
-                ([good[5].replace("item 2, the fix", "item 2, the fix, and item 1 too"), good[6], good[8]], False, "base line 5: is scheduled in")):
+                ([good[5].replace("item 2, the fix", "item 2, the fix, and item 1 too"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                # Round 5: a range, which a prefix parser reads as its first number only.
+                ([good[5].replace("item 2,", "items 2 to 3,"), good[6], good[8]], False, "base line 5: is scheduled in"),
+                ([good[5].replace("item 2,", "items 2 and 1,"), good[6], good[8]], False, "base line 5: is scheduled in")):
             with self.subTest(lines=lines):
                 record.write_text("# Classification\n\n" + "\n".join(lines) + "\n", encoding="utf-8")
                 code, out = self.checked(resolver, record=record)

@@ -130,10 +130,13 @@ def record_problem(n, entries, struck, record, resolver=None, root=None):
     if settled_key(m.group(2)) != settled_key(struck):
         return "is classified as %s in %s, but struck as %s" % (settled_key(m.group(2)), record, settled_key(struck))
     if settled_key(m.group(2))[0] == "Scheduled":  # the parsed kind, whatever spaces lead it (round 3 of §3)
-        # Every item the evidence names, wherever and however often: each "item N" or "items N, M and K" is read, so
-        # no spelling of the list can leave a number unchecked (rounds 3 and 4 of D00 T06 §3, one class).
-        named = [int(k) for run in re.findall(r"\bitems? (\d+(?:\s*(?:,|and|&)\s*\d+)*)", m.group(3)) for k in re.findall(r"\d+", run)]
-        if not named or not re.match(r"items? \d", m.group(3)):
+        # A closed grammar, not a parser of the spellings seen so far (rounds 3 to 5 of D00 T06 §3, one class): the
+        # evidence begins with exactly `item N` or `items N, M and K`, then a comma or its end, and names no item
+        # anywhere after; a range, a repeated `item` or anything else is refused, never partly read.
+        owners = re.match(r"items? (\d+(?:(?:, | and |, and )\d+)*)(?=,|$)", m.group(3))
+        rest = m.group(3)[owners.end():] if owners else ""
+        named = [int(k) for k in re.findall(r"\d+", owners.group(1))] if owners else []
+        if not owners or re.search(r"\bitems?\b", rest, re.IGNORECASE):
             return "is scheduled in %s without the owning item it names (`(item N, ...)`), line %d" % (record, at)
         if resolver is not None:
             # The item named must be the finding's own: it cites this base line (round 2 of D00 T06 §3).
