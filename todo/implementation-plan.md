@@ -131,7 +131,7 @@ Sections: 32 | Checklist items: 281
 | [x]    | D02 T03 §11 | Contrast preview and its smoke on the shown window                        | display-session | 4     |
 | [x]    | D02 T03 §12 | Window placement remembered, and the smoke off the main screen            | display-session | 7     |
 | [ ]    | D02 T05 §1  | Contrast holds on hovered rows and every drawn pair, with the token named | none            | 4     |
-| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests             | none            | 3     |
+| [ ]    | D02 T05 §2  | The colour rule flagged in the editor as well as in the tests             | display-session | 3     |
 | [ ]    | D02 T05 §3  | Theme build says what it wrote and reports every bad token                | none            | 3     |
 | [ ]    | D02 T05 §4  | Icon build failures in one line, and an attention cue on the tray         | none            | 3     |
 | [ ]    | D02 T05 §5  | Icons checked at every scale and under colour-vision simulation           | display-session | 4     |

@@ -68,7 +68,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 66, 68 and
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base line 67, completion review of `D02 T01 §2`). `tests/Bosun.Panel.Tests/XamlRules.cs` refuses a raw colour in XAML only when the tests run.
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** no
 
 **Build order:**
