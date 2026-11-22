@@ -138,6 +138,9 @@ namespace Bosun {
     private readonly BlockingCollection<byte[]> _queue = new BlockingCollection<byte[]>(64);
     private readonly Stream _stdout;
     private readonly Thread _worker;
+    private readonly ManualResetEventSlim _idle = new ManualResetEventSlim(true);
+    private int _pending;
+    private int _stalled;
     private int _closed;
 
     public ConsolePump() {
@@ -146,16 +149,26 @@ namespace Bosun {
       _worker.Start();
     }
 
+    public bool Stalled { get { return Volatile.Read(ref _stalled) != 0; } }
+
     private void Run() {
       try {
         foreach (byte[] chunk in _queue.GetConsumingEnumerable()) {
-          _stdout.Write(chunk, 0, chunk.Length);
-          _stdout.Flush();
+          try {
+            _stdout.Write(chunk, 0, chunk.Length);
+            _stdout.Flush();
+          } finally {
+            if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
+          }
         }
       } catch (IOException) {
         // Broken or closed stdout pipe: stop pumping console output without affecting scratch logging.
+        Volatile.Write(ref _stalled, 1);
       } catch (ObjectDisposedException) {
         // Stdout stream closed during teardown.
+        Volatile.Write(ref _stalled, 1);
+      } finally {
+        _idle.Set();
       }
     }
 
@@ -163,13 +176,29 @@ namespace Bosun {
       if (data == null || count <= 0 || _closed != 0) return;
       byte[] copy = new byte[count];
       Buffer.BlockCopy(data, 0, copy, 0, count);
-      try { _queue.TryAdd(copy, 50); } catch (InvalidOperationException) { return; }
+      Interlocked.Increment(ref _pending);
+      _idle.Reset();
+      try {
+        if (!_queue.TryAdd(copy, 50)) {
+          Volatile.Write(ref _stalled, 1);
+          if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
+        }
+      } catch (InvalidOperationException) {
+        if (Interlocked.Decrement(ref _pending) == 0) _idle.Set();
+      }
+    }
+
+    public bool WaitIdle(int waitMs) {
+      if (Stalled) return false;
+      bool idle = _idle.Wait(waitMs);
+      if (!idle) Volatile.Write(ref _stalled, 1);
+      return idle;
     }
 
     public void Close(int waitMs) {
       if (Interlocked.Exchange(ref _closed, 1) != 0) return;
       _queue.CompleteAdding();
-      _worker.Join(waitMs);
+      _worker.Join(Stalled ? 0 : waitMs);
     }
 
     public void Dispose() { Close(2000); }
@@ -188,8 +217,10 @@ function Write-ConsoleBytes([byte[]]$Bytes, [int]$Count = -1) {
   $consolePump.Enqueue($Bytes, $len)
 }
 function Write-ConsoleLine([string]$Line) {
-  $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
-  Write-ConsoleBytes $bytes $bytes.Length
+  # Emit gate lines through PowerShell's output stream so in-process callers (`$r = & scripts/check-all.ps1 ...`)
+  # capture them just like `-List`, while avoiding blocking when the stdout pipe is already stalled.
+  if (-not $consolePump.WaitIdle(200)) { return }
+  Write-Output $Line
 }
 function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1) {
   if (-not $Bytes) { return }
@@ -211,7 +242,7 @@ function Write-LogBytes([byte[]]$Bytes, [int]$Count = -1) {
 function Write-GateLine([string]$Line) {
   $bytes = $utf8.GetBytes($Line + [Environment]::NewLine)
   Write-LogBytes $bytes $bytes.Length
-  Write-ConsoleBytes $bytes $bytes.Length
+  Write-ConsoleLine $Line
 }
 
 # While the steps run, the run guard reads this gate as a wait (scripts/lib/gate-mark.ps1) and surfaces $logPath.
@@ -319,8 +350,12 @@ foreach ($step in $steps) {
       Write-GateLine "started $($stepName): got build slot after $($waited.ToString('0.0', [Globalization.CultureInfo]::InvariantCulture)) s"
     }
   }
-  try { $result = Measure-Job -FilePath $file -ArgumentList $arguments @measure }
-  finally {
+  $result = $null
+  try {
+    Measure-Job -FilePath $file -ArgumentList $arguments @measure | ForEach-Object {
+      if ($_ -is [Bosun.JobResult]) { $result = $_ } else { $_ }
+    }
+  } finally {
     if ($measure.StartedPath) { Remove-Item -LiteralPath $measure.StartedPath -Force -ErrorAction Ignore }
     Remove-Item -LiteralPath $stepOut -Force -ErrorAction Ignore
   }

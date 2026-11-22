@@ -463,6 +463,12 @@ switch ($Mode) {
       (Split-Path $logB -Parent) -eq (Resolve-Path -LiteralPath $twoRoot).ProviderPath -and
       $textA -match 'RUN-ALPHA-MARKER' -and $textB -match 'RUN-BETA-MARKER') "(logA='$logA', logB='$logB')"
 
+    # Regression (R2 F1): in-process PowerShell invocation (`$out = & scripts/check-all.ps1 ...`) captures gate summary and log: <path>
+    $inProcOut = (& $gate -StepFile $stepsA) -join "`n"
+    $inProcLog = Get-LogPath $inProcOut
+    Check 'in-process PowerShell invocation captures the gate summary and log: <path> on the output stream' ($LASTEXITCODE -eq 0 -and
+      $inProcOut -match 'all 1 steps passed' -and $inProcLog -and (Test-Path -LiteralPath $inProcLog -PathType Leaf)) "(exit=$LASTEXITCODE, log='$inProcLog', out='$inProcOut')"
+
     # 4. Exact log boundary: -List and unknown -Only create/print no log; unwritable root fails naming path & reason;
     #    post-log gate-mark failure records cause in the log and prints log: <path>
     $boundaryRoot = Join-Path $liveDir 'boundary-logs'
