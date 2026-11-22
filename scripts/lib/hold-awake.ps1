@@ -62,7 +62,7 @@ $flags = [uint32]2147483651
 $previous = if ($env:BOSUN_TEST_HOLD_FAIL) { [uint32]0 } else { [BosunAwake.Power]::SetThreadExecutionState($flags) }
 $acquired = $previous -ne 0
 $why = if ($acquired) { $null } else { "SetThreadExecutionState refused the request (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))" }
-$fields = @{ pid = $PID; parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
+$fields = @{ pid = $PID; started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'); parent = $ParentPid; acquired = $acquired; minutes = $Minutes; at = [datetime]::UtcNow.ToString('o') }
 if ($why) { $fields.why = $why }
 if ($env:BOSUN_TEST_HOLD_STALL) { Start-Sleep -Seconds ([int]$env:BOSUN_TEST_HOLD_STALL) }
 $unrecorded = $null

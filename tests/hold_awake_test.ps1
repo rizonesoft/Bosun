@@ -37,7 +37,7 @@ try {
   $h = Start-Holder $parent.Id $record
   $line = (Read-Answer $h)
   $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
-  Check ($line -eq 'held' -and $saved.acquired -eq $true -and $saved.pid -eq $h.Id -and $saved.parent -eq $parent.Id) "the holder says held and records its own pid and its parent ($line)"
+  Check ($line -eq 'held' -and $saved.acquired -eq $true -and $saved.pid -eq $h.Id -and $saved.parent -eq $parent.Id -and [math]::Abs((([datetime]$saved.started).ToUniversalTime() - $h.StartTime.ToUniversalTime()).TotalSeconds) -lt 1) "the holder says held and records its own pid and its parent ($line)"
   # Its parent ends: it lets go within a second.
   $parent.Kill(); $parent.WaitForExit()
   Check (Gone-Within $h 1500) 'it is gone within a second of its parent ending'

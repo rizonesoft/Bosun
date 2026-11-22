@@ -578,6 +578,10 @@ try {
   } finally { $held.StandardInput.Close(); $null = $held.WaitForExit(3000); if (-not $held.HasExited) { & taskkill /T /F /PID $held.Id 2>&1 | Out-Null } }
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a failed hold whose writer returned passes, its shell still open'
+  # A pid Windows gave to another process (here this test's own, whose start does not match) is not the holder.
+  [IO.File]::WriteAllText($runHold, (@{ pid = $PID; started = '2020-01-01T00:00:00.0000000Z'; parent = $PID; acquired = $true } | ConvertTo-Json))
+  $r = Preflight $system $holdArgs
+  Check ($r.Code -eq 0 -and $r.Text -match 'ok   no run holds the machine now') 'a record whose pid now names another process reads as no run holding'
   # A run's record that cannot be read fails with what to move aside, never as no run.
   foreach ($bad in '{ not json', '"just text"') {
     [IO.File]::WriteAllText($runHold, $bad)
@@ -590,7 +594,7 @@ try {
   $legacy = [ordered]@{ Scheme = '381b4222-f694-41f0-9685-ff5bb260df2e'; Power = @($HoldPower | ForEach-Object { [ordered]@{ Sub = $_.Sub; Setting = $_.Setting; AC = 600; DC = 300 } }); Lock = '1' }
   [IO.File]::WriteAllText($holdRecord, ($legacy | ConvertTo-Json -Depth 5))
   $r = Preflight $system $holdArgs
-  Check ($r.Code -eq 1 -and $r.Text -match 'a hold record an older version left is at' -and $r.Text -match 'pwsh scripts/campaign-hold.ps1 -Restore') 'a record an older version left fails with the manual restore'
+  Check ($r.Code -eq 1 -and $r.Text -match 'a hold record an older version left is at' -and $r.Text.Contains("pwsh scripts/campaign-hold.ps1 -Restore -Record '$holdRecord'")) 'a record an older version left fails with the manual restore of that record'
   [IO.File]::WriteAllText($holdRecord, '{ not json')
   $r = Preflight $system $holdArgs
   Check ($r.Code -eq 1 -and $r.Text -match "a hold record an older version left can't be read" -and $r.Text -match 'Move-Item -LiteralPath') 'an unreadable record fails with what to move aside'
@@ -610,6 +614,10 @@ try {
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaverIsSecure -Value '1'
   $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
   Check ($r.Code -eq 1 -and $r.Text -match 'the screen saver locks the desktop on resume') 'a screen saver lock enforced by policy fails though the desktop''s own values say off'
+  # A zero timeout never starts the saver, so it never locks.
+  Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveTimeOut -Value '0'
+  $r = Preflight $system @('-Only', 'lock', '-LockKey', $lockKey, '-InactivityKey', $lockKey, '-LockPolicyKey', "$lockKey\Policy")
+  Check ($r.Code -eq 0 -and $r.Text -match 'no screen saver that locks on resume') 'a secure screen saver with a zero timeout passes, since it never starts'
   Set-ItemProperty -LiteralPath "$lockKey\Policy" -Name ScreenSaveActive -Value '0'
 
 
