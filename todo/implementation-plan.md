@@ -67,7 +67,7 @@ Sections: 68 | Checklist items: 577
 | [x]    | D00 T06 §1  | Open findings, part 1 of 6                                                             | none        | 9     |
 | [x]    | D00 T06 §2  | Open findings, part 2 of 6                                                             | none        | 8     |
 | [x]    | D00 T06 §3  | Open findings, part 3 of 6                                                             | none        | 9     |
-| [ ]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
+| [x]    | D00 T06 §4  | Open findings, part 4 of 6                                                             | none        | 8     |
 | [ ]    | D00 T06 §5  | Open findings, part 5 of 6                                                             | none        | 8     |
 | [ ]    | D00 T06 §6  | Open findings, part 6 of 6                                                             | none        | 8     |
 | [ ]    | D00 T07 §1  | Graph loads once per command                                                           | none        | 4     |
@@ -232,6 +232,6 @@ Sections: 6 | Checklist items: 30
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 6     |
 
-Progress: 112/177 verified sections, 42 ready to run now.
+Progress: 113/177 verified sections, 41 ready to run now.
 
-Checklist: 1059/1352 items completed (includes Commit items).
+Checklist: 1060/1352 items completed (includes Commit items).

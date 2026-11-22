@@ -1,0 +1,107 @@
+{
+  "ref": "D00 T06 \u00a74",
+  "title": "Open findings, part 4 of 6",
+  "implementation_sha": "903ee34f310c29d7a6ecaec0533265d76a05f979",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 6,
+      "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python scripts/findings-ledger.py --base b8c4e0b3 --lines 112-146 --cite-lines --record docs/reviews/00-workspace/D00-T06-s4.md -> all 35 entries on lines 112 to 146 (at b8c4e0b3) settled",
+    "python scripts/todo-graph.py validate -> valid: 177 sections",
+    "CI plan.yml green at 903ee34 (https://github.com/rizonesoft/Bosun/actions/runs/45026200513); build.yml skipped, all 13 changed files under its paths-ignore"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+    "verdict": "completed",
+    "candidate": "0d586bc0855f2b3d11a50d83deaff1eb7bdc27a4",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 6,
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T06-s4.md",
+    "candidate": "7835f579285bae3a0a44dab3af591e7f44e1d46d",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "7835f579285bae3a0a44dab3af591e7f44e1d46d",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
