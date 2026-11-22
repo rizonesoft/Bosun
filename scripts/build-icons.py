@@ -56,6 +56,8 @@ def render(master: Path, size: int) -> bytes:
         png = resvg_py.svg_to_bytes(svg_string=text, width=size, height=size)
     except ValueError as error:  # resvg's parse error: the master is not valid SVG, a fix of its own (round 1 of §31)
         raise BadgeFailure(4, f"the master {master} is not valid SVG ({error}): repair its SVG (git diff shows what changed in a tracked one)") from error
+    except Exception as error:  # the renderer failing on valid input: named with its master (round 5 of D00 T03 §31)
+        raise BadgeFailure(5, f"the renderer failed on {master} ({error!r}): report it with that master and the renderer's version") from error
     return bytes(png)
 
 

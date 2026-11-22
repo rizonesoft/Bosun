@@ -243,7 +243,7 @@ class BadgedIconTest(unittest.TestCase):
             if path == self.mark:
                 raise PermissionError(13, "Access is denied", str(path))
             return real_read(path, *args, **kwargs)
-        def renderer_breaks(master, size):
+        def renderer_breaks(*args, **kwargs):  # resvg itself raising on a valid master
             raise RuntimeError("the renderer could not lay out the master")
         cases = (
             ("resvg-py missing", 2, mock.patch.dict(sys.modules, {"resvg_py": None}), ("--badge-mark", str(self.mark)), out, "pip install -r scripts/requirements-icons.txt"),
@@ -251,7 +251,7 @@ class BadgedIconTest(unittest.TestCase):
             ("a mark denied", 3, mock.patch.object(Path, "read_text", denied), ("--badge-mark", str(self.mark)), out, "must exist and be readable"),
             ("a mark malformed", 4, contextlib.nullcontext(), ("--badge-mark", str(bad)), out, "mend or remove it"),
             ("a master missing", 3, contextlib.nullcontext(), ("--masters", str(empty)), out, "must exist and be readable"),
-            ("the renderer failing", 5, mock.patch.object(icons, "render", renderer_breaks), (), out, "report it"),
+            ("the renderer failing", 5, mock.patch("resvg_py.svg_to_bytes", renderer_breaks), (), out, f"the renderer failed on {sorted(self.masters.glob('*.svg'))[0]}"),
             ("a master malformed", 4, contextlib.nullcontext(), ("--masters", str(self.broken_masters())), out, "repair its SVG"),
             ("a master held or denied", 3, mock.patch.object(Path, "read_text", self.denied_master()), (), out, "must exist and be readable"),
         )
