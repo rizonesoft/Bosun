@@ -294,6 +294,15 @@ class Kinds(Repo):
         self.assertEqual(reasons(quiet, raised), [])
         self.assertEqual(len(reasons(raised, quiet)), 1)  # and the other way is a weakening
 
+    def test_every_rule_of_a_directive_is_read_and_a_malformed_list_is_said(self):
+        # Round 3 of D00 T07 §2: only a directive's first rule was read, and a non-string exclude entry raised.
+        self.assertTrue(scan.RELAX.search("# pyright: reportArgumentType=error, reportAssignmentType=none"))
+        self.assertFalse(scan.RELAX.search("# pyright: reportArgumentType=error, reportAssignmentType=error"))
+        self.assertFalse(scan.RELAX.search("# pyright: strict"))
+        self.assertEqual(scan.relaxed_checker(['{', '  "exclude": ["build"]', '}'],
+                                              ['{', '  "exclude": ["build", {"root": "scripts"}]', '}']),
+                         ["exclude is not a list of paths"])
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")

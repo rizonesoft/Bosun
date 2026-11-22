@@ -90,7 +90,10 @@ SKIP = re.compile(r"\bskipTest\s*\(|\bunittest\.skip|^\s*@skip\b|continue-on-err
 SKIP_SWITCH = re.compile(r"_test\.ps1\b.*\s-Skip\w*", re.IGNORECASE)
 RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*\S")
 STRICT = ("CMAKE_COMPILE_WARNING_AS_ERROR", "/W4", "TreatWarningsAsErrors")
-RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off|report\w+\s*=\s*(false|none|information|warning))"
+# A pyright directive lowers checking when it is ignore, basic or off, or names a rule below an error anywhere in its
+# comma-separated list (round 3 of D00 T07 §2: only the first rule was read).
+RELAX = re.compile(r"#\s*noqa\b|#\s*type:\s*ignore|#\s*pyright:\s*(ignore|basic|off)\b"
+                   r"|#\s*pyright:[^#\n]*\breport\w+\s*=\s*(false|none|information|warning)\b"
                    r"|#pragma\s+warning\s*\(\s*disable|\s-Wno-\w+")
 OFF = re.compile(r"""^\W*(OFF|FALSE|NO|0)\b""", re.IGNORECASE)
 EXCEPT = re.compile(r"^\s*except\b.*:\s*(#.*)?$")
@@ -130,6 +133,11 @@ def relaxed_checker(old, new):
     if before is None or after is None:
         return ["pyrightconfig.json does not parse"]
     reasons = []
+    for key in ("include", "exclude", "ignore"):  # a list of paths, else what pyright reads of it is unknown
+        for side in (before, after):
+            value = side.get(key)
+            if value is not None and not (isinstance(value, list) and all(isinstance(p, str) for p in value)):
+                return [f"{key} is not a list of paths"]  # round 3 of D00 T07 §2: a set of a dict raised
     if set(before.get("include") or []) - set(after.get("include") or []):
         reasons.append("include path dropped")
     for key in ("exclude", "ignore"):
