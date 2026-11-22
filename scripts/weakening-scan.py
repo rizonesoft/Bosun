@@ -110,7 +110,8 @@ class CannotRead(Exception):
 
 
 MODES = {"off": 0, "basic": 1, "standard": 2, "strict": 3}  # pyright's typeCheckingMode, weakest first
-WEAK_RULE = (False, "none", "information", "warning")  # a report* setting that no longer fails the check
+# A report* setting's severity, weakest first; a setting absent before counts as an error, which is what fails a run.
+SEVERITY = {False: 0, "none": 0, "information": 1, "warning": 2, True: 3, "error": 3}
 
 
 def relaxed_checker(old, new):
@@ -134,8 +135,9 @@ def relaxed_checker(old, new):
     for key in ("exclude", "ignore"):
         if set(after.get(key) or []) - set(before.get(key) or []):
             reasons.append(f"{key} path added")
-    if MODES.get(after.get("typeCheckingMode", "standard"), 0) < MODES.get(before.get("typeCheckingMode", "standard"), 0):
-        reasons.append("typeCheckingMode lowered")
+    mode = after.get("typeCheckingMode", "standard")
+    if MODES.get(mode, 0) < MODES.get(before.get("typeCheckingMode", "standard"), 0):
+        reasons.append(f"typeCheckingMode={json.dumps(mode)} lowered")  # its value, so basic and off are two answers
     def rules(data, where=""):
         """Every report* setting, at the top level and in each executionEnvironments entry, by where it applies."""
         found = {f"{where}{k}": v for k, v in data.items() if k.startswith("report")}
@@ -145,7 +147,8 @@ def relaxed_checker(old, new):
         return found
     old_rules, new_rules = rules(before), rules(after)
     for key, value in new_rules.items():
-        if value in WEAK_RULE and old_rules.get(key) != value:
+        # Weaker than before, by rank, so a rule raised from none to warning is not a weakening (round 2 of §2).
+        if SEVERITY.get(value, 3) < SEVERITY.get(old_rules.get(key, "error"), 3):
             reasons.append(f"{key}={json.dumps(value)} lowered")
     for key in ("exclude", "ignore"):  # name each path, so two exceptions are two answers (round 1 of §2)
         reasons = [r for r in reasons if r != f"{key} path added"] + [

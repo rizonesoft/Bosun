@@ -279,6 +279,21 @@ class Kinds(Repo):
         self.assertEqual(sum(line.strip().startswith("unanswered") for line in text.splitlines()), 1, text)
         self.assertEqual(sum(line.strip().startswith("answered") for line in text.splitlines()), 1, text)
 
+    def test_a_mode_lowered_twice_is_two_answers_and_a_rule_raised_is_none(self):
+        # Round 2 of D00 T07 §2: `basic` and `off` shared one fingerprint, so an answer for one covered the other; and a
+        # rule raised from none to warning was reported as lowered.
+        reasons = scan.relaxed_checker
+        base = ['{', '  "include": ["scripts"]', '}']
+        basic = reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": "basic"', '}'])
+        off = reasons(base, ['{', '  "include": ["scripts"],', '  "typeCheckingMode": "off"', '}'])
+        self.assertEqual(len(basic), 1)
+        self.assertEqual(len(off), 1)
+        self.assertNotEqual(basic, off)
+        quiet = ['{', '  "include": ["scripts"],', '  "reportAssignmentType": "none"', '}']
+        raised = ['{', '  "include": ["scripts"],', '  "reportAssignmentType": "warning"', '}']
+        self.assertEqual(reasons(quiet, raised), [])
+        self.assertEqual(len(reasons(raised, quiet)), 1)  # and the other way is a weakening
+
     def test_errors_swallowed(self):
         self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass\n    try:\n        return 2\n    except ValueError: pass")
         self.write("scripts/tool.ps1", "try { Get-Item x } catch { }\ntry { Get-Item y } catch { 'said' }\n")
