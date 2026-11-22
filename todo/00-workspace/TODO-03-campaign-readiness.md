@@ -1067,6 +1067,8 @@ Filed 2026-11-21 by the completion review of `§24` (`docs/reviews/00-workspace/
 
 ## 29. Antigravity waits see their result within seconds
 
+> **Started:** 2026-11-22T04:45:11Z
+
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 41 and 47, completion reviews of `§19` and `§21`). An Antigravity run has no heartbeat, so while a review, a CI gate or a local gate is in flight its Stop hook answers with `wait_for_flight` in `scripts/lib/run_guard.py`, which tells the session to sleep in steps of `WAIT_SLICE_MINUTES = 10` and look again; the session can see the result up to ten minutes late. Nothing may resume a run from outside its session (the owner's rule of 2026-11-12), so the fix is a shorter wait inside the session, never a watchdog.
 
 **Corrected 2026-11-22 (validation before the build):** the section said to measure "when the session is told to look again" with fake gates; the guard only answers with an instruction and the session does the sleeping, so what bounds the delay is the step that instruction gives, and a local gate is watched by a command the session runs. The items below say so. Timed waits (`wait_in_session`) end at a known time and are not in this section.
