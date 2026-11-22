@@ -1,5 +1,6 @@
 import contextlib
 import datetime
+import errno
 import io
 import json
 import os
@@ -23,7 +24,12 @@ def _supports_posix_fs(folder: str) -> bool:
     """True when `folder` supports POSIX FIFOs and chmod 000 enforcement (false on WSL DrvFs/9p mounts)."""
     probe = str(scratch_dir("posix-probe", root=folder))
     try:
-        os.mkfifo(os.path.join(probe, "p"))
+        try:
+            os.mkfifo(os.path.join(probe, "p"))
+        except OSError as exc:
+            if exc.errno in (errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS, errno.EPERM, errno.EINVAL):
+                return False
+            raise
         shut = os.path.join(probe, "shut")
         os.makedirs(os.path.join(shut, "in"))
         os.chmod(shut, 0o000)
@@ -33,8 +39,6 @@ def _supports_posix_fs(folder: str) -> bool:
         finally:
             os.chmod(shut, 0o755)
         return True
-    except OSError:
-        return False
     finally:
         shutil.rmtree(probe, ignore_errors=True)
 

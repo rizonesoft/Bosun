@@ -10,7 +10,7 @@ function Get-BosunScratchRoot {
   if (-not [string]::IsNullOrWhiteSpace($raw)) {
     $trimmed = $raw.Trim()
     if (Test-Path -LiteralPath $trimmed -PathType Container) {
-      return [IO.Path]::GetFullPath($trimmed)
+      return (Resolve-Path -LiteralPath $trimmed).ProviderPath
     }
   }
   return [IO.Path]::GetTempPath()
@@ -20,7 +20,7 @@ function New-BosunScratchFolder {
   param(
     [string]$Name = 'test'
   )
-  if ([string]::IsNullOrEmpty($Name) -or $Name -eq '.' -or $Name -eq '..' -or $Name -notmatch '^[A-Za-z0-9._-]+$') {
+  if ([string]::IsNullOrEmpty($Name) -or $Name -eq '.' -or $Name -eq '..' -or $Name -cnotmatch '\A[A-Za-z0-9._-]+\z') {
     throw "New-BosunScratchFolder: invalid name '$Name' (allowed: A-Z, a-z, 0-9, ., _, -)"
   }
   $root = Get-BosunScratchRoot

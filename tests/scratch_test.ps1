@@ -58,13 +58,25 @@ try {
   $created.Add($f)
   Check 'file BOSUN_SCRATCH path falls back to system temp' ((Test-Path -LiteralPath $f -PathType Container) -and (Same-Dir (Split-Path $f -Parent) $sysTemp)) "($f vs $sysTemp)"
 
-  # 4. Unsafe names (path separators, traversal, empty) are refused.
+  # 4. Unsafe names (path separators, traversal, empty, trailing newline) are refused.
   $env:BOSUN_SCRATCH = $fakeRoot
-  foreach ($bad in @('', '.', '..', '../escape', 'a\b', 'a/b', 'bad name')) {
+  foreach ($bad in @('', '.', '..', '../escape', 'a\b', 'a/b', 'bad name', "alpha`n")) {
     $threw = $false
     try { $null = New-BosunScratchFolder -Name $bad } catch { $threw = $true }
-    Check "unsafe name '$bad' is refused" $threw
+    Check "unsafe name '$($bad -replace "`n", '\n')' is refused" $threw
   }
+
+  # 4b. Relative BOSUN_SCRATCH resolves against PowerShell's current location (Push-Location), not the process CWD.
+  $subA = Join-Path $fakeRoot 'loc-a'
+  $subB = Join-Path $fakeRoot 'loc-b'
+  $null = New-Item -ItemType Directory -Path $subA, $subB
+  Push-Location -LiteralPath $subA
+  try {
+    $env:BOSUN_SCRATCH = '..\loc-b'
+    $rel = New-BosunScratchFolder -Name 'rel'
+    $created.Add($rel)
+    Check 'relative BOSUN_SCRATCH resolves against PowerShell location' ((Test-Path -LiteralPath $rel -PathType Container) -and (Same-Dir (Split-Path $rel -Parent) $subB)) "($rel vs $subB)"
+  } finally { Pop-Location }
 
   # 5. Child-creation failure inside a selected existing scratch root throws naming the root and leaves system temp untouched.
   $lockedDir = Join-Path $fakeRoot 'unwritable'

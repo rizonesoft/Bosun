@@ -71,7 +71,7 @@ class ScratchHelperTests(unittest.TestCase):
             self.assertNotEqual(created.parent.resolve(), general.resolve())
 
     def test_unsafe_names_are_refused(self) -> None:
-        for bad in ("", ".", "..", "../escape", "a/b", "a\\b", "bad name"):
+        for bad in ("", ".", "..", "../escape", "a/b", "a\\b", "bad name", "alpha\n"):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError):
                     scratch.scratch_dir(bad, root=self.base)

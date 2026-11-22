@@ -10,7 +10,7 @@ $sleeper = (Resolve-Path (Join-Path $Build 'test_sleeper.exe')).Path
 $ns = "BosunInst$PID"
 . (Join-Path $PSScriptRoot '..\scripts\lib\scratch.ps1')
 $work = New-BosunScratchFolder -Name 'inst'
-$work = (Resolve-Path $work).Path
+$work = (Resolve-Path -LiteralPath $work).ProviderPath
 $env:LOCALAPPDATA = Join-Path $work 'home'      # the queue's records
 $env:USERPROFILE = Join-Path $work 'profile'    # Claude Code's session records
 $sessions = Join-Path $env:USERPROFILE '.claude\sessions'
@@ -27,7 +27,12 @@ function Check($ok, $name) { if ($ok) { "ok   $name" } else { "FAIL $name"; $scr
 function Q($s) { "`"$s`"" }
 $started = [Collections.Generic.List[int]]::new()
 function Start-Held([string]$exe, [string[]]$arguments, [string]$in) {
-  $p = Start-Process $exe -ArgumentList $arguments -WorkingDirectory $in -NoNewWindow -PassThru
+  $info = [Diagnostics.ProcessStartInfo]::new($exe)
+  $info.Arguments = $arguments -join ' '
+  $info.WorkingDirectory = $in
+  $info.UseShellExecute = $false
+  $info.CreateNoWindow = $true
+  $p = [Diagnostics.Process]::Start($info)
   $script:started.Add($p.Id)
   $p
 }
@@ -267,7 +272,7 @@ try {
     Window 'sw7' $wslEditor @('vscode-remote://wsl%2BFake/home/me/app')
     $deniedWsl = Start-Editor 'Code.exe' 'ex7'
     Window 'sx7' $deniedWsl @('vscode-remote://wsl%2BFake/home/me/shut/work')
-    $env:BOSUN_WSL_EXE = (Resolve-Path $child).Path
+    $env:BOSUN_WSL_EXE = (Resolve-Path -LiteralPath $child).ProviderPath
     $env:BOSUN_WSL_SHARE = $share
     function Answer([string]$text, [int]$exit) {
       $file = Join-Path $work "wsl-answer-$exit.txt"
@@ -406,7 +411,7 @@ try {
 } finally {
   foreach ($id in $started) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $id 2>&1 | Out-Null }
   $null = Wait-Until { -not (Get-Process -Id $started -ErrorAction Ignore) } 5000
-  Remove-Item $work -Recurse -Force -ErrorAction Ignore
+  Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore
 }
 if ($fail) { "$fail failed"; exit 1 }
 'all passed'

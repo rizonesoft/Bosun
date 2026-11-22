@@ -251,7 +251,7 @@ try {
   # --- -Wsl forwards BOSUN_SCRATCH to WSL steps via WSLENV (D00 T07 §3) ---
   $wslProbe = Join-Path $work 'wslenv-probe.ps1'
   $wslSeen = Join-Path $work 'wslenv-seen.txt'
-  Set-Content -LiteralPath $wslProbe -Value "Set-Content -LiteralPath '$wslSeen' -Value (`$env:WSLENV ?? '')"
+  Set-Content -LiteralPath $wslProbe -Value 'Set-Content -LiteralPath (Join-Path $PSScriptRoot ''wslenv-seen.txt'') -Value ($env:WSLENV ?? '''')'
   $wslStepFile = Join-Path $work 'wsl-steps.json'
   ConvertTo-Json -InputObject @(@{ name = 'probe'; file = 'pwsh'; args = @('-NoProfile', '-File', $wslProbe) }) -Depth 4 | Set-Content -LiteralPath $wslStepFile
   $savedScratch = $env:BOSUN_SCRATCH

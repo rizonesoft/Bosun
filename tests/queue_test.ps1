@@ -809,7 +809,7 @@ if ($SkipWsl) {
   $savedWslenv = $env:WSLENV
   $env:WSLENV = (@($savedWslenv, 'LOCALAPPDATA') | Where-Object { $_ }) -join ':'  # the test's home reaches bosun.exe
   try {
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','sleep','4' -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','sleep','4' -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
     $r = Read-Rec 'slot-0.json'
     Check ($r.side -eq 'wsl' -and $r.repo -eq $linuxRepo -and $r.command -eq 'sleep 4' -and $r.kind -eq 'holder') "a top-level WSL run's record names wsl, the Linux repo and its command ($($r | ConvertTo-Json -Compress))"
@@ -822,7 +822,7 @@ if ($SkipWsl) {
     $longRun = Join-Path $work 'long-run.sh'
     [IO.File]::WriteAllText($longRun, "long=`"`$(head -c 40000 /dev/zero | tr '\0' x)`"`nBOSUN_EXE=`"`$2`" exec bash `"`$1`" run --ns `"`$3`" --slots 1 --min-avail-mb 0 --max-wait 0 -- bash -c 'sleep 4' `"`$long`"`n")
     $longRunWsl = (wsl.exe -d Ubuntu -- wslpath -a $longRun.Replace('\', '/')).Trim()
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','bash',(Q $longRunWsl),(Q $shim),(Q $exeWsl),$ns -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','bash',(Q $longRunWsl),(Q $shim),(Q $exeWsl),$ns -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
     $r = Read-Rec 'slot-0.json'
     Check ($r.kind -eq 'holder' -and $r.command.Length -le 4096 -and $r.command.EndsWith(' [...]') -and $r.command.StartsWith('bash -c')) "a WSL command past the Windows limit still holds a slot, its label cut ($($r.command.Length) characters)"
@@ -837,7 +837,7 @@ if ($SkipWsl) {
     # there. Slot 0 is taken, so it gets slot 1 and waits out --max-wait 3 for memory it can't have, then runs sleep 2.
     $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'guesthold.txt')),'15000' -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','3','--','sleep','2' -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','3','--','sleep','2' -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-1.json').side -eq 'wsl' } 15000
     # status --json from the shim, while that job waits for guest memory on slot 1 (D01 T01 §3).
     $gs = (wsl.exe -d Ubuntu -- env "BOSUN_EXE=$exeWsl" bash $shim status --ns $ns --slots 2 --json | Out-String) | ConvertFrom-Json -DateKind String
@@ -916,7 +916,7 @@ if ($SkipWsl) {
 
     # A WSL shim killed while its command runs: acquire still writes the line, with no exit code.
     $marker = "killmarker$PID"
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 30'),$marker -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 30'),$marker -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
     wsl.exe -d Ubuntu -- pkill -KILL -f "wsl/bosun run .*$marker"
     $null = Wait-Until { (Job-Line "*$marker*").Count -eq 1 } 15000
@@ -926,7 +926,7 @@ if ($SkipWsl) {
     wsl.exe -d Ubuntu -- pkill -KILL -f $marker
 
     # Its acquire stopped while the command runs: the shim lives on and keeps the command's own exit code (round 1).
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 6; exit 37') -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','1','--min-avail-mb','0','--max-wait','0','--','bash','-c',(Q 'sleep 6; exit 37') -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').side -eq 'wsl' } 15000
     Stop-Process -Id (Read-Rec 'slot-0.json').pid -Force
     $done = $job.WaitForExit(30000)
@@ -938,7 +938,7 @@ if ($SkipWsl) {
     $h = Start-Process $bosun -ArgumentList 'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--',(Q $sleeper),(Q (Join-Path $work 'neverhold.txt')),'20000' -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-0.json').pid -eq $h.Id }
     $never = "nevermarker$PID"
-    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',"$linuxRepo/sub",'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','0','--','bash','-c',(Q 'exit 0'),$never -PassThru -WindowStyle Hidden
+    $job = Start-Process wsl.exe -ArgumentList '-d','Ubuntu','--cd',(Q "$linuxRepo/sub"),'--','env',(Q "BOSUN_EXE=$exeWsl"),'bash',(Q $shim),'run','--ns',$ns,'--slots','2','--min-avail-mb','0','--min-guest-mb','99999999','--max-wait','0','--','bash','-c',(Q 'exit 0'),$never -PassThru -WindowStyle Hidden
     $null = Wait-Until { (Read-Rec 'slot-1.json').side -eq 'wsl' } 15000
     # The holder's record names the shim's own Linux process (D03 T02 §1), which is the `bosun run` the job started.
     $holder = Read-Rec 'slot-1.json'

@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import tempfile
 
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_NAME = re.compile(r"\A[A-Za-z0-9._-]+\Z")
 
 
 def _validate_name(name: str) -> str:
