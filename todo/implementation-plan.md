@@ -192,17 +192,17 @@ Sections: 8 | Checklist items: 36
 
 ### Phase 99: Manual, operator only
 
-Sections: 6 | Checklist items: 27
+Sections: 6 | Checklist items: 28
 
 | Status | Reference  | Deliverable                            | Needs                    | Items |
 | ------ | ---------- | -------------------------------------- | ------------------------ | ----- |
 | [ ]    | D99 T01 §1 | Enable XMP in the BIOS                 | operator, attended       | 3     |
 | [ ]    | D99 T01 §2 | Decide on 64 GB of RAM                 | operator, owner-decision | 3     |
-| [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 2     |
+| [ ]    | D99 T01 §3 | First attended walkthrough             | operator, attended       | 3     |
 | [ ]    | D99 T01 §4 | Decide whether to make the repo public | owner-decision, operator | 10    |
 | [ ]    | D99 T01 §5 | Acceptance: real machine changes       | operator, attended       | 4     |
 | [ ]    | D99 T01 §6 | First Carbon campaign run              | operator, attended       | 5     |
 
 Progress: 105/148 verified sections, 23 ready to run now.
 
-Checklist: 1015/1209 items completed (includes Commit items).
+Checklist: 1015/1210 items completed (includes Commit items).
