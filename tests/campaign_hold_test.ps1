@@ -113,6 +113,28 @@ try {
   Check ($r.Code -ne 0 -and $r.Text -match 'gave no answer within 2 seconds and was stopped' -and $hung -and -not (Get-Process -Id $hung -ErrorAction Ignore) -and (Test-Path $record)) "a hung powercfg write fails at -ProbeSeconds and is stopped, the record kept (pid $hung)"
   Remove-Item -LiteralPath $hangPid -ErrorAction Ignore
 
+  # A restore after the owner switched to another plan writes the held plan's values and leaves the owner's plan in force
+  # (round 1 of D00 T03 §24).
+  Seed '1'
+  $live = Get-Content $state -Raw | ConvertFrom-Json
+  $live | Add-Member -NotePropertyName active -NotePropertyValue '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -Force
+  [IO.File]::WriteAllText($state, ($live | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Restore')
+  $after = Get-Content $state -Raw | ConvertFrom-Json
+  Check ($r.Code -eq 0 -and $after.active -eq '8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c' -and $after.values.'SUB_VIDEO/VIDEOIDLE'.AC -eq 7200) "a restore leaves the plan the owner switched to in force ($($after.active))"
+  # A running plan Windows will not take back is a failed restore: the record and its originals stay.
+  Seed '1'
+  $env:BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE = '1'
+  try { $r = Hold @('-Restore') } finally { Remove-Item Env:BOSUN_FAKE_POWERCFG_FAIL_ACTIVATE }
+  Check ($r.Code -eq 1 -and $r.Text -match 'left the record' -and (Test-Path $record)) 'a failed /setactive keeps the record for a retry'
+  # A §24 record carries Expires; one that is not a time is refused by name, the record left.
+  Seed '1'
+  $rec = Get-Content $record -Raw | ConvertFrom-Json
+  $rec | Add-Member -NotePropertyName Expires -NotePropertyValue '2030-01-01' -Force
+  [IO.File]::WriteAllText($record, ($rec | ConvertTo-Json -Depth 8))
+  $r = Hold @('-Status')
+  Check ($r.Code -ne 0 -and $r.Text -match 'Expires is not a time' -and (Test-Path $record)) 'a date-only Expires is refused by name, and the record is left'
+
   # A restore that fails keeps the record and names what it couldn't put back; a retry then succeeds.
   Seed '1'
   $env:BOSUN_FAKE_POWERCFG_FAIL = '1'
