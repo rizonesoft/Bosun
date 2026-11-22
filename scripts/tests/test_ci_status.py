@@ -1029,6 +1029,8 @@ class Gate(Base):
         record = json.loads(self.state().read_text(encoding="utf-8")).get("started")
         if isinstance(record, dict) and not record.get("unanswered"):
             record.pop("unanswered", None)
+        # When GitHub accepted each start (D00 T03 §27), set aside for the tests that check it.
+        self.accepted = record.pop("accepted", {}) if isinstance(record, dict) else {}
         return record
 
     def test_the_gate_starts_a_missing_run_for_its_own_commit(self):
@@ -1041,6 +1043,7 @@ class Gate(Base):
         self.assertIn(f"recovery: started build.yml on main at {SHA}", self.stderr)
         self.assertNotIn("to get a real run", text)  # nobody is asked to run a command
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+        self.assertEqual(sorted(self.accepted), ["build.yml"], "GitHub accepted the start, and the gate recorded when")
 
     def test_a_run_never_listed_is_started_once_the_grace_has_passed_and_its_run_is_then_read(self):
         clock = _Clock()
@@ -1254,6 +1257,7 @@ class Gate(Base):
         self.go(["--gate", "--sha", OLD], gh, FakeGit(["README.md"]))
         self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
         self.assertEqual(self.started_record(), {"sha": OLD, "workflows": ["build.yml"]})
+        self.assertEqual(sorted(self.accepted), ["build.yml"], "GitHub accepted the start, and the gate recorded when")
 
     def test_a_commit_not_yet_pushed_is_told_to_push_not_that_the_branch_moved(self):
         # The remote head is an ancestor of the gated commit: nothing moved, the commit just isn't there yet.
@@ -1439,6 +1443,7 @@ class Gate(Base):
             thread.join(60)
         self.assertEqual(gh.started, [["build.yml", "--ref", "main"]])
         self.assertEqual(self.started_record(), {"sha": SHA, "workflows": ["build.yml"]})
+        self.assertEqual(sorted(self.accepted), ["build.yml"], "GitHub accepted the start, and the gate recorded when")
         self.assertTrue(all(result.get("started") == ["build.yml"] for result in results), results)
         self.assertFalse((self.root / ci_status.LOCK).exists())
 
@@ -2010,6 +2015,61 @@ class OpenRuns(Base):
                             clock=clock.now, sleep=sleep, wall=lambda: 1_000_000.0 + clock.t)
         self.assertIn("started build.yml: https://x/9", out.splitlines())
         self.assertIn("started plan.yml: https://x/9", out.splitlines())
+
+    def test_round_1_a_cancelled_older_dispatch_is_not_the_run_a_new_start_became(self):
+        clock = _Clock()
+        cancelled = dict(run(conclusion="cancelled", created="2026-11-07T10:00:00Z", run_id=7), event="workflow_dispatch")
+        gh = FakeGh({"build.yml": [cancelled], "plan.yml": [run()]})
+        slow = _Slow(gh, clock, cost=0)
+        slow.dispatch["build.yml"] = "ok"
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0"], slow, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0)  # 2026-11-19, after that run
+        self.assertIn("started build.yml; its run is not listed yet", out.splitlines())
+        self.assertNotIn("started build.yml: https://x/7", out, "the start is never paired with the older cancelled run")
+
+    def test_round_1_an_interrupted_reservation_is_not_a_confirmed_start(self):
+        # The window closed while gh was asking: the name was reserved, no answer recorded.
+        self.state().parent.mkdir(parents=True, exist_ok=True)
+        self.state().write_text(json.dumps({"started": {"sha": SHA, "workflows": ["build.yml"], "unanswered": {}}}), encoding="utf-8")
+        clock = _Clock()
+        gh = FakeGh({"plan.yml": [run()]})
+        code, out = self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "0"], gh, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0)
+        self.assertEqual(gh.started, [], "never started again")
+        self.assertFalse([l for l in out.splitlines() if l.startswith("started build.yml")])
+        self.assertIn("start not answered: build.yml (the start of build.yml got no clear answer (the gate stopped before GitHub answered the start)", out)
+
+    def test_round_1_any_failed_read_takes_the_error_pause(self):
+        for name, setup in (("a job read", "job"), ("the remote head", "head")):
+            with self.subTest(name):
+                self.state().unlink(missing_ok=True)
+                clock = _Clock()
+                if setup == "job":
+                    gh = FakeGh({"build.yml": [run("in_progress", None, run_id=2)], "plan.yml": [run()]})
+                    slow = _Slow(gh, clock, cost=0)
+                    slow.job_fails["2"] = "HTTP 502: Bad Gateway"
+                else:
+                    gh = FakeGh({"plan.yml": [run()]}, head_fails="HTTP 502: Bad Gateway")
+                    slow = _Slow(gh, clock, cost=0)
+                self.go(["--gate", "--sha", "HEAD", "--wait-minutes", "5"], slow, FakeGit(["src/a.cpp"]),
+                        clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0 + clock.t)
+                self.assertEqual(slow.looks[:3], [0, 120, 240], f"{name} failing each look: {slow.looks}")
+
+    def test_round_1_no_call_is_made_or_counted_past_the_deadline(self):
+        clock = _Clock()
+        gh = FakeGh({"build.yml": [run("in_progress", None, run_id=2)], "plan.yml": [run("in_progress", None, run_id=3)]})
+        slow = _Slow(gh, clock, cost=5)
+        times = []
+        made = slow.__call__
+
+        def timed(args):
+            times.append(clock.t)
+            return made(args)
+        code, out = self.go(["--gate", "--sha", "HEAD", "--json", "--wait-minutes", "0.1"], timed, FakeGit(["src/a.cpp"]),
+                            clock=clock.now, sleep=clock.sleep, wall=lambda: 1_795_000_000.0 + clock.t)
+        data = json.loads(out)
+        self.assertEqual(data["api_calls"], len(slow.calls))
+        self.assertTrue(all(t < 6 for t in times), f"a call started at or past the 6 s deadline: {times}")
 
     def test_a_restart_finding_an_unanswered_start_neither_starts_it_nor_calls_it_started(self):
         self.outcomes({"build.yml": "error connecting to api.github.com", "plan.yml": "ok"})
