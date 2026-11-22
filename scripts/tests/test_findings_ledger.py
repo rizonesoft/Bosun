@@ -54,6 +54,29 @@ class FindingsLedgerTest(unittest.TestCase):
         git(self.root, "commit", "-q", "-m", "base")
         self.base = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
+    def test_a_scheduled_owner_stamped_after_the_strike_stays_settled(self):
+        # D00 T03 §30's validation: D00 T06 §2's checkpoint failed once the section it scheduled two findings to was
+        # stamped. Stamped after the strike is settled; stamped before it, scheduling into finished work, is not.
+        self.settle("Scheduled: D09 T01 §1.", "Declined: a one-off script nobody runs again.", "Done: D09 T01 §3 shipped it.")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "struck")
+        (self.root / "later.txt").write_text("the owner's work\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "the owner ships and stamps")
+        later = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        stamped = lambda sha: "Fix `scripts/a.py` so the first finding holds.\n> **Verified:** 2026-11-22 | §1 | %s\n" % sha
+        for sha, settled in ((later, True), (self.base, False)):
+            with self.subTest(stamped_at=sha[:9]):
+                resolver = lambda ref, root, sha=sha: (3, stamped(sha)) if ref == "D09 T01 §1" else fake_resolve(ref, root)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    code = ledger.check(self.base, 5, 8, root=self.root, resolver=resolver)
+                if settled:
+                    self.assertEqual(code, 0, out.getvalue())
+                else:
+                    self.assertEqual(code, 1)
+                    self.assertIn("base line 5: D09 T01 §1 was already stamped when this was scheduled to it", out.getvalue())
+
     def settle(self, first, second, fourth):
         lines = BASE.splitlines()
         lines[4] = "- ~~`scripts/a.py:1`: the first finding.~~ " + first

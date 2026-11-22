@@ -35,6 +35,20 @@ def is_commit(sha, root):
     return git("merge-base", "--is-ancestor", sha, "HEAD", root=root).returncode == 0
 
 
+def struck_in(entry, root):
+    """The first commit whose todo/findings.md holds this entry struck, or None."""
+    out = git("log", "--format=%H", "--reverse", "-S", "- ~~%s~~" % entry, "--", FINDINGS, root=root)
+    commits = out.stdout.split() if out.returncode == 0 else []
+    return commits[0] if commits else None
+
+
+def shipped_after(stamp, entry, root):
+    """Whether the section's stamp came after the entry was scheduled to it: then the owner has shipped it, and the
+    scheduling stands settled (D00 T03 §30's validation: a stamped owner made its triage checkpoint fail)."""
+    struck = struck_in(entry, root)
+    return bool(struck) and git("merge-base", "--is-ancestor", struck, stamp, root=root).returncode == 0
+
+
 _GRAPHS = {}
 
 
@@ -64,7 +78,13 @@ def problem(entry, disposition, root, resolver=resolve, line=0):
         if not refs:
             return "Scheduled names no DNN TNN §N"
         code, body = resolver(refs[0], root)
-        if code not in (0, 4):
+        if code == 3:
+            # Stamped since it was scheduled: the owner shipped it. Scheduling into a section already stamped when the
+            # entry was struck stays refused.
+            stamp = re.search(r"\*\*Verified:\*\*[^|\n]*\|[^|\n]*\|\s*([0-9a-f]{40})", body)
+            if not (stamp and shipped_after(stamp.group(1), entry, root)):
+                return "%s was already stamped when this was scheduled to it (resolve exit 3)" % refs[0]
+        elif code not in (0, 4):
             return "%s is not an open section (resolve exit %d)" % (refs[0], code)
         key = finding_file(entry)
         if key and key not in body.replace("\\", "/"):
