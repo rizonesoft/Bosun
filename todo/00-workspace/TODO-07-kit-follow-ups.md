@@ -98,18 +98,25 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 12). Since 
 **Needs:** none
 **Surface:** no
 
+**Corrected 2026-11-22 (the plan review of `D00 T07 §2`):** zero errors could be reached by switching a rule off in `pyrightconfig.json` or a file-wide `# pyright: ignore`, which the section did not catch; its CI proof used a branch push `build.yml` does not run; its inventory could omit errors and its repairs named only narrowing and platform checks; a real fault's test was named, not shown to fail; one platform target could hide the other's branch; and the baseline's environment was not stated. The 480 errors (2026-11-21) and the 24 in `scripts/lib/run_guard.py` are historical measurements.
+
+**Environment:** the scripts job's, on this machine and in CI alike: Python 3.14 with `python -m pip install -r scripts/requirements-icons.txt`, and pyright 1.1.414 (`npm install -g pyright@1.1.414`), run as `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts`.
+
 **Build order:**
 
-1. Sort the errors. Done when: each class is counted here, real faults apart.
-2. Fix them at their source. Done when: pyright reports 0 errors, and CI keeps it there.
+1. Sort the errors. Done when: the counts of one pinned run on each platform are written here, reconciled.
+2. Fix them at their source. Done when: both platforms report 0 errors, with nothing suppressed.
+3. Keep them out. Done when: the weakening scan refuses a suppression, and CI fails on a new error.
 
-- [ ] Run pyright over `scripts/` and count the errors by rule and file, the 24 in `scripts/lib/run_guard.py` and its callers that base line 12 names among them (**corrected 2026-11-22, round 1 of `D00 T06 §6`:** the item never named that file), recording here which are platform noise (a POSIX module on Windows), which are missing narrowing and which are real faults. Done when: the table is written with the pyright version.
-- [ ] Fix each real fault with a regression test that fails before its fix. Done when: each has its test named here.
-- [ ] Narrow optional values where they are used (an early return or an `assert` with a reason), and mark the platform modules as platform code (`sys.platform` checks pyright understands), never a blanket `# type: ignore`. Done when: `pyright scripts` reports 0 errors and no new `type: ignore` is added. Cheaper substitute: lowering `pyrightconfig.json`'s strictness.
-- [ ] Run pyright in CI's scripts job in `.github/workflows/build.yml` at a pinned version (`pyright@1.1.414`, the one that measured 385 errors on 2026-11-22), so a new error turns the run red and a new pyright release cannot (**corrected 2026-11-22, before the plan review of `D00 T07 §2`**). Done when: a pushed branch with one type error shows the step red, recorded here.
+- [ ] Run the pinned pyright in the environment above on each platform and record here the total, the count by rule and the count by file, the rule and file totals each summing to the run's total, with the pyright and Python versions and the commit (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tables are written and reconcile.
+- [ ] Give every group of errors a source disposition here: a missing narrowing (an early return or an `assert` with its reason), an incorrect inferred or declared type (as `scripts/ci_status.py:196`, a dictionary made with `None` values that later holds lists), a wrong call signature, platform code (a `sys.platform` check pyright reads), a missing import in the environment, or a real fault (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: every group in the tables has one.
+- [ ] Fix each real fault with a regression test that drives the affected behaviour through its caller, and record its name, its failure on the original code and its pass with the fix (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: each real fault has the three recorded here. Cheaper substitute: a test named but not run against the old code, which the Done when refuses.
+- [ ] Fix every other error at its source by the disposition above, never by a `# type: ignore`, a `# pyright: ignore`, a file-level `# pyright:` comment or a change to `pyrightconfig.json` that lowers what it checks. Done when: `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors` in the environment above, and an error planted inside a `sys.platform == "win32"` branch and one inside the other branch each fail their platform's run, recorded here. Cheaper substitute: lowering `pyrightconfig.json`'s strictness, which the Done when refuses.
+- [ ] Extend `scripts/weakening-scan.py` to report a `# pyright: ignore`, a file-level `# pyright:` comment and a `pyrightconfig.json` change that turns a rule off, lowers `typeCheckingMode` or drops a path from what it checks, as it reports a `type: ignore` today, with cases in `scripts/tests/test_weakening_scan.py` (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: the tests pass, and fail on a diff that disables a rule and on one that adds a blanket ignore hiding a known error.
+- [ ] Run the pinned pyright on both platforms in the scripts job of `.github/workflows/build.yml`, with no `continue-on-error`, so a new error fails the job and the workflow and a new pyright release cannot (**corrected 2026-11-22, the plan review of `D00 T07 §2`**). Done when: a `workflow_dispatch` run on a branch holding one planted error shows the scripts job and the workflow failed, and a run after removing only that error shows both green, the pyright version and invocation the same in both, their URLs recorded here.
 - [ ] Commit: `scripts: pyright reports no errors (D00 T07 §2)`
 
-**Test checkpoint:** `pyright scripts` prints `0 errors`, and `python scripts/run-tests.py` exits 0.
+**Test checkpoint:** in the environment above, `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` each print `0 errors`; `python -m unittest scripts.tests.test_weakening_scan` exits 0 with its disabled-rule and blanket-ignore cases; `python scripts/run-tests.py` exits 0; and the two `workflow_dispatch` runs are recorded here (**corrected 2026-11-22, the plan review of `D00 T07 §2`**).
 
 ## 3. Test fixtures in the scratch folder
 
