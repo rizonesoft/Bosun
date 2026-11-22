@@ -5,6 +5,8 @@
 *.py text eol=lf
 wsl/bosun text eol=lf
 scripts/hooks/* text eol=lf
+# Compared byte for byte with the generated plan (D00 T07 §1), so no checkout may turn its LF into CRLF.
+scripts/tests/fixtures/plan-baseline.md -text
 
 *.png binary
 *.ico binary
