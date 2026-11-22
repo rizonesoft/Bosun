@@ -7,8 +7,6 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | Domain | File | Scope |
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-03-campaign-readiness.md | Runner fixes and the preflight every other section waits for |
-| 00 | 00-workspace/TODO-05-private-overlay.md | Public core and the private overlay that holds owner specifics |
-| 00 | 00-workspace/TODO-06-findings-triage.md | Every open finding scheduled, fixed or closed with its reason |
 | 00 | 00-workspace/TODO-07-kit-follow-ups.md | Speed, progress and logs for the kit's gates, hooks, tests and build tools |
 | 01 | 01-core/TODO-02-core-follow-ups.md | Job lines, warnings, status detail, history bounds and live limits after the contract |
 | 02 | 02-shell/TODO-02-application-shell.md | Window, navigation, settings, tray, one desktop owner for the smoke, real-input smoke opt-in and nightly |
@@ -24,6 +22,8 @@ Generated plan: [implementation-plan.md](./implementation-plan.md).
 | ------ | ---- | ----- |
 | 00 | 00-workspace/TODO-01-kit-completion.md | Gates, hooks, clone setup, CI and the build tooling for this repo (2026-11-12) |
 | 00 | 00-workspace/TODO-02-dotnet-foundation.md | .NET 11 solution, build props and projects, its build measured for memory and speed (2026-11-13) |
+| 00 | 00-workspace/TODO-05-private-overlay.md | Public core and the private overlay that holds owner specifics (2026-11-21) |
+| 00 | 00-workspace/TODO-06-findings-triage.md | Every open finding scheduled, fixed or closed with its reason (2026-11-22) |
 | 01 | 01-core/TODO-01-core-contract.md | JSON from bosun.exe and the loggers (2026-11-13) |
 | 02 | 02-shell/TODO-01-brand-and-theme.md | Generated theme, icon pipeline and control templates (2026-11-15) |
 | 02 | 02-shell/TODO-03-premium-components.md | Mica shell, Lucide glyphs and premium components (2026-11-16) |

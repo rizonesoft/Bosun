@@ -2,13 +2,18 @@
 """Check that a range of todo/findings.md was settled (D00 T06): every entry open there at a base commit is still in the
 file exactly once, struck (`- ~~<its text>~~`), and followed by a disposition the plan can act on:
 
-  Scheduled: DNN TNN §N    an open section whose text names the finding's file (the first backticked path)
+  Scheduled: DNN TNN §N    one open section naming every file the finding names (`finding_files`), and with
+                           --cite-lines an item of it citing the finding's base line and naming those files
   Fixed: <commit>, test: <command>    fixed in the triage section with a regression test, the commit in history
   Done: <commit or DNN TNN §N>    already fixed earlier: a commit in history, or a stamped section
   Superseded: <commit or DNN TNN §N> ...    the code it named was redesigned or removed
   Declined: <reason>    a suggestion not taken, with a reason of at least five words
 
   python scripts/findings-ledger.py --base b8c4e0b3 --lines 5-40
+  python scripts/findings-ledger.py --base b8c4e0b3 --lines 182-214 --cite-lines --record <classification> --classify
+
+--record checks one classification line per entry, agreeing with its strike; --classify (with --record) its stated
+classification: a defect, a suggestion, already fixed or superseded.
 
 Exit 0 when the range is settled, 1 with each unsettled entry named (by its base line), 2 when it cannot check.
 """
