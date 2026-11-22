@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 from pathlib import Path
 import shutil
@@ -254,14 +255,28 @@ class BadgedIconTest(unittest.TestCase):
                 self.assertTrue(lines[0].startswith(icons.FAILURES[code] + ": "), lines[0])  # led by its kind from the map
                 self.assertNotIn("pip install", lines[0]) if code != 2 else None
                 self.assertEqual(target.read_bytes(), b"the icon from before")
-        held.chmod(0o444)  # an existing ICO the replace cannot take, for real
-        try:
-            got, lines, said = self.badge_run(out=held)
-        finally:
-            held.chmod(0o644)
-        self.assertEqual((got, len(lines)), (6, 1), lines)
-        self.assertIn("make it writable or choose another -IconDir", lines[0])
-        self.assertEqual(held.read_bytes(), b"the icon from before")
+        if os.name == "nt":  # an existing ICO the replace cannot take, for real: only Windows refuses a read-only target
+            held.chmod(0o444)
+            try:
+                got, lines, said = self.badge_run(out=held)
+            finally:
+                held.chmod(0o644)
+            self.assertEqual((got, len(lines)), (6, 1), lines)
+            self.assertIn("make it writable or choose another -IconDir", lines[0])
+            self.assertEqual(held.read_bytes(), b"the icon from before")
+        # Each cause of a write that fails gets its own remedy (round 3 of D00 T03 §31).
+        causes = [(OSError(28, "No space left on device"), "the drive is full"),
+                  (PermissionError(13, "Permission denied"), "make it writable or choose another -IconDir")]
+        if os.name == "nt":
+            causes.append((OSError(None, "The process cannot access the file", str(out), 32), "another program holds"))
+        for error, remedy in causes:
+            with self.subTest(remedy=remedy):
+                out.write_bytes(b"the icon from before")
+                with mock.patch.object(icons.os, "replace", side_effect=error):
+                    got, lines, said = self.badge_run(out=out)
+                self.assertEqual((got, len(lines)), (6, 1), lines)
+                self.assertIn(remedy, lines[0])
+                self.assertEqual(out.read_bytes(), b"the icon from before")
 
     def test_a_failed_replace_keeps_the_old_icon_and_leaves_no_temporary_file(self):
         out = self.tmp / "launcher.ico"

@@ -77,15 +77,17 @@ try {
   Check ($out -match "the icon folder .* can't be made" -and $out -notmatch 'pip install') "an icon folder that can't be made says that, not pip"
 
   # D00 T03 §31: one fix for each way a badge fails, the shortcut left with the plain icon and reopened to prove it.
-  function Install-Case([string]$name, [scriptblock]$setup, [scriptblock]$undo, [string]$fix, [string]$iconDir) {
+  function Install-Case([string]$name, [scriptblock]$setup, [scriptblock]$undo, [string]$fix, [string]$iconDir, [switch]$ClaudeOnly) {
     $dir = Join-Path $work "case-$name"
     New-Item -ItemType Directory -Force $dir | Out-Null
     & $setup
-    try { $said = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $dir -IconDir $iconDir 2>&1) -join "`n" } finally { & $undo }
-    $at = Join-Path $dir 'Bosun Claude campaign.lnk'
-    $icon = if (Test-Path -LiteralPath $at) { $shell.CreateShortcut($at).IconLocation } else { 'missing' }
+    try { $said = (& $pwsh -NoProfile -File $script -InstallShortcut -ShortcutDir $dir -IconDir $iconDir 2>&1) -join "`n"; $code = $LASTEXITCODE } finally { & $undo }
+    # Both shortcuts, reopened, and the install's own exit (round 3 of D00 T03 §31): a fallback that wrote one only fails.
+    $icons = @(foreach ($n in 'Bosun Claude campaign', 'Bosun Gemini campaign') { $at = Join-Path $dir "$n.lnk"; if (Test-Path -LiteralPath $at) { $shell.CreateShortcut($at).IconLocation } else { 'missing' } })
     $pip = $fix -match 'pip install'
-    Check ($said -match [regex]::Escape($fix) -and $icon -eq $plainIcon -and ($pip -or $said -notmatch 'pip install')) "a badge that fails by $name says its one fix and leaves the plain icon ($icon)"
+    # A cause that breaks only the Claude badge leaves the Gemini one its own; one that breaks both leaves both plain.
+    $want = if ($ClaudeOnly) { $icons[0] -eq $plainIcon -and $icons[1] -ne $plainIcon -and $icons[1] -ne 'missing' } else { -not ($icons | Where-Object { $_ -ne $plainIcon }) }
+    Check ($code -eq 0 -and $said -match [regex]::Escape($fix) -and $icons.Count -eq 2 -and $want -and ($pip -or $said -notmatch 'pip install')) "a badge that fails by $name says its one fix and falls back where it failed (exit $code; $($icons -join ', '))"
   }
   $hide = Join-Path $work 'hide-resvg'
   New-Item -ItemType Directory -Force $hide | Out-Null
@@ -95,12 +97,12 @@ try {
   $badIcons = Join-Path $work 'icons-badmark'
   New-Item -ItemType Directory -Force (Join-Path $badIcons 'marks') | Out-Null
   Set-Content -LiteralPath (Join-Path $badIcons 'marks\claude.svg') -Value '<svg this is truncated'
-  Install-Case 'a malformed mark' {} {} 'mend or remove it' $badIcons
+  Install-Case 'a malformed mark' {} {} 'mend or remove it' $badIcons -ClaudeOnly
   $roIcons = Join-Path $work 'icons-readonly'
   New-Item -ItemType Directory -Force $roIcons | Out-Null
   $roIcon = Join-Path $roIcons 'bosun-campaign-claude.ico'
   Set-Content -LiteralPath $roIcon -Value 'an icon from before'
-  Install-Case 'an icon it cannot replace' { Set-ItemProperty -LiteralPath $roIcon -Name IsReadOnly -Value $true } { Set-ItemProperty -LiteralPath $roIcon -Name IsReadOnly -Value $false } 'make it writable or choose another -IconDir' $roIcons
+  Install-Case 'an icon it cannot replace' { Set-ItemProperty -LiteralPath $roIcon -Name IsReadOnly -Value $true } { Set-ItemProperty -LiteralPath $roIcon -Name IsReadOnly -Value $false } 'make it writable or choose another -IconDir' $roIcons -ClaudeOnly
   $keptEnvPath = $env:Path
   $noPython = ($env:Path -split ';' | Where-Object { $_ -and -not (Test-Path -LiteralPath (Join-Path $_ 'python.exe')) -and -not (Test-Path -LiteralPath (Join-Path $_ 'python.cmd')) }) -join ';'
   Install-Case 'no python' { $env:Path = $noPython } { $env:Path = $keptEnvPath } 'python is not on PATH: install Python 3' (Join-Path $work 'icons-nopy')
