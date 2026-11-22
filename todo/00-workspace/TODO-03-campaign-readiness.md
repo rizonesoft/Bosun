@@ -999,6 +999,8 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 10, 11 and
 
 ## 27. CI gate sees a finished run sooner and says what it is waiting on
 
+> **Started:** 2026-11-22T00:03:57Z
+
 Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 18, 19 and 20, raised by the completion review of `§13`). `scripts/ci_status.py` polls every 60 seconds (`POLL_SECONDS`), so a section waits on average half a minute after its CI has finished; its `waiting:` line names each workflow's verdict but not the run's URL or its current job; and a confirmed refusal, an unanswered start and a successful start all print under `no run was started:`.
 
 **Corrected 2026-11-22 (plan review):** the plan review in `docs/reviews/00-workspace/D00-T03-s27.md` returned six gaps (3 P1, 3 P2), planned in below: what a start prints when its run is not listed yet, and a restart that never starts twice; looks timed from their start, with the error pause, the start grace and the deadline in order; the newest run's URL and job, and a failed job read; the API count's unit; the old wording kept where no start was tried, with its readers; the measurement from the last workflow to finish on a gate that waited.
