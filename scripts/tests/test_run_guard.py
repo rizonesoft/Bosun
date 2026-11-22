@@ -1130,7 +1130,7 @@ class AntigravityRuns(unittest.TestCase):
 
     WATCH_ACTIONS = ("run `python scripts/run-guard.py look` in the foreground", "On `still waiting:`, run it again.",
                      "has a result to read once it is gone, whether `look` says `ended:` or it was already gone",
-                     "Start no new row while anything is still waiting.",
+                     "Start no new row while anything is still waiting, except as process-phase allows: a CI gate on a stamp commit",
                      "On `nothing to wait for`, read the result of each one named that you have not read yet, then continue process-plan.")
 
     def assert_watch_answer(self, reason, *waits):

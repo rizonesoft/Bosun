@@ -736,7 +736,9 @@ def wait_in_session(items: list[str]) -> str:
         "named here or in a `look` line has a result to read once it is gone, whether `look` says `ended:` or it was "
         "already gone: read that tool's own result (the review dispatcher's final output and exit code, the action the "
         "CI gate printed, or the local gate's printed result) and act on it as process-plan says, then run `look` again "
-        "while its line says anything is still waiting. Start no new row while anything is still waiting. On `nothing "
+        "while its line says anything is still waiting. Start no new row while anything is still waiting, except as "
+        "process-phase allows: a CI gate on a stamp commit that touches only todo/, docs/reviews/ and docs/phase-runs/, "
+        "after its candidate's own CI was green, lets the next row start, and a repair it prints comes first. On `nothing "
         "to wait for`, read the result of each one named that you have not read yet, then continue process-plan."
     )
 
