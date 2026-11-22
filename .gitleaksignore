@@ -3,4 +3,6 @@
 # secret finding (".gitleaksignore fingerprint: ..."), for the patch scan and the objects it scans beside it alike.
 
 # D00 T06 §2: the placeholder `Authorization: Bearer TEST_ONLY` in a TODO item's test (a job run with an explicit label must
-# leave this marker out of the job history), and round 1's review quoting it; no credential./01-core/TODO-02-core-follow-ups.md:curl-auth-header:58/reviews/00-workspace/D00-T06-s2.md:curl-auth-header:93
+# leave this marker out of the job history), and round 1's review quoting it; no credential.
+8e0bd71b2b4c326fb4a81594bc6e6140cda82ffd:todo/01-core/TODO-02-core-follow-ups.md:curl-auth-header:58
+8e0bd71b2b4c326fb4a81594bc6e6140cda82ffd:docs/reviews/00-workspace/D00-T06-s2.md:curl-auth-header:93
