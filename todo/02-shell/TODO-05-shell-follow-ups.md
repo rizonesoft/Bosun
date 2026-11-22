@@ -54,7 +54,7 @@ title: "TODO-05 -- Shell follow-ups"
 Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 66, 68 and 69, measured in and filed by `D02 T01 §2`). Base line 66 is a defect now: a hovered data grid row draws caption text (`TextMute`) and accent text on `B.Hover`, which measured 4.33:1 (dark `TextMute`) and 4.27:1 (light `Accent`), under the 4.5:1 `design/SPEC.md` asks of text; `ThemeContrast.Surfaces` does not include `Hover`, so nothing catches it. A failure line names the colours and ratio but not the token to change. Extended 2026-11-22 by `D00 T06 §4` (base lines 112, 113, 114 and 143).
 
 **Phase:** 2
-**Needs:** none
+**Needs:** display-session
 **Surface:** yes
 
 **Build order:**
@@ -72,7 +72,7 @@ Filed 2026-11-22 by `D00 T06 §2` from `todo/findings.md` (base lines 66, 68 and
 - [ ] Repeat the shown-window focus and selection checks of `tests/Bosun.Panel.E2E/ContrastTests.cs` with Desert (`hcwhite.theme`) and at 200 percent scaling, with no clipped label and no lost focus indicator (base line 143). Done when: the tests pass in Night sky and Desert at 100 and 200 percent and fail on a label clipped on purpose. Cheaper substitute: running Desert at 100 percent only, which the Done when refuses (**filed 2026-11-22 by `D00 T06 §4`**).
 - [ ] Commit: `theme: contrast holds on hovered rows and every drawn pair (D02 T05 §1)`
 
-**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ThemeContrast*"` exits 0, and fails with the two tokens restored. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses)
+**Test checkpoint:** `dotnet test --project tests/Bosun.Panel.Tests --filter-class "*ThemeContrast*"` exits 0, and fails with the two tokens restored. (**corrected 2026-11-22, round 2 of `D00 T06 §4`:** written as VSTest arguments, which `global.json`'s Microsoft.Testing.Platform runner refuses) The shown-window contrast tests of `tests/Bosun.Panel.E2E/ContrastTests.cs` are real-input tests this command can't select, so `pwsh scripts/smoke-input.ps1` also exits 0, its log in `%LOCALAPPDATA%\Bosun\smoke` naming each `ContrastTests` case run in Night sky and Desert at 100 and 200 percent (**corrected 2026-11-22, round 3 of `D00 T06 §4`**, which also made the section need a display session).
 
 **Fidelity:** `design/SPEC.md` (text contrast) and the panel's rendered Queue and Memory pages in both themes.
 **Job:** the operator reads every caption and accent on a hovered row as easily as on a still one.
