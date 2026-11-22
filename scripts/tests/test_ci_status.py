@@ -2027,6 +2027,18 @@ class OpenRuns(Base):
         self.assertIn("started build.yml; its run is not listed yet", out.splitlines())
         self.assertNotIn("started build.yml: https://x/7", out, "the start is never paired with the older cancelled run")
 
+    def test_round_2_a_read_only_look_never_offers_a_start_a_gate_already_asked_for(self):
+        self.state().parent.mkdir(parents=True, exist_ok=True)
+        self.state().write_text(json.dumps({"started": {"sha": SHA, "workflows": ["build.yml"],
+                                                        "unanswered": {"build.yml": "timed out"}}}), encoding="utf-8")
+        code, out = self.go(["--sha", "HEAD"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
+        self.assertNotIn("to get a real run", out)
+        self.assertIn("start not answered: build.yml (the start of build.yml got no clear answer (timed out)", out)
+        # A workflow nothing asked for is still offered.
+        self.state().write_text(json.dumps({"started": {"sha": SHA, "workflows": [], "unanswered": {}}}), encoding="utf-8")
+        code, out = self.go(["--sha", "HEAD"], FakeGh({"plan.yml": [run()]}), FakeGit(["src/a.cpp"]))
+        self.assertIn("to get a real run: gh workflow run build.yml --ref main", out)
+
     def test_round_1_an_interrupted_reservation_is_not_a_confirmed_start(self):
         # The window closed while gh was asking: the name was reserved, no answer recorded.
         self.state().parent.mkdir(parents=True, exist_ok=True)

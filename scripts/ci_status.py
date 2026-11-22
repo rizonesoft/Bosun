@@ -467,7 +467,22 @@ def recover(runner, result, branch, sha, gate, path, expired=lambda: False, git=
         result["not_pushed" if behind else "moved_to"] = head
         return
     if not gate:
-        result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in missing)
+        # A read-only look (the preflight's) consults the gate's record first: a workflow a gate already started or
+        # asked to start, answered or not, may be about to run, so it is reported as such and never offered as a
+        # command, which could run it twice (round 2 of D00 T03 §27).
+        record = started_record(read_gate(path), sha)
+        accepted = record.get("accepted", {})
+        asked = [name for name in missing if name in record["workflows"]]
+        pending = {name: unanswered_text(name, record["unanswered"].get(name) or INTERRUPTED, branch)
+                   for name in asked if name not in accepted}
+        if pending:
+            result["start_unanswered"] = pending
+        started_now = [name for name in asked if name in accepted]
+        if started_now:
+            result["started"], result["started_at"] = started_now, {name: accepted[name] for name in started_now}
+        offer = [name for name in missing if name not in asked]
+        if offer:
+            result["recovery"] = "; ".join(f"gh workflow run {name} --ref {branch}" for name in offer)
         return
     if hold():
         result["holding"] = missing

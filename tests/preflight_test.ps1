@@ -518,6 +518,10 @@ try {
   $env:BOSUN_TEST_CI_NOTE = "no run was started: the remote head of main couldn't be read, so no run was started: gh api exited 1: HTTP 502"
   $r = Preflight $tools @('-Only', 'ci', '-Repo', $clone)
   Check ($r.Code -eq 1 -and $r.Text -match 'fix: `gh auth status`' -and $r.Text -notmatch 'push HEAD') 'an unreadable remote head is told to check gh, not to push'
+  # Round 2 of D00 T03 §27: a start the gate already asked for may be running, so the fix is to wait, never a second start.
+  $env:BOSUN_TEST_CI_NOTE = "start not answered: build.yml (the start of build.yml got no clear answer (timed out), so it may be running and won't be started again for this commit; if no run appears: gh workflow run build.yml --ref main)"
+  $r = Preflight $tools @('-Only', 'ci', '-Repo', $clone)
+  Check ($r.Code -eq 1 -and $r.Text -match 'fix: wait for the run the gate already asked for' -and $r.Text -notmatch 'fix: start a run') 'an unanswered start is waited for, never started a second time'
   Remove-Item Env:BOSUN_TEST_CI, Env:BOSUN_TEST_CI_NOTE
   foreach ($c in @(@{ How = 'crash'; Says = 'gave no status' }, @{ How = 'unreadable'; Says = "can't read its state: JSONDecodeError" }, @{ How = 'hook'; Says = 'hook failed open.*disk full' })) {
     $env:BOSUN_TEST_GUARD = $c.How
