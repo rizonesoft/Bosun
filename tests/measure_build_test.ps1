@@ -806,11 +806,28 @@ exit $LASTEXITCODE
   ) "(base exit $qBaseExit args: $($qBaseArgs -join ' '); diag exit $qDiagExit args: $($qDiagArgs -join ' '))"
 
   # --- Live progress announcements and 5-second ticks (read while child is still alive, native and .NET) ---
+  function Start-LivePwsh([string[]]$ArgList) {
+    $psi = [Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    foreach ($a in $ArgList) { [void]$psi.ArgumentList.Add($a) }
+    $proc = [Diagnostics.Process]::Start($psi)
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    [pscustomobject]@{ Proc = $proc; ErrTask = $errTask }
+  }
+  function Stop-LivePwsh($live) {
+    if (-not $live) { return }
+    if ($live.Proc -and -not $live.Proc.HasExited) { $live.Proc.Kill($true) }
+    if ($live.ErrTask) { [void]$live.ErrTask.Wait(5000) }
+    if ($live.Proc) { $live.Proc.Dispose() }
+  }
+
   Set-Content -LiteralPath (Join-Path $dir 'mode.txt') -Value 'slow-fresh'
-  $liveLog = Join-Path $dir 'live-native.stdout'
   $liveOutDir = Join-Path $dir 'live-docs'
   New-Item -ItemType Directory -Path $liveOutDir | Out-Null
-  $liveProc = Start-Process pwsh -PassThru -NoNewWindow -RedirectStandardOutput $liveLog -ArgumentList @(
+  $liveNative = Start-LivePwsh @(
     '-NoProfile', '-File', $measure, '-BuildScript', $fake, '-TouchFile', (Join-Path $dir 'source.cpp'),
     '-OutDir', $liveOutDir, '-Label', 'live-native', '-Decision', 'kept', '-Samples', '1'
   )
@@ -819,24 +836,24 @@ exit $LASTEXITCODE
   $liveExitCode = -1
   try {
     $pollDeadline = (Get-Date).AddSeconds(60)
-    while (-not $liveProc.HasExited -and (Get-Date) -lt $pollDeadline) {
-      if (Test-Path -LiteralPath $liveLog) {
-        $content = ''
-        try {
-          $fs = [IO.FileStream]::new($liveLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
-          try { $sr = [IO.StreamReader]::new($fs); $content = $sr.ReadToEnd() } finally { $fs.Dispose() }
-        } catch [IO.IOException] { $content = '' }
-        if (-not $sawStartLive -and $content -match 'starting fresh build sample 1/1\.\.\.') { $sawStartLive = $true }
-        $matchesNow = [regex]::Matches($content, 'fresh build sample 1/1: still running \(\d+ s\)')
-        if ($matchesNow.Count -gt $liveTicks) { $liveTicks = $matchesNow.Count }
+    $lineTask = $liveNative.Proc.StandardOutput.ReadLineAsync()
+    while ((Get-Date) -lt $pollDeadline) {
+      if ($lineTask.Wait(250)) {
+        $line = $lineTask.Result
+        if ($null -eq $line) { break }
+        if (-not $liveNative.Proc.HasExited) {
+          if ($line -match 'starting fresh build sample 1/1\.\.\.') { $sawStartLive = $true }
+          if ($line -match 'fresh build sample 1/1: still running \(\d+ s\)') { $liveTicks++ }
+        }
+        $lineTask = $liveNative.Proc.StandardOutput.ReadLineAsync()
+      } elseif ($liveNative.Proc.HasExited) {
+        break
       }
-      Start-Sleep -Milliseconds 250
     }
-    if (-not $liveProc.WaitForExit(30000)) { $liveProc.Kill($true) }
-    $liveExitCode = $liveProc.ExitCode
+    if (-not $liveNative.Proc.WaitForExit(30000)) { $liveNative.Proc.Kill($true) }
+    $liveExitCode = $liveNative.Proc.ExitCode
   } finally {
-    if ($liveProc -and -not $liveProc.HasExited) { $liveProc.Kill($true) }
-    if ($liveProc) { $liveProc.Dispose() }
+    Stop-LivePwsh $liveNative
   }
   $liveJson = Get-Content -LiteralPath (Join-Path $liveOutDir 'build-performance.json') -Raw | ConvertFrom-Json
   $liveFresh = ($liveJson.labels | Where-Object label -eq 'live-native').steps | Where-Object step -eq 'fresh build'
@@ -847,8 +864,7 @@ exit $LASTEXITCODE
   # .NET live progress: linger wait (6 s -> 5 s tick) and warm build (6 s -> 5 s tick), read while alive.
   Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value 'slow-warm'
   foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt') + @(Join-Path $dn 'warm-calls.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
-  $liveDnLog = Join-Path $dir 'live-dotnet.stdout'
-  $liveDnProc = Start-Process pwsh -PassThru -NoNewWindow -RedirectStandardOutput $liveDnLog -ArgumentList @(
+  $liveDotnet = Start-LivePwsh @(
     '-NoProfile', '-File', $measure, '-Dotnet', '-DotnetCommand', $fakeDotnet,
     '-Solution', (Join-Path $dn 'Fake.slnx'), '-DotnetProject', (Join-Path $dn 'Fake.csproj'),
     '-DotnetOutputs', ($outs -join ','), '-TouchFile', (Join-Path $dn 'Foundation.cs'),
@@ -860,23 +876,24 @@ exit $LASTEXITCODE
   $liveDnExitCode = -1
   try {
     $pollDeadline = (Get-Date).AddSeconds(90)
-    while (-not $liveDnProc.HasExited -and (Get-Date) -lt $pollDeadline) {
-      if (Test-Path -LiteralPath $liveDnLog) {
-        $content = ''
-        try {
-          $fs = [IO.FileStream]::new($liveDnLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
-          try { $sr = [IO.StreamReader]::new($fs); $content = $sr.ReadToEnd() } finally { $fs.Dispose() }
-        } catch [IO.IOException] { $content = '' }
-        if (-not $sawLingerLive -and $content -match 'linger wait: still waiting \(5 s\)') { $sawLingerLive = $true }
-        if (-not $sawWarmTickLive -and $content -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $sawWarmTickLive = $true }
+    $lineTask = $liveDotnet.Proc.StandardOutput.ReadLineAsync()
+    while ((Get-Date) -lt $pollDeadline) {
+      if ($lineTask.Wait(250)) {
+        $line = $lineTask.Result
+        if ($null -eq $line) { break }
+        if (-not $liveDotnet.Proc.HasExited) {
+          if ($line -match 'linger wait: still waiting \(5 s\)') { $sawLingerLive = $true }
+          if ($line -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $sawWarmTickLive = $true }
+        }
+        $lineTask = $liveDotnet.Proc.StandardOutput.ReadLineAsync()
+      } elseif ($liveDotnet.Proc.HasExited) {
+        break
       }
-      Start-Sleep -Milliseconds 250
     }
-    if (-not $liveDnProc.WaitForExit(30000)) { $liveDnProc.Kill($true) }
-    $liveDnExitCode = $liveDnProc.ExitCode
+    if (-not $liveDotnet.Proc.WaitForExit(30000)) { $liveDotnet.Proc.Kill($true) }
+    $liveDnExitCode = $liveDotnet.Proc.ExitCode
   } finally {
-    if ($liveDnProc -and -not $liveDnProc.HasExited) { $liveDnProc.Kill($true) }
-    if ($liveDnProc) { $liveDnProc.Dispose() }
+    Stop-LivePwsh $liveDotnet
   }
   foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
   Check '.NET linger wait and slow warm build emit progress ticks live before exit' (
