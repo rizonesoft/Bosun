@@ -386,19 +386,15 @@ function Update-Data([scriptblock]$Change, [string]$BaselineLabel = '') {
   }
   try {
     try { $current = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
+    if ($BaselineLabel -and -not ($current['labels'] | Where-Object { $_['label'] -eq $BaselineLabel })) {
+      "no baseline label '$BaselineLabel' has been measured: nothing was changed"
+      exit 1
+    }
     if ($Change) {
       $updated = & $Change $current
-      if ($BaselineLabel -and -not ($updated['labels'] | Where-Object { $_['label'] -eq $BaselineLabel })) {
-        "no baseline label '$BaselineLabel' has been measured: nothing was changed"
-        exit 1
-      }
       Save-Data $updated $BaselineLabel
       $script:lastSavedData = $updated
     } else {
-      if ($BaselineLabel -and -not ($current['labels'] | Where-Object { $_['label'] -eq $BaselineLabel })) {
-        "no baseline label '$BaselineLabel' has been measured: nothing was changed"
-        exit 1
-      }
       Write-Document $current $BaselineLabel
       $script:lastSavedData = $current
     }
@@ -441,7 +437,7 @@ if ($DecideOnly) {
   "recorded '$Label' as $Decision"
   exit 0
 }
-if ($hasBaseline -and $Baseline -ne $Label -and -not ($data['labels'] | Where-Object { $_['label'] -eq $Baseline })) {
+if ($hasBaseline -and -not ($data['labels'] | Where-Object { $_['label'] -eq $Baseline })) {
   "no baseline label '$Baseline' has been measured: nothing was changed"
   exit 1
 }

@@ -186,7 +186,12 @@ function Get-DotnetTargetName([string]$Path) {
   if ($fullSolution.StartsWith($fullRepo, [StringComparison]::OrdinalIgnoreCase)) {
     return ($fullSolution.Substring($fullRepo.Length) -replace '\\', '/')
   }
-  Split-Path $fullSolution -Leaf
+  $leaf = Split-Path $fullSolution -Leaf
+  $sha = [Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($fullSolution.ToLowerInvariant())) | Select-Object -First 4 | ForEach-Object { $_.ToString('x2') })
+  } finally { $sha.Dispose() }
+  "external:${leaf}:${hash}"
 }
 
 "measuring '$Label' (.NET): one preparation build, then $Samples sample(s) of each step"
@@ -258,8 +263,8 @@ try {
       Remove-Item -LiteralPath $warmLog -Force -ErrorAction Ignore
     }
   }
-  $usedNodes = if (-not $leftNodes) { $null } else { -not ($warmUsedNodesPerSample | Where-Object { $_ -ne $true }) }
-  $usedCompiler = if (-not $leftCompilers) { $null } else { -not ($warmUsedCompilerPerSample | Where-Object { $_ -ne $true }) }
+  $usedNodes = if (-not $leftNodes) { $null } else { (@($warmUsedNodesPerSample | Where-Object { $_ -ne $true }).Count -eq 0) }
+  $usedCompiler = if (-not $leftCompilers) { $null } else { (@($warmUsedCompilerPerSample | Where-Object { $_ -ne $true }).Count -eq 0) }
   $results['one file changed, after a build'] = $warmResults
   $warmMedSec = Get-Median @($warmResults | ForEach-Object Seconds)
   $warmMedMb = Get-Median @($warmResults | ForEach-Object PeakMB)
@@ -335,7 +340,7 @@ if ($Diagnose) {
     }
     $diagnostic = [ordered]@{
       workload      = 'one file changed'
-      binlog        = $binlogPath
+      binlog        = (Split-Path $binlogPath -Leaf)
       top_expensive = $top3
     }
     $diagSucceeded = $true
