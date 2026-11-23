@@ -51,7 +51,7 @@ function New-Clone([string]$name, [switch]$NoHook, [switch]$NotExecutable) {
   Set-Content -LiteralPath (Join-Path $clone 'scripts\run-guard.py') -Value $guard -Encoding utf8
   $clone
 }
-function Get-Setting([string]$clone) { $v = git -C $clone config --local --get core.hooksPath 2>$null; if ($LASTEXITCODE) { $null } else { "$v" } }
+function Get-Setting([string]$clone, [string]$key = 'core.hooksPath') { $v = git -C $clone config --local --get $key 2>$null; if ($LASTEXITCODE) { $null } else { "$v" } }
 function Invoke-Setup([string[]]$arguments, [string]$from = $work, [string]$path = $env:PATH) {
   $saved = $env:PATH
   Push-Location -LiteralPath $from
@@ -139,6 +139,196 @@ exit `$LASTEXITCODE
   $w = New-Clone 'no-watchdog'
   $r = Invoke-Setup @('-Repo', $w, '-Watchdog')
   Check 'the retired -Watchdog option is refused, and nothing is set up or run for it' ($r.Exit -ne 0 -and $r.Text -match 'Watchdog' -and $null -eq (Get-Setting $w) -and -not (Get-Calls $w)) "(exit $($r.Exit): $($r.Text))"
+
+  # --- D00 T07 §6: persistent bosun.previousHooksPath, second-run undo, -Undo, stale-key cleanup, dropped-write retry ---
+  $rHusky2 = Invoke-Setup @('-Repo', $husky)
+  Check 'a second run on a clone with an earlier hooksPath still prints the undo command' ($rHusky2.Exit -eq 0 -and
+    (Get-Setting $husky 'bosun.previousHooksPath') -eq '.husky' -and
+    $rHusky2.Text -match 'hooks: already on' -and $rHusky2.Text -match '-Undo' -and
+    $rHusky2.Text -match 'config --local core\.hooksPath "\.husky"') "(exit $($rHusky2.Exit): $($rHusky2.Text))"
+  $rHuskyUndo = Invoke-Setup @('-Repo', $husky, '-Undo')
+  Check '-Undo restores the earlier hooksPath and removes bosun.previousHooksPath' ($rHuskyUndo.Exit -eq 0 -and
+    (Get-Setting $husky) -eq '.husky' -and $null -eq (Get-Setting $husky 'bosun.previousHooksPath')) "(exit $($rHuskyUndo.Exit): $($rHuskyUndo.Text))"
+  $rHuskyUndo2 = Invoke-Setup @('-Repo', $husky, '-Undo')
+  Check '-Undo refuses an unrelated core.hooksPath when no bosun.previousHooksPath is stored' ($rHuskyUndo2.Exit -eq 1 -and
+    (Get-Setting $husky) -eq '.husky' -and $rHuskyUndo2.Text -match 'refusing to undo') "(exit $($rHuskyUndo2.Exit): $($rHuskyUndo2.Text))"
+
+  # Fresh clone with stale bosun.previousHooksPath seeded while core.hooksPath is unset, run twice via -Repo from $other,
+  # then execute the printed undo command and read both keys back absent.
+  $staleFresh = New-Clone 'stale-fresh'
+  git -C $staleFresh config --local bosun.previousHooksPath 'stale/hooks'
+  $rStale1 = Invoke-Setup @('-Repo', $staleFresh) -from $other
+  $rStale2 = Invoke-Setup @('-Repo', $staleFresh) -from $other
+  $undoArgs = @('-Repo', $staleFresh, '-Undo')
+  $printedHasTarget = $rStale2.Text -match ([regex]::Escape("-Repo `"$staleFresh`" -Undo"))
+  $rStaleUndo = Invoke-Setup $undoArgs -from $other
+  Check 'a fresh clone clears stale bosun.previousHooksPath, prints -Repo undo on second run, and -Undo clears both keys' ($rStale1.Exit -eq 0 -and
+    $rStale2.Exit -eq 0 -and $printedHasTarget -and $rStaleUndo.Exit -eq 0 -and
+    $null -eq (Get-Setting $staleFresh) -and $null -eq (Get-Setting $staleFresh 'bosun.previousHooksPath') -and
+    $null -eq (Get-Setting $other)) "(r1=$($rStale1.Exit), r2=$($rStale2.Exit), target=$printedHasTarget, undo=$($rStaleUndo.Exit), cur='$(Get-Setting $staleFresh)', prev='$(Get-Setting $staleFresh 'bosun.previousHooksPath')')"
+
+  # Dropped-write ordering: failing to save bosun.previousHooksPath leaves core.hooksPath untouched;
+  # failing to restore core.hooksPath on -Undo keeps bosun.previousHooksPath so retry succeeds.
+  $fakeBin2 = Join-Path $work 'fake-git-order'
+  New-Item -ItemType Directory -Path $fakeBin2 | Out-Null
+  Set-Content -LiteralPath (Join-Path $fakeBin2 'fake-git.ps1') -Value @"
+`$dropKey = `$env:BOSUN_TEST_DROP_KEY
+`$isWrite = (`$args -contains 'config') -and (`$args -contains '--local') -and (`$args -notcontains '--get') -and (`$args -contains `$dropKey)
+if (`$dropKey -and `$isWrite) { exit 0 }
+& '$realGit' @args
+exit `$LASTEXITCODE
+"@
+  Set-Content -LiteralPath (Join-Path $fakeBin2 'git.cmd') -Value "@`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoProfile -File `"%~dp0fake-git.ps1`" %*"
+  $orderClone = New-Clone 'write-order'
+  git -C $orderClone config --local core.hooksPath '.custom'
+  try {
+    $env:BOSUN_TEST_DROP_KEY = 'bosun.previousHooksPath'
+    $rDropPrev = Invoke-Setup @('-Repo', $orderClone) -path "$fakeBin2;$env:PATH"
+    Check 'a dropped bosun.previousHooksPath write stops before replacing core.hooksPath' ($rDropPrev.Exit -eq 1 -and
+      (Get-Setting $orderClone) -eq '.custom' -and $null -eq (Get-Setting $orderClone 'bosun.previousHooksPath')) "(exit $($rDropPrev.Exit), cur='$(Get-Setting $orderClone)')"
+
+    Remove-Item Env:BOSUN_TEST_DROP_KEY -ErrorAction Ignore
+    $rOkOrder = Invoke-Setup @('-Repo', $orderClone)
+    $env:BOSUN_TEST_DROP_KEY = 'core.hooksPath'
+    $rDropRestore = Invoke-Setup @('-Repo', $orderClone, '-Undo') -path "$fakeBin2;$env:PATH"
+    Remove-Item Env:BOSUN_TEST_DROP_KEY -ErrorAction Ignore
+    $rRetryUndo = Invoke-Setup @('-Repo', $orderClone, '-Undo')
+    Check 'a dropped core.hooksPath restore during -Undo keeps bosun.previousHooksPath so a retry restores the original path' ($rOkOrder.Exit -eq 0 -and
+      $rDropRestore.Exit -eq 1 -and $rRetryUndo.Exit -eq 0 -and
+      (Get-Setting $orderClone) -eq '.custom' -and $null -eq (Get-Setting $orderClone 'bosun.previousHooksPath')) "(drop=$($rDropRestore.Exit), retry=$($rRetryUndo.Exit), cur='$(Get-Setting $orderClone)')"
+  } finally { Remove-Item Env:BOSUN_TEST_DROP_KEY -ErrorAction Ignore }
+
+  # Conflicting modes and invalid -OverlayUpdates value refuse before any mutation
+  $conflictClone = New-Clone 'conflict'
+  $rConf1 = Invoke-Setup @('-Repo', $conflictClone, '-Undo', '-CheckPrePush')
+  $rConf2 = Invoke-Setup @('-Repo', $conflictClone, '-OverlayUpdates', 'maybe')
+  Check 'conflicting mode switches and invalid -OverlayUpdates refuse before mutating the clone' ($rConf1.Exit -eq 1 -and
+    $rConf2.Exit -eq 1 -and $null -eq (Get-Setting $conflictClone) -and $rConf1.Text -match 'at most one' -and
+    $rConf2.Text -match "must be 'off' or 'on'") "(c1=$($rConf1.Exit), c2=$($rConf2.Exit))"
+
+  # --- D00 T07 §6: -OverlayUpdates off|on preserves bosun.overlay, branches, stashes, ignored files, and controls post-merge ---
+  $ovHost = New-Clone 'ov-host'
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\scripts\hooks\post-merge') -Destination (Join-Path $ovHost 'scripts/hooks/post-merge') -Force
+  git -C $ovHost add scripts/hooks/post-merge; git -C $ovHost update-index --chmod=+x scripts/hooks/post-merge
+  $rNoOv = Invoke-Setup @('-Repo', $ovHost, '-OverlayUpdates', 'off')
+  Check '-OverlayUpdates refuses when .private is absent' ($rNoOv.Exit -eq 1 -and $rNoOv.Text -match '\.private does not exist') "(exit $($rNoOv.Exit): $($rNoOv.Text))"
+
+  $ovSeed = Join-Path $work 'ov-seed'
+  git init -q -b main $ovSeed
+  Set-Content -LiteralPath (Join-Path $ovSeed 'config.toml') -Value "key = 'v1'`n"
+  Set-Content -LiteralPath (Join-Path $ovSeed '.gitignore') -Value "*.ignored`n"
+  git -C $ovSeed add -A; git -C $ovSeed commit -q -m 'v1'
+  $ovRemote = Join-Path $work 'ov-remote.git'
+  git clone -q --bare $ovSeed $ovRemote 2>$null
+  $ovPrivate = Join-Path $ovHost '.private'
+  git clone -q $ovRemote $ovPrivate 2>$null
+  $env:BOSUN_OVERLAY_REPO = $ovRemote
+  try {
+    $rOvSetup = Invoke-Setup @('-Repo', $ovHost)
+    # Create local branch, stash, and ignored owner file inside .private
+    git -C $ovPrivate branch owner-branch
+    Set-Content -LiteralPath (Join-Path $ovPrivate 'config.toml') -Value "key = 'stashed'`n"
+    git -C $ovPrivate stash push -q -m 'owner-stash'
+    Set-Content -LiteralPath (Join-Path $ovPrivate 'owner.ignored') -Value 'keep-me'
+    # Advance upstream remote by 1 commit
+    $ovPush = Join-Path $work 'ov-push'
+    git clone -q $ovRemote $ovPush 2>$null
+    Set-Content -LiteralPath (Join-Path $ovPush 'config.toml') -Value "key = 'v2'`n"
+    git -C $ovPush add -A; git -C $ovPush commit -q -m 'v2'; git -C $ovPush push -q origin main 2>$null
+    $headBefore = (git -C $ovPrivate rev-parse HEAD).Trim()
+    $headRemote = (git -C $ovPush rev-parse HEAD).Trim()
+
+    $rOvOff = Invoke-Setup @('-Repo', $ovHost, '-OverlayUpdates', 'off')
+    # Ordinary setup run must NOT silently re-enable automatic overlay updates
+    $rOvSetupAgain = Invoke-Setup @('-Repo', $ovHost)
+    $shExe = Join-Path (Split-Path (Split-Path $realGit)) 'bin\sh.exe'
+    if (-not (Test-Path -LiteralPath $shExe)) { $shExe = (Get-Command sh -CommandType Application | Select-Object -First 1).Source }
+    Push-Location -LiteralPath $ovHost
+    try { $pmOffOut = & $shExe (Join-Path $ovHost 'scripts/hooks/post-merge') 2>&1 | Out-String } finally { Pop-Location }
+    $headAfterOff = (git -C $ovPrivate rev-parse HEAD).Trim()
+    $autoAfterOff = (git -C $ovPrivate config --local --get bosun.overlayAutoUpdate 2>$null).Trim()
+    $markAfterOff = (git -C $ovPrivate config --local --get bosun.overlay 2>$null).Trim()
+
+    $rOvOn = Invoke-Setup @('-Repo', $ovHost, '-OverlayUpdates', 'on')
+    Push-Location -LiteralPath $ovHost
+    try { $pmOnOut = & $shExe (Join-Path $ovHost 'scripts/hooks/post-merge') 2>&1 | Out-String } finally { Pop-Location }
+    $headAfterOn = (git -C $ovPrivate rev-parse HEAD).Trim()
+    $markAfterOn = (git -C $ovPrivate config --local --get bosun.overlay 2>$null).Trim()
+    $hasBranch = [bool]((git -C $ovPrivate branch --list owner-branch) -match 'owner-branch')
+    $hasStash = [bool]((git -C $ovPrivate stash list) -match 'owner-stash')
+    $hasIgnored = (Get-Content -LiteralPath (Join-Path $ovPrivate 'owner.ignored') -Raw).Trim() -eq 'keep-me'
+
+    Check '-OverlayUpdates off survives setup, pauses post-merge, on resumes it, and bosun.overlay + branch + stash + ignored survive' ($rOvSetup.Exit -eq 0 -and
+      $rOvOff.Exit -eq 0 -and $rOvSetupAgain.Exit -eq 0 -and $autoAfterOff -eq 'false' -and
+      $headAfterOff -eq $headBefore -and $pmOffOut -match 'automatic overlay updates are off' -and
+      $rOvOn.Exit -eq 0 -and $headAfterOn -eq $headRemote -and $pmOnOut -match 'updated to' -and
+      $markAfterOff -eq 'true' -and $markAfterOn -eq 'true' -and $hasBranch -and $hasStash -and $hasIgnored) "(off=$($rOvOff.Exit), auto='$autoAfterOff', hOff=$($headAfterOff -eq $headBefore), hOn=$($headAfterOn -eq $headRemote), mark=$markAfterOff/$markAfterOn, branch=$hasBranch, stash=$hasStash, ignored=$hasIgnored)"
+  } finally { [Environment]::SetEnvironmentVariable('BOSUN_OVERLAY_REPO', $null) }
+
+  # --- D00 T07 §6: -CheckPrePush (read-only; exercises every prerequisite refusal and one pass) ---
+  $ppClone = New-Clone 'prepush'
+  Set-Content -LiteralPath (Join-Path $ppClone 'scripts/leak-scan.ps1') -Value '# stub'
+  $glBin = Join-Path $work 'fake-gitleaks'
+  New-Item -ItemType Directory -Path $glBin | Out-Null
+  Set-Content -LiteralPath (Join-Path $glBin 'gitleaks.cmd') -Value "@echo 8.30.1`r`n@exit /b 0"
+  $glBadBin = Join-Path $work 'fake-gitleaks-bad'
+  New-Item -ItemType Directory -Path $glBadBin | Out-Null
+  Set-Content -LiteralPath (Join-Path $glBadBin 'gitleaks.cmd') -Value "@echo broken >&2`r`n@exit /b 2"
+
+  # 1) core.hooksPath unset -> refuses and leaves config and .private untouched
+  $rPpUnset = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Check '-CheckPrePush refuses unset core.hooksPath without mutating the clone' ($rPpUnset.Exit -eq 1 -and
+    $rPpUnset.Text -match 'core\.hooksPath' -and $null -eq (Get-Setting $ppClone) -and
+    -not (Test-Path -LiteralPath (Join-Path $ppClone '.private'))) "(exit $($rPpUnset.Exit): $($rPpUnset.Text))"
+
+  # 2) wrong effective core.hooksPath -> refuses
+  git -C $ppClone config --local core.hooksPath '.other'
+  $rPpWrong = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Check '-CheckPrePush refuses a wrong effective core.hooksPath' ($rPpWrong.Exit -eq 1 -and $rPpWrong.Text -match '\.other') "(exit $($rPpWrong.Exit): $($rPpWrong.Text))"
+
+  # Enable hooks properly
+  git -C $ppClone config --local core.hooksPath 'scripts/hooks'
+  $cfgBeforeCheck = Get-Content -LiteralPath (Join-Path $ppClone '.git\config') -Raw
+
+  # 3) gitleaks missing -> refuses naming gitleaks
+  $rPpNoGl = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush')
+  Check '-CheckPrePush refuses when gitleaks is missing, naming it' ($rPpNoGl.Exit -eq 1 -and $rPpNoGl.Text -match 'gitleaks is not installed') "(exit $($rPpNoGl.Exit): $($rPpNoGl.Text))"
+
+  # 4) gitleaks exits non-zero -> refuses naming gitleaks
+  $rPpBadGl = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBadBin;$env:PATH"
+  Check '-CheckPrePush refuses when gitleaks exits non-zero' ($rPpBadGl.Exit -eq 1 -and $rPpBadGl.Text -match 'gitleaks exited 2') "(exit $($rPpBadGl.Exit): $($rPpBadGl.Text))"
+
+  # 5) pwsh missing from PATH (set inside child so pwsh.exe startup cannot re-inject $PSHOME) -> refuses naming pwsh
+  $gitOnlyPath = (Split-Path $realGit) + ';' + (Join-Path $env:SystemRoot 'System32') + ';' + $glBin
+  $noPwshOut = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -Command "`$env:PATH = '$gitOnlyPath'; & '$setup' -Repo '$ppClone' -CheckPrePush" 2>&1 | Out-String
+  $noPwshExit = $LASTEXITCODE
+  Check '-CheckPrePush refuses when pwsh is not on PATH' ($noPwshExit -eq 1 -and $noPwshOut -match 'pwsh is not on PATH') "(exit ${noPwshExit}: $noPwshOut)"
+
+  # 6) scripts/leak-scan.ps1 missing -> refuses naming leak-scan.ps1
+  Remove-Item -LiteralPath (Join-Path $ppClone 'scripts/leak-scan.ps1') -Force
+  $rPpNoScan = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Set-Content -LiteralPath (Join-Path $ppClone 'scripts/leak-scan.ps1') -Value '# stub'
+  Check '-CheckPrePush refuses when scripts/leak-scan.ps1 is missing' ($rPpNoScan.Exit -eq 1 -and $rPpNoScan.Text -match 'leak-scan\.ps1 is missing') "(exit $($rPpNoScan.Exit): $($rPpNoScan.Text))"
+
+  # 7) pre-push not executable in git index -> refuses
+  git -C $ppClone update-index --chmod=-x scripts/hooks/pre-push
+  $rPpMode = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  git -C $ppClone update-index --chmod=+x scripts/hooks/pre-push
+  Check '-CheckPrePush refuses when pre-push is not recorded executable in git' ($rPpMode.Exit -eq 1 -and $rPpMode.Text -match 'update-index --chmod=\+x') "(exit $($rPpMode.Exit): $($rPpMode.Text))"
+
+  # 8) pre-push missing/untracked -> refuses
+  git -C $ppClone rm -qf scripts/hooks/pre-push
+  $rPpMissing = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Set-Content -LiteralPath (Join-Path $ppClone 'scripts/hooks/pre-push') -Value "#!/bin/sh`nexit 0"
+  git -C $ppClone add scripts/hooks/pre-push; git -C $ppClone update-index --chmod=+x scripts/hooks/pre-push
+  Check '-CheckPrePush refuses when pre-push is missing or untracked' ($rPpMissing.Exit -eq 1 -and $rPpMissing.Text -match 'pre-push is missing') "(exit $($rPpMissing.Exit): $($rPpMissing.Text))"
+
+  # 9) All present -> single pass, exit 0, zero mutations
+  $rPpOk = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Check '-CheckPrePush passes with one line when hook and gitleaks are ready, leaving clone untouched' ($rPpOk.Exit -eq 0 -and
+    $rPpOk.Text -match 'pre-push: ok' -and $rPpOk.Text -match '8\.30\.1' -and
+    (Get-Content -LiteralPath (Join-Path $ppClone '.git\config') -Raw) -ceq $cfgBeforeCheck -and
+    -not (Test-Path -LiteralPath (Join-Path $ppClone '.private'))) "(exit $($rPpOk.Exit): $($rPpOk.Text))"
 } finally {
   foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore

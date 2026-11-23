@@ -207,6 +207,8 @@ jobs:
       # The leak guard's missing-tool refusal names the Linux install (D00 T05 §4); ubuntu-latest has pwsh and no gitleaks.
       - name: Leak guard without gitleaks on Linux
         run: pwsh tests/linux/leak_scan_missing_tool_test.ps1
+      - name: Clone setup pre-push check on Linux
+        run: pwsh tests/linux/setup_clone_wsl_test.ps1
       - name: Shell scripts parse
         run: |
           for f in wsl/bosun wsl/*.sh; do bash -n "$f" || exit 1; done

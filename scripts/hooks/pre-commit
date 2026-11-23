@@ -29,9 +29,34 @@ if [ -z "$python" ]; then
     exit 1
 fi
 # One call checks both: `plan --check` loads the graph first and refuses an invalid one before it compares the plan.
-# A separate `validate` loaded the graph a second time on every commit (about 8 seconds here on 2026-11-12) and could
-# refuse nothing more; scripts/tests/test_pre_commit.py holds an invalid graph and a stale plan against this line.
-if ! "$python" "$root/scripts/todo-graph.py" plan --check; then
-    echo "pre-commit: if the plan is stale, run 'python scripts/todo-graph.py plan --sync', stage todo/implementation-plan.md, and commit again; if the graph was refused, fix what it names first" >&2
-    exit 1
+# Measured 2026-11-23 on this checkout's 199-section graph: `plan --check` alone took 19.7 s versus 36.4 s for
+# `validate` (18.4 s) plus `plan --check`, saving 16.7 s per plan commit while refusing the same invalid graphs;
+# scripts/tests/test_pre_commit.py holds an invalid graph and a stale plan against this line.
+echo "pre-commit: checking the plan..." >&2
+start_ms=$(date +%s%3N 2>/dev/null)
+case "$start_ms" in ''|*[!0-9]*) start_ms="" ;; esac
+if [ -z "$start_ms" ]; then
+    start_s=$(date +%s)
 fi
+if "$python" "$root/scripts/todo-graph.py" plan --check; then
+    status=0
+else
+    status=$?
+fi
+if [ -n "$start_ms" ]; then
+    end_ms=$(date +%s%3N 2>/dev/null)
+    tenths=$(( (end_ms - start_ms + 50) / 100 ))
+    [ "$tenths" -lt 0 ] && tenths=0
+    elapsed=$(printf '%d.%d' $((tenths / 10)) $((tenths % 10)))
+else
+    end_s=$(date +%s)
+    sec=$((end_s - start_s))
+    [ "$sec" -lt 0 ] && sec=0
+    elapsed="${sec}.0"
+fi
+if [ "$status" -ne 0 ]; then
+    echo "pre-commit: plan check failed in ${elapsed} s" >&2
+    echo "pre-commit: if the plan is stale, run 'python scripts/todo-graph.py plan --sync', stage todo/implementation-plan.md, and commit again; if the graph was refused, fix what it names first" >&2
+    exit "$status"
+fi
+echo "pre-commit: plan check passed in ${elapsed} s" >&2

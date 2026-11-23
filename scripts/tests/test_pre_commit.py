@@ -4,9 +4,12 @@ Each case commits through git itself in a temporary repository that holds a vali
 graph tool, so what is tested is what a clone runs."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -202,6 +205,78 @@ class Interpreter(HookRepo):
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn("Python is needed", refused.stderr)
         self.assertEqual(self.subjects(), ["start"])
+
+
+class ProgressAndTiming(HookRepo):
+    """D00 T07 §6: pre-commit prints its start line live before the check finishes and its measured elapsed time after."""
+
+    def test_comment_cites_measured_saving(self):
+        hook_text = (ROOT / "scripts" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+        self.assertIn("Measured 2026-11-23", hook_text)
+        self.assertIn("19.7 s", hook_text)
+        self.assertIn("36.4 s", hook_text)
+        self.assertIn("16.7 s", hook_text)
+
+    def test_pre_commit_announces_live_and_reports_measured_elapsed_seconds(self):
+        # Stand-in todo-graph.py that blocks on a release flag so we observe `checking the plan...` live BEFORE exit.
+        flag = self.root / "release.flag"
+        for exit_code, word in ((0, "passed"), (1, "failed")):
+            with self.subTest(word=word):
+                if flag.exists():
+                    flag.unlink()
+                (self.root / "scripts" / "todo-graph.py").write_text(
+                    "import pathlib, sys, time\n"
+                    f"flag = pathlib.Path(r'{flag}')\n"
+                    "deadline = time.monotonic() + 15\n"
+                    "while not flag.exists() and time.monotonic() < deadline:\n"
+                    "    time.sleep(0.05)\n"
+                    f"sys.exit({exit_code})\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                (self.root / "docs" / "reviews" / "note.md").write_text(f"evidence {word}\n", encoding="utf-8")
+                self.git("add", "docs/reviews/note.md")
+                proc = subprocess.Popen(
+                    ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                     "-c", "core.autocrlf=false", "-c", "core.hooksPath=scripts/hooks", "commit", "-qm", f"check {word}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    encoding="utf-8",
+                )
+                lines = []
+                saw_start = threading.Event()
+
+                def reader():
+                    assert proc.stderr is not None
+                    for line in proc.stderr:
+                        lines.append(line)
+                        if "pre-commit: checking the plan..." in line:
+                            saw_start.set()
+
+                t = threading.Thread(target=reader, daemon=True)
+                t.start()
+                try:
+                    self.assertTrue(saw_start.wait(10.0), f"start line not seen live; got: {''.join(lines)}")
+                    self.assertIsNone(proc.poll(), "hook exited before release flag was written")
+                    time.sleep(0.6)
+                    flag.write_text("go", encoding="utf-8")
+                    rc = proc.wait(timeout=15)
+                finally:
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                    t.join(timeout=5)
+                    if proc.stdout:
+                        proc.stdout.close()
+                    if proc.stderr:
+                        proc.stderr.close()
+                stderr_text = "".join(lines)
+                self.assertEqual(rc, exit_code, stderr_text)
+                m = re.search(rf"pre-commit: plan check {word} in (\d+\.\d) s", stderr_text)
+                self.assertIsNotNone(m, stderr_text)
+                assert m is not None
+                self.assertGreaterEqual(float(m.group(1)), 0.4, stderr_text)
 
 
 if __name__ == "__main__":

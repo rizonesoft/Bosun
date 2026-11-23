@@ -136,7 +136,7 @@ See the [design](docs/specs/2026-11-07-control-panel-design.md), the [interface 
 
 ## How do I keep my checkout and its overlay in sync?
 
-Run `pwsh scripts/setup-clone.ps1` once on a new clone. It turns on the repository's git hooks and, if your `gh` account can see the private overlay, clones it into the ignored `.private` folder. A clone without the overlay builds and passes every gate all the same.
+Run `pwsh scripts/setup-clone.ps1` once on a new clone (pass `-Repo <folder>` to target another checkout). It turns on the repository's git hooks (saving any earlier `core.hooksPath` so `pwsh scripts/setup-clone.ps1 -Undo` restores it) and, if your `gh` account can see the private overlay, clones it into the ignored `.private` folder. A clone without the overlay builds and passes every gate all the same. Use `pwsh scripts/setup-clone.ps1 -OverlayUpdates off` or `on` to pause or resume automatic `.private` pulls on `post-merge` without removing the overlay or touching branches, stashes, or ignored files, and `pwsh scripts/setup-clone.ps1 -CheckPrePush` to verify the `pre-push` hook, `scripts/leak-scan.ps1`, `pwsh`, and `gitleaks` together on Windows or WSL.
 
 Then one command shows and syncs both repositories:
 
