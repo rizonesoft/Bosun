@@ -194,6 +194,23 @@ function Get-DotnetTargetName([string]$Path) {
   "external:${leaf}:${hash}"
 }
 
+$diagScratchRoot = $null
+if ($Diagnose) {
+  try {
+    $rawScratch = $env:BOSUN_SCRATCH
+    if (-not [string]::IsNullOrWhiteSpace($rawScratch) -and -not (Test-Path -LiteralPath $rawScratch.Trim() -PathType Container)) {
+      throw "BOSUN_SCRATCH '$($rawScratch.Trim())' is not an existing directory"
+    }
+    $diagScratchRoot = Get-BosunScratchRoot
+    $probe = Join-Path $diagScratchRoot ".bosun-diag-probe-$PID.tmp"
+    [IO.File]::WriteAllText($probe, 'ok', $utf8)
+    Remove-Item -LiteralPath $probe -Force -ErrorAction Ignore
+  } catch {
+    "diagnostic build could not write to the scratch folder ($($_.Exception.Message)): nothing was stored"
+    exit 1
+  }
+}
+
 "measuring '$Label' (.NET): one preparation build, then $Samples sample(s) of each step"
 Invoke-DotnetBuild 'preparation build' 'any' $false 'preparation build'
 foreach ($n in 1..$Samples) { Invoke-DotnetBuild 'nothing to do' 'none' $true "nothing to do sample $n/$Samples" }
@@ -304,21 +321,8 @@ function Get-PerformanceSummaryTop([string[]]$Lines, [int]$Count = 3) {
 
 $diagnostic = $null
 if ($Diagnose) {
-  try {
-    $rawScratch = $env:BOSUN_SCRATCH
-    if (-not [string]::IsNullOrWhiteSpace($rawScratch) -and -not (Test-Path -LiteralPath $rawScratch.Trim() -PathType Container)) {
-      throw "BOSUN_SCRATCH '$($rawScratch.Trim())' is not an existing directory"
-    }
-    $scratchRoot = Get-BosunScratchRoot
-    $probe = Join-Path $scratchRoot ".bosun-diag-probe-$PID.tmp"
-    [IO.File]::WriteAllText($probe, 'ok', $utf8)
-    Remove-Item -LiteralPath $probe -Force -ErrorAction Ignore
-  } catch {
-    "diagnostic build could not write to the scratch folder ($($_.Exception.Message)): nothing was stored"
-    exit 1
-  }
   $diagStamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
-  $binlogPath = Join-Path $scratchRoot "bosun-diagnose-$Label-$diagStamp-$PID.binlog"
+  $binlogPath = Join-Path $diagScratchRoot "bosun-diagnose-$Label-$diagStamp-$PID.binlog"
   $diagLog = "$log.diagnose"
   $diagSucceeded = $false
   try {

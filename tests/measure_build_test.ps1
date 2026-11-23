@@ -937,13 +937,14 @@ exit $LASTEXITCODE
         [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($beforeDiagFail)
       ) "(exit $($run.Exit), binlogs $($leftBinlogs.Count)): $($run.Text)"
     }
-    # Unwritable scratch destination (a regular file where BOSUN_SCRATCH points).
+    # Unwritable scratch destination (a regular file where BOSUN_SCRATCH points): fails BEFORE running any build.
     $badScratchFile = Join-Path $dir 'not-a-scratch-dir'
     Set-Content -LiteralPath $badScratchFile -Value 'file'
     $env:BOSUN_SCRATCH = $badScratchFile
     $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-plain', '-Decision', 'kept', '-Diagnose') $null 1 0
-    Check '-Diagnose with unwritable scratch exits 1 and keeps prior label intact' (
+    Check '-Diagnose with unwritable scratch exits 1 before building and keeps prior label intact' (
       $run.Exit -eq 1 -and $run.Text -match 'diagnostic build could not write to the scratch folder' -and
+      -not (Test-Path -LiteralPath $outs[0]) -and
       [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($beforeDiagFail)
     ) "(exit $($run.Exit)): $($run.Text)"
 
