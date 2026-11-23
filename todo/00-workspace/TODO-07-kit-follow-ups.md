@@ -37,7 +37,7 @@ title: "TODO-07 -- Kit follow-ups"
 | 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [x] |
 | 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [x] |
 | 6 | §6 | Clone setup and pre-commit say what they did | -- | [x] |
-| 7 | §7 | Build measurement compares against a baseline | -- | [ ] |
+| 7 | §7 | Build measurement compares against a baseline | -- | [x] |
 | 8 | §8 | Build script stops configuring on every run | §7 | [ ] |
 | 9 | §9 | One documented .NET test command with progress | -- | [ ] |
 | 10 | §10 | Plan workflow checks first and states its policy | -- | [ ] |
@@ -318,9 +318,12 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 14, 15, 38
 - [x] Add `-Baseline <label>` to `scripts/measure-build.ps1` (valid with measurement runs and `-RenderOnly`, refused with exit 2 when combined with `-DecideOnly`, refused with exit 1 if `<label>` is absent leaving JSON and Markdown byte-identical, forwarded through `bosun run --`): compare only labels whose `kind` and `target` match `<label>` (inferring `native` / `Bosun.slnx` for historical labels) and report incompatible or missing workloads without a numeric delta; emit signed time and memory deltas, both spreads (computed from raw samples when historical labels lack stored spread fields), and a warning strictly when `max(candidate_spread, baseline_spread) > |delta|` (no warning on equality) to both stdout and `docs/build-performance.md`, keeping raw seconds, raw peak-memory samples, and medians intact in JSON and Markdown. Done when: `tests/measure_build_test.ps1` checks stdout, Markdown, and JSON separately across measurement and `-RenderOnly` runs with historical labels, mixed comparable/incompatible labels, wide spread, equal threshold, clear win, and missing baseline. Cheaper substitute: comparing medians without the spread. (findings base line 14)
 - [x] Announce each step before it starts and print elapsed seconds at least every 5 seconds during long steps (in `Invoke-Step` via `Measure-Job -OnTick`, in `Wait-Run`, and during the `.NET` linger wait in `scripts/lib/measure-dotnet.ps1`) via direct flushed stdout (`[Console]::Out.WriteLine`), without polluting function return values or counting the printing in the child job's measured `Seconds`. Done when: `tests/measure_build_test.ps1` reads redirected stdout live while a fake 12-second native step and a `.NET` linger/build step are still alive, observes the start line before exit and at least two progress lines on time, and verifies `Seconds` matches the child duration. (findings base line 15)
 - [x] Add optional `-Diagnose` (refused with exit 2 without `-Dotnet` or with `-RenderOnly`/`-DecideOnly`, forwarded through `bosun run --`) and `-AllowOutsideServers` (default `$false`, recorded in `observed`) to `scripts/measure-build.ps1` / `scripts/lib/measure-dotnet.ps1` (supporting `.csproj` as well as `.slnx` in `-Solution`), running a separate untimed MSBuild diagnostic build reproducing the `one file changed` workload (touching `$TouchFile`, passing `$msbuildArgs`, proving `Assert-BuildEvidence 'diagnostic build' 'first'`, `-bl:<scratch-binlog>`, `-clp:PerformanceSummary`) in its own job after timed samples, keeping the `.binlog` under `Get-BosunScratchRoot`, and reporting the 3 most expensive targets or tasks with durations without altering `steps`; on unwritable scratch, build failure, missing `.binlog`, or missing `PerformanceSummary`, exit 1, preserve existing labels, and clean up partial files and jobs. Done when: `tests/measure_build_test.ps1` tests `-Dotnet -Diagnose -AllowOutsideServers` on an isolated scratch copy of `Bosun.Core` (verifying the retained `.binlog` comes from that invocation, 3 names/durations/ranking match `PerformanceSummary`, checkout outputs are untouched, and `steps` are unchanged in the same invocation), tests all CLI mode conflicts and `-Diagnose` failure paths, and verifies `-Baseline` and `-Diagnose` reach the queued child through fake `bosun`. (findings base line 38)
-- [ ] Commit: `measure: samples alike, a baseline, progress and a diagnostic run (D00 T07 §7)`
+- [x] Commit: `measure: samples alike, a baseline, progress and a diagnostic run (D00 T07 §7)`
 
 **Test checkpoint:** `pwsh tests/measure_build_test.ps1` exits 0, and with the spread warning removed its test fails.
+
+> **Verified:** 2026-11-23 | §7 | 53799d1abecf9fc471fe915c0070a3e980584ff4
+> **Review:** `docs/reviews/d00-t07-s7.json`
 
 ## 8. Build script stops configuring on every run
 
