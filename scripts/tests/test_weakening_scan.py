@@ -725,14 +725,21 @@ class Ranges(Repo):
             with self.subTest(side=side):
                 def failing(cmd, *args, side=side, **kwargs):
                     if "cat-file" in cmd and "--batch" in cmd:
-                        return subprocess.CompletedProcess(
-                            cmd, 128, b"", f"error: unable to read the {side} object (I/O error)\n".encode("utf-8"))
+                        lines = kwargs.get("input", b"").decode("utf-8").splitlines()
+                        out = bytearray()
+                        for idx, spec in enumerate(lines):
+                            if (side == "old" and idx == 0) or (side == "new" and idx == 1):
+                                out.extend(f"{spec} missing\n".encode("utf-8"))
+                            else:
+                                body = b"x = 1\n"
+                                out.extend(f"{'a' * 40} blob {len(body)}\n".encode("utf-8") + body + b"\n")
+                        return subprocess.CompletedProcess(cmd, 0, bytes(out), b"")
                     return real_run(cmd, *args, **kwargs)
 
                 with mock.patch.object(subprocess, "run", failing):
                     code, text = self.run_scan("--base", before, "--head", "HEAD")
                 self.assertEqual(code, 2, text)
-                self.assertIn("I/O error", text)
+                self.assertIn("missing", text)
                 self.assertNotIn("0 signal(s)", text)
 
     def test_a_working_file_that_cannot_be_read_exits_2(self):
@@ -868,14 +875,14 @@ class BatchAndLines(Repo):
         valid_blob = b"x = 1\n"
         valid_frame = f"{'a' * 40} blob {len(valid_blob)}\n".encode("utf-8") + valid_blob + b"\n"
         bad_cases = [
-            ("missing", 0, valid_frame + b"bad:path missing\n", b""),
-            ("non-blob", 0, valid_frame + f"{'b' * 40} tree 4\nabcd\n".encode("utf-8"), b""),
-            ("short-payload", 0, valid_frame + f"{'b' * 40} blob 50\nabc".encode("utf-8"), b""),
-            ("missing-terminator", 0, valid_frame + f"{'b' * 40} blob 3\nabcX".encode("utf-8"), b""),
-            ("nonzero-after-valid", 128, valid_frame * 4, b"fatal: packfile corrupt\n"),
+            ("missing", 0, valid_frame + b"bad:path missing\n" + valid_frame * 2, b"", "missing"),
+            ("non-blob", 0, valid_frame + f"{'b' * 40} tree 4\nabcd\n".encode("utf-8") + valid_frame * 2, b"", "tree"),
+            ("short-payload", 0, valid_frame + f"{'b' * 40} blob 50\nabc".encode("utf-8"), b"", "truncated payload"),
+            ("missing-terminator", 0, valid_frame + f"{'b' * 40} blob 3\nabcX".encode("utf-8") + valid_frame * 2, b"", "missing frame terminator"),
+            ("nonzero-after-valid", 128, valid_frame * 4, b"fatal: packfile corrupt\n", "packfile corrupt"),
         ]
         real_run = subprocess.run
-        for label, rc, out_bytes, err_bytes in bad_cases:
+        for label, rc, out_bytes, err_bytes, expected_msg in bad_cases:
             with self.subTest(label=label):
                 def spoof(cmd, *args, rc=rc, out_bytes=out_bytes, err_bytes=err_bytes, **kwargs):
                     if "cat-file" in cmd and "--batch" in cmd:
@@ -886,6 +893,7 @@ class BatchAndLines(Repo):
                     code, text = self.run_scan("--base", before, "--head", head)
                 self.assertEqual(code, 2, text)
                 self.assertIn("weakening-scan:", text)
+                self.assertIn(expected_msg, text)
                 self.assertNotIn("0 signal(s)", text)
 
     def test_report_shows_exact_before_and_after_lines_for_distant_changes_and_cap(self):
@@ -940,14 +948,19 @@ class BatchAndLines(Repo):
         self.assertIn("(no trailing newline)", text)
 
     def test_report_context_lines_across_committed_and_uncommitted_states(self):
-        # Answered committed + unanswered committed
+        # Answered committed + unanswered committed: check each numbered line within its own signal's output block.
         self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")
         self.edit(PS, "Check 'the second thing holds' ($b -eq 2)\n", "")
         self.commit("drop two", f"Weakening scan: test-removed {PS}:the first thing holds -- replaced")
         code, text = self.run_scan("--base", self.base, "--head", "HEAD")
         self.assertEqual(code, 1, text)
-        self.assertIn("    - L2: Check 'the first thing holds' ($a -eq 1)", text)
-        self.assertIn("    - L3: Check 'the second thing holds' ($b -eq 2)", text)
+        report_lines = text.splitlines()
+        ans_idx = next(i for i, line in enumerate(report_lines) if line.startswith("  answered"))
+        unans_idx = next(i for i, line in enumerate(report_lines) if line.startswith("  unanswered"))
+        ans_block = [line for line in report_lines[ans_idx + 1:unans_idx] if line.startswith("    ")]
+        unans_block = [line for line in report_lines[unans_idx + 1:] if line.startswith("    ")]
+        self.assertIn("    - L2: Check 'the first thing holds' ($a -eq 1)", ans_block)
+        self.assertIn("    - L3: Check 'the second thing holds' ($b -eq 2)", unans_block)
 
         # Staged change later edited again in the working tree: staged signal shows staged/HEAD lines, not working tree.
         self.write("scripts/staged.py", "def f():\n    return 1\n")
