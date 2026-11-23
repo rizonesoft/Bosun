@@ -720,16 +720,16 @@ class Ranges(Repo):
         self.edit(SOURCE, "        raise\n", "")
         self.commit("stop raising")
         self.assertEqual(self.run_scan("--base", before, "--head", "HEAD")[0], 1)  # read normally, it is seen
-        real = scan.run_git
+        real_run = subprocess.run
         for side in ("old", "new"):
             with self.subTest(side=side):
-                def failing(root, arguments, side=side):
-                    if arguments[0] == "show" and arguments[1].startswith(before if side == "old" else "") and \
-                            (side == "old" or not arguments[1].startswith(before)):
-                        raise scan.CannotRead("git show failed: error: unable to read the object (I/O error)")
-                    return real(root, arguments)
+                def failing(cmd, *args, side=side, **kwargs):
+                    if "cat-file" in cmd and "--batch" in cmd:
+                        return subprocess.CompletedProcess(
+                            cmd, 128, b"", f"error: unable to read the {side} object (I/O error)\n".encode("utf-8"))
+                    return real_run(cmd, *args, **kwargs)
 
-                with mock.patch.object(scan, "run_git", failing):
+                with mock.patch.object(subprocess, "run", failing):
                     code, text = self.run_scan("--base", before, "--head", "HEAD")
                 self.assertEqual(code, 2, text)
                 self.assertIn("I/O error", text)
@@ -754,17 +754,23 @@ class Ranges(Repo):
         self.write("scripts/fresh.py", "def f():\n    return 1\n")
         self.commit("one comes, one goes")
         asked = []
-        real = scan.run_git
+        batch_calls = 0
+        real_run = subprocess.run
 
-        def recording(root, arguments):
-            if arguments[0] == "show":
-                asked.append(arguments[1].split(":", 1))
-            return real(root, arguments)
+        def recording(cmd, *args, **kwargs):
+            nonlocal batch_calls
+            if "cat-file" in cmd and "--batch" in cmd:
+                batch_calls += 1
+                raw = kwargs.get("input", b"")
+                for line in raw.decode("utf-8").splitlines():
+                    asked.append(line.split(":", 1))
+            return real_run(cmd, *args, **kwargs)
 
-        with mock.patch.object(scan, "run_git", recording):
+        with mock.patch.object(subprocess, "run", recording):
             code, found = self.signals()
         self.assertEqual((code, found), (1, [f"test-file-deleted {PS}:file"]))
         head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(batch_calls, 1)
         self.assertEqual(sorted(asked), sorted([[self.base, PS], [head, "scripts/fresh.py"]]))
 
     def test_a_base_that_cannot_be_worked_out_exits_2_and_is_not_taken_for_nothing_to_scan(self):
@@ -801,6 +807,166 @@ class Ranges(Repo):
             with contextlib.redirect_stdout(out):
                 code = scan.main([], root=Path(empty))
         self.assertEqual(code, 2)
+
+
+class BatchAndLines(Repo):
+    """D00 T07 §5: one binary-framed `git cat-file --batch` per blob set and per-signal before/after lines."""
+
+    def test_batch_and_show_readers_produce_identical_signals(self):
+        self.edit(PY, "        self.assertTrue(True)\n", "")
+        self.edit(SOURCE, "    return 1", "    try:\n        return 1\n    except OSError:\n        pass")
+        (self.root / WORKFLOW).unlink()
+        self.write("scripts/utf8.py", "# café 日本語 🚀\ndef g():\n    return 1\n")
+        head = self.commit("mixed changes")
+        batch_sigs = scan.scan(scan.committed(self.root, self.base, head, reader=scan.read_blobs_batch))
+        show_sigs = scan.scan(scan.committed(self.root, self.base, head, reader=scan.read_blobs_show))
+        self.assertEqual([(s.key, s.before, s.after) for s in batch_sigs],
+                         [(s.key, s.before, s.after) for s in show_sigs])
+        self.assertGreaterEqual(len(batch_sigs), 2)
+
+    def test_total_git_subprocesses_do_not_grow_per_file(self):
+        def count_git_runs(num_files):
+            for i in range(num_files):
+                self.write(f"scripts/f{i}.py", f"def f{i}():\n    return {i}\n")
+            start = self.commit(f"add {num_files}")
+            for i in range(num_files):
+                self.write(f"scripts/f{i}.py", f"def f{i}():\n    return {i + 1}\n")
+            end = self.commit(f"edit {num_files}")
+            cmds = []
+            real_run = subprocess.run
+
+            def counting(cmd, *args, **kwargs):
+                cmds.append(list(cmd))
+                return real_run(cmd, *args, **kwargs)
+
+            with mock.patch.object(subprocess, "run", counting):
+                code, _ = self.run_scan("--base", start, "--head", end)
+            self.assertEqual(code, 0)
+            self.assertFalse(any("show" in c for c in cmds), cmds)
+            self.assertEqual(sum(1 for c in cmds if "cat-file" in c and "--batch" in c), 1)
+            return len(cmds)
+
+        self.assertEqual(count_git_runs(1), count_git_runs(10))
+
+    def test_batch_multibyte_utf8_framing_and_refusals(self):
+        # Multibyte UTF-8 blob followed by a second blob in one batch proves byte-length framing alignment.
+        utf8_body = "# naïve résumé 日本語 🧭\ndef a():\n    return 1\n"
+        second_body = "def b():\n    return 2  # noqa: F841\n"
+        self.write("scripts/a_utf8.py", utf8_body)
+        self.write("scripts/b_next.py", "def b():\n    return 2\n")
+        before = self.commit("utf8 pair")
+        self.write("scripts/a_utf8.py", utf8_body + "x = 1\n")
+        self.write("scripts/b_next.py", second_body)
+        head = self.commit("edit utf8 pair")
+        code, text = self.run_scan("--base", before, "--head", head)
+        self.assertEqual(code, 1, text)
+        self.assertIn("warning-relaxed scripts/b_next.py:L2", text)
+        self.assertIn("+ L2:     return 2  # noqa: F841", text)
+
+        # Exercise every batch framing refusal through main(): missing, non-blob, short payload, missing terminator,
+        # and non-zero exit even after valid blob output.
+        valid_blob = b"x = 1\n"
+        valid_frame = f"{'a' * 40} blob {len(valid_blob)}\n".encode("utf-8") + valid_blob + b"\n"
+        bad_cases = [
+            ("missing", 0, valid_frame + b"bad:path missing\n", b""),
+            ("non-blob", 0, valid_frame + f"{'b' * 40} tree 4\nabcd\n".encode("utf-8"), b""),
+            ("short-payload", 0, valid_frame + f"{'b' * 40} blob 50\nabc".encode("utf-8"), b""),
+            ("missing-terminator", 0, valid_frame + f"{'b' * 40} blob 3\nabcX".encode("utf-8"), b""),
+            ("nonzero-after-valid", 128, valid_frame * 4, b"fatal: packfile corrupt\n"),
+        ]
+        real_run = subprocess.run
+        for label, rc, out_bytes, err_bytes in bad_cases:
+            with self.subTest(label=label):
+                def spoof(cmd, *args, rc=rc, out_bytes=out_bytes, err_bytes=err_bytes, **kwargs):
+                    if "cat-file" in cmd and "--batch" in cmd:
+                        return subprocess.CompletedProcess(cmd, rc, out_bytes, err_bytes)
+                    return real_run(cmd, *args, **kwargs)
+
+                with mock.patch.object(subprocess, "run", spoof):
+                    code, text = self.run_scan("--base", before, "--head", head)
+                self.assertEqual(code, 2, text)
+                self.assertIn("weakening-scan:", text)
+                self.assertNotIn("0 signal(s)", text)
+
+    def test_report_shows_exact_before_and_after_lines_for_distant_changes_and_cap(self):
+        # Removed assertion test: reads the exact removed line in the report with no invented '+' line.
+        self.edit(PY, "        self.assertTrue(True)\n", "")
+        self.commit("thin assertion")
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        self.assertEqual(code, 1, text)
+        self.assertIn("    - L9:         self.assertTrue(True)", text)
+        self.assertNotIn("    + L", text)
+
+        # Two distant changes in one file: each signal prints only its own hunk's lines, capped at 3 per side.
+        filler = "".join(f"# filler {i}\n" for i in range(25))
+        many_ps = (
+            "Check 'top removed' ($a -eq 1)\n"
+            "# top extra 1\n# top extra 2\n# top extra 3\n# top extra 4\n"
+            + filler
+            + "Check 'bottom removed' ($b -eq 2)\n"
+        )
+        self.write(PS, many_ps)
+        before = self.commit("distant checks")
+        self.write(PS, filler)
+        self.commit("remove both distant checks")
+        code, text = self.run_scan("--base", before, "--head", "HEAD")
+        self.assertEqual(code, 1, text)
+        lines = text.splitlines()
+        top_idx = next(i for i, line in enumerate(lines) if "test-removed tests/a_test.ps1:top removed" in line)
+        bot_idx = next(i for i, line in enumerate(lines) if "test-removed tests/a_test.ps1:bottom removed" in line)
+        top_block = lines[top_idx + 1:bot_idx]
+        bot_block = [line for line in lines[bot_idx + 1:] if line.startswith("    ")]
+        self.assertEqual(len(top_block), 3, top_block)  # capped at 3 lines
+        self.assertIn("    - L1: Check 'top removed' ($a -eq 1)", top_block[0])
+        self.assertFalse(any("bottom removed" in line for line in top_block))
+        self.assertEqual(bot_block, ["    - L31: Check 'bottom removed' ($b -eq 2)"])
+
+        # pyrightconfig.json edit below line 3 shows its actual edited line number, and final-newline-only edit marks the side.
+        cfg = '{\n  "include": [\n    "scripts"\n  ],\n  "exclude": ["build"]\n}\n'
+        self.write("pyrightconfig.json", cfg)
+        c1 = self.commit("config")
+        self.edit("pyrightconfig.json", '"exclude": ["build"]', '"exclude": ["build", "tmp"]')
+        c2 = self.commit("edit config line 5")
+        code, text = self.run_scan("--base", c1, "--head", c2)
+        self.assertEqual(code, 1, text)
+        self.assertIn('    - L5:   "exclude": ["build"]', text)
+        self.assertIn('    + L5:   "exclude": ["build", "tmp"]', text)
+
+        self.write("pyrightconfig.json", cfg.rstrip("\n"))
+        c3 = self.commit("drop trailing newline")
+        code, text = self.run_scan("--base", c1, "--head", c3)
+        self.assertEqual(code, 1, text)
+        self.assertIn("(trailing newline)", text)
+        self.assertIn("(no trailing newline)", text)
+
+    def test_report_context_lines_across_committed_and_uncommitted_states(self):
+        # Answered committed + unanswered committed
+        self.edit(PS, "Check 'the first thing holds' ($a -eq 1)\n", "")
+        self.edit(PS, "Check 'the second thing holds' ($b -eq 2)\n", "")
+        self.commit("drop two", f"Weakening scan: test-removed {PS}:the first thing holds -- replaced")
+        code, text = self.run_scan("--base", self.base, "--head", "HEAD")
+        self.assertEqual(code, 1, text)
+        self.assertIn("    - L2: Check 'the first thing holds' ($a -eq 1)", text)
+        self.assertIn("    - L3: Check 'the second thing holds' ($b -eq 2)", text)
+
+        # Staged change later edited again in the working tree: staged signal shows staged/HEAD lines, not working tree.
+        self.write("scripts/staged.py", "def f():\n    return 1\n")
+        base2 = self.commit("staged base")
+        self.write("scripts/staged.py", "def f():\n    return 1  # noqa: F841\n")
+        self.git("add", "scripts/staged.py")
+        self.write("scripts/staged.py", "def f():\n    return 999\n")
+        # Unstaged change + untracked file
+        self.edit(WORKFLOW, "      - name: Core tests\n        run: build/Release/test_core.exe\n", "")
+        self.write("scripts/untracked.py", "try:\n    x()\nexcept OSError:\n    pass\n")
+        code, text = self.run_scan("--base", base2)
+        self.assertEqual(code, 0, text)
+        tail = text.split("not committed yet:")[1]
+        self.assertIn("    + L2:     return 1  # noqa: F841", tail)
+        self.assertNotIn("return 999", tail)
+        self.assertIn("    - L9:         run: build/Release/test_core.exe", tail)
+        self.assertIn("    + L3: except OSError:", tail)
+        untracked_section = tail.split("error-swallowed scripts/untracked.py:")[1]
+        self.assertNotIn("    - L", untracked_section)
 
 
 if __name__ == "__main__":

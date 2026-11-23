@@ -134,8 +134,10 @@ def line_id(lines, number):
 
 
 class Signal:
-    def __init__(self, kind, path, ident):
+    def __init__(self, kind, path, ident, before=(), after=()):
         self.kind, self.path, self.ident = kind, path, ident
+        self.before = list(before)[:3]  # [(line number, text)]
+        self.after = list(after)[:3]    # [(line number, text)]
         self.reason = None
 
     @property
@@ -146,12 +148,22 @@ class Signal:
         return f"{self.kind} {self.path}:{self.ident}"
 
 
+class Hunk:
+    """One diff hunk, keeping its own removed and added lines together so distant edits in one file stay apart."""
+
+    def __init__(self, old_start, old_count, new_start, new_count):
+        self.old_start, self.old_count = old_start, old_count
+        self.new_start, self.new_count = new_start, new_count
+        self.removed, self.added = [], []  # [(line number, text)]
+
+
 class Change:
     """One file's side of a diff: the lines that left it, the lines that came in, and its text before and after."""
 
     def __init__(self, path):
         self.path = path
         self.removed, self.added = [], []  # [(line number, text)]
+        self.hunks = []  # [Hunk]
         self.gaps = set()  # new line numbers after which lines were deleted with nothing put in their place
         self.old, self.new = None, None  # the whole file, as lists of lines; None when it did not exist
         self.deleted = False  # the change removes the file: it has no new text
@@ -178,10 +190,10 @@ def run_git(root, arguments):
 
 def parse_diff(text):
     """{path: Change} from `git diff -U0 --no-renames` output."""
-    changes, current, old_line, new_line, created = {}, None, 0, 0, False
+    changes, current, hunk, old_line, new_line, created = {}, None, None, 0, 0, False
     for line in text.splitlines():
         if line.startswith("diff --git "):
-            current, created = None, False
+            current, hunk, created = None, None, False
         elif line.startswith("+++ ") or line.startswith("--- "):
             name = line[4:].strip()
             if name != "/dev/null":
@@ -197,13 +209,23 @@ def parse_diff(text):
             if not found or current is None:
                 raise CannotRead(f"the diff has a hunk this cannot read: {line[:80]}")
             old_line, new_line = int(found[1]), int(found[3])
+            old_count = int(found[2]) if found[2] is not None else 1
+            new_count = int(found[4]) if found[4] is not None else 1
+            hunk = Hunk(old_line, old_count, new_line, new_count)
+            current.hunks.append(hunk)
             if found[4] == "0":  # a hunk that only deletes: the new file's line `new_line` is the one before the gap
                 current.gaps.add(new_line)
         elif current is not None and line.startswith("-"):
-            current.removed.append((old_line, line[1:]))
+            entry = (old_line, line[1:])
+            current.removed.append(entry)
+            if hunk is not None:
+                hunk.removed.append(entry)
             old_line += 1
         elif current is not None and line.startswith("+"):
-            current.added.append((new_line, line[1:]))
+            entry = (new_line, line[1:])
+            current.added.append(entry)
+            if hunk is not None:
+                hunk.added.append(entry)
             new_line += 1
     return changes
 
@@ -389,6 +411,67 @@ def cases(change, side):
     return found
 
 
+def hunk_for(change, *, old_line=None, new_line=None):
+    """Find the diff hunk that produced `old_line` or `new_line`, keeping distant edits in one file separate."""
+    if old_line is not None:
+        for h in change.hunks:
+            if any(n == old_line for n, _ in h.removed):
+                return h
+    if new_line is not None:
+        for h in change.hunks:
+            if any(n == new_line for n, _ in h.added):
+                return h
+        # For a handler or directive whose own line was unchanged while lines immediately below it were deleted or
+        # edited (e.g. emptied except/catch body, or unquoted multiline string), find the closest hunk covering it.
+        best, best_dist = None, None
+        for h in change.hunks:
+            lo = h.new_start
+            hi = h.new_start + max(h.new_count - 1, 0)
+            dist = 0 if lo <= new_line <= hi else min(abs(new_line - lo), abs(new_line - hi))
+            if best_dist is None or dist < best_dist:
+                best, best_dist = h, dist
+        if best is not None:
+            return best
+    return None
+
+
+def signal_context(change, *, old_line=None, new_line=None):
+    """Up to three before and three after `(line_number, text)` pairs for a signal at `old_line` or `new_line`."""
+    h = hunk_for(change, old_line=old_line, new_line=new_line)
+    if h is None:
+        before = [(old_line, change.old[old_line - 1])] if old_line and change.old and 1 <= old_line <= len(change.old) else []
+        after = [(new_line, change.new[new_line - 1])] if new_line and change.new and 1 <= new_line <= len(change.new) else []
+        return before, after
+    if old_line is not None:
+        before = [(n, t) for n, t in h.removed if n >= old_line][:3] or h.removed[:3]
+        after = h.added[:3]
+    else:
+        before = h.removed[:3]
+        after = [(n, t) for n, t in h.added if n >= new_line][:3] if new_line is not None else h.added[:3]
+        if not after:
+            after = h.added[:3]
+        if not after and new_line and change.new and 1 <= new_line <= len(change.new):
+            after = [(new_line, change.new[new_line - 1])]
+    return before, after
+
+
+def config_context(change):
+    """Up to three before and three after lines for a pyrightconfig.json change, marking final-newline-only edits."""
+    old_raw = getattr(change.old, "raw", "\n".join(change.old or [])) if change.old is not None else None
+    new_raw = getattr(change.new, "raw", "\n".join(change.new or [])) if change.new is not None else None
+    if old_raw is not None and new_raw is not None and change.old == change.new and old_raw != new_raw:
+        lines = change.old or change.new or []
+        n = len(lines) if lines else 1
+        text = lines[-1] if lines else ""
+        old_tag = "(trailing newline)" if old_raw.endswith("\n") else "(no trailing newline)"
+        new_tag = "(trailing newline)" if new_raw.endswith("\n") else "(no trailing newline)"
+        return [(n, f"{text} {old_tag}".strip())], [(n, f"{text} {new_tag}".strip())]
+    if change.hunks:
+        first = change.hunks[0]
+        return first.removed[:3], first.added[:3]
+    return change.removed[:3], change.added[:3]
+
+
 def scan(changes):
     """Every signal in the changes, in a steady order."""
     signals = []
@@ -425,21 +508,28 @@ def scan(changes):
         excess = left[min(spare, len(left)):]  # each new case in the file stands in for one that left it
         if change.deleted:
             if left or not gone[path]:
-                signals.append(Signal("test-file-deleted", path, "file"))
+                signals.append(Signal("test-file-deleted", path, "file", before=change.removed[:3], after=()))
             continue
         for name, number in excess:
-            signals.append(Signal("test-removed", path, name))
+            before, after = signal_context(change, old_line=number)
+            signals.append(Signal("test-removed", path, name, before=before, after=after))
             flagged[path].add(number)
 
     # A groups[] row whose function became nullptr: the case is still listed and no longer runs.
     for path, change in tests.items():
         if not CPP_TEST.search(path):
             continue
-        before = {row[1]: row[2] for row in (CPP_ROW.match(text) for _, text in change.removed) if row}
-        for _, text in change.added:
+        before_rows = {}
+        for old_n, old_t in change.removed:
+            r = CPP_ROW.match(old_t)
+            if r:
+                before_rows[r[1]] = (r[2], old_n, old_t)
+        for new_n, text in change.added:
             row = CPP_ROW.match(text)
-            if row and row[2] == "nullptr" and before.get(row[1], "nullptr") != "nullptr":
-                signals.append(Signal("test-disabled", path, row[1]))
+            prev = before_rows.get(row[1]) if row else None
+            if row and row[2] == "nullptr" and (prev is None or prev[0] != "nullptr"):
+                b_lines = [(prev[1], prev[2])] if prev is not None else ()
+                signals.append(Signal("test-disabled", path, row[1], before=b_lines, after=[(new_n, text)]))
 
     # Assertions, weighed over each set of files a moved case joins: what left against what came.
     seen = set()
@@ -458,7 +548,8 @@ def scan(changes):
                 and enclosing_case(tests[member].old, number) not in flagged[member]]
         gained = sum(1 for member in group for _, text in tests[member].added if ASSERTION.search(text))
         for member, number in lost[gained:]:  # those that nothing came in to replace
-            signals.append(Signal("assertion-removed", member, line_id(tests[member].old, number)))
+            before, after = signal_context(tests[member], old_line=number)
+            signals.append(Signal("assertion-removed", member, line_id(tests[member].old, number), before=before, after=after))
 
     # A PowerShell check kept by name with less in its condition: fewer `-and` terms left the file than came into
     # it, or the condition became a bare $true. Named by the check it belongs to.
@@ -471,11 +562,15 @@ def scan(changes):
         for number, count in reversed(lost):
             if excess <= 0:
                 break
-            signals.append(Signal("assertion-removed", path, check_at(change.old, number) or line_id(change.old, number)))
+            before, after = signal_context(change, old_line=number)
+            signals.append(Signal("assertion-removed", path, check_at(change.old, number) or line_id(change.old, number),
+                                  before=before, after=after))
             excess -= count
         for number, text in change.added:
             if PS_CASE.match(text) and PS_TRIVIAL.search(text):
-                signals.append(Signal("assertion-removed", path, powershell_case(text) or line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("assertion-removed", path, powershell_case(text) or line_id(change.new, number),
+                                      before=before, after=after))
 
     for path, change in sorted(files.items()):
         if path == CHECKER_CONFIG:
@@ -486,7 +581,8 @@ def scan(changes):
             exact = getattr(change.new, "raw", "\n".join(change.new or []))
             if getattr(change.old, "raw", change.old) != getattr(change.new, "raw", change.new):
                 digest = hashlib.sha1(exact.encode("utf-8")).hexdigest()[:6]
-                signals.append(Signal("warning-relaxed", path, f"L1#{digest}"))
+                before, after = config_context(change)
+                signals.append(Signal("warning-relaxed", path, f"L1#{digest}", before=before, after=after))
             continue
         if not CODE.search(path):
             continue  # prose that mentions a pattern is not code that uses it
@@ -496,38 +592,47 @@ def scan(changes):
             # call or a decorator from the same words inside a fixture string. Everything structural above (a file deleted, a case removed, assertions lost)
             # applies to them as to any test.
             for number in own_skips(change.new, {number for number, _ in change.added}):
-                signals.append(Signal("skip-added", path, line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("skip-added", path, line_id(change.new, number), before=before, after=after))
             relaxed = own_relaxations(change.old, change.new)
             if relaxed is None:  # it does not tokenize: its added lines are read by the pattern, as anywhere else
                 relaxed = [number for number, text in change.added if RELAX_COMMENT.search(text)]
             for number in relaxed:
-                signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("warning-relaxed", path, line_id(change.new, number), before=before, after=after))
             continue
         # In Python only a real comment relaxes a check, so a directive held in a string is not one (round 9 of
         # D00 T07 §2); a file that does not tokenize is read line by line, so nothing in it goes unread.
         relaxed = own_relaxations(change.old, change.new) if path.endswith(".py") else None
         for number in sorted(set(relaxed or [])):
-            signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
+            before, after = signal_context(change, new_line=number)
+            signals.append(Signal("warning-relaxed", path, line_id(change.new, number), before=before, after=after))
         for number, text in change.added:
             if SKIP.search(text) or (GATE.search(path) and SKIP_SWITCH.search(text)):
-                signals.append(Signal("skip-added", path, line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("skip-added", path, line_id(change.new, number), before=before, after=after))
             if FLAG.search(text) if relaxed is not None else RELAX.search(text):
-                signals.append(Signal("warning-relaxed", path, line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("warning-relaxed", path, line_id(change.new, number), before=before, after=after))
         # A handler that swallows, wherever the edit was: on its own line, or in the body under a line left alone.
         for number in sorted(swallowed(change.new, {number for number, _ in change.added}, change.gaps, path)):
-            signals.append(Signal("error-swallowed", path, line_id(change.new, number)))
+            before, after = signal_context(change, new_line=number)
+            signals.append(Signal("error-swallowed", path, line_id(change.new, number), before=before, after=after))
         for number, text in change.added:
             if SUPPRESS.search(text):
-                signals.append(Signal("error-swallowed", path, line_id(change.new, number)))
+                before, after = signal_context(change, new_line=number)
+                signals.append(Signal("error-swallowed", path, line_id(change.new, number), before=before, after=after))
         kept = [text.strip() for _, text in change.added]
         for number, text in change.removed:
             if WORKFLOW.search(path) and RUN_STEP.match(text) and text.strip() not in kept:
-                signals.append(Signal("ci-step-removed", path, line_id(change.old, number)))
+                before, after = signal_context(change, old_line=number)
+                signals.append(Signal("ci-step-removed", path, line_id(change.old, number), before=before, after=after))
             for token in STRICT:
                 # The setting counts as kept only where an added line still has it on: renaming the value to OFF
                 # keeps the name and drops the enforcement.
                 if enforces(text, token) and not any(enforces(line, token) for line in kept):
-                    signals.append(Signal("warning-relaxed", path, line_id(change.old, number)))
+                    before, after = signal_context(change, old_line=number)
+                    signals.append(Signal("warning-relaxed", path, line_id(change.old, number), before=before, after=after))
                     break
 
     order = {signal.key: index for index, signal in enumerate(signals)}
@@ -544,17 +649,78 @@ class Text(list):
 
 
 def show(root, rev, path):
-    """A file's lines at a revision. The diff says whether the file exists on a side, so this is only asked for one
-    that does, and a failure here is a failure to read (a timeout, a disk error), never taken for an absent file:
-    the checks that need the text would otherwise pass in silence."""
+    """A file's lines at a revision via `git show` (kept for equivalence testing and benchmarking)."""
     return Text(run_git(root, ["show", f"{rev}:{path}"]))
 
 
-def committed(root, base, head):
+def read_blobs_show(root, specs):
+    """Per-file `git show` reader: one git process per `(rev, path)` pair."""
+    unique = list(dict.fromkeys(specs))
+    return {(rev, path): show(root, rev, path) for rev, path in unique}
+
+
+def read_blobs_batch(root, specs):
+    """Read every requested `(rev, path)` blob in one binary-framed `git cat-file --batch` call.
+
+    Any missing object, non-blob type, short payload, missing frame terminator, or non-zero git exit raises
+    CannotRead (exit 2) so a read error is never taken for an absent file."""
+    unique = list(dict.fromkeys(specs))
+    if not unique:
+        return {}
+    for rev, path in unique:
+        if any(ch in rev or ch in path for ch in ("\n", "\r", "\x00")):
+            raise CannotRead(f"git cat-file --batch cannot address path with control character: {rev}:{path!r}")
+    payload = "".join(f"{rev}:{path}\n" for rev, path in unique).encode("utf-8")
+    try:
+        done = subprocess.run(["git", "-C", str(root), "-c", "core.quotepath=false", "cat-file", "--batch"],
+                              input=payload, capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CannotRead(f"git cat-file --batch could not run: {exc}") from None
+    if done.returncode != 0:
+        err = (done.stderr or done.stdout).decode("utf-8", errors="replace").strip().splitlines()
+        said = err[0] if err else f"exit {done.returncode}"
+        raise CannotRead(f"git cat-file --batch failed: {said}")
+    buf = done.stdout
+    total = len(buf)
+    pos = 0
+    result = {}
+    for rev, path in unique:
+        nl = buf.find(b"\n", pos)
+        if nl == -1:
+            raise CannotRead(f"git cat-file --batch truncated before {rev}:{path}")
+        header = buf[pos:nl].decode("utf-8", errors="replace").rstrip("\r")
+        pos = nl + 1
+        parts = header.rsplit(" ", 2)
+        if len(parts) != 3 or parts[1] != "blob" or not parts[2].isdigit():
+            raise CannotRead(f"git cat-file --batch failed for {rev}:{path}: {header}")
+        size = int(parts[2])
+        if pos + size > total:
+            raise CannotRead(f"git cat-file --batch truncated payload for {rev}:{path} (expected {size} bytes)")
+        raw_bytes = buf[pos:pos + size]
+        pos += size
+        if pos >= total or buf[pos:pos + 1] != b"\n":
+            raise CannotRead(f"git cat-file --batch missing frame terminator after {rev}:{path}")
+        pos += 1
+        decoded = raw_bytes.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        result[(rev, path)] = Text(decoded)
+    if pos != total:
+        raise CannotRead(f"git cat-file --batch returned {total - pos} unexpected trailing byte(s)")
+    return result
+
+
+def committed(root, base, head, reader=None):
+    read = reader or read_blobs_batch
     changes = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", base, head, "--"]))
+    specs = []
     for path, change in changes.items():
-        change.old = None if change.created else show(root, base, path)
-        change.new = None if change.deleted else show(root, head, path)
+        if not change.created:
+            specs.append((base, path))
+        if not change.deleted:
+            specs.append((head, path))
+    blobs = read(root, specs)
+    for path, change in changes.items():
+        change.old = None if change.created else blobs[(base, path)]
+        change.new = None if change.deleted else blobs[(head, path)]
     return changes
 
 
@@ -565,23 +731,37 @@ def working_text(root, path):
         raise CannotRead(f"{path} can't be read: {exc}") from None
 
 
-def uncommitted(root):
+def uncommitted(root, reader=None):
     """What is not committed, as two sets of changes scanned apart: what is staged (HEAD to the index, which is
     what the next commit holds) and what is not (the index to the working tree, with untracked files). Together they
     would cancel out when a staged removal is put back in the working tree only, and the next commit would still
     remove it."""
+    read = reader or read_blobs_batch
     staged = parse_diff(run_git(root, ["diff", "--cached", "--no-color", "--no-renames", "-U0", "HEAD", "--"]))
-    for path, change in staged.items():
-        change.old = None if change.created else show(root, "HEAD", path)
-        change.new = None if change.deleted else show(root, "", path)  # `:path` is the index's copy
     unstaged = parse_diff(run_git(root, ["diff", "--no-color", "--no-renames", "-U0", "--"]))
+    specs = []
+    for path, change in staged.items():
+        if not change.created:
+            specs.append(("HEAD", path))
+        if not change.deleted:
+            specs.append(("", path))  # `:path` is the index's copy
     for path, change in unstaged.items():
-        change.old = None if change.created else show(root, "", path)
+        if not change.created:
+            specs.append(("", path))
+    blobs = read(root, specs)
+    for path, change in staged.items():
+        change.old = None if change.created else blobs[("HEAD", path)]
+        change.new = None if change.deleted else blobs[("", path)]
+    for path, change in unstaged.items():
+        change.old = None if change.created else blobs[("", path)]
         change.new = None if change.deleted else working_text(root, path)
     for path in run_git(root, ["ls-files", "--others", "--exclude-standard"]).splitlines():
         lines = working_text(root, path)
         change = unstaged.setdefault(path, Change(path))
         change.created, change.new, change.added = True, lines, list(enumerate(lines, 1))
+        h = Hunk(0, 0, 1, len(lines))
+        h.added = list(change.added)
+        change.hunks.append(h)
     return staged, unstaged
 
 
@@ -647,6 +827,13 @@ def default_base(root):
     return out.strip()
 
 
+def print_signal_lines(signal):
+    for number, text in signal.before[:3]:
+        print(f"    - L{number}: {text}")
+    for number, text in signal.after[:3]:
+        print(f"    + L{number}: {text}")
+
+
 def main(argv=None, root=ROOT):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", help="the commit the range starts after (default: the merge base with origin/main)")
@@ -669,12 +856,14 @@ def main(argv=None, root=ROOT):
     print(f"committed {base[:7]}..{head[:7]}: {len(found)} signal(s), {len(open_ones)} unanswered")
     for signal in found:
         print(f"  answered   {signal} -- {signal.reason}" if signal.reason else f"  unanswered {signal}")
+        print_signal_lines(signal)
     if open_ones:
         print("answer each in a commit body of the range, or undo it:  Weakening scan: <kind> <path>:<id> -- <why>")
     if not args.head:
         print(f"not committed yet: {len(loose)} signal(s), each to be answered in the body of the commit that makes it")
         for signal in loose:
             print(f"  {signal}")
+            print_signal_lines(signal)
     return 1 if open_ones else 0
 
 
