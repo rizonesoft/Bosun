@@ -716,17 +716,24 @@ exit $LASTEXITCODE
     [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpDoc)) -eq [Convert]::ToBase64String($cmpDocBytes)
   ) "(exit $LASTEXITCODE): $missMeas"
 
-  # A measurement cannot create the baseline it was asked to compare against (-Label trial -Baseline trial in an empty store).
+  # A measurement cannot compare a label against itself (whether absent or already stored): exits 2 before building and mutates nothing.
   $selfBaseOut = Join-Path $dir 'self-base-docs'
   New-Item -ItemType Directory -Path $selfBaseOut | Out-Null
   Remove-Item -LiteralPath (Join-Path $dir 'runs.txt') -ErrorAction Ignore
   $selfBaseRes = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $selfBaseOut -Label 'trial' -Decision 'kept' -Samples 1 -Baseline 'trial' 2>&1 | Out-String
-  Check '-Label trial -Baseline trial in a store without trial exits 1 before building and writes no files' (
-    $LASTEXITCODE -eq 1 -and $selfBaseRes -match "no baseline label 'trial'" -and
+  Check '-Label trial -Baseline trial in an empty store exits 2 before building and writes no files' (
+    $LASTEXITCODE -eq 2 -and $selfBaseRes -match "-Baseline cannot name the same label 'trial'" -and
     -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt')) -and
     -not (Test-Path -LiteralPath (Join-Path $selfBaseOut 'build-performance.json')) -and
     -not (Test-Path -LiteralPath (Join-Path $selfBaseOut 'build-performance.md'))
   ) "(exit $LASTEXITCODE): $selfBaseRes"
+  $selfExistingRes = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $cmpOut -Label 'hist-base' -Decision 'kept' -Samples 1 -Baseline 'hist-base' 2>&1 | Out-String
+  Check '-Label hist-base -Baseline hist-base when hist-base already exists exits 2 before building and leaves JSON and Markdown byte-identical' (
+    $LASTEXITCODE -eq 2 -and $selfExistingRes -match "-Baseline cannot name the same label 'hist-base'" -and
+    -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt')) -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpJson)) -eq [Convert]::ToBase64String($cmpJsonBytes) -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpDoc)) -eq [Convert]::ToBase64String($cmpDocBytes)
+  ) "(exit $LASTEXITCODE): $selfExistingRes"
 
   # Two external solutions with the same filename in different folders get distinct targets and do not compare numerically.
   $extOut = Join-Path $dir 'ext-docs'
