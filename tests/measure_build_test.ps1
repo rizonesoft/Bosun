@@ -1001,7 +1001,13 @@ exit $LASTEXITCODE
     # Replay the retained binlog through MSBuild PerformanceSummary to verify exact names, kinds, and durations match.
     $binlogMatch = $false
     if ($realBinlogItem -and $realTop.Count -eq 3) {
-      $replayLines = @(& dotnet msbuild $realBinlog -nologo -clp:PerformanceSummary 2>&1)
+      $savedReplayLang = $env:DOTNET_CLI_UI_LANGUAGE
+      $env:DOTNET_CLI_UI_LANGUAGE = 'en'
+      try {
+        $replayLines = @(& dotnet msbuild $realBinlog -nologo -clp:PerformanceSummary 2>&1)
+      } finally {
+        if ($null -eq $savedReplayLang) { Remove-Item Env:DOTNET_CLI_UI_LANGUAGE -ErrorAction Ignore } else { $env:DOTNET_CLI_UI_LANGUAGE = $savedReplayLang }
+      }
       $sec = $null
       $replayItems = [Collections.Generic.List[object]]::new()
       foreach ($rl in $replayLines) {
