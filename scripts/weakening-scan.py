@@ -452,13 +452,13 @@ def signal_context(change, *, old_line=None, new_line=None, new_span=None):
         after = [(new_line, change.new[new_line - 1])] if new_line and change.new and 1 <= new_line <= len(change.new) else []
         return before, after
     if old_line is not None:
-        before = [(n, t) for n, t in h.removed if n >= old_line][:3] or h.removed[:3]
-        after = h.added[:3]
+        idx = next((i for i, (n, _) in enumerate(h.removed) if n >= old_line), 0)
+        before = h.removed[idx:idx + 3] or h.removed[:3]
+        after = h.added[idx:idx + 3] if idx < len(h.added) else h.added[-3:]
     else:
-        before = h.removed[:3]
-        after = [(n, t) for n, t in h.added if n >= new_line][:3] if new_line is not None else h.added[:3]
-        if not after:
-            after = h.added[:3]
+        idx = next((i for i, (n, _) in enumerate(h.added) if n >= new_line), 0) if new_line is not None else 0
+        after = h.added[idx:idx + 3] or h.added[:3]
+        before = h.removed[idx:idx + 3] if idx < len(h.removed) else h.removed[-3:]
         if not after and new_line and change.new and 1 <= new_line <= len(change.new):
             after = [(new_line, change.new[new_line - 1])]
     return before, after

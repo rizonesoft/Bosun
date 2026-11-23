@@ -1001,6 +1001,17 @@ class BatchAndLines(Repo):
         self.assertEqual(list(got), ["/external/target.py"])
         self.assertNotIn("SECRET_SHOULD_NOT_BE_READ", got.raw)
 
+        # R2 F1: both sides of a multi-line hunk anchor to the triggering line's offset, not only the flagged side.
+        self.write("scripts/demo.py", "a = 1\nb = 2\nc = 3\nd = 4\n")
+        b_demo = self.commit("demo base")
+        self.write("scripts/demo.py", "a = 10\nb = 20\nc = 30\nd = 40  # noqa: F841\n")
+        h_demo = self.commit("edit four lines")
+        code, text = self.run_scan("--base", b_demo, "--head", h_demo)
+        self.assertEqual(code, 1, text)
+        self.assertIn("    - L4: d = 4", text)
+        self.assertIn("    + L4: d = 40  # noqa: F841", text)
+        self.assertNotIn("    - L1: a = 1", text)
+
 
 if __name__ == "__main__":
     unittest.main()
