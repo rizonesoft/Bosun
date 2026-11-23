@@ -62,8 +62,8 @@ function Get-PreviousHooksPath {
 }
 function Format-PsLiteral([string]$value) { "'" + ($value -replace "'", "''") + "'" }
 function Format-HooksUndo([string]$prev) {
-  $gitUndo = if ([string]::IsNullOrEmpty($prev)) { '--unset core.hooksPath' } else { "core.hooksPath `"$prev`"" }
-  "hooks: to put it back: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -Undo (or: git -C `"$Repo`" config --local $gitUndo)"
+  $gitUndo = if ([string]::IsNullOrEmpty($prev)) { '--unset core.hooksPath' } else { "core.hooksPath $(Format-PsLiteral $prev)" }
+  "hooks: to put it back: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -Undo (or: git -C $(Format-PsLiteral $Repo) config --local $gitUndo)"
 }
 
 # --- -CheckPrePush (read-only diagnostic; makes zero changes to the checkout or .private) ---
@@ -142,6 +142,7 @@ if ($Undo) {
   if ($current -cne $hooks) {
     Stop-Setup "refusing to undo: core.hooksPath is '$current' (not '$hooks') and no bosun.previousHooksPath is stored"
   }
+  "hooks: unsetting core.hooksPath in $Repo"
   $said = git -C $Repo config --local --unset core.hooksPath 2>&1
   if ($LASTEXITCODE) { Stop-Setup "could not unset core.hooksPath ($(($said | Out-String).Trim()))" }
   if ($null -ne (Get-HooksPath)) { Stop-Setup 'core.hooksPath was unset but still reads back' }
@@ -170,6 +171,7 @@ if ($hasOverlayUpdates) {
     Stop-Setup '.private is a checkout of another repository; refusing to change its overlay update setting'
   }
   $want = if ($OverlayUpdates -eq 'off') { 'false' } else { 'true' }
+  "overlay: setting bosun.overlayAutoUpdate to $want in $private"
   $said = git -C $private config --local bosun.overlayAutoUpdate $want 2>&1
   if ($LASTEXITCODE) { Stop-Setup "could not set bosun.overlayAutoUpdate to $want ($(($said | Out-String).Trim()))" }
   if ("$(git -C $private config --local --get bosun.overlayAutoUpdate 2>$null)" -ne $want) {

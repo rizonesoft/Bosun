@@ -86,7 +86,7 @@ try {
   $husky = New-Clone 'husky'
   git -C $husky config --local core.hooksPath '.husky'
   $r = Invoke-Setup @('-Repo', $husky)
-  Check 'an earlier value is replaced, named, and given back as the undo' ($r.Exit -eq 0 -and (Get-Setting $husky) -eq 'scripts/hooks' -and $r.Text -match "is '\.husky'" -and $r.Text -match 'config --local core\.hooksPath "\.husky"') "(exit $($r.Exit): $($r.Text))"
+  Check 'an earlier value is replaced, named, and given back as the undo' ($r.Exit -eq 0 -and (Get-Setting $husky) -eq 'scripts/hooks' -and $r.Text -match "is '\.husky'" -and $r.Text -match "config --local core\.hooksPath '\.husky'") "(exit $($r.Exit): $($r.Text))"
 
   # --- refusals ---
   $plain = Join-Path $work 'plain'
@@ -145,7 +145,7 @@ exit `$LASTEXITCODE
   Check 'a second run on a clone with an earlier hooksPath still prints the undo command' ($rHusky2.Exit -eq 0 -and
     (Get-Setting $husky 'bosun.previousHooksPath') -eq '.husky' -and
     $rHusky2.Text -match 'hooks: already on' -and $rHusky2.Text -match '-Undo' -and
-    $rHusky2.Text -match 'config --local core\.hooksPath "\.husky"') "(exit $($rHusky2.Exit): $($rHusky2.Text))"
+    $rHusky2.Text -match "config --local core\.hooksPath '\.husky'") "(exit $($rHusky2.Exit): $($rHusky2.Text))"
   $rHuskyUndo = Invoke-Setup @('-Repo', $husky, '-Undo')
   Check '-Undo restores the earlier hooksPath and removes bosun.previousHooksPath' ($rHuskyUndo.Exit -eq 0 -and
     (Get-Setting $husky) -eq '.husky' -and $null -eq (Get-Setting $husky 'bosun.previousHooksPath')) "(exit $($rHuskyUndo.Exit): $($rHuskyUndo.Text))"
