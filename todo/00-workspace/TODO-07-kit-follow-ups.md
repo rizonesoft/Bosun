@@ -38,7 +38,7 @@ title: "TODO-07 -- Kit follow-ups"
 | 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [x] |
 | 6 | §6 | Clone setup and pre-commit say what they did | -- | [x] |
 | 7 | §7 | Build measurement compares against a baseline | -- | [x] |
-| 8 | §8 | Build script stops configuring on every run | §7 | [ ] |
+| 8 | §8 | Build script stops configuring on every run | §7 | [x] |
 | 9 | §9 | One documented .NET test command with progress | -- | [ ] |
 | 10 | §10 | Plan workflow checks first and states its policy | -- | [ ] |
 | 11 | §11 | The overlay says where a value came from, and lists its keys | -- | [ ] |
@@ -344,9 +344,12 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base line 16, raised 
 
 - [x] Add `-DirectCmake` to `scripts/measure-build.ps1` (launching `cmake --build --preset release` directly with no PowerShell wrapper in an initialized developer shell, timing `nothing to do` and `one file changed` with untimed `cmake --preset default` + `cmake --build --preset release` preparation, tested in `tests/measure_build_test.ps1`), then measure 10 samples each through the current `scripts/build.ps1` (`build-script-before`) and through direct `cmake --build --preset release` (`cmake-build-direct`) under the same initialized-shell Release conditions, recording medians and spreads in `docs/build-performance.json` and `docs/build-performance.md`. Done when: `tests/measure_build_test.ps1` verifies `-DirectCmake` invokes `cmake --build --preset release` directly with 10/N raw samples, and both 10-sample baseline labels are recorded in `docs/build-performance.json` and `docs/build-performance.md`.
 - [x] Configure in `scripts/build.ps1` only when `-Fresh` is passed, `build/CMakeCache.txt`, `build/build.ninja`, or `build/build-<Config>.ninja` (`Release`/`Debug`) is missing, `Test-BuildCacheStale` reports a stale cache, or the SHA-256 fingerprint of `CMakePresets.json` and optional `CMakeUserPresets.json` (stored atomically in `build/preset-configure.sha256` only after configure succeeds) is missing or changed, keeping CMake's own automatic reconfiguration on `CMakeLists.txt` edits and keeping the one-time `--fresh` recovery when an explicit configure fails. Done when: `tests/build_script_test.ps1` verifies with fake `cmake` (no configure on second run, `-Debug` skips configure, configure after cache / `build.ninja` / `build-Release.ninja` / `build-Debug.ninja` removal, upgrade from warm tree without fingerprint, preset change + failed configure leaving prior digest intact and retrying on next run, `CMakeUserPresets.json` create/edit/delete, `-Fresh` and stale-cache configure, bad-cache recovery) AND with a real minimal CMake/Ninja scratch project (no configure on second run, configure after cache removal, real `CMakePresets.json` cache-variable read-back from `CMakeCache.txt` then skip on next run, and `CMakeLists.txt` edit triggering Ninja's automatic CMake reconfigure while `build.ps1` issues only `--build` and rebuilds the changed output); and the 10-sample after measurement (`skip-configure`, `-Baseline build-script-before`) under the same shell conditions compares both `nothing to do` and `one file changed` with spreads and records the keep/revert decision in `docs/build-performance.json` and `docs/build-performance.md`. Cheaper substitute: never configuring.
-- [ ] Commit: `build: configure only when needed (D00 T07 §8)`
+- [x] Commit: `build: configure only when needed (D00 T07 §8)`
 
 **Test checkpoint:** `pwsh tests/build_script_test.ps1`, `pwsh tests/build_cache_test.ps1`, and `pwsh tests/measure_build_test.ps1` exit 0, and the measured 10-sample `nothing to do` and `one file changed` medians and spreads after (`skip-configure`) are recorded beside before (`build-script-before`) and direct `cmake --build` (`cmake-build-direct`) in `docs/build-performance.md` with the keep/revert decision.
+
+> **Verified:** 2026-11-23 | §8 | 2f5b7e8c139efffa6ce514f67ef3e10f2800cfcf
+> **Review:** `docs/reviews/d00-t07-s8.json`
 
 ## 9. One documented .NET test command with progress
 

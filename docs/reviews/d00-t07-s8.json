@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T07 \u00a78",
+  "title": "Build script stops configuring on every run",
+  "implementation_sha": "2f5b7e8c139efffa6ce514f67ef3e10f2800cfcf",
+  "date": "2026-11-23",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s8.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "build.yml green at 2f5b7e8 (https://github.com/rizonesoft/Bosun/actions/runs/45122892382); plan.yml green at 2f5b7e8 (https://github.com/rizonesoft/Bosun/actions/runs/45122892373); pwsh tests/build_cache_test.ps1 (12/12 ok); pwsh tests/build_script_test.ps1 (21/21 ok); pwsh tests/measure_build_test.ps1 (105/105 ok); 10-sample before/direct/after measurements recorded in docs/build-performance.json and docs/build-performance.md"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s8.md",
+    "verdict": "completed",
+    "candidate": "818ed354be894d2c6816861009c2a0bea137882d",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "cap_outcome": "Round 2 P3 findings (env_inherited tracking and <= 100-char Markdown table rows) fixed in 6b414be",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s8.md",
+    "candidate": "4cbfb15ee6c19929afc05e92d0b08a08360b7808",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "4cbfb15ee6c19929afc05e92d0b08a08360b7808",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}
