@@ -798,6 +798,24 @@ exit 0
     $cmEntry.configuration.direct_cmake -eq $true -and
     $cmMdText -match 'mode `cmake --build --preset release` \(direct\)'
   ) "(exit $cmRunExit, fpAtConfigure $cmFpAtConfigure, calls $($cmCallLines.Count), steps $cmStepNames): $cmRunText"
+
+  # If preset-configure.sha256 cannot be invalidated (e.g. locked), -DirectCmake refuses with exit 1 before running cmake.
+  Set-Content -LiteralPath $cmFp -Value 'locked-fp'
+  Remove-Item -LiteralPath $cmCalls -ErrorAction Ignore
+  $fpLock = [IO.FileStream]::new($cmFp, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  $savedPathCm2 = $env:PATH
+  try {
+    $env:PATH = "$cmBin;$env:PATH"
+    $cmLockText = & pwsh -NoProfile -File $cmMeasure -DirectCmake -CmakeCommand (Join-Path $cmBin 'cmake.cmd') -TouchFile $cmTouch -OutDir $cmOutDir -Label 'direct-locked' -Decision 'kept' -Samples 1 2>&1 | Out-String
+    $cmLockExit = $LASTEXITCODE
+  } finally {
+    $env:PATH = $savedPathCm2
+    $fpLock.Dispose()
+  }
+  $cmLockCalls = @(Get-Content -LiteralPath $cmCalls -ErrorAction Ignore)
+  Check '-DirectCmake refuses before preparation when preset-configure.sha256 cannot be invalidated' (
+    $cmLockExit -eq 1 -and $cmLockText -match 'could not invalidate' -and $cmLockCalls.Count -eq 0
+  ) "(exit $cmLockExit, calls $($cmLockCalls.Count)): $cmLockText"
   # Comparing against hist-dotnet refuses numeric delta against single-proj-dotnet (different target).
   $cmpDnOut = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-dotnet' 2>&1 | Out-String
   Check '-Baseline refuses numeric delta between .NET solution and single-project .NET labels' (

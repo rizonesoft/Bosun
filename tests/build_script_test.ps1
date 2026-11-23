@@ -81,6 +81,16 @@ try {
   $r = Invoke-Build 'ok'
   Check 'removing CMakeCache.txt triggers configure, then builds' ($r.Exit -eq 0 -and $r.Calls.Count -eq 2 -and $r.Calls[0] -eq '--preset default' -and $r.Calls[1] -eq '--build --preset release') "(exit $($r.Exit), calls: $($r.Calls -join ' ; '))"
 
+  # Removing only top-level build.ninja triggers configure.
+  Remove-Item -LiteralPath (Join-Path $buildDir 'build.ninja') -Force
+  $r = Invoke-Build 'ok'
+  Check 'removing top-level build.ninja triggers configure, then builds' ($r.Exit -eq 0 -and $r.Calls.Count -eq 2 -and $r.Calls[0] -eq '--preset default' -and $r.Calls[1] -eq '--build --preset release') "(exit $($r.Exit), calls: $($r.Calls -join ' ; '))"
+
+  # Stale cache (moved checkout or missing CMAKE_HOME_DIRECTORY) triggers --fresh configure through the wrapper.
+  Set-Content -LiteralPath (Join-Path $buildDir 'CMakeCache.txt') -Value 'CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config'
+  $r = Invoke-Build 'ok'
+  Check 'stale cache without CMAKE_HOME_DIRECTORY triggers --fresh configure through wrapper' ($r.Exit -eq 0 -and $r.Calls.Count -eq 2 -and $r.Calls[0] -eq '--preset default --fresh' -and $r.Calls[1] -eq '--build --preset release') "(exit $($r.Exit), calls: $($r.Calls -join ' ; '))"
+
   # Upgrade path: warm tree without preset-configure.sha256 configures once, then next build skips configure.
   Remove-Item -LiteralPath $fpPath -Force
   $r = Invoke-Build 'ok'

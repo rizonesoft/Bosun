@@ -16,6 +16,9 @@ try {
   Case 'folder compared without case' 'Ninja Multi-Config' 'd:/src/bosun' 'D:\src\Bosun\' $false
   Case 'moved checkout is configured fresh' 'Ninja Multi-Config' 'R:/src/Bosun' 'D:\src\Bosun' $true
   Case 'other generator is configured fresh' 'Visual Studio 18 2026' 'D:/src/Bosun' 'D:\src\Bosun' $true
+  $genOnlyCache = Join-Path $dir 'gen-only.txt'
+  Set-Content -LiteralPath $genOnlyCache -Value 'CMAKE_GENERATOR:INTERNAL=Ninja Multi-Config'
+  if (-not (Test-BuildCacheStale -Cache $genOnlyCache -SourceDir 'D:\src\Bosun')) { 'FAIL generator-only cache without CMAKE_HOME_DIRECTORY must be stale'; $failed++ } else { 'ok   generator-only cache without CMAKE_HOME_DIRECTORY is configured fresh' }
   if (Test-BuildCacheStale -Cache (Join-Path $dir 'missing.txt') -SourceDir 'D:\src\Bosun') { 'FAIL no cache needs no fresh'; $failed++ } else { 'ok   no cache needs no fresh' }
 
   # Test-BuildNeedsConfigure: missing cache/manifests/fingerprint, warm skip, preset changes, user preset create/edit/delete, -Fresh.

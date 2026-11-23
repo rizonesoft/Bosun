@@ -6,9 +6,11 @@
 function Test-BuildCacheStale([string]$Cache, [string]$SourceDir, [string]$Generator = 'Ninja Multi-Config') {
   if (-not (Test-Path -LiteralPath $Cache)) { return $false }
   $lines = Get-Content -LiteralPath $Cache
-  $gen = ($lines | Where-Object { $_ -like 'CMAKE_GENERATOR:INTERNAL=*' } | Select-Object -First 1) -replace '^[^=]*=', ''
-  $built = ($lines | Where-Object { $_ -like 'CMAKE_HOME_DIRECTORY:INTERNAL=*' } | Select-Object -First 1) -replace '^[^=]*=', ''
-  if ($gen -ne $Generator) { return $true }
+  $genLine = $lines | Where-Object { $_ -like 'CMAKE_GENERATOR:INTERNAL=*' } | Select-Object -First 1
+  $builtLine = $lines | Where-Object { $_ -like 'CMAKE_HOME_DIRECTORY:INTERNAL=*' } | Select-Object -First 1
+  $gen = if ($genLine) { $genLine -replace '^[^=]*=', '' } else { '' }
+  $built = if ($builtLine) { $builtLine -replace '^[^=]*=', '' } else { '' }
+  if ($gen -ne $Generator -or [string]::IsNullOrWhiteSpace($built)) { return $true }
   $want = [IO.Path]::GetFullPath($SourceDir).TrimEnd('\', '/') -replace '\\', '/'
   return -not [string]::Equals($built.TrimEnd('/'), $want, [StringComparison]::OrdinalIgnoreCase)
 }

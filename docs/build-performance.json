@@ -1559,7 +1559,7 @@
       "label": "skip-configure",
       "target": "native",
       "decision": "kept",
-      "note": "Kept (D00 T07 s8): scripts/build.ps1 skips explicit cmake configure when cache, Ninja manifests, and CMakePresets.json/CMakeUserPresets.json fingerprint are up to date (initialised developer shell, Release). Against build-script-before (10 samples each): nothing to do fell from 0.84 s (spread 0.11 s) to 0.66 s (spread 0.13 s), a -0.18 s saving exceeding the 0.13 s spread (remaining 0.61 s above cmake-build-direct 0.05 s is pwsh startup); one file changed moved from 15.65 s (spread 2.40 s) to 15.02 s (spread 4.79 s, within time spread) while peak memory fell from 368.7 MB to 343.2 MB (-25.4 MB, exceeding the 1.3 MB spread).",
+      "note": "Kept (D00 T07 s8): scripts/build.ps1 skips explicit cmake configure when cache, Ninja manifests, and CMakePresets.json/CMakeUserPresets.json fingerprint are up to date (initialised developer shell, Release). Against build-script-before (10 samples each): nothing to do fell from 0.84 s (spread 0.11 s) to 0.66 s (spread 0.13 s), a -0.18 s saving exceeding the 0.13 s spread; one file changed moved from 15.65 s (spread 2.40 s) to 15.02 s (spread 4.79 s, within time spread) while peak memory fell from 368.7 MB to 343.2 MB (-25.4 MB, exceeding the 1.3 MB spread). Against cmake-build-direct (10 samples each): nothing to do is +0.61 s (0.66 s vs 0.05 s, spread 0.13 / 0.01 s) and +32.7 MB (40.1 vs 7.4 MB, spread 1.9 / 0.2 MB); one file changed is -0.46 s (15.02 s vs 15.48 s, within time spread 4.79 / 2.07 s, so inconclusive on time) and +7.2 MB (343.2 vs 336.0 MB, exceeding the 1.3 MB memory spread).",
       "date": "2026-11-23T05:26:21Z",
       "machine": {
         "name": "VENOM-PC",
