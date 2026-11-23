@@ -100,6 +100,7 @@ if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'marks
 if ($env:BOSUN_GATE_MARK_DIR) { Add-Content -LiteralPath (Join-Path $here 'mark-outputs.txt') -Value ((@(Get-ChildItem -LiteralPath $env:BOSUN_GATE_MARK_DIR -Filter '*.json' -ErrorAction Ignore) | ForEach-Object { (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).output }) -join '|') }
 if ($mode -eq 'fail-fresh' -and $Fresh) { 'error: it broke'; exit 3 }
 if ($mode -eq 'hang-fresh' -and $Fresh) { Start-Sleep 120 }
+if ($mode -eq 'slow-fresh' -and $Fresh) { Start-Sleep 12 }
 if ($mode -eq 'always-work') { $work = $true }
 if ($work) { '[1/1] Building CXX object'; Set-Content -LiteralPath $stamp -Value 'built' } else { 'ninja: no work to do.' }
 exit 0
@@ -357,11 +358,43 @@ if ($mode -eq 'outside' -and -not (Test-Path -LiteralPath (Join-Path $here 'work
   $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $line; ProcessStartupInformation = $startup }
   foreach ($i in 1..150) { if (Alive 7) { break }; Start-Sleep -Milliseconds 100 }
 }
-$workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'warm-noop' { 1 } 'two-workers' { 2 } default { 0 } }
+$workers = switch ($mode) { 'worker' { 1 } 'warm-fails' { 1 } 'warm-noop' { 1 } 'warm-fail-second' { 1 } 'warm-vary' { 1 } 'slow-warm' { 1 } 'two-workers' { 2 } default { 0 } }
+$blIdx = [Array]::IndexOf($args, '-bl')
+if ($blIdx -lt 0) { $blIdx = [Array]::IndexOf($args, '-bl:') }
+if ($blIdx -ge 0 -and ($blIdx + 1) -lt $args.Count) {
+  $isDiag = $true
+  $blPath = $args[$blIdx + 1].Trim('"')
+} else {
+  $blArg = $args | Where-Object { $_ -like '-bl:*' } | Select-Object -First 1
+  $isDiag = [bool]$blArg
+  $blPath = if ($blArg) { ($blArg -replace '^-bl:(LogFile=)?', '').Trim('"') } else { '' }
+}
+if ($isDiag) {
+  if ($mode -eq 'diag-fails') { 'error: diagnostic build broke'; exit 6 }
+  if ($mode -ne 'diag-noop') { Set-Content -LiteralPath $outs[0] -Value 'diag-built' }
+  if ($mode -ne 'diag-no-binlog') { Set-Content -LiteralPath $blPath -Value 'FAKE-BINLOG-BYTES' }
+  if ($mode -ne 'diag-no-summary') {
+    'Target Performance Summary:'
+    '       12 ms  PrepareForBuild                            1 calls'
+    '      450 ms  CoreCompile                                1 calls'
+    'Task Performance Summary:'
+    '       25 ms  Copy                                       2 calls'
+    '      410 ms  Csc                                        1 calls'
+    '      110 ms  ResolveAssemblyReference                   1 calls'
+  }
+  'Build succeeded.'
+  exit 0
+}
 if ($workers) {
   if (Alive 1) {
+    $warmCountFile = Join-Path $here 'warm-calls.txt'
+    $warmIdx = @(Get-Content -LiteralPath $warmCountFile -ErrorAction Ignore).Count + 1
+    Add-Content -LiteralPath $warmCountFile -Value "warm-$warmIdx"
     if ($mode -eq 'warm-fails') { 'error: the warm build broke'; exit 4 }
+    if ($mode -eq 'warm-fail-second' -and $warmIdx -eq 2) { 'error: second warm build broke'; exit 4 }
     if ($mode -eq 'warm-noop') { 'Build succeeded.'; exit 0 }  # succeeds and compiles nothing
+    if ($mode -eq 'warm-vary') { Start-Sleep -Milliseconds (300 * ($warmIdx - 1)) }
+    if ($mode -eq 'slow-warm') { Start-Sleep -Seconds 6 }
     $ask = Join-Path $here 'ask1.txt'; Set-Content -LiteralPath $ask -Value 'build'
     foreach ($i in 1..100) { if (-not (Test-Path -LiteralPath $ask)) { break }; Start-Sleep -Milliseconds 100 }
   } else {
@@ -413,13 +446,13 @@ exit $LASTEXITCODE
   }
   function Stop-Worker([string]$worker) { if (Test-Worker $worker) { Stop-Process -Id ([int]($worker -split ' ')[0]) -Force -ErrorAction Ignore } }
   $workerIds = [Collections.Generic.List[string]]::new()
-  function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments, [string]$shim) {
+  function Invoke-DotnetMeasure([string]$mode, [string[]]$arguments, [string]$shim, [int]$SamplesCount = 1, [int]$Linger = 2) {
     Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value $mode
-    foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
+    foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt') + @(Join-Path $dn 'warm-calls.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $through = @(if ($shim) { $shim })
     $text = & pwsh -NoProfile -File @through $measure -Dotnet -DotnetCommand $fakeDotnet -Solution (Join-Path $dn 'Fake.slnx') -DotnetProject (Join-Path $dn 'Fake.csproj') `
-      -DotnetOutputs ($outs -join ',') -TouchFile (Join-Path $dn 'Foundation.cs') -ResponseFile $rsp -OutDir $out -LingerSeconds 2 -Samples 1 @arguments 2>&1 | Out-String
+      -DotnetOutputs ($outs -join ',') -TouchFile (Join-Path $dn 'Foundation.cs') -ResponseFile $rsp -OutDir $out -LingerSeconds $Linger -Samples $SamplesCount @arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
     foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
     [pscustomobject]@{ Exit = $code; Text = $text; Seconds = $clock.Elapsed.TotalSeconds }
@@ -485,6 +518,384 @@ exit $LASTEXITCODE
   $run = Invoke-Measure 'ok' @('-Label', 'dotnet-reuse', '-Decision', 'kept', '-Note', 'kept after all', '-DecideOnly')
   $after = Get-Label 'dotnet-reuse'
   Check 'the stored .NET settings survive -RenderOnly and -DecideOnly' ($after.decision -eq 'kept' -and ($after.configuration | ConvertTo-Json -Compress) -eq ($reuse.configuration | ConvertTo-Json -Compress) -and ($after.observed | ConvertTo-Json -Compress -Depth 5) -eq ($reuse.observed | ConvertTo-Json -Compress -Depth 5))
+
+  # --- D00 T07 §7: spreads, multi-sample warm builds, -Baseline comparison, live progress, mode conflicts, -Diagnose ---
+  function Get-ExpectedSpread([double[]]$values, [int]$digits) {
+    if ($values.Count -le 1) { return [double]0 }
+    $sorted = [double[]]@($values | Sort-Object)
+    [Math]::Round(($sorted[-1] - $sorted[0]), $digits)
+  }
+  function Test-Spreads($steps) {
+    -not (@($steps) | Where-Object {
+        $null -eq $_.spread_seconds -or $null -eq $_.spread_peak_mb -or
+        [double]$_.spread_seconds -ne (Get-ExpectedSpread $_.seconds 2) -or
+        [double]$_.spread_peak_mb -ne (Get-ExpectedSpread $_.peak_mb 1)
+      })
+  }
+
+  # Every stored native and .NET step (including single-sample steps) stores both spreads and renders raw MB samples.
+  $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+  $baseEntry = $data.labels | Where-Object label -eq 'baseline'
+  $candEntry = $data.labels | Where-Object label -eq 'candidate'
+  $unrendEntry = $data.labels | Where-Object label -eq 'unrendered'
+  $plainEntry = $data.labels | Where-Object label -eq 'dotnet-plain'
+  Check 'native and .NET steps store exact spread_seconds and spread_peak_mb, including single-sample steps' (
+    (Test-Spreads $baseEntry.steps) -and (Test-Spreads $candEntry.steps) -and (Test-Spreads $unrendEntry.steps) -and (Test-Spreads $plainEntry.steps) -and
+    ($unrendEntry.steps[0].spread_seconds -eq 0) -and ($unrendEntry.steps[0].spread_peak_mb -eq 0) -and
+    ($baseEntry.target -eq 'native') -and ($plainEntry.target -eq 'Fake.slnx')
+  )
+  $docText = Get-Content -LiteralPath $doc -Raw
+  Check 'the document renders time spread, memory spread, and raw peak-memory samples' (
+    $docText -match '\| Time spread \(s\) \| Memory spread \(MB\) \| Samples \(s\) \| Samples \(MB\) \|'
+  )
+
+  # .NET warm build sampled 3 times: 3 distinct warm invocations, varying timings, exact median & spreads, per-sample reuse.
+  $run = Invoke-DotnetMeasure 'warm-vary' @('-Label', 'dotnet-warm3', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true') $null 3 2
+  $warm3 = Get-Label 'dotnet-warm3'
+  $warm3Step = $warm3.steps | Where-Object step -eq 'one file changed, after a build'
+  $warmCalls = @(Get-Content -LiteralPath (Join-Path $dn 'warm-calls.txt') -ErrorAction Ignore)
+  Check 'warm build runs 3 distinct invocations with exact median, spreads, and per-sample reuse evidence' (
+    $run.Exit -eq 0 -and $warmCalls.Count -eq 3 -and @($warm3Step.seconds).Count -eq 3 -and @($warm3Step.peak_mb).Count -eq 3 -and
+    (Test-Medians $warm3.steps) -and (Test-Spreads $warm3.steps) -and ($warm3Step.spread_seconds -gt 0) -and
+    $warm3.observed.warm_used_nodes -eq $true -and @($warm3.observed.warm_samples_used_nodes).Count -eq 3 -and
+    -not (@($warm3.observed.warm_samples_used_nodes) | Where-Object { $_ -ne $true })
+  ) "(exit $($run.Exit), calls $($warmCalls.Count), secs $($warm3Step.seconds -join ','), spread $($warm3Step.spread_seconds)): $($run.Text)"
+
+  # Failing only the 2nd warm invocation exits 1 and leaves prior label intact.
+  $beforeWarmFail = [IO.File]::ReadAllBytes($json)
+  $run = Invoke-DotnetMeasure 'warm-fail-second' @('-Label', 'dotnet-warm3', '-Decision', 'dropped', '-BuildArgs', 'nodeReuse:true') $null 3 2
+  $warmFailCalls = @(Get-Content -LiteralPath (Join-Path $dn 'warm-calls.txt') -ErrorAction Ignore)
+  Check 'a failure on the 2nd warm sample exits 1 and leaves the previous label intact' (
+    $run.Exit -eq 1 -and $warmFailCalls.Count -eq 2 -and $run.Text -match "step 'one file changed, after a build' failed with exit code 4" -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($beforeWarmFail)
+  ) "(exit $($run.Exit), calls $($warmFailCalls.Count)): $($run.Text)"
+
+  # --- -Baseline comparison: historical data, mixed compatible/incompatible targets, wide spread vs equality vs clear win, missing baseline ---
+  $cmpOut = Join-Path $dir 'cmp-docs'
+  New-Item -ItemType Directory -Path $cmpOut | Out-Null
+  $cmpJson = Join-Path $cmpOut 'build-performance.json'
+  $cmpDoc = Join-Path $cmpOut 'build-performance.md'
+  # Historical labels omit spread_seconds, spread_peak_mb, and target; mixed store includes native, dotnet solution, and dotnet single-project.
+  $synthetic = [ordered]@{
+    schema_version = 1
+    labels         = @(
+      [ordered]@{
+        label         = 'hist-base'
+        decision      = 'baseline'
+        note          = 'historical native baseline'
+        date          = '2026-11-12T00:00:00Z'
+        machine       = [ordered]@{ name = 'TEST'; processor = 'CPU'; memory_gb = 32 }
+        tools         = [ordered]@{ cmake = '4.3.1' }
+        configuration = [ordered]@{ build_args = @(); launcher = $null; linker = 'link.exe'; env_cache = $false }
+        samples       = 3
+        steps         = @(
+          [ordered]@{ step = 'nothing to do'; seconds = @(10.0, 10.2, 10.4); peak_mb = @(100.0, 101.0, 102.0); median_seconds = 10.2; median_peak_mb = 101.0 }
+          [ordered]@{ step = 'one file changed'; seconds = @(20.0, 22.0, 24.0); peak_mb = @(200.0, 200.0, 200.0); median_seconds = 22.0; median_peak_mb = 200.0 }
+          [ordered]@{ step = 'fresh build'; seconds = @(30.0, 31.0, 32.0); peak_mb = @(300.0, 305.0, 310.0); median_seconds = 31.0; median_peak_mb = 305.0 }
+        )
+      }
+      [ordered]@{
+        label         = 'clear-and-noisy'
+        target        = 'native'
+        decision      = 'kept'
+        note          = 'clear win on noop, wide spread on one-file, exact equality on fresh'
+        date          = '2026-11-23T00:00:00Z'
+        machine       = [ordered]@{ name = 'TEST'; processor = 'CPU'; memory_gb = 32 }
+        tools         = [ordered]@{ cmake = '4.3.1' }
+        configuration = [ordered]@{ build_args = @(); launcher = $null; linker = 'link.exe'; env_cache = $true }
+        samples       = 3
+        steps         = @(
+          # delta time = -3.0 s (spread 0.2 / 0.4 -> ok), delta mb = -20.0 MB (spread 1.0 / 2.0 -> ok)
+          [ordered]@{ step = 'nothing to do'; seconds = @(7.1, 7.2, 7.3); peak_mb = @(80.5, 81.0, 81.5); median_seconds = 7.2; median_peak_mb = 81.0; spread_seconds = 0.2; spread_peak_mb = 1.0 }
+          # delta time = -1.0 s (baseline spread 4.0 > 1.0 -> WARNING), delta mb = +2.0 MB (cand spread 6.0 > 2.0 -> WARNING)
+          [ordered]@{ step = 'one file changed'; seconds = @(20.5, 21.0, 21.5); peak_mb = @(199.0, 202.0, 205.0); median_seconds = 21.0; median_peak_mb = 202.0; spread_seconds = 1.0; spread_peak_mb = 6.0 }
+          # exact threshold equality: delta time = -2.0 s, max spread = 2.0 s -> NO warning; delta mb = -10.0 MB, max spread = 10.0 MB -> NO warning
+          [ordered]@{ step = 'fresh build'; seconds = @(28.0, 29.0, 30.0); peak_mb = @(290.0, 295.0, 300.0); median_seconds = 29.0; median_peak_mb = 295.0; spread_seconds = 2.0; spread_peak_mb = 10.0 }
+          # extra step not in baseline
+          [ordered]@{ step = 'python test suite'; seconds = @(50.0); peak_mb = @(400.0); median_seconds = 50.0; median_peak_mb = 400.0; spread_seconds = 0.0; spread_peak_mb = 0.0 }
+        )
+      }
+      [ordered]@{
+        label         = 'hist-dotnet'
+        kind          = 'dotnet'
+        decision      = 'baseline'
+        note          = 'historical dotnet solution label'
+        date          = '2026-11-12T00:00:00Z'
+        machine       = [ordered]@{ name = 'TEST'; processor = 'CPU'; memory_gb = 32 }
+        tools         = [ordered]@{ dotnet = '11.0.100' }
+        configuration = [ordered]@{ build_args = @(); response_file = @(); node_reuse = $false; max_cpu_count = 4; use_shared_compilation = $true }
+        observed      = [ordered]@{ max_worker_nodes = 0; compiler_server = $false; left_running = [ordered]@{ observed = $true; after_seconds = 2.0; processes = 0; nodes = 0; names = @(); mb = 0.0 }; warm_used_nodes = $null; warm_used_compiler = $null }
+        samples       = 1
+        steps         = @(
+          [ordered]@{ step = 'nothing to do'; seconds = @(1.0); peak_mb = @(50.0); median_seconds = 1.0; median_peak_mb = 50.0 }
+        )
+      }
+      [ordered]@{
+        label         = 'single-proj-dotnet'
+        kind          = 'dotnet'
+        target        = 'src/Bosun.Core/Bosun.Core.csproj'
+        decision      = 'kept'
+        note          = 'single project dotnet label'
+        date          = '2026-11-23T00:00:00Z'
+        machine       = [ordered]@{ name = 'TEST'; processor = 'CPU'; memory_gb = 32 }
+        tools         = [ordered]@{ dotnet = '11.0.100' }
+        configuration = [ordered]@{ build_args = @(); response_file = @(); node_reuse = $false; max_cpu_count = 4; use_shared_compilation = $true }
+        observed      = [ordered]@{ max_worker_nodes = 0; compiler_server = $false; left_running = [ordered]@{ observed = $true; after_seconds = 2.0; processes = 0; nodes = 0; names = @(); mb = 0.0 }; warm_used_nodes = $null; warm_used_compiler = $null }
+        samples       = 1
+        steps         = @(
+          [ordered]@{ step = 'nothing to do'; seconds = @(0.5); peak_mb = @(40.0); median_seconds = 0.5; median_peak_mb = 40.0; spread_seconds = 0.0; spread_peak_mb = 0.0 }
+        )
+      }
+    )
+  }
+  [IO.File]::WriteAllText($cmpJson, (($synthetic | ConvertTo-Json -Depth 10) -replace "`r`n", "`n") + "`n", [Text.UTF8Encoding]::new($false))
+  $cmpOutText = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-base' 2>&1 | Out-String
+  $cmpExit = $LASTEXITCODE
+  $cmpMd = Get-Content -LiteralPath $cmpDoc -Raw
+  Check '-RenderOnly -Baseline compares historical native labels on stdout with signed deltas, spreads, warning, equality ok, missing step, and incompatible targets' (
+    $cmpExit -eq 0 -and
+    $cmpOutText -match "comparison against baseline 'hist-base' \(native/native\):" -and
+    $cmpOutText -match 'nothing to do: time -3\.0 s \(spread 0\.2 / 0\.4 s\), memory -20\.0 MB \(spread 1\.0 / 2\.0 MB\) \[ok\]' -and
+    $cmpOutText -match 'one file changed: time -1\.0 s \(spread 1\.0 / 4\.0 s\), memory \+2\.0 MB \(spread 6\.0 / 0\.0 MB\) \[WARNING: time and memory spread wider than change\]' -and
+    $cmpOutText -match 'fresh build: time -2\.0 s \(spread 2\.0 / 2\.0 s\), memory -10\.0 MB \(spread 10\.0 / 10\.0 MB\) \[ok\]' -and
+    $cmpOutText -match "python test suite: not in baseline 'hist-base'" -and
+    $cmpOutText -match 'hist-dotnet: incompatible target \(dotnet/Bosun\.slnx vs native/native\), not compared' -and
+    $cmpOutText -match 'single-proj-dotnet: incompatible target \(dotnet/src/Bosun\.Core/Bosun\.Core\.csproj vs native/native\), not compared'
+  ) "(exit $cmpExit): $cmpOutText"
+  Check '-RenderOnly -Baseline renders comparison table, raw samples, spreads, warning, and incompatible notice in Markdown' (
+    $cmpMd -match '## Comparison against hist-base' -and
+    $cmpMd -match '\| nothing to do \| -3\.0 s \| 0\.2 / 0\.4 \| -20\.0 MB \| 1\.0 / 2\.0 \| ok \|' -and
+    $cmpMd -match '\| one file changed \| -1\.0 s \| 1\.0 / 4\.0 \| \+2\.0 MB \| 6\.0 / 0\.0 \| WARNING: time and memory spread wider than change \|' -and
+    $cmpMd -match '\| fresh build \| -2\.0 s \| 2\.0 / 2\.0 \| -10\.0 MB \| 10\.0 / 10\.0 \| ok \|' -and
+    $cmpMd -match "\| python test suite \| n/a \| n/a \| n/a \| n/a \| not in baseline 'hist-base' \|" -and
+    $cmpMd -match 'Not compared: incompatible target \(dotnet/Bosun\.slnx vs native/native\)\.' -and
+    $cmpMd -match '100\.0, 101\.0, 102\.0' -and
+    $cmpMd -notmatch "[–—]"
+  )
+  # Comparing against hist-dotnet refuses numeric delta against single-proj-dotnet (different target).
+  $cmpDnOut = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-dotnet' 2>&1 | Out-String
+  Check '-Baseline refuses numeric delta between .NET solution and single-project .NET labels' (
+    $LASTEXITCODE -eq 0 -and
+    $cmpDnOut -match 'single-proj-dotnet: incompatible target \(dotnet/src/Bosun\.Core/Bosun\.Core\.csproj vs dotnet/Bosun\.slnx\), not compared'
+  ) "(exit $LASTEXITCODE): $cmpDnOut"
+
+  # Missing -Baseline exits 1 and leaves BOTH JSON and Markdown byte-identical (on -RenderOnly and on measurement).
+  $cmpJsonBytes = [IO.File]::ReadAllBytes($cmpJson)
+  $cmpDocBytes = [IO.File]::ReadAllBytes($cmpDoc)
+  $missRender = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'no-such-base' 2>&1 | Out-String
+  Check 'missing -Baseline on -RenderOnly exits 1 and leaves JSON and Markdown byte-identical' (
+    $LASTEXITCODE -eq 1 -and $missRender -match "no baseline label 'no-such-base'" -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpJson)) -eq [Convert]::ToBase64String($cmpJsonBytes) -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpDoc)) -eq [Convert]::ToBase64String($cmpDocBytes)
+  ) "(exit $LASTEXITCODE): $missRender"
+  Remove-Item -LiteralPath (Join-Path $dir 'runs.txt') -ErrorAction Ignore
+  Set-Content -LiteralPath (Join-Path $dir 'mode.txt') -Value 'ok'
+  $missMeas = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $cmpOut -Label 'new-meas' -Decision 'kept' -Samples 1 -Baseline 'no-such-base' 2>&1 | Out-String
+  Check 'missing -Baseline on measurement exits 1 before building and leaves JSON and Markdown byte-identical' (
+    $LASTEXITCODE -eq 1 -and $missMeas -match "no baseline label 'no-such-base'" -and
+    -not (Test-Path -LiteralPath (Join-Path $dir 'runs.txt')) -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpJson)) -eq [Convert]::ToBase64String($cmpJsonBytes) -and
+    [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpDoc)) -eq [Convert]::ToBase64String($cmpDocBytes)
+  ) "(exit $LASTEXITCODE): $missMeas"
+
+  # Measurement run with -Baseline compares the newly stored label against the baseline on stdout and Markdown.
+  $measWithBase = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $cmpOut -Label 'fresh-cand' -Decision 'kept' -Samples 1 -Baseline 'hist-base' 2>&1 | Out-String
+  $measBaseExit = $LASTEXITCODE
+  $cmpMdAfter = Get-Content -LiteralPath $cmpDoc -Raw
+  Check 'measurement with -Baseline emits comparison on stdout and Markdown while keeping raw samples' (
+    $measBaseExit -eq 0 -and
+    $measWithBase -match "comparison against baseline 'hist-base'" -and
+    $measWithBase -match 'fresh-cand:' -and
+    $cmpMdAfter -match '### fresh-cand vs hist-base'
+  ) "(exit $measBaseExit): $measWithBase"
+
+  # --- CLI mode conflicts (validated before -RenderOnly / -DecideOnly early returns, exit 2, zero mutations) ---
+  $conflictJsonBefore = [IO.File]::ReadAllBytes($cmpJson)
+  $conflictCases = @(
+    @{ Name = '-RenderOnly + -DecideOnly'; Args = @('-OutDir', $cmpOut, '-RenderOnly', '-DecideOnly', '-Label', 'hist-base', '-Decision', 'kept') }
+    @{ Name = '-Diagnose without -Dotnet'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-Diagnose') }
+    @{ Name = '-Dotnet -Diagnose -RenderOnly'; Args = @('-OutDir', $cmpOut, '-Dotnet', '-Diagnose', '-RenderOnly') }
+    @{ Name = '-Dotnet -Diagnose -DecideOnly'; Args = @('-OutDir', $cmpOut, '-Dotnet', '-Diagnose', '-DecideOnly', '-Label', 'hist-base', '-Decision', 'kept') }
+    @{ Name = '-Baseline + -DecideOnly'; Args = @('-OutDir', $cmpOut, '-Baseline', 'hist-base', '-DecideOnly', '-Label', 'hist-base', '-Decision', 'kept') }
+    @{ Name = 'empty -Baseline'; Args = @('-OutDir', $cmpOut, '-RenderOnly', '-Baseline', '') }
+    @{ Name = '-AllowOutsideServers without -Dotnet'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-AllowOutsideServers') }
+  )
+  $conflictOk = $true
+  $conflictDetail = ''
+  foreach ($cc in $conflictCases) {
+    $outTxt = & pwsh -NoProfile -File $measure @($cc.Args) 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 2) { $conflictOk = $false; $conflictDetail += "$($cc.Name) exited $LASTEXITCODE ($outTxt); " }
+  }
+  Check 'conflicting CLI modes exit 2 before early returns and mutate nothing' (
+    $conflictOk -and [Convert]::ToBase64String([IO.File]::ReadAllBytes($cmpJson)) -eq [Convert]::ToBase64String($conflictJsonBefore)
+  ) $conflictDetail
+
+  # --- Queue forwarding for -Baseline and -Diagnose ---
+  $savedPath = $env:PATH
+  try {
+    $env:PATH = "$bin;$env:PATH"
+    Remove-Item Env:BOSUN_MEASURE_QUEUED
+    Remove-Item -LiteralPath (Join-Path $bin 'bosun-arguments.txt') -ErrorAction Ignore
+    $qBase = & pwsh -NoProfile -File $measure -BuildScript $fake -TouchFile (Join-Path $dir 'source.cpp') -OutDir $cmpOut -Label 'queued-base' -Decision 'kept' -Samples 1 -Baseline 'hist-base' 2>&1 | Out-String
+    $qBaseExit = $LASTEXITCODE
+    $qBaseArgs = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-arguments.txt') -ErrorAction Ignore)
+    Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value 'ok'
+    foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt') + @(Join-Path $dn 'warm-calls.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
+    $qDiag = & pwsh -NoProfile -File $measure -Dotnet -DotnetCommand $fakeDotnet -Solution (Join-Path $dn 'Fake.slnx') -DotnetProject (Join-Path $dn 'Fake.csproj') `
+      -DotnetOutputs ($outs -join ',') -TouchFile (Join-Path $dn 'Foundation.cs') -ResponseFile $rsp -OutDir $out -LingerSeconds 0 -Samples 1 -Label 'queued-diag' -Decision 'kept' -Diagnose 2>&1 | Out-String
+    $qDiagExit = $LASTEXITCODE
+    $qDiagArgs = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-arguments.txt') -ErrorAction Ignore)
+    foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
+  } finally { $env:PATH = $savedPath; $env:BOSUN_MEASURE_QUEUED = '1' }
+  Check '-Baseline and -Diagnose reach the queued child through bosun run' (
+    $qBaseExit -eq 0 -and ($qBaseArgs -contains '-Baseline') -and ($qBaseArgs -contains 'hist-base') -and
+    $qDiagExit -eq 0 -and ($qDiagArgs -contains '-Diagnose')
+  ) "(base exit $qBaseExit args: $($qBaseArgs -join ' '); diag exit $qDiagExit args: $($qDiagArgs -join ' '))"
+
+  # --- Live progress announcements and 5-second ticks (read while child is still alive, native and .NET) ---
+  Set-Content -LiteralPath (Join-Path $dir 'mode.txt') -Value 'slow-fresh'
+  $liveLog = Join-Path $dir 'live-native.stdout'
+  $liveOutDir = Join-Path $dir 'live-docs'
+  New-Item -ItemType Directory -Path $liveOutDir | Out-Null
+  $liveProc = Start-Process pwsh -PassThru -NoNewWindow -RedirectStandardOutput $liveLog -ArgumentList @(
+    '-NoProfile', '-File', $measure, '-BuildScript', $fake, '-TouchFile', (Join-Path $dir 'source.cpp'),
+    '-OutDir', $liveOutDir, '-Label', 'live-native', '-Decision', 'kept', '-Samples', '1'
+  )
+  $sawStartLive = $false
+  $liveTicks = 0
+  $pollDeadline = (Get-Date).AddSeconds(60)
+  while (-not $liveProc.HasExited -and (Get-Date) -lt $pollDeadline) {
+    if (Test-Path -LiteralPath $liveLog) {
+      $content = ''
+      try {
+        $fs = [IO.FileStream]::new($liveLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $sr = [IO.StreamReader]::new($fs); $content = $sr.ReadToEnd() } finally { $fs.Dispose() }
+      } catch [IO.IOException] { $content = '' }
+      if (-not $sawStartLive -and $content -match 'starting fresh build sample 1/1\.\.\.') { $sawStartLive = $true }
+      $matchesNow = [regex]::Matches($content, 'fresh build sample 1/1: still running \(\d+ s\)')
+      if ($matchesNow.Count -gt $liveTicks) { $liveTicks = $matchesNow.Count }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $liveProc.WaitForExit(30000)) { $liveProc.Kill($true) }
+  $liveJson = Get-Content -LiteralPath (Join-Path $liveOutDir 'build-performance.json') -Raw | ConvertFrom-Json
+  $liveFresh = ($liveJson.labels | Where-Object label -eq 'live-native').steps | Where-Object step -eq 'fresh build'
+  Check 'native 12-second step emits start line and >= 2 progress ticks live before exit with accurate duration' (
+    $liveProc.ExitCode -eq 0 -and $sawStartLive -and $liveTicks -ge 2 -and $liveFresh.median_seconds -ge 11.5 -and $liveFresh.median_seconds -le 25
+  ) "(exit $($liveProc.ExitCode), startLive $sawStartLive, ticks $liveTicks, sec $($liveFresh.median_seconds))"
+
+  # .NET live progress: linger wait (6 s -> 5 s tick) and warm build (6 s -> 5 s tick), read while alive.
+  Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value 'slow-warm'
+  foreach ($o in $outs + @(Join-Path $dn 'cleaned.txt') + @(Join-Path $dn 'warm-calls.txt')) { Remove-Item -LiteralPath $o -ErrorAction Ignore }
+  $liveDnLog = Join-Path $dir 'live-dotnet.stdout'
+  $liveDnProc = Start-Process pwsh -PassThru -NoNewWindow -RedirectStandardOutput $liveDnLog -ArgumentList @(
+    '-NoProfile', '-File', $measure, '-Dotnet', '-DotnetCommand', $fakeDotnet,
+    '-Solution', (Join-Path $dn 'Fake.slnx'), '-DotnetProject', (Join-Path $dn 'Fake.csproj'),
+    '-DotnetOutputs', ($outs -join ','), '-TouchFile', (Join-Path $dn 'Foundation.cs'),
+    '-ResponseFile', $rsp, '-OutDir', $liveOutDir, '-LingerSeconds', '6', '-Samples', '1',
+    '-Label', 'live-dotnet', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true'
+  )
+  $sawLingerLive = $false
+  $sawWarmTickLive = $false
+  $pollDeadline = (Get-Date).AddSeconds(90)
+  while (-not $liveDnProc.HasExited -and (Get-Date) -lt $pollDeadline) {
+    if (Test-Path -LiteralPath $liveDnLog) {
+      $content = ''
+      try {
+        $fs = [IO.FileStream]::new($liveDnLog, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $sr = [IO.StreamReader]::new($fs); $content = $sr.ReadToEnd() } finally { $fs.Dispose() }
+      } catch [IO.IOException] { $content = '' }
+      if (-not $sawLingerLive -and $content -match 'linger wait: still waiting \(5 s\)') { $sawLingerLive = $true }
+      if (-not $sawWarmTickLive -and $content -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $sawWarmTickLive = $true }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $liveDnProc.WaitForExit(30000)) { $liveDnProc.Kill($true) }
+  foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
+  Check '.NET linger wait and slow warm build emit progress ticks live before exit' (
+    $liveDnProc.ExitCode -eq 0 -and $sawLingerLive -and $sawWarmTickLive
+  ) "(exit $($liveDnProc.ExitCode), lingerLive $sawLingerLive, warmTickLive $sawWarmTickLive)"
+
+  # --- -Diagnose failure paths (against existing label, exit 1, prior data intact, partial binlog cleaned up) ---
+  $diagScratch = Join-Path $dir 'diag-scratch'
+  New-Item -ItemType Directory -Path $diagScratch | Out-Null
+  $savedScratch = $env:BOSUN_SCRATCH
+  try {
+    $env:BOSUN_SCRATCH = $diagScratch
+    $beforeDiagFail = [IO.File]::ReadAllBytes($json)
+    foreach ($failCase in @(
+        @{ Mode = 'diag-fails'; Pattern = "step 'diagnostic build' failed with exit code 6" }
+        @{ Mode = 'diag-no-binlog'; Pattern = 'did not produce a non-empty binary log' }
+        @{ Mode = 'diag-no-summary'; Pattern = 'did not produce a PerformanceSummary' }
+        @{ Mode = 'diag-noop'; Pattern = "step 'diagnostic build' did not rewrite out1\.dll" }
+      )) {
+      $run = Invoke-DotnetMeasure $failCase.Mode @('-Label', 'dotnet-plain', '-Decision', 'kept', '-Diagnose') $null 1 0
+      $leftBinlogs = @(Get-ChildItem -LiteralPath $diagScratch -Filter '*.binlog' -ErrorAction Ignore)
+      Check "-Diagnose refusal ($($failCase.Mode)) exits 1, keeps prior label intact, and leaves no partial binlog" (
+        $run.Exit -eq 1 -and $run.Text -match $failCase.Pattern -and $leftBinlogs.Count -eq 0 -and
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($beforeDiagFail)
+      ) "(exit $($run.Exit), binlogs $($leftBinlogs.Count)): $($run.Text)"
+    }
+    # Unwritable scratch destination (a regular file where BOSUN_SCRATCH points).
+    $badScratchFile = Join-Path $dir 'not-a-scratch-dir'
+    Set-Content -LiteralPath $badScratchFile -Value 'file'
+    $env:BOSUN_SCRATCH = $badScratchFile
+    $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-plain', '-Decision', 'kept', '-Diagnose') $null 1 0
+    Check '-Diagnose with unwritable scratch exits 1 and keeps prior label intact' (
+      $run.Exit -eq 1 -and $run.Text -match 'diagnostic build could not write to the scratch folder' -and
+      [Convert]::ToBase64String([IO.File]::ReadAllBytes($json)) -eq [Convert]::ToBase64String($beforeDiagFail)
+    ) "(exit $($run.Exit)): $($run.Text)"
+
+    # Fake -Diagnose success: verifies exact ranking (CoreCompile 450 > Csc 410 > ResolveAssemblyReference 110) and step isolation.
+    $env:BOSUN_SCRATCH = $diagScratch
+    $run = Invoke-DotnetMeasure 'ok' @('-Label', 'dotnet-diag-fake', '-Decision', 'kept', '-Diagnose') $null 1 0
+    $fakeDiagEntry = Get-Label 'dotnet-diag-fake'
+    $fakeTopNames = @($fakeDiagEntry.diagnostic.top_expensive | ForEach-Object name) -join ','
+    $fakeStepNames = @($fakeDiagEntry.steps | ForEach-Object step) -join ','
+    Check 'fake -Diagnose ranks top 3 targets/tasks from PerformanceSummary, retains binlog, and leaves steps unchanged' (
+      $run.Exit -eq 0 -and $fakeTopNames -eq 'CoreCompile,Csc,ResolveAssemblyReference' -and
+      $fakeStepNames -eq 'nothing to do,one file changed,fresh build,one file changed, after a build' -and
+      (Test-Path -LiteralPath $fakeDiagEntry.diagnostic.binlog) -and
+      $fakeDiagEntry.diagnostic.binlog.StartsWith($diagScratch, [StringComparison]::OrdinalIgnoreCase)
+    ) "(exit $($run.Exit), top $fakeTopNames, steps $fakeStepNames): $($run.Text)"
+
+    # --- Real dotnet -Diagnose on an isolated scratch copy of Bosun.Core (smallest project) ---
+    $realProjDir = Join-Path $dir 'real-bosun-core'
+    New-Item -ItemType Directory -Path $realProjDir | Out-Null
+    $repoRoot = Split-Path $PSScriptRoot
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'src\Bosun.Core\Bosun.Core.csproj') -Destination $realProjDir
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'src\Bosun.Core\Foundation.cs') -Destination $realProjDir
+    $realCsproj = Join-Path $realProjDir 'Bosun.Core.csproj'
+    $realSource = Join-Path $realProjDir 'Foundation.cs'
+    $realRsp = Join-Path $realProjDir 'Directory.Build.rsp'
+    Set-Content -LiteralPath $realRsp -Value @('-nodeReuse:false')
+    $realScratch = Join-Path $dir 'real-diag-scratch'
+    New-Item -ItemType Directory -Path $realScratch | Out-Null
+    $realOutDir = Join-Path $dir 'real-diag-docs'
+    New-Item -ItemType Directory -Path $realOutDir | Out-Null
+    $env:BOSUN_SCRATCH = $realScratch
+    $beforeRealStart = [DateTime]::UtcNow.AddSeconds(-2)
+    $realDiagOut = & pwsh -NoProfile -File $measure -Dotnet -Solution $realCsproj -DotnetProject $realCsproj -TouchFile $realSource `
+      -ResponseFile $realRsp -OutDir $realOutDir -LingerSeconds 0 -Samples 1 -Label 'core-diag' -Decision 'kept' -Diagnose -AllowOutsideServers 2>&1 | Out-String
+    $realDiagExit = $LASTEXITCODE
+    $realDiagJson = if (Test-Path -LiteralPath (Join-Path $realOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $realOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
+    $realEntry = if ($realDiagJson) { $realDiagJson.labels | Where-Object label -eq 'core-diag' } else { $null }
+    $realBinlog = if ($realEntry -and $realEntry.diagnostic) { $realEntry.diagnostic.binlog } else { '' }
+    $realBinlogItem = if ($realBinlog -and (Test-Path -LiteralPath $realBinlog)) { Get-Item -LiteralPath $realBinlog } else { $null }
+    $realTop = if ($realEntry -and $realEntry.diagnostic) { @($realEntry.diagnostic.top_expensive) } else { @() }
+    $realStepNames = if ($realEntry) { (@($realEntry.steps | ForEach-Object step) -join ',') } else { '' }
+    Check 'real dotnet -Diagnose on isolated Bosun.Core produces a fresh binlog in scratch, 3 ranked targets/tasks, and unchanged timed steps' (
+      $realDiagExit -eq 0 -and $null -ne $realBinlogItem -and $realBinlogItem.Length -gt 0 -and
+      $realBinlogItem.LastWriteTimeUtc -ge $beforeRealStart -and
+      $realBinlog.StartsWith($realScratch, [StringComparison]::OrdinalIgnoreCase) -and
+      $realTop.Count -eq 3 -and $realTop[0].ms -ge $realTop[1].ms -and $realTop[1].ms -ge $realTop[2].ms -and
+      $realDiagOut -match 'diagnostic binary log:' -and $realDiagOut -match 'top 3 expensive targets/tasks:' -and
+      $realStepNames -eq 'nothing to do,one file changed,fresh build,one file changed, after a build' -and
+      $realEntry.observed.outside_servers_allowed -eq $true
+    ) "(exit $realDiagExit, binlog $realBinlog, top $($realTop.Count), steps $realStepNames): $realDiagOut"
+  } finally {
+    if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
+  }
 
   # A job ends its processes, and Stop-Process ends one, without waiting for them to exit, so a worker can still be on
   # its way out at this instant on a slow machine (red on CI at b9939b1, green at the same measuring code before). A

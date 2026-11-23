@@ -1,12 +1,18 @@
-# Measures what the native build costs on this machine: wall time and peak memory, per step.
+﻿# Measures what the native build costs on this machine: wall time and peak memory, per step.
 #
 #   pwsh scripts/measure-build.ps1 -Label baseline -Decision baseline -Tests
-#   pwsh scripts/measure-build.ps1 -Label debug -Decision kept -BuildArgs Debug -Samples 5
+#   pwsh scripts/measure-build.ps1 -Label debug -Decision kept -BuildArgs Debug -Samples 5 -Baseline baseline
 #   pwsh scripts/measure-build.ps1 -Label sccache -Decision dropped -Note 'slower than the baseline' -DecideOnly
-#   pwsh scripts/measure-build.ps1 -RenderOnly
+#   pwsh scripts/measure-build.ps1 -RenderOnly -Baseline baseline
+#   pwsh scripts/measure-build.ps1 -Dotnet -Label dotnet-diag -Decision kept -Diagnose
 #
 # -BuildArgs names switches of scripts/build.ps1 without their dash (Debug), so a candidate is measured with
-# exactly the switches it would run with.
+# exactly the switches it would run with. -Baseline <label> compares compatible labels (same kind and target)
+# against <label>, reporting time and memory deltas, spreads, and a warning when spread is wider than change.
+# -Diagnose (with -Dotnet) runs a separate untimed one-file diagnostic build after the timed samples, keeping an
+# MSBuild binary log under Get-BosunScratchRoot and naming the 3 most expensive targets or tasks.
+# -AllowOutsideServers (with -Dotnet, default off) skips shutting down or refusing outside build servers and
+# records outside_servers_allowed in observed.
 #
 # One untimed build first, so every timed step starts from a built tree. Then -Samples runs each of: a build with
 # nothing to do, a build after src/app.cpp is touched, and a -Fresh build. -Tests adds one run of the Python suite.
@@ -61,11 +67,14 @@ param(
   [string[]]$BuildArgs = @(),
   [switch]$RenderOnly,
   [switch]$DecideOnly,
+  [string]$Baseline,
   [ValidateRange(1, 3600)][int]$LockSeconds = 30,
   [string]$BuildScript = (Join-Path $PSScriptRoot 'build.ps1'),
   [string]$TouchFile = (Join-Path (Split-Path $PSScriptRoot) 'src\app.cpp'),
   [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs'),
   [switch]$Dotnet,
+  [switch]$Diagnose,
+  [switch]$AllowOutsideServers,
   [string]$DotnetCommand = 'dotnet',
   [string]$Solution = (Join-Path (Split-Path $PSScriptRoot) 'Bosun.slnx'),
   [string]$DotnetProject = (Join-Path (Split-Path $PSScriptRoot) 'src\Bosun.Core\Bosun.Core.csproj'),
@@ -79,6 +88,7 @@ $dataPath = Join-Path $OutDir 'build-performance.json'
 $docPath = Join-Path $OutDir 'build-performance.md'
 $utf8 = [Text.UTF8Encoding]::new($false)
 . (Join-Path $PSScriptRoot 'lib\job-measure.ps1')
+. (Join-Path $PSScriptRoot 'lib\scratch.ps1')
 
 # Writes through a temporary file in the same folder, then replaces, so a reader never sees half a file.
 function Write-Atomic([string]$Path, [string]$Text) {
@@ -104,16 +114,151 @@ function Read-Data {
 }
 
 function Format-Number($value) { ([double]$value).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture) }
+function Format-Signed([double]$value, [string]$unit) {
+  if ($value -gt 0) { "+$(Format-Number $value) $unit" }
+  elseif ($value -lt 0) { "-$(Format-Number ([Math]::Abs($value))) $unit" }
+  else { "0.0 $unit" }
+}
+function Write-LiveLine([string]$Line) {
+  [Console]::Out.WriteLine($Line)
+  [Console]::Out.Flush()
+}
+function Get-Spread([double[]]$values, [int]$digits) {
+  if (-not $values -or $values.Count -le 1) { return [double]0 }
+  $sorted = @($values | Sort-Object)
+  [Math]::Round(([double]$sorted[-1] - [double]$sorted[0]), $digits)
+}
+function Get-StepSpreadSeconds($step) {
+  if ($step.Contains('spread_seconds') -and $null -ne $step['spread_seconds']) { return [double]$step['spread_seconds'] }
+  Get-Spread @($step['seconds']) 2
+}
+function Get-StepSpreadPeakMb($step) {
+  if ($step.Contains('spread_peak_mb') -and $null -ne $step['spread_peak_mb']) { return [double]$step['spread_peak_mb'] }
+  Get-Spread @($step['peak_mb']) 1
+}
+function Get-EntryKind($entry) {
+  if ($entry.Contains('kind') -and $entry['kind']) { return [string]$entry['kind'] }
+  'native'
+}
+function Get-EntryTarget($entry) {
+  if ($entry.Contains('target') -and $entry['target']) { return [string]$entry['target'] }
+  if ((Get-EntryKind $entry) -eq 'dotnet') { return 'Bosun.slnx' }
+  'native'
+}
+function Get-BaselineComparison($data, [string]$BaselineLabel) {
+  $baseEntry = $data['labels'] | Where-Object { $_['label'] -eq $BaselineLabel } | Select-Object -First 1
+  if (-not $baseEntry) { return $null }
+  $baseKind = Get-EntryKind $baseEntry
+  $baseTarget = Get-EntryTarget $baseEntry
+  $baseSteps = [ordered]@{}
+  foreach ($s in $baseEntry['steps']) { $baseSteps[$s['step']] = $s }
+  $comparisons = @()
+  foreach ($entry in $data['labels']) {
+    if ($entry['label'] -eq $BaselineLabel) { continue }
+    $entryKind = Get-EntryKind $entry
+    $entryTarget = Get-EntryTarget $entry
+    if ($entryKind -ne $baseKind -or $entryTarget -ne $baseTarget) {
+      $comparisons += [ordered]@{
+        label      = $entry['label']
+        compatible = $false
+        reason     = "incompatible target ($entryKind/$entryTarget vs $baseKind/$baseTarget)"
+        rows       = @()
+      }
+      continue
+    }
+    $rows = @()
+    $seenSteps = [Collections.Generic.HashSet[string]]::new()
+    foreach ($step in $entry['steps']) {
+      $stepName = [string]$step['step']
+      [void]$seenSteps.Add($stepName)
+      if ($baseSteps.Contains($stepName)) {
+        $bStep = $baseSteps[$stepName]
+        $deltaSec = [Math]::Round(([double]$step['median_seconds'] - [double]$bStep['median_seconds']), 2)
+        $deltaMb = [Math]::Round(([double]$step['median_peak_mb'] - [double]$bStep['median_peak_mb']), 1)
+        $candSpreadSec = Get-StepSpreadSeconds $step
+        $baseSpreadSec = Get-StepSpreadSeconds $bStep
+        $maxSpreadSec = [Math]::Max($candSpreadSec, $baseSpreadSec)
+        $timeWarn = $maxSpreadSec -gt [Math]::Abs($deltaSec)
+        $candSpreadMb = Get-StepSpreadPeakMb $step
+        $baseSpreadMb = Get-StepSpreadPeakMb $bStep
+        $maxSpreadMb = [Math]::Max($candSpreadMb, $baseSpreadMb)
+        $mbWarn = $maxSpreadMb -gt [Math]::Abs($deltaMb)
+        $status = if ($timeWarn -and $mbWarn) { 'WARNING: time and memory spread wider than change' }
+          elseif ($timeWarn) { 'WARNING: time spread wider than change' }
+          elseif ($mbWarn) { 'WARNING: memory spread wider than change' }
+          else { 'ok' }
+        $rows += [ordered]@{
+          step                = $stepName
+          missing             = $false
+          delta_seconds       = $deltaSec
+          delta_peak_mb       = $deltaMb
+          cand_spread_seconds = $candSpreadSec
+          base_spread_seconds = $baseSpreadSec
+          cand_spread_peak_mb = $candSpreadMb
+          base_spread_peak_mb = $baseSpreadMb
+          time_warn           = $timeWarn
+          mb_warn             = $mbWarn
+          status              = $status
+        }
+      } else {
+        $rows += [ordered]@{
+          step    = $stepName
+          missing = $true
+          status  = "not in baseline '$BaselineLabel'"
+        }
+      }
+    }
+    foreach ($bName in $baseSteps.Keys) {
+      if (-not $seenSteps.Contains($bName)) {
+        $rows += [ordered]@{
+          step    = $bName
+          missing = $true
+          status  = "not in '$($entry['label'])'"
+        }
+      }
+    }
+    $comparisons += [ordered]@{
+      label      = $entry['label']
+      compatible = $true
+      reason     = $null
+      rows       = $rows
+    }
+  }
+  [ordered]@{
+    baseline    = $BaselineLabel
+    kind        = $baseKind
+    target      = $baseTarget
+    comparisons = $comparisons
+  }
+}
+function Write-ComparisonSummary($comparison) {
+  "comparison against baseline '$($comparison['baseline'])' ($($comparison['kind'])/$($comparison['target'])):"
+  if (-not $comparison['comparisons'].Count) { '  no other labels to compare'; return }
+  foreach ($item in $comparison['comparisons']) {
+    if (-not $item['compatible']) {
+      "  $($item['label']): $($item['reason']), not compared"
+      continue
+    }
+    "  $($item['label']):"
+    foreach ($row in $item['rows']) {
+      if ($row['missing']) {
+        "    $($row['step']): $($row['status'])"
+      } else {
+        "    $($row['step']): time $(Format-Signed $row['delta_seconds'] 's') (spread $(Format-Number $row['cand_spread_seconds']) / $(Format-Number $row['base_spread_seconds']) s), memory $(Format-Signed $row['delta_peak_mb'] 'MB') (spread $(Format-Number $row['cand_spread_peak_mb']) / $(Format-Number $row['base_spread_peak_mb']) MB) [$($row['status'])]"
+      }
+    }
+  }
+}
 # Whether a .NET warm build used what the build before it left running: null when nothing of that kind was left.
 function Format-Used($value) { if ($null -eq $value) { 'none was left' } elseif ($value) { 'used' } else { 'not used' } }
 
-function ConvertTo-Document($data) {
+function ConvertTo-Document($data, [string]$BaselineLabel = '') {
   $out = [Collections.Generic.List[string]]::new()
   $out.Add('# Build performance')
   $out.Add('')
   $out.Add('Generated by `pwsh scripts/measure-build.ps1` from `docs/build-performance.json`. Do not edit it by hand: measure again, or run the script with `-RenderOnly`.')
   $out.Add('')
-  $out.Add('Wall time is the median of the samples, in seconds. Peak memory is the median, in MB, of the most memory each run and everything it started had committed at one moment. A `kept` label is a setting that stayed because it measured better than the baseline; a `dropped` one was reverted.')
+  $out.Add('Wall time is the median of the samples, in seconds. Peak memory is the median, in MB, of the most memory each run and everything it started had committed at one moment. Spread is `max - min` across samples. A `kept` label is a setting that stayed because it measured better than the baseline; a `dropped` one was reverted.')
   if (-not $data['labels'].Count) { $out.Add(''); $out.Add('Nothing has been measured yet.') }
   foreach ($entry in $data['labels']) {
     $out.Add('')
@@ -142,28 +287,70 @@ function ConvertTo-Document($data) {
       $names = @($left['names']) -join ', '
       $out.Add("Observed in the linger build: at most $($seen['max_worker_nodes']) worker node(s) at once; compiler server $(if ($seen['compiler_server']) { 'ran' } else { 'did not run' }). Left running $(Format-Number $left['after_seconds']) s after it returned: $($left['processes']) process(es)$(if ($names) { " ($names)" }), $(Format-Number $left['mb']) MB private memory. In the one-file build made then, the nodes left: $(Format-Used $seen['warm_used_nodes']); the compiler server left: $(Format-Used $seen['warm_used_compiler']).")
       $out.Add('')
+      if ($entry.Contains('diagnostic') -and $entry['diagnostic']) {
+        $diag = $entry['diagnostic']
+        $topList = @($diag['top_expensive'] | ForEach-Object { "$($_['name']) ($($_['kind'])): $($_['ms']) ms" }) -join '; '
+        $out.Add("Diagnostic run ($($diag['workload'])): binary log ``$($diag['binlog'])``; top 3 expensive targets/tasks: $topList.")
+        $out.Add('')
+      }
     } else {
-    $parts = @(
-      "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })",
-      "compiler launcher $(if ($configuration['launcher']) { $configuration['launcher'] } else { 'none' })",
-      "linker $(if ($configuration['linker']) { $configuration['linker'] } else { 'not recorded' })",
-      "developer environment $(if ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
-    )
-    $out.Add("Configuration: $($parts -join '; ').")
-    $out.Add('')
+      $parts = @(
+        "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })",
+        "compiler launcher $(if ($configuration['launcher']) { $configuration['launcher'] } else { 'none' })",
+        "linker $(if ($configuration['linker']) { $configuration['linker'] } else { 'not recorded' })",
+        "developer environment $(if ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
+      )
+      $out.Add("Configuration: $($parts -join '; ').")
+      $out.Add('')
     }
-    $out.Add('| Step | Wall time (s) | Peak memory (MB) | Samples (s) |')
-    $out.Add('| ---- | ------------: | ---------------: | ----------- |')
+    $out.Add('| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |')
+    $out.Add('| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |')
     foreach ($step in $entry['steps']) {
-      $samples = @($step['seconds'] | ForEach-Object { Format-Number $_ }) -join ', '
-      $out.Add("| $($step['step']) | $(Format-Number $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $samples |")
+      $samplesSec = @($step['seconds'] | ForEach-Object { Format-Number $_ }) -join ', '
+      $samplesMb = @($step['peak_mb'] | ForEach-Object { Format-Number $_ }) -join ', '
+      $spreadSec = Format-Number (Get-StepSpreadSeconds $step)
+      $spreadMb = Format-Number (Get-StepSpreadPeakMb $step)
+      $out.Add("| $($step['step']) | $(Format-Number $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $spreadSec | $spreadMb | $samplesSec | $samplesMb |")
+    }
+  }
+  if ($BaselineLabel) {
+    $comparison = Get-BaselineComparison $data $BaselineLabel
+    if ($comparison) {
+      $out.Add('')
+      $out.Add("## Comparison against $BaselineLabel")
+      $out.Add('')
+      $out.Add("Baseline target: $($comparison['kind'])/$($comparison['target']). Spread columns show ``candidate / baseline``. A warning is shown when ``max(candidate spread, baseline spread)`` is wider than the median change.")
+      if (-not $comparison['comparisons'].Count) {
+        $out.Add('')
+        $out.Add('No other labels to compare.')
+      }
+      foreach ($item in $comparison['comparisons']) {
+        $out.Add('')
+        $out.Add("### $($item['label']) vs $BaselineLabel")
+        $out.Add('')
+        if (-not $item['compatible']) {
+          $out.Add("Not compared: $($item['reason']).")
+          continue
+        }
+        $out.Add('| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |')
+        $out.Add('| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |')
+        foreach ($row in $item['rows']) {
+          if ($row['missing']) {
+            $out.Add("| $($row['step']) | n/a | n/a | n/a | n/a | $($row['status']) |")
+          } else {
+            $tSpread = "$(Format-Number $row['cand_spread_seconds']) / $(Format-Number $row['base_spread_seconds'])"
+            $mSpread = "$(Format-Number $row['cand_spread_peak_mb']) / $(Format-Number $row['base_spread_peak_mb'])"
+            $out.Add("| $($row['step']) | $(Format-Signed $row['delta_seconds'] 's') | $tSpread | $(Format-Signed $row['delta_peak_mb'] 'MB') | $mSpread | $($row['status']) |")
+          }
+        }
+      }
     }
   }
   ($out -join "`n") + "`n"
 }
 
-function Write-Document($data) {
-  try { Write-Atomic $docPath (ConvertTo-Document $data) } catch {
+function Write-Document($data, [string]$BaselineLabel = '') {
+  try { Write-Atomic $docPath (ConvertTo-Document $data $BaselineLabel) } catch {
     "could not write ${docPath}: $($_.Exception.Message)"
     "the measurements are stored in ${dataPath}: run 'pwsh scripts/measure-build.ps1 -RenderOnly' once that is fixed"
     exit 1
@@ -171,20 +358,20 @@ function Write-Document($data) {
 }
 
 # Stores the data (temporary file, replace, read back), then renders the document from what was stored.
-function Save-Data($data) {
+function Save-Data($data, [string]$BaselineLabel = '') {
   $json = (($data | ConvertTo-Json -Depth 8) -replace "`r`n", "`n") + "`n"
   try {
     Write-Atomic $dataPath $json
     if ([IO.File]::ReadAllText($dataPath, $utf8) -cne $json) { throw 'the file read back differs from what was written' }
   } catch { "could not store the measurement in ${dataPath}: $($_.Exception.Message)"; exit 1 }
-  Write-Document (Read-Data)
+  Write-Document (Read-Data) $BaselineLabel
 }
 
 # Runs $Change on the stored data and saves the result, all while holding the lock file, so two runs saving at once
 # cannot overwrite each other. With no change it only renders the document, under the same lock, so a render can
 # never put an older document over the one a save has just written. The lock is a file opened for this process alone; Windows removes it when the handle
 # closes, however the script ends.
-function Update-Data([scriptblock]$Change) {
+function Update-Data([scriptblock]$Change, [string]$BaselineLabel = '') {
   $lockPath = "$dataPath.lock"
   $deadline = [DateTime]::UtcNow.AddSeconds($LockSeconds)
   $lock = $null
@@ -199,13 +386,47 @@ function Update-Data([scriptblock]$Change) {
   }
   try {
     try { $current = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
-    if ($Change) { Save-Data (& $Change $current) } else { Write-Document $current }
-    $script:labelCount = $current['labels'].Count
+    if ($Change) {
+      $updated = & $Change $current
+      if ($BaselineLabel -and -not ($updated['labels'] | Where-Object { $_['label'] -eq $BaselineLabel })) {
+        "no baseline label '$BaselineLabel' has been measured: nothing was changed"
+        exit 1
+      }
+      Save-Data $updated $BaselineLabel
+      $script:lastSavedData = $updated
+    } else {
+      if ($BaselineLabel -and -not ($current['labels'] | Where-Object { $_['label'] -eq $BaselineLabel })) {
+        "no baseline label '$BaselineLabel' has been measured: nothing was changed"
+        exit 1
+      }
+      Write-Document $current $BaselineLabel
+      $script:lastSavedData = $current
+    }
+    $script:labelCount = $script:lastSavedData['labels'].Count
   } finally { $lock.Dispose() }
 }
 
+$hasBaseline = $PSBoundParameters.ContainsKey('Baseline')
+if ($RenderOnly -and $DecideOnly) { '-RenderOnly and -DecideOnly cannot be used together'; exit 2 }
+if ($Diagnose -and -not $Dotnet) { '-Diagnose can only be used with -Dotnet'; exit 2 }
+if ($Diagnose -and ($RenderOnly -or $DecideOnly)) { '-Diagnose cannot be used with -RenderOnly or -DecideOnly'; exit 2 }
+if ($AllowOutsideServers -and -not $Dotnet) { '-AllowOutsideServers can only be used with -Dotnet'; exit 2 }
+if ($AllowOutsideServers -and ($RenderOnly -or $DecideOnly)) { '-AllowOutsideServers cannot be used with -RenderOnly or -DecideOnly'; exit 2 }
+if ($hasBaseline -and $DecideOnly) { '-Baseline cannot be used with -DecideOnly'; exit 2 }
+if ($hasBaseline -and [string]::IsNullOrWhiteSpace($Baseline)) { '-Baseline needs a label name'; exit 2 }
+if ($hasBaseline -and $Baseline -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Baseline '$Baseline' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
+
 try { $data = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
-if ($RenderOnly) { Update-Data $null; "rendered $docPath from $labelCount label(s)"; exit 0 }
+if ($RenderOnly) {
+  if ($hasBaseline -and -not ($data['labels'] | Where-Object { $_['label'] -eq $Baseline })) {
+    "no baseline label '$Baseline' has been measured: nothing was changed"
+    exit 1
+  }
+  Update-Data $null $(if ($hasBaseline) { $Baseline } else { '' })
+  "rendered $docPath from $labelCount label(s)"
+  if ($hasBaseline) { Write-ComparisonSummary (Get-BaselineComparison $script:lastSavedData $Baseline) }
+  exit 0
+}
 if (-not $Label -or -not $Decision) { 'measure-build needs -Label <name> and -Decision <baseline|kept|dropped>, or -RenderOnly'; exit 2 }
 if ($Label -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Label '$Label' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
 if ($DecideOnly) {
@@ -219,6 +440,10 @@ if ($DecideOnly) {
   }
   "recorded '$Label' as $Decision"
   exit 0
+}
+if ($hasBaseline -and $Baseline -ne $Label -and -not ($data['labels'] | Where-Object { $_['label'] -eq $Baseline })) {
+  "no baseline label '$Baseline' has been measured: nothing was changed"
+  exit 1
 }
 
 # From here to the end, the run guard reads this measurement as a wait, its queue wait included
@@ -254,20 +479,33 @@ $results = [ordered]@{}
 $envCache = $false
 
 # Runs one step in its own job. Returns its result, or ends the script: a failed or timed-out step stores nothing.
-function Invoke-Step([string]$Name, [string]$File, [string[]]$Arguments) {
-  $result = Measure-Job -FilePath $File -ArgumentList $Arguments -WorkingDirectory $repo -TimeoutSeconds $TimeoutSeconds -OutputPath $log
+function Invoke-Step([string]$Name, [string]$File, [string[]]$Arguments, [string]$DisplayName = '', [string]$StepLog = $log) {
+  $labelName = if ($DisplayName) { $DisplayName } else { $Name }
+  Write-LiveLine "  starting $labelName..."
+  $progress = @{ Next = 5.0; Clock = [Diagnostics.Stopwatch]::StartNew() }
+  $result = Measure-Job -FilePath $File -ArgumentList $Arguments -WorkingDirectory $repo -TimeoutSeconds $TimeoutSeconds -OutputPath $StepLog -OnTick {
+    param($final)
+    if (-not $final) {
+      $e = $progress.Clock.Elapsed.TotalSeconds
+      if ($e -ge $progress.Next) {
+        $sec = [int][Math]::Floor($e)
+        Write-LiveLine "  $labelName`: still running ($sec s)"
+        while ($progress.Next -le $e) { $progress.Next += 5.0 }
+      }
+    }
+  }
   if ($result.TimedOut -or $result.ExitCode -ne 0) {
-    Get-Content -LiteralPath $log -Tail 15 -ErrorAction Ignore
+    Get-Content -LiteralPath $StepLog -Tail 15 -ErrorAction Ignore
     if ($result.TimedOut) { "step '$Name' was stopped at its $TimeoutSeconds second limit: nothing was stored" }
     else { "step '$Name' failed with exit code $($result.ExitCode): nothing was stored" }
-    Remove-Item -LiteralPath $log -Force -ErrorAction Ignore
+    Remove-Item -LiteralPath $StepLog -Force -ErrorAction Ignore
     exit 1
   }
   $result
 }
 
-function Invoke-Build([string]$Name, [string[]]$Extra, [bool]$WantWork, [bool]$Timed) {
-  $result = Invoke-Step $Name 'pwsh' (@('-NoProfile', '-File', $BuildScript) + @($BuildArgs | ForEach-Object { "-$_" }) + $Extra)
+function Invoke-Build([string]$Name, [string[]]$Extra, [bool]$WantWork, [bool]$Timed, [string]$DisplayName = '') {
+  $result = Invoke-Step $Name 'pwsh' (@('-NoProfile', '-File', $BuildScript) + @($BuildArgs | ForEach-Object { "-$_" }) + $Extra) $DisplayName
   $text = Get-Content -LiteralPath $log -Raw -ErrorAction Ignore
   $idle = $text -match 'ninja: no work to do'
   if ($Timed -and $WantWork -eq $idle) {
@@ -295,15 +533,16 @@ function Get-Median([double[]]$values) {
 if ($Dotnet) { $boundParameters = $PSBoundParameters; . (Join-Path $PSScriptRoot 'lib\measure-dotnet.ps1'); exit $LASTEXITCODE }
 
 "measuring '$Label': one preparation build, then $Samples sample(s) of each step"
-Invoke-Build 'preparation build' @() $false $false
-foreach ($n in 1..$Samples) { Invoke-Build 'nothing to do' @() $false $true }
+Invoke-Build 'preparation build' @() $false $false 'preparation build'
+foreach ($n in 1..$Samples) { Invoke-Build 'nothing to do' @() $false $true "nothing to do sample $n/$Samples" }
 foreach ($n in 1..$Samples) {
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
-  Invoke-Build 'one file changed' @() $true $true
+  Invoke-Build 'one file changed' @() $true $true "one file changed sample $n/$Samples"
 }
-foreach ($n in 1..$Samples) { Invoke-Build 'fresh build' @('-Fresh') $true $true }
+foreach ($n in 1..$Samples) { Invoke-Build 'fresh build' @('-Fresh') $true $true "fresh build sample $n/$Samples" }
 if ($Tests) {
-  $result = Invoke-Step 'python test suite' 'python' @((Join-Path $PSScriptRoot 'run-tests.py'))
+  # Single-run exception: the Python suite runs once regardless of -Samples (spread is 0.0).
+  $result = Invoke-Step 'python test suite' 'python' @((Join-Path $PSScriptRoot 'run-tests.py')) 'python test suite'
   $results['python test suite'] = @($result)
   "  python test suite: $(Format-Number $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
 }
@@ -336,6 +575,7 @@ $tools = [ordered]@{
 $system = Get-CimInstance Win32_ComputerSystem
 $entry = [ordered]@{
   label         = $Label
+  target        = 'native'
   decision      = $Decision
   note          = if ($Note) { $Note } else { $null }
   date          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -353,23 +593,29 @@ $entry = [ordered]@{
   }
   samples       = $Samples
   steps         = @($results.GetEnumerator() | ForEach-Object {
+      $secs = @($_.Value | ForEach-Object { $_.Seconds })
+      $mbs = @($_.Value | ForEach-Object { $_.PeakMB })
       [ordered]@{
         step           = $_.Key
-        seconds        = @($_.Value | ForEach-Object { $_.Seconds })
-        peak_mb        = @($_.Value | ForEach-Object { $_.PeakMB })
-        median_seconds = Get-Median @($_.Value | ForEach-Object { $_.Seconds })
-        median_peak_mb = Get-Median @($_.Value | ForEach-Object { $_.PeakMB })
+        seconds        = $secs
+        peak_mb        = $mbs
+        median_seconds = Get-Median $secs
+        median_peak_mb = Get-Median $mbs
+        spread_seconds = Get-Spread $secs 2
+        spread_peak_mb = Get-Spread $mbs 1
       }
     })
 }
 
 # Other sessions may have measured meanwhile: under the lock, read again, replace this label, write and read back.
+$baselineArg = if ($hasBaseline) { $Baseline } else { '' }
 Update-Data {
   param($current)
   $current['labels'] = @($current['labels'] | Where-Object { $_['label'] -ne $Label }) + , $entry
   $current
-}
+} $baselineArg
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
-foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s, $(Format-Number $step['median_peak_mb']) MB" }
+foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s (spread $(Format-Number $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
+if ($hasBaseline) { Write-ComparisonSummary (Get-BaselineComparison $script:lastSavedData $Baseline) }
 exit 0
 } finally { Exit-GateMark $gateMark }

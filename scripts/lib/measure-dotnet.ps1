@@ -18,7 +18,11 @@ function Get-DotnetProperty([string]$Project, [string]$Name) {
 
 # The output assemblies, the touched project's first: given, or each project's evaluated TargetPath in solution order.
 if (-not $DotnetOutputs) {
-  $projects = @(([xml](Get-Content -LiteralPath $Solution -Raw)).SelectNodes('//Project') | ForEach-Object { Join-Path (Split-Path $Solution) $_.GetAttribute('Path') })
+  if ($Solution -like '*.csproj') {
+    $projects = @($Solution)
+  } else {
+    $projects = @(([xml](Get-Content -LiteralPath $Solution -Raw)).SelectNodes('//Project') | ForEach-Object { Join-Path (Split-Path $Solution) $_.GetAttribute('Path') })
+  }
   $DotnetOutputs = @($projects | ForEach-Object { Get-DotnetProperty $_ 'TargetPath' })
 }
 if (-not $DotnetOutputs -or @($DotnetOutputs | Where-Object { -not $_ }).Count) { 'measure-build could not find the output assembly of every project: nothing was stored'; exit 1 }
@@ -45,9 +49,9 @@ function Assert-BuildEvidence([string]$Name, [string]$Expect, $before) {
 }
 
 # One timed build, proved by what it wrote.
-function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
+function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed, [string]$DisplayName = '') {
   $before = Get-OutputTimes
-  $result = Invoke-Step $Name $dotnetPath $buildLine
+  $result = Invoke-Step $Name $dotnetPath $buildLine $DisplayName
   Assert-NoOutsideServers "step '$Name'"
   Assert-BuildEvidence $Name $Expect $before
   if ($Timed) {
@@ -57,8 +61,8 @@ function Invoke-DotnetBuild([string]$Name, [string]$Expect, [bool]$Timed) {
   }
 }
 
-function Invoke-Clean {
-  [void](Invoke-Step 'clean' $dotnetPath (@('clean', $Solution, '-nologo') + $msbuildArgs))
+function Invoke-Clean([string]$DisplayName = 'clean') {
+  [void](Invoke-Step 'clean' $dotnetPath (@('clean', $Solution, '-nologo') + $msbuildArgs) $DisplayName)
   $left = @($DotnetOutputs | Where-Object { Test-Path -LiteralPath $_ })
   if ($left) { "the clean before a fresh build left $(Get-Names $left): nothing was stored"; exit 1 }
 }
@@ -92,7 +96,9 @@ function Start-Run([string]$OutputPath) {
 }
 # Waits for a build in its own job, sampling it, and returns the most worker nodes seen at once and whether the
 # compiler server or any node ran. Ends the run when the build passes its limit or fails.
-function Wait-Run($run, [string]$Name, [string]$OutputPath) {
+function Wait-Run($run, [string]$Name, [string]$OutputPath, [string]$DisplayName = '') {
+  $labelName = if ($DisplayName) { $DisplayName } else { $Name }
+  $nextProgress = 5.0
   $seen = [ordered]@{ max_nodes = 0; compiler = $false; started_compiler = $false }
   while ($true) {
     $done = $run.Wait(200)
@@ -101,7 +107,12 @@ function Wait-Run($run, [string]$Name, [string]$OutputPath) {
     if ($nodes -gt $seen.max_nodes) { $seen.max_nodes = $nodes }
     if ($now | Where-Object Compiler) { $seen.compiler = $true; $seen.started_compiler = $true }
     if ($done) { break }
-    if ($run.ElapsedSeconds -gt $TimeoutSeconds) { [void]$run.Finish($true); "step '$Name' was stopped at its $TimeoutSeconds second limit: nothing was stored"; exit 1 }
+    $elapsed = $run.ElapsedSeconds
+    if ($elapsed -ge $nextProgress) {
+      Write-LiveLine "  $labelName`: still running ($([int][Math]::Floor($elapsed)) s)"
+      while ($nextProgress -le $elapsed) { $nextProgress += 5.0 }
+    }
+    if ($elapsed -gt $TimeoutSeconds) { [void]$run.Finish($true); "step '$Name' was stopped at its $TimeoutSeconds second limit: nothing was stored"; exit 1 }
   }
   $result = $run.Finish($false)
   if ($result.ExitCode -ne 0) { Get-Content -LiteralPath $OutputPath -Tail 15 -ErrorAction Ignore; "step '$Name' failed with exit code $($result.ExitCode): nothing was stored"; exit 1 }
@@ -150,6 +161,7 @@ function Get-OutsideServers($own = @()) {
 # Ends the run with nothing stored while one is alive. A timed step's job ends its own processes as it returns, without
 # waiting for them, so they get a few seconds to go before what is left counts as outside.
 function Assert-NoOutsideServers([string]$Name, $own = @()) {
+  if ($AllowOutsideServers) { return }
   $grace = [Diagnostics.Stopwatch]::StartNew()
   while (($outside = Get-OutsideServers $own) -and $grace.Elapsed.TotalSeconds -lt 5) { Start-Sleep -Milliseconds 200 }
   if ($outside) {
@@ -159,55 +171,102 @@ function Assert-NoOutsideServers([string]$Name, $own = @()) {
   }
 }
 
-if (Get-OutsideServers) {
-  "found compiler server or MSBuild node process(es) of this SDK already running: stopping them with 'dotnet build-server shutdown' before measuring"
-  $said = & $dotnetPath build-server shutdown 2>&1 | Select-Object -Last 1
-  if ($LASTEXITCODE -ne 0) { "'dotnet build-server shutdown' failed with exit code $LASTEXITCODE ($said): nothing was stored"; exit 1 }
+if (-not $AllowOutsideServers) {
+  if (Get-OutsideServers) {
+    "found compiler server or MSBuild node process(es) of this SDK already running: stopping them with 'dotnet build-server shutdown' before measuring"
+    $said = & $dotnetPath build-server shutdown 2>&1 | Select-Object -Last 1
+    if ($LASTEXITCODE -ne 0) { "'dotnet build-server shutdown' failed with exit code $LASTEXITCODE ($said): nothing was stored"; exit 1 }
+  }
+  Assert-NoOutsideServers 'before measuring'
 }
-Assert-NoOutsideServers 'before measuring'
+
+function Get-DotnetTargetName([string]$Path) {
+  $fullSolution = [IO.Path]::GetFullPath($Path)
+  $fullRepo = [IO.Path]::GetFullPath($repo).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+  if ($fullSolution.StartsWith($fullRepo, [StringComparison]::OrdinalIgnoreCase)) {
+    return ($fullSolution.Substring($fullRepo.Length) -replace '\\', '/')
+  }
+  Split-Path $fullSolution -Leaf
+}
 
 "measuring '$Label' (.NET): one preparation build, then $Samples sample(s) of each step"
-Invoke-DotnetBuild 'preparation build' 'any' $false
-foreach ($n in 1..$Samples) { Invoke-DotnetBuild 'nothing to do' 'none' $true }
+Invoke-DotnetBuild 'preparation build' 'any' $false 'preparation build'
+foreach ($n in 1..$Samples) { Invoke-DotnetBuild 'nothing to do' 'none' $true "nothing to do sample $n/$Samples" }
 foreach ($n in 1..$Samples) {
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
-  Invoke-DotnetBuild 'one file changed' 'first' $true
+  Invoke-DotnetBuild 'one file changed' 'first' $true "one file changed sample $n/$Samples"
 }
-foreach ($n in 1..$Samples) { Invoke-Clean; Invoke-DotnetBuild 'fresh build' 'all' $true }
+foreach ($n in 1..$Samples) {
+  Invoke-Clean "clean sample $n/$Samples"
+  Invoke-DotnetBuild 'fresh build' 'all' $true "fresh build sample $n/$Samples"
+}
 
-# The linger build and the warm build after it, each in a job of its own, both ended however this ends.
+# The linger build and -Samples warm builds after it, each in a job of its own, all ended however this ends.
 $linger = $null
 $warm = $null
+$warmLogs = [Collections.Generic.List[string]]::new()
 try {
   $before = Get-OutputTimes
   (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
+  Write-LiveLine '  starting linger build...'
   $linger = Start-Run "$log.linger"
-  $seen = Wait-Run $linger 'linger build' "$log.linger"
+  $seen = Wait-Run $linger 'linger build' "$log.linger" 'linger build'
   Assert-NoOutsideServers "step 'linger build'" @($linger)
   Assert-BuildEvidence 'linger build' 'first' $before
+  Write-LiveLine "  starting linger wait ($LingerSeconds s)..."
   $returned = [Diagnostics.Stopwatch]::StartNew()
-  while ($returned.Elapsed.TotalSeconds -lt $LingerSeconds) { Start-Sleep -Milliseconds 200 }
+  $nextLingerProgress = 5.0
+  while ($returned.Elapsed.TotalSeconds -lt $LingerSeconds) {
+    Start-Sleep -Milliseconds 200
+    $le = $returned.Elapsed.TotalSeconds
+    if ($le -ge $nextLingerProgress -and $le -lt $LingerSeconds) {
+      Write-LiveLine "  linger wait: still waiting ($([int][Math]::Floor($le)) s)"
+      while ($nextLingerProgress -le $le) { $nextLingerProgress += 5.0 }
+    }
+  }
   $leftInfo = Get-JobProcesses $linger
   $afterSeconds = [Math]::Round($returned.Elapsed.TotalSeconds, 1)
   $leftProcesses = @($leftInfo | ForEach-Object { Get-Process -Id $_.Id -ErrorAction Ignore })
   $leftMb = [Math]::Round((($leftProcesses | Measure-Object PrivateMemorySize64 -Sum).Sum) / 1MB, 1)
   $leftNodes = @($leftInfo | Where-Object Node).Count
-  $cpuBefore = Get-CpuSeconds $leftProcesses
+  $leftCompilers = @($leftInfo | Where-Object Compiler).Count
 
-  $before = Get-OutputTimes
-  (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
-  $warm = Start-Run "$log.warm"
-  $warmSeen = Wait-Run $warm 'one file changed, after a build' "$log.warm"
-  $cpuAfter = Get-CpuSeconds $leftProcesses
-  Assert-NoOutsideServers "step 'one file changed, after a build'" @($linger, $warm)
-  Assert-BuildEvidence 'one file changed, after a build' 'first' $before
-  $usedNodes = Test-Used @($leftInfo | Where-Object Node) $cpuBefore $cpuAfter ($warmSeen.max_nodes -gt 0)
-  $usedCompiler = Test-Used @($leftInfo | Where-Object Compiler) $cpuBefore $cpuAfter $warmSeen.started_compiler
-  $results['one file changed, after a build'] = @($warmSeen.result)
-  "  one file changed, after a build: $(Format-Number $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes left: $(Format-Used $usedNodes), the compiler server left: $(Format-Used $usedCompiler)"
+  $warmResults = @()
+  $warmUsedNodesPerSample = @()
+  $warmUsedCompilerPerSample = @()
+  foreach ($n in 1..$Samples) {
+    $warmLog = "$log.warm-$n"
+    $warmLogs.Add($warmLog)
+    $cpuBefore = Get-CpuSeconds $leftProcesses
+    $before = Get-OutputTimes
+    (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
+    Write-LiveLine "  starting one file changed, after a build sample $n/$Samples..."
+    try {
+      $warm = Start-Run $warmLog
+      $warmSeen = Wait-Run $warm 'one file changed, after a build' $warmLog "one file changed, after a build sample $n/$Samples"
+      $cpuAfter = Get-CpuSeconds $leftProcesses
+      Assert-NoOutsideServers "step 'one file changed, after a build'" @($linger, $warm)
+      Assert-BuildEvidence 'one file changed, after a build' 'first' $before
+      $sampleUsedNodes = Test-Used @($leftInfo | Where-Object Node) $cpuBefore $cpuAfter ($warmSeen.max_nodes -gt 0)
+      $sampleUsedCompiler = Test-Used @($leftInfo | Where-Object Compiler) $cpuBefore $cpuAfter $warmSeen.started_compiler
+      $warmUsedNodesPerSample += , $sampleUsedNodes
+      $warmUsedCompilerPerSample += , $sampleUsedCompiler
+      $warmResults += , $warmSeen.result
+      "  one file changed, after a build sample $n/$Samples`: $(Format-Number $warmSeen.result.Seconds) s, $(Format-Number $warmSeen.result.PeakMB) MB; nodes left: $(Format-Used $sampleUsedNodes), the compiler server left: $(Format-Used $sampleUsedCompiler)"
+    } finally {
+      if ($warm) { $warm.Dispose(); $warm = $null }
+      Remove-Item -LiteralPath $warmLog -Force -ErrorAction Ignore
+    }
+  }
+  $usedNodes = if (-not $leftNodes) { $null } else { -not ($warmUsedNodesPerSample | Where-Object { $_ -ne $true }) }
+  $usedCompiler = if (-not $leftCompilers) { $null } else { -not ($warmUsedCompilerPerSample | Where-Object { $_ -ne $true }) }
+  $results['one file changed, after a build'] = $warmResults
+  $warmMedSec = Get-Median @($warmResults | ForEach-Object Seconds)
+  $warmMedMb = Get-Median @($warmResults | ForEach-Object PeakMB)
+  "  one file changed, after a build: $(Format-Number $warmMedSec) s, $(Format-Number $warmMedMb) MB; $($leftProcesses.Count) process(es) left, $(Format-Number $leftMb) MB; nodes left: $(Format-Used $usedNodes), the compiler server left: $(Format-Used $usedCompiler)"
 } finally {
   foreach ($run in @($warm, $linger)) { if ($run) { $run.Dispose() } }
-  foreach ($path in @($log, "$log.linger", "$log.warm")) { Remove-Item -LiteralPath $path -Force -ErrorAction Ignore }
+  foreach ($path in @($log, "$log.linger") + @($warmLogs)) { Remove-Item -LiteralPath $path -Force -ErrorAction Ignore }
 }
 
 # A build that did not do what its settings say stores nothing: the label would describe a build that never ran.
@@ -219,11 +278,84 @@ $contradictions = @(
 )
 if ($contradictions) { "the build contradicts the settings in force ($($contradictions -join '; ')): nothing was stored"; exit 1 }
 
+function Get-PerformanceSummaryTop([string[]]$Lines, [int]$Count = 3) {
+  $section = $null
+  $items = [Collections.Generic.List[object]]::new()
+  foreach ($line in $Lines) {
+    if ($line -match '^\s*Target Performance Summary:\s*$') { $section = 'target'; continue }
+    if ($line -match '^\s*Task Performance Summary:\s*$') { $section = 'task'; continue }
+    if ($line -match '^\s*\S.*Performance Summary:\s*$' -or $line -match '^\s*Build (succeeded|FAILED)\.') { $section = $null; continue }
+    if ($section -and $line -match '^\s*(\d+)\s+ms\s+(\S+)\s+(\d+)\s+calls\b') {
+      $items.Add([ordered]@{
+          kind  = $section
+          name  = $Matches[2]
+          ms    = [int]$Matches[1]
+          calls = [int]$Matches[3]
+        })
+    }
+  }
+  @($items | Sort-Object @{ Expression = { $_['ms'] }; Descending = $true }, @{ Expression = { $_['name'] }; Ascending = $true }, @{ Expression = { $_['kind'] }; Ascending = $true } | Select-Object -First $Count)
+}
+
+$diagnostic = $null
+if ($Diagnose) {
+  try {
+    $rawScratch = $env:BOSUN_SCRATCH
+    if (-not [string]::IsNullOrWhiteSpace($rawScratch) -and -not (Test-Path -LiteralPath $rawScratch.Trim() -PathType Container)) {
+      throw "BOSUN_SCRATCH '$($rawScratch.Trim())' is not an existing directory"
+    }
+    $scratchRoot = Get-BosunScratchRoot
+    $probe = Join-Path $scratchRoot ".bosun-diag-probe-$PID.tmp"
+    [IO.File]::WriteAllText($probe, 'ok', $utf8)
+    Remove-Item -LiteralPath $probe -Force -ErrorAction Ignore
+  } catch {
+    "diagnostic build could not write to the scratch folder ($($_.Exception.Message)): nothing was stored"
+    exit 1
+  }
+  $diagStamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
+  $binlogPath = Join-Path $scratchRoot "bosun-diagnose-$Label-$diagStamp-$PID.binlog"
+  $diagLog = "$log.diagnose"
+  $diagSucceeded = $false
+  try {
+    $before = Get-OutputTimes
+    (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
+    $diagArgs = @('build', $Solution, '-nologo') + $msbuildArgs + @("-bl:$binlogPath", '-clp:PerformanceSummary')
+    [void](Invoke-Step 'diagnostic build' $dotnetPath $diagArgs 'diagnostic build' $diagLog)
+    Assert-NoOutsideServers "step 'diagnostic build'"
+    Assert-BuildEvidence 'diagnostic build' 'first' $before
+    if (-not (Test-Path -LiteralPath $binlogPath) -or (Get-Item -LiteralPath $binlogPath).Length -le 0) {
+      "diagnostic build did not produce a non-empty binary log at ${binlogPath}: nothing was stored"
+      exit 1
+    }
+    $diagLines = @(Get-Content -LiteralPath $diagLog -ErrorAction Ignore)
+    $top3 = @(Get-PerformanceSummaryTop $diagLines 3)
+    if ($top3.Count -lt 3) {
+      "diagnostic build did not produce a PerformanceSummary with at least 3 targets or tasks (found $($top3.Count)): nothing was stored"
+      exit 1
+    }
+    $diagnostic = [ordered]@{
+      workload      = 'one file changed'
+      binlog        = $binlogPath
+      top_expensive = $top3
+    }
+    $diagSucceeded = $true
+    "  diagnostic binary log: $binlogPath"
+    '  top 3 expensive targets/tasks:'
+    foreach ($item in $top3) {
+      "    $($item['name']) ($($item['kind'])): $($item['ms']) ms ($($item['calls']) calls)"
+    }
+  } finally {
+    Remove-Item -LiteralPath $diagLog -Force -ErrorAction Ignore
+    if (-not $diagSucceeded) { Remove-Item -LiteralPath $binlogPath -Force -ErrorAction Ignore }
+  }
+}
+
 $system = Get-CimInstance Win32_ComputerSystem
 $sdk = (& $dotnetPath --version 2>&1 | Select-Object -First 1) -join ''
 $entry = [ordered]@{
   label         = $Label
   kind          = 'dotnet'
+  target        = Get-DotnetTargetName $Solution
   decision      = $Decision
   note          = if ($Note) { $Note } else { $null }
   date          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -241,9 +373,10 @@ $entry = [ordered]@{
     use_shared_compilation = $shared
   }
   observed      = [ordered]@{
-    max_worker_nodes = $seen.max_nodes
-    compiler_server  = $seen.compiler
-    left_running     = [ordered]@{
+    max_worker_nodes           = $seen.max_nodes
+    compiler_server            = $seen.compiler
+    outside_servers_allowed    = [bool]$AllowOutsideServers
+    left_running               = [ordered]@{
       observed      = $true
       after_seconds = $afterSeconds
       processes     = $leftProcesses.Count
@@ -251,24 +384,34 @@ $entry = [ordered]@{
       names         = @($leftInfo | ForEach-Object { if ($_.Node) { 'MSBuild node' } elseif ($_.Compiler) { 'compiler server' } else { $_.Name } } | Sort-Object -Unique)
       mb            = $leftMb
     }
-    warm_used_nodes    = $usedNodes
-    warm_used_compiler = $usedCompiler
+    warm_used_nodes            = $usedNodes
+    warm_used_compiler         = $usedCompiler
+    warm_samples_used_nodes    = @($warmUsedNodesPerSample)
+    warm_samples_used_compiler = @($warmUsedCompilerPerSample)
   }
   samples       = $Samples
   steps         = @($results.GetEnumerator() | ForEach-Object {
+      $secs = @($_.Value | ForEach-Object { $_.Seconds })
+      $mbs = @($_.Value | ForEach-Object { $_.PeakMB })
       [ordered]@{
         step           = $_.Key
-        seconds        = @($_.Value | ForEach-Object { $_.Seconds })
-        peak_mb        = @($_.Value | ForEach-Object { $_.PeakMB })
-        median_seconds = Get-Median @($_.Value | ForEach-Object { $_.Seconds })
-        median_peak_mb = Get-Median @($_.Value | ForEach-Object { $_.PeakMB })
+        seconds        = $secs
+        peak_mb        = $mbs
+        median_seconds = Get-Median $secs
+        median_peak_mb = Get-Median $mbs
+        spread_seconds = Get-Spread $secs 2
+        spread_peak_mb = Get-Spread $mbs 1
       }
     })
 }
+if ($diagnostic) { $entry['diagnostic'] = $diagnostic }
+
+$baselineArg = if ($hasBaseline) { $Baseline } else { '' }
 Update-Data {
   param($current)
   $current['labels'] = @($current['labels'] | Where-Object { $_['label'] -ne $Label }) + , $entry
   $current
-}
+} $baselineArg
 "stored '$Label' ($Decision) in $dataPath and rendered $docPath"
-foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s, $(Format-Number $step['median_peak_mb']) MB" }
+foreach ($step in $entry['steps']) { "  $($step['step']): $(Format-Number $step['median_seconds']) s (spread $(Format-Number $step['spread_seconds']) s), $(Format-Number $step['median_peak_mb']) MB (spread $(Format-Number $step['spread_peak_mb']) MB)" }
+if ($hasBaseline) { Write-ComparisonSummary (Get-BaselineComparison $script:lastSavedData $Baseline) }
