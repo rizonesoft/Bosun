@@ -1364,7 +1364,8 @@
         "direct_cmake": false,
         "launcher": null,
         "linker": "link.exe",
-        "env_cache": false
+        "env_cache": false,
+        "env_inherited": true
       },
       "samples": 10,
       "steps": [
@@ -1577,7 +1578,8 @@
         "direct_cmake": false,
         "launcher": null,
         "linker": "link.exe",
-        "env_cache": false
+        "env_cache": false,
+        "env_inherited": true
       },
       "samples": 10,
       "steps": [

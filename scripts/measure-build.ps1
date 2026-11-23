@@ -215,9 +215,9 @@ function Get-BaselineComparison($data, [string]$BaselineLabel) {
         $baseSpreadMb = Get-StepSpreadPeakMb $bStep
         $maxSpreadMb = [Math]::Max($candSpreadMb, $baseSpreadMb)
         $mbWarn = $maxSpreadMb -gt [Math]::Abs($deltaMb)
-        $status = if ($timeWarn -and $mbWarn) { 'WARNING: time and memory spread wider than change' }
-          elseif ($timeWarn) { 'WARNING: time spread wider than change' }
-          elseif ($mbWarn) { 'WARNING: memory spread wider than change' }
+        $status = if ($timeWarn -and $mbWarn) { 'WARNING: time+mem spread' }
+          elseif ($timeWarn) { 'WARNING: time spread' }
+          elseif ($mbWarn) { 'WARNING: memory spread' }
           else { 'ok' }
         $rows += [ordered]@{
           step                = $stepName
@@ -330,19 +330,23 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
         $(if ($configuration['direct_cmake']) { 'mode `cmake --build --preset release` (direct)' } else { "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })" }),
         "compiler launcher $(if ($configuration['launcher']) { $configuration['launcher'] } else { 'none' })",
         "linker $(if ($configuration['linker']) { $configuration['linker'] } else { 'not recorded' })",
-        "developer environment $(if ($configuration['direct_cmake']) { 'initialised shell' } elseif ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
+        "developer environment $(if ($configuration['direct_cmake'] -or $configuration['env_inherited']) { 'initialised shell' } elseif ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
       )
       $out.Add("Configuration: $($parts -join '; ').")
       $out.Add('')
     }
-    $out.Add('| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |')
-    $out.Add('| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |')
+    $out.Add('| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |')
+    $out.Add('| ---- | ------------: | ---------------: | --------------: | -----------------: |')
+    foreach ($step in $entry['steps']) {
+      $spreadSec = Format-Seconds (Get-StepSpreadSeconds $step)
+      $spreadMb = Format-Number (Get-StepSpreadPeakMb $step)
+      $out.Add("| $($step['step']) | $(Format-Seconds $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $spreadSec | $spreadMb |")
+    }
+    $out.Add('')
     foreach ($step in $entry['steps']) {
       $samplesSec = @($step['seconds'] | ForEach-Object { Format-Seconds $_ }) -join ', '
       $samplesMb = @($step['peak_mb'] | ForEach-Object { Format-Number $_ }) -join ', '
-      $spreadSec = Format-Seconds (Get-StepSpreadSeconds $step)
-      $spreadMb = Format-Number (Get-StepSpreadPeakMb $step)
-      $out.Add("| $($step['step']) | $(Format-Seconds $step['median_seconds']) | $(Format-Number $step['median_peak_mb']) | $spreadSec | $spreadMb | $samplesSec | $samplesMb |")
+      $out.Add("- $($step['step']) samples: $samplesSec s; $samplesMb MB.")
     }
   }
   if ($BaselineLabel) {
@@ -351,7 +355,7 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
       $out.Add('')
       $out.Add("## Comparison against $BaselineLabel")
       $out.Add('')
-      $out.Add("Baseline target: $($comparison['kind'])/$($comparison['target']). Spread columns show ``candidate / baseline``. A warning is shown when ``max(candidate spread, baseline spread)`` is wider than the median change.")
+      $out.Add("Baseline target: $($comparison['kind'])/$($comparison['target']). Spread columns show ``candidate / baseline``. A ``WARNING`` is shown when ``max(candidate spread, baseline spread)`` is wider than the median change.")
       if (-not $comparison['comparisons'].Count) {
         $out.Add('')
         $out.Add('No other labels to compare.')
@@ -364,8 +368,8 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
           $out.Add("Not compared: $($item['reason']).")
           continue
         }
-        $out.Add('| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |')
-        $out.Add('| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |')
+        $out.Add('| Step | Time | Time spread | Memory | Mem spread | Status |')
+        $out.Add('| ---- | ---: | ----------: | -----: | ---------: | ------ |')
         foreach ($row in $item['rows']) {
           if ($row['missing']) {
             $out.Add("| $($row['step']) | n/a | n/a | n/a | n/a | $($row['status']) |")
@@ -513,6 +517,7 @@ $DotnetOutputs = @($DotnetOutputs | ForEach-Object { $_ -split ',' } | Where-Obj
 
 $results = [ordered]@{}
 $envCache = $false
+$envInherited = [bool](Get-Command cl -CommandType Application -ErrorAction Ignore)
 
 # Runs one step in its own job. Returns its result, or ends the script: a failed or timed-out step stores nothing.
 function Invoke-Step([string]$Name, [string]$File, [string[]]$Arguments, [string]$DisplayName = '', [string]$StepLog = $log) {
@@ -654,11 +659,12 @@ $entry = [ordered]@{
   }
   tools         = $tools
   configuration = [ordered]@{
-    build_args   = @($BuildArgs)
-    direct_cmake = [bool]$DirectCmake
-    launcher     = if ($launcher) { Split-Path $launcher -Leaf } else { $null }
-    linker       = if ($linker) { Split-Path $linker -Leaf } else { $null }
-    env_cache    = $envCache
+    build_args    = @($BuildArgs)
+    direct_cmake  = [bool]$DirectCmake
+    launcher      = if ($launcher) { Split-Path $launcher -Leaf } else { $null }
+    linker        = if ($linker) { Split-Path $linker -Leaf } else { $null }
+    env_cache     = $envCache
+    env_inherited = $envInherited
   }
   samples       = $Samples
   steps         = @($results.GetEnumerator() | ForEach-Object {

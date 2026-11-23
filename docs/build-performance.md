@@ -14,12 +14,17 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
 Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment loaded each build.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 3.90 | 75.3 | 1.67 | 0.5 | 4.97, 3.90, 3.80, 5.01, 3.34 | 75.3, 74.9, 75.2, 75.4, 75.4 |
-| one file changed | 9.12 | 243.4 | 0.98 | 0.8 | 9.12, 9.26, 8.28, 9.01, 9.19 | 243.4, 243.2, 243.2, 243.4, 244.0 |
-| fresh build | 11.69 | 349.0 | 7.36 | 25.0 | 14.07, 11.69, 10.49, 11.66, 17.85 | 349.0, 344.1, 351.2, 362.0, 337.0 |
-| python test suite | 291.05 | 396.8 | 0.00 | 0.0 | 291.05 | 396.8 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 3.90 | 75.3 | 1.67 | 0.5 |
+| one file changed | 9.12 | 243.4 | 0.98 | 0.8 |
+| fresh build | 11.69 | 349.0 | 7.36 | 25.0 |
+| python test suite | 291.05 | 396.8 | 0.00 | 0.0 |
+
+- nothing to do samples: 4.97, 3.90, 3.80, 5.01, 3.34 s; 75.3, 74.9, 75.2, 75.4, 75.4 MB.
+- one file changed samples: 9.12, 9.26, 8.28, 9.01, 9.19 s; 243.4, 243.2, 243.2, 243.4, 244.0 MB.
+- fresh build samples: 14.07, 11.69, 10.49, 11.66, 17.85 s; 349.0, 344.1, 351.2, 362.0, 337.0 MB.
+- python test suite samples: 291.05 s; 396.8 MB.
 
 ## env-cache (kept)
 
@@ -31,11 +36,15 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
 Configuration: build arguments `-EnvCache`; compiler launcher none; linker link.exe; developer environment from cache.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 1.14 | 43.1 | 0.36 | 0.6 | 1.23, 1.05, 1.03, 1.39, 1.14 | 43.1, 43.1, 42.6, 43.2, 43.0 |
-| one file changed | 8.15 | 239.0 | 1.78 | 1.2 | 8.15, 7.25, 8.39, 7.53, 9.03 | 239.8, 239.6, 238.7, 238.6, 239.0 |
-| fresh build | 12.85 | 342.8 | 6.90 | 9.3 | 13.91, 12.85, 16.36, 11.30, 9.46 | 339.5, 342.8, 345.6, 347.8, 338.5 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 1.14 | 43.1 | 0.36 | 0.6 |
+| one file changed | 8.15 | 239.0 | 1.78 | 1.2 |
+| fresh build | 12.85 | 342.8 | 6.90 | 9.3 |
+
+- nothing to do samples: 1.23, 1.05, 1.03, 1.39, 1.14 s; 43.1, 43.1, 42.6, 43.2, 43.0 MB.
+- one file changed samples: 8.15, 7.25, 8.39, 7.53, 9.03 s; 239.8, 239.6, 238.7, 238.6, 239.0 MB.
+- fresh build samples: 13.91, 12.85, 16.36, 11.30, 9.46 s; 339.5, 342.8, 345.6, 347.8, 338.5 MB.
 
 ## sccache (dropped)
 
@@ -47,11 +56,15 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0, sccache 0.19.0.
 
 Configuration: build arguments `-Sccache`; compiler launcher sccache.exe; linker link.exe; developer environment loaded each build.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 7.95 | 74.6 | 0.66 | 3.1 | 7.91, 8.47, 8.06, 7.81, 7.95 | 75.1, 74.6, 73.0, 75.2, 72.1 |
-| one file changed | 8.93 | 150.5 | 0.72 | 3.5 | 9.57, 9.20, 8.93, 8.85, 8.86 | 147.4, 150.5, 150.8, 150.9, 150.5 |
-| fresh build | 10.17 | 232.2 | 0.74 | 10.4 | 10.34, 9.91, 10.17, 10.27, 9.60 | 232.2, 232.8, 230.9, 240.6, 230.2 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 7.95 | 74.6 | 0.66 | 3.1 |
+| one file changed | 8.93 | 150.5 | 0.72 | 3.5 |
+| fresh build | 10.17 | 232.2 | 0.74 | 10.4 |
+
+- nothing to do samples: 7.91, 8.47, 8.06, 7.81, 7.95 s; 75.1, 74.6, 73.0, 75.2, 72.1 MB.
+- one file changed samples: 9.57, 9.20, 8.93, 8.85, 8.86 s; 147.4, 150.5, 150.8, 150.9, 150.5 MB.
+- fresh build samples: 10.34, 9.91, 10.17, 10.27, 9.60 s; 232.2, 232.8, 230.9, 240.6, 230.2 MB.
 
 ## lld-link (dropped)
 
@@ -63,11 +76,15 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0, lld-link 22.1.3.
 
 Configuration: build arguments `-Lld`; compiler launcher none; linker lld-link.exe; developer environment loaded each build.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 3.12 | 75.2 | 0.35 | 0.9 | 3.08, 3.12, 3.12, 3.30, 2.95 | 75.9, 75.4, 75.2, 75.2, 75.0 |
-| one file changed | 7.89 | 243.7 | 1.40 | 3.4 | 7.35, 7.98, 7.10, 8.50, 7.89 | 243.9, 244.1, 243.7, 240.7, 241.8 |
-| fresh build | 10.28 | 349.8 | 6.39 | 20.3 | 10.28, 12.25, 16.05, 9.66, 9.95 | 338.2, 349.8, 358.5, 349.9, 346.4 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 3.12 | 75.2 | 0.35 | 0.9 |
+| one file changed | 7.89 | 243.7 | 1.40 | 3.4 |
+| fresh build | 10.28 | 349.8 | 6.39 | 20.3 |
+
+- nothing to do samples: 3.08, 3.12, 3.12, 3.30, 2.95 s; 75.9, 75.4, 75.2, 75.2, 75.0 MB.
+- one file changed samples: 7.35, 7.98, 7.10, 8.50, 7.89 s; 243.9, 244.1, 243.7, 240.7, 241.8 MB.
+- fresh build samples: 10.28, 12.25, 16.05, 9.66, 9.95 s; 338.2, 349.8, 358.5, 349.9, 346.4 MB.
 
 ## env-cache-lld (dropped)
 
@@ -79,11 +96,15 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0, lld-link 22.1.3.
 
 Configuration: build arguments `-EnvCache -Lld`; compiler launcher none; linker lld-link.exe; developer environment from cache.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 1.39 | 43.2 | 1.11 | 0.8 | 1.27, 1.21, 1.39, 1.93, 2.32 | 42.9, 43.7, 43.2, 43.2, 42.9 |
-| one file changed | 9.52 | 270.2 | 1.93 | 11.2 | 9.52, 8.78, 10.71, 10.01, 9.41 | 263.5, 274.7, 270.2, 271.0, 269.1 |
-| fresh build | 8.73 | 392.8 | 4.89 | 21.7 | 12.63, 11.01, 8.30, 7.74, 8.73 | 404.0, 387.2, 382.3, 392.8, 397.7 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 1.39 | 43.2 | 1.11 | 0.8 |
+| one file changed | 9.52 | 270.2 | 1.93 | 11.2 |
+| fresh build | 8.73 | 392.8 | 4.89 | 21.7 |
+
+- nothing to do samples: 1.27, 1.21, 1.39, 1.93, 2.32 s; 42.9, 43.7, 43.2, 43.2, 42.9 MB.
+- one file changed samples: 9.52, 8.78, 10.71, 10.01, 9.41 s; 263.5, 274.7, 270.2, 271.0, 269.1 MB.
+- fresh build samples: 12.63, 11.01, 8.30, 7.74, 8.73 s; 404.0, 387.2, 382.3, 392.8, 397.7 MB.
 
 ## final (kept)
 
@@ -95,11 +116,15 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
 Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment from cache.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 1.05 | 43.1 | 0.24 | 0.9 | 1.17, 1.04, 1.05, 1.08, 0.93 | 43.3, 42.9, 43.4, 42.5, 43.1 |
-| one file changed | 7.40 | 262.5 | 3.15 | 1.7 | 7.40, 9.87, 9.48, 6.85, 6.72 | 262.4, 261.9, 263.6, 262.7, 262.5 |
-| fresh build | 10.00 | 379.8 | 2.02 | 9.9 | 9.96, 9.79, 10.00, 10.58, 11.81 | 384.7, 376.2, 374.8, 381.4, 379.8 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 1.05 | 43.1 | 0.24 | 0.9 |
+| one file changed | 7.40 | 262.5 | 3.15 | 1.7 |
+| fresh build | 10.00 | 379.8 | 2.02 | 9.9 |
+
+- nothing to do samples: 1.17, 1.04, 1.05, 1.08, 0.93 s; 43.3, 42.9, 43.4, 42.5, 43.1 MB.
+- one file changed samples: 7.40, 9.87, 9.48, 6.85, 6.72 s; 262.4, 261.9, 263.6, 262.7, 262.5 MB.
+- fresh build samples: 9.96, 9.79, 10.00, 10.58, 11.81 s; 384.7, 376.2, 374.8, 381.4, 379.8 MB.
 
 ## dotnet-cpu-2 (kept)
 
@@ -113,12 +138,17 @@ Configuration: MSBuild arguments `-maxCpuCount:2`; Directory.Build.rsp `-nodeReu
 
 Observed in the linger build: at most 1 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 76.5 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.08 | 117.4 | 0.21 | 8.8 | 2.08, 2.29, 2.08 | 117.4, 126.1, 117.3 |
-| one file changed | 3.91 | 208.2 | 0.28 | 3.7 | 3.78, 3.91, 4.06 | 208.2, 209.8, 206.1 |
-| fresh build | 4.90 | 227.1 | 0.46 | 10.6 | 5.15, 4.90, 4.69 | 228.7, 218.1, 227.1 |
-| one file changed, after a build | 3.90 | 133.7 | 0.00 | 0.0 | 3.90 | 133.7 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.08 | 117.4 | 0.21 | 8.8 |
+| one file changed | 3.91 | 208.2 | 0.28 | 3.7 |
+| fresh build | 4.90 | 227.1 | 0.46 | 10.6 |
+| one file changed, after a build | 3.90 | 133.7 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.08, 2.29, 2.08 s; 117.4, 126.1, 117.3 MB.
+- one file changed samples: 3.78, 3.91, 4.06 s; 208.2, 209.8, 206.1 MB.
+- fresh build samples: 5.15, 4.90, 4.69 s; 228.7, 218.1, 227.1 MB.
+- one file changed, after a build samples: 3.90 s; 133.7 MB.
 
 ## dotnet-cpu-8 (dropped)
 
@@ -132,12 +162,17 @@ Configuration: MSBuild arguments `-maxCpuCount:8`; Directory.Build.rsp `-nodeReu
 
 Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 2 process(es) (compiler server, conhost.exe), 73.1 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.99 | 207.0 | 0.11 | 1.1 | 2.99, 3.02, 2.91 | 207.7, 207.0, 206.6 |
-| one file changed | 5.32 | 308.7 | 0.22 | 5.1 | 5.32, 5.30, 5.52 | 304.2, 309.3, 308.7 |
-| fresh build | 5.92 | 324.6 | 0.61 | 5.9 | 6.28, 5.92, 5.67 | 320.3, 326.2, 324.6 |
-| one file changed, after a build | 4.06 | 246.5 | 0.00 | 0.0 | 4.06 | 246.5 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.99 | 207.0 | 0.11 | 1.1 |
+| one file changed | 5.32 | 308.7 | 0.22 | 5.1 |
+| fresh build | 5.92 | 324.6 | 0.61 | 5.9 |
+| one file changed, after a build | 4.06 | 246.5 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.99, 3.02, 2.91 s; 207.7, 207.0, 206.6 MB.
+- one file changed samples: 5.32, 5.30, 5.52 s; 304.2, 309.3, 308.7 MB.
+- fresh build samples: 6.28, 5.92, 5.67 s; 320.3, 326.2, 324.6 MB.
+- one file changed, after a build samples: 4.06 s; 246.5 MB.
 
 ## dotnet-cpu-all (dropped)
 
@@ -151,12 +186,17 @@ Configuration: MSBuild arguments `-maxCpuCount`; Directory.Build.rsp `-nodeReuse
 
 Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 75.4 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.81 | 209.2 | 0.23 | 7.8 | 2.81, 2.77, 3.00 | 205.9, 209.2, 213.7 |
-| one file changed | 6.00 | 311.7 | 0.38 | 3.4 | 6.00, 6.05, 5.67 | 314.3, 311.7, 310.9 |
-| fresh build | 5.59 | 320.7 | 1.59 | 11.1 | 5.59, 7.07, 5.48 | 315.8, 320.7, 326.9 |
-| one file changed, after a build | 3.93 | 232.5 | 0.00 | 0.0 | 3.93 | 232.5 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.81 | 209.2 | 0.23 | 7.8 |
+| one file changed | 6.00 | 311.7 | 0.38 | 3.4 |
+| fresh build | 5.59 | 320.7 | 1.59 | 11.1 |
+| one file changed, after a build | 3.93 | 232.5 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.81, 2.77, 3.00 s; 205.9, 209.2, 213.7 MB.
+- one file changed samples: 6.00, 6.05, 5.67 s; 314.3, 311.7, 310.9 MB.
+- fresh build samples: 5.59, 7.07, 5.48 s; 315.8, 320.7, 326.9 MB.
+- one file changed, after a build samples: 3.93 s; 232.5 MB.
 
 ## dotnet-cpu-1 (dropped)
 
@@ -170,12 +210,17 @@ Configuration: MSBuild arguments `-maxCpuCount:1`; Directory.Build.rsp `-nodeReu
 
 Observed in the linger build: at most 0 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 2 process(es) (compiler server, conhost.exe), 69.6 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.42 | 81.0 | 0.08 | 0.5 | 2.44, 2.42, 2.36 | 81.2, 80.7, 81.0 |
-| one file changed | 4.65 | 162.8 | 0.26 | 5.0 | 4.90, 4.64, 4.65 | 166.8, 162.8, 161.8 |
-| fresh build | 5.74 | 176.8 | 1.07 | 7.1 | 5.74, 5.22, 6.29 | 172.9, 180.0, 176.8 |
-| one file changed, after a build | 35.17 | 96.4 | 0.00 | 0.0 | 35.17 | 96.4 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.42 | 81.0 | 0.08 | 0.5 |
+| one file changed | 4.65 | 162.8 | 0.26 | 5.0 |
+| fresh build | 5.74 | 176.8 | 1.07 | 7.1 |
+| one file changed, after a build | 35.17 | 96.4 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.44, 2.42, 2.36 s; 81.2, 80.7, 81.0 MB.
+- one file changed samples: 4.90, 4.64, 4.65 s; 166.8, 162.8, 161.8 MB.
+- fresh build samples: 5.74, 5.22, 6.29 s; 172.9, 180.0, 176.8 MB.
+- one file changed, after a build samples: 35.17 s; 96.4 MB.
 
 ## dotnet-baseline (baseline)
 
@@ -189,12 +234,17 @@ Configuration: MSBuild arguments none; Directory.Build.rsp `-nodeReuse:false`; i
 
 Observed in the linger build: at most 3 worker node(s) at once; compiler server ran. Left running 60.5 s after it returned: 2 process(es) (compiler server, conhost.exe), 73.7 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 3.07 | 214.1 | 0.33 | 2.5 | 3.07, 2.88, 3.21 | 212.1, 214.6, 214.1 |
-| one file changed | 5.76 | 312.2 | 0.53 | 4.2 | 5.85, 5.32, 5.76 | 313.2, 309.0, 312.2 |
-| fresh build | 7.56 | 326.8 | 23.10 | 10.2 | 6.78, 7.56, 29.88 | 320.5, 326.8, 330.7 |
-| one file changed, after a build | 4.59 | 226.1 | 0.00 | 0.0 | 4.59 | 226.1 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 3.07 | 214.1 | 0.33 | 2.5 |
+| one file changed | 5.76 | 312.2 | 0.53 | 4.2 |
+| fresh build | 7.56 | 326.8 | 23.10 | 10.2 |
+| one file changed, after a build | 4.59 | 226.1 | 0.00 | 0.0 |
+
+- nothing to do samples: 3.07, 2.88, 3.21 s; 212.1, 214.6, 214.1 MB.
+- one file changed samples: 5.85, 5.32, 5.76 s; 313.2, 309.0, 312.2 MB.
+- fresh build samples: 6.78, 7.56, 29.88 s; 320.5, 326.8, 330.7 MB.
+- one file changed, after a build samples: 4.59 s; 226.1 MB.
 
 ## dotnet-node-reuse (dropped)
 
@@ -208,12 +258,17 @@ Configuration: MSBuild arguments `-nodeReuse:true`; Directory.Build.rsp `-nodeRe
 
 Observed in the linger build: at most 4 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 10 process(es) (compiler server, conhost.exe, MSBuild node), 268.2 MB private memory. In the one-file build made then, the nodes left: used; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.95 | 218.6 | 0.62 | 5.4 | 3.26, 2.95, 2.64 | 217.4, 218.6, 222.8 |
-| one file changed | 5.78 | 322.5 | 1.14 | 3.7 | 6.01, 5.78, 4.87 | 322.5, 324.8, 321.1 |
-| fresh build | 6.09 | 333.2 | 1.52 | 18.9 | 5.06, 6.09, 6.58 | 320.8, 333.2, 339.7 |
-| one file changed, after a build | 1.93 | 30.1 | 0.00 | 0.0 | 1.93 | 30.1 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.95 | 218.6 | 0.62 | 5.4 |
+| one file changed | 5.78 | 322.5 | 1.14 | 3.7 |
+| fresh build | 6.09 | 333.2 | 1.52 | 18.9 |
+| one file changed, after a build | 1.93 | 30.1 | 0.00 | 0.0 |
+
+- nothing to do samples: 3.26, 2.95, 2.64 s; 217.4, 218.6, 222.8 MB.
+- one file changed samples: 6.01, 5.78, 4.87 s; 322.5, 324.8, 321.1 MB.
+- fresh build samples: 5.06, 6.09, 6.58 s; 320.8, 333.2, 339.7 MB.
+- one file changed, after a build samples: 1.93 s; 30.1 MB.
 
 ## dotnet-no-shared-compilation (dropped)
 
@@ -227,12 +282,17 @@ Configuration: MSBuild arguments `-p:UseSharedCompilation=false`; Directory.Buil
 
 Observed in the linger build: at most 3 worker node(s) at once; compiler server did not run. Left running 60.3 s after it returned: 0 process(es), 0.0 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: none was left.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.66 | 208.1 | 0.27 | 2.1 | 2.91, 2.66, 2.64 | 208.1, 206.0, 208.1 |
-| one file changed | 8.28 | 304.0 | 1.82 | 13.3 | 7.42, 9.24, 8.28 | 290.8, 304.1, 304.0 |
-| fresh build | 8.92 | 352.9 | 0.93 | 6.4 | 8.54, 8.92, 9.47 | 347.0, 352.9, 353.4 |
-| one file changed, after a build | 7.55 | 306.4 | 0.00 | 0.0 | 7.55 | 306.4 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.66 | 208.1 | 0.27 | 2.1 |
+| one file changed | 8.28 | 304.0 | 1.82 | 13.3 |
+| fresh build | 8.92 | 352.9 | 0.93 | 6.4 |
+| one file changed, after a build | 7.55 | 306.4 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.91, 2.66, 2.64 s; 208.1, 206.0, 208.1 MB.
+- one file changed samples: 7.42, 9.24, 8.28 s; 290.8, 304.1, 304.0 MB.
+- fresh build samples: 8.54, 8.92, 9.47 s; 347.0, 352.9, 353.4 MB.
+- one file changed, after a build samples: 7.55 s; 306.4 MB.
 
 ## dotnet-final (kept)
 
@@ -246,12 +306,17 @@ Configuration: MSBuild arguments `-maxCpuCount:2`; Directory.Build.rsp `-nodeReu
 
 Observed in the linger build: at most 1 worker node(s) at once; compiler server ran. Left running 60.4 s after it returned: 2 process(es) (compiler server, conhost.exe), 77.3 MB private memory. In the one-file build made then, the nodes left: none was left; the compiler server left: used.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 2.45 | 123.4 | 0.09 | 0.6 | 2.39, 2.45, 2.48 | 123.7, 123.1, 123.4 |
-| one file changed | 4.17 | 208.4 | 0.73 | 2.6 | 3.99, 4.72, 4.17 | 207.9, 210.5, 208.4 |
-| fresh build | 4.63 | 227.2 | 0.14 | 3.2 | 4.63, 4.51, 4.65 | 227.4, 224.2, 227.2 |
-| one file changed, after a build | 2.94 | 134.0 | 0.00 | 0.0 | 2.94 | 134.0 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 2.45 | 123.4 | 0.09 | 0.6 |
+| one file changed | 4.17 | 208.4 | 0.73 | 2.6 |
+| fresh build | 4.63 | 227.2 | 0.14 | 3.2 |
+| one file changed, after a build | 2.94 | 134.0 | 0.00 | 0.0 |
+
+- nothing to do samples: 2.39, 2.45, 2.48 s; 123.7, 123.1, 123.4 MB.
+- one file changed samples: 3.99, 4.72, 4.17 s; 207.9, 210.5, 208.4 MB.
+- fresh build samples: 4.63, 4.51, 4.65 s; 227.4, 224.2, 227.2 MB.
+- one file changed, after a build samples: 2.94 s; 134.0 MB.
 
 ## build-script-before (baseline)
 
@@ -261,13 +326,17 @@ Measured 2026-11-23T05:14:49Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K 
 
 Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
-Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment loaded each build.
+Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment initialised shell.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 0.84 | 40.4 | 0.11 | 1.3 | 0.85, 0.88, 0.82, 0.77, 0.79, 0.85, 0.86, 0.85, 0.82, 0.79 | 40.9, 40.2, 39.9, 40.7, 40.3, 40.9, 39.6, 40.2, 40.8, 40.4 |
-| one file changed | 15.65 | 368.7 | 2.40 | 1.3 | 16.33, 15.68, 16.46, 14.06, 14.14, 14.69, 14.65, 15.92, 15.85, 15.62 | 369.2, 368.6, 368.7, 368.7, 368.6, 369.2, 368.8, 368.2, 367.9, 368.6 |
-| fresh build | 19.98 | 583.2 | 4.90 | 27.7 | 22.08, 20.51, 19.62, 20.61, 22.47, 19.67, 17.57, 20.30, 18.27, 18.39 | 581.2, 573.2, 583.2, 583.1, 591.9, 600.9, 597.6, 584.7, 577.5, 576.2 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 0.84 | 40.4 | 0.11 | 1.3 |
+| one file changed | 15.65 | 368.7 | 2.40 | 1.3 |
+| fresh build | 19.98 | 583.2 | 4.90 | 27.7 |
+
+- nothing to do samples: 0.85, 0.88, 0.82, 0.77, 0.79, 0.85, 0.86, 0.85, 0.82, 0.79 s; 40.9, 40.2, 39.9, 40.7, 40.3, 40.9, 39.6, 40.2, 40.8, 40.4 MB.
+- one file changed samples: 16.33, 15.68, 16.46, 14.06, 14.14, 14.69, 14.65, 15.92, 15.85, 15.62 s; 369.2, 368.6, 368.7, 368.7, 368.6, 369.2, 368.8, 368.2, 367.9, 368.6 MB.
+- fresh build samples: 22.08, 20.51, 19.62, 20.61, 22.47, 19.67, 17.57, 20.30, 18.27, 18.39 s; 581.2, 573.2, 583.2, 583.1, 591.9, 600.9, 597.6, 584.7, 577.5, 576.2 MB.
 
 ## cmake-build-direct (baseline)
 
@@ -279,10 +348,13 @@ Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
 Configuration: mode `cmake --build --preset release` (direct); compiler launcher none; linker link.exe; developer environment initialised shell.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 0.05 | 7.4 | 0.01 | 0.2 | 0.05, 0.05, 0.06, 0.05, 0.06, 0.05, 0.05, 0.05, 0.05, 0.05 | 7.4, 7.6, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4 |
-| one file changed | 15.48 | 336.0 | 2.07 | 1.3 | 14.92, 15.28, 16.07, 15.30, 16.36, 15.00, 16.18, 16.76, 15.65, 14.69 | 336.4, 336.3, 335.8, 335.7, 335.7, 336.3, 335.2, 336.2, 335.7, 336.5 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 0.05 | 7.4 | 0.01 | 0.2 |
+| one file changed | 15.48 | 336.0 | 2.07 | 1.3 |
+
+- nothing to do samples: 0.05, 0.05, 0.06, 0.05, 0.06, 0.05, 0.05, 0.05, 0.05, 0.05 s; 7.4, 7.6, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4 MB.
+- one file changed samples: 14.92, 15.28, 16.07, 15.30, 16.36, 15.00, 16.18, 16.76, 15.65, 14.69 s; 336.4, 336.3, 335.8, 335.7, 335.7, 336.3, 335.2, 336.2, 335.7, 336.5 MB.
 
 ## skip-configure (kept)
 
@@ -292,22 +364,26 @@ Measured 2026-11-23T05:26:21Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K 
 
 Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
 
-Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment loaded each build.
+Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment initialised shell.
 
-| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
-| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
-| nothing to do | 0.66 | 40.1 | 0.13 | 1.9 | 0.77, 0.76, 0.68, 0.64, 0.64, 0.66, 0.66, 0.64, 0.67, 0.64 | 38.8, 39.2, 40.3, 40.0, 39.7, 39.9, 40.1, 40.7, 40.3, 40.6 |
-| one file changed | 15.02 | 343.2 | 4.79 | 1.2 | 16.53, 16.65, 15.21, 16.03, 15.78, 12.92, 11.86, 12.13, 13.50, 14.83 | 343.2, 342.7, 343.1, 343.7, 343.2, 343.9, 342.9, 343.2, 343.4, 343.1 |
-| fresh build | 18.34 | 534.4 | 2.76 | 18.4 | 20.08, 19.29, 18.58, 19.37, 17.70, 18.18, 18.01, 18.49, 17.74, 17.32 | 530.0, 533.5, 534.5, 541.6, 548.4, 544.0, 537.3, 534.3, 533.4, 531.8 |
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: |
+| nothing to do | 0.66 | 40.1 | 0.13 | 1.9 |
+| one file changed | 15.02 | 343.2 | 4.79 | 1.2 |
+| fresh build | 18.34 | 534.4 | 2.76 | 18.4 |
+
+- nothing to do samples: 0.77, 0.76, 0.68, 0.64, 0.64, 0.66, 0.66, 0.64, 0.67, 0.64 s; 38.8, 39.2, 40.3, 40.0, 39.7, 39.9, 40.1, 40.7, 40.3, 40.6 MB.
+- one file changed samples: 16.53, 16.65, 15.21, 16.03, 15.78, 12.92, 11.86, 12.13, 13.50, 14.83 s; 343.2, 342.7, 343.1, 343.7, 343.2, 343.9, 342.9, 343.2, 343.4, 343.1 MB.
+- fresh build samples: 20.08, 19.29, 18.58, 19.37, 17.70, 18.18, 18.01, 18.49, 17.74, 17.32 s; 530.0, 533.5, 534.5, 541.6, 548.4, 544.0, 537.3, 534.3, 533.4, 531.8 MB.
 
 ## Comparison against build-script-before
 
-Baseline target: native/native. Spread columns show `candidate / baseline`. A warning is shown when `max(candidate spread, baseline spread)` is wider than the median change.
+Baseline target: native/native. Spread columns show `candidate / baseline`. A `WARNING` is shown when `max(candidate spread, baseline spread)` is wider than the median change.
 
 ### baseline vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
 | nothing to do | +3.06 s | 1.67 / 0.11 | +34.9 MB | 0.5 / 1.3 | ok |
 | one file changed | -6.53 s | 0.98 / 2.40 | -125.2 MB | 0.8 / 1.3 | ok |
 | fresh build | -8.29 s | 7.36 / 4.90 | -234.2 MB | 25.0 / 27.7 | ok |
@@ -315,41 +391,41 @@ Baseline target: native/native. Spread columns show `candidate / baseline`. A wa
 
 ### env-cache vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
-| nothing to do | +0.30 s | 0.36 / 0.11 | +2.8 MB | 0.6 / 1.3 | WARNING: time spread wider than change |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
+| nothing to do | +0.30 s | 0.36 / 0.11 | +2.8 MB | 0.6 / 1.3 | WARNING: time spread |
 | one file changed | -7.50 s | 1.78 / 2.40 | -129.6 MB | 1.2 / 1.3 | ok |
 | fresh build | -7.13 s | 6.90 / 4.90 | -240.3 MB | 9.3 / 27.7 | ok |
 
 ### sccache vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
 | nothing to do | +7.11 s | 0.66 / 0.11 | +34.2 MB | 3.1 / 1.3 | ok |
 | one file changed | -6.72 s | 0.72 / 2.40 | -218.2 MB | 3.5 / 1.3 | ok |
 | fresh build | -9.81 s | 0.74 / 4.90 | -351.0 MB | 10.4 / 27.7 | ok |
 
 ### lld-link vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
 | nothing to do | +2.28 s | 0.35 / 0.11 | +34.8 MB | 0.9 / 1.3 | ok |
 | one file changed | -7.76 s | 1.40 / 2.40 | -125.0 MB | 3.4 / 1.3 | ok |
 | fresh build | -9.70 s | 6.39 / 4.90 | -233.3 MB | 20.3 / 27.7 | ok |
 
 ### env-cache-lld vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
-| nothing to do | +0.55 s | 1.11 / 0.11 | +2.9 MB | 0.8 / 1.3 | WARNING: time spread wider than change |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
+| nothing to do | +0.55 s | 1.11 / 0.11 | +2.9 MB | 0.8 / 1.3 | WARNING: time spread |
 | one file changed | -6.13 s | 1.93 / 2.40 | -98.4 MB | 11.2 / 1.3 | ok |
 | fresh build | -11.25 s | 4.89 / 4.90 | -190.3 MB | 21.7 / 27.7 | ok |
 
 ### final vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
-| nothing to do | +0.21 s | 0.24 / 0.11 | +2.8 MB | 0.9 / 1.3 | WARNING: time spread wider than change |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
+| nothing to do | +0.21 s | 0.24 / 0.11 | +2.8 MB | 0.9 / 1.3 | WARNING: time spread |
 | one file changed | -8.25 s | 3.15 / 2.40 | -106.1 MB | 1.7 / 1.3 | ok |
 | fresh build | -9.98 s | 2.02 / 4.90 | -203.3 MB | 9.9 / 27.7 | ok |
 
@@ -387,16 +463,16 @@ Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
 
 ### cmake-build-direct vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
 | nothing to do | -0.79 s | 0.01 / 0.11 | -33.0 MB | 0.2 / 1.3 | ok |
-| one file changed | -0.17 s | 2.07 / 2.40 | -32.6 MB | 1.3 / 1.3 | WARNING: time spread wider than change |
+| one file changed | -0.17 s | 2.07 / 2.40 | -32.6 MB | 1.3 / 1.3 | WARNING: time spread |
 | fresh build | n/a | n/a | n/a | n/a | not in 'cmake-build-direct' |
 
 ### skip-configure vs build-script-before
 
-| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
-| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
-| nothing to do | -0.18 s | 0.13 / 0.11 | -0.3 MB | 1.9 / 1.3 | WARNING: memory spread wider than change |
-| one file changed | -0.63 s | 4.79 / 2.40 | -25.4 MB | 1.2 / 1.3 | WARNING: time spread wider than change |
-| fresh build | -1.64 s | 2.76 / 4.90 | -48.8 MB | 18.4 / 27.7 | WARNING: time spread wider than change |
+| Step | Time | Time spread | Memory | Mem spread | Status |
+| ---- | ---: | ----------: | -----: | ---------: | ------ |
+| nothing to do | -0.18 s | 0.13 / 0.11 | -0.3 MB | 1.9 / 1.3 | WARNING: memory spread |
+| one file changed | -0.63 s | 4.79 / 2.40 | -25.4 MB | 1.2 / 1.3 | WARNING: time spread |
+| fresh build | -1.64 s | 2.76 / 4.90 | -48.8 MB | 18.4 / 27.7 | WARNING: time spread |

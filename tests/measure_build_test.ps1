@@ -577,9 +577,12 @@ exit $LASTEXITCODE
     ($baseEntry.target -eq 'native') -and ($plainEntry.target -match '^external:Fake\.slnx:[0-9a-f]{8}$')
   )
   $docText = Get-Content -LiteralPath $doc -Raw
-  Check 'the document renders time spread, memory spread, and raw peak-memory samples' (
-    $docText -match '\| Time spread \(s\) \| Memory spread \(MB\) \| Samples \(s\) \| Samples \(MB\) \|'
-  )
+  $longTableRows = @(($docText -split "`r?`n") | Where-Object { $_ -like '|*' -and $_.Length -gt 100 })
+  Check 'the document renders time spread, memory spread, raw peak-memory samples, and table rows <= 100 chars' (
+    $docText -match '\| Time spread \(s\) \| Memory spread \(MB\) \|' -and
+    $docText -match '- nothing to do samples: .* s; .* MB\.' -and
+    $longTableRows.Count -eq 0
+  ) "(long rows: $($longTableRows.Count))"
 
   # .NET warm build sampled 3 times: 3 distinct warm invocations, varying timings, exact median & spreads, per-sample reuse.
   $run = Invoke-DotnetMeasure 'warm-vary' @('-Label', 'dotnet-warm3', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true') $null 3 2
@@ -702,25 +705,27 @@ exit $LASTEXITCODE
     $cmpExit -eq 0 -and
     $cmpOutText -match "comparison against baseline 'hist-base' \(native/native\):" -and
     $cmpOutText -match 'nothing to do: time -3\.00 s \(spread 0\.20 / 0\.40 s\), memory -20\.0 MB \(spread 1\.0 / 2\.0 MB\) \[ok\]' -and
-    $cmpOutText -match 'one file changed: time -1\.00 s \(spread 1\.00 / 4\.00 s\), memory \+2\.0 MB \(spread 6\.0 / 0\.0 MB\) \[WARNING: time and memory spread wider than change\]' -and
+    $cmpOutText -match 'one file changed: time -1\.00 s \(spread 1\.00 / 4\.00 s\), memory \+2\.0 MB \(spread 6\.0 / 0\.0 MB\) \[WARNING: time\+mem spread\]' -and
     $cmpOutText -match 'fresh build: time -2\.00 s \(spread 2\.00 / 2\.00 s\), memory -10\.0 MB \(spread 10\.0 / 10\.0 MB\) \[ok\]' -and
-    $cmpOutText -match 'sub-tenth: time -0\.02 s \(spread 0\.00 / 0\.03 s\), memory 0\.0 MB \(spread 0\.0 / 0\.0 MB\) \[WARNING: time spread wider than change\]' -and
+    $cmpOutText -match 'sub-tenth: time -0\.02 s \(spread 0\.00 / 0\.03 s\), memory 0\.0 MB \(spread 0\.0 / 0\.0 MB\) \[WARNING: time spread\]' -and
     $cmpOutText -match "python test suite: not in baseline 'hist-base'" -and
     $cmpOutText -match 'hist-dotnet: incompatible target \(dotnet/Bosun\.slnx vs native/native\), not compared' -and
     $cmpOutText -match 'single-proj-dotnet: incompatible target \(dotnet/src/Bosun\.Core/Bosun\.Core\.csproj vs native/native\), not compared'
   ) "(exit $cmpExit): $cmpOutText"
-  Check '-RenderOnly -Baseline renders comparison table, hundredth-second raw samples, spreads, warning, and incompatible notice in Markdown' (
+  $cmpLongRows = @(($cmpMd -split "`r?`n") | Where-Object { $_ -like '|*' -and $_.Length -gt 100 })
+  Check '-RenderOnly -Baseline renders comparison table, hundredth-second raw samples, spreads, warning, incompatible notice, and rows <= 100 chars in Markdown' (
     $cmpMd -match '## Comparison against hist-base' -and
     $cmpMd -match '\| nothing to do \| -3\.00 s \| 0\.20 / 0\.40 \| -20\.0 MB \| 1\.0 / 2\.0 \| ok \|' -and
-    $cmpMd -match '\| one file changed \| -1\.00 s \| 1\.00 / 4\.00 \| \+2\.0 MB \| 6\.0 / 0\.0 \| WARNING: time and memory spread wider than change \|' -and
+    $cmpMd -match '\| one file changed \| -1\.00 s \| 1\.00 / 4\.00 \| \+2\.0 MB \| 6\.0 / 0\.0 \| WARNING: time\+mem spread \|' -and
     $cmpMd -match '\| fresh build \| -2\.00 s \| 2\.00 / 2\.00 \| -10\.0 MB \| 10\.0 / 10\.0 \| ok \|' -and
-    $cmpMd -match '\| sub-tenth \| -0\.02 s \| 0\.00 / 0\.03 \| 0\.0 MB \| 0\.0 / 0\.0 \| WARNING: time spread wider than change \|' -and
+    $cmpMd -match '\| sub-tenth \| -0\.02 s \| 0\.00 / 0\.03 \| 0\.0 MB \| 0\.0 / 0\.0 \| WARNING: time spread \|' -and
     $cmpMd -match '5\.00, 5\.01, 5\.03' -and
     $cmpMd -match "\| python test suite \| n/a \| n/a \| n/a \| n/a \| not in baseline 'hist-base' \|" -and
     $cmpMd -match 'Not compared: incompatible target \(dotnet/Bosun\.slnx vs native/native\)\.' -and
     $cmpMd -match '100\.0, 101\.0, 102\.0' -and
-    $cmpMd -notmatch "[–—]"
-  )
+    $cmpMd -notmatch "[–—]" -and
+    $cmpLongRows.Count -eq 0
+  ) "(long rows: $($cmpLongRows.Count))"
 
   # --- -Tests -Samples 3 single-run exception: Python suite runs exactly once with 1 sample and 0.00 s / 0.0 MB spreads ---
   $pyBin = Join-Path $dir 'py-bin'
