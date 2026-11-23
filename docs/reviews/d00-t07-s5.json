@@ -1,0 +1,94 @@
+{
+  "ref": "D00 T07 \u00a75",
+  "title": "Weakening scan reads blobs in one batch and shows lines",
+  "implementation_sha": "319e1fe90bf8f4b731f6e5b5475e676ea7750199",
+  "date": "2026-11-23",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-workspace/D00-T07-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-workspace/D00-T07-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-workspace/D00-T07-s5.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "CI build.yml -> green at 319e1fe90bf8 (https://github.com/rizonesoft/Bosun/actions/runs/45088413232)",
+    "CI plan.yml -> green at 319e1fe90bf8 (https://github.com/rizonesoft/Bosun/actions/runs/45088413263)",
+    "python scripts/run-tests.py test_weakening_scan -> Ran 72 tests in 6 classes: OK",
+    "pyright --pythonplatform Windows/Linux scripts -> 0 errors, 0 warnings, 0 informations"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-workspace/D00-T07-s5.md",
+    "verdict": "completed",
+    "candidate": "0afeb0279c74192820124570cbfff819aa5a1c6a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 3,
+  "cap_outcome": "Round 3 P3 test findings (per-signal block assertions, full 4-frame refusal diagnostics, independent old/new side failures) fixed in 0afeb02",
+  "plan": {
+    "report": "docs/reviews/00-workspace/D00-T07-s5.md",
+    "candidate": "07a1d24de7da1764546139eed401d68e5c7dbeae",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "policy": "07a1d24de7da1764546139eed401d68e5c7dbeae",
+  "schedule": {
+    "completion_order": "last",
+    "max_low_rounds": 32,
+    "max_repair_cycles": 33,
+    "severity_stop_after": 0,
+    "recurrence_cap": 3,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "integration",
+        "source-defect",
+        "design",
+        "optimization",
+        "record",
+        "plan-delivery"
+      ]
+    },
+    "escalation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    }
+  },
+  "round_cap": 33
+}

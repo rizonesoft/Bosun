@@ -35,7 +35,7 @@ title: "TODO-07 -- Kit follow-ups"
 | 2 | §2 | Pyright clean over the scripts | -- | [x] |
 | 3 | §3 | Test fixtures in the scratch folder | -- | [x] |
 | 4 | §4 | check-all keeps a log and says its waits and SDK | -- | [x] |
-| 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [ ] |
+| 5 | §5 | Weakening scan reads blobs in one batch and shows lines | -- | [x] |
 | 6 | §6 | Clone setup and pre-commit say what they did | -- | [ ] |
 | 7 | §7 | Build measurement compares against a baseline | -- | [ ] |
 | 8 | §8 | Build script stops configuring on every run | §7 | [ ] |
@@ -258,9 +258,12 @@ Filed 2026-11-21 by `D00 T06 §1` from `todo/findings.md` (base lines 26 and 27,
 
 - [x] Read both sides of every changed file through one `git cat-file --batch` in `scripts/weakening-scan.py` (covering both `committed` and `uncommitted` git blobs, binary-framed by `<oid> <type> <size>\n<bytes>\n`, raising `CannotRead` / exit 2 on missing, non-blob, short payload, missing frame terminator, or nonzero git exit even after valid output, and requesting only existing sides for created/deleted files), and measure a 1,000-file range against the per-file `show` reader and against plain `git diff` of the same range, recording all three times here and verifying batch beats per-file with identical results. Done when: `scripts/tests/test_weakening_scan.py` reads identical signals from both readers on its fixtures, proves total Git subprocess starts do not grow per changed file (including created/deleted single-side reads), proves byte-length framing across a multibyte UTF-8 blob followed by a second blob, exercises all batch refusal modes through `main()` (exit 2, diagnostic, no summary), and the three 1,000-file times are written here with the batch reader's overhead above `git diff` named. **Corrected 2026-11-21 (completion review of `D00 T06 §1`):** the comparison with plain `git diff` the finding asked for was missing. **Measured 2026-11-22 (1,000-file modified Python range, identical signals):** plain `git diff` = `0.347 s`, batch `git cat-file --batch` scan = `1.346 s` (`+1.000 s` overhead above plain `git diff`), per-file `git show` scan = `135.491 s` (`100.6x` speedup). Cheaper substitute: parallel `git show` processes.
 - [x] Retain hunk boundaries in `parse_diff` and attach each signal's own before and after lines (at most three of each, with line numbers, formatted as `    - L<n>: <line>` / `    + L<n>: <line>`, omitting absent sides and marking whichever side lacks a trailing newline on a final-newline-only edit) under every committed and uncommitted signal in the report, without breaking `answered`/`unanswered` line parsing. Done when: `scripts/tests/test_weakening_scan.py` verifies exact numbered before/after lines and the 3-line cap across two distant changes in one file, named cases, `pyrightconfig.json` edits below line 3, final-newline-only edits, answered and unanswered committed signals, staged-then-edited-in-worktree, unstaged, and untracked signals (including a removed assertion reading the removed line in the report).
-- [ ] Commit: `weakening-scan: one batch read and the lines each signal saw (D00 T07 §5)`
+- [x] Commit: `weakening-scan: one batch read and the lines each signal saw (D00 T07 §5)`
 
 **Test checkpoint:** `python scripts/run-tests.py test_weakening_scan` exits 0, `pyright --pythonplatform Windows scripts` and `pyright --pythonplatform Linux scripts` report 0 errors, and with the lines removed from the report the removed-assertion test fails.
+
+> **Verified:** 2026-11-23 | §5 | 319e1fe90bf8f4b731f6e5b5475e676ea7750199
+> **Review:** `docs/reviews/d00-t07-s5.json`
 
 ## 6. Clone setup and pre-commit say what they did
 
