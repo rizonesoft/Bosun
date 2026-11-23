@@ -410,7 +410,7 @@ if ($AllowOutsideServers -and -not $Dotnet) { '-AllowOutsideServers can only be 
 if ($AllowOutsideServers -and ($RenderOnly -or $DecideOnly)) { '-AllowOutsideServers cannot be used with -RenderOnly or -DecideOnly'; exit 2 }
 if ($hasBaseline -and $DecideOnly) { '-Baseline cannot be used with -DecideOnly'; exit 2 }
 if ($hasBaseline -and [string]::IsNullOrWhiteSpace($Baseline)) { '-Baseline needs a label name'; exit 2 }
-if ($hasBaseline -and $Baseline -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Baseline '$Baseline' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
+if ($hasBaseline -and $Baseline -cnotmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Baseline '$Baseline' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
 if ($hasBaseline -and -not $RenderOnly -and $Label -and $Baseline -eq $Label) { "-Baseline cannot name the same label '$Label' being measured"; exit 2 }
 
 try { $data = Read-Data } catch { "$($_.Exception.Message)"; exit 1 }
@@ -425,7 +425,7 @@ if ($RenderOnly) {
   exit 0
 }
 if (-not $Label -or -not $Decision) { 'measure-build needs -Label <name> and -Decision <baseline|kept|dropped>, or -RenderOnly'; exit 2 }
-if ($Label -notmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Label '$Label' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
+if ($Label -cnotmatch '^[a-z0-9][a-z0-9-]{0,39}$') { "-Label '$Label' must be lowercase letters, digits and dashes, at most 40"; exit 2 }
 if ($DecideOnly) {
   Update-Data {
     param($current)

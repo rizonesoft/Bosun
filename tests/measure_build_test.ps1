@@ -778,6 +778,8 @@ exit $LASTEXITCODE
     @{ Name = '-Dotnet -Diagnose -DecideOnly'; Args = @('-OutDir', $cmpOut, '-Dotnet', '-Diagnose', '-DecideOnly', '-Label', 'hist-base', '-Decision', 'kept') }
     @{ Name = '-Baseline + -DecideOnly'; Args = @('-OutDir', $cmpOut, '-Baseline', 'hist-base', '-DecideOnly', '-Label', 'hist-base', '-Decision', 'kept') }
     @{ Name = 'empty -Baseline'; Args = @('-OutDir', $cmpOut, '-RenderOnly', '-Baseline', '') }
+    @{ Name = 'uppercase -Baseline'; Args = @('-OutDir', $cmpOut, '-RenderOnly', '-Baseline', 'UPPERCASE-BASE') }
+    @{ Name = 'uppercase -Label'; Args = @('-OutDir', $cmpOut, '-Label', 'UPPERCASE-LABEL', '-Decision', 'kept') }
     @{ Name = '-AllowOutsideServers without -Dotnet'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-AllowOutsideServers') }
   )
   $conflictOk = $true
