@@ -981,6 +981,18 @@ exit $LASTEXITCODE
     $realOutDir = Join-Path $dir 'real-diag-docs'
     New-Item -ItemType Directory -Path $realOutDir | Out-Null
     $env:BOSUN_SCRATCH = $realScratch
+    $getCheckoutTree = {
+      $coreRoot = Join-Path $repoRoot 'src\Bosun.Core'
+      @(foreach ($sub in 'bin', 'obj') {
+          $p = Join-Path $coreRoot $sub
+          if (Test-Path -LiteralPath $p) {
+            Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction Ignore | Sort-Object FullName | ForEach-Object {
+              "$($_.FullName)|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)"
+            }
+          }
+        }) -join "`n"
+    }
+    $checkoutBefore = & $getCheckoutTree
     $beforeRealStart = [DateTime]::UtcNow.AddSeconds(-2)
     $savedTestUiLang = $env:DOTNET_CLI_UI_LANGUAGE
     $env:DOTNET_CLI_UI_LANGUAGE = 'de-DE'
@@ -991,6 +1003,8 @@ exit $LASTEXITCODE
     } finally {
       if ($null -eq $savedTestUiLang) { Remove-Item Env:DOTNET_CLI_UI_LANGUAGE -ErrorAction Ignore } else { $env:DOTNET_CLI_UI_LANGUAGE = $savedTestUiLang }
     }
+    $checkoutAfter = & $getCheckoutTree
+    $checkoutUntouched = ($checkoutAfter -ceq $checkoutBefore)
     $realDiagJson = if (Test-Path -LiteralPath (Join-Path $realOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $realOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
     $realEntry = if ($realDiagJson) { $realDiagJson.labels | Where-Object label -eq 'core-diag' } else { $null }
     $realBinlogLeaf = if ($realEntry -and $realEntry.diagnostic) { $realEntry.diagnostic.binlog } else { '' }
@@ -999,6 +1013,23 @@ exit $LASTEXITCODE
     $realTop = if ($realEntry -and $realEntry.diagnostic) { @($realEntry.diagnostic.top_expensive) } else { @() }
     $realStepNames = if ($realEntry) { (@($realEntry.steps | ForEach-Object step) -join ',') } else { '' }
     $realDocText = if (Test-Path -LiteralPath (Join-Path $realOutDir 'build-performance.md')) { Get-Content -LiteralPath (Join-Path $realOutDir 'build-performance.md') -Raw } else { '' }
+    # Same-invocation isolation: parse the 4 timed sample lines printed BEFORE 'starting diagnostic build...' and verify stored JSON matches them exactly.
+    $preDiagPart = ($realDiagOut -split 'starting diagnostic build\.\.\.', 2)[0]
+    $preDiagSamples = @{}
+    foreach ($ln in ($preDiagPart -split "`r?`n")) {
+      if ($ln -match '^\s*(nothing to do|one file changed|fresh build) sample 1: ([0-9.]+) s, ([0-9.]+) MB\s*$') {
+        $preDiagSamples[$Matches[1]] = "$($Matches[2])|$($Matches[3])"
+      } elseif ($ln -match '^\s*one file changed, after a build sample 1/1: ([0-9.]+) s, ([0-9.]+) MB;') {
+        $preDiagSamples['one file changed, after a build'] = "$($Matches[1])|$($Matches[2])"
+      }
+    }
+    $samplesUnchanged = $realEntry -and $preDiagSamples.Count -eq 4 -and @($realEntry.steps).Count -eq 4
+    if ($samplesUnchanged) {
+      foreach ($st in $realEntry.steps) {
+        $fmt = "$(([double]$st.median_seconds).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture))|$(([double]$st.median_peak_mb).ToString('0.0', [Globalization.CultureInfo]::InvariantCulture))"
+        if (@($st.seconds).Count -ne 1 -or @($st.peak_mb).Count -ne 1 -or $preDiagSamples[$st.step] -ne $fmt) { $samplesUnchanged = $false; break }
+      }
+    }
     # Replay the retained binlog through MSBuild PerformanceSummary to verify exact names, kinds, and durations match.
     $binlogMatch = $false
     if ($realBinlogItem -and $realTop.Count -eq 3) {
@@ -1025,16 +1056,16 @@ exit $LASTEXITCODE
         ($realTop[1].name -eq $expectedTop[1].name -and $realTop[1].kind -eq $expectedTop[1].kind -and $realTop[1].ms -eq $expectedTop[1].ms) -and
         ($realTop[2].name -eq $expectedTop[2].name -and $realTop[2].kind -eq $expectedTop[2].kind -and $realTop[2].ms -eq $expectedTop[2].ms)
     }
-    Check 'real dotnet -Diagnose on isolated Bosun.Core produces a fresh binlog in scratch, 3 targets/tasks matching binlog replay, leaf-only persistence, and unchanged timed steps' (
+    Check 'real dotnet -Diagnose on isolated Bosun.Core produces a fresh binlog in scratch, 3 targets/tasks matching binlog replay, leaf-only persistence, untouched checkout outputs, and unchanged timed samples' (
       $realDiagExit -eq 0 -and $null -ne $realBinlogItem -and $realBinlogItem.Length -gt 0 -and
       $realBinlogItem.LastWriteTimeUtc -ge $beforeRealStart -and
       $realBinlogLeaf -notmatch '[\\/]' -and -not $realDocText.Contains($realScratch) -and
       $realDiagOut.Contains($realBinlog) -and
-      $binlogMatch -and
+      $binlogMatch -and $checkoutUntouched -and $samplesUnchanged -and
       $realDiagOut -match 'diagnostic binary log:' -and $realDiagOut -match 'top 3 expensive targets/tasks:' -and
       $realStepNames -eq 'nothing to do,one file changed,fresh build,one file changed, after a build' -and
       $realEntry.observed.outside_servers_allowed -eq $true
-    ) "(exit $realDiagExit, binlog $realBinlog, binlogMatch $binlogMatch, top $($realTop.Count), steps $realStepNames): $realDiagOut"
+    ) "(exit $realDiagExit, binlog $realBinlog, binlogMatch $binlogMatch, checkoutUntouched $checkoutUntouched, samplesUnchanged $samplesUnchanged, steps $realStepNames): $realDiagOut"
   } finally {
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
