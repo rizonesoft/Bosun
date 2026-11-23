@@ -252,3 +252,151 @@ Observed in the linger build: at most 1 worker node(s) at once; compiler server 
 | one file changed | 4.17 | 208.4 | 0.73 | 2.6 | 3.99, 4.72, 4.17 | 207.9, 210.5, 208.4 |
 | fresh build | 4.63 | 227.2 | 0.14 | 3.2 | 4.63, 4.51, 4.65 | 227.4, 224.2, 227.2 |
 | one file changed, after a build | 2.94 | 134.0 | 0.00 | 0.0 | 2.94 | 134.0 |
+
+## build-script-before (baseline)
+
+Before D00 T07 s8: scripts/build.ps1 configures CMake on every run (initialised developer shell, Release).
+
+Measured 2026-11-23T05:14:49Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 10 samples.
+
+Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
+
+Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment loaded each build.
+
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
+| nothing to do | 0.84 | 40.4 | 0.11 | 1.3 | 0.85, 0.88, 0.82, 0.77, 0.79, 0.85, 0.86, 0.85, 0.82, 0.79 | 40.9, 40.2, 39.9, 40.7, 40.3, 40.9, 39.6, 40.2, 40.8, 40.4 |
+| one file changed | 15.65 | 368.7 | 2.40 | 1.3 | 16.33, 15.68, 16.46, 14.06, 14.14, 14.69, 14.65, 15.92, 15.85, 15.62 | 369.2, 368.6, 368.7, 368.7, 368.6, 369.2, 368.8, 368.2, 367.9, 368.6 |
+| fresh build | 19.98 | 583.2 | 4.90 | 27.7 | 22.08, 20.51, 19.62, 20.61, 22.47, 19.67, 17.57, 20.30, 18.27, 18.39 | 581.2, 573.2, 583.2, 583.1, 591.9, 600.9, 597.6, 584.7, 577.5, 576.2 |
+
+## cmake-build-direct (baseline)
+
+Direct cmake --build --preset release in the same initialised developer shell (no PowerShell wrapper, no explicit configure).
+
+Measured 2026-11-23T05:17:30Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 10 samples.
+
+Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
+
+Configuration: mode `cmake --build --preset release` (direct); compiler launcher none; linker link.exe; developer environment initialised shell.
+
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
+| nothing to do | 0.05 | 7.4 | 0.01 | 0.2 | 0.05, 0.05, 0.06, 0.05, 0.06, 0.05, 0.05, 0.05, 0.05, 0.05 | 7.4, 7.6, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4, 7.4 |
+| one file changed | 15.48 | 336.0 | 2.07 | 1.3 | 14.92, 15.28, 16.07, 15.30, 16.36, 15.00, 16.18, 16.76, 15.65, 14.69 | 336.4, 336.3, 335.8, 335.7, 335.7, 336.3, 335.2, 336.2, 335.7, 336.5 |
+
+## skip-configure (kept)
+
+Kept (D00 T07 s8): scripts/build.ps1 skips explicit cmake configure when cache, Ninja manifests, and CMakePresets.json/CMakeUserPresets.json fingerprint are up to date (initialised developer shell, Release). Against build-script-before (10 samples each): nothing to do fell from 0.84 s (spread 0.11 s) to 0.66 s (spread 0.13 s), a -0.18 s saving exceeding the 0.13 s spread (remaining 0.61 s above cmake-build-direct 0.05 s is pwsh startup); one file changed moved from 15.65 s (spread 2.40 s) to 15.02 s (spread 4.79 s, within time spread) while peak memory fell from 368.7 MB to 343.2 MB (-25.4 MB, exceeding the 1.3 MB spread).
+
+Measured 2026-11-23T05:26:21Z on VENOM-PC: 11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz, 32 GB, 10 samples.
+
+Tools: cmake 4.3.1, ninja 1.13.2, cl 19.52.37029.0.
+
+Configuration: build arguments none; compiler launcher none; linker link.exe; developer environment loaded each build.
+
+| Step | Wall time (s) | Peak memory (MB) | Time spread (s) | Memory spread (MB) | Samples (s) | Samples (MB) |
+| ---- | ------------: | ---------------: | --------------: | -----------------: | ----------- | ------------ |
+| nothing to do | 0.66 | 40.1 | 0.13 | 1.9 | 0.77, 0.76, 0.68, 0.64, 0.64, 0.66, 0.66, 0.64, 0.67, 0.64 | 38.8, 39.2, 40.3, 40.0, 39.7, 39.9, 40.1, 40.7, 40.3, 40.6 |
+| one file changed | 15.02 | 343.2 | 4.79 | 1.2 | 16.53, 16.65, 15.21, 16.03, 15.78, 12.92, 11.86, 12.13, 13.50, 14.83 | 343.2, 342.7, 343.1, 343.7, 343.2, 343.9, 342.9, 343.2, 343.4, 343.1 |
+| fresh build | 18.34 | 534.4 | 2.76 | 18.4 | 20.08, 19.29, 18.58, 19.37, 17.70, 18.18, 18.01, 18.49, 17.74, 17.32 | 530.0, 533.5, 534.5, 541.6, 548.4, 544.0, 537.3, 534.3, 533.4, 531.8 |
+
+## Comparison against build-script-before
+
+Baseline target: native/native. Spread columns show `candidate / baseline`. A warning is shown when `max(candidate spread, baseline spread)` is wider than the median change.
+
+### baseline vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +3.06 s | 1.67 / 0.11 | +34.9 MB | 0.5 / 1.3 | ok |
+| one file changed | -6.53 s | 0.98 / 2.40 | -125.2 MB | 0.8 / 1.3 | ok |
+| fresh build | -8.29 s | 7.36 / 4.90 | -234.2 MB | 25.0 / 27.7 | ok |
+| python test suite | n/a | n/a | n/a | n/a | not in baseline 'build-script-before' |
+
+### env-cache vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +0.30 s | 0.36 / 0.11 | +2.8 MB | 0.6 / 1.3 | WARNING: time spread wider than change |
+| one file changed | -7.50 s | 1.78 / 2.40 | -129.6 MB | 1.2 / 1.3 | ok |
+| fresh build | -7.13 s | 6.90 / 4.90 | -240.3 MB | 9.3 / 27.7 | ok |
+
+### sccache vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +7.11 s | 0.66 / 0.11 | +34.2 MB | 3.1 / 1.3 | ok |
+| one file changed | -6.72 s | 0.72 / 2.40 | -218.2 MB | 3.5 / 1.3 | ok |
+| fresh build | -9.81 s | 0.74 / 4.90 | -351.0 MB | 10.4 / 27.7 | ok |
+
+### lld-link vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +2.28 s | 0.35 / 0.11 | +34.8 MB | 0.9 / 1.3 | ok |
+| one file changed | -7.76 s | 1.40 / 2.40 | -125.0 MB | 3.4 / 1.3 | ok |
+| fresh build | -9.70 s | 6.39 / 4.90 | -233.3 MB | 20.3 / 27.7 | ok |
+
+### env-cache-lld vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +0.55 s | 1.11 / 0.11 | +2.9 MB | 0.8 / 1.3 | WARNING: time spread wider than change |
+| one file changed | -6.13 s | 1.93 / 2.40 | -98.4 MB | 11.2 / 1.3 | ok |
+| fresh build | -11.25 s | 4.89 / 4.90 | -190.3 MB | 21.7 / 27.7 | ok |
+
+### final vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | +0.21 s | 0.24 / 0.11 | +2.8 MB | 0.9 / 1.3 | WARNING: time spread wider than change |
+| one file changed | -8.25 s | 3.15 / 2.40 | -106.1 MB | 1.7 / 1.3 | ok |
+| fresh build | -9.98 s | 2.02 / 4.90 | -203.3 MB | 9.9 / 27.7 | ok |
+
+### dotnet-cpu-2 vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-cpu-8 vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-cpu-all vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-cpu-1 vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-baseline vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-node-reuse vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-no-shared-compilation vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### dotnet-final vs build-script-before
+
+Not compared: incompatible target (dotnet/Bosun.slnx vs native/native).
+
+### cmake-build-direct vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | -0.79 s | 0.01 / 0.11 | -33.0 MB | 0.2 / 1.3 | ok |
+| one file changed | -0.17 s | 2.07 / 2.40 | -32.6 MB | 1.3 / 1.3 | WARNING: time spread wider than change |
+| fresh build | n/a | n/a | n/a | n/a | not in 'cmake-build-direct' |
+
+### skip-configure vs build-script-before
+
+| Step | Time delta (s) | Time spread (s) | Memory delta (MB) | Memory spread (MB) | Status |
+| ---- | -------------: | --------------: | ----------------: | -----------------: | ------ |
+| nothing to do | -0.18 s | 0.13 / 0.11 | -0.3 MB | 1.9 / 1.3 | WARNING: memory spread wider than change |
+| one file changed | -0.63 s | 4.79 / 2.40 | -25.4 MB | 1.2 / 1.3 | WARNING: time spread wider than change |
+| fresh build | -1.64 s | 2.76 / 4.90 | -48.8 MB | 18.4 / 27.7 | WARNING: time spread wider than change |

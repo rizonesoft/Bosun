@@ -744,6 +744,45 @@ exit $LASTEXITCODE
     @($pyStep.seconds).Count -eq 1 -and @($pyStep.peak_mb).Count -eq 1 -and
     $pyStep.spread_seconds -eq 0 -and $pyStep.spread_peak_mb -eq 0
   ) "(exit $pyRunExit, calls $pyRunCount, step $($pyStep | ConvertTo-Json -Compress)): $pyRunText"
+
+  # --- -DirectCmake: launches cmake --build --preset release directly with no PowerShell build-script wrapper ---
+  $cmBin = Join-Path $dir 'cm-bin'
+  New-Item -ItemType Directory -Path $cmBin | Out-Null
+  $cmCalls = Join-Path $cmBin 'cmake-calls.txt'
+  $cmTouch = Join-Path $cmBin 'app.cpp'
+  Set-Content -LiteralPath $cmTouch -Value '// direct cmake source'
+  Set-Content -LiteralPath (Join-Path $cmBin 'fake-cmake.ps1') -Value @"
+Add-Content -LiteralPath '$cmCalls' -Value (`$args -join ' ')
+`$stamp = '$cmBin\built.stamp'
+if (`$args -contains '--preset' -and `$args -notcontains '--build') { '-- Build files have been written'; exit 0 }
+`$touched = (Get-Item -LiteralPath '$cmTouch').LastWriteTimeUtc
+`$work = -not (Test-Path -LiteralPath `$stamp) -or `$touched -gt (Get-Item -LiteralPath `$stamp).LastWriteTimeUtc
+if (`$work) { '[1/1] Building CXX object'; Set-Content -LiteralPath `$stamp -Value 'ok' } else { 'ninja: no work to do.' }
+exit 0
+"@
+  Set-Content -LiteralPath (Join-Path $cmBin 'cmake.cmd') -Value "@pwsh -NoProfile -File `"%~dp0fake-cmake.ps1`" %*"
+  Set-Content -LiteralPath (Join-Path $cmBin 'cl.cmd') -Value '@exit /b 0'
+  $cmOutDir = Join-Path $dir 'cm-docs'
+  New-Item -ItemType Directory -Path $cmOutDir | Out-Null
+  $savedPathCm = $env:PATH
+  try {
+    $env:PATH = "$cmBin;$env:PATH"
+    $cmRunText = & pwsh -NoProfile -File $measure -DirectCmake -CmakeCommand (Join-Path $cmBin 'cmake.cmd') -TouchFile $cmTouch -OutDir $cmOutDir -Label 'direct-test' -Decision 'baseline' -Samples 3 2>&1 | Out-String
+    $cmRunExit = $LASTEXITCODE
+  } finally { $env:PATH = $savedPathCm }
+  $cmCallLines = @(Get-Content -LiteralPath $cmCalls -ErrorAction Ignore)
+  $cmJson = if (Test-Path -LiteralPath (Join-Path $cmOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $cmOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
+  $cmEntry = if ($cmJson) { $cmJson.labels | Where-Object label -eq 'direct-test' } else { $null }
+  $cmStepNames = if ($cmEntry) { (@($cmEntry.steps | ForEach-Object step) -join ',') } else { '' }
+  $cmMdText = if (Test-Path -LiteralPath (Join-Path $cmOutDir 'build-performance.md')) { Get-Content -LiteralPath (Join-Path $cmOutDir 'build-performance.md') -Raw } else { '' }
+  Check '-DirectCmake invokes cmake --build --preset release directly with 3 samples each of no-op and one-file builds' (
+    $cmRunExit -eq 0 -and $cmCallLines.Count -eq 8 -and $cmCallLines[0] -eq '--preset default' -and
+    -not (@($cmCallLines | Select-Object -Skip 1) | Where-Object { $_ -ne '--build --preset release' }) -and
+    $cmStepNames -eq 'nothing to do,one file changed' -and
+    @($cmEntry.steps[0].seconds).Count -eq 3 -and @($cmEntry.steps[1].seconds).Count -eq 3 -and
+    $cmEntry.configuration.direct_cmake -eq $true -and
+    $cmMdText -match 'mode `cmake --build --preset release` \(direct\)'
+  ) "(exit $cmRunExit, calls $($cmCallLines.Count), steps $cmStepNames): $cmRunText"
   # Comparing against hist-dotnet refuses numeric delta against single-proj-dotnet (different target).
   $cmpDnOut = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-dotnet' 2>&1 | Out-String
   Check '-Baseline refuses numeric delta between .NET solution and single-project .NET labels' (
@@ -835,6 +874,10 @@ exit $LASTEXITCODE
     @{ Name = 'uppercase -Baseline'; Args = @('-OutDir', $cmpOut, '-RenderOnly', '-Baseline', 'UPPERCASE-BASE') }
     @{ Name = 'uppercase -Label'; Args = @('-OutDir', $cmpOut, '-Label', 'UPPERCASE-LABEL', '-Decision', 'kept') }
     @{ Name = '-AllowOutsideServers without -Dotnet'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-AllowOutsideServers') }
+    @{ Name = '-DirectCmake + -Dotnet'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-DirectCmake', '-Dotnet') }
+    @{ Name = '-DirectCmake + -RenderOnly'; Args = @('-OutDir', $cmpOut, '-DirectCmake', '-RenderOnly') }
+    @{ Name = '-DirectCmake + -DecideOnly'; Args = @('-OutDir', $cmpOut, '-Label', 'hist-base', '-Decision', 'kept', '-DirectCmake', '-DecideOnly') }
+    @{ Name = '-DirectCmake + -BuildArgs'; Args = @('-OutDir', $cmpOut, '-Label', 'x', '-Decision', 'kept', '-DirectCmake', '-BuildArgs', 'Debug') }
   )
   $conflictOk = $true
   $conflictDetail = ''

@@ -38,17 +38,22 @@ foreach ($tool in 'cmake', 'ninja') {
 
 Push-Location -LiteralPath $repo
 try {
-  # A cache another generator or another checkout folder wrote can't be reused; the rest of build/ is kept.
+  # Configure only when -Fresh is asked, the cache is missing/stale, the Ninja manifest for this configuration is
+  # missing, or CMakePresets.json / CMakeUserPresets.json changed; CMake reconfigures by itself on CMakeLists.txt edits.
   . (Join-Path $PSScriptRoot 'lib\build-cache.ps1')
-  $other = Test-BuildCacheStale -Cache (Join-Path $repo 'build\CMakeCache.txt') -SourceDir $repo
-  $configure = @('--preset', 'default') + $(if ($Fresh -or $other) { '--fresh' })
-  cmake @configure
-  if ($LASTEXITCODE -and -not ($Fresh -or $other)) {
-    # The cache is derived data: one it cannot configure from is rebuilt once, and a real error fails again here.
-    'configuring from the existing cache failed: configuring fresh once'
-    cmake @configure --fresh
+  $config = if ($Debug) { 'Debug' } else { 'Release' }
+  $plan = Test-BuildNeedsConfigure -SourceDir $repo -Config $config -Fresh:$Fresh
+  if ($plan.Configure) {
+    $configure = @('--preset', 'default') + $(if ($plan.Fresh) { '--fresh' })
+    cmake @configure
+    if ($LASTEXITCODE -and -not $plan.Fresh) {
+      # The cache is derived data: one it cannot configure from is rebuilt once, and a real error fails again here.
+      'configuring from the existing cache failed: configuring fresh once'
+      cmake @configure --fresh
+    }
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    Write-PresetConfigureFingerprint -Path $plan.FingerprintPath -Fingerprint $plan.Fingerprint
   }
-  if ($LASTEXITCODE) { exit $LASTEXITCODE }
   cmake --build --preset $(if ($Debug) { 'debug' } else { 'release' })
   exit $LASTEXITCODE
 } finally { Pop-Location }

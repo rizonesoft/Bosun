@@ -73,6 +73,8 @@ param(
   [string]$TouchFile = (Join-Path (Split-Path $PSScriptRoot) 'src\app.cpp'),
   [string]$OutDir = (Join-Path (Split-Path $PSScriptRoot) 'docs'),
   [switch]$Dotnet,
+  [switch]$DirectCmake,
+  [string]$CmakeCommand = 'cmake',
   [switch]$Diagnose,
   [switch]$AllowOutsideServers,
   [string]$DotnetCommand = 'dotnet',
@@ -325,10 +327,10 @@ function ConvertTo-Document($data, [string]$BaselineLabel = '') {
       }
     } else {
       $parts = @(
-        "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })",
+        $(if ($configuration['direct_cmake']) { 'mode `cmake --build --preset release` (direct)' } else { "build arguments $(if ($buildArgs) { '`' + $buildArgs + '`' } else { 'none' })" }),
         "compiler launcher $(if ($configuration['launcher']) { $configuration['launcher'] } else { 'none' })",
         "linker $(if ($configuration['linker']) { $configuration['linker'] } else { 'not recorded' })",
-        "developer environment $(if ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
+        "developer environment $(if ($configuration['direct_cmake']) { 'initialised shell' } elseif ($configuration['env_cache']) { 'from cache' } else { 'loaded each build' })"
       )
       $out.Add("Configuration: $($parts -join '; ').")
       $out.Add('')
@@ -438,6 +440,9 @@ function Update-Data([scriptblock]$Change, [string]$BaselineLabel = '') {
 
 $hasBaseline = $PSBoundParameters.ContainsKey('Baseline')
 if ($RenderOnly -and $DecideOnly) { '-RenderOnly and -DecideOnly cannot be used together'; exit 2 }
+if ($DirectCmake -and $Dotnet) { '-DirectCmake and -Dotnet cannot be used together'; exit 2 }
+if ($DirectCmake -and ($RenderOnly -or $DecideOnly)) { '-DirectCmake cannot be used with -RenderOnly or -DecideOnly'; exit 2 }
+if ($DirectCmake -and $BuildArgs.Count -gt 0) { '-DirectCmake does not accept -BuildArgs'; exit 2 }
 if ($Diagnose -and -not $Dotnet) { '-Diagnose can only be used with -Dotnet'; exit 2 }
 if ($Diagnose -and ($RenderOnly -or $DecideOnly)) { '-Diagnose cannot be used with -RenderOnly or -DecideOnly'; exit 2 }
 if ($AllowOutsideServers -and -not $Dotnet) { '-AllowOutsideServers can only be used with -Dotnet'; exit 2 }
@@ -563,14 +568,44 @@ function Get-Median([double[]]$values) {
 # own. Its `exit` ends only that file, so its code is passed on.
 if ($Dotnet) { $boundParameters = $PSBoundParameters; . (Join-Path $PSScriptRoot 'lib\measure-dotnet.ps1'); exit $LASTEXITCODE }
 
-"measuring '$Label': one preparation build, then $Samples sample(s) of each step"
-Invoke-Build 'preparation build' @() $false $false 'preparation build'
-foreach ($n in 1..$Samples) { Invoke-Build 'nothing to do' @() $false $true "nothing to do sample $n/$Samples" }
-foreach ($n in 1..$Samples) {
-  (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
-  Invoke-Build 'one file changed' @() $true $true "one file changed sample $n/$Samples"
+if ($DirectCmake) {
+  $cmakePath = (Get-Command $CmakeCommand -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  if (-not $cmakePath) { "measure-build -DirectCmake could not find '$CmakeCommand' on PATH or at that path: nothing was stored"; exit 1 }
+  if (-not (Get-Command cl -CommandType Application -ErrorAction Ignore)) { 'measure-build -DirectCmake needs an initialised Visual Studio developer shell (cl is not on PATH): nothing was stored'; exit 1 }
+  function Invoke-DirectCmakeBuild([string]$Name, [bool]$WantWork, [bool]$Timed, [string]$DisplayName = '') {
+    $result = Invoke-Step $Name $cmakePath @('--build', '--preset', 'release') $DisplayName
+    $text = Get-Content -LiteralPath $log -Raw -ErrorAction Ignore
+    $idle = $text -match 'ninja: no work to do'
+    if ($Timed -and $WantWork -eq $idle) {
+      if ($WantWork) { "step '$Name' built nothing, so it is not that workload: nothing was stored" }
+      else { "step '$Name' compiled something, so it is not a build with nothing to do: nothing was stored" }
+      Remove-Item -LiteralPath $log -Force -ErrorAction Ignore
+      exit 1
+    }
+    if ($Timed) {
+      if (-not $results.Contains($Name)) { $results[$Name] = @() }
+      $results[$Name] += , $result
+      "  $Name sample $($results[$Name].Count): $(Format-Seconds $result.Seconds) s, $(Format-Number $result.PeakMB) MB"
+    }
+  }
+  "measuring '$Label' (direct cmake): untimed preparation, then $Samples sample(s) of no-op and one-file builds"
+  [void](Invoke-Step 'preparation configure' $cmakePath @('--preset', 'default') 'preparation configure')
+  Invoke-DirectCmakeBuild 'preparation build' $false $false 'preparation build'
+  foreach ($n in 1..$Samples) { Invoke-DirectCmakeBuild 'nothing to do' $false $true "nothing to do sample $n/$Samples" }
+  foreach ($n in 1..$Samples) {
+    (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
+    Invoke-DirectCmakeBuild 'one file changed' $true $true "one file changed sample $n/$Samples"
+  }
+} else {
+  "measuring '$Label': one preparation build, then $Samples sample(s) of each step"
+  Invoke-Build 'preparation build' @() $false $false 'preparation build'
+  foreach ($n in 1..$Samples) { Invoke-Build 'nothing to do' @() $false $true "nothing to do sample $n/$Samples" }
+  foreach ($n in 1..$Samples) {
+    (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
+    Invoke-Build 'one file changed' @() $true $true "one file changed sample $n/$Samples"
+  }
+  foreach ($n in 1..$Samples) { Invoke-Build 'fresh build' @('-Fresh') $true $true "fresh build sample $n/$Samples" }
 }
-foreach ($n in 1..$Samples) { Invoke-Build 'fresh build' @('-Fresh') $true $true "fresh build sample $n/$Samples" }
 if ($Tests) {
   # Single-run exception: the Python suite runs once regardless of -Samples (spread is 0.00 s / 0.0 MB).
   $result = Invoke-Step 'python test suite' 'python' @((Join-Path $PSScriptRoot 'run-tests.py')) 'python test suite'
@@ -617,10 +652,11 @@ $entry = [ordered]@{
   }
   tools         = $tools
   configuration = [ordered]@{
-    build_args = @($BuildArgs)
-    launcher   = if ($launcher) { Split-Path $launcher -Leaf } else { $null }
-    linker     = if ($linker) { Split-Path $linker -Leaf } else { $null }
-    env_cache  = $envCache
+    build_args   = @($BuildArgs)
+    direct_cmake = [bool]$DirectCmake
+    launcher     = if ($launcher) { Split-Path $launcher -Leaf } else { $null }
+    linker       = if ($linker) { Split-Path $linker -Leaf } else { $null }
+    env_cache    = $envCache
   }
   samples       = $Samples
   steps         = @($results.GetEnumerator() | ForEach-Object {

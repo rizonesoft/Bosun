@@ -1340,6 +1340,341 @@
           "median_peak_mb": 134.0
         }
       ]
+    },
+    {
+      "label": "build-script-before",
+      "target": "native",
+      "decision": "baseline",
+      "note": "Before D00 T07 s8: scripts/build.ps1 configures CMake on every run (initialised developer shell, Release).",
+      "date": "2026-11-23T05:14:49Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [],
+        "direct_cmake": false,
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": false
+      },
+      "samples": 10,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            0.85,
+            0.88,
+            0.82,
+            0.77,
+            0.79,
+            0.85,
+            0.86,
+            0.85,
+            0.82,
+            0.79
+          ],
+          "peak_mb": [
+            40.9,
+            40.2,
+            39.9,
+            40.7,
+            40.3,
+            40.9,
+            39.6,
+            40.2,
+            40.8,
+            40.4
+          ],
+          "median_seconds": 0.84,
+          "median_peak_mb": 40.35,
+          "spread_seconds": 0.11,
+          "spread_peak_mb": 1.3
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            16.33,
+            15.68,
+            16.46,
+            14.06,
+            14.14,
+            14.69,
+            14.65,
+            15.92,
+            15.85,
+            15.62
+          ],
+          "peak_mb": [
+            369.2,
+            368.6,
+            368.7,
+            368.7,
+            368.6,
+            369.2,
+            368.8,
+            368.2,
+            367.9,
+            368.6
+          ],
+          "median_seconds": 15.65,
+          "median_peak_mb": 368.65,
+          "spread_seconds": 2.4,
+          "spread_peak_mb": 1.3
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            22.08,
+            20.51,
+            19.62,
+            20.61,
+            22.47,
+            19.67,
+            17.57,
+            20.3,
+            18.27,
+            18.39
+          ],
+          "peak_mb": [
+            581.2,
+            573.2,
+            583.2,
+            583.1,
+            591.9,
+            600.9,
+            597.6,
+            584.7,
+            577.5,
+            576.2
+          ],
+          "median_seconds": 19.98,
+          "median_peak_mb": 583.15,
+          "spread_seconds": 4.9,
+          "spread_peak_mb": 27.7
+        }
+      ]
+    },
+    {
+      "label": "cmake-build-direct",
+      "target": "native",
+      "decision": "baseline",
+      "note": "Direct cmake --build --preset release in the same initialised developer shell (no PowerShell wrapper, no explicit configure).",
+      "date": "2026-11-23T05:17:30Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [],
+        "direct_cmake": true,
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": false
+      },
+      "samples": 10,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            0.05,
+            0.05,
+            0.06,
+            0.05,
+            0.06,
+            0.05,
+            0.05,
+            0.05,
+            0.05,
+            0.05
+          ],
+          "peak_mb": [
+            7.4,
+            7.6,
+            7.4,
+            7.4,
+            7.4,
+            7.4,
+            7.4,
+            7.4,
+            7.4,
+            7.4
+          ],
+          "median_seconds": 0.05,
+          "median_peak_mb": 7.4,
+          "spread_seconds": 0.01,
+          "spread_peak_mb": 0.2
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            14.92,
+            15.28,
+            16.07,
+            15.3,
+            16.36,
+            15.0,
+            16.18,
+            16.76,
+            15.65,
+            14.69
+          ],
+          "peak_mb": [
+            336.4,
+            336.3,
+            335.8,
+            335.7,
+            335.7,
+            336.3,
+            335.2,
+            336.2,
+            335.7,
+            336.5
+          ],
+          "median_seconds": 15.48,
+          "median_peak_mb": 336.0,
+          "spread_seconds": 2.07,
+          "spread_peak_mb": 1.3
+        }
+      ]
+    },
+    {
+      "label": "skip-configure",
+      "target": "native",
+      "decision": "kept",
+      "note": "Kept (D00 T07 s8): scripts/build.ps1 skips explicit cmake configure when cache, Ninja manifests, and CMakePresets.json/CMakeUserPresets.json fingerprint are up to date (initialised developer shell, Release). Against build-script-before (10 samples each): nothing to do fell from 0.84 s (spread 0.11 s) to 0.66 s (spread 0.13 s), a -0.18 s saving exceeding the 0.13 s spread (remaining 0.61 s above cmake-build-direct 0.05 s is pwsh startup); one file changed moved from 15.65 s (spread 2.40 s) to 15.02 s (spread 4.79 s, within time spread) while peak memory fell from 368.7 MB to 343.2 MB (-25.4 MB, exceeding the 1.3 MB spread).",
+      "date": "2026-11-23T05:26:21Z",
+      "machine": {
+        "name": "VENOM-PC",
+        "processor": "11th Gen Intel(R) Core(TM) i5-11600K @ 3.90GHz",
+        "memory_gb": 32
+      },
+      "tools": {
+        "cmake": "4.3.1",
+        "ninja": "1.13.2",
+        "cl": "19.52.37029.0",
+        "sccache": null,
+        "lld-link": null
+      },
+      "configuration": {
+        "build_args": [],
+        "direct_cmake": false,
+        "launcher": null,
+        "linker": "link.exe",
+        "env_cache": false
+      },
+      "samples": 10,
+      "steps": [
+        {
+          "step": "nothing to do",
+          "seconds": [
+            0.77,
+            0.76,
+            0.68,
+            0.64,
+            0.64,
+            0.66,
+            0.66,
+            0.64,
+            0.67,
+            0.64
+          ],
+          "peak_mb": [
+            38.8,
+            39.2,
+            40.3,
+            40.0,
+            39.7,
+            39.9,
+            40.1,
+            40.7,
+            40.3,
+            40.6
+          ],
+          "median_seconds": 0.66,
+          "median_peak_mb": 40.05,
+          "spread_seconds": 0.13,
+          "spread_peak_mb": 1.9
+        },
+        {
+          "step": "one file changed",
+          "seconds": [
+            16.53,
+            16.65,
+            15.21,
+            16.03,
+            15.78,
+            12.92,
+            11.86,
+            12.13,
+            13.5,
+            14.83
+          ],
+          "peak_mb": [
+            343.2,
+            342.7,
+            343.1,
+            343.7,
+            343.2,
+            343.9,
+            342.9,
+            343.2,
+            343.4,
+            343.1
+          ],
+          "median_seconds": 15.02,
+          "median_peak_mb": 343.2,
+          "spread_seconds": 4.79,
+          "spread_peak_mb": 1.2
+        },
+        {
+          "step": "fresh build",
+          "seconds": [
+            20.08,
+            19.29,
+            18.58,
+            19.37,
+            17.7,
+            18.18,
+            18.01,
+            18.49,
+            17.74,
+            17.32
+          ],
+          "peak_mb": [
+            530.0,
+            533.5,
+            534.5,
+            541.6,
+            548.4,
+            544.0,
+            537.3,
+            534.3,
+            533.4,
+            531.8
+          ],
+          "median_seconds": 18.34,
+          "median_peak_mb": 534.4,
+          "spread_seconds": 2.76,
+          "spread_peak_mb": 18.4
+        }
+      ]
     }
   ]
 }
