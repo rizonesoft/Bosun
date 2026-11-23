@@ -154,18 +154,72 @@ exit `$LASTEXITCODE
     (Get-Setting $husky) -eq '.husky' -and $rHuskyUndo2.Text -match 'refusing to undo') "(exit $($rHuskyUndo2.Exit): $($rHuskyUndo2.Text))"
 
   # Fresh clone with stale bosun.previousHooksPath seeded while core.hooksPath is unset, run twice via -Repo from $other,
-  # then execute the printed undo command and read both keys back absent.
+  # then execute the ACTUAL emitted undo command from $other and read both keys back absent (Completion Gap 4).
   $staleFresh = New-Clone 'stale-fresh'
   git -C $staleFresh config --local bosun.previousHooksPath 'stale/hooks'
   $rStale1 = Invoke-Setup @('-Repo', $staleFresh) -from $other
   $rStale2 = Invoke-Setup @('-Repo', $staleFresh) -from $other
-  $undoArgs = @('-Repo', $staleFresh, '-Undo')
-  $printedHasTarget = $rStale2.Text -match ([regex]::Escape("-Repo '$staleFresh' -Undo"))
-  $rStaleUndo = Invoke-Setup $undoArgs -from $other
+  $undoMatch = [regex]::Match($rStale2.Text, "hooks: to put it back: (pwsh '[^']+' -Repo '[^']+' -Undo)")
+  $emittedUndo = if ($undoMatch.Success) { $undoMatch.Groups[1].Value } else { '' }
+  $emittedExit = -1
+  if ($emittedUndo) {
+    Push-Location -LiteralPath $other
+    try {
+      $null = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -Command $emittedUndo 2>&1 | Out-String
+      $emittedExit = $LASTEXITCODE
+    } finally { Pop-Location }
+  }
   Check 'a fresh clone clears stale bosun.previousHooksPath, prints -Repo undo on second run, and -Undo clears both keys' ($rStale1.Exit -eq 0 -and
-    $rStale2.Exit -eq 0 -and $printedHasTarget -and $rStaleUndo.Exit -eq 0 -and
+    $rStale2.Exit -eq 0 -and $undoMatch.Success -and $emittedExit -eq 0 -and
     $null -eq (Get-Setting $staleFresh) -and $null -eq (Get-Setting $staleFresh 'bosun.previousHooksPath') -and
-    $null -eq (Get-Setting $other)) "(r1=$($rStale1.Exit), r2=$($rStale2.Exit), target=$printedHasTarget, undo=$($rStaleUndo.Exit), cur='$(Get-Setting $staleFresh)', prev='$(Get-Setting $staleFresh 'bosun.previousHooksPath')')"
+    $null -eq (Get-Setting $other)) "(r1=$($rStale1.Exit), r2=$($rStale2.Exit), emitted='$emittedUndo', exit=$emittedExit, cur='$(Get-Setting $staleFresh)', prev='$(Get-Setting $staleFresh 'bosun.previousHooksPath')')"
+
+  # Completion Gap 1: -Undo -Repo against a foreign repository (even one using core.hooksPath=scripts/hooks) refuses and leaves its config byte-identical.
+  $foreign = Join-Path $work 'foreign-repo'
+  git init -q -b main $foreign
+  New-Item -ItemType Directory -Force (Join-Path $foreign 'scripts/hooks') | Out-Null
+  Set-Content -LiteralPath (Join-Path $foreign 'scripts/hooks/pre-commit') -Value "#!/bin/sh`nexit 0"
+  git -C $foreign config --local core.hooksPath 'scripts/hooks'
+  $foreignCfgBefore = Get-Content -LiteralPath (Join-Path $foreign '.git\config') -Raw
+  $rForeignUndo = Invoke-Setup @('-Repo', $foreign, '-Undo')
+  Check '-Undo refuses a foreign repository using scripts/hooks and leaves its config byte-identical' ($rForeignUndo.Exit -eq 1 -and
+    $rForeignUndo.Text -match 'not a checkout of this repository' -and
+    (Get-Content -LiteralPath (Join-Path $foreign '.git\config') -Raw) -ceq $foreignCfgBefore) "(exit=$($rForeignUndo.Exit): $($rForeignUndo.Text))"
+
+  # Completion Gap 2: setup refuses to report success when a higher-scope override beats local core.hooksPath.
+  $overrideClone = New-Clone 'override-scope'
+  $savedGlobalCfg = $env:GIT_CONFIG_GLOBAL
+  $overrideGlobal = Join-Path $work 'gitconfig-override'
+  Set-Content -LiteralPath $overrideGlobal -Value "[user]`n`tname = T`n`temail = t@example.invalid`n[core]`n`thooksPath = global/hooks`n"
+  # Local beats global, whereas GIT_CONFIG_PARAMETERS (command scope) beats local!
+  $savedGitParams = $env:GIT_CONFIG_PARAMETERS
+  try {
+    $env:GIT_CONFIG_PARAMETERS = "'core.hooksPath=command/hooks'"
+    $rOverride = Invoke-Setup @('-Repo', $overrideClone)
+    Check 'setup refuses to report hooks active when a higher-scope core.hooksPath override wins' ($rOverride.Exit -eq 1 -and
+      $rOverride.Text -match 'overridden by command' -and $rOverride.Text -match 'command/hooks') "(exit=$($rOverride.Exit): $($rOverride.Text))"
+  } finally {
+    if ($null -eq $savedGitParams) { Remove-Item Env:GIT_CONFIG_PARAMETERS -ErrorAction Ignore } else { $env:GIT_CONFIG_PARAMETERS = $savedGitParams }
+    $env:GIT_CONFIG_GLOBAL = $savedGlobalCfg
+  }
+
+  # Completion Gap 3: a git config read error (exit 128) on bosun.previousHooksPath stops -Undo before touching core.hooksPath.
+  $errBin = Join-Path $work 'fake-git-readerr'
+  New-Item -ItemType Directory -Path $errBin | Out-Null
+  Set-Content -LiteralPath (Join-Path $errBin 'fake-git.ps1') -Value @"
+if ((`$args -contains 'config') -and (`$args -contains 'bosun.previousHooksPath') -and (`$args -contains '--get')) {
+  [Console]::Error.WriteLine('fatal: bad config line 1')
+  exit 128
+}
+& '$realGit' @args
+exit `$LASTEXITCODE
+"@
+  Set-Content -LiteralPath (Join-Path $errBin 'git.cmd') -Value "@`"$(Join-Path $PSHOME 'pwsh.exe')`" -NoProfile -File `"%~dp0fake-git.ps1`" %*"
+  $readErrClone = New-Clone 'read-err'
+  git -C $readErrClone config --local core.hooksPath 'scripts/hooks'
+  $rReadErr = Invoke-Setup @('-Repo', $readErrClone, '-Undo') -path "$errBin;$env:PATH"
+  Check '-Undo stops before unsetting core.hooksPath when reading bosun.previousHooksPath fails with exit 128' ($rReadErr.Exit -eq 1 -and
+    $rReadErr.Text -match 'could not read local git config' -and (Get-Setting $readErrClone) -eq 'scripts/hooks') "(exit=$($rReadErr.Exit), cur='$(Get-Setting $readErrClone)': $($rReadErr.Text))"
 
   # R1 F2 & F4: -Undo refuses to overwrite a hook path installed after setup, and paths with $ are single-quoted literally.
   $postChange = New-Clone 'clone-$team'
@@ -224,6 +278,16 @@ exit `$LASTEXITCODE
   $rNoOv = Invoke-Setup @('-Repo', $ovHost, '-OverlayUpdates', 'off')
   Check '-OverlayUpdates refuses when .private is absent' ($rNoOv.Exit -eq 1 -and $rNoOv.Text -match '\.private does not exist') "(exit $($rNoOv.Exit): $($rNoOv.Text))"
 
+  # Completion Gap 6 (part 1): -OverlayUpdates refuses an existing unmarked .private and leaves its config byte-identical.
+  $unmarkedHost = New-Clone 'ov-unmarked'
+  $unmarkedPriv = Join-Path $unmarkedHost '.private'
+  git init -q -b main $unmarkedPriv
+  $unmarkedCfgBefore = Get-Content -LiteralPath (Join-Path $unmarkedPriv '.git\config') -Raw
+  $rUnmarked = Invoke-Setup @('-Repo', $unmarkedHost, '-OverlayUpdates', 'off')
+  Check '-OverlayUpdates refuses an existing unmarked .private without changing its config' ($rUnmarked.Exit -eq 1 -and
+    $rUnmarked.Text -match 'not marked as the overlay' -and
+    (Get-Content -LiteralPath (Join-Path $unmarkedPriv '.git\config') -Raw) -ceq $unmarkedCfgBefore) "(exit $($rUnmarked.Exit): $($rUnmarked.Text))"
+
   $ovSeed = Join-Path $work 'ov-seed'
   git init -q -b main $ovSeed
   Set-Content -LiteralPath (Join-Path $ovSeed 'config.toml') -Value "key = 'v1'`n"
@@ -257,6 +321,12 @@ exit `$LASTEXITCODE
     Push-Location -LiteralPath $ovHost
     try { $pmOffOut = & $shExe (Join-Path $ovHost 'scripts/hooks/post-merge') 2>&1 | Out-String } finally { Pop-Location }
     $headAfterOff = (git -C $ovPrivate rev-parse HEAD).Trim()
+    # Completion Gap 6 (part 2): post-merge also honors Git boolean spellings such as 'off'.
+    git -C $ovPrivate config --local bosun.overlayAutoUpdate 'off'
+    Push-Location -LiteralPath $ovHost
+    try { $pmBoolOut = & $shExe (Join-Path $ovHost 'scripts/hooks/post-merge') 2>&1 | Out-String } finally { Pop-Location }
+    $headAfterBool = (git -C $ovPrivate rev-parse HEAD).Trim()
+    git -C $ovPrivate config --local bosun.overlayAutoUpdate 'false'
     $autoAfterOff = (git -C $ovPrivate config --local --get bosun.overlayAutoUpdate 2>$null).Trim()
     $markAfterOff = (git -C $ovPrivate config --local --get bosun.overlay 2>$null).Trim()
 
@@ -272,8 +342,9 @@ exit `$LASTEXITCODE
     Check '-OverlayUpdates off survives setup, pauses post-merge, on resumes it, and bosun.overlay + branch + stash + ignored survive' ($rOvSetup.Exit -eq 0 -and
       $rOvOff.Exit -eq 0 -and $rOvSetupAgain.Exit -eq 0 -and $autoAfterOff -eq 'false' -and
       $headAfterOff -eq $headBefore -and $pmOffOut -match 'automatic overlay updates are off' -and
+      $headAfterBool -eq $headBefore -and $pmBoolOut -match 'automatic overlay updates are off' -and
       $rOvOn.Exit -eq 0 -and $headAfterOn -eq $headRemote -and $pmOnOut -match 'updated to' -and
-      $markAfterOff -eq 'true' -and $markAfterOn -eq 'true' -and $hasBranch -and $hasStash -and $hasIgnored) "(off=$($rOvOff.Exit), auto='$autoAfterOff', hOff=$($headAfterOff -eq $headBefore), hOn=$($headAfterOn -eq $headRemote), mark=$markAfterOff/$markAfterOn, branch=$hasBranch, stash=$hasStash, ignored=$hasIgnored)"
+      $markAfterOff -eq 'true' -and $markAfterOn -eq 'true' -and $hasBranch -and $hasStash -and $hasIgnored) "(off=$($rOvOff.Exit), auto='$autoAfterOff', hOff=$($headAfterOff -eq $headBefore), hBool=$($headAfterBool -eq $headBefore), hOn=$($headAfterOn -eq $headRemote), mark=$markAfterOff/$markAfterOn, branch=$hasBranch, stash=$hasStash, ignored=$hasIgnored)"
   } finally { [Environment]::SetEnvironmentVariable('BOSUN_OVERLAY_REPO', $null) }
 
   # --- D00 T07 §6: -CheckPrePush (read-only; exercises every prerequisite refusal and one pass) ---
@@ -330,18 +401,24 @@ exit `$LASTEXITCODE
   git -C $ppClone update-index --chmod=+x scripts/hooks/pre-push
   Check '-CheckPrePush refuses when pre-push is not recorded executable in git' ($rPpMode.Exit -eq 1 -and $rPpMode.Text -match 'update-index --chmod=\+x') "(exit $($rPpMode.Exit): $($rPpMode.Text))"
 
-  # 8) pre-push missing/untracked -> refuses
-  git -C $ppClone rm -qf scripts/hooks/pre-push
+  # 8) pre-push untracked (present on disk, removed from index) AND missing from disk -> both refuse (Completion Gap 8)
+  git -C $ppClone rm -q --cached scripts/hooks/pre-push
+  $rPpUntracked = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Remove-Item -LiteralPath (Join-Path $ppClone 'scripts/hooks/pre-push') -Force
   $rPpMissing = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
   Set-Content -LiteralPath (Join-Path $ppClone 'scripts/hooks/pre-push') -Value "#!/bin/sh`nexit 0"
   git -C $ppClone add scripts/hooks/pre-push; git -C $ppClone update-index --chmod=+x scripts/hooks/pre-push
-  Check '-CheckPrePush refuses when pre-push is missing or untracked' ($rPpMissing.Exit -eq 1 -and $rPpMissing.Text -match 'pre-push is missing') "(exit $($rPpMissing.Exit): $($rPpMissing.Text))"
+  Check '-CheckPrePush refuses when pre-push is missing or untracked' ($rPpUntracked.Exit -eq 1 -and
+    $rPpUntracked.Text -match 'not tracked by git' -and $rPpMissing.Exit -eq 1 -and $rPpMissing.Text -match 'pre-push is missing') "(untracked=$($rPpUntracked.Exit), missing=$($rPpMissing.Exit))"
 
-  # 9) All present -> single pass, exit 0, zero mutations
+  # 9) All present -> single pass, exit 0, zero mutations (config, index hash, and .private unchanged)
+  $idxHashBefore = (Get-FileHash -LiteralPath (Join-Path $ppClone '.git\index') -Algorithm SHA256).Hash
   $rPpOk = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  $idxHashAfter = (Get-FileHash -LiteralPath (Join-Path $ppClone '.git\index') -Algorithm SHA256).Hash
   Check '-CheckPrePush passes with one line when hook and gitleaks are ready, leaving clone untouched' ($rPpOk.Exit -eq 0 -and
     $rPpOk.Text -match 'pre-push: ok' -and $rPpOk.Text -match '8\.30\.1' -and
     (Get-Content -LiteralPath (Join-Path $ppClone '.git\config') -Raw) -ceq $cfgBeforeCheck -and
+    $idxHashAfter -eq $idxHashBefore -and
     -not (Test-Path -LiteralPath (Join-Path $ppClone '.private'))) "(exit $($rPpOk.Exit): $($rPpOk.Text))"
 } finally {
   foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name]) }

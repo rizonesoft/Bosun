@@ -37,7 +37,8 @@ if [ "$(git -C "$overlay" config --local --get bosun.overlay 2>/dev/null)" != "t
     exit 0
 fi
 # Automatic pulls can be paused with `pwsh scripts/setup-clone.ps1 -OverlayUpdates off` without removing bosun.overlay.
-if [ "$(git -C "$overlay" config --local --get bosun.overlayAutoUpdate 2>/dev/null)" = "false" ]; then
+# Read with --type=bool so Git boolean spellings (false, off, no, 0) are all honored.
+if [ "$(git -C "$overlay" config --local --type=bool --get bosun.overlayAutoUpdate 2>/dev/null)" = "false" ]; then
     say "not pulled: automatic overlay updates are off (pwsh scripts/setup-clone.ps1 -OverlayUpdates on turns them back on)"
     exit 0
 fi

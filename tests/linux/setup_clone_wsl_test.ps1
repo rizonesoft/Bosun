@@ -75,11 +75,17 @@ try {
   git -C $clone add scripts/hooks/pre-commit scripts/hooks/post-merge scripts/hooks/pre-push scripts/leak-scan.ps1
   git -C $clone update-index --chmod=+x scripts/hooks/pre-commit scripts/hooks/post-merge scripts/hooks/pre-push
 
-  # 1) core.hooksPath unset -> refused without mutating clone
+  # 1) core.hooksPath unset and wrong (including wrong case) -> refused without mutating clone
+  $idxBefore = (Get-FileHash -LiteralPath (Join-Path $clone '.git/index') -Algorithm SHA256).Hash
   $r = Invoke-Check $clone $binWithGl
   $afterUnset = git -C $clone config --local --get core.hooksPath 2>$null
   Check 'Linux -CheckPrePush refuses unset core.hooksPath without mutating the clone' ($r.Exit -eq 1 -and
-    $r.Text -match 'core\.hooksPath' -and -not $afterUnset) "(exit $($r.Exit): $($r.Text))"
+    $r.Text -match 'core\.hooksPath' -and -not $afterUnset -and
+    (Get-FileHash -LiteralPath (Join-Path $clone '.git/index') -Algorithm SHA256).Hash -eq $idxBefore) "(exit $($r.Exit): $($r.Text))"
+
+  git -C $clone config --local core.hooksPath 'Scripts/Hooks'
+  $rCase = Invoke-Check $clone $binWithGl
+  Check 'Linux -CheckPrePush refuses wrong-case core.hooksPath' ($rCase.Exit -eq 1 -and $rCase.Text -match 'Scripts/Hooks') "(exit $($rCase.Exit): $($rCase.Text))"
 
   git -C $clone config --local core.hooksPath 'scripts/hooks'
   $cfgBefore = Get-Content -LiteralPath (Join-Path $clone '.git/config') -Raw
@@ -103,7 +109,19 @@ try {
   & $chmodExe -x (Join-Path $clone 'scripts/hooks/pre-push')
   $r = Invoke-Check $clone $binWithGl
   & $chmodExe +x (Join-Path $clone 'scripts/hooks/pre-push')
-  Check 'Linux -CheckPrePush refuses when pre-push lacks disk execute bit' ($r.Exit -eq 1 -and $r.Text -match 'chmod \+x scripts/hooks/pre-push') "(exit $($r.Exit): $($r.Text))"
+  Check 'Linux -CheckPrePush refuses when pre-push lacks disk execute bit' ($r.Exit -eq 1 -and $r.Text -match 'chmod \+x') "(exit $($r.Exit): $($r.Text))"
+
+  # 5b) pre-push non-executable in git index -> refuses
+  git -C $clone update-index --chmod=-x scripts/hooks/pre-push
+  $rMode = Invoke-Check $clone $binWithGl
+  git -C $clone update-index --chmod=+x scripts/hooks/pre-push
+  Check 'Linux -CheckPrePush refuses when pre-push is not executable in git index' ($rMode.Exit -eq 1 -and $rMode.Text -match 'update-index --chmod=\+x') "(exit $($rMode.Exit): $($rMode.Text))"
+
+  # 5c) pre-push untracked (present on disk) -> refuses
+  git -C $clone rm -q --cached scripts/hooks/pre-push
+  $rUntracked = Invoke-Check $clone $binWithGl
+  git -C $clone add scripts/hooks/pre-push; git -C $clone update-index --chmod=+x scripts/hooks/pre-push
+  Check 'Linux -CheckPrePush refuses when pre-push is untracked' ($rUntracked.Exit -eq 1 -and $rUntracked.Text -match 'not tracked by git') "(exit $($rUntracked.Exit): $($rUntracked.Text))"
 
   # 6) scripts/leak-scan.ps1 missing -> refuses
   Remove-Item -LiteralPath (Join-Path $clone 'scripts/leak-scan.ps1') -Force
@@ -111,11 +129,20 @@ try {
   Set-Content -LiteralPath (Join-Path $clone 'scripts/leak-scan.ps1') -Value '# stub'
   Check 'Linux -CheckPrePush refuses when scripts/leak-scan.ps1 is missing' ($r.Exit -eq 1 -and $r.Text -match 'leak-scan\.ps1 is missing') "(exit $($r.Exit): $($r.Text))"
 
-  # 7) All present -> single pass, exit 0, zero mutations
+  # 6b) git missing on Linux -> refuses with Linux guidance, never Git for Windows
+  $noGitDir = Join-Path $work 'bin-no-git'
+  New-Item -ItemType Directory -Path $noGitDir | Out-Null
+  $noGitOut = & $pwshExe -NoProfile -Command "`$env:PATH = '$noGitDir'; & '$setup' -Repo '$clone' -CheckPrePush" 2>&1 | Out-String
+  $noGitExit = $LASTEXITCODE
+  Check 'Linux missing-git refusal gives Linux guidance, never Git for Windows' ($noGitExit -eq 1 -and $noGitOut -match 'git is not on PATH' -and $noGitOut -notmatch 'Git for Windows') "(exit ${noGitExit}: $noGitOut)"
+
+  # 7) All present -> single pass, exit 0, zero mutations (config and index hash preserved)
+  $idxBeforeOk = (Get-FileHash -LiteralPath (Join-Path $clone '.git/index') -Algorithm SHA256).Hash
   $r = Invoke-Check $clone $binWithGl
   Check 'Linux -CheckPrePush passes with one line when hook, pwsh, and gitleaks are ready' ($r.Exit -eq 0 -and
     $r.Text -match 'pre-push: ok' -and $r.Text -match '8\.30\.1' -and
-    (Get-Content -LiteralPath (Join-Path $clone '.git/config') -Raw) -ceq $cfgBefore) "(exit $($r.Exit): $($r.Text))"
+    (Get-Content -LiteralPath (Join-Path $clone '.git/config') -Raw) -ceq $cfgBefore -and
+    (Get-FileHash -LiteralPath (Join-Path $clone '.git/index') -Algorithm SHA256).Hash -eq $idxBeforeOk) "(exit $($r.Exit): $($r.Text))"
 } finally {
   foreach ($name in $changed) { if ($null -eq $saved[$name]) { Remove-Item -LiteralPath "Env:$name" -ErrorAction Ignore } else { Set-Item -LiteralPath "Env:$name" -Value $saved[$name] } }
   Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Ignore

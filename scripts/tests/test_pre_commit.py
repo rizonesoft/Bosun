@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -236,6 +237,11 @@ class ProgressAndTiming(HookRepo):
                 )
                 (self.root / "docs" / "reviews" / "note.md").write_text(f"evidence {word}\n", encoding="utf-8")
                 self.git("add", "docs/reviews/note.md")
+                popen_kwargs = {}
+                if os.name == "nt":
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                else:
+                    popen_kwargs["start_new_session"] = True
                 proc = subprocess.Popen(
                     ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com",
                      "-c", "core.autocrlf=false", "-c", "core.hooksPath=scripts/hooks", "commit", "-qm", f"check {word}"],
@@ -243,6 +249,7 @@ class ProgressAndTiming(HookRepo):
                     stderr=subprocess.PIPE,
                     text=True,
                     encoding="utf-8",
+                    **popen_kwargs,
                 )
                 lines = []
                 saw_start = threading.Event()
@@ -264,7 +271,11 @@ class ProgressAndTiming(HookRepo):
                     rc = proc.wait(timeout=15)
                 finally:
                     if proc.poll() is None:
-                        proc.kill()
+                        if os.name == "nt":
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                           capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                        else:
+                            os.killpg(proc.pid, signal.SIGKILL)
                         proc.wait(timeout=5)
                     t.join(timeout=5)
                     if proc.stdout:

@@ -40,7 +40,10 @@ if ($hasOverlayUpdates -and $OverlayUpdates -notin @('off', 'on')) {
   Stop-Setup "-OverlayUpdates must be 'off' or 'on', not '$OverlayUpdates'"
 }
 
-if (-not (Get-Command git -CommandType Application -ErrorAction Ignore)) { Stop-Setup 'git is not on PATH: install Git for Windows, then run this again' }
+if (-not (Get-Command git -CommandType Application -ErrorAction Ignore)) {
+  $gitRemedy = if ($IsWindows) { 'install Git for Windows' } else { 'install git with your package manager' }
+  Stop-Setup "git is not on PATH: $gitRemedy, then run this again"
+}
 if (-not (Test-Path -LiteralPath $Repo -PathType Container)) { Stop-Setup "$Repo is not a folder" }
 $Repo = (Resolve-Path -LiteralPath $Repo).ProviderPath
 $top = git -C $Repo rev-parse --show-toplevel 2>$null
@@ -48,44 +51,63 @@ if ($LASTEXITCODE -or -not $top -or [IO.Path]::GetFullPath($top).TrimEnd('\', '/
   Stop-Setup "$Repo is not the top folder of a git checkout"
 }
 
-function Get-HooksPath {
-  $value = git -C $Repo config --local --get core.hooksPath 2>$null
-  if ($LASTEXITCODE) { $null } else { "$value" }
+function Get-LocalConfig([string]$key) {
+  $out = git -C $Repo config --local --get $key 2>&1
+  if ($LASTEXITCODE -eq 0) { return ($out | Out-String).TrimEnd("`r", "`n") }
+  if ($LASTEXITCODE -eq 1) { return $null }
+  Stop-Setup "could not read local git config '$key' (exit ${LASTEXITCODE}: $(($out | Out-String).Trim()))"
 }
-function Get-EffectiveHooksPath {
-  $value = git -C $Repo config --get core.hooksPath 2>$null
-  if ($LASTEXITCODE) { $null } else { "$value" }
+function Get-HooksPath { Get-LocalConfig 'core.hooksPath' }
+function Get-PreviousHooksPath { Get-LocalConfig 'bosun.previousHooksPath' }
+function Get-EffectiveHooksInfo {
+  $out = git -C $Repo config --show-scope --show-origin --get core.hooksPath 2>&1
+  if ($LASTEXITCODE -eq 1) { return [pscustomobject]@{ Present = $false; Scope = $null; Origin = $null; Value = $null } }
+  if ($LASTEXITCODE -ne 0) { Stop-Setup "could not read effective git config 'core.hooksPath' (exit ${LASTEXITCODE}: $(($out | Out-String).Trim()))" }
+  $line = ($out | Out-String).TrimEnd("`r", "`n")
+  $parts = $line -split "`t", 3
+  if ($parts.Count -eq 3) {
+    return [pscustomobject]@{ Present = $true; Scope = $parts[0]; Origin = $parts[1]; Value = $parts[2] }
+  }
+  return [pscustomobject]@{ Present = $true; Scope = 'unknown'; Origin = ''; Value = $line }
 }
-function Get-PreviousHooksPath {
-  $value = git -C $Repo config --local --get bosun.previousHooksPath 2>$null
-  if ($LASTEXITCODE) { $null } else { "$value" }
+function Test-UserExecutable([string]$filePath) {
+  if ($IsWindows) { return $true }
+  $sh = Get-Command sh -CommandType Application -ErrorAction Ignore | Select-Object -First 1
+  if ($sh) {
+    & $sh.Source -c 'test -x "$1"' _ $filePath 2>$null
+    return ($LASTEXITCODE -eq 0)
+  }
+  return [bool]((Get-Item -LiteralPath $filePath).UnixFileMode -band [IO.UnixFileMode]::UserExecute)
 }
 function Format-PsLiteral([string]$value) { "'" + ($value -replace "'", "''") + "'" }
+$scriptSelf = if ($PSCommandPath) { $PSCommandPath } else { Join-Path $PSScriptRoot 'setup-clone.ps1' }
 function Format-HooksUndo([string]$prev) {
   $gitUndo = if ([string]::IsNullOrEmpty($prev)) { '--unset core.hooksPath' } else { "core.hooksPath $(Format-PsLiteral $prev)" }
-  "hooks: to put it back: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -Undo (or: git -C $(Format-PsLiteral $Repo) config --local $gitUndo)"
+  "hooks: to put it back: pwsh $(Format-PsLiteral $scriptSelf) -Repo $(Format-PsLiteral $Repo) -Undo (or: git -C $(Format-PsLiteral $Repo) config --local $gitUndo)"
 }
 
 # --- -CheckPrePush (read-only diagnostic; makes zero changes to the checkout or .private) ---
 if ($CheckPrePush) {
-  $effective = Get-EffectiveHooksPath
-  if ($effective -cne $hooks) {
-    Stop-Setup "pre-push check failed: effective core.hooksPath is $(if ($null -eq $effective) { 'not set' } else { "'$effective'" }), expected '$hooks'; run 'pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo)' to enable hooks"
+  $eff = Get-EffectiveHooksInfo
+  if (-not $eff.Present -or $eff.Value -cne $hooks) {
+    $where = if (-not $eff.Present) { 'not set' } else { "'$($eff.Value)' (from $($eff.Scope) $($eff.Origin))" }
+    $fix = if (-not $eff.Present -or $eff.Scope -eq 'local') { "run 'pwsh $(Format-PsLiteral $scriptSelf) -Repo $(Format-PsLiteral $Repo)' to enable hooks" } else { "clear the $($eff.Scope) core.hooksPath override in $($eff.Origin)" }
+    Stop-Setup "pre-push check failed: effective core.hooksPath is $where, expected '$hooks'; $fix"
   }
   $prePushPath = Join-Path $Repo "$hooks/pre-push"
   if (-not (Test-Path -LiteralPath $prePushPath -PathType Leaf) -or -not "$(git -C $Repo ls-files -- "$hooks/pre-push" 2>$null)") {
-    Stop-Setup "pre-push check failed: $hooks/pre-push is missing from $Repo or not tracked by git; restore it (git checkout -- $hooks/pre-push)"
+    Stop-Setup "pre-push check failed: $hooks/pre-push is missing from $Repo or not tracked by git; restore it (git -C $(Format-PsLiteral $Repo) checkout HEAD -- $hooks/pre-push)"
   }
   $entry = "$(git -C $Repo ls-files -s -- "$hooks/pre-push" 2>$null)"
   $mode = ($entry -split '\s+', 2)[0]
   if ($mode -ne '100755') {
-    Stop-Setup "pre-push check failed: $hooks/pre-push is not recorded in git as an executable (mode '$mode'); run 'git update-index --chmod=+x $hooks/pre-push' and commit"
+    Stop-Setup "pre-push check failed: $hooks/pre-push is not recorded in git as an executable (mode '$mode'); run 'git -C $(Format-PsLiteral $Repo) update-index --chmod=+x $hooks/pre-push' and commit"
   }
-  if (-not $IsWindows -and -not ((Get-Item -LiteralPath $prePushPath).UnixFileMode -band [IO.UnixFileMode]::UserExecute)) {
-    Stop-Setup "pre-push check failed: $hooks/pre-push is not executable in this working copy; run 'chmod +x $hooks/pre-push'"
+  if (-not (Test-UserExecutable $prePushPath)) {
+    Stop-Setup "pre-push check failed: $hooks/pre-push is not executable by this user; run 'chmod +x $(Format-PsLiteral $prePushPath)'"
   }
   if (-not (Test-Path -LiteralPath (Join-Path $Repo 'scripts/leak-scan.ps1') -PathType Leaf)) {
-    Stop-Setup "pre-push check failed: scripts/leak-scan.ps1 is missing from $Repo; restore it (git checkout -- scripts/leak-scan.ps1)"
+    Stop-Setup "pre-push check failed: scripts/leak-scan.ps1 is missing from $Repo; restore it (git -C $(Format-PsLiteral $Repo) checkout HEAD -- scripts/leak-scan.ps1)"
   }
   if (-not (Get-Command pwsh -CommandType Application -ErrorAction Ignore)) {
     Stop-Setup "pre-push check failed: pwsh is not on PATH, so $hooks/pre-push cannot run scripts/leak-scan.ps1; add pwsh (PowerShell 7) to PATH"
@@ -117,6 +139,11 @@ if ($CheckPrePush) {
 
 # --- -Undo (restores bosun.previousHooksPath or unsets core.hooksPath without touching .private) ---
 if ($Undo) {
+  # Verify $Repo is a Bosun checkout before modifying its hooksPath (never unset another project's hooks).
+  if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType Leaf) -or
+      -not (Test-Path -LiteralPath (Join-Path $Repo 'scripts/run-guard.py') -PathType Leaf)) {
+    Stop-Setup "$Repo is not a checkout of this repository (missing $hooks/pre-commit or scripts/run-guard.py); refusing to modify its hooks"
+  }
   $current = Get-HooksPath
   $prev = Get-PreviousHooksPath
   if ($null -ne $prev) {
@@ -178,9 +205,9 @@ if ($hasOverlayUpdates) {
     Stop-Setup "bosun.overlayAutoUpdate was written as $want but does not read back as $want"
   }
   if ($OverlayUpdates -eq 'off') {
-    "overlay: automatic updates turned off (bosun.overlayAutoUpdate is false; bosun.overlay, local branches, stashes and ignored files were left untouched). To turn them back on: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -OverlayUpdates on"
+    "overlay: automatic updates turned off (bosun.overlayAutoUpdate is false; bosun.overlay, local branches, stashes and ignored files were left untouched). To turn them back on: pwsh $(Format-PsLiteral $scriptSelf) -Repo $(Format-PsLiteral $Repo) -OverlayUpdates on"
   } else {
-    "overlay: automatic updates turned on (bosun.overlayAutoUpdate is true; post-merge will fast-forward .private). To turn them off: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -OverlayUpdates off"
+    "overlay: automatic updates turned on (bosun.overlayAutoUpdate is true; post-merge will fast-forward .private). To turn them off: pwsh $(Format-PsLiteral $scriptSelf) -Repo $(Format-PsLiteral $Repo) -OverlayUpdates off"
   }
   exit 0
 }
@@ -191,25 +218,29 @@ if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/pre-commit") -PathType
 # The hooks this checkout relies on: each must be there and tracked, or setup would report what no hook does.
 foreach ($name in 'pre-commit', 'post-merge', 'pre-push') {
   if (-not (Test-Path -LiteralPath (Join-Path $Repo "$hooks/$name") -PathType Leaf) -or -not "$(git -C $Repo ls-files -- "$hooks/$name" 2>$null)") {
-    Stop-Setup "$hooks/$name is missing from $Repo or not tracked by git; restore it (git checkout -- $hooks/$name), then run this again"
+    Stop-Setup "$hooks/$name is missing from $Repo or not tracked by git; restore it (git -C $(Format-PsLiteral $Repo) checkout HEAD -- $hooks/$name), then run this again"
   }
 }
 # Git on Linux and WSL ignores a hook that is not executable, and what a clone there gets is the mode git recorded.
 foreach ($entry in @(git -C $Repo ls-files -s -- $hooks 2>$null)) {
   $mode, $null, $null, $path = "$entry" -split '\s+', 4
-  # Off Windows the file on disk must be executable too: git runs a hook by its file mode, not by what the index says.
+  # Off Windows the file on disk must be executable by the invoking user: git runs a hook by effective execute permission.
   $onDisk = Join-Path $Repo $path
-  if ($mode -eq '100755' -and -not $IsWindows -and (Test-Path -LiteralPath $onDisk) -and -not ((Get-Item -LiteralPath $onDisk).UnixFileMode -band [IO.UnixFileMode]::UserExecute)) {
-    Stop-Setup "$path is not executable in this working copy, so git would skip it: run 'chmod +x $path', then run this again"
+  if ($mode -eq '100755' -and (Test-Path -LiteralPath $onDisk) -and -not (Test-UserExecutable $onDisk)) {
+    Stop-Setup "$path is not executable by this user in this working copy, so git would skip it: run 'chmod +x $(Format-PsLiteral $onDisk)', then run this again"
   }
   if ($mode -ne '100755') {
-    Stop-Setup "$path is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git update-index --chmod=+x $path' and commit, then run this again"
+    Stop-Setup "$path is not recorded in git as an executable, so a clone on Linux or WSL would skip it: run 'git -C $(Format-PsLiteral $Repo) update-index --chmod=+x $path' and commit, then run this again"
   }
 }
 
 # --- hooks ---
 $before = Get-HooksPath
 if ($before -ceq $hooks) {
+  $eff = Get-EffectiveHooksInfo
+  if (-not $eff.Present -or $eff.Value -cne $hooks) {
+    Stop-Setup "core.hooksPath is '$hooks' locally, but overridden by $($eff.Scope) ($($eff.Origin)) to '$($eff.Value)'; clear that override so this checkout's hooks run"
+  }
   "hooks: already on (core.hooksPath is $hooks)"
   Format-HooksUndo (Get-PreviousHooksPath)
 } else {
@@ -227,7 +258,11 @@ if ($before -ceq $hooks) {
   }
   $said = git -C $Repo config --local core.hooksPath $hooks 2>&1
   if ($LASTEXITCODE) { Stop-Setup "could not set core.hooksPath ($(($said | Out-String).Trim())); it is still $(if ($null -eq $before) { 'not set' } else { "'$before'" })" }
-  if ((Get-HooksPath) -ne $hooks) { Stop-Setup "core.hooksPath was written but does not read back as $hooks" }
+  if ((Get-HooksPath) -cne $hooks) { Stop-Setup "core.hooksPath was written but does not read back as $hooks" }
+  $eff = Get-EffectiveHooksInfo
+  if (-not $eff.Present -or $eff.Value -cne $hooks) {
+    Stop-Setup "core.hooksPath was set to '$hooks' locally, but overridden by $($eff.Scope) ($($eff.Origin)) to '$($eff.Value)'; clear that override so this checkout's hooks run"
+  }
   'hooks: on.'
   Format-HooksUndo $before
 }
