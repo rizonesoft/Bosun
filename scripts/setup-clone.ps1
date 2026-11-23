@@ -33,9 +33,10 @@ $hooks = 'scripts/hooks'
 
 function Stop-Setup([string]$why) { "setup-clone: $why"; exit 1 }
 
-$modeCount = ([int][bool]$Undo) + ([int](-not [string]::IsNullOrEmpty($OverlayUpdates))) + ([int][bool]$CheckPrePush)
+$hasOverlayUpdates = $PSBoundParameters.ContainsKey('OverlayUpdates')
+$modeCount = ([int][bool]$Undo) + ([int]$hasOverlayUpdates) + ([int][bool]$CheckPrePush)
 if ($modeCount -gt 1) { Stop-Setup 'use at most one of -Undo, -OverlayUpdates, or -CheckPrePush' }
-if (-not [string]::IsNullOrEmpty($OverlayUpdates) -and $OverlayUpdates -notin @('off', 'on')) {
+if ($hasOverlayUpdates -and $OverlayUpdates -notin @('off', 'on')) {
   Stop-Setup "-OverlayUpdates must be 'off' or 'on', not '$OverlayUpdates'"
 }
 
@@ -59,16 +60,17 @@ function Get-PreviousHooksPath {
   $value = git -C $Repo config --local --get bosun.previousHooksPath 2>$null
   if ($LASTEXITCODE) { $null } else { "$value" }
 }
+function Format-PsLiteral([string]$value) { "'" + ($value -replace "'", "''") + "'" }
 function Format-HooksUndo([string]$prev) {
   $gitUndo = if ([string]::IsNullOrEmpty($prev)) { '--unset core.hooksPath' } else { "core.hooksPath `"$prev`"" }
-  "hooks: to put it back: pwsh scripts/setup-clone.ps1 -Repo `"$Repo`" -Undo (or: git -C `"$Repo`" config --local $gitUndo)"
+  "hooks: to put it back: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -Undo (or: git -C `"$Repo`" config --local $gitUndo)"
 }
 
 # --- -CheckPrePush (read-only diagnostic; makes zero changes to the checkout or .private) ---
 if ($CheckPrePush) {
   $effective = Get-EffectiveHooksPath
-  if ($effective -ne $hooks) {
-    Stop-Setup "pre-push check failed: effective core.hooksPath is $(if ($null -eq $effective) { 'not set' } else { "'$effective'" }), expected '$hooks'; run 'pwsh scripts/setup-clone.ps1 -Repo `"$Repo`"' to enable hooks"
+  if ($effective -cne $hooks) {
+    Stop-Setup "pre-push check failed: effective core.hooksPath is $(if ($null -eq $effective) { 'not set' } else { "'$effective'" }), expected '$hooks'; run 'pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo)' to enable hooks"
   }
   $prePushPath = Join-Path $Repo "$hooks/pre-push"
   if (-not (Test-Path -LiteralPath $prePushPath -PathType Leaf) -or -not "$(git -C $Repo ls-files -- "$hooks/pre-push" 2>$null)") {
@@ -118,10 +120,15 @@ if ($Undo) {
   $current = Get-HooksPath
   $prev = Get-PreviousHooksPath
   if ($null -ne $prev) {
-    "hooks: restoring core.hooksPath to '$prev' in $Repo"
-    $said = git -C $Repo config --local core.hooksPath $prev 2>&1
-    if ($LASTEXITCODE) { Stop-Setup "could not restore core.hooksPath to '$prev' ($(($said | Out-String).Trim()))" }
-    if ((Get-HooksPath) -ne $prev) { Stop-Setup "core.hooksPath was written as '$prev' but does not read back as '$prev'; bosun.previousHooksPath was kept" }
+    if ($current -cne $hooks -and $current -cne $prev) {
+      Stop-Setup "refusing to undo: core.hooksPath is $(if ($null -eq $current) { 'not set' } else { "'$current'" }) (neither '$hooks' nor saved '$prev'); leaving it untouched and keeping bosun.previousHooksPath"
+    }
+    if ($current -cne $prev) {
+      "hooks: restoring core.hooksPath to '$prev' in $Repo"
+      $said = git -C $Repo config --local core.hooksPath $prev 2>&1
+      if ($LASTEXITCODE) { Stop-Setup "could not restore core.hooksPath to '$prev' ($(($said | Out-String).Trim()))" }
+      if ((Get-HooksPath) -cne $prev) { Stop-Setup "core.hooksPath was written as '$prev' but does not read back as '$prev'; bosun.previousHooksPath was kept" }
+    }
     $said = git -C $Repo config --local --unset bosun.previousHooksPath 2>&1
     if ($LASTEXITCODE) { Stop-Setup "restored core.hooksPath to '$prev', but could not unset bosun.previousHooksPath ($(($said | Out-String).Trim()))" }
     if ($null -ne (Get-PreviousHooksPath)) { Stop-Setup "restored core.hooksPath to '$prev', but bosun.previousHooksPath still reads back" }
@@ -132,7 +139,7 @@ if ($Undo) {
     'hooks: already unset (core.hooksPath is not set)'
     exit 0
   }
-  if ($current -ne $hooks) {
+  if ($current -cne $hooks) {
     Stop-Setup "refusing to undo: core.hooksPath is '$current' (not '$hooks') and no bosun.previousHooksPath is stored"
   }
   $said = git -C $Repo config --local --unset core.hooksPath 2>&1
@@ -143,7 +150,7 @@ if ($Undo) {
 }
 
 # --- -OverlayUpdates off|on (pauses or resumes automatic post-merge pulls in .private without removing bosun.overlay) ---
-if ($OverlayUpdates) {
+if ($hasOverlayUpdates) {
   . (Join-Path $PSScriptRoot 'lib/overlay.ps1')
   $private = Join-Path $Repo '.private'
   if (-not (Test-Path -LiteralPath $private -PathType Container)) {
@@ -169,9 +176,9 @@ if ($OverlayUpdates) {
     Stop-Setup "bosun.overlayAutoUpdate was written as $want but does not read back as $want"
   }
   if ($OverlayUpdates -eq 'off') {
-    "overlay: automatic updates turned off (bosun.overlayAutoUpdate is false; bosun.overlay, local branches, stashes and ignored files were left untouched). To turn them back on: pwsh scripts/setup-clone.ps1 -Repo `"$Repo`" -OverlayUpdates on"
+    "overlay: automatic updates turned off (bosun.overlayAutoUpdate is false; bosun.overlay, local branches, stashes and ignored files were left untouched). To turn them back on: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -OverlayUpdates on"
   } else {
-    "overlay: automatic updates turned on (bosun.overlayAutoUpdate is true; post-merge will fast-forward .private). To turn them off: pwsh scripts/setup-clone.ps1 -Repo `"$Repo`" -OverlayUpdates off"
+    "overlay: automatic updates turned on (bosun.overlayAutoUpdate is true; post-merge will fast-forward .private). To turn them off: pwsh scripts/setup-clone.ps1 -Repo $(Format-PsLiteral $Repo) -OverlayUpdates off"
   }
   exit 0
 }
@@ -200,7 +207,7 @@ foreach ($entry in @(git -C $Repo ls-files -s -- $hooks 2>$null)) {
 
 # --- hooks ---
 $before = Get-HooksPath
-if ($before -eq $hooks) {
+if ($before -ceq $hooks) {
   "hooks: already on (core.hooksPath is $hooks)"
   Format-HooksUndo (Get-PreviousHooksPath)
 } else {

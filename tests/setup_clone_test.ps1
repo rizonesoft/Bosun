@@ -160,12 +160,22 @@ exit `$LASTEXITCODE
   $rStale1 = Invoke-Setup @('-Repo', $staleFresh) -from $other
   $rStale2 = Invoke-Setup @('-Repo', $staleFresh) -from $other
   $undoArgs = @('-Repo', $staleFresh, '-Undo')
-  $printedHasTarget = $rStale2.Text -match ([regex]::Escape("-Repo `"$staleFresh`" -Undo"))
+  $printedHasTarget = $rStale2.Text -match ([regex]::Escape("-Repo '$staleFresh' -Undo"))
   $rStaleUndo = Invoke-Setup $undoArgs -from $other
   Check 'a fresh clone clears stale bosun.previousHooksPath, prints -Repo undo on second run, and -Undo clears both keys' ($rStale1.Exit -eq 0 -and
     $rStale2.Exit -eq 0 -and $printedHasTarget -and $rStaleUndo.Exit -eq 0 -and
     $null -eq (Get-Setting $staleFresh) -and $null -eq (Get-Setting $staleFresh 'bosun.previousHooksPath') -and
     $null -eq (Get-Setting $other)) "(r1=$($rStale1.Exit), r2=$($rStale2.Exit), target=$printedHasTarget, undo=$($rStaleUndo.Exit), cur='$(Get-Setting $staleFresh)', prev='$(Get-Setting $staleFresh 'bosun.previousHooksPath')')"
+
+  # R1 F2 & F4: -Undo refuses to overwrite a hook path installed after setup, and paths with $ are single-quoted literally.
+  $postChange = New-Clone 'clone-$team'
+  git -C $postChange config --local core.hooksPath 'team-hooks'
+  $rPc1 = Invoke-Setup @('-Repo', $postChange)
+  git -C $postChange config --local core.hooksPath 'new-team-hooks'
+  $rPcUndo = Invoke-Setup @('-Repo', $postChange, '-Undo')
+  Check '-Undo refuses to overwrite a hooksPath installed after setup and quotes $ paths literally' ($rPc1.Exit -eq 0 -and
+    $rPc1.Text -match ([regex]::Escape("-Repo '$postChange' -Undo")) -and $rPcUndo.Exit -eq 1 -and
+    (Get-Setting $postChange) -eq 'new-team-hooks' -and (Get-Setting $postChange 'bosun.previousHooksPath') -eq 'team-hooks') "(r1=$($rPc1.Exit), undo=$($rPcUndo.Exit), cur='$(Get-Setting $postChange)', prev='$(Get-Setting $postChange 'bosun.previousHooksPath')')"
 
   # Dropped-write ordering: failing to save bosun.previousHooksPath leaves core.hooksPath untouched;
   # failing to restore core.hooksPath on -Undo keeps bosun.previousHooksPath so retry succeeds.
@@ -198,13 +208,14 @@ exit `$LASTEXITCODE
       (Get-Setting $orderClone) -eq '.custom' -and $null -eq (Get-Setting $orderClone 'bosun.previousHooksPath')) "(drop=$($rDropRestore.Exit), retry=$($rRetryUndo.Exit), cur='$(Get-Setting $orderClone)')"
   } finally { Remove-Item Env:BOSUN_TEST_DROP_KEY -ErrorAction Ignore }
 
-  # Conflicting modes and invalid -OverlayUpdates value refuse before any mutation
+  # Conflicting modes, invalid -OverlayUpdates, and explicitly empty -OverlayUpdates '' refuse before any mutation (R1 F3)
   $conflictClone = New-Clone 'conflict'
   $rConf1 = Invoke-Setup @('-Repo', $conflictClone, '-Undo', '-CheckPrePush')
   $rConf2 = Invoke-Setup @('-Repo', $conflictClone, '-OverlayUpdates', 'maybe')
-  Check 'conflicting mode switches and invalid -OverlayUpdates refuse before mutating the clone' ($rConf1.Exit -eq 1 -and
-    $rConf2.Exit -eq 1 -and $null -eq (Get-Setting $conflictClone) -and $rConf1.Text -match 'at most one' -and
-    $rConf2.Text -match "must be 'off' or 'on'") "(c1=$($rConf1.Exit), c2=$($rConf2.Exit))"
+  $rConf3 = Invoke-Setup @('-Repo', $conflictClone, '-OverlayUpdates', '')
+  Check 'conflicting mode switches and invalid or empty -OverlayUpdates refuse before mutating the clone' ($rConf1.Exit -eq 1 -and
+    $rConf2.Exit -eq 1 -and $rConf3.Exit -eq 1 -and $null -eq (Get-Setting $conflictClone) -and $rConf1.Text -match 'at most one' -and
+    $rConf2.Text -match "must be 'off' or 'on'" -and $rConf3.Text -match "must be 'off' or 'on'") "(c1=$($rConf1.Exit), c2=$($rConf2.Exit), c3=$($rConf3.Exit))"
 
   # --- D00 T07 §6: -OverlayUpdates off|on preserves bosun.overlay, branches, stashes, ignored files, and controls post-merge ---
   $ovHost = New-Clone 'ov-host'
@@ -281,10 +292,13 @@ exit `$LASTEXITCODE
     $rPpUnset.Text -match 'core\.hooksPath' -and $null -eq (Get-Setting $ppClone) -and
     -not (Test-Path -LiteralPath (Join-Path $ppClone '.private'))) "(exit $($rPpUnset.Exit): $($rPpUnset.Text))"
 
-  # 2) wrong effective core.hooksPath -> refuses
+  # 2) wrong effective core.hooksPath (including wrong case 'Scripts/Hooks', R1 F1) -> refuses
   git -C $ppClone config --local core.hooksPath '.other'
   $rPpWrong = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
-  Check '-CheckPrePush refuses a wrong effective core.hooksPath' ($rPpWrong.Exit -eq 1 -and $rPpWrong.Text -match '\.other') "(exit $($rPpWrong.Exit): $($rPpWrong.Text))"
+  git -C $ppClone config --local core.hooksPath 'Scripts/Hooks'
+  $rPpCase = Invoke-Setup @('-Repo', $ppClone, '-CheckPrePush') -path "$glBin;$env:PATH"
+  Check '-CheckPrePush refuses a wrong effective core.hooksPath' ($rPpWrong.Exit -eq 1 -and $rPpWrong.Text -match '\.other' -and
+    $rPpCase.Exit -eq 1 -and $rPpCase.Text -match 'Scripts/Hooks') "(wrong=$($rPpWrong.Exit), case=$($rPpCase.Exit): $($rPpCase.Text))"
 
   # Enable hooks properly
   git -C $ppClone config --local core.hooksPath 'scripts/hooks'
