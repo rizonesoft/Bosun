@@ -832,9 +832,11 @@ exit $LASTEXITCODE
     '-OutDir', $liveOutDir, '-Label', 'live-native', '-Decision', 'kept', '-Samples', '1'
   )
   $sawStartLive = $false
-  $liveTicks = 0
+  $startAt = -1.0
+  $tickReports = [Collections.Generic.List[object]]::new()
   $liveExitCode = -1
   try {
+    $liveClock = [Diagnostics.Stopwatch]::StartNew()
     $pollDeadline = (Get-Date).AddSeconds(60)
     $lineTask = $liveNative.Proc.StandardOutput.ReadLineAsync()
     while ((Get-Date) -lt $pollDeadline) {
@@ -842,8 +844,13 @@ exit $LASTEXITCODE
         $line = $lineTask.Result
         if ($null -eq $line) { break }
         if (-not $liveNative.Proc.HasExited) {
-          if ($line -match 'starting fresh build sample 1/1\.\.\.') { $sawStartLive = $true }
-          if ($line -match 'fresh build sample 1/1: still running \(\d+ s\)') { $liveTicks++ }
+          if (-not $sawStartLive -and $line -match 'starting fresh build sample 1/1\.\.\.') {
+            $sawStartLive = $true
+            $startAt = $liveClock.Elapsed.TotalSeconds
+          }
+          if ($line -match 'fresh build sample 1/1: still running \((\d+) s\)') {
+            $tickReports.Add([pscustomobject]@{ Sec = [int]$Matches[1]; At = $liveClock.Elapsed.TotalSeconds })
+          }
         }
         $lineTask = $liveNative.Proc.StandardOutput.ReadLineAsync()
       } elseif ($liveNative.Proc.HasExited) {
@@ -857,9 +864,12 @@ exit $LASTEXITCODE
   }
   $liveJson = Get-Content -LiteralPath (Join-Path $liveOutDir 'build-performance.json') -Raw | ConvertFrom-Json
   $liveFresh = ($liveJson.labels | Where-Object label -eq 'live-native').steps | Where-Object step -eq 'fresh build'
-  Check 'native 12-second step emits start line and >= 2 progress ticks live before exit with accurate duration' (
-    $liveExitCode -eq 0 -and $sawStartLive -and $liveTicks -ge 2 -and $liveFresh.median_seconds -ge 11.5 -and $liveFresh.median_seconds -le 25
-  ) "(exit $liveExitCode, startLive $sawStartLive, ticks $liveTicks, sec $($liveFresh.median_seconds))"
+  $nativeTicksOk = $tickReports.Count -ge 2 -and $tickReports[0].Sec -ge 5 -and $tickReports[1].Sec -ge 10 -and $tickReports[1].Sec -gt $tickReports[0].Sec -and
+    ($tickReports[0].At - $startAt) -ge 4.0 -and ($tickReports[0].At - $startAt) -le 9.5 -and
+    ($tickReports[1].At - $startAt) -ge 9.0 -and ($tickReports[1].At - $startAt) -le 16.0
+  Check 'native 12-second step emits start line and >= 2 distinct timely progress ticks live before exit with accurate duration' (
+    $liveExitCode -eq 0 -and $sawStartLive -and $nativeTicksOk -and $liveFresh.median_seconds -ge 11.5 -and $liveFresh.median_seconds -le 25
+  ) "(exit $liveExitCode, startLive $sawStartLive, ticks $(($tickReports | ForEach-Object { "$($_.Sec)s@$([Math]::Round($_.At - $startAt, 1))s" }) -join ','), sec $($liveFresh.median_seconds))"
 
   # .NET live progress: linger wait (6 s -> 5 s tick) and warm build (6 s -> 5 s tick), read while alive.
   Set-Content -LiteralPath (Join-Path $dn 'mode.txt') -Value 'slow-warm'
@@ -871,10 +881,13 @@ exit $LASTEXITCODE
     '-ResponseFile', $rsp, '-OutDir', $liveOutDir, '-LingerSeconds', '6', '-Samples', '1',
     '-Label', 'live-dotnet', '-Decision', 'kept', '-BuildArgs', 'nodeReuse:true'
   )
-  $sawLingerLive = $false
-  $sawWarmTickLive = $false
+  $lingerStartAt = -1.0
+  $lingerTickAt = -1.0
+  $warmStartAt = -1.0
+  $warmTickAt = -1.0
   $liveDnExitCode = -1
   try {
+    $dnClock = [Diagnostics.Stopwatch]::StartNew()
     $pollDeadline = (Get-Date).AddSeconds(90)
     $lineTask = $liveDotnet.Proc.StandardOutput.ReadLineAsync()
     while ((Get-Date) -lt $pollDeadline) {
@@ -882,8 +895,10 @@ exit $LASTEXITCODE
         $line = $lineTask.Result
         if ($null -eq $line) { break }
         if (-not $liveDotnet.Proc.HasExited) {
-          if ($line -match 'linger wait: still waiting \(5 s\)') { $sawLingerLive = $true }
-          if ($line -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $sawWarmTickLive = $true }
+          if ($lingerStartAt -lt 0 -and $line -match 'starting linger wait \(6 s\)\.\.\.') { $lingerStartAt = $dnClock.Elapsed.TotalSeconds }
+          if ($lingerTickAt -lt 0 -and $line -match 'linger wait: still waiting \(5 s\)') { $lingerTickAt = $dnClock.Elapsed.TotalSeconds }
+          if ($warmStartAt -lt 0 -and $line -match 'starting one file changed, after a build sample 1/1\.\.\.') { $warmStartAt = $dnClock.Elapsed.TotalSeconds }
+          if ($warmTickAt -lt 0 -and $line -match 'one file changed, after a build sample 1/1: still running \(5 s\)') { $warmTickAt = $dnClock.Elapsed.TotalSeconds }
         }
         $lineTask = $liveDotnet.Proc.StandardOutput.ReadLineAsync()
       } elseif ($liveDotnet.Proc.HasExited) {
@@ -896,9 +911,11 @@ exit $LASTEXITCODE
     Stop-LivePwsh $liveDotnet
   }
   foreach ($id in Get-WorkerIds) { $workerIds.Add($id) }
-  Check '.NET linger wait and slow warm build emit progress ticks live before exit' (
-    $liveDnExitCode -eq 0 -and $sawLingerLive -and $sawWarmTickLive
-  ) "(exit $liveDnExitCode, lingerLive $sawLingerLive, warmTickLive $sawWarmTickLive)"
+  $dnTicksOk = $lingerStartAt -ge 0 -and $lingerTickAt -ge 0 -and $warmStartAt -ge 0 -and $warmTickAt -ge 0 -and
+    ($lingerTickAt -lt $warmStartAt) -and (($lingerTickAt - $lingerStartAt) -ge 4.0) -and (($warmTickAt - $warmStartAt) -ge 4.0)
+  Check '.NET linger wait and slow warm build emit timely progress ticks in their own step windows live before exit' (
+    $liveDnExitCode -eq 0 -and $dnTicksOk
+  ) "(exit $liveDnExitCode, linger $([Math]::Round($lingerStartAt, 1))s->$([Math]::Round($lingerTickAt, 1))s, warm $([Math]::Round($warmStartAt, 1))s->$([Math]::Round($warmTickAt, 1))s)"
 
   # --- -Diagnose failure paths (against existing label, exit 1, prior data intact, partial binlog cleaned up) ---
   $diagScratch = Join-Path $dir 'diag-scratch'
@@ -975,16 +992,36 @@ exit $LASTEXITCODE
     $realTop = if ($realEntry -and $realEntry.diagnostic) { @($realEntry.diagnostic.top_expensive) } else { @() }
     $realStepNames = if ($realEntry) { (@($realEntry.steps | ForEach-Object step) -join ',') } else { '' }
     $realDocText = if (Test-Path -LiteralPath (Join-Path $realOutDir 'build-performance.md')) { Get-Content -LiteralPath (Join-Path $realOutDir 'build-performance.md') -Raw } else { '' }
-    Check 'real dotnet -Diagnose on isolated Bosun.Core produces a fresh binlog in scratch, 3 ranked targets/tasks, leaf-only persistence, and unchanged timed steps' (
+    # Replay the retained binlog through MSBuild PerformanceSummary to verify exact names, kinds, and durations match.
+    $binlogMatch = $false
+    if ($realBinlogItem -and $realTop.Count -eq 3) {
+      $replayLines = @(& dotnet msbuild $realBinlog -nologo -clp:PerformanceSummary 2>&1)
+      $sec = $null
+      $replayItems = [Collections.Generic.List[object]]::new()
+      foreach ($rl in $replayLines) {
+        if ($rl -match '^\s*Target Performance Summary:\s*$') { $sec = 'target'; continue }
+        if ($rl -match '^\s*Task Performance Summary:\s*$') { $sec = 'task'; continue }
+        if ($rl -match '^\s*\S.*Performance Summary:\s*$' -or $rl -match '^\s*Build (succeeded|FAILED)\.') { $sec = $null; continue }
+        if ($sec -and $rl -match '^\s*(\d+)\s+ms\s+(\S+)\s+(\d+)\s+calls\b') {
+          $replayItems.Add([pscustomobject]@{ kind = $sec; name = $Matches[2]; ms = [int]$Matches[1] })
+        }
+      }
+      $expectedTop = @($replayItems | Sort-Object @{ Expression = { $_.ms }; Descending = $true }, @{ Expression = { $_.name }; Ascending = $true }, @{ Expression = { $_.kind }; Ascending = $true } | Select-Object -First 3)
+      $binlogMatch = $expectedTop.Count -eq 3 -and
+        ($realTop[0].name -eq $expectedTop[0].name -and $realTop[0].kind -eq $expectedTop[0].kind -and $realTop[0].ms -eq $expectedTop[0].ms) -and
+        ($realTop[1].name -eq $expectedTop[1].name -and $realTop[1].kind -eq $expectedTop[1].kind -and $realTop[1].ms -eq $expectedTop[1].ms) -and
+        ($realTop[2].name -eq $expectedTop[2].name -and $realTop[2].kind -eq $expectedTop[2].kind -and $realTop[2].ms -eq $expectedTop[2].ms)
+    }
+    Check 'real dotnet -Diagnose on isolated Bosun.Core produces a fresh binlog in scratch, 3 targets/tasks matching binlog replay, leaf-only persistence, and unchanged timed steps' (
       $realDiagExit -eq 0 -and $null -ne $realBinlogItem -and $realBinlogItem.Length -gt 0 -and
       $realBinlogItem.LastWriteTimeUtc -ge $beforeRealStart -and
       $realBinlogLeaf -notmatch '[\\/]' -and -not $realDocText.Contains($realScratch) -and
       $realDiagOut.Contains($realBinlog) -and
-      $realTop.Count -eq 3 -and $realTop[0].ms -ge $realTop[1].ms -and $realTop[1].ms -ge $realTop[2].ms -and
+      $binlogMatch -and
       $realDiagOut -match 'diagnostic binary log:' -and $realDiagOut -match 'top 3 expensive targets/tasks:' -and
       $realStepNames -eq 'nothing to do,one file changed,fresh build,one file changed, after a build' -and
       $realEntry.observed.outside_servers_allowed -eq $true
-    ) "(exit $realDiagExit, binlog $realBinlog, top $($realTop.Count), steps $realStepNames): $realDiagOut"
+    ) "(exit $realDiagExit, binlog $realBinlog, binlogMatch $binlogMatch, top $($realTop.Count), steps $realStepNames): $realDiagOut"
   } finally {
     if ($null -eq $savedScratch) { Remove-Item Env:BOSUN_SCRATCH -ErrorAction Ignore } else { $env:BOSUN_SCRATCH = $savedScratch }
   }
