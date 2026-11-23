@@ -589,6 +589,8 @@ if ($DirectCmake) {
     }
   }
   "measuring '$Label' (direct cmake): untimed preparation, then $Samples sample(s) of no-op and one-file builds"
+  # Direct CMake configures build/ outside scripts/build.ps1, so invalidate the wrapper's preset fingerprint first.
+  Remove-Item -LiteralPath (Join-Path $repo 'build\preset-configure.sha256') -Force -ErrorAction Ignore
   [void](Invoke-Step 'preparation configure' $cmakePath @('--preset', 'default') 'preparation configure')
   Invoke-DirectCmakeBuild 'preparation build' $false $false 'preparation build'
   foreach ($n in 1..$Samples) { Invoke-DirectCmakeBuild 'nothing to do' $false $true "nothing to do sample $n/$Samples" }

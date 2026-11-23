@@ -746,15 +746,23 @@ exit $LASTEXITCODE
   ) "(exit $pyRunExit, calls $pyRunCount, step $($pyStep | ConvertTo-Json -Compress)): $pyRunText"
 
   # --- -DirectCmake: launches cmake --build --preset release directly with no PowerShell build-script wrapper ---
+  $cmRepo = Join-Path $dir 'cm-repo'
+  New-Item -ItemType Directory -Path (Join-Path $cmRepo 'scripts'), (Join-Path $cmRepo 'build') | Out-Null
+  Copy-Item -LiteralPath $measure -Destination (Join-Path $cmRepo 'scripts')
+  Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\scripts\lib') -Destination (Join-Path $cmRepo 'scripts') -Recurse
+  $cmFp = Join-Path $cmRepo 'build\preset-configure.sha256'
+  Set-Content -LiteralPath $cmFp -Value 'stale-before-direct'
+  $cmMeasure = Join-Path $cmRepo 'scripts\measure-build.ps1'
   $cmBin = Join-Path $dir 'cm-bin'
   New-Item -ItemType Directory -Path $cmBin | Out-Null
   $cmCalls = Join-Path $cmBin 'cmake-calls.txt'
+  $cmFpSeen = Join-Path $cmBin 'fp-seen.txt'
   $cmTouch = Join-Path $cmBin 'app.cpp'
   Set-Content -LiteralPath $cmTouch -Value '// direct cmake source'
   Set-Content -LiteralPath (Join-Path $cmBin 'fake-cmake.ps1') -Value @"
 Add-Content -LiteralPath '$cmCalls' -Value (`$args -join ' ')
 `$stamp = '$cmBin\built.stamp'
-if (`$args -contains '--preset' -and `$args -notcontains '--build') { '-- Build files have been written'; exit 0 }
+if (`$args -contains '--preset' -and `$args -notcontains '--build') { Set-Content -LiteralPath '$cmFpSeen' -Value (Test-Path -LiteralPath '$cmFp'); '-- Build files have been written'; exit 0 }
 `$touched = (Get-Item -LiteralPath '$cmTouch').LastWriteTimeUtc
 `$work = -not (Test-Path -LiteralPath `$stamp) -or `$touched -gt (Get-Item -LiteralPath `$stamp).LastWriteTimeUtc
 if (`$work) { '[1/1] Building CXX object'; Set-Content -LiteralPath `$stamp -Value 'ok' } else { 'ninja: no work to do.' }
@@ -767,22 +775,24 @@ exit 0
   $savedPathCm = $env:PATH
   try {
     $env:PATH = "$cmBin;$env:PATH"
-    $cmRunText = & pwsh -NoProfile -File $measure -DirectCmake -CmakeCommand (Join-Path $cmBin 'cmake.cmd') -TouchFile $cmTouch -OutDir $cmOutDir -Label 'direct-test' -Decision 'baseline' -Samples 3 2>&1 | Out-String
+    $cmRunText = & pwsh -NoProfile -File $cmMeasure -DirectCmake -CmakeCommand (Join-Path $cmBin 'cmake.cmd') -TouchFile $cmTouch -OutDir $cmOutDir -Label 'direct-test' -Decision 'baseline' -Samples 3 2>&1 | Out-String
     $cmRunExit = $LASTEXITCODE
   } finally { $env:PATH = $savedPathCm }
   $cmCallLines = @(Get-Content -LiteralPath $cmCalls -ErrorAction Ignore)
+  $cmFpAtConfigure = (Get-Content -LiteralPath $cmFpSeen -Raw -ErrorAction Ignore).Trim()
   $cmJson = if (Test-Path -LiteralPath (Join-Path $cmOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $cmOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
   $cmEntry = if ($cmJson) { $cmJson.labels | Where-Object label -eq 'direct-test' } else { $null }
   $cmStepNames = if ($cmEntry) { (@($cmEntry.steps | ForEach-Object step) -join ',') } else { '' }
   $cmMdText = if (Test-Path -LiteralPath (Join-Path $cmOutDir 'build-performance.md')) { Get-Content -LiteralPath (Join-Path $cmOutDir 'build-performance.md') -Raw } else { '' }
-  Check '-DirectCmake invokes cmake --build --preset release directly with 3 samples each of no-op and one-file builds' (
-    $cmRunExit -eq 0 -and $cmCallLines.Count -eq 8 -and $cmCallLines[0] -eq '--preset default' -and
+  Check '-DirectCmake invalidates preset-configure.sha256 before preparation and invokes cmake --build --preset release directly' (
+    $cmRunExit -eq 0 -and $cmFpAtConfigure -eq 'False' -and -not (Test-Path -LiteralPath $cmFp) -and
+    $cmCallLines.Count -eq 8 -and $cmCallLines[0] -eq '--preset default' -and
     -not (@($cmCallLines | Select-Object -Skip 1) | Where-Object { $_ -ne '--build --preset release' }) -and
     $cmStepNames -eq 'nothing to do,one file changed' -and
     @($cmEntry.steps[0].seconds).Count -eq 3 -and @($cmEntry.steps[1].seconds).Count -eq 3 -and
     $cmEntry.configuration.direct_cmake -eq $true -and
     $cmMdText -match 'mode `cmake --build --preset release` \(direct\)'
-  ) "(exit $cmRunExit, calls $($cmCallLines.Count), steps $cmStepNames): $cmRunText"
+  ) "(exit $cmRunExit, fpAtConfigure $cmFpAtConfigure, calls $($cmCallLines.Count), steps $cmStepNames): $cmRunText"
   # Comparing against hist-dotnet refuses numeric delta against single-proj-dotnet (different target).
   $cmpDnOut = & pwsh -NoProfile -File $measure -OutDir $cmpOut -RenderOnly -Baseline 'hist-dotnet' 2>&1 | Out-String
   Check '-Baseline refuses numeric delta between .NET solution and single-project .NET labels' (
