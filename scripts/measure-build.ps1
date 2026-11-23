@@ -450,7 +450,7 @@ if ($hasBaseline -and -not ($data['labels'] | Where-Object { $_['label'] -eq $Ba
 # Decided once, for the mark and for the run (round 2 of D00 T03 §32).
 $willQueue = -not $env:BOSUN_MEASURE_QUEUED -and [bool](Get-Command bosun -CommandType Application -ErrorAction Ignore)
 $log = Join-Path ([IO.Path]::GetTempPath()) "bosun-measure-$PID.log"
-$markOutput = if ($willQueue) { 'queued through bosun run: the measurement it starts has a mark of its own, naming its log' } else { "$log, with its .linger and .warm logs beside it" }
+$markOutput = if ($willQueue) { 'queued through bosun run: the measurement it starts has a mark of its own, naming its log' } else { "$log, with its .linger, .warm-<sample> and .diagnose logs beside it" }
 try { $gateMark = Enter-GateMark "measure-build $Label" $markOutput } catch { "measure-build: $($_.Exception.Message): nothing was measured"; exit 1 }
 try {
 # Take a turn in the queue, once: the wait for a slot happens here, before any step is timed.

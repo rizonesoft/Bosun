@@ -325,7 +325,13 @@ if ($Diagnose) {
     $before = Get-OutputTimes
     (Get-Item -LiteralPath $TouchFile).LastWriteTimeUtc = [DateTime]::UtcNow
     $diagArgs = @('build', $Solution, '-nologo') + $msbuildArgs + @("-bl:$binlogPath", '-clp:PerformanceSummary')
-    [void](Invoke-Step 'diagnostic build' $dotnetPath $diagArgs 'diagnostic build' $diagLog)
+    $savedUiLang = $env:DOTNET_CLI_UI_LANGUAGE
+    $env:DOTNET_CLI_UI_LANGUAGE = 'en'
+    try {
+      [void](Invoke-Step 'diagnostic build' $dotnetPath $diagArgs 'diagnostic build' $diagLog)
+    } finally {
+      if ($null -eq $savedUiLang) { Remove-Item Env:DOTNET_CLI_UI_LANGUAGE -ErrorAction Ignore } else { $env:DOTNET_CLI_UI_LANGUAGE = $savedUiLang }
+    }
     Assert-NoOutsideServers "step 'diagnostic build'"
     Assert-BuildEvidence 'diagnostic build' 'first' $before
     if (-not (Test-Path -LiteralPath $binlogPath) -or (Get-Item -LiteralPath $binlogPath).Length -le 0) {

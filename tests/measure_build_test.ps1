@@ -133,7 +133,7 @@ exit 0
       $seen = @(Get-Content -LiteralPath (Join-Path $dir 'marks.txt') -ErrorAction Ignore)
 # D00 T03 §32: a measurement that measures here names its log, and the .linger and .warm logs beside it.
 $outputs = @(Get-Content -LiteralPath (Join-Path $dir 'mark-outputs.txt') -ErrorAction Ignore)
-Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($outputs | Where-Object { $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger and \.warm logs beside it$' })) "($($outputs | Select-Object -First 1))"
+Check "the measurement's mark names its log" ($outputs.Count -ge 1 -and -not ($outputs | Where-Object { $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger, \.warm-<sample> and \.diagnose logs beside it$' })) "($($outputs | Select-Object -First 1))"
       $left = @(Get-ChildItem -LiteralPath $marks -Filter '*.json' -ErrorAction Ignore)
       $exitKept = if ($case.Pass) { $code -eq 0 } else { $code -eq 1 -and $text -match "step 'fresh build'" }
       Check "the measurement's mark is there while each build runs and gone after a $(if ($case.Pass) { 'pass' } else { 'failure' }), its exit kept" ($exitKept -and $seen.Count -ge 2 -and -not ($seen | Where-Object { $_ -ne '1' }) -and -not $left) "(exit $code, seen: $($seen -join ','), left: $($left.Count))"
@@ -302,7 +302,7 @@ exit $LASTEXITCODE
     $run = Invoke-Measure 'ok' @('-Label', 'queued', '-Decision', 'kept', '-Samples', '1', '-Note', 'a note with spaces', '-LockSeconds', '7', '-TimeoutSeconds', '99', '-BuildArgs', 'Sccache')
   } finally { $env:PATH = $savedPath; $env:BOSUN_MEASURE_QUEUED = '1'; Remove-Item Env:BOSUN_GATE_MARK_DIR -ErrorAction Ignore }
   $queuedOutputs = @(Get-Content -LiteralPath (Join-Path $dir 'mark-outputs.txt') -ErrorAction Ignore)
-  Check "a queued measurement's outer mark says it queued, and its child's names its log" ($queuedOutputs.Count -ge 1 -and -not ($queuedOutputs | Where-Object { $_ -notmatch 'queued through bosun run' -or $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger and \.warm logs beside it' })) "($($queuedOutputs | Select-Object -First 1))"
+  Check "a queued measurement's outer mark says it queued, and its child's names its log" ($queuedOutputs.Count -ge 1 -and -not ($queuedOutputs | Where-Object { $_ -notmatch 'queued through bosun run' -or $_ -notmatch 'bosun-measure-\d+\.log, with its \.linger, \.warm-<sample> and \.diagnose logs beside it' })) "($($queuedOutputs | Select-Object -First 1))"
   $calls = @(Get-Content -LiteralPath (Join-Path $bin 'bosun-calls.txt') -ErrorAction Ignore)
   $data = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
   $queued = $data.labels | Where-Object label -eq 'queued'
@@ -981,9 +981,15 @@ exit $LASTEXITCODE
     New-Item -ItemType Directory -Path $realOutDir | Out-Null
     $env:BOSUN_SCRATCH = $realScratch
     $beforeRealStart = [DateTime]::UtcNow.AddSeconds(-2)
-    $realDiagOut = & pwsh -NoProfile -File $measure -Dotnet -Solution $realCsproj -DotnetProject $realCsproj -TouchFile $realSource `
-      -ResponseFile $realRsp -OutDir $realOutDir -LingerSeconds 0 -Samples 1 -Label 'core-diag' -Decision 'kept' -Diagnose -AllowOutsideServers 2>&1 | Out-String
-    $realDiagExit = $LASTEXITCODE
+    $savedTestUiLang = $env:DOTNET_CLI_UI_LANGUAGE
+    $env:DOTNET_CLI_UI_LANGUAGE = 'de-DE'
+    try {
+      $realDiagOut = & pwsh -NoProfile -File $measure -Dotnet -Solution $realCsproj -DotnetProject $realCsproj -TouchFile $realSource `
+        -ResponseFile $realRsp -OutDir $realOutDir -LingerSeconds 0 -Samples 1 -Label 'core-diag' -Decision 'kept' -Diagnose -AllowOutsideServers 2>&1 | Out-String
+      $realDiagExit = $LASTEXITCODE
+    } finally {
+      if ($null -eq $savedTestUiLang) { Remove-Item Env:DOTNET_CLI_UI_LANGUAGE -ErrorAction Ignore } else { $env:DOTNET_CLI_UI_LANGUAGE = $savedTestUiLang }
+    }
     $realDiagJson = if (Test-Path -LiteralPath (Join-Path $realOutDir 'build-performance.json')) { Get-Content -LiteralPath (Join-Path $realOutDir 'build-performance.json') -Raw | ConvertFrom-Json } else { $null }
     $realEntry = if ($realDiagJson) { $realDiagJson.labels | Where-Object label -eq 'core-diag' } else { $null }
     $realBinlogLeaf = if ($realEntry -and $realEntry.diagnostic) { $realEntry.diagnostic.binlog } else { '' }
